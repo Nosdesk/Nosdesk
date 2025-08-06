@@ -37,12 +37,14 @@ coverage
 .env.*
 !.env.example
 /backend/.env
+docker.env
 
 # Rust / Backend
 /backend/target/
 /backend/debug/
 /backend/release/
 /backend/uploads/
+/backend/public/
 **/*.rs.bk
 *.pdb
 # Keep Cargo.lock for applications

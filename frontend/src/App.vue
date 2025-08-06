@@ -67,6 +67,8 @@ const headerLeft = computed(() => {
     return 'lg:left-64 left-0'; // 16rem when navbar is expanded on desktop
   }
 })
+
+
 </script>
 
 <template>
@@ -136,7 +138,6 @@ const headerLeft = computed(() => {
 html, body {
   background-color: rgb(15 23 42); /* bg-slate-900 */
   min-height: 100vh;
-  overflow: hidden; /* Prevent double scrollbars */
 }
 
 /* Custom scrollbar styles */

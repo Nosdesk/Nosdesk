@@ -271,7 +271,7 @@ diesel::table! {
         description -> Nullable<Text>,
         status -> TicketStatus,
         priority -> TicketPriority,
-        requester_uuid -> Uuid,
+        requester_uuid -> Nullable<Uuid>,
         assignee_uuid -> Nullable<Uuid>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,

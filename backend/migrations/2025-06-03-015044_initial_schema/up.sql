@@ -129,7 +129,7 @@ CREATE TABLE tickets (
     description TEXT,
     status ticket_status NOT NULL DEFAULT 'open',
     priority ticket_priority NOT NULL DEFAULT 'medium',
-    requester_uuid UUID NOT NULL REFERENCES users(uuid),
+    requester_uuid UUID REFERENCES users(uuid),
     assignee_uuid UUID REFERENCES users(uuid),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),

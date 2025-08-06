@@ -18,14 +18,25 @@ export default defineConfig({
     },
   },
   define: {
-    __VUE_PROD_DEVTOOLS__: false,
-    __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false
+    __VUE_PROD_DEVTOOLS__: true, // Enable Vue DevTools in production build
+    __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false,
+    __VUE_OPTIONS_API__: true,
+    __VUE_PROD_TIPS__: false,
+    __VUE_DEVTOOLS_GLOBAL_HOOK__: 'window.__VUE_DEVTOOLS_GLOBAL_HOOK__'
+  },
+  // Build configuration - output to backend's public directory
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    // Ensure assets are referenced correctly when served by backend
+    assetsDir: 'assets',
   },
   server: {
     host: '0.0.0.0',
+    port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8080',
+        target: process.env.VITE_API_URL || 'http://127.0.0.1:8080',
         changeOrigin: true,
         secure: false,
         configure: (proxy, _options) => {
@@ -41,7 +52,7 @@ export default defineConfig({
         },
       },
       '/uploads': {
-        target: 'http://127.0.0.1:8080',
+        target: process.env.VITE_API_URL || 'http://127.0.0.1:8080',
         changeOrigin: true,
       }
     }

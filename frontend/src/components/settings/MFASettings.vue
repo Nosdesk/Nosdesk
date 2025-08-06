@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed } from 'vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import { useAuthStore } from '@/stores/auth';
+import axios from 'axios';
 
 // MFA state
 const mfaEnabled = ref(false);
-const mfaStep = ref<'setup' | 'verify' | 'enabled'>('setup');
+const mfaStep = ref<'setup' | 'verify' | 'enabled' | 'success'>('setup');
 const qrCodeUrl = ref('');
 const verificationCode = ref('');
 const loading = ref(false);
+const verifying = ref(false); // Separate loading state for verification
 const backupCodes = ref<string[]>([]);
 const mfaSecret = ref(''); // Store the secret temporarily during setup
 const showSecret = ref(false); // Toggle for showing the secret text
@@ -30,16 +32,8 @@ const emit = defineEmits<{
 // Computed properties
 const showSetupSteps = computed(() => !mfaEnabled.value && mfaStep.value === 'setup');
 const showVerificationStep = computed(() => !mfaEnabled.value && mfaStep.value === 'verify');
-const showEnabledState = computed(() => mfaEnabled.value);
-
-// Check MFA status on component mount
-onMounted(async () => {
-  if (!props.isLoginSetup) {
-    // In normal settings mode, check current status
-    await checkMFAStatus();
-  }
-  // In login setup mode, wait for parent to call startMFASetup explicitly
-});
+const showEnabledState = computed(() => mfaEnabled.value && !props.isLoginSetup);
+const showSuccessState = computed(() => mfaStep.value === 'success');
 
 // Check current MFA status
 const checkMFAStatus = async () => {
@@ -63,6 +57,97 @@ const checkMFAStatus = async () => {
   }
 };
 
+// Async setup function for login mode
+const setupMFAData = async () => {
+  if (props.isLoginSetup) {
+    // In login setup mode, wait for context to be available
+    const waitForContext = async (): Promise<any> => {
+      return new Promise((resolve, reject) => {
+        let attempts = 0;
+        const maxAttempts = 30; // 3 seconds max wait
+        
+        const checkForContext = () => {
+          const context = sessionStorage.getItem('mfaLoginSetupContext');
+          if (context) {
+            try {
+              const parsed = JSON.parse(context);
+              if (parsed.email && parsed.password) {
+                resolve(parsed);
+              } else {
+                attempts++;
+                if (attempts >= maxAttempts) {
+                  reject(new Error('Timeout waiting for MFA setup context'));
+                } else {
+                  setTimeout(checkForContext, 100);
+                }
+              }
+            } catch (error) {
+              console.error('Failed to load MFA setup context:', error);
+              reject(new Error('Invalid MFA setup context'));
+            }
+          } else {
+            attempts++;
+            if (attempts >= maxAttempts) {
+              reject(new Error('Timeout waiting for MFA setup context'));
+            } else {
+              setTimeout(checkForContext, 100);
+            }
+          }
+        };
+        
+        checkForContext();
+      });
+    };
+
+    try {
+      const context = await waitForContext();
+      
+      // Call the backend to get setup data
+      const setupData = await authStore.startMfaSetupLogin(
+        context.email,
+        context.password
+      );
+      
+      if (!setupData) {
+        throw new Error('Failed to start MFA setup');
+      }
+      
+      // Set up the component state
+      qrCodeUrl.value = setupData.qr_code;
+      mfaSecret.value = setupData.secret;
+      backupCodes.value = setupData.backup_codes || [];
+      mfaStep.value = 'verify';
+      
+      // Update the context with setup data
+      sessionStorage.setItem('mfaLoginSetupContext', JSON.stringify({
+        ...context,
+        setupData,
+        timestamp: Date.now()
+      }));
+      
+      emit('success', 'MFA setup initiated. Please scan the QR code with your authenticator app.');
+      
+      return setupData;
+    } catch (error) {
+      emit('error', error instanceof Error ? error.message : 'Failed to load MFA setup data');
+      throw error;
+    }
+  } else {
+    // In normal settings mode, check current status
+    await checkMFAStatus();
+    return null;
+  }
+};
+
+// Initialize based on mode
+if (props.isLoginSetup) {
+  // In login setup mode, make this async so Suspense works
+  await setupMFAData();
+} else {
+  // For settings mode, check status asynchronously
+  await checkMFAStatus();
+}
+
 // MFA functions
 const toggleMFA = async (newValue: boolean) => {
   // Store the current state before any changes
@@ -78,26 +163,20 @@ const toggleMFA = async (newValue: boolean) => {
 };
 
 const startMFASetup = async () => {
+  console.log('🔐 startMFASetup called, isLoginSetup:', props.isLoginSetup, 'qrCodeUrl exists:', !!qrCodeUrl.value);
+  
   loading.value = true;
+  mfaStep.value = 'verify'; // Set step to show verification UI
+  
   try {
     let response;
     
     if (props.isLoginSetup) {
-      // In login setup mode, use the stored context from the setup view
-      const context = sessionStorage.getItem('mfaLoginSetupContext');
-      if (!context) {
-        throw new Error('MFA setup context not found');
+      // In login setup mode, QR code should already be set up from component initialization
+      console.log('🔐 Login setup mode - QR code should already be available');
+      if (!qrCodeUrl.value) {
+        throw new Error('MFA setup not initialized properly');
       }
-      
-      const { email, password, setupData } = JSON.parse(context);
-      
-      // Use the setup data directly
-      qrCodeUrl.value = setupData.qr_code;
-      mfaSecret.value = setupData.secret;
-      backupCodes.value = setupData.backup_codes || [];
-      mfaStep.value = 'verify';
-      emit('success', 'MFA setup initiated. Please scan the QR code with your authenticator app.');
-      
     } else {
       // Normal authenticated setup mode
       response = await fetch('/api/auth/mfa/setup', {
@@ -110,10 +189,13 @@ const startMFASetup = async () => {
 
       if (response.ok) {
         const data = await response.json();
+        
+        // Add a small delay to show the loading skeleton for better UX
+        await new Promise(resolve => setTimeout(resolve, 600));
+        
         qrCodeUrl.value = data.qr_code;
         mfaSecret.value = data.secret;
         backupCodes.value = data.backup_codes || [];
-        mfaStep.value = 'verify';
         emit('success', 'MFA setup initiated. Please scan the QR code with your authenticator app.');
       } else {
         const errorData = await response.json().catch(() => ({}));
@@ -137,6 +219,8 @@ const startMFASetup = async () => {
 };
 
 const verifyMFA = async () => {
+  console.log('🔐 verifyMFA called, isLoginSetup:', props.isLoginSetup);
+  
   if (verificationCode.value.length !== 6) {
     emit('error', 'Please enter a valid 6-digit code');
     return;
@@ -147,7 +231,11 @@ const verifyMFA = async () => {
     return;
   }
 
-  loading.value = true;
+  // Clear any previous error messages when starting a new verification
+  emit('success', ''); // Clear success messages
+  emit('error', ''); // Clear error messages
+  
+  verifying.value = true;
   try {
     console.log('🔐 Verifying MFA with:', {
       token: verificationCode.value,
@@ -250,10 +338,39 @@ const verifyMFA = async () => {
         const enableData = await enableResponse.json();
         console.log('🔐 MFA enabled successfully:', enableData);
         
-        mfaEnabled.value = true;
-        mfaStep.value = 'enabled';
-        verificationCode.value = '';
-        emit('success', 'MFA enabled successfully! Your account is now more secure.');
+        if (props.isLoginSetup && enableData.token) {
+          // In login setup mode, the backend returns a login response
+          // The verification already enabled MFA, so we just need to handle the login response
+          if (enableData.token && enableData.user) {
+            // Set the auth data directly since MFA is already enabled
+            authStore.token = enableData.token;
+            authStore.user = enableData.user;
+            authStore.mfaSetupRequired = false;
+            authStore.mfaUserUuid = '';
+            
+            // Set axios headers
+            axios.defaults.headers.common['Authorization'] = `Bearer ${enableData.token}`;
+            axios.defaults.headers.common['X-Auth-Provider'] = 'local';
+            
+            // Store in localStorage
+            localStorage.setItem('token', enableData.token);
+            localStorage.setItem('authProvider', 'local');
+            
+            // Set to success state instead of emitting success immediately
+            mfaStep.value = 'success';
+            mfaEnabled.value = true;
+            
+            // Don't emit success yet - let the user see the success screen first
+          } else {
+            emit('error', 'MFA enabled but login response was incomplete');
+          }
+        } else {
+          // Normal settings mode
+          mfaEnabled.value = true;
+          mfaStep.value = 'enabled';
+          verificationCode.value = '';
+          emit('success', 'MFA enabled successfully! Your account is now more secure.');
+        }
       } else {
         const enableErrorData = await enableResponse.json().catch(() => ({}));
         console.error('🔐 Enable MFA failed:', enableErrorData);
@@ -268,7 +385,7 @@ const verifyMFA = async () => {
     console.error('🔐 MFA verification error:', err);
     emit('error', err instanceof Error ? err.message : 'Invalid verification code. Please try again.');
   } finally {
-    loading.value = false;
+    verifying.value = false;
   }
 };
 
@@ -327,6 +444,15 @@ const cancelMFASetup = () => {
   secretCopied.value = false;
 };
 
+const completeSetup = () => {
+  // Clean up session storage
+  sessionStorage.removeItem('mfaLoginSetupContext');
+  sessionStorage.removeItem('mfaSetupCredentials');
+  
+  // Emit success to trigger navigation
+  emit('success', 'setup-complete');
+};
+
 // Format secret with spaces for better readability
 const formatSecret = (secret: string) => {
   if (!secret) return '';
@@ -357,6 +483,67 @@ defineExpose({
   startMFASetup
 });
 </script>
+
+<style scoped>
+/* Smooth fade-in animation for loaded content */
+.fade-in {
+  animation: fadeIn 0.6s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Enhanced skeleton loading animations */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+/* QR Code pattern animation */
+@keyframes qrPattern {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.02);
+  }
+}
+</style>
 
 <template>
   <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
@@ -410,23 +597,141 @@ defineExpose({
               <p class="text-sm text-slate-400">Scan this QR code with your authenticator app:</p>
             </div>
 
-            <!-- QR Code and Verification Grid -->
-            <div class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-start">
+            <!-- Loading State with Skeletons -->
+            <div v-if="(loading || !qrCodeUrl) && !verifying" class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-start">
+              <!-- QR Code Loading Skeleton -->
+              <div class="flex justify-center lg:justify-start">
+                <div class="bg-white p-4 rounded-lg shadow-lg">
+                  <div class="w-48 h-48 lg:w-44 lg:h-44 bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg flex items-center justify-center relative overflow-hidden">
+                    <!-- Shimmer Effect -->
+                    <div class="absolute inset-0 skeleton-shimmer"></div>
+                    
+                    <!-- Simulated QR Code Pattern -->
+                    <div class="absolute inset-2 grid grid-cols-10 gap-px opacity-20">
+                      <div v-for="i in 100" :key="i" 
+                           class="bg-gray-400 rounded-[1px]" 
+                           :class="{ 'opacity-0': Math.random() > 0.4 }"
+                           :style="{ 
+                             animationDelay: `${i * 15}ms`,
+                             animationName: 'qrPattern',
+                             animationDuration: '2s',
+                             animationIterationCount: 'infinite'
+                           }">
+                      </div>
+                    </div>
+                    
+                    <!-- Three corner markers simulation -->
+                    <div class="absolute top-2 left-2 w-6 h-6 border-2 border-gray-400 opacity-30 animate-pulse">
+                      <div class="w-2 h-2 bg-gray-400 m-auto mt-1"></div>
+                    </div>
+                    <div class="absolute top-2 right-2 w-6 h-6 border-2 border-gray-400 opacity-30 animate-pulse" style="animation-delay: 0.5s">
+                      <div class="w-2 h-2 bg-gray-400 m-auto mt-1"></div>
+                    </div>
+                    <div class="absolute bottom-2 left-2 w-6 h-6 border-2 border-gray-400 opacity-30 animate-pulse" style="animation-delay: 1s">
+                      <div class="w-2 h-2 bg-gray-400 m-auto mt-1"></div>
+                    </div>
+                    
+                    <!-- Loading Text -->
+                    <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2">
+                      <div class="flex items-center gap-2 text-gray-500 text-xs">
+                        <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>Generating...</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Loading Verification Components -->
+              <div class="flex flex-col gap-6">
+                <!-- Manual Secret Entry Skeleton -->
+                <div class="bg-slate-800/50 rounded-lg border border-slate-600/20 p-4">
+                  <div class="flex items-center gap-2">
+                    <div class="w-4 h-4 bg-slate-600 rounded animate-pulse skeleton-shimmer"></div>
+                    <div class="h-4 bg-slate-600 rounded flex-1 animate-pulse skeleton-shimmer" style="animation-delay: 0.2s"></div>
+                  </div>
+                  
+                  <!-- Expandable content skeleton (collapsed state) -->
+                  <div class="mt-3 space-y-2 opacity-50">
+                    <div class="h-3 bg-slate-700/50 rounded w-5/6 animate-pulse skeleton-shimmer" style="animation-delay: 0.4s"></div>
+                    <div class="bg-slate-700/30 rounded-lg p-3 border border-slate-600/10">
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="h-3 bg-slate-700/70 rounded flex-1 font-mono skeleton-shimmer" style="animation-delay: 0.6s"></div>
+                        <div class="w-12 h-6 bg-slate-700/70 rounded skeleton-shimmer" style="animation-delay: 0.8s"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Verification Input Skeleton -->
+                <div class="flex flex-col gap-4">
+                  <div class="space-y-2">
+                    <div class="h-4 bg-slate-600 rounded w-3/4 animate-pulse skeleton-shimmer" style="animation-delay: 1s"></div>
+                    <div class="h-4 bg-slate-600 rounded w-full animate-pulse skeleton-shimmer" style="animation-delay: 1.2s"></div>
+                  </div>
+                  
+                  <div class="flex gap-3">
+                    <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 flex-1 p-3">
+                      <!-- Simulated 6-digit input placeholder -->
+                      <div class="flex justify-center gap-2">
+                        <div v-for="i in 6" :key="i" 
+                             class="w-6 h-6 bg-slate-600 rounded animate-pulse skeleton-shimmer" 
+                             :style="{ animationDelay: `${1.4 + i * 0.1}s` }">
+                        </div>
+                      </div>
+                    </div>
+                    <div class="px-6 py-3 bg-blue-600/50 rounded-lg animate-pulse skeleton-shimmer" style="animation-delay: 2s">
+                      <div class="w-12 h-6 bg-blue-500/50 rounded"></div>
+                    </div>
+                  </div>
+                  
+                  <div class="h-3 bg-slate-600 rounded w-24 animate-pulse skeleton-shimmer" style="animation-delay: 2.2s"></div>
+                </div>
+                
+                <!-- Loading Message -->
+                <div class="text-center py-4">
+                  <div class="flex items-center justify-center gap-2 text-slate-400">
+                    <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span class="text-sm">Preparing your MFA setup...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Verification Loading State -->
+            <div v-if="verifying" class="flex flex-col gap-6">
+              <div class="flex items-center justify-center py-8">
+                <div class="flex flex-col items-center gap-4">
+                  <div class="bg-blue-600 rounded-full p-4">
+                    <svg class="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  </div>
+                  <div class="text-center">
+                    <h3 class="text-lg font-medium text-white mb-2">Verifying Code</h3>
+                    <p class="text-sm text-slate-400">Please wait while we verify your authenticator code...</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Actual QR Code and Verification Grid -->
+            <div v-else class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-start">
               <!-- QR Code Section -->
               <div class="flex justify-center lg:justify-start">
                 <div class="bg-white p-4 rounded-lg">
                   <img 
-                    v-if="qrCodeUrl && qrCodeUrl.startsWith('data:')"
                     :src="qrCodeUrl" 
                     alt="MFA QR Code" 
-                    class="w-48 h-48 lg:w-44 lg:h-44"
+                    class="w-48 h-48 lg:w-44 lg:h-44 fade-in"
                   />
-                  <div 
-                    v-else
-                    class="w-48 h-48 lg:w-44 lg:h-44 bg-gray-200 flex items-center justify-center text-gray-500 text-xs"
-                  >
-                    {{ loading ? 'Loading QR Code...' : 'Generating QR Code...' }}
-                  </div>
                 </div>
               </div>
 
@@ -469,12 +774,6 @@ defineExpose({
                       </button>
                     </div>
                   </div>
-                  <p class="text-xs text-slate-500">
-                    Service: <span class="font-medium">Nosdesk</span> | 
-                    Algorithm: <span class="font-medium">SHA1</span> | 
-                    Digits: <span class="font-medium">6</span> | 
-                    Period: <span class="font-medium">30s</span>
-                  </p>
                 </div>
               </div>
               
@@ -497,16 +796,16 @@ defineExpose({
                   </div>
                   <button
                     @click="verifyMFA"
-                    :disabled="verificationCode.length !== 6 || loading"
+                    :disabled="verificationCode.length !== 6 || verifying"
                     class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-600 flex items-center transition-colors"
                   >
-                                      <span v-if="loading" class="animate-spin h-4 w-4 mr-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                  </span>
-                    Verify
+                    <span v-if="verifying" class="animate-spin h-4 w-4 mr-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    </span>
+                    {{ verifying ? 'Verifying...' : 'Verify' }}
                   </button>
                 </div>
                 
@@ -540,6 +839,57 @@ defineExpose({
               </svg>
               Each backup code can only be used once.
             </p>
+          </div>
+        </div>
+
+        <!-- Success State (for login setup) -->
+        <div v-if="showSuccessState" class="bg-green-600/10 border border-green-600/20 rounded-lg p-6">
+          <div class="flex flex-col gap-4">
+            <div class="flex items-center gap-3">
+              <div class="bg-green-600 rounded-full p-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="text-lg font-medium text-green-400">Two-Factor Authentication Enabled!</h3>
+                <p class="text-sm text-slate-300">Your account is now protected with 2FA. You'll need to enter a code from your authenticator app when signing in.</p>
+              </div>
+            </div>
+            
+            <!-- Backup Codes Section -->
+            <div v-if="backupCodes.length > 0" class="bg-slate-700/50 rounded-lg p-4">
+              <div class="flex flex-col gap-3">
+                <div class="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  <h4 class="text-sm font-medium text-amber-400">Save Your Backup Codes</h4>
+                </div>
+                <p class="text-sm text-slate-300">Store these backup codes in a secure location. You can use them to access your account if you lose your authenticator device:</p>
+                <div class="bg-slate-800/50 rounded-lg p-4 font-mono text-sm text-white">
+                  <div class="grid grid-cols-2 gap-2">
+                    <div v-for="code in backupCodes" :key="code" class="text-center p-2 bg-slate-700/50 rounded">{{ code }}</div>
+                  </div>
+                </div>
+                <p class="text-xs text-amber-400 flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  Each backup code can only be used once.
+                </p>
+              </div>
+            </div>
+            
+            <!-- Action Button -->
+            <div class="flex justify-center pt-2">
+              <button
+                @click="completeSetup"
+                class="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium"
+              >
+                Start Using Nosdesk!
+              </button>
+            </div>
           </div>
         </div>
 

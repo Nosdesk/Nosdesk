@@ -1,5 +1,6 @@
 use actix_web::{web, HttpResponse, Responder, Result as ActixResult};
 use chrono::Local;
+use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
@@ -387,7 +388,7 @@ pub async fn create_empty_ticket(
         description: Some("".to_string()),
         status: TicketStatus::Open,
         priority: TicketPriority::Medium,
-        requester_uuid: user_uuid, // Use authenticated user's UUID
+        requester_uuid: Some(user_uuid), // Use authenticated user's UUID
         assignee_uuid: None,
     };
 
@@ -482,15 +483,18 @@ pub async fn update_ticket_partial(
         }
     }
     
-    // Handle requester (can be name or UUID)
+    // Handle requester (can be name, UUID, or empty string for unassign)
     if let Some(requester_str) = body.get("requester").and_then(|v| v.as_str()) {
-        if let Ok(uuid) = Uuid::parse_str(requester_str) {
+        if requester_str.is_empty() {
+            // Empty string means unassign
+            ticket_update.requester_uuid = Some(None);
+        } else if let Ok(uuid) = Uuid::parse_str(requester_str) {
             // It's already a UUID
-            ticket_update.requester_uuid = Some(uuid);
+            ticket_update.requester_uuid = Some(Some(uuid));
         } else {
             // Try to look up by name
             match crate::repository::users::get_user_by_name(requester_str, &mut conn) {
-                Ok(user) => ticket_update.requester_uuid = Some(user.uuid),
+                Ok(user) => ticket_update.requester_uuid = Some(Some(user.uuid)),
                 Err(_) => {
                     println!("Warning: Could not find user with name '{}'", requester_str);
                 }

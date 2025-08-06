@@ -104,8 +104,8 @@ pub struct Ticket {
     pub description: Option<String>,
     pub status: TicketStatus,
     pub priority: TicketPriority,
-    #[serde(serialize_with = "serialize_uuid_as_string", rename = "requester")]
-    pub requester_uuid: Uuid,
+    #[serde(serialize_with = "serialize_optional_uuid_as_string", rename = "requester")]
+    pub requester_uuid: Option<Uuid>,
     #[serde(serialize_with = "serialize_optional_uuid_as_string", rename = "assignee")]
     pub assignee_uuid: Option<Uuid>,
     #[serde(rename = "created")]  // Map to frontend field name
@@ -124,7 +124,7 @@ pub struct NewTicket {
     pub description: Option<String>,
     pub status: TicketStatus,
     pub priority: TicketPriority,
-    pub requester_uuid: Uuid,
+    pub requester_uuid: Option<Uuid>,
     pub assignee_uuid: Option<Uuid>,
 }
 
@@ -136,7 +136,7 @@ pub struct TicketUpdate {
     pub description: Option<String>,
     pub status: Option<TicketStatus>,
     pub priority: Option<TicketPriority>,
-    pub requester_uuid: Option<Uuid>,
+    pub requester_uuid: Option<Option<Uuid>>,
     pub assignee_uuid: Option<Option<Uuid>>,
     pub updated_at: Option<NaiveDateTime>,
     pub closed_at: Option<Option<NaiveDateTime>>,

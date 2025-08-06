@@ -7,7 +7,7 @@ mod config_utils;
 mod utils;
 
 use actix_cors::Cors;
-use actix_web::{web, App, HttpResponse, HttpServer, Responder, dev::ServiceRequest, Error};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, dev::ServiceRequest, Error};
 use actix_files::Files;
 use actix_web_httpauth::middleware::HttpAuthentication;
 use actix_web_httpauth::extractors::bearer::BearerAuth;
@@ -18,6 +18,7 @@ use std::env;
 use std::time::Duration;
 use tracing::{info, warn, error, debug};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use env_logger;
 
 async fn health_check() -> impl Responder {
     HttpResponse::Ok().body("Helpdesk API is running!")
@@ -31,6 +32,27 @@ async fn rate_limit_handler() -> impl Responder {
         "code": "RATE_LIMIT_EXCEEDED",
         "retry_after_seconds": 60
     }))
+}
+
+/// Serve the SPA index.html for all non-API routes
+async fn serve_spa(req: HttpRequest) -> impl Responder {
+    // Check if the request path looks like a static asset (has a file extension)
+    let path = req.path();
+    if path.contains('.') && !path.ends_with(".html") {
+        // This looks like a static asset request, return 404
+        return HttpResponse::NotFound().finish();
+    }
+    
+    // For all other routes, serve index.html
+    match actix_files::NamedFile::open_async("./public/index.html").await {
+        Ok(file) => file.into_response(&req),
+        Err(_) => {
+            // Fallback if index.html doesn't exist
+            HttpResponse::NotFound()
+                .content_type("text/plain")
+                .body("Frontend not found")
+        }
+    }
 }
 
 // JWT Authentication validator for middleware
@@ -62,9 +84,13 @@ async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<Servi
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    dotenv().ok();
+    // Load .env file if it exists (for local development), but don't fail if it doesn't exist
+    // In Docker, environment variables are already loaded via docker-compose
+    if let Err(e) = dotenv() {
+        eprintln!("Note: Could not load .env file: {}. This is normal in Docker environments.", e);
+    }
     
-    // Initialize tracing/logging subsystem
+    // Initialize tracing/logging subsystem with better error handling
     let log_level = env::var("RUST_LOG")
         .unwrap_or_else(|_| {
             if env::var("ENVIRONMENT").unwrap_or_default() == "production" {
@@ -74,77 +100,98 @@ async fn main() -> std::io::Result<()> {
             }
         });
 
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::new(log_level))
-        .init();
+    if let Err(e) = tracing_subscriber::registry()
+        .with(fmt::layer().with_target(true).with_line_number(true))
+        .with(EnvFilter::new(&log_level))
+        .try_init() {
+        eprintln!("Failed to initialize tracing subscriber: {}", e);
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to initialize logging"));
+    }
     
     // === SECURITY STARTUP VALIDATION ===
     info!("🚀 Starting Nosdesk API Server...");
+    info!("Log level set to: {}", log_level);
+    
+    // Debug: Print some environment variables to see what's available
+    debug!("Environment check:");
+    debug!("  DATABASE_URL is set: {}", env::var("DATABASE_URL").is_ok());
+    debug!("  JWT_SECRET is set: {}", env::var("JWT_SECRET").is_ok());
+    debug!("  HOST: {}", env::var("HOST").unwrap_or("NOT_SET".to_string()));
+    debug!("  PORT: {}", env::var("PORT").unwrap_or("NOT_SET".to_string()));
     
     // Validate that JWT_SECRET is set and secure
+    info!("Validating JWT_SECRET...");
     let _jwt_secret = match std::env::var("JWT_SECRET") {
         Ok(secret) => {
             if secret.len() < 32 {
-                eprintln!("⚠️  WARNING: JWT_SECRET is less than 32 characters - consider using a longer key for production");
+                warn!("JWT_SECRET is less than 32 characters - consider using a longer key for production");
             }
+            info!("✅ JWT_SECRET validation passed");
             secret
         },
-        Err(_) => {
-            eprintln!("❌ ERROR: JWT_SECRET environment variable must be set");
-            eprintln!("   Generate a secure key with: openssl rand -base64 32");
+        Err(e) => {
+            error!("❌ ERROR: JWT_SECRET environment variable must be set: {}", e);
+            error!("   Generate a secure key with: openssl rand -base64 32");
             std::process::exit(1);
         }
     };
     
     // Get environment early for validation
     let environment = env::var("ENVIRONMENT").unwrap_or("development".to_string());
+    info!("Environment: {}", environment);
     
     // Validate that MFA_ENCRYPTION_KEY is set for production
+    info!("Validating MFA_ENCRYPTION_KEY...");
     if environment == "production" {
         match std::env::var("MFA_ENCRYPTION_KEY") {
             Ok(key) => {
                 if key.len() != 64 {
-                    eprintln!("❌ ERROR: MFA_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)");
-                    eprintln!("   Generate a secure key with: openssl rand -hex 32");
+                    error!("❌ ERROR: MFA_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)");
+                    error!("   Generate a secure key with: openssl rand -hex 32");
                     std::process::exit(1);
                 }
                 // Validate it's valid hex
                 if hex::decode(&key).is_err() {
-                    eprintln!("❌ ERROR: MFA_ENCRYPTION_KEY must be valid hexadecimal");
-                    eprintln!("   Generate a secure key with: openssl rand -hex 32");
+                    error!("❌ ERROR: MFA_ENCRYPTION_KEY must be valid hexadecimal");
+                    error!("   Generate a secure key with: openssl rand -hex 32");
                     std::process::exit(1);
                 }
+                info!("✅ MFA_ENCRYPTION_KEY validation passed");
             },
-            Err(_) => {
-                eprintln!("❌ ERROR: MFA_ENCRYPTION_KEY environment variable must be set in production");
-                eprintln!("   Generate a secure key with: openssl rand -hex 32");
+            Err(e) => {
+                error!("❌ ERROR: MFA_ENCRYPTION_KEY environment variable must be set in production: {}", e);
+                error!("   Generate a secure key with: openssl rand -hex 32");
                 std::process::exit(1);
             }
         }
     } else if std::env::var("MFA_ENCRYPTION_KEY").is_err() {
-        eprintln!("⚠️  WARNING: MFA_ENCRYPTION_KEY not set - MFA features will be disabled");
-        eprintln!("   Generate a secure key with: openssl rand -hex 32");
+        warn!("⚠️  WARNING: MFA_ENCRYPTION_KEY not set - MFA features will be disabled");
+        warn!("   Generate a secure key with: openssl rand -hex 32");
+    } else {
+        info!("✅ MFA_ENCRYPTION_KEY is set for development");
     }
     
     // Security: Validate environment (already declared above)
     if environment == "production" {
+        info!("Running production security checks...");
         // Check for HTTPS in production URLs
         if let Ok(frontend_url) = env::var("FRONTEND_URL") {
             if !frontend_url.starts_with("https://") && !frontend_url.starts_with("http://localhost") {
-                eprintln!("⚠️  WARNING: FRONTEND_URL should use HTTPS in production");
+                warn!("⚠️  WARNING: FRONTEND_URL should use HTTPS in production");
             }
         }
         
         // Check database SSL in production
         if let Ok(db_url) = env::var("DATABASE_URL") {
             if !db_url.contains("sslmode=require") && !db_url.contains("localhost") {
-                eprintln!("⚠️  WARNING: DATABASE_URL should use sslmode=require in production");
+                warn!("⚠️  WARNING: DATABASE_URL should use sslmode=require in production");
             }
         }
+        info!("✅ Production security checks completed");
     }
     
     // === RATE LIMITING CONFIGURATION ===
+    info!("Setting up rate limiting configuration...");
     // Get rate limiting configuration from environment with reasonable defaults
     let rate_limit_per_minute = env::var("RATE_LIMIT_PER_MINUTE")
         .unwrap_or("60".to_string()) // Conservative limit for public endpoints
@@ -158,15 +205,20 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(600)
         .clamp(120, 5000); // Higher limits for authenticated users: 120-5000 requests per minute
 
+    debug!("Rate limits - Public: {}/min, Auth: {}/min", rate_limit_per_minute, auth_rate_limit_per_minute);
+
     // Create rate limiter with Redis backend (fallback to in-memory for development)
     let redis_url = env::var("REDIS_URL").unwrap_or_else(|_| {
         if environment == "production" {
-            eprintln!("⚠️  WARNING: REDIS_URL not configured in production - using in-memory rate limiting");
+            warn!("⚠️  WARNING: REDIS_URL not configured in production - using in-memory rate limiting");
         }
         "memory://".to_string()
     });
+    
+    debug!("Redis URL configured: {}", if redis_url.starts_with("redis://") { "redis://[redacted]" } else { &redis_url });
 
     // Build the public limiter (for unauthenticated requests)
+    info!("Building rate limiters...");
     let public_limiter = Limiter::builder(&redis_url)
         .key_by(|req: &actix_web::dev::ServiceRequest| {
             // Use IP address as the key for rate limiting
@@ -189,46 +241,78 @@ async fn main() -> std::io::Result<()> {
         .build();
 
     let public_limiter = match public_limiter {
-        Ok(limiter) => limiter,
+        Ok(limiter) => {
+            info!("✅ Public rate limiter initialized successfully");
+            limiter
+        },
         Err(e) => {
-            eprintln!("⚠️  Rate limiter fallback: {}", e);
+            warn!("⚠️  Rate limiter fallback: {}", e);
             
             // Fallback to memory limiter
-            Limiter::builder("memory://")
+            let fallback = Limiter::builder("memory://")
                 .key_by(|req: &actix_web::dev::ServiceRequest| {
                     req.peer_addr()
                         .map(|addr| format!("public:{}", addr.ip()))
                 })
                 .limit(rate_limit_per_minute as usize)
                 .period(Duration::from_secs(60))
-                .build()
-                .expect("Memory limiter should always work")
+                .build();
+                
+            match fallback {
+                Ok(limiter) => {
+                    info!("✅ Fallback memory rate limiter initialized");
+                    limiter
+                },
+                Err(fallback_err) => {
+                    error!("❌ Failed to initialize fallback rate limiter: {}", fallback_err);
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "Rate limiter initialization failed"));
+                }
+            }
         }
     };
 
     let auth_limiter = match auth_limiter {
-        Ok(limiter) => limiter,
+        Ok(limiter) => {
+            info!("✅ Auth rate limiter initialized successfully");
+            limiter
+        },
         Err(e) => {
-            eprintln!("⚠️  Auth rate limiter fallback: {}", e);
+            warn!("⚠️  Auth rate limiter fallback: {}", e);
             
             // Fallback to memory limiter
-            Limiter::builder("memory://")
+            let fallback = Limiter::builder("memory://")
                 .key_by(|req: &actix_web::dev::ServiceRequest| {
                     req.peer_addr()
                         .map(|addr| format!("auth:{}", addr.ip()))
                 })
                 .limit(auth_rate_limit_per_minute as usize)
                 .period(Duration::from_secs(60))
-                .build()
-                .expect("Memory limiter should always work")
+                .build();
+                
+            match fallback {
+                Ok(limiter) => {
+                    info!("✅ Fallback memory auth rate limiter initialized");
+                    limiter
+                },
+                Err(fallback_err) => {
+                    error!("❌ Failed to initialize fallback auth rate limiter: {}", fallback_err);
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "Auth rate limiter initialization failed"));
+                }
+            }
         }
     };
 
     // Get host and port from environment variables
     let host = env::var("HOST").unwrap_or("127.0.0.1".to_string());
-    let port = env::var("PORT").unwrap_or("8080".to_string()).parse::<u16>().unwrap();
+    let port = env::var("PORT").unwrap_or("8080".to_string()).parse::<u16>().map_err(|e| {
+        error!("❌ Invalid PORT value: {}", e);
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid PORT")
+    })?;
+    
+    info!("Server will bind to {}:{}", host, port);
 
     // Security: Get file upload limits from environment
+    info!("Configuring file upload limits...");
     let max_file_size_mb = env::var("MAX_FILE_SIZE_MB")
         .unwrap_or("50".to_string())
         .parse::<usize>()
@@ -236,14 +320,18 @@ async fn main() -> std::io::Result<()> {
         .clamp(1, 500); // 1MB to 500MB limit
 
     let max_payload_size = max_file_size_mb * 1024 * 1024; // Convert to bytes
+    debug!("Max file size: {}MB ({}bytes)", max_file_size_mb, max_payload_size);
 
     // Validate CORS configuration
+    info!("Configuring CORS...");
     let frontend_url = env::var("FRONTEND_URL").unwrap_or_else(|_| {
         if environment == "production" {
-            eprintln!("⚠️  WARNING: FRONTEND_URL not set in production");
+            warn!("⚠️  WARNING: FRONTEND_URL not set in production");
         }
         "http://localhost:3000".to_string()
     });
+    
+    debug!("Frontend URL: {}", frontend_url);
 
     // Parse additional CORS origins if provided
     let additional_origins: Vec<String> = env::var("ADDITIONAL_CORS_ORIGINS")
@@ -252,16 +340,34 @@ async fn main() -> std::io::Result<()> {
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().to_string())
         .collect();
+        
+    if !additional_origins.is_empty() {
+        debug!("Additional CORS origins: {:?}", additional_origins);
+    }
 
     // Set up database connection pool
-    let pool = db::establish_connection_pool();
+    info!("Initializing database connection pool...");
+    let pool = match std::panic::catch_unwind(|| db::establish_connection_pool()) {
+        Ok(pool) => {
+            info!("✅ Database connection pool initialized successfully");
+            pool
+        },
+        Err(e) => {
+            error!("❌ Database connection pool initialization panicked: {:?}", e);
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Database connection pool failed"));
+        }
+    };
 
     // === ONBOARDING STATUS CHECK ===
+    info!("Checking system onboarding status...");
     {
         let mut conn = match pool.get() {
-            Ok(conn) => conn,
+            Ok(conn) => {
+                debug!("✅ Database connection acquired successfully");
+                conn
+            },
             Err(e) => {
-                eprintln!("❌ Database connection failed: {}", e);
+                error!("❌ Database connection failed: {}", e);
                 std::process::exit(1);
             }
         };
@@ -269,49 +375,55 @@ async fn main() -> std::io::Result<()> {
         match repository::count_users(&mut conn) {
             Ok(user_count) => {
                 if user_count == 0 {
-                    println!("📋 Initial setup required - access the application to create an admin account");
+                    info!("📋 Initial setup required - access the application to create an admin account");
                 } else {
-                    println!("✅ System ready with {} user(s)", user_count);
+                    info!("✅ System ready with {} user(s)", user_count);
                 }
             },
             Err(e) => {
-                eprintln!("⚠️  Warning: Could not check user count: {}", e);
+                warn!("⚠️  Warning: Could not check user count: {}", e);
             }
         }
     }
 
     // Create uploads directory structure if it doesn't exist
-    std::fs::create_dir_all("uploads").unwrap_or_else(|e| {
-        eprintln!("Warning: Failed to create uploads directory: {}", e);
-    });
-    
-    std::fs::create_dir_all("uploads/temp").unwrap_or_else(|e| {
-        eprintln!("Warning: Failed to create temp uploads directory: {}", e);
-    });
-    
-    std::fs::create_dir_all("uploads/tickets").unwrap_or_else(|e| {
-        eprintln!("Warning: Failed to create tickets uploads directory: {}", e);
-    });
+    info!("Setting up file upload directories...");
+    let directories = ["uploads", "uploads/temp", "uploads/tickets"];
+    for dir in directories.iter() {
+        match std::fs::create_dir_all(dir) {
+            Ok(_) => debug!("✅ Directory ensured: {}", dir),
+            Err(e) => {
+                error!("❌ Failed to create directory {}: {}", dir, e);
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create directory: {}", dir)));
+            }
+        }
+    }
 
     // Initialize WebSocket app state for collaborative editing
+    info!("Initializing WebSocket state for collaborative editing...");
     let yjs_app_state = web::Data::new(handlers::collaboration::YjsAppState::new(web::Data::new(pool.clone())));
     
     // Initialize SSE state for real-time ticket updates
+    info!("Initializing SSE state for real-time updates...");
     let sse_state = web::Data::new(handlers::sse::SseState::new());
 
     // Share the limiters across all app instances
     let public_limiter_data = web::Data::new(public_limiter);
     let auth_limiter_data = web::Data::new(auth_limiter);
 
-    println!("🌐 Server running at http://{}:{}", host, port);
+    info!("🌐 Server configuration complete - binding to http://{}:{}", host, port);
     if environment == "production" {
-        println!("🔒 Production mode active");
+        info!("🔒 Production mode active");
     }
     if host == "0.0.0.0" {
-        eprintln!("⚠️  WARNING: Server bound to all interfaces (0.0.0.0)");
+        warn!("⚠️  WARNING: Server bound to all interfaces (0.0.0.0)");
     }
     
-    HttpServer::new(move || {
+    info!("🚀 Starting HTTP server...");
+    
+    let server_result = HttpServer::new(move || {
+        debug!("Creating new App instance...");
+        
         // Configure CORS with specific allowed origins
         let mut cors = Cors::default()
             .allowed_origin(&frontend_url)
@@ -536,9 +648,17 @@ async fn main() -> std::io::Result<()> {
             
             // === FRONTEND STATIC FILES (CATCH-ALL) ===
             // Serve static frontend files - this must be LAST to not interfere with API routes
-            .service(Files::new("/", "./public").index_file("index.html"))
+            .service(
+                Files::new("/", "./public")
+                    .index_file("index.html")
+                    .use_last_modified(true)
+                    .use_etag(true)
+            )
+            .default_service(web::route().to(serve_spa))
     })
     .bind((host, port))?
     .run()
-    .await
+    .await;
+
+    server_result
 }

@@ -7,6 +7,7 @@ const props = defineProps<{
   modelValue: string; // The selected user's ID or name (bound via v-model)
   placeholder?: string;
   type: 'requester' | 'assignee'; // To differentiate between requester and assignee for emits
+  currentUser?: { uuid: string; name: string; email?: string; avatar_thumb?: string | null; avatar_url?: string | null } | null; // Optional complete user object
 }>();
 
 const emit = defineEmits<{
@@ -28,32 +29,35 @@ const containerRef = ref<HTMLElement | null>(null);
 // Debounce timer for search
 let searchTimeout: number | null = null;
 
-// Computed user info based on modelValue - this is our source of truth
-const currentUser = computed(async () => {
-  if (!props.modelValue) return null;
-  
-  try {
-    // Try to get from data store first
-    const userName = dataStore.getUserName(props.modelValue);
-    if (userName) {
-      return { id: props.modelValue, name: userName, email: '' };
-    }
-    
-    // If it's a UUID, try to fetch full user data
-    if (props.modelValue.length === 36 && props.modelValue.includes('-')) {
-      const user = await dataStore.getUserByUuid(props.modelValue);
-      if (user) {
-        return { id: user.uuid, name: user.name, email: user.email };
-      }
-    }
-    
-    // Fallback to using the modelValue as name
-    return { id: props.modelValue, name: props.modelValue, email: '' };
-  } catch (error) {
-    console.error('Error getting user info:', error);
-    return { id: props.modelValue, name: props.modelValue, email: '' };
+// Initialize input value when modelValue or currentUser changes
+watch(() => [props.modelValue, props.currentUser] as const, async ([newValue, currentUserProp]) => {
+  if (!newValue) {
+    inputValue.value = '';
+    return;
   }
-});
+  
+  // If we have complete user data from props, use it directly
+  if (currentUserProp && currentUserProp.uuid === newValue) {
+    inputValue.value = currentUserProp.name;
+    return;
+  }
+  
+  // Fallback to cache lookup
+  const userName = dataStore.getUserName(newValue);
+  if (userName) {
+    inputValue.value = userName;
+  } else if (newValue.length === 36 && newValue.includes('-')) {
+    // If it's a UUID, try to fetch user data
+    const user = await dataStore.getUserByUuid(newValue);
+    if (user) {
+      inputValue.value = user.name;
+    } else {
+      inputValue.value = newValue;
+    }
+  } else {
+    inputValue.value = newValue;
+  }
+}, { immediate: true });
 
 // Computed position for the dropdown
 const dropdownPosition = computed(() => {
@@ -68,22 +72,6 @@ const dropdownPosition = computed(() => {
     width: `${rect.width}px`
   }
 })
-
-// Initialize input value when modelValue changes
-watch(() => props.modelValue, async (newValue) => {
-  if (!newValue) {
-    inputValue.value = '';
-    return;
-  }
-  
-  // Update input value with user name
-  const user = await currentUser.value;
-  if (user) {
-    inputValue.value = user.name;
-  }
-}, { immediate: true });
-
-
 
 // Search users via API with backend role filtering
 const searchUsers = async (query: string) => {
@@ -235,9 +223,22 @@ const handleInput = () => {
 // Handle input blur
 const handleBlur = async () => {
   // Restore the current user's name if input was changed but no new selection made
-  const user = await currentUser.value;
-  if (user && props.modelValue) {
-    inputValue.value = user.name;
+  if (props.modelValue) {
+    // Use currentUser prop if available and matches
+    if (props.currentUser && props.currentUser.uuid === props.modelValue) {
+      inputValue.value = props.currentUser.name;
+    } else {
+      // Fallback to cache lookup
+      const userName = dataStore.getUserName(props.modelValue);
+      if (userName) {
+        inputValue.value = userName;
+      } else if (props.modelValue.length === 36 && props.modelValue.includes('-')) {
+        const user = await dataStore.getUserByUuid(props.modelValue);
+        if (user) {
+          inputValue.value = user.name;
+        }
+      }
+    }
   }
   
   // Delay closing to allow click events on dropdown items
@@ -280,6 +281,8 @@ onUnmounted(() => {
         <UserAvatar
           v-if="modelValue && !isDropdownOpen"
           :name="modelValue"
+          :userName="currentUser?.uuid === modelValue ? currentUser.name : undefined"
+          :avatarUrl="currentUser?.uuid === modelValue ? (currentUser.avatar_thumb || currentUser.avatar_url) : undefined"
           :showName="false"
           size="sm"
         />
@@ -354,7 +357,8 @@ onUnmounted(() => {
             }"
           >
             <UserAvatar 
-              :name="user.id" 
+              :name="user.id"
+              :userName="user.name"
               :showName="false" 
               size="sm"
             />

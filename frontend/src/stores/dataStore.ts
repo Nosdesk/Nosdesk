@@ -360,7 +360,7 @@ export const useDataStore = defineStore('data', () => {
     return baseUrl
   }
   
-  // Invalidate cache for specific user
+  // Invalidate cache for specific user (old method - just clears cache)
   const invalidateUser = (uuid: string) => {
     individualUsersCache.value.delete(uuid)
     
@@ -372,10 +372,90 @@ export const useDataStore = defineStore('data', () => {
     }
   }
   
-  // Invalidate all user caches
+  // Invalidate all user caches (old method - just clears cache)
   const invalidateAllUsers = () => {
     usersCache.value.clear()
     individualUsersCache.value.clear()
+  }
+  
+  // IMPROVED: Invalidate and refresh user (clears cache AND fetches fresh data)
+  const invalidateAndRefreshUser = async (uuid: string): Promise<User | null> => {
+    console.log(`🔄 Invalidating and refreshing user cache for: ${uuid}`)
+    
+    // 1. Clear from cache
+    invalidateUser(uuid)
+    
+    // 2. Force fetch fresh data (this will update cache and trigger reactivity)
+    try {
+      const freshUser = await getUserByUuid(uuid, true) // forceRefresh = true
+      console.log(`✅ User ${uuid} refreshed successfully`)
+      return freshUser
+    } catch (error) {
+      console.error(`❌ Failed to refresh user ${uuid}:`, error)
+      return null
+    }
+  }
+  
+  // IMPROVED: Invalidate and refresh multiple users
+  const invalidateAndRefreshUsers = async (uuids: string[]): Promise<(User | null)[]> => {
+    console.log(`🔄 Invalidating and refreshing ${uuids.length} users`)
+    
+    // 1. Clear all from cache
+    uuids.forEach(uuid => invalidateUser(uuid))
+    
+    // 2. Force fetch fresh data for all users (using Promise.all with individual calls)
+    try {
+      const freshUsers = await Promise.all(uuids.map(uuid => getUserByUuid(uuid, true)))
+      console.log(`✅ ${uuids.length} users refreshed successfully`)
+      return freshUsers
+    } catch (error) {
+      console.error(`❌ Failed to refresh users:`, error)
+      return uuids.map(() => null)
+    }
+  }
+  
+  // IMPROVED: Smart cache refresh (keep showing stale data while fetching fresh)
+  const refreshUserInPlace = async (uuid: string): Promise<User | null> => {
+    const cached = individualUsersCache.value.get(uuid)
+    
+    if (cached) {
+      // Mark as refreshing but keep existing data visible
+      cached.loading = true
+    }
+    
+    try {
+      // Fetch fresh data
+      const freshUser = await userService.getUserByUuid(uuid)
+      
+      if (freshUser) {
+        // Update cache with fresh data
+        individualUsersCache.value.set(uuid, {
+          data: freshUser,
+          timestamp: Date.now(),
+          loading: false,
+          error: null
+        })
+        
+        // Also update in paginated caches
+        for (const cache of usersCache.value.values()) {
+          const userIndex = cache.data.findIndex(user => user.uuid === uuid)
+          if (userIndex !== -1) {
+            cache.data[userIndex] = freshUser
+          }
+        }
+        
+        return freshUser
+      }
+    } catch (error) {
+      // Keep existing data on error, just mark as not loading
+      if (cached) {
+        cached.loading = false
+        cached.error = error instanceof Error ? error.message : 'Refresh failed'
+      }
+      console.error(`Failed to refresh user ${uuid}:`, error)
+    }
+    
+    return cached?.data || null
   }
   
   // Update user in cache (for optimistic updates)
@@ -545,6 +625,9 @@ export const useDataStore = defineStore('data', () => {
     
     // Cache management
     invalidateUser,
+    invalidateAndRefreshUser,
+    invalidateAndRefreshUsers,
+    refreshUserInPlace,
     
     // Utilities
     cleanupExpiredCache,

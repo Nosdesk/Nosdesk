@@ -9,6 +9,11 @@ import router from './router'
 
 const app = createApp(App)
 
+// Enable Vue DevTools in development
+if (import.meta.env.DEV) {
+  app.config.devtools = true
+}
+
 app.use(createPinia())
 app.use(router)
 

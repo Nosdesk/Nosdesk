@@ -121,6 +121,7 @@ onMounted(() => {
               <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
                 <UserAutocomplete
                   v-model="selectedRequester"
+                  :currentUser="ticket.requester_user"
                   placeholder="Search or select requester..."
                   type="requester"
                   class="w-full"
@@ -134,6 +135,7 @@ onMounted(() => {
               <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
                 <UserAutocomplete
                   v-model="selectedAssignee"
+                  :currentUser="ticket.assignee_user"
                   placeholder="Search or select assignee..."
                   type="assignee"
                   class="w-full"

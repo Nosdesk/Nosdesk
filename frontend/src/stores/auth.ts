@@ -160,7 +160,8 @@ export const useAuthStore = defineStore('auth', () => {
       if (response.data.mfa_setup_required) {
         mfaSetupRequired.value = true;
         mfaUserUuid.value = response.data.user_uuid || '';
-        error.value = response.data.message || 'Multi-factor authentication setup required';
+        // Don't set this as an error - it's expected behavior
+        error.value = null;
         return false;
       }
       

@@ -277,10 +277,9 @@ pub fn get_paginated_tickets_with_users(
     
     for ticket in tickets {
         // Look up complete user data for requester and assignee
-        let requester_user = match crate::repository::get_user_by_uuid(&ticket.requester_uuid, conn) {
-            Ok(user) => Some(crate::models::UserInfoWithAvatar::from(user)),
-            Err(_) => None,
-        };
+        let requester_user = ticket.requester_uuid.as_ref()
+            .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
+            .map(crate::models::UserInfoWithAvatar::from);
         
         let assignee_user = match ticket.assignee_uuid {
             Some(assignee_uuid) => {
@@ -340,10 +339,9 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
     println!("Found ticket: {} - {}", ticket.id, ticket.title);
     
     // Look up complete user data for requester and assignee
-    let requester_user = match crate::repository::get_user_by_uuid(&ticket.requester_uuid, conn) {
-        Ok(user) => Some(UserInfoWithAvatar::from(user)),
-        Err(_) => None, // User not found
-    };
+    let requester_user = ticket.requester_uuid.as_ref()
+        .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
+        .map(crate::models::UserInfoWithAvatar::from);
     
     let assignee_user = match ticket.assignee_uuid {
         Some(assignee_uuid) => {
@@ -436,7 +434,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
         description: None, // No description field in TicketJson
         status,
         priority,
-        requester_uuid: Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::new_v4()),
+        requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::new_v4())),
         assignee_uuid: if ticket_json.assignee.is_empty() { 
             None 
         } else { 
@@ -546,7 +544,7 @@ pub fn create_complete_ticket(conn: &mut DbConnection, ticket_json: TicketJson) 
         description: None, // No description field in TicketJson
         status,
         priority,
-        requester_uuid: Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::new_v4()),
+        requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::new_v4())),
         assignee_uuid: if ticket_json.assignee.is_empty() { 
             None 
         } else { 

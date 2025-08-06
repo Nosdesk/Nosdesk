@@ -1,63 +1,139 @@
 # Nosdesk
 
-**The Helpdesk Reimagined for Speed and Efficiency in Education**
+A modern helpdesk and IT management system built with Rust and Vue.js, designed for efficient ticket management and IT operations.
 
-`Nosdesk` is a helpdesk solution designed specifically for educational institutions. It streamlines ticket management, enhances communication between staff and students, and optimizes workflows to ensure rapid resolution of issues in a school or university setting. Built with Vue.js, Rust and PostgreSQL, `Nosdesk` prioritizes speed, scalability, and user experience.
+> This project is still in active development. The software is provided as-is with absolutely no warranty. Use at your own risk!
 
-## Table of Contents
-- [Features](#features)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-- [Development](#development)
-- [Type Support](#type-support)
-- [License](#license)
+## ✨ Key Features
 
-## Features
-- **Education-Focused**: Tailored for schools, colleges, and universities to manage IT, facilities, and administrative issues.
-- **Fast Ticket Resolution**: Intuitive interface and efficient workflows for quick issue tracking and resolution.
-- **User Roles**: Supports roles like students, teachers, IT staff, facilities management, and administrators with role-based access control.
-- **Real-Time Updates**: Live status updates and collaborative tickets, documentation and device management.
-- **Customizable**: Easily configurable to fit the needs of different educational institutions.
-- **Responsive Design**: Works seamlessly on all web connected devices, desktops, tablets, and mobile devices.
+### 🎫 **Ticket Management**
+- **Real-time collaborative editing** with markdown support for ticket notes
+- **Linked tickets** to track related issues and dependencies
+- **Comments and attachments** for comprehensive issue documentation
+- **Live updates** across all connected users for seamless collaboration
 
-## Getting Started
+### 📋 **Project Management**
+- **Ticket-based projects** to organize multiple related requests
+- **Project dashboards** to track progress across multiple tickets
+- **Team collaboration** on complex multi-ticket initiatives
 
-### Prerequisites
-Before you begin, ensure you have the following installed:
-- **Node.js** (v16 or later recommended) - [Download](https://nodejs.org/)
-- **Git** (for cloning the repository) - [Download](https://git-scm.com/)
+### 👥 **User & Device Management**
+- **Comprehensive user management** with role-based access control
+- **Device tracking and assignment** to users and tickets
+- **Detailed user and device profiles** for complete IT asset management
 
-### Installation
-1. Clone the repository:
-   ```sh
-   git clone https://github.com/your-username/Nosdesk.git
-   cd Nosdesk
-   ```
-2. Install dependencies:
-   ```sh
-   npm install
-   ```
+### 🔐 **Authentication & Integration**
+- **Microsoft Intune & Entra ID integration** for OAuth SSO
+- **Automated user and device import** from Microsoft services
+- **Local user accounts** with TOTP-based multi-factor authentication
+- **Flexible authentication options** for different organizational needs
 
-## Development
+### 🚀 **Real-time Collaboration**
+- **WebSocket-powered live editing** for ticket notes and documentation
+- **Server-sent events** for instant notifications and updates
+- **Collaborative markdown editor** with ProseMirror and Yjs integration
 
-To compile and hot-reload the application for development:
-```sh
-npm run dev
+## 🚀 Quick Start
+
+### Docker Development (Production-like & Hot Reloading)
+Run the full stack in Docker, with the backend serving the built frontend and all dependencies:
+
+#### **Production-like (default profile)**
+```bash
+docker-compose up --build
 ```
-This launches the development server, typically accessible at `http://localhost:5173` (or the port specified by Vite).
+- The Rust backend serves the Vue.js frontend (built output) and API endpoints on [http://localhost:8080](http://localhost:8080).
+- All services (Postgres, Redis, backend) are started.
 
-## Type Support
-`Nosdesk` uses TypeScript for robust type checking. By default, TypeScript does not handle type information for `.vue` imports. To enable full type support:
-- Use **[Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar)** in your IDE for `.vue` type awareness.
-- Replace the standard `tsc` CLI with `vue-tsc` for type checking in your terminal:
-  ```sh
-  npx vue-tsc --noEmit
-  ```
+#### **Development with Hot Reloading**
+For live code and frontend hot reloading:
+```bash
+docker-compose --profile dev --profile dev-watch up --build
+```
+- `backend-dev`: Rust backend with live code reload (mounts source).
+- `frontend-watch`: Vue dev server with hot reload, outputs to backend's public directory.
+- Access the app at [http://localhost:8080](http://localhost:8080).
 
-## License
-`Nosdesk` is licensed under the [GNU AGPL](LICENSE). See the `LICENSE` file for more details.
+#### **Development without Frontend Hot Reload**
+If you only want backend live reload (no frontend hot reload):
+```bash
+docker-compose --profile dev up --build
+```
 
-## Acknowledgements
+### Native Development
+Fast iteration with direct access to logs and debugging:
 
-A huge thank you to Vue.js for its intuitive and powerful framework, ProseMirror for its robust text-editing capabilities, and Tailwind CSS for its flexible and efficient styling system. This project wouldn’t be the same without these amazing tools!
+```bash
+# Setup databases and environment
+./scripts/dev-native.sh
+
+# Terminal 1: Start backend
+cd backend && cargo run
+
+# Terminal 2: Start frontend
+cd frontend && npm run dev
+```
+
+---
+
+## 🐳 Docker Compose Services
+
+- **postgres**: PostgreSQL database with persistent storage.
+- **redis**: Redis cache for real-time features and caching.
+- **backend**: Rust API server (production, serves built frontend from `/public`).
+- **backend-dev**: Rust API server (development, mounts source for live reload).
+- **frontend-watch**: (Optional) Vue.js dev server for hot reloading, outputs build to backend's public directory.
+
+---
+
+## 📋 Prerequisites
+
+### Native Development
+- [Rust](https://rustup.rs/) (latest stable)
+- [Node.js](https://nodejs.org/) (v18+)
+- [Docker](https://www.docker.com/) (for databases)
+
+### Docker Development
+- [Docker](https://www.docker.com/) and Docker Compose
+
+## 🏗️ Technology Stack
+
+- **Backend**: Rust with Actix-web
+- **Frontend**: Vue.js 3 with TypeScript and Tailwind CSS
+- **Database**: PostgreSQL with Redis caching
+- **Real-time**: WebSockets and Server-Sent Events
+- **Authentication**: JWT with optional TOTP MFA
+- **Integrations**: Microsoft Graph API for Intune/Entra ID
+
+## 📦 Project Structure
+
+```
+Nosdesk/
+├── backend/           # Rust API server
+│   ├── src/
+│   ├── migrations/    # Database schema
+│   └── public/        # Built frontend (production)
+├── frontend/          # Vue.js frontend
+│   ├── src/
+│   └── public/
+└── scripts/           # Development utilities
+```
+
+## 🔧 Configuration
+
+Environment variables are managed automatically:
+- **Docker**: `docker.env` file
+- **Native**: Auto-generated `backend/.env`
+
+Key integrations:
+- Microsoft Entra ID for SSO
+- Microsoft Intune for device management
+- Redis for real-time features and caching
+
+## 📚 Documentation
+
+- **API Documentation**: Import `api-insomnia.json` into Insomnia
+
+## 📄 License
+
+Licensed under the terms in the LICENSE file.

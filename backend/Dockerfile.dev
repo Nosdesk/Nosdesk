@@ -1,0 +1,38 @@
+# Development Dockerfile for faster iteration
+FROM rust:1.87-slim as development
+
+# Install development dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libpq-dev \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install useful development tools
+RUN cargo install diesel_cli --no-default-features --features postgres
+RUN cargo install cargo-watch
+
+WORKDIR /app
+
+# Copy manifests and cache dependencies
+COPY backend/Cargo.toml backend/Cargo.lock ./
+
+# Create dummy source files to cache dependencies
+RUN mkdir -p src/bin && \
+    echo "pub fn dummy() {}" > src/lib.rs && \
+    echo "fn main() {}" > src/main.rs && \
+    echo "fn main() {}" > src/bin/import_tickets.rs
+
+# Build dependencies first (this layer will be cached)
+RUN cargo build
+
+# Remove dummy files
+RUN rm -rf src
+
+# Copy startup script
+COPY backend/start-dev.sh /app/start-dev.sh
+
+# Set up for live reloading with automatic migrations
+CMD ["/app/start-dev.sh"] 

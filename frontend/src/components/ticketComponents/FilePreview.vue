@@ -305,9 +305,9 @@ onMounted(async () => {
   <div class="flex flex-col gap-2 bg-slate-800 rounded-lg p-3 max-w-[350px]">
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
-        <UserAvatar :name="author" :showName="false" />
         <div class="flex flex-col">
-          <span class="text-sm text-slate-200">{{ author }}</span>
+          <span class="text-sm text-slate-200 line-clamp-2">{{ getDisplayName(filename) }}</span>
+
           <span class="text-xs text-slate-400">{{ timestamp }}</span>
         </div>
       </div>
@@ -398,7 +398,6 @@ onMounted(async () => {
       <div class="min-w-0 flex flex-col gap-1">
         <div class="flex items-start gap-2">
           <div class="flex-grow">
-            <span class="text-sm text-slate-200 line-clamp-2">{{ getDisplayName(filename) }}</span>
             <span class="text-xs text-slate-400 uppercase mt-1 block">
               {{ isHeicImage ? 'HEIC (converted to JPEG)' : fileExtension }}
             </span>

@@ -21,11 +21,19 @@ const successMessage = ref("");
 // MFA state
 const mfaToken = ref("");
 
-// Check for success message from URL query params (e.g., from onboarding)
+// Check for success message and email prefill from URL query params (e.g., from onboarding)
 onMounted(() => {
   if (route.query.message) {
     successMessage.value = route.query.message as string;
-    // Clean up the URL by removing the message parameter
+  }
+  
+  // Prefill email if provided (e.g., from onboarding flow)
+  if (route.query.email && typeof route.query.email === 'string') {
+    email.value = route.query.email;
+  }
+  
+  // Clean up the URL by removing the query parameters
+  if (route.query.message || route.query.email) {
     router.replace({ name: "login" });
   }
 });
@@ -41,26 +49,33 @@ const handleLogin = async () => {
       password: password.value,
     });
 
-    if (!success && authStore.error) {
+    // Only show error if login failed and it's not due to MFA requirements
+    if (!success && authStore.error && !authStore.mfaSetupRequired && !authStore.mfaRequired) {
       errorMessage.value = authStore.error;
     }
 
-    // Check if MFA setup is required and automatically redirect
+    // Check if MFA setup is required and redirect to MFA setup view
     if (authStore.mfaSetupRequired) {
-      // Automatically redirect to MFA setup view
-      router.push({
-        name: "mfa-setup",
-        state: {
-          email: email.value,
-          password: password.value,
-          from: "login",
-        },
-      });
+      console.log('🔄 MFA setup required, redirecting to MFA setup view');
+      
+      // Store credentials in sessionStorage for MFA setup
+      sessionStorage.setItem('mfaSetupCredentials', JSON.stringify({
+        email: email.value,
+        password: password.value,
+        from: 'login',
+        timestamp: Date.now()
+      }));
+      
+      // Redirect to MFA setup view
+      router.push({ name: "mfa-setup" });
       return;
     }
 
     // If MFA is required, authStore.mfaRequired will be true
-    // and we'll show the MFA form in the template
+    // Clear any error messages since this is expected flow
+    if (authStore.mfaRequired) {
+      errorMessage.value = "";
+    }
   } catch (error) {
     console.error("Login error:", error);
     errorMessage.value = "An unexpected error occurred. Please try again.";
@@ -207,16 +222,14 @@ const handleMicrosoftLogoutClick = async () => {
         </div>
       </div>
 
-      <!-- MFA Form -->
+      <!-- MFA Verification Form -->
       <div v-if="authStore.mfaRequired" class="flex flex-col gap-6">
-        <!-- Header Section with inline icon -->
+        <!-- Header Section -->
         <div class="text-center">
-          <div class="flex items-center justify-center gap-3 mb-4">
-            <div
-              class="flex items-center justify-center w-10 h-10 bg-blue-600/10 rounded-full flex-shrink-0"
-            >
+          <div class="mb-4">
+            <div class="inline-flex items-center justify-center w-12 h-12 bg-blue-600/10 rounded-full mb-4">
               <svg
-                class="w-5 h-5 text-blue-500"
+                class="w-6 h-6 text-blue-500"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -229,23 +242,18 @@ const handleMicrosoftLogoutClick = async () => {
                 ></path>
               </svg>
             </div>
-            <div class="flex flex-col gap-2">
-              <h2 class="text-xl font-semibold text-white">
-                Two-Factor Authentication
-              </h2>
-              <p class="text-slate-400 text-sm">
-                Please enter your authentication code
-              </p>
-            </div>
+            <h2 class="text-xl font-semibold text-white mb-2">
+              Two-Factor Authentication
+            </h2>
+            <p class="text-slate-400 text-sm">
+              Please enter your authentication code
+            </p>
           </div>
         </div>
 
-        <!-- Error Message with better styling -->
+        <!-- Error Message -->
         <div
-          v-if="
-            errorMessage &&
-            !errorMessage.includes('Multi-factor authentication required')
-          "
+          v-if="errorMessage"
           class="bg-red-900/20 border border-red-700/50 text-red-200 px-4 py-3 rounded-lg text-sm flex items-center gap-2"
         >
           <svg
@@ -274,18 +282,18 @@ const handleMicrosoftLogoutClick = async () => {
               Authentication Code
             </label>
             <div class="relative">
-                              <input
-                  id="mfa-token"
-                  v-model="mfaToken"
-                  type="text"
-                  required
-                  autocomplete="one-time-code"
-                  placeholder="000000"
-                  class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-center text-xl tracking-[0.5em] font-mono"
-                  maxlength="8"
-                  @input="handleMfaInput"
-                  @paste="handleMfaPaste"
-                />
+              <input
+                id="mfa-token"
+                v-model="mfaToken"
+                type="text"
+                required
+                autocomplete="one-time-code"
+                placeholder="000000"
+                class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-center text-xl tracking-[0.5em] font-mono"
+                maxlength="8"
+                @input="handleMfaInput"
+                @paste="handleMfaPaste"
+              />
               <div
                 class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none"
               >
@@ -355,7 +363,7 @@ const handleMicrosoftLogoutClick = async () => {
       <form v-else @submit.prevent="handleLogin" class="flex flex-col gap-6">
         <!-- Error Message within login form -->
         <div
-          v-if="errorMessage"
+          v-if="errorMessage && !authStore.mfaSetupRequired && !authStore.mfaRequired"
           class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-lg text-sm"
         >
           {{ errorMessage }}

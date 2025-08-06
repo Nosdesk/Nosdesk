@@ -4,10 +4,8 @@ services:
     image: postgres:15-alpine
     container_name: nosdesk-postgres
     restart: unless-stopped
+    env_file: docker.env
     environment:
-      POSTGRES_DB: helpdesk
-      POSTGRES_USER: nosdesk
-      POSTGRES_PASSWORD: nosdesk_password
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -17,7 +15,7 @@ services:
     networks:
       - nosdesk-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nosdesk -d helpdesk"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nosdesk} -d ${POSTGRES_DB:-helpdesk}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,7 +25,8 @@ services:
     image: redis:7-alpine
     container_name: nosdesk-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --requirepass nosdesk_redis_password
+    env_file: docker.env
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-nosdesk_redis_password}
     volumes:
       - redis_data:/data
     ports:
@@ -40,45 +39,15 @@ services:
       timeout: 3s
       retries: 5
 
-  # Backend API and Frontend
+  # Backend - Production (default)
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    platform: linux/amd64
     container_name: nosdesk-backend
     restart: unless-stopped
-    environment:
-      # Database Configuration
-      DATABASE_URL: postgres://nosdesk:nosdesk_password@postgres:5432/helpdesk?sslmode=prefer
-      DB_MAX_CONNECTIONS: 10
-      DB_MIN_CONNECTIONS: 1
-      DB_CONNECTION_TIMEOUT: 30
-
-      # JWT Configuration
-      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
-      JWT_EXPIRY_HOURS: 24
-
-      # Server Configuration
-      HOST: 0.0.0.0
-      PORT: 8080
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-
-      # Security Configuration
-      RATE_LIMIT_PER_MINUTE: 60
-      MAX_FILE_SIZE_MB: 50
-
-      # CORS Configuration - Updated for single-container setup
-      FRONTEND_URL: http://localhost:3000
-      ADDITIONAL_CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:3000
-
-      # Redis Configuration
-      REDIS_URL: redis://:nosdesk_redis_password@redis:6379
-
-      # Microsoft Entra ID Configuration (optional)
-      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
-      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}
-      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
-      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-http://localhost:3000/auth/microsoft/callback}
+    env_file: docker.env
     volumes:
       - backend_uploads:/app/uploads
     ports:
@@ -96,6 +65,56 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    profiles: ["prod"]
+
+  # Backend - Development
+  backend-dev:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.dev
+    container_name: nosdesk-backend-dev
+    env_file: docker.env
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/migrations:/app/migrations
+      - ./backend/Cargo.toml:/app/Cargo.toml
+      - ./backend/Cargo.lock:/app/Cargo.lock
+      - ./backend/public:/app/public  # Frontend build output
+      - backend_cargo_cache:/usr/local/cargo/registry
+      - backend_uploads:/app/uploads
+    ports:
+      - "8080:8080"
+      - "3000:8080"  # Also expose on port 3000 for consistency
+    networks:
+      - nosdesk-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - RUST_ENV=development
+      - RUST_LOG=${RUST_LOG:-debug}
+      - HOST=${HOST:-0.0.0.0}
+      - PORT=${PORT:-8080}
+      - JWT_SECRET=${JWT_SECRET}
+      - MFA_ENCRYPTION_KEY=${MFA_ENCRYPTION_KEY}
+      - REDIS_URL=${REDIS_URL}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}  # Frontend served by backend
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+    profiles: ["dev"]
+
+  # Frontend Build Service - Development (optional for live reloading)
+  frontend-watch:
+    image: node:18-alpine
+    container_name: nosdesk-frontend-watch
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - ./backend/public:/app/dist  # Mount the backend public directory to dist
+      - frontend_node_modules:/app/node_modules
+    command: sh -c "npm install && npm run dev:unified"
+    profiles: ["dev"]  # Now uses the same profile as backend-dev for unified dev experience
 
 volumes:
   postgres_data:
@@ -103,6 +122,10 @@ volumes:
   redis_data:
     driver: local
   backend_uploads:
+    driver: local
+  frontend_node_modules:
+    driver: local
+  backend_cargo_cache:
     driver: local
 
 networks:
