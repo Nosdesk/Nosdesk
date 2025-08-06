@@ -97,10 +97,7 @@ services:
       - RUST_LOG=${RUST_LOG:-debug}
       - HOST=${HOST:-0.0.0.0}
       - PORT=${PORT:-8080}
-      - JWT_SECRET=${JWT_SECRET}
-      - MFA_ENCRYPTION_KEY=${MFA_ENCRYPTION_KEY}
-      - REDIS_URL=${REDIS_URL}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}  # Frontend served by backend
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080} # Frontend served by backend
       - ENVIRONMENT=${ENVIRONMENT:-development}
     profiles: ["dev"]
 
