@@ -1,10 +1,11 @@
 // App.vue
 <script setup lang="ts">
-import { RouterView, useRoute } from 'vue-router'
-import { computed, ref } from 'vue'
+import { RouterView, useRoute, useRouter } from 'vue-router'
+import { computed, ref, onMounted } from 'vue'
 import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
 import { useTitleManager } from '@/composables/useTitleManager'
+import authService from '@/services/authService'
 
 const route = useRoute()
 const isBlankLayout = computed(() => route.meta.layout === 'blank')
@@ -67,6 +68,34 @@ const headerLeft = computed(() => {
     return 'lg:left-64 left-0'; // 16rem when navbar is expanded on desktop
   }
 })
+
+// Security: Check if system requires initial setup on app initialization
+const router = useRouter();
+const initializationChecked = ref(false);
+
+onMounted(async () => {
+  // Security: Prevent multiple initialization checks
+  if (initializationChecked.value) {
+    return;
+  }
+  
+  try {
+    // Only check if we're not already on onboarding or login pages
+    if (route.name !== 'onboarding' && route.name !== 'login') {
+      console.log('🔄 App: Checking setup status on initialization...');
+      const setupStatus = await authService.checkSetupStatus();
+      if (setupStatus.requires_setup) {
+        console.log('🔄 App: System requires setup, redirecting to onboarding');
+        router.push({ name: 'onboarding' });
+      }
+    }
+  } catch (error) {
+    console.error('Failed to check setup status on app initialization:', error);
+    // Security: Don't redirect on error - let the router guard handle it
+  } finally {
+    initializationChecked.value = true;
+  }
+});
 
 
 </script>

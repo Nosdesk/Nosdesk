@@ -356,5 +356,3 @@ pub async fn delete_attachment(
         }
     }
 }
-
-// Removed unused imports: collaboration::get_article_content, collaboration::config

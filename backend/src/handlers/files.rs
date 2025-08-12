@@ -2,17 +2,18 @@ use actix_web::{web, HttpResponse};
 use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
 use serde_json::json;
-use std::path::Path;
-use uuid::Uuid;
+use std::sync::Arc;
 
 use crate::db::DbConnection;
 use crate::models::NewAttachment;
 use crate::repository;
+use crate::utils::storage::Storage;
 
-// Upload files and store them locally
+// Upload files using the storage abstraction
 pub async fn upload_files(
     mut payload: Multipart,
     pool: web::Data<crate::db::Pool>,
+    storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     println!("Received file upload request");
     
@@ -20,26 +21,6 @@ pub async fn upload_files(
         eprintln!("Database connection error: {:?}", e);
         actix_web::error::ErrorInternalServerError("Database connection error")
     })?;
-    
-    // Create uploads directory if it doesn't exist
-    let storage_path = "uploads";
-    if !Path::new(storage_path).exists() {
-        println!("Creating uploads directory: {}", storage_path);
-        std::fs::create_dir_all(storage_path).map_err(|e| {
-            eprintln!("Failed to create uploads directory: {:?}", e);
-            actix_web::error::ErrorInternalServerError("Failed to create uploads directory")
-        })?;
-    }
-    
-    // Create a temporary directory for uploads that haven't been associated with a ticket yet
-    let temp_path = "uploads/temp";
-    if !Path::new(temp_path).exists() {
-        println!("Creating temporary uploads directory: {}", temp_path);
-        std::fs::create_dir_all(temp_path).map_err(|e| {
-            eprintln!("Failed to create temporary uploads directory: {:?}", e);
-            actix_web::error::ErrorInternalServerError("Failed to create temporary uploads directory")
-        })?;
-    }
 
     let mut uploaded_attachments = Vec::new();
 
@@ -56,29 +37,16 @@ pub async fn upload_files(
         let content_disposition = field.content_disposition();
         let filename = content_disposition
             .get_filename()
-            .map_or_else(|| Uuid::new_v4().to_string(), |f| f.to_string());
+            .map_or_else(|| format!("unnamed_file_{}", uuid::Uuid::new_v4()), |f| f.to_string());
         
         // Get content type if available
         let content_type = field.content_type().map(|ct| ct.to_string()).unwrap_or_else(|| "application/octet-stream".to_string());
         
         println!("Processing uploaded file: {} ({})", filename, content_type);
         
-        // Generate a unique filename to prevent collisions
-        let unique_filename = format!("{}_{}", Uuid::new_v4(), filename);
-        let filepath = format!("{}/{}", temp_path, unique_filename);
+
         
-        println!("Saving file to: {}", filepath);
-        
-        // Create a file to save the uploaded content
-        let file_path = filepath.clone();
-        let _file = web::block(move || std::fs::File::create(file_path))
-            .await
-            .map_err(|e| {
-                eprintln!("Failed to create file: {:?}", e);
-                actix_web::error::ErrorInternalServerError("Failed to create file")
-            })?;
-        
-        // Write the field data to the file
+        // Read the field data
         let mut file_data = Vec::new();
         while let Some(chunk) = field.next().await {
             let data = chunk.map_err(|e| {
@@ -90,24 +58,18 @@ pub async fn upload_files(
         
         println!("Read {} bytes of data for file {}", file_data.len(), filename);
         
-        // Save to temp directory with error handling
-        let file_write_result = web::block(move || std::fs::write(filepath, &file_data))
+        // Store the file using the storage abstraction
+        let stored_file = storage.store_file(&file_data, &filename, &content_type, "temp")
             .await
             .map_err(|e| {
-                eprintln!("Error writing to file: {:?}", e);
-                actix_web::error::ErrorInternalServerError("Error writing to file")
+                eprintln!("Failed to store file: {:?}", e);
+                actix_web::error::ErrorInternalServerError("Failed to store file")
             })?;
-
-        // Handle the file write result
-        file_write_result.map_err(|e| {
-            eprintln!("File system error: {:?}", e);
-            actix_web::error::ErrorInternalServerError("Failed to save file")
-        })?;
         
         // Create a new attachment record in the database
         let new_attachment = NewAttachment {
-            url: format!("/uploads/temp/{}", unique_filename),
-            name: filename.clone(),
+            url: stored_file.url.clone(),
+            name: stored_file.id.clone(),
             comment_id: None, // Not linked to a comment yet
         };
         
@@ -118,8 +80,8 @@ pub async fn upload_files(
             Ok(attachment) => {
                 let attachment_json = json!({
                     "id": attachment.id,
-                    "url": attachment.url,
-                    "name": attachment.name
+                    "url": stored_file.url,
+                    "name": filename // Use original filename for display
                 });
                 println!("Attachment created successfully: {:?}", attachment_json);
                 uploaded_attachments.push(attachment_json);
@@ -252,7 +214,7 @@ async fn serve_file_with_headers(
 ) -> Result<HttpResponse, actix_web::Error> {
     use std::io::SeekFrom;
     use actix_web::http::header::{
-        ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, 
+        ACCEPT_RANGES, CACHE_CONTROL, CONTENT_LENGTH, 
         CONTENT_RANGE, CONTENT_TYPE, RANGE
     };
     use tokio::io::{AsyncReadExt, AsyncSeekExt};

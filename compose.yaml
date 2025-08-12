@@ -73,6 +73,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile.dev
     container_name: nosdesk-backend-dev
+    restart: unless-stopped
     env_file: docker.env
     volumes:
       - ./backend/src:/app/src

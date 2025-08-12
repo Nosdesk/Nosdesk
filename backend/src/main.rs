@@ -16,8 +16,10 @@ use dotenv::dotenv;
 use serde_json;
 use std::env;
 use std::time::Duration;
+use std::sync::Arc;
 use tracing::{info, warn, error, debug};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use utils::storage::{get_storage_config, create_storage};
 
 async fn health_check() -> impl Responder {
     HttpResponse::Ok().body("Helpdesk API is running!")
@@ -358,32 +360,20 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    // === ONBOARDING STATUS CHECK ===
-    info!("Checking system onboarding status...");
-    {
-        let mut conn = match pool.get() {
-            Ok(conn) => {
-                debug!("✅ Database connection acquired successfully");
-                conn
-            },
-            Err(e) => {
-                error!("❌ Database connection failed: {}", e);
-                std::process::exit(1);
-            }
-        };
-
-        match repository::count_users(&mut conn) {
-            Ok(user_count) => {
-                if user_count == 0 {
-                    info!("📋 Initial setup required - access the application to create an admin account");
-                } else {
-                    info!("✅ System ready with {} user(s)", user_count);
-                }
-            },
-            Err(e) => {
-                warn!("⚠️  Warning: Could not check user count: {}", e);
-            }
+    // === DATABASE INITIALIZATION ===
+    info!("Initializing database...");
+    match db::initialize_database(&pool).await {
+        Ok(_) => info!("✅ Database initialization completed successfully"),
+        Err(e) => {
+            error!("❌ Database initialization failed: {}", e);
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Database initialization failed: {}", e)));
         }
+    }
+    
+    // Security: Verify initialization was successful
+    if !db::is_initialized() {
+        error!("❌ Database initialization verification failed");
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, "Database initialization verification failed"));
     }
 
     // Create uploads directory structure if it doesn't exist
@@ -418,6 +408,12 @@ async fn main() -> std::io::Result<()> {
     if host == "0.0.0.0" {
         warn!("⚠️  WARNING: Server bound to all interfaces (0.0.0.0)");
     }
+    
+    // Initialize storage backend
+    info!("🗂️  Initializing storage backend...");
+    let storage_config = get_storage_config();
+    let storage = Arc::new(create_storage(storage_config));
+    let storage_data = web::Data::new(storage);
     
     info!("🚀 Starting HTTP server...");
     
@@ -459,6 +455,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(pool.clone()))
             .app_data(yjs_app_state.clone())
             .app_data(sse_state.clone())
+            .app_data(storage_data.clone())
             .app_data(json_config)
             .app_data(multipart_config)
             

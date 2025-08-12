@@ -35,65 +35,40 @@ A modern helpdesk and IT management system built with Rust and Vue.js, designed 
 
 ## 🚀 Quick Start
 
-### Docker Development (Production-like & Hot Reloading)
-Run the full stack in Docker, with the backend serving the built frontend and all dependencies:
-
-#### **Production-like (default profile)**
-```bash
-docker-compose up --build
-```
-- The Rust backend serves the Vue.js frontend (built output) and API endpoints on [http://localhost:8080](http://localhost:8080).
-- All services (Postgres, Redis, backend) are started.
+### Docker Development (Recommended)
+Run the full stack in Docker, with the backend serving the frontend and all dependencies:
 
 #### **Development with Hot Reloading**
 For live code and frontend hot reloading:
 ```bash
-docker-compose --profile dev --profile dev-watch up --build
+docker compose --profile dev up --build
 ```
-- `backend-dev`: Rust backend with live code reload (mounts source).
-- `frontend-watch`: Vue dev server with hot reload, outputs to backend's public directory.
-- Access the app at [http://localhost:8080](http://localhost:8080).
+- `backend-dev`: Rust backend with live code reload
+- `frontend-watch`: Vue dev server with hot reload
+- Access the app at [http://localhost:8080](http://localhost:8080)
 
-#### **Development without Frontend Hot Reload**
-If you only want backend live reload (no frontend hot reload):
+#### **Production Environment**
+For production-like deployment:
 ```bash
-docker-compose --profile dev up --build
+docker compose --profile prod up --build
 ```
-
-### Native Development
-Fast iteration with direct access to logs and debugging:
-
-```bash
-# Setup databases and environment
-./scripts/dev-native.sh
-
-# Terminal 1: Start backend
-cd backend && cargo run
-
-# Terminal 2: Start frontend
-cd frontend && npm run dev
-```
+- The Rust backend serves the Vue.js frontend and API endpoints
+- All services (Postgres, Redis, backend) are started automatically
 
 ---
 
 ## 🐳 Docker Compose Services
 
-- **postgres**: PostgreSQL database with persistent storage.
-- **redis**: Redis cache for real-time features and caching.
-- **backend**: Rust API server (production, serves built frontend from `/public`).
-- **backend-dev**: Rust API server (development, mounts source for live reload).
-- **frontend-watch**: (Optional) Vue.js dev server for hot reloading, outputs build to backend's public directory.
+- **postgres**: PostgreSQL database with persistent storage
+- **redis**: Redis cache for real-time features and rate limiting
+- **backend**: Rust API server (production, serves built frontend)
+- **backend-dev**: Rust API server (development, with live reload and auto-migrations)
+- **frontend-watch**: Vue.js dev server for hot reloading
 
 ---
 
 ## 📋 Prerequisites
 
-### Native Development
-- [Rust](https://rustup.rs/) (latest stable)
-- [Node.js](https://nodejs.org/) (v18+)
-- [Docker](https://www.docker.com/) (for databases)
-
-### Docker Development
 - [Docker](https://www.docker.com/) and Docker Compose
 
 ## 🏗️ Technology Stack
@@ -116,7 +91,7 @@ Nosdesk/
 ├── frontend/          # Vue.js frontend
 │   ├── src/
 │   └── public/
-└── scripts/           # Development utilities
+└── compose.yaml # Docker orchestration
 ```
 
 ## 🔧 Configuration

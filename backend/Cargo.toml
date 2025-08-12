@@ -18,7 +18,8 @@ path = "src/bin/import_tickets.rs"
 
 [dependencies]
 actix-web = "4.9.0"
-diesel = { version = "2.1.0", features = ["postgres", "r2d2", "chrono", "serde_json", "uuid", "network-address"] }
+diesel = { version = "2.2.0", features = ["postgres", "r2d2", "chrono", "serde_json", "uuid", "network-address"] }
+diesel_migrations = "2.2.0"
 dotenv = "0.15.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -87,6 +88,7 @@ zeroize = { version = "1.8.1", features = ["derive"] } # Memory zeroing for sens
 hex = "0.4.3"             # Hex encoding/decoding
 ipnetwork = "0.20.0"      # IP network types for security events and sessions
 anyhow = "1.0"             # Error handling for applications
+async-trait = "0.1.83"     # Async traits for storage abstraction
 
 # For testing only
 [dev-dependencies]

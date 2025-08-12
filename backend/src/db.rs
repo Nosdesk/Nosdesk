@@ -1,64 +1,105 @@
 use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel::RunQueryDsl;
 use dotenv::dotenv;
 use std::env;
 use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tracing::{info, warn, error, debug};
 
 pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
 
+// Embed migrations at compile time
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+
+// Simple flag to ensure initialization only happens once
+static INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+/// Initialize the database by running migrations
+/// This function is designed to be called only once
+pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if INITIALIZED.load(Ordering::Acquire) {
+        info!("✅ Database already initialized");
+        return Ok(());
+    }
+
+    info!("🔧 Initializing database...");
+    
+    // Wait for database to be ready
+    info!("⏳ Waiting for database...");
+    let mut attempts = 0;
+    while attempts < 30 {
+        match pool.get() {
+            Ok(mut conn) => {
+                if diesel::sql_query("SELECT 1").execute(&mut conn).is_ok() {
+                    info!("✅ Database is ready");
+                    break;
+                }
+            }
+            Err(_) => {}
+        }
+        
+        attempts += 1;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    
+    if attempts >= 30 {
+        return Err("Database not ready after 60 seconds".into());
+    }
+
+    // Run migrations
+    let mut conn = pool.get()
+        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+    
+    info!("📋 Running migrations...");
+    match conn.run_pending_migrations(MIGRATIONS) {
+        Ok(migrations) => {
+            if migrations.is_empty() {
+                info!("✅ Database schema is up to date");
+            } else {
+                info!("✅ Applied {} migration(s)", migrations.len());
+            }
+        }
+        Err(e) => {
+            error!("❌ Failed to run migrations: {}", e);
+            return Err(e.into());
+        }
+    }
+
+    // Check if this is the first run
+    match crate::repository::count_users(&mut conn) {
+        Ok(count) => {
+            if count == 0 {
+                info!("📋 Initial setup required - no users found");
+            } else {
+                info!("✅ System ready with {} user(s)", count);
+            }
+        }
+        Err(e) => {
+            warn!("⚠️  Could not check user count: {}", e);
+        }
+    }
+
+    INITIALIZED.store(true, Ordering::Release);
+    info!("✅ Database initialization completed");
+    Ok(())
+}
+
+/// Check if database has been initialized
+pub fn is_initialized() -> bool {
+    INITIALIZED.load(Ordering::Acquire)
+}
+
 pub fn establish_connection_pool() -> Pool {
     dotenv().ok();
-    
-    // Validate that DATABASE_URL is set and not empty
+
     let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL environment variable must be set");
-    
-    if database_url.trim().is_empty() {
-        panic!("DATABASE_URL cannot be empty");
-    }
-
-    // Security: Warn if using insecure connection in production
-    if !database_url.contains("sslmode=") {
-        eprintln!("⚠️  WARNING: DATABASE_URL does not specify SSL mode. Consider adding sslmode=require for production.");
-    }
-
-    // Get database pool configuration from environment
-    let max_connections = env::var("DB_MAX_CONNECTIONS")
-        .unwrap_or("10".to_string())
-        .parse::<u32>()
-        .unwrap_or(10)
-        .clamp(1, 50); // Reasonable limits
-
-    let min_connections = env::var("DB_MIN_CONNECTIONS")
-        .unwrap_or("1".to_string())
-        .parse::<u32>()
-        .unwrap_or(1)
-        .clamp(0, max_connections);
-
-    let connection_timeout = env::var("DB_CONNECTION_TIMEOUT")
-        .unwrap_or("30".to_string())
-        .parse::<u64>()
-        .unwrap_or(30)
-        .clamp(5, 300); // 5 seconds to 5 minutes
-
-    println!("Database Configuration:");
-    println!("  Max connections: {}", max_connections);
-    println!("  Min connections: {}", min_connections);
-    println!("  Connection timeout: {}s", connection_timeout);
+        .expect("DATABASE_URL must be set");
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);
-    
-    // Configure the connection pool with security-conscious settings
     r2d2::Pool::builder()
-        .max_size(max_connections)
-        .min_idle(if min_connections > 0 { Some(min_connections) } else { None })
-        .connection_timeout(Duration::from_secs(connection_timeout))
-        .idle_timeout(Some(Duration::from_secs(300))) // Close idle connections after 5 minutes
-        .max_lifetime(Some(Duration::from_secs(1800))) // Recreate connections every 30 minutes
         .build(manager)
-        .unwrap_or_else(|e| {
-            eprintln!("Error creating database connection pool: {}", e);
-            panic!("Database connection error: {}", e);
-        })
+        .expect("Failed to create pool")
 } 

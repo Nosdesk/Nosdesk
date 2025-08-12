@@ -100,14 +100,10 @@ COPY --from=builder /app/migrations ./migrations
 # Copy built frontend assets
 COPY --from=frontend-builder /frontend/dist ./public
 
-# Copy startup script
-COPY backend/start.sh ./start.sh
-
 # Create upload directories with proper permissions
 RUN mkdir -p uploads/temp uploads/tickets uploads/users/avatars uploads/users/banners uploads/users/thumbs && \
     chown -R appuser:appuser /app && \
-    chmod +x /app/backend && \
-    chmod +x /app/start.sh
+    chmod +x /app/backend
 
 # Switch to non-root user
 USER appuser
@@ -119,5 +115,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-# Run the application
-CMD ["./start.sh"] 
+# Run the application directly (backend handles database initialization)
+CMD ["./backend"] 

@@ -436,18 +436,28 @@ router.beforeEach(async (to, from, next) => {
   const { useAuthStore } = await import('@/stores/auth');
   const authStore = useAuthStore();
 
-  // Check for onboarding requirements first (before any other checks)
-  if (to.name !== 'onboarding' && to.name !== 'error') {
+  // Security: Check for onboarding requirements FIRST (before any other checks)
+  // This ensures new users are always directed to onboarding regardless of auth state
+  if (to.name !== 'onboarding' && to.name !== 'error' && to.name !== 'login') {
     try {
+      // Security: Prevent excessive setup checks during navigation
       const setupStatus = await authService.checkSetupStatus();
       if (setupStatus.requires_setup) {
+        // Security: Check if we're already trying to redirect to onboarding
+        if (from.name === 'onboarding') {
+          console.warn('⚠️  Router: Already on onboarding, preventing redirect loop');
+          next(false);
+          return;
+        }
+        
         // System requires setup, redirect to onboarding
+        console.log('🔄 Router: System requires setup, redirecting to onboarding');
         next({ name: 'onboarding' });
         return;
       }
     } catch (error) {
       console.error('Failed to check setup status during navigation:', error);
-      // If we can't check setup status, continue normally
+      // Security: If we can't check setup status, continue normally
       // The error will be handled by the onboarding component if needed
     }
   }

@@ -1,9 +1,10 @@
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
 use bcrypt::verify;
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
+use tracing::{error, debug};
 
 
 use crate::db::DbConnection;
@@ -649,16 +650,24 @@ pub async fn get_current_user(
     HttpResponse::Ok().json(UserResponse::from(user))
 }
 
-// Onboarding handlers for initial setup
+/// Check if system requires initial setup
 pub async fn check_setup_status(
     db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
 ) -> impl Responder {
+    // Log access for audit purposes
+    let client_ip = req.peer_addr()
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    
+    debug!("Setup status check from IP: {}", client_ip);
+    
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
-            "message": "Could not get database connection"
-        })),
+            "message": "Failed to get database connection"
+        }))
     };
 
     match repository::count_users(&mut conn) {
@@ -667,10 +676,15 @@ pub async fn check_setup_status(
                 requires_setup: user_count == 0,
                 user_count,
             };
-            HttpResponse::Ok().json(response)
+            
+            HttpResponse::Ok()
+                .insert_header(("X-Content-Type-Options", "nosniff"))
+                .insert_header(("X-Frame-Options", "DENY"))
+                .insert_header(("X-XSS-Protection", "1; mode=block"))
+                .json(response)
         },
         Err(e) => {
-            eprintln!("Error counting users: {:?}", e);
+            error!("Error counting users: {:?}", e);
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to check setup status"

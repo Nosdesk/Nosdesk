@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     libpq-dev \
+    postgresql-client \
     curl \
     wget \
     && rm -rf /var/lib/apt/lists/*
@@ -31,8 +32,8 @@ RUN cargo build
 # Remove dummy files
 RUN rm -rf src
 
-# Copy startup script
-COPY backend/start-dev.sh /app/start-dev.sh
+# Copy source code
+COPY backend/src ./src
 
 # Set up for live reloading with automatic migrations
-CMD ["/app/start-dev.sh"] 
+CMD ["cargo", "watch", "-x", "run"] 

@@ -5,6 +5,7 @@ pub mod image;
 pub mod jwt;
 pub mod sse;
 pub mod mfa;
+pub mod storage;
 
 use uuid::Uuid;
 use crate::models::{UserRole, UserInfo};
@@ -120,4 +121,3 @@ pub fn wrap_string(s: String) -> Option<String> {
 
 pub use user::*;
 pub use image::*;
-// Removed unused imports: auth, validation, jwt, sse, mfa 
