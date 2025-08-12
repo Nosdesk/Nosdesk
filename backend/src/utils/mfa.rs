@@ -16,6 +16,22 @@ use crate::models::{User, UserRole};
 use crate::db::DbConnection;
 use crate::repository;
 
+/// Parse a boolean environment variable in a robust, user-friendly way
+/// Accepts: true/false, 1/0, yes/no, on/off (case-insensitive)
+fn parse_env_bool(var_name: &str, default_value: bool) -> bool {
+    match std::env::var(var_name) {
+        Ok(value) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => true,
+                "0" | "false" | "no" | "off" => false,
+                _ => default_value,
+            }
+        }
+        Err(_) => default_value,
+    }
+}
+
 /// Secure wrapper for sensitive strings that zeros memory on drop
 #[derive(ZeroizeOnDrop)]
 pub struct SecretString(String);
@@ -296,7 +312,10 @@ pub async fn verify_mfa_token(
 /// Check if MFA should be required for a user based on OWASP recommendations
 pub fn should_require_mfa(user_role: &UserRole) -> bool {
     match user_role {
-        UserRole::Admin => true,      // OWASP: Always require for admin users
+        // Allow deployments to optionally disable admin MFA requirement (useful for local/dev)
+        // Default remains secure (required) unless explicitly disabled via env
+        // Env var: REQUIRE_ADMIN_MFA=true|false (accepts 1/0, yes/no, on/off)
+        UserRole::Admin => parse_env_bool("REQUIRE_ADMIN_MFA", true),
         UserRole::Technician => true, // High privilege users
         UserRole::User => false,      // Could be made configurable via env var
     }

@@ -22,24 +22,15 @@
 
 
 
-      <!-- Vue 3 Suspense for MFA Settings Component -->
-      <Suspense>
-        <template #default>
-          <div class="bg-slate-800 rounded-xl border border-slate-700/50">
-            <MFASettings 
-              ref="mfaSettingsRef"
-              :is-login-setup="true"
-              @success="handleMfaSetupSuccess" 
-              @error="handleMfaSetupError"
-            />
-          </div>
-        </template>
-        
-        <template #fallback>
-          <!-- Use our dedicated skeleton component -->
-          <MFASettingsSkeleton />
-        </template>
-      </Suspense>
+      <!-- MFA Settings Component - Loaded Immediately -->
+      <div class="bg-slate-800 rounded-xl border border-slate-700/50">
+        <MFASettings 
+          ref="mfaSettingsRef"
+          :is-login-setup="true"
+          @success="handleMfaSetupSuccess" 
+          @error="handleMfaSetupError"
+        />
+      </div>
 
       <!-- Navigation -->
       <div class="flex justify-between items-center">
@@ -66,7 +57,6 @@ import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import MFASettings from '@/components/settings/MFASettings.vue';
-import MFASettingsSkeleton from '@/components/settings/MFASettingsSkeleton.vue';
 import logo from '@/assets/logo.svg';
 
 const router = useRouter();

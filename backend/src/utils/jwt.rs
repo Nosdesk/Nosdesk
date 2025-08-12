@@ -297,6 +297,7 @@ pub mod helpers {
             message: Some("Login successful".to_string()),
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
+            backup_codes: None,
         })
     }
 
@@ -312,6 +313,7 @@ pub mod helpers {
             message: Some("Multi-factor authentication required".to_string()),
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
+            backup_codes: None,
         }
     }
 
@@ -327,6 +329,7 @@ pub mod helpers {
             message: Some("Multi-factor authentication setup required for your account type".to_string()),
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
+            backup_codes: None,
         }
     }
 
@@ -363,6 +366,7 @@ pub mod helpers {
             message: Some(message),
             mfa_backup_code_used: Some(backup_code_used),
             requires_backup_code_regeneration: Some(requires_regeneration),
+            backup_codes: None,
         })
     }
 

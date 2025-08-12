@@ -845,9 +845,8 @@ pub async fn mfa_setup(
         }));
     }
 
-    // Generate new TOTP secret and backup codes (async hashing for security + performance)
+    // Generate new TOTP secret (backup codes will be generated after successful verification)
     let secret = mfa::generate_totp_secret();
-    let (backup_codes_plaintext, _backup_codes_hashed) = mfa::generate_backup_codes_async().await;
     
     // Generate QR code
     let qr_code = match mfa::generate_qr_code(secret.as_str(), &user.email, "Nosdesk") {
@@ -866,7 +865,8 @@ pub async fn mfa_setup(
     let response = crate::models::MfaSetupResponse {
         secret: secret.as_str().to_string(),
         qr_code,
-        backup_codes: backup_codes_plaintext,
+        // Do not generate or return backup codes until after verification completes
+        backup_codes: vec![],
     };
 
     HttpResponse::Ok().json(response)
@@ -905,10 +905,10 @@ pub async fn mfa_verify_setup(
 
     tracing::info!("MFA setup verification successful for user: {}", claims.sub);
 
-    // Return success - backup codes were already generated in setup phase
+    // Return success - backup codes will be generated after enabling
     let response = crate::models::MfaVerifySetupResponse {
         success: true,
-        backup_codes: vec![], // Empty - codes already provided in setup
+        backup_codes: vec![],
     };
 
     HttpResponse::Ok().json(response)
@@ -956,13 +956,7 @@ pub async fn mfa_enable(
         })),
     };
 
-    let backup_codes = match &request.backup_codes {
-        Some(codes) if !codes.is_empty() => codes,
-        _ => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Backup codes are required"
-        })),
-    };
+    // We'll generate backup codes on the server after successful verification
 
     // Final TOTP verification before enabling
     if !mfa::verify_totp_token(mfa_secret, &request.token) {
@@ -985,27 +979,14 @@ pub async fn mfa_enable(
         }
     };
 
-    // Hash backup codes with bcrypt (moved from setup to enable for performance)
-    let mut hashed_backup_codes = Vec::new();
-    for code in backup_codes {
-        let hashed_code = match bcrypt::hash(code, bcrypt::DEFAULT_COST) {
-            Ok(hash) => hash,
-            Err(e) => {
-                tracing::error!("Failed to hash backup code: {}", e);
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to secure backup codes"
-                }));
-            }
-        };
-        hashed_backup_codes.push(hashed_code);
-    }
+    // Generate backup codes now that verification succeeded
+    let (backup_codes_plaintext, backup_codes_hashed) = mfa::generate_backup_codes_async().await;
 
     // Use the pre-hashed backup codes from setup phase
     // Note: backup_codes from frontend are plaintext from setup, but we hash them here
     // This maintains security while keeping the API simple
     
-    let backup_codes_json = match serde_json::to_value(&hashed_backup_codes) {
+    let backup_codes_json = match serde_json::to_value(&backup_codes_hashed) {
         Ok(json) => json,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -1023,9 +1004,11 @@ pub async fn mfa_enable(
     match repository::update_user_mfa(&user_uuid, mfa_update, &mut conn) {
         Ok(_) => {
             tracing::info!("MFA enabled successfully for user: {}", user_uuid);
+            // Return plaintext backup codes so the client can display them once
             HttpResponse::Ok().json(json!({
-            "status": "success",
-            "message": "MFA enabled successfully"
+                "status": "success",
+                "message": "MFA enabled successfully",
+                "backup_codes": backup_codes_plaintext
             }))
         },
         Err(e) => {
@@ -1337,9 +1320,8 @@ pub async fn mfa_setup_login(
         }));
     }
 
-    // Generate new TOTP secret and backup codes
+    // Generate new TOTP secret (backup codes will be generated after verification)
     let secret = mfa::generate_totp_secret();
-    let (backup_codes_plaintext, _backup_codes_hashed) = mfa::generate_backup_codes_async().await;
     
     // Generate QR code
     let qr_code = match mfa::generate_qr_code(secret.as_str(), &user.email, "Nosdesk") {
@@ -1358,7 +1340,7 @@ pub async fn mfa_setup_login(
     let response = crate::models::MfaSetupResponse {
         secret: secret.as_str().to_string(),
         qr_code,
-        backup_codes: backup_codes_plaintext,
+        backup_codes: vec![],
     };
 
     HttpResponse::Ok().json(response)
@@ -1443,13 +1425,7 @@ pub async fn mfa_enable_login(
         })),
     };
 
-    let backup_codes = match &request.backup_codes {
-        Some(codes) if !codes.is_empty() => codes,
-        _ => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Backup codes are required"
-        })),
-    };
+    // Backup codes are generated after verification, not required in request
 
     // Final TOTP verification before enabling
     if !mfa::verify_totp_token(mfa_secret, &request.token) {
@@ -1472,23 +1448,10 @@ pub async fn mfa_enable_login(
         }
     };
 
-    // Hash backup codes with bcrypt
-    let mut hashed_backup_codes = Vec::new();
-    for code in backup_codes {
-        let hashed_code = match bcrypt::hash(code, bcrypt::DEFAULT_COST) {
-            Ok(hash) => hash,
-            Err(e) => {
-                tracing::error!("Failed to hash backup code: {}", e);
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to secure backup codes"
-                }));
-            }
-        };
-        hashed_backup_codes.push(hashed_code);
-    }
+    // Generate backup codes now that verification succeeded
+    let (backup_codes_plaintext, backup_codes_hashed) = mfa::generate_backup_codes_async().await;
 
-    let backup_codes_json = match serde_json::to_value(&hashed_backup_codes) {
+    let backup_codes_json = match serde_json::to_value(&backup_codes_hashed) {
         Ok(json) => json,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -1510,7 +1473,11 @@ pub async fn mfa_enable_login(
             
             // Generate JWT token and complete login
             match jwt_helpers::create_login_response(user) {
-                Ok(response) => HttpResponse::Ok().json(response),
+                Ok(mut response) => {
+                    // Attach plaintext backup codes for one-time display
+                    response.backup_codes = Some(backup_codes_plaintext);
+                    HttpResponse::Ok().json(response)
+                },
                 Err(error_response) => error_response,
             }
         },

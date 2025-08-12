@@ -922,6 +922,7 @@ pub struct LoginResponse {
     pub message: Option<String>,
     pub mfa_backup_code_used: Option<bool>,
     pub requires_backup_code_regeneration: Option<bool>,
+    pub backup_codes: Option<Vec<String>>, // Present when MFA is enabled during login setup
 }
 
 /// Request for MFA verification during login
@@ -946,7 +947,6 @@ pub struct MfaEnableLoginRequest {
     pub password: String,
     pub token: String,
     pub secret: Option<String>,
-    pub backup_codes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Debug)]
