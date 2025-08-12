@@ -23,16 +23,10 @@ pub use devices::*;
 pub use documentation::*;
 pub use linked_tickets::*;
 pub use projects::*;
-pub use sync_history::*;
 pub use tickets::*;
-pub use user_auth_identities::*;
-pub use user_emails::*;
 pub use users::*;
 
-// Security and session management
-pub use active_sessions::*;
-pub use security_events::*;
-pub use mfa_reset_tokens::*;
+// Removed unused imports: sync_history, user_auth_identities, user_emails, active_sessions, security_events, mfa_reset_tokens
 
 // Note: We've completed the transition to a fully modular structure
 // by removing the base.rs file and keeping only domain-specific modules.

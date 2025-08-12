@@ -1,10 +1,10 @@
 // models.rs
-use chrono::{NaiveDate, NaiveDateTime, DateTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime};
 use diesel::prelude::*;
 use diesel::deserialize::{self, FromSql};
 use diesel::pg::{Pg, PgValue};
 use diesel::serialize::{self, IsNull, Output, ToSql};
-use diesel::sql_types::Text;
+// Removed unused import: use diesel::sql_types::Text;
 use serde::{Deserialize, Serialize, Deserializer};
 use std::io::Write;
 use serde_json;
@@ -12,6 +12,7 @@ use uuid::Uuid;
 use anyhow;
 
 // Simple UUID serialization helpers
+#[allow(dead_code)]
 fn serialize_uuid_as_string<S>(uuid: &Uuid, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -956,6 +957,7 @@ pub struct PasswordChangeRequest {
 
 // Add the ArticleContentChunk struct for handling chunked article content
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 pub struct ArticleContentChunk {
     pub chunk_index: i32,
     pub total_chunks: usize,
@@ -1005,6 +1007,7 @@ impl FromSql<diesel::sql_types::Text, Pg> for AuthProviderType {
 
 // Environment-based AuthProvider struct (replaces database-stored providers)
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AuthProvider {
     pub id: i32,
     pub name: String,
@@ -1077,6 +1080,7 @@ pub struct OAuthRequest {
 
 // OAuth callback/exchange parameters
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct OAuthExchangeRequest {
     pub code: Option<String>,
     pub state: Option<String>,
@@ -1322,6 +1326,7 @@ pub struct CompleteTicketResponse {
 }
 
 impl CompleteTicketResponse {
+    #[allow(dead_code)]
     pub fn from_complete_ticket(
         complete_ticket: CompleteTicket,
         requester_name: String,
@@ -1484,6 +1489,7 @@ impl From<ActiveSession> for ActiveSessionResponse {
 // ===== SECURITY EVENTS MODELS =====
 
 /// Type alias for Results in security operations using anyhow for applications
+#[allow(dead_code)]
 pub type SecurityResult<T> = anyhow::Result<T>;
 
 /// Security events for MFA and authentication monitoring

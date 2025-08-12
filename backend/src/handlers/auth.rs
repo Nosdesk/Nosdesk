@@ -12,7 +12,7 @@ use crate::models::{
     UserRegistration, UserResponse, UserRole
 };
 use crate::repository;
-use crate::utils::{self, ValidationResult, ValidationError, parse_uuid};
+use crate::utils::{self, ValidationError, parse_uuid};
 use crate::utils::auth::hash_password;
 use crate::utils::mfa;
 
@@ -21,6 +21,7 @@ use crate::utils::jwt::{JwtUtils, helpers as jwt_helpers};
 
 // Admin password reset request
 #[derive(Deserialize)]
+#[allow(dead_code)]
 pub struct AdminPasswordResetRequest {
     pub user_id: i32,
     pub new_password: String,
@@ -411,6 +412,7 @@ pub async fn register(
 }
 
 // Middleware for validating JWT tokens
+#[allow(dead_code)]
 pub async fn validate_token(auth: BearerAuth, db_pool: web::Data<crate::db::Pool>) -> Result<UserResponse, actix_web::Error> {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -451,7 +453,7 @@ pub async fn change_password(
     // Validate the token and get claims
     let (claims, _user) = match JwtUtils::authenticate_request(&auth, &mut conn).await {
         Ok((claims, user)) => (claims, user),
-        Err(e) => return HttpResponse::Unauthorized().json(json!({
+        Err(_e) => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
             "message": "Invalid or expired token"
         })),
@@ -559,6 +561,7 @@ pub async fn validate_token_internal(auth: &BearerAuth, conn: &mut DbConnection)
     Ok(claims)
 }
 
+#[allow(dead_code)]
 pub async fn admin_reset_password(
     db_pool: web::Data<crate::db::Pool>,
     auth: BearerAuth,
@@ -574,7 +577,7 @@ pub async fn admin_reset_password(
     };
 
     // Validate the token and check admin permissions
-    let (claims, _user) = match jwt_helpers::require_admin(&auth, &mut conn).await {
+    let (_claims, _user) = match jwt_helpers::require_admin(&auth, &mut conn).await {
         Ok((claims, user)) => (claims, user),
         Err(_) => return HttpResponse::Forbidden().json(json!({
             "status": "error",
@@ -757,7 +760,7 @@ pub async fn setup_initial_admin(
     };
 
     // Generate UUID for the admin user
-    let user_uuid = Uuid::new_v4();
+    let _user_uuid = Uuid::new_v4();
 
     // Create the admin user using convenience function
     let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&admin_data.name, &admin_data.email);
@@ -830,7 +833,7 @@ pub async fn mfa_setup(
 
     // Generate new TOTP secret and backup codes (async hashing for security + performance)
     let secret = mfa::generate_totp_secret();
-    let (backup_codes_plaintext, backup_codes_hashed) = mfa::generate_backup_codes_async().await;
+    let (backup_codes_plaintext, _backup_codes_hashed) = mfa::generate_backup_codes_async().await;
     
     // Generate QR code
     let qr_code = match mfa::generate_qr_code(secret.as_str(), &user.email, "Nosdesk") {
@@ -1509,6 +1512,7 @@ pub async fn mfa_enable_login(
 
 /// Enhanced MFA reset with multiple verification steps (OWASP recommendations)
 /// This function demonstrates a secure MFA reset procedure
+#[allow(dead_code)]
 async fn initiate_secure_mfa_reset(
     user_uuid: &uuid::Uuid, 
     password: &str,

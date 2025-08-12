@@ -429,6 +429,7 @@ pub async fn get_documentation_pages_by_ticket_id(
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 pub struct CreateDocPageFromTicket {
     pub title: String,
     pub description: Option<String>,

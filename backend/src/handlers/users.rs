@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, Responder, Result as ActixResult};
+use actix_web::{web, HttpResponse, Responder};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
 use bcrypt::DEFAULT_COST;
 use diesel::prelude::*;
@@ -119,6 +119,7 @@ pub async fn get_paginated_users(
     }
 }
 
+#[allow(dead_code)]
 pub async fn get_user_by_id(
     id: web::Path<i32>,
     pool: web::Data<crate::db::Pool>,
@@ -231,7 +232,7 @@ pub async fn create_user(
     }
 
     // Validate role
-    let role_enum = match user_data.role {
+    let _role_enum = match user_data.role {
         crate::models::UserRole::Admin => "admin",
         crate::models::UserRole::Technician => "technician", 
         crate::models::UserRole::User => "user",
@@ -352,6 +353,7 @@ pub async fn create_user(
     }
 }
 
+#[allow(dead_code)]
 pub async fn update_user(
     path: web::Path<String>,
     user_data: web::Json<UserUpdate>,
@@ -769,6 +771,7 @@ pub async fn delete_user_auth_identity_by_uuid(
     }
 }
 
+#[allow(dead_code)]
 pub async fn update_user_profile(
     _path: web::Path<String>,
     profile_data: web::Json<UserProfileUpdate>,
@@ -1009,7 +1012,7 @@ pub async fn upload_user_image(
             }).ok();
         
         let filename = format!("{}_{}.{}", user_uuid, image_type, file_ext);
-        let filepath = format!("{}/{}", storage_path, filename);
+        let _filepath = format!("{}/{}", storage_path, filename);
         
         // Read file data
         let mut file_data = Vec::new();

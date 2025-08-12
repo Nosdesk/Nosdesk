@@ -7,14 +7,11 @@ use diesel::prelude::*;
 use uuid::Uuid;
 use reqwest;
 use urlencoding;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use tokio::fs;
-use tokio::io::AsyncWriteExt;
 use std::time::Duration;
-use image::{ImageFormat, DynamicImage};
-use tracing::{info, warn, error, debug, trace, span, Level, instrument};
+// Removed unused imports: std::path::Path, tokio::fs, tokio::io::AsyncWriteExt, image::{ImageFormat, DynamicImage}, tracing::{span, Level}
+use tracing::{info, warn, error, debug, trace, instrument};
 
 use crate::db::{Pool, DbConnection};
 use crate::handlers::auth::validate_token_internal;
@@ -25,7 +22,7 @@ use crate::repository::user_auth_identities as identity_repo;
 use crate::repository::user_emails as user_emails_repo;
 use crate::repository::sync_history as sync_history_repo;
 use crate::config_utils;
-use crate::models::{NewUser, NewUserAuthIdentity, User, UserAuthIdentity, NewSyncHistory, SyncHistoryUpdate, AuthProvider};
+use crate::models::{NewUserAuthIdentity, User, UserAuthIdentity, NewSyncHistory, SyncHistoryUpdate, AuthProvider};
 use crate::utils;
 
 // Helper function for environment-based auth providers
@@ -47,14 +44,19 @@ lazy_static::lazy_static! {
 }
 
 // Configuration constants for optimization
+#[allow(dead_code)]
 const CONCURRENT_PHOTO_DOWNLOADS: usize = 10; // Number of concurrent photo downloads
+#[allow(dead_code)]
 const CONCURRENT_USER_PROCESSING: usize = 8; // Number of concurrent user processing tasks
+#[allow(dead_code)]
 const BATCH_SIZE: usize = 50; // Number of users to process in each batch
 const USER_BATCH_SIZE: usize = 25; // Number of users to process in each user sync batch
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30); // HTTP request timeout
+#[allow(dead_code)]
 const RETRY_ATTEMPTS: usize = 3; // Number of retry attempts for failed requests
 
 // Helper function to get configurable concurrency settings
+#[allow(dead_code)]
 fn get_concurrency_config() -> (usize, usize) {
     let concurrent_downloads = std::env::var("MSGRAPH_CONCURRENT_DOWNLOADS")
         .ok()
@@ -211,6 +213,7 @@ pub struct DeviceSyncStats {
 
 // Optimized photo sync result
 #[derive(Debug)]
+#[allow(dead_code)]
 struct PhotoSyncResult {
     user_id: i32,
     user_name: String,
@@ -221,6 +224,7 @@ struct PhotoSyncResult {
 
 // User sync result for concurrent processing
 #[derive(Debug)]
+#[allow(dead_code)]
 struct UserSyncResult {
     user_principal_name: String,
     operation: String, // "created", "updated", "linked", "error"
@@ -268,6 +272,7 @@ fn get_sync_progress(session_id: &str) -> Option<SyncProgressState> {
     }
 }
 
+#[allow(dead_code)]
 fn clear_sync_progress(session_id: &str) {
     if let Ok(mut progress_map) = SYNC_PROGRESS.lock() {
         progress_map.remove(session_id);
@@ -1402,6 +1407,7 @@ async fn fetch_microsoft_graph_users_optimized(provider_id: i32) -> Result<(Vec<
 }
 
 /// Process a single Microsoft Graph user
+#[allow(dead_code)]
 async fn process_microsoft_user(
     conn: &mut DbConnection,
     provider_id: i32,
@@ -1471,6 +1477,7 @@ fn find_identity_by_provider_user_id(
 }
 
 /// Update existing user who already has Microsoft identity
+#[allow(dead_code)]
 async fn update_existing_microsoft_user(
     conn: &mut DbConnection,
     ms_user: &MicrosoftGraphUser,
@@ -1546,6 +1553,7 @@ fn update_identity_data(
 }
 
 /// Link existing local user to Microsoft identity
+#[allow(dead_code)]
 async fn link_existing_user_to_microsoft(
     conn: &mut DbConnection,
     provider_id: i32,
@@ -1609,6 +1617,7 @@ async fn link_existing_user_to_microsoft(
 }
 
 /// Create new user from Microsoft Graph data
+#[allow(dead_code)]
 async fn create_new_user_from_microsoft(
     conn: &mut DbConnection,
     provider_id: i32,

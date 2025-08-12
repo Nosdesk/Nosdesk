@@ -1,4 +1,4 @@
-use serde_json::json;
+// Removed unused import: use serde_json::json;
 use crate::handlers::sse::{SseState, TicketEvent};
 use crate::utils::jwt::JwtUtils;
 use actix_web::web;

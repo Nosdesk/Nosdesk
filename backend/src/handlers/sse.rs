@@ -88,6 +88,7 @@ pub enum TicketEvent {
 
 // Client connection info
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ClientInfo {
     pub user_id: String,
     pub connected_at: Instant,

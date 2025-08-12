@@ -145,6 +145,7 @@ pub fn get_device_by_entra_id(conn: &mut DbConnection, entra_device_id: &str) ->
         .first(conn)
 }
 
+#[allow(dead_code)]
 pub fn get_devices_by_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<Vec<Device>> {
     devices::table
         .filter(devices::primary_user_uuid.eq(user_uuid))
@@ -173,6 +174,7 @@ pub fn delete_device(conn: &mut DbConnection, device_id: i32) -> QueryResult<usi
 }
 
 // Microsoft Entra/Intune specific functions
+#[allow(dead_code)]
 pub fn upsert_device_by_intune_id(
     conn: &mut DbConnection,
     intune_device_id: &str,
@@ -198,6 +200,7 @@ pub fn upsert_device_by_intune_id(
         .get_result(conn)
 }
 
+#[allow(dead_code)]
 pub fn upsert_device_by_entra_id(
     conn: &mut DbConnection,
     entra_device_id: &str,

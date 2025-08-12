@@ -18,13 +18,13 @@ use std::env;
 use std::time::Duration;
 use tracing::{info, warn, error, debug};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
-use env_logger;
 
 async fn health_check() -> impl Responder {
     HttpResponse::Ok().body("Helpdesk API is running!")
 }
 
 // Custom rate limit error handler
+#[allow(dead_code)]
 async fn rate_limit_handler() -> impl Responder {
     HttpResponse::TooManyRequests().json(serde_json::json!({
         "status": "error",

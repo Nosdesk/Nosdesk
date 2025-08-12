@@ -7,6 +7,7 @@ use crate::models::*;
 use crate::schema::*;
 
 // Project operations
+#[allow(dead_code)]
 pub fn get_all_projects(conn: &mut DbConnection) -> QueryResult<Vec<Project>> {
     projects::table.load(conn)
 }
@@ -40,6 +41,7 @@ pub fn get_projects_with_ticket_count(conn: &mut DbConnection) -> Result<Vec<Pro
     Ok(projects_with_count)
 }
 
+#[allow(dead_code)]
 pub fn get_project_by_id(conn: &mut DbConnection, project_id: i32) -> QueryResult<Project> {
     projects::table
         .find(project_id)

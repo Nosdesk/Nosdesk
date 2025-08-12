@@ -3,7 +3,7 @@ use actix_web_httpauth::extractors::bearer::BearerAuth;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation, errors::ErrorKind};
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
-use uuid::Uuid;
+// Removed unused import: use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{Claims, User};

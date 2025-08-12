@@ -25,9 +25,8 @@ pub use microsoft_graph::*;
 pub use msgraph_integration::{get_connection_status, test_connection, sync_data, get_sync_progress_endpoint, get_active_syncs, cancel_sync_session, get_last_sync, get_entra_object_id};
 
 // Import necessary types for placeholders
-use actix_web::{web, HttpResponse, Responder, HttpRequest};
+use actix_web::{web, HttpResponse, Responder};
 use serde_json::json;
-use std::cmp::min;
 
 // Re-export validation utilities
 // pub use crate::utils::validation;
@@ -358,7 +357,4 @@ pub async fn delete_attachment(
     }
 }
 
-// Re-export collaboration handlers explicitly to make them available 
-// without having to change all import paths
-pub use self::collaboration::get_article_content;
-pub use self::collaboration::config;
+// Removed unused imports: collaboration::get_article_content, collaboration::config

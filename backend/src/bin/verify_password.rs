@@ -1,4 +1,4 @@
-use bcrypt::{hash, verify, DEFAULT_COST};
+use bcrypt::{verify, DEFAULT_COST};
 use std::env;
 
 fn main() {

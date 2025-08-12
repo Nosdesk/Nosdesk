@@ -1,6 +1,6 @@
 use actix_web::{web, HttpResponse, Responder};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
-use diesel::prelude::*;
+// Removed unused import: use diesel::prelude::*;
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 use urlencoding;
@@ -57,6 +57,7 @@ fn get_provider_by_type(provider_type: &str) -> Result<AuthProvider, diesel::res
     }
 }
 
+#[allow(dead_code)]
 fn get_provider_by_id(provider_id: i32) -> Result<AuthProvider, diesel::result::Error> {
     match provider_id {
         1 => Ok(AuthProvider::new(
@@ -171,6 +172,7 @@ pub async fn get_enabled_auth_providers(
 
 
 // Update an authentication provider (admin only) - now returns not implemented
+#[allow(dead_code)]
 pub async fn update_auth_provider(
     db_pool: web::Data<Pool>,
     auth: BearerAuth,
@@ -940,7 +942,7 @@ async fn find_or_create_oauth_user(
     
     // Create a new user
     use crate::models::{NewUser, UserRole};
-    use uuid::Uuid;
+    // Removed unused import: use uuid::Uuid;
     
     // Generate a secure random password for the user
     let random_password = format!("{:x}", rand::random::<u128>());
@@ -1198,6 +1200,7 @@ pub async fn oauth_connect(
 }
 
 // Test Microsoft Entra configuration
+#[allow(dead_code)]
 pub async fn test_microsoft_config(
     db_pool: web::Data<Pool>,
     auth: BearerAuth,
@@ -1349,6 +1352,7 @@ pub async fn test_microsoft_config(
 }
 
 // Set a provider as default (admin only)
+#[allow(dead_code)]
 pub async fn set_default_auth_provider(
     db_pool: web::Data<Pool>,
     auth: BearerAuth,

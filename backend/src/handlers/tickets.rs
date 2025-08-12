@@ -1,6 +1,6 @@
 use actix_web::{web, HttpResponse, Responder, Result as ActixResult};
 use chrono::Local;
-use diesel::prelude::*;
+// Removed unused import: use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
@@ -253,7 +253,7 @@ pub async fn update_ticket(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    let mut new_ticket = ticket.into_inner();
+    let new_ticket = ticket.into_inner();
 
     // Validate assignee role if assignee is set
     if let Some(assignee_uuid) = new_ticket.assignee_uuid {

@@ -512,6 +512,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
     Ok(ticket)
 }
 
+#[allow(dead_code)]
 pub fn create_complete_ticket(conn: &mut DbConnection, ticket_json: TicketJson) -> Result<Ticket, diesel::result::Error> {
     // Parse status
     let status = match ticket_json.status.as_str() {
@@ -650,6 +651,7 @@ pub fn get_devices_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryR
         .load(conn)
 }
 
+#[allow(dead_code)]
 pub fn get_tickets_for_device(conn: &mut DbConnection, device_id: i32) -> QueryResult<Vec<Ticket>> {
     ticket_devices::table
         .inner_join(tickets::table)
