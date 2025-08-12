@@ -1,12 +1,14 @@
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::QueryResult;
 use uuid::Uuid;
+use std::sync::Arc;
 
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
+use crate::utils::storage::Storage;
 
 // Get all tickets
 pub fn get_all_tickets(conn: &mut DbConnection) -> QueryResult<Vec<Ticket>> {
@@ -328,6 +330,87 @@ pub fn update_ticket_partial(conn: &mut DbConnection, ticket_id: i32, ticket_upd
         .get_result(conn)
 }
 
+/// Comprehensive ticket deletion that cleans up all associated data and files
+pub async fn delete_ticket_with_cleanup(
+    conn: &mut DbConnection, 
+    ticket_id: i32,
+    storage: Arc<dyn Storage>
+) -> Result<usize, Error> {
+    // Start a transaction to ensure all operations succeed or fail together
+    conn.transaction(|conn| {
+        // 1. First, get all comments for this ticket to find attachments
+        let comments = crate::repository::comments::get_comments_by_ticket_id(conn, ticket_id)?;
+        
+        // 2. Collect all attachment paths for file cleanup
+        let mut attachment_paths = Vec::new();
+        for comment in &comments {
+            let attachments = crate::repository::comments::get_attachments_by_comment_id(conn, comment.id)?;
+            for attachment in &attachments {
+                // Extract the storage path from the URL
+                if let Some(storage_path) = extract_storage_path_from_url(&attachment.url) {
+                    attachment_paths.push(storage_path);
+                }
+                // Delete the attachment record
+                diesel::delete(crate::schema::attachments::table.find(attachment.id)).execute(conn)?;
+            }
+        }
+        
+        // 3. Delete all comments for this ticket
+        diesel::delete(crate::schema::comments::table.filter(crate::schema::comments::ticket_id.eq(ticket_id))).execute(conn)?;
+        
+        // 4. Delete linked tickets relationships
+        diesel::delete(crate::schema::linked_tickets::table.filter(
+            crate::schema::linked_tickets::ticket_id.eq(ticket_id)
+                .or(crate::schema::linked_tickets::linked_ticket_id.eq(ticket_id))
+        )).execute(conn)?;
+        
+        // 5. Delete ticket-device relationships
+        diesel::delete(crate::schema::ticket_devices::table.filter(
+            crate::schema::ticket_devices::ticket_id.eq(ticket_id)
+        )).execute(conn)?;
+        
+        // 6. Delete ticket-project relationships
+        diesel::delete(crate::schema::project_tickets::table.filter(
+            crate::schema::project_tickets::ticket_id.eq(ticket_id)
+        )).execute(conn)?;
+        
+        // 7. Delete article content
+        diesel::delete(crate::schema::article_contents::table.filter(
+            crate::schema::article_contents::ticket_id.eq(ticket_id)
+        )).execute(conn)?;
+        
+        // 8. Finally, delete the ticket itself
+        let result = diesel::delete(tickets::table.find(ticket_id)).execute(conn)?;
+        
+        // Return the attachment paths for file cleanup (outside transaction)
+        Ok((result, attachment_paths))
+    }).map(|(result, attachment_paths)| {
+        // Clean up files after successful database transaction
+        // This is done outside the transaction to avoid blocking the database
+        tokio::spawn(async move {
+            for path in attachment_paths {
+                if let Err(e) = storage.delete_file(&path).await {
+                    eprintln!("Warning: Failed to delete file {}: {:?}", path, e);
+                }
+            }
+        });
+        result
+    })
+}
+
+/// Extract storage path from attachment URL
+/// Converts /uploads/tickets/123/filename.ext to tickets/123/filename.ext
+fn extract_storage_path_from_url(url: &str) -> Option<String> {
+    if url.starts_with("/uploads/tickets/") {
+        Some(url.trim_start_matches("/uploads/").to_string())
+    } else if url.starts_with("/uploads/temp/") {
+        Some(url.trim_start_matches("/uploads/").to_string())
+    } else {
+        None
+    }
+}
+
+/// Simple ticket deletion (kept for backward compatibility)
 pub fn delete_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usize> {
     diesel::delete(tickets::table.find(ticket_id)).execute(conn)
 }

@@ -27,6 +27,7 @@ pub use msgraph_integration::{get_connection_status, test_connection, sync_data,
 // Import necessary types for placeholders
 use actix_web::{web, HttpResponse, Responder};
 use serde_json::json;
+use std::sync::Arc;
 
 // Re-export validation utilities
 // pub use crate::utils::validation;
@@ -81,6 +82,7 @@ pub async fn add_comment_to_ticket(
     comment_data: web::Json<crate::models::NewCommentWithAttachments>,
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     auth: actix_web_httpauth::extractors::bearer::BearerAuth,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
@@ -145,43 +147,50 @@ pub async fn add_comment_to_ticket(
                             // Update the attachment with the comment_id
                             attachment.comment_id = Some(comment.id);
                             
-                            // Get the file path from the URL
+                            // Get the file path from the URL and use storage abstraction
                             let file_path = attachment.url.trim_start_matches("/uploads/temp/");
-                            let old_path = format!("uploads/temp/{}", file_path);
-                            let new_dir = format!("uploads/tickets/{}", ticket_id);
-                            let new_path = format!("{}/{}", new_dir, file_path);
+                            let old_storage_path = format!("temp/{}", file_path);
+                            let new_storage_path = format!("tickets/{}/{}", ticket_id, file_path);
                             
-                            println!("Moving file from {} to {}", old_path, new_path);
+                            println!("Moving file from {} to {} using storage abstraction", old_storage_path, new_storage_path);
                             
-                            // Create the ticket directory if it doesn't exist
-                            if !std::path::Path::new(&new_dir).exists() {
-                                match std::fs::create_dir_all(&new_dir) {
-                                    Ok(_) => println!("Created ticket directory: {}", new_dir),
-                                    Err(e) => println!("Error creating ticket directory: {}", e),
-                                }
-                            }
-                            
-                            // Move the file from temp to the ticket directory
-                            match std::fs::rename(&old_path, &new_path) {
+                            // Use storage abstraction to move the file
+                            match storage.move_file(&old_storage_path, &new_storage_path).await {
                                 Ok(_) => {
-                                    println!("Moved file from {} to {}", old_path, new_path);
-                                    // Update the URL to point to the new location
+                                    println!("Moved file from {} to {} using storage", old_storage_path, new_storage_path);
+                                    // Update the URL to point to the new location (keep /uploads prefix for frontend compatibility)
                                     attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
                                 },
                                 Err(e) => {
-                                    println!("Error moving file: {}", e);
-                                    // If move fails, try copying instead
-                                    match std::fs::copy(&old_path, &new_path) {
-                                        Ok(_) => {
-                                            println!("Copied file from {} to {}", old_path, new_path);
-                                            attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
+                                    println!("Error moving file with storage: {:?}", e);
+                                    // Fallback to filesystem operations if storage fails
+                                    let old_fs_path = format!("uploads/{}", old_storage_path);
+                                    let new_fs_path = format!("uploads/{}", new_storage_path);
+                                    let new_fs_dir = format!("uploads/tickets/{}", ticket_id);
+                                    
+                                    // Create directory if it doesn't exist
+                                    if !std::path::Path::new(&new_fs_dir).exists() {
+                                        if let Err(e) = std::fs::create_dir_all(&new_fs_dir) {
+                                            println!("Error creating ticket directory: {}", e);
+                                        }
+                                    }
+                                    
+                                    // Try to move the file
+                                    if let Err(e) = std::fs::rename(&old_fs_path, &new_fs_path) {
+                                        println!("Error moving file: {}", e);
+                                        // If move fails, try copying instead
+                                        if let Err(e) = std::fs::copy(&old_fs_path, &new_fs_path) {
+                                            println!("Error copying file: {}", e);
+                                        } else {
                                             // Try to delete the original file
-                                            if let Err(e) = std::fs::remove_file(&old_path) {
+                                            if let Err(e) = std::fs::remove_file(&old_fs_path) {
                                                 println!("Warning: Failed to remove original file after copy: {}", e);
                                             }
-                                        },
-                                        Err(e) => println!("Error copying file: {}", e),
+                                        }
                                     }
+                                    
+                                    // Update the URL
+                                    attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
                                 }
                             }
                             
@@ -294,7 +303,8 @@ pub async fn add_attachment_to_comment(_: web::Path<i32>, _: web::Data<crate::db
 
 pub async fn delete_attachment(
     path: web::Path<i32>,
-    pool: web::Data<crate::db::Pool>
+    pool: web::Data<crate::db::Pool>,
+    storage: Arc<dyn crate::utils::storage::Storage>
 ) -> impl Responder {
     let attachment_id = path.into_inner();
     println!("Deleting attachment with ID: {}", attachment_id);
@@ -312,25 +322,21 @@ pub async fn delete_attachment(
         Ok(attachment) => {
             println!("Found attachment: {:?}", attachment);
             
-            // Extract the file path
-            let file_path = if attachment.url.starts_with("/uploads/temp/") {
-                format!("uploads/temp/{}", attachment.url.trim_start_matches("/uploads/temp/"))
+            // Extract the storage path from the URL
+            let storage_path = if attachment.url.starts_with("/uploads/temp/") {
+                attachment.url.trim_start_matches("/uploads/").to_string()
             } else if attachment.url.starts_with("/uploads/tickets/") {
-                format!("uploads{}", attachment.url)
+                attachment.url.trim_start_matches("/uploads/").to_string()
             } else {
-                format!("uploads{}", attachment.url)
+                attachment.url.trim_start_matches("/uploads/").to_string()
             };
             
-            println!("Attempting to delete file at: {}", file_path);
+            println!("Attempting to delete file from storage at: {}", storage_path);
             
-            // Try to delete the file
-            if std::path::Path::new(&file_path).exists() {
-                match std::fs::remove_file(&file_path) {
-                    Ok(_) => println!("Successfully deleted file: {}", file_path),
-                    Err(e) => println!("Warning: Failed to delete file: {}", e),
-                }
-            } else {
-                println!("File does not exist: {}", file_path);
+            // Delete the file using the storage abstraction
+            match storage.delete_file(&storage_path).await {
+                Ok(_) => println!("Successfully deleted file from storage: {}", storage_path),
+                Err(e) => println!("Warning: Failed to delete file from storage: {:?}", e),
             }
             
             // Delete the database record
@@ -353,6 +359,41 @@ pub async fn delete_attachment(
         Err(e) => {
             println!("Error finding attachment {}: {}", attachment_id, e);
             HttpResponse::NotFound().json(json!({"error": "Attachment not found"}))
+        }
+    }
+}
+
+// Unified file serving handlers using storage abstraction
+pub async fn serve_public_file(
+    path: web::Path<String>,
+    req: actix_web::HttpRequest,
+    storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
+) -> impl Responder {
+    let file_path = path.into_inner();
+    
+    // For user avatars, serve directly without authentication
+    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
+        Ok(response) => response,
+        Err(e) => {
+            eprintln!("Error serving public file {}: {:?}", file_path, e);
+            HttpResponse::NotFound().finish()
+        }
+    }
+}
+
+pub async fn serve_protected_file(
+    path: web::Path<String>,
+    req: actix_web::HttpRequest,
+    storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
+) -> impl Responder {
+    let file_path = path.into_inner();
+    
+    // For protected files, serve using storage abstraction
+    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
+        Ok(response) => response,
+        Err(e) => {
+            eprintln!("Error serving protected file {}: {:?}", file_path, e);
+            HttpResponse::NotFound().finish()
         }
     }
 }

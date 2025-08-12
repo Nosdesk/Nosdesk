@@ -8,8 +8,8 @@ mod utils;
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, dev::ServiceRequest, Error};
-use actix_files::Files;
 use actix_web_httpauth::middleware::HttpAuthentication;
+use actix_files::Files;
 use actix_web_httpauth::extractors::bearer::BearerAuth;
 use actix_limitation::{Limiter, RateLimiter};
 use dotenv::dotenv;
@@ -35,18 +35,36 @@ async fn rate_limit_handler() -> impl Responder {
     }))
 }
 
-/// Serve the SPA index.html for all non-API routes
+/// Serve the SPA index.html for all non-API routes (SPA routing)
+/// This follows Actix best practices for SPA applications
 async fn serve_spa(req: HttpRequest) -> impl Responder {
-    // Check if the request path looks like a static asset (has a file extension)
+    // Check if this is a static asset request (has file extension and not HTML)
     let path = req.path();
+    
+    // If it's a static asset request, return 404 to let the Files service handle it
     if path.contains('.') && !path.ends_with(".html") {
-        // This looks like a static asset request, return 404
         return HttpResponse::NotFound().finish();
     }
     
-    // For all other routes, serve index.html
+    // For all other routes (SPA routes), serve index.html
     match actix_files::NamedFile::open_async("./public/index.html").await {
-        Ok(file) => file.into_response(&req),
+        Ok(file) => {
+            // Set proper headers for SPA routing
+            let mut response = file.into_response(&req);
+            response.headers_mut().insert(
+                "Cache-Control".parse().unwrap(),
+                "no-cache, no-store, must-revalidate".parse().unwrap()
+            );
+            response.headers_mut().insert(
+                "Pragma".parse().unwrap(),
+                "no-cache".parse().unwrap()
+            );
+            response.headers_mut().insert(
+                "Expires".parse().unwrap(),
+                "0".parse().unwrap()
+            );
+            response
+        },
         Err(_) => {
             // Fallback if index.html doesn't exist
             HttpResponse::NotFound()
@@ -377,13 +395,15 @@ async fn main() -> std::io::Result<()> {
 
     // Create uploads directory structure if it doesn't exist
     info!("Setting up file upload directories...");
-    let directories = ["uploads", "uploads/temp", "uploads/tickets"];
+    let uploads_dir = "/app/uploads";
+    let directories = ["", "temp", "tickets", "users", "users/avatars", "users/banners", "users/thumbs"];
     for dir in directories.iter() {
-        match std::fs::create_dir_all(dir) {
-            Ok(_) => debug!("✅ Directory ensured: {}", dir),
+        let full_path = format!("{}/{}", uploads_dir, dir);
+        match std::fs::create_dir_all(&full_path) {
+            Ok(_) => debug!("✅ Directory ensured: {}", full_path),
             Err(e) => {
-                error!("❌ Failed to create directory {}: {}", dir, e);
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create directory: {}", dir)));
+                error!("❌ Failed to create directory {}: {}", full_path, e);
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create directory: {}", full_path)));
             }
         }
     }
@@ -412,7 +432,7 @@ async fn main() -> std::io::Result<()> {
     info!("🗂️  Initializing storage backend...");
     let storage_config = get_storage_config();
     let storage = create_storage(storage_config);
-    let storage_data = web::Data::new(storage);
+    let storage_data = web::Data::new(storage.clone());
     
     info!("🚀 Starting HTTP server...");
     
@@ -461,11 +481,8 @@ async fn main() -> std::io::Result<()> {
             // === PUBLIC ROUTES (NO AUTHENTICATION REQUIRED) ===
             .route("/health", web::get().to(health_check))
             
-            // Public access for user avatars (no auth required)
-            .service(
-                web::scope("/uploads/users")
-                    .service(Files::new("", "./uploads/users").show_files_listing())
-            )
+            // Unified file serving using storage abstraction (no auth required for user avatars)
+            .route("/uploads/users/{path:.*}", web::get().to(handlers::serve_public_file))
             
             // Public WebSocket for collaboration (auth handled in WebSocket handler)
             .service(
@@ -573,7 +590,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets/{ticket_id}/comments", web::post().to(handlers::add_comment_to_ticket))
                     .route("/comments/{id}", web::delete().to(handlers::delete_comment))
                     .route("/comments/{comment_id}/attachments", web::post().to(handlers::add_attachment_to_comment))
-                    .route("/attachments/{id}", web::delete().to(handlers::delete_attachment))
+                    .route("/attachments/{id}", web::delete().to({
+                        let storage = storage.clone();
+                        move |path, pool| {
+                            handlers::delete_attachment(path, pool, storage.clone())
+                        }
+                    }))
                     
                     // ===== PROJECT MANAGEMENT =====
                     .route("/projects", web::get().to(handlers::get_all_projects))
@@ -634,22 +656,23 @@ async fn main() -> std::io::Result<()> {
                     .route("/documentation/{id}", web::delete().to(handlers::delete_documentation_page))
             )
             
-            // === PROTECTED UPLOADS (AUTHENTICATION REQUIRED) ===
-            .service(
-                web::scope("/uploads")
-                    .wrap(HttpAuthentication::bearer(validator))
-                    .service(Files::new("/tickets", "./uploads/tickets").show_files_listing())
-                    .service(Files::new("/temp", "./uploads/temp").show_files_listing())
-            )
+            // Unified file serving using storage abstraction (protected routes)
+            .route("/uploads/tickets/{path:.*}", web::get().to(handlers::serve_protected_file).wrap(HttpAuthentication::bearer(validator)))
+            .route("/uploads/temp/{path:.*}", web::get().to(handlers::serve_protected_file).wrap(HttpAuthentication::bearer(validator)))
             
             // === FRONTEND STATIC FILES (CATCH-ALL) ===
             // Serve static frontend files - this must be LAST to not interfere with API routes
+            .service(
+                Files::new("/assets", "./public/assets")
+                    .show_files_listing()
+            )
             .service(
                 Files::new("/", "./public")
                     .index_file("index.html")
                     .use_last_modified(true)
                     .use_etag(true)
             )
+            // SPA fallback - serve index.html for all non-API routes
             .default_service(web::route().to(serve_spa))
     })
     .bind((host, port))?

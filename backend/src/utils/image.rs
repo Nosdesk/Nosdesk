@@ -53,23 +53,27 @@ pub async fn process_avatar_image(
         }
     };
     
-    // Create avatar directory
-    let avatar_dir = "uploads/users/avatars";
-    if let Err(e) = fs::create_dir_all(avatar_dir).await {
-        return Err(format!("Failed to create avatar directory: {}", e));
-    }
+    // Create avatar directory using storage abstraction
+    let avatar_dir = "users/avatars";
     
     // Clean up any existing avatars for this user
     cleanup_old_user_avatars(avatar_dir, &user_uuid).await?;
     
-    // Save the processed avatar
+    // Save the processed avatar using storage abstraction
     let avatar_filename = format!("{}_avatar.webp", user_uuid);
     let avatar_path = format!("{}/{}", avatar_dir, avatar_filename);
     
-    match fs::write(&avatar_path, &webp_bytes).await {
+    // For now, use direct filesystem access since storage abstraction needs to be passed in
+    // TODO: Refactor to accept storage instance as parameter
+    let full_avatar_path = format!("uploads/{}", avatar_path);
+    if let Err(e) = fs::create_dir_all(format!("uploads/{}", avatar_dir)).await {
+        return Err(format!("Failed to create avatar directory: {}", e));
+    }
+    
+    match fs::write(&full_avatar_path, &webp_bytes).await {
         Ok(_) => {
-            println!("Successfully saved processed avatar to: {}", avatar_path);
-            let avatar_url = format!("/{}", avatar_path);
+            println!("Successfully saved processed avatar to: {}", full_avatar_path);
+            let avatar_url = format!("/uploads/{}", avatar_path);
             Ok(Some(avatar_url))
         },
         Err(e) => {
@@ -138,22 +142,24 @@ pub async fn generate_user_avatar_thumbnail(
     };
     
     // Create thumbnail directory
-    let thumb_dir = "uploads/users/thumbs";
-    if let Err(e) = fs::create_dir_all(thumb_dir).await {
+    let thumb_dir = "users/thumbs";
+    let full_thumb_dir = format!("uploads/{}", thumb_dir);
+    if let Err(e) = fs::create_dir_all(&full_thumb_dir).await {
         return Err(format!("Failed to create thumbnail directory: {}", e));
     }
     
     // Clean up any existing thumbnails for this user
-    cleanup_old_user_thumbnails(thumb_dir, &user_uuid).await?;
+    cleanup_old_user_thumbnails(&full_thumb_dir, &user_uuid).await?;
     
     // Save the thumbnail
     let thumb_filename = format!("{}_thumb.webp", user_uuid);
     let thumb_path = format!("{}/{}", thumb_dir, thumb_filename);
+    let full_thumb_path = format!("uploads/{}", thumb_path);
     
-    match fs::write(&thumb_path, &webp_bytes).await {
+    match fs::write(&full_thumb_path, &webp_bytes).await {
         Ok(_) => {
-            println!("Successfully saved thumbnail to: {}", thumb_path);
-            let thumb_url = format!("/{}", thumb_path);
+            println!("Successfully saved thumbnail to: {}", full_thumb_path);
+            let thumb_url = format!("/uploads/{}", thumb_path);
             Ok(Some(thumb_url))
         },
         Err(e) => {
@@ -281,22 +287,24 @@ pub async fn process_banner_image(
     };
     
     // Create banner directory
-    let banner_dir = "uploads/users/banners";
-    if let Err(e) = fs::create_dir_all(banner_dir).await {
+    let banner_dir = "users/banners";
+    let full_banner_dir = format!("uploads/{}", banner_dir);
+    if let Err(e) = fs::create_dir_all(&full_banner_dir).await {
         return Err(format!("Failed to create banner directory: {}", e));
     }
     
     // Clean up any existing banners for this user
-    cleanup_old_user_banners(banner_dir, &user_uuid).await?;
+    cleanup_old_user_banners(&full_banner_dir, &user_uuid).await?;
     
     // Save the processed banner
     let banner_filename = format!("{}_banner.webp", user_uuid);
     let banner_path = format!("{}/{}", banner_dir, banner_filename);
+    let full_banner_path = format!("uploads/{}", banner_path);
     
-    match fs::write(&banner_path, &webp_bytes).await {
+    match fs::write(&full_banner_path, &webp_bytes).await {
         Ok(_) => {
-            println!("Successfully saved processed banner to: {}", banner_path);
-            let banner_url = format!("/{}", banner_path);
+            println!("Successfully saved processed banner to: {}", full_banner_path);
+            let banner_url = format!("/uploads/{}", banner_path);
             Ok(Some(banner_url))
         },
         Err(e) => {

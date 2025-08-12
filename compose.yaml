@@ -94,12 +94,9 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - RUST_ENV=development
-      - RUST_LOG=${RUST_LOG:-debug}
-      - HOST=${HOST:-0.0.0.0}
-      - PORT=${PORT:-8080}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080} # Frontend served by backend
-      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - RUST_LOG=info
+      - CARGO_MESSAGE_FORMAT=short
+
     profiles: ["dev"]
 
   # Frontend Build Service - Development (optional for live reloading)

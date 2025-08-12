@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::io;
 use std::path::Path;
 use uuid::Uuid;
+use actix_web::{HttpResponse, HttpRequest};
+use actix_web::http::header::{CONTENT_TYPE, CACHE_CONTROL, ACCEPT_RANGES};
 
 /// Storage configuration for different backends
 #[derive(Debug, Clone)]
@@ -261,5 +263,96 @@ pub fn get_storage_config() -> StorageConfig {
     // Later, check env vars like STORAGE_TYPE, S3_BUCKET, etc.
     StorageConfig::Local {
         base_path: "/app/uploads".to_string(), // Use Docker volume mount point
+    }
+}
+
+/// Centralized file serving function that works with any storage backend
+pub async fn serve_file_from_storage(
+    storage: Arc<dyn Storage>,
+    path: &str,
+    req: &HttpRequest,
+) -> Result<HttpResponse, actix_web::Error> {
+    // Extract filename from path for content type detection
+    let filename = path.split('/').last().unwrap_or("file");
+    
+    // Get file data from storage
+    let file_data = storage.get_file(path).await.map_err(|e| {
+        eprintln!("Failed to get file from storage: {:?}", e);
+        actix_web::error::ErrorNotFound("File not found")
+    })?;
+    
+    // Determine content type based on file extension
+    let content_type = get_content_type(filename);
+    
+    // Build response with proper headers
+    let mut response_builder = HttpResponse::Ok();
+    
+    response_builder
+        .insert_header((CONTENT_TYPE, content_type))
+        .insert_header((ACCEPT_RANGES, "bytes"))
+        .insert_header((CACHE_CONTROL, "public, max-age=3600"))
+        .insert_header(("Access-Control-Allow-Origin", "*"))
+        .insert_header(("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS"))
+        .insert_header(("Access-Control-Allow-Headers", "Range, Content-Type, Authorization"))
+        .insert_header(("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges"));
+    
+    // Handle range requests for PDF.js and other file types
+    let range_header = req.headers().get("Range");
+            if let Some(range_value) = range_header {
+            if let Ok(range_str) = range_value.to_str() {
+            if range_str.starts_with("bytes=") {
+                let range_spec = &range_str[6..]; // Remove "bytes="
+                
+                // Parse range like "0-1023" or "1024-"
+                if let Some((start_str, end_str)) = range_spec.split_once('-') {
+                    let start = start_str.parse::<usize>().unwrap_or(0);
+                    let end = if end_str.is_empty() {
+                        file_data.len() - 1
+                    } else {
+                        end_str.parse::<usize>().unwrap_or(file_data.len() - 1).min(file_data.len() - 1)
+                    };
+                    
+                    if start <= end && start < file_data.len() {
+                        let content_length = end - start + 1;
+                        let range_data = file_data[start..=end].to_vec();
+                        
+                        // Return partial content response
+                        return Ok(response_builder
+                            .status(actix_web::http::StatusCode::PARTIAL_CONTENT)
+                            .insert_header(("Content-Length", content_length.to_string()))
+                            .insert_header(("Content-Range", format!("bytes {}-{}/{}", start, end, file_data.len())))
+                            .body(range_data));
+                    }
+                }
+            }
+        }
+    }
+    
+    // Full file response (no range request or invalid range)
+    Ok(response_builder
+        .insert_header(("Content-Length", file_data.len().to_string()))
+        .body(file_data))
+}
+
+/// Helper function to determine content type based on file extension
+fn get_content_type(filename: &str) -> &'static str {
+    let extension = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+    match extension.as_str() {
+        "pdf" => "application/pdf",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" => "audio/ogg",
+        "txt" => "text/plain",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "zip" => "application/zip",
+        _ => "application/octet-stream",
     }
 }

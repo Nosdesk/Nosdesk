@@ -271,9 +271,10 @@ pub async fn update_ticket(
     }
 }
 
-// Delete a ticket
+// Delete a ticket with comprehensive cleanup
 pub async fn delete_ticket(
     pool: web::Data<crate::db::Pool>,
+    storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     path: web::Path<i32>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
@@ -282,7 +283,8 @@ pub async fn delete_ticket(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    match repository::delete_ticket(&mut conn, ticket_id) {
+    // Use the comprehensive deletion function that cleans up files
+    match repository::delete_ticket_with_cleanup(&mut conn, ticket_id, storage.as_ref().clone()).await {
         Ok(0) => HttpResponse::NotFound().json("Ticket not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(_) => HttpResponse::InternalServerError().json("Failed to delete ticket"),

@@ -956,8 +956,8 @@ pub async fn upload_user_image(
     
     // Determine the upload directory based on image type
     let storage_path = match image_type.as_str() {
-        "avatar" => "uploads/users/avatars",
-        "banner" => "uploads/users/banners",
+        "avatar" => "users/avatars",
+        "banner" => "users/banners",
         _ => {
             return HttpResponse::BadRequest().json(json!({
                 "status": "error",
@@ -965,17 +965,9 @@ pub async fn upload_user_image(
             }));
         }
     };
-    
-    // Ensure the directory exists
-    if !Path::new(storage_path).exists() {
-        if let Err(e) = fs::create_dir_all(storage_path) {
-            eprintln!("Failed to create directory: {:?}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to create storage directory"
-            }));
-        }
-    }
+
+    // Ensure the directory exists using storage abstraction
+    let full_storage_path = format!("{}/{}", storage_path, user_uuid);
     
     // Process the uploaded image
     while let Ok(Some(mut field)) = payload.try_next().await {
@@ -1012,7 +1004,7 @@ pub async fn upload_user_image(
             }).ok();
         
         let filename = format!("{}_{}.{}", user_uuid, image_type, file_ext);
-        let _filepath = format!("{}/{}", storage_path, filename);
+        let file_path = format!("{}/{}", storage_path, filename);
         
         // Read file data
         let mut file_data = Vec::new();
@@ -1048,7 +1040,7 @@ pub async fn upload_user_image(
                             None
                         },
                         Err(e) => {
-                            eprintln!("Error generating thumbnail for user {}: {}", user_uuid, e);
+                            eprintln!("Error generating thumbnail: {}", e);
                             None
                         }
                     };
@@ -1056,42 +1048,23 @@ pub async fn upload_user_image(
                     (avatar_url, thumb_url)
                 },
                 Ok(None) => {
-                    eprintln!("Failed to process avatar for user {}", user_uuid);
                     return HttpResponse::InternalServerError().json(json!({
                         "status": "error",
                         "message": "Failed to process avatar image"
                     }));
                 },
                 Err(e) => {
-                    eprintln!("Error processing avatar for user {}: {}", user_uuid, e);
+                    eprintln!("Error processing avatar: {}", e);
                     return HttpResponse::InternalServerError().json(json!({
                         "status": "error",
-                        "message": "Error processing avatar image"
+                        "message": format!("Failed to process avatar image: {}", e)
                     }));
                 }
             }
         } else {
-            // For banners, process and resize to WebP format with banner dimensions (1200x400 max)
-            match crate::utils::image::process_banner_image(&file_data, &user_uuid, 1200, 400).await {
-                Ok(Some(banner_url)) => {
-                    println!("Successfully processed banner for user {}: {}", user_uuid, banner_url);
-                    (banner_url, None) // Banners don't need thumbnails
-                },
-                Ok(None) => {
-                    eprintln!("Failed to process banner for user {}", user_uuid);
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Failed to process banner image"
-                    }));
-                },
-                Err(e) => {
-                    eprintln!("Error processing banner for user {}: {}", user_uuid, e);
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Error processing banner image"
-                    }));
-                }
-            }
+            // For banners, just save the original image
+            let banner_url = format!("/uploads/{}", file_path);
+            (banner_url, None)
         };
         
         // Update the user record with the new image URL
