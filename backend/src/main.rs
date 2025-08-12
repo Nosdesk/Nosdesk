@@ -16,7 +16,6 @@ use dotenv::dotenv;
 use serde_json;
 use std::env;
 use std::time::Duration;
-use std::sync::Arc;
 use tracing::{info, warn, error, debug};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use utils::storage::{get_storage_config, create_storage};
@@ -412,7 +411,7 @@ async fn main() -> std::io::Result<()> {
     // Initialize storage backend
     info!("🗂️  Initializing storage backend...");
     let storage_config = get_storage_config();
-    let storage = Arc::new(create_storage(storage_config));
+    let storage = create_storage(storage_config);
     let storage_data = web::Data::new(storage);
     
     info!("🚀 Starting HTTP server...");

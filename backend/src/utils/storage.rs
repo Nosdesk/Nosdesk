@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::sync::Arc;
 use std::io;
 use std::path::Path;
 use uuid::Uuid;
@@ -238,10 +239,11 @@ impl Storage for S3Storage {
 }
 
 /// Storage factory to create storage instances based on configuration
-pub fn create_storage(config: StorageConfig) -> Box<dyn Storage> {
+pub fn create_storage(config: StorageConfig) -> Arc<dyn Storage> {
     match config {
         StorageConfig::Local { base_path } => {
-            Box::new(LocalStorage::new(base_path, "/uploads".to_string()))
+            // In Docker, uploads are mounted at /app/uploads via the backend_uploads volume
+            Arc::new(LocalStorage::new(base_path, "/uploads".to_string()))
         }
         StorageConfig::S3 {
             bucket,
@@ -249,7 +251,7 @@ pub fn create_storage(config: StorageConfig) -> Box<dyn Storage> {
             access_key,
             secret_key,
             endpoint,
-        } => Box::new(S3Storage::new(bucket, region, access_key, secret_key, endpoint)),
+        } => Arc::new(S3Storage::new(bucket, region, access_key, secret_key, endpoint)),
     }
 }
 
