@@ -78,6 +78,8 @@ onUnmounted(() => {
 
 // Simple error handler - just refresh user data if needed
 const handleImageError = async () => {
+  console.error('UserAvatar: Image failed to load for user:', props.name, 'URL:', effectiveAvatarUrl.value)
+  
   if (isUuid(props.name)) {
     console.log('UserAvatar: Image failed to load, refreshing user data for:', props.name)
     
@@ -296,8 +298,8 @@ defineExpose({
         class="w-full h-full rounded-full"
         object-fit="cover"
         loading="lazy"
-        @load="imageLoaded = true"
-        @error="imageLoaded = false; handleImageError()"
+        @load="() => { console.log('UserAvatar: Image loaded successfully for:', props.name); imageLoaded = true }"
+        @error="() => { console.error('UserAvatar: Image load error for:', props.name, 'URL:', effectiveAvatarUrl); imageLoaded = false; handleImageError() }"
       />
       
       <!-- Fallback initials (hidden when image loads) -->

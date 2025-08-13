@@ -363,7 +363,7 @@ pub async fn delete_attachment(
     }
 }
 
-// Unified file serving handlers using storage abstraction
+// Secure public file serving - ONLY for user avatars and thumbs
 pub async fn serve_public_file(
     path: web::Path<String>,
     req: actix_web::HttpRequest,
@@ -371,11 +371,20 @@ pub async fn serve_public_file(
 ) -> impl Responder {
     let file_path = path.into_inner();
     
-    // For user avatars, serve directly without authentication
-    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
+    // Security: Only allow access to user avatar files
+    // The route pattern ensures this is only called for /users/avatars/ or /users/thumbs/
+    let storage_path = if file_path.starts_with("users/avatars/") || file_path.starts_with("users/thumbs/") {
+        file_path
+    } else {
+        eprintln!("Security violation: Attempted to access non-avatar file: {}", file_path);
+        return HttpResponse::Forbidden().finish();
+    };
+    
+    // Serve the file using storage abstraction
+    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &storage_path, &req).await {
         Ok(response) => response,
         Err(e) => {
-            eprintln!("Error serving public file {}: {:?}", file_path, e);
+            eprintln!("Error serving public file {}: {:?}", storage_path, e);
             HttpResponse::NotFound().finish()
         }
     }

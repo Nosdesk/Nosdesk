@@ -350,6 +350,12 @@ export const useDataStore = defineStore('data', () => {
       baseUrl = cached.data.avatar_url || null
     }
     
+    // Ensure the URL starts with /uploads/ for proper routing
+    if (baseUrl && !baseUrl.startsWith('/uploads/')) {
+      console.warn(`UserAvatar: Invalid avatar URL format for ${uuid}:`, baseUrl)
+      return null
+    }
+    
     // Add cache busting parameter using updated_at timestamp
     if (baseUrl && cached.data.updated_at) {
       const timestamp = new Date(cached.data.updated_at).getTime()

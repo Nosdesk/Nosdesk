@@ -245,6 +245,7 @@ pub fn create_storage(config: StorageConfig) -> Arc<dyn Storage> {
     match config {
         StorageConfig::Local { base_path } => {
             // In Docker, uploads are mounted at /app/uploads via the backend_uploads volume
+            // The public_url_base should match the route pattern used in main.rs: /uploads/users/{path:.*}
             Arc::new(LocalStorage::new(base_path, "/uploads".to_string()))
         }
         StorageConfig::S3 {
