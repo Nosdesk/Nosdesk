@@ -107,41 +107,70 @@ pub struct SseState {
 
 impl SseState {
     pub fn new() -> Self {
-        let (sender, _) = broadcast::channel(1000); // Buffer up to 1000 events
+        // Increase buffer size to handle bursts of events (like comment creation with attachments)
+        let (sender, _) = broadcast::channel(5000);
+        if cfg!(debug_assertions) {
+            println!("SSE: Created broadcast channel with capacity 5000");
+        }
         Self {
             sender,
             clients: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    pub fn broadcast_event(&self, event: TicketEvent) {
-        if let Err(e) = self.sender.send(event.clone()) {
-            eprintln!("Failed to broadcast SSE event: {:?}", e);
-        } else {
-            // Log the event (only in debug mode)
-            if cfg!(debug_assertions) {
-                println!("Broadcasted SSE event: {:?}", event);
+    pub async fn broadcast_event(&self, event: TicketEvent) {
+        // Add retry logic for broadcast failures with exponential backoff
+        let mut retry_count = 0;
+        const MAX_RETRIES: u32 = 3;
+        let mut delay = std::time::Duration::from_millis(10);
+        
+        while retry_count < MAX_RETRIES {
+            match self.sender.send(event.clone()) {
+                Ok(_) => {
+                    if cfg!(debug_assertions) {
+                        println!("SSE: Event broadcasted: {:?}", event);
+                    }
+                    return;
+                }
+                Err(e) => {
+                    retry_count += 1;
+                    if retry_count >= MAX_RETRIES {
+                        eprintln!("SSE: Failed to broadcast event after {} retries: {:?}", MAX_RETRIES, e);
+                    } else {
+                        // Use async sleep instead of blocking sleep
+                        tokio::time::sleep(delay).await;
+                        delay *= 2;
+                    }
+                }
             }
         }
     }
 
     pub fn add_client(&self, client_id: String, user_id: String) {
         let mut clients = self.clients.lock().unwrap();
-        clients.insert(client_id, ClientInfo {
-            user_id,
+        clients.insert(client_id.clone(), ClientInfo {
+            user_id: user_id.clone(),
             connected_at: Instant::now(),
             last_ping: Instant::now(),
         });
+        if cfg!(debug_assertions) {
+            println!("SSE: Added client {} for user {} (total: {})", 
+                    client_id, user_id, clients.len());
+        }
     }
 
     pub fn remove_client(&self, client_id: &str) {
         let mut clients = self.clients.lock().unwrap();
-        clients.remove(client_id);
+        let was_removed = clients.remove(client_id).is_some();
+        if cfg!(debug_assertions) {
+            if was_removed {
+                println!("SSE: Removed client {} (total: {})", client_id, clients.len());
+            }
+        }
     }
 
     pub fn get_client_count(&self) -> usize {
-        let clients = self.clients.lock().unwrap();
-        clients.len()
+        self.clients.lock().unwrap().len()
     }
 }
 
@@ -159,8 +188,12 @@ impl SseStream {
         client_id: String,
         state: web::Data<SseState>,
     ) -> Self {
-        let mut heartbeat_interval = interval(Duration::from_secs(30)); // Send heartbeat every 30 seconds
+        let mut heartbeat_interval = interval(Duration::from_secs(30));
         heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        if cfg!(debug_assertions) {
+            println!("SSE: Creating stream for client {}", client_id);
+        }
 
         Self {
             receiver,
@@ -187,7 +220,7 @@ impl Stream for SseStream {
             return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(sse_data))));
         }
 
-        // Check for new events
+        // Check for new events with better error handling
         match self.receiver.try_recv() {
             Ok(event) => {
                 let event_type = match &event {
@@ -213,16 +246,23 @@ impl Stream for SseStream {
             }
             Err(broadcast::error::TryRecvError::Empty) => {
                 // No new events, return Pending
-                cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            Err(broadcast::error::TryRecvError::Lagged(_)) => {
+            Err(broadcast::error::TryRecvError::Lagged(count)) => {
                 // Client is lagging behind, send a reconnect message
-                let reconnect_data = format!("event: reconnect\ndata: {}\n\n", json!({"reason": "lagged"}));
+                if cfg!(debug_assertions) {
+                    println!("SSE: Client {} lagging by {} messages, sending reconnect", 
+                            self.client_id, count);
+                }
+                let reconnect_data = format!("event: reconnect\ndata: {}\n\n", 
+                    json!({"reason": "lagged", "count": count}));
                 Poll::Ready(Some(Ok(actix_web::web::Bytes::from(reconnect_data))))
             }
             Err(broadcast::error::TryRecvError::Closed) => {
-                // Channel is closed, end the stream
+                // Channel is closed, end the stream gracefully
+                if cfg!(debug_assertions) {
+                    println!("SSE: Broadcast channel closed for client {}", self.client_id);
+                }
                 Poll::Ready(None)
             }
         }
@@ -231,10 +271,10 @@ impl Stream for SseStream {
 
 impl Drop for SseStream {
     fn drop(&mut self) {
-        self.state.remove_client(&self.client_id);
         if cfg!(debug_assertions) {
-            println!("SSE client {} disconnected", self.client_id);
+            println!("SSE: Stream dropping for client {}", self.client_id);
         }
+        self.state.remove_client(&self.client_id);
     }
 }
 
@@ -245,53 +285,68 @@ pub async fn ticket_events_stream(
     state: web::Data<SseState>,
     query: web::Query<TicketEventsQuery>,
 ) -> ActixResult<HttpResponse> {
+    if cfg!(debug_assertions) {
+        println!("SSE: Endpoint called for ticket events");
+    }
+    
     // Get database connection
     let mut conn = match pool.get() {
         Ok(conn) => conn,
-        Err(_) => return Ok(HttpResponse::InternalServerError().json("Database connection error")),
+        Err(_) => {
+            if cfg!(debug_assertions) {
+                println!("SSE: Database connection error");
+            }
+            return Ok(HttpResponse::InternalServerError().json("Database connection error"));
+        }
     };
 
-    // EventSource doesn't support custom headers, so we must use query parameters
-    // The SSE token should be a short-lived token obtained from /api/events/token
+    // Validate SSE token
     let token = match query.sse_token.as_ref() {
         Some(t) => t.as_str(),
-        None => return Ok(HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Missing SSE token. Use /api/events/token to get a secure token."
-        }))),
+        None => {
+            if cfg!(debug_assertions) {
+                println!("SSE: Missing SSE token");
+            }
+            return Ok(HttpResponse::Unauthorized().json(json!({
+                "status": "error",
+                "message": "Missing SSE token. Use /api/events/token to get a secure token."
+            })));
+        }
     };
 
     // Validate the SSE token and get user info
     use crate::utils::jwt::JwtUtils;
     let (user_info, _user) = match JwtUtils::validate_token_with_user_check(token, &mut conn).await {
         Ok((claims, user)) => (claims, user),
-        Err(e) => return Ok(e.into()),
+        Err(e) => {
+            if cfg!(debug_assertions) {
+                println!("SSE: Token validation failed: {:?}", e);
+            }
+            return Ok(e.into());
+        }
     };
 
-    // Generate a unique client ID
+    // Generate a unique client ID and create stream
     let client_id = Uuid::new_v4().to_string();
-
-    // Add client to the state
     state.add_client(client_id.clone(), user_info.sub.clone());
-
-    // Create a receiver for this client
     let receiver = state.sender.subscribe();
-
-    // Create the SSE stream
     let stream = SseStream::new(receiver, client_id.clone(), state.clone());
 
     if cfg!(debug_assertions) {
-        println!("SSE client {} connected for user {} (ticket_id: {:?})", 
+        println!("SSE: Client {} connected for user {} (ticket_id: {:?})", 
                 client_id, user_info.sub, query.ticket_id);
     }
 
-    // Return SSE response
+    // Return SSE response with improved headers for better connection stability
     Ok(HttpResponse::Ok()
         .append_header(("Content-Type", "text/event-stream"))
-        .append_header(("Cache-Control", "no-cache"))
+        .append_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
+        .append_header(("Pragma", "no-cache"))
+        .append_header(("Expires", "0"))
         .append_header(("Connection", "keep-alive"))
         .append_header(("Access-Control-Allow-Origin", "*"))
         .append_header(("Access-Control-Allow-Headers", "Authorization"))
+        .append_header(("X-Accel-Buffering", "no")) // Disable nginx buffering if present
         .streaming(stream))
 }
 
@@ -301,152 +356,18 @@ pub struct TicketEventsQuery {
     sse_token: Option<String>,
 }
 
-// Helper function to broadcast ticket update events
-pub fn broadcast_ticket_updated(
-    state: &web::Data<SseState>,
-    ticket_id: i32,
-    field: &str,
-    value: serde_json::Value,
-    updated_by: &str,
-) {
-    let event = TicketEvent::TicketUpdated {
-        ticket_id,
-        field: field.to_string(),
-        value,
-        updated_by: updated_by.to_string(),
-        timestamp: chrono::Utc::now(),
-    };
-    state.broadcast_event(event);
-}
-
-// Helper function to broadcast comment events
-pub fn broadcast_comment_added(
-    state: &web::Data<SseState>,
-    ticket_id: i32,
-    comment: serde_json::Value,
-) {
-    let event = TicketEvent::CommentAdded {
-        ticket_id,
-        comment,
-        timestamp: chrono::Utc::now(),
-    };
-    state.broadcast_event(event);
-}
-
-pub fn broadcast_comment_deleted(
-    state: &web::Data<SseState>,
-    ticket_id: i32,
-    comment_id: i32,
-) {
-    let event = TicketEvent::CommentDeleted {
-        ticket_id,
-        comment_id,
-        timestamp: chrono::Utc::now(),
-    };
-    state.broadcast_event(event);
-}
-
-// Helper function to broadcast device events
-pub fn broadcast_device_linked(
-    state: &web::Data<SseState>,
-    ticket_id: i32,
-    device_id: i32,
-) {
-    let event = TicketEvent::DeviceLinked {
-        ticket_id,
-        device_id,
-        timestamp: chrono::Utc::now(),
-    };
-    state.broadcast_event(event);
-}
-
-pub fn broadcast_device_unlinked(
-    state: &web::Data<SseState>,
-    ticket_id: i32,
-    device_id: i32,
-) {
-    let event = TicketEvent::DeviceUnlinked {
-        ticket_id,
-        device_id,
-        timestamp: chrono::Utc::now(),
-    };
-    state.broadcast_event(event);
-}
-
-pub fn broadcast_device_updated(
-    state: &web::Data<SseState>,
-    device_id: i32,
-    field: &str,
-    value: serde_json::Value,
-    updated_by: &str,
-) {
-    let event = TicketEvent::DeviceUpdated {
-        device_id,
-        field: field.to_string(),
-        value,
-        updated_by: updated_by.to_string(),
-        timestamp: chrono::Utc::now(),
-    };
-    state.broadcast_event(event);
-}
-
-// Helper function to broadcast ticket linking events
-pub fn broadcast_ticket_linked(
-    state: &web::Data<SseState>,
-    ticket_id: i32,
-    linked_ticket_id: i32,
-) {
-    let event = TicketEvent::TicketLinked {
-        ticket_id,
-        linked_ticket_id,
-        timestamp: chrono::Utc::now(),
-    };
-    state.broadcast_event(event);
-}
-
-pub fn broadcast_ticket_unlinked(
-    state: &web::Data<SseState>,
-    ticket_id: i32,
-    linked_ticket_id: i32,
-) {
-    let event = TicketEvent::TicketUnlinked {
-        ticket_id,
-        linked_ticket_id,
-        timestamp: chrono::Utc::now(),
-    };
-    state.broadcast_event(event);
-}
-
-// Helper function to broadcast project assignment events
-pub fn broadcast_project_assigned(
-    state: &web::Data<SseState>,
-    ticket_id: i32,
-    project_id: i32,
-) {
-    let event = TicketEvent::ProjectAssigned {
-        ticket_id,
-        project_id,
-        timestamp: chrono::Utc::now(),
-    };
-    state.broadcast_event(event);
-}
-
-pub fn broadcast_project_unassigned(
-    state: &web::Data<SseState>,
-    ticket_id: i32,
-    project_id: i32,
-) {
-    let event = TicketEvent::ProjectUnassigned {
-        ticket_id,
-        project_id,
-        timestamp: chrono::Utc::now(),
-    };
-    state.broadcast_event(event);
-}
-
 // SSE status endpoint
 pub async fn sse_status(state: web::Data<SseState>) -> impl actix_web::Responder {
+    if cfg!(debug_assertions) {
+        println!("SSE: Status endpoint called");
+    }
+    
     let client_count = state.get_client_count();
+    
+    if cfg!(debug_assertions) {
+        println!("SSE: Status endpoint returning {} connected clients", client_count);
+    }
+    
     HttpResponse::Ok().json(json!({
         "connected_clients": client_count,
         "status": "running"
@@ -458,24 +379,51 @@ pub async fn get_sse_token(
     auth: actix_web_httpauth::extractors::bearer::BearerAuth,
     pool: web::Data<crate::db::Pool>,
 ) -> impl actix_web::Responder {
+    if cfg!(debug_assertions) {
+        println!("SSE: Token endpoint called");
+    }
+    
     let mut conn = match pool.get() {
         Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+        Err(_) => {
+            if cfg!(debug_assertions) {
+                println!("SSE: Database connection error in token endpoint");
+            }
+            return HttpResponse::InternalServerError().json("Database connection error");
+        }
     };
 
     // Use the established authentication pattern
     use crate::utils::jwt::helpers as jwt_helpers;
     let (user_info, _user) = match jwt_helpers::require_role(&auth, &mut conn, "user").await {
         Ok((claims, user)) => (claims, user),
-        Err(e) => return e.into(),
+        Err(e) => {
+            if cfg!(debug_assertions) {
+                println!("SSE: Token validation failed in token endpoint: {:?}", e);
+            }
+            return e.into();
+        }
     };
+
+    if cfg!(debug_assertions) {
+        println!("SSE: Token validation successful for user {}", user_info.sub);
+    }
 
     // Generate a short-lived SSE-specific token (valid for 1 hour)
     use crate::utils::jwt::JwtUtils;
     let sse_token = match JwtUtils::create_sse_token(&user_info.sub, &user_info.role) {
         Ok(token) => token,
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to create SSE token"),
+        Err(e) => {
+            if cfg!(debug_assertions) {
+                println!("SSE: Failed to create SSE token for user {}: {:?}", user_info.sub, e);
+            }
+            return HttpResponse::InternalServerError().json("Failed to create SSE token");
+        }
     };
+
+    if cfg!(debug_assertions) {
+        println!("SSE: Returning SSE token for user {}", user_info.sub);
+    }
 
     HttpResponse::Ok().json(json!({
         "sse_token": sse_token,

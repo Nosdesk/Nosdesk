@@ -69,8 +69,21 @@ const projectDetails = ref<Project | null>(null);
 const recentTicketsStore = useRecentTicketsStore();
 const titleManager = useTitleManager();
 const authStore = useAuthStore();
+
 // Setup SSE
-const { addEventListener, removeEventListener, isConnected, connect, disconnect } = useSSE();
+const { addEventListener, removeEventListener, isConnected, connect, disconnect, triggerReconnection } = useSSE();
+
+// Remove redundant SSE reconnection logic since it's now handled by the service
+// The service handles reconnection automatically with exponential backoff
+
+// Watch SSE connection status for UI updates only
+watch(isConnected, (connected) => {
+  if (connected) {
+    console.log('SSE: Connection established');
+  } else {
+    console.log('SSE: Connection lost - service will handle reconnection automatically');
+  }
+});
 
 // Add users state
 const users = ref<User[]>([]);
@@ -565,6 +578,16 @@ const updateDeviceField = async (deviceId: number, field: string, newValue: stri
   try {
     console.log(`🔧 TicketView: Updating device ${deviceId} field ${field} from "${oldValue}" to "${newValue}" (Local Update)`);
     
+    // Optimistically update the local state for immediate UI feedback
+    const updatedDevices = [...ticket.value.devices];
+    (updatedDevices[deviceIndex] as any)[field] = newValue;
+    
+    // Update the ticket state immutably
+    ticket.value = {
+      ...ticket.value,
+      devices: updatedDevices
+    };
+    
     // Send the update to the backend
     const updateData = {
       [field]: newValue
@@ -573,19 +596,25 @@ const updateDeviceField = async (deviceId: number, field: string, newValue: stri
     const updatedDevice = await deviceService.updateDevice(deviceId, updateData);
     console.log(`🔧 TicketView: Device field updated successfully via API:`, updatedDevice);
     
-    // Update local state with the response from server
-    // The SSE event will also update this, but we update immediately for responsiveness
-    if (ticket.value.devices) {
-      ticket.value.devices[deviceIndex] = { ...ticket.value.devices[deviceIndex], ...updatedDevice };
-      
-      // Force reactivity update by creating a new array reference
-      ticket.value.devices = [...ticket.value.devices];
-      
-      console.log(`🔧 TicketView: Local state updated for device ${deviceId}`);
-    }
+    // The SSE event will also update this, but we've already updated locally for responsiveness
+    console.log(`🔧 TicketView: Local state updated for device ${deviceId}`);
     
   } catch (err) {
     console.error(`🔧 TicketView: Error updating device field:`, err);
+    
+    // Revert the optimistic update on error
+    if (ticket.value.devices) {
+      const revertedDevices = [...ticket.value.devices];
+      (revertedDevices[deviceIndex] as any)[field] = oldValue;
+      
+      ticket.value = {
+        ...ticket.value,
+        devices: revertedDevices
+      };
+      
+      console.log(`🔧 TicketView: Reverted local state for device ${deviceId} due to API error`);
+    }
+    
     // Show error notification if needed
     // Optionally revert the UI state here if needed
   }
@@ -662,15 +691,29 @@ const handleAddDevice = async (device: Device) => {
       await ticketService.addDeviceToTicket(ticket.value.id, device.id);
       console.log(`Device ${device.id} added to ticket ${ticket.value.id}`);
       
+      // Optimistically add the device to local state for immediate UI feedback
+      const transformedDevice = transformDevice(device);
+      if (ticket.value.devices) {
+        ticket.value = {
+          ...ticket.value,
+          devices: [...ticket.value.devices, transformedDevice]
+        };
+      } else {
+        ticket.value = {
+          ...ticket.value,
+          devices: [transformedDevice]
+        };
+      }
+      console.log(`✅ TicketView: Device ${device.id} added to local state`);
+      
       // Close the modal
       showDeviceModal.value = false;
-      
-      // Refresh the ticket data to get the updated device information
-      await refreshTicket();
       
       console.log(`Successfully added device ${device.id} to ticket ${ticket.value.id}`);
     } catch (err) {
       console.error(`Error adding device to ticket:`, err);
+      // If there's an error, refresh the ticket data to ensure consistency
+      await refreshTicket();
     }
   }
 };
@@ -684,12 +727,21 @@ const removeDevice = async (deviceId: number) => {
       await ticketService.removeDeviceFromTicket(ticket.value.id, deviceId);
       console.log(`Device ${deviceId} removed from ticket ${ticket.value.id}`);
       
-      // Refresh the ticket data to get the updated device information
-      await refreshTicket();
+      // Optimistically remove the device from local state for immediate UI feedback
+      if (ticket.value.devices) {
+        const updatedDevices = ticket.value.devices.filter(d => d.id !== deviceId);
+        ticket.value = {
+          ...ticket.value,
+          devices: updatedDevices
+        };
+        console.log(`✅ TicketView: Device ${deviceId} removed from local state`);
+      }
       
       console.log(`Successfully removed device ${deviceId} from ticket ${ticket.value.id}`);
     } catch (err) {
       console.error(`Error removing device from ticket:`, err);
+      // If there's an error, refresh the ticket data to ensure consistency
+      await refreshTicket();
     }
   }
 };
@@ -893,10 +945,129 @@ const handleAddComment = async (data: { content: string; user_uuid: string; file
     
     console.log('Comment created successfully, response:', newComment);
     
-    // Comment will be added to local state via SSE event - no need for local addition
+    // Optimistically add the comment to local state for immediate UI feedback
+    if (ticket.value.commentsAndAttachments) {
+      const optimisticComment: CommentWithAttachments = {
+        id: newComment.id,
+        content: newComment.content,
+        user_uuid: newComment.user_uuid,
+        createdAt: newComment.created_at,
+        created_at: newComment.created_at,
+        ticket_id: newComment.ticket_id,
+        attachments: newComment.attachments || [],
+        user: newComment.user
+      };
+      
+      // Add to the beginning of the array (newest first) - use immutable update
+      ticket.value.commentsAndAttachments = [optimisticComment, ...ticket.value.commentsAndAttachments];
+      
+      // Mark comment as recently added for visual highlighting
+      recentlyAddedCommentIds.value.add(newComment.id);
+      setTimeout(() => {
+        recentlyAddedCommentIds.value.delete(newComment.id);
+      }, 3000); // Highlight for 3 seconds
+      
+      // Show a brief visual indicator
+      showDeviceUpdateIndicator.value = true;
+      setTimeout(() => {
+        showDeviceUpdateIndicator.value = false;
+      }, 2000);
+    }
+    
   } catch (error) {
     console.error("Error adding comment:", error);
-    // If there's an error, refresh the ticket data
+    // If there's an error, refresh the ticket data to ensure consistency
+    await refreshTicket();
+  }
+};
+
+// Add function to handle deleting attachments
+const handleDeleteAttachment = async (data: { commentId: number; attachmentIndex: number }) => {
+  if (!ticket.value) return;
+  
+  try {
+    console.log('Deleting attachment:', data);
+    
+    // Get the comment and attachment
+    const comment = ticket.value.commentsAndAttachments?.find(c => c.id === data.commentId);
+    if (!comment || !comment.attachments || comment.attachments.length <= data.attachmentIndex) {
+      console.error('Attachment not found');
+      return;
+    }
+    
+    const attachment = comment.attachments[data.attachmentIndex];
+    console.log('Attachment details:', attachment);
+    
+    // Check if the attachment has an ID (from the backend)
+    if (attachment.id) {
+      // Optimistically remove the attachment from local state for immediate UI feedback
+      if (ticket.value.commentsAndAttachments) {
+        const commentIndex = ticket.value.commentsAndAttachments.findIndex(c => c.id === data.commentId);
+        if (commentIndex !== -1) {
+          // Create a new array with the attachment removed
+          const updatedAttachments = [...comment.attachments];
+          updatedAttachments.splice(data.attachmentIndex, 1);
+          
+          // Create a new comment with updated attachments
+          const updatedComment = { ...comment, attachments: updatedAttachments };
+          
+          // Create a new comments array with the updated comment
+          const updatedComments = [...ticket.value.commentsAndAttachments];
+          updatedComments[commentIndex] = updatedComment;
+          
+          // Update the ticket state immutably
+          ticket.value = { ...ticket.value, commentsAndAttachments: updatedComments };
+        }
+      }
+      
+      // Delete the attachment from the backend
+      await ticketService.deleteAttachment(attachment.id);
+      
+      console.log('Attachment deleted successfully');
+      
+      // Check if this is the last attachment and the comment is empty
+      if (comment.attachments.length === 1 && (!comment.content || comment.content.trim() === '')) {
+        console.log('Last attachment deleted from empty comment. Deleting comment:', comment.id);
+        await handleDeleteComment(comment.id);
+      }
+    } else {
+      console.error('Cannot delete attachment without ID. Attachment:', attachment);
+    }
+  } catch (err) {
+    console.error('Error deleting attachment:', err);
+    // If there's an error, refresh the ticket data to ensure consistency
+    await refreshTicket();
+  }
+};
+
+// Add function to handle deleting comments
+const handleDeleteComment = async (commentId: number) => {
+  if (!ticket.value) return;
+  
+  try {
+    console.log('Deleting comment:', commentId);
+    
+    // Optimistically remove the comment from local state for immediate UI feedback
+    if (ticket.value.commentsAndAttachments) {
+      // Create a new array without the deleted comment
+      const updatedComments = ticket.value.commentsAndAttachments.filter(c => c.id !== commentId);
+      ticket.value = { ...ticket.value, commentsAndAttachments: updatedComments };
+    }
+    
+    // Delete the comment from the backend
+    await ticketService.deleteComment(commentId);
+    
+    console.log('Comment deleted successfully');
+    
+    // Show a brief visual indicator
+    showDeviceUpdateIndicator.value = true;
+    setTimeout(() => {
+      showDeviceUpdateIndicator.value = false;
+    }, 2000);
+    
+  } catch (err) {
+    console.error('Error deleting comment:', err);
+    // If there's an error, refresh the ticket data to ensure consistency
     await refreshTicket();
   }
 };
@@ -921,66 +1092,6 @@ const deleteTicket = async () => {
     router.push('/tickets');
   } catch (err) {
     console.error(`Error deleting ticket #${ticketId}:`, err);
-    // You could show an error notification here
-  }
-};
-
-// Add function to handle deleting attachments
-const handleDeleteAttachment = async (data: { commentId: number; attachmentIndex: number }) => {
-  if (!ticket.value) return;
-  
-  try {
-    console.log('Deleting attachment:', data);
-    
-    // Get the comment and attachment
-    const comment = ticket.value.commentsAndAttachments?.find(c => c.id === data.commentId);
-    if (!comment || !comment.attachments || comment.attachments.length <= data.attachmentIndex) {
-      console.error('Attachment not found');
-      return;
-    }
-    
-    const attachment = comment.attachments[data.attachmentIndex];
-    console.log('Attachment details:', attachment);
-    
-    // Check if the attachment has an ID (from the backend)
-    if (attachment.id) {
-      // Delete the attachment from the backend
-      await ticketService.deleteAttachment(attachment.id);
-      
-      console.log('Attachment deleted successfully');
-      
-      // Check if this is the last attachment and the comment is empty
-      if (comment.attachments.length === 1 && (!comment.content || comment.content.trim() === '')) {
-        console.log('Last attachment deleted from empty comment. Deleting comment:', comment.id);
-        await handleDeleteComment(comment.id);
-      } else {
-        // Just refresh the ticket data to ensure it's up to date
-        await refreshTicket();
-      }
-    } else {
-      console.error('Cannot delete attachment without ID. Attachment:', attachment);
-    }
-  } catch (err) {
-    console.error('Error deleting attachment:', err);
-    // You could show an error notification here
-  }
-};
-
-// Add function to handle deleting comments
-const handleDeleteComment = async (commentId: number) => {
-  if (!ticket.value) return;
-  
-  try {
-    console.log('Deleting comment:', commentId);
-    
-    // Delete the comment from the backend
-    await ticketService.deleteComment(commentId);
-    
-    console.log('Comment deleted successfully');
-    
-    // Comment will be removed from local state via SSE event - no need for refresh
-  } catch (err) {
-    console.error('Error deleting comment:', err);
     // You could show an error notification here
   }
 };
@@ -1089,9 +1200,8 @@ const handleCommentAdded = (data: any) => {
     return;
   }
   
-  // Add the new comment to the local state
+  // Check if comment already exists to avoid duplicates
   if (ticket.value.commentsAndAttachments) {
-    // Check if comment already exists to avoid duplicates
     const existingComment = ticket.value.commentsAndAttachments.find(c => c.id === commentData.id);
     if (existingComment) {
       console.log('💬 TicketView: Comment already exists, ignoring duplicate');
@@ -1099,7 +1209,7 @@ const handleCommentAdded = (data: any) => {
     }
     
     // Convert the comment to the expected format
-    const newComment = {
+    const newComment: CommentWithAttachments = {
       id: commentData.id,
       content: commentData.content,
       user_uuid: commentData.user_uuid || commentData.user_id,
@@ -1112,10 +1222,13 @@ const handleCommentAdded = (data: any) => {
     
     console.log('💬 TicketView: Adding new comment to local state:', newComment);
     
-    // Add to the beginning of the array (newest first)
-    ticket.value.commentsAndAttachments.unshift(newComment);
+    // Use immutable update to add to the beginning of the array (newest first)
+    ticket.value = {
+      ...ticket.value,
+      commentsAndAttachments: [newComment, ...ticket.value.commentsAndAttachments]
+    };
     
-    console.log(`✅ TicketView: Added comment from ${newComment.user?.name || newComment.user_uuid} (${ticket.value.commentsAndAttachments.length} total comments)`);
+    console.log(`✅ TicketView: Added comment from ${newComment.user?.name || newComment.user_uuid} (${ticket.value.commentsAndAttachments?.length} total comments)`);
     
     // Mark comment as recently added for visual highlighting
     recentlyAddedCommentIds.value.add(newComment.id);
@@ -1131,7 +1244,7 @@ const handleCommentAdded = (data: any) => {
     
   } else {
     console.log('💬 TicketView: No commentsAndAttachments array, initializing...');
-    ticket.value.commentsAndAttachments = [{
+    const newComment: CommentWithAttachments = {
       id: commentData.id,
       content: commentData.content,
       user_uuid: commentData.user_uuid || commentData.user_id,
@@ -1140,7 +1253,12 @@ const handleCommentAdded = (data: any) => {
       ticket_id: commentData.ticket_id,
       attachments: commentData.attachments || [],
       user: commentData.user
-    }];
+    };
+    
+    ticket.value = {
+      ...ticket.value,
+      commentsAndAttachments: [newComment]
+    };
   }
 };
 
@@ -1163,17 +1281,24 @@ const handleCommentDeleted = (data: any) => {
   
   console.log('💬 TicketView: Comment deleted event matches current ticket:', eventData);
   
-  // Remove the comment from the local state
+  // Remove the comment from the local state using immutable update
   if (ticket.value.commentsAndAttachments) {
     const originalLength = ticket.value.commentsAndAttachments.length;
     const commentToDelete = ticket.value.commentsAndAttachments.find(c => c.id === eventData.comment_id);
     
     if (commentToDelete) {
-      ticket.value.commentsAndAttachments = ticket.value.commentsAndAttachments.filter(
+      // Create a new array without the deleted comment
+      const updatedComments = ticket.value.commentsAndAttachments.filter(
         comment => comment.id !== eventData.comment_id
       );
       
-      console.log(`✅ TicketView: Removed comment from ${commentToDelete.user?.name || commentToDelete.user_uuid} (${ticket.value.commentsAndAttachments.length} comments remaining)`);
+      // Update the ticket state immutably
+      ticket.value = {
+        ...ticket.value,
+        commentsAndAttachments: updatedComments
+      };
+      
+      console.log(`✅ TicketView: Removed comment from ${commentToDelete.user?.name || commentToDelete.user_uuid} (${ticket.value.commentsAndAttachments?.length} comments remaining)`);
       
       // Show a brief visual indicator
       showDeviceUpdateIndicator.value = true;
@@ -1218,13 +1343,21 @@ const handleDeviceLinked = async (data: any) => {
     if (ticket.value.devices) {
       const existingDevice = ticket.value.devices.find(d => d.id === eventData.device_id);
       if (!existingDevice) {
-        ticket.value.devices.push(device);
-        console.log(`✅ TicketView: Added device ${device.hostname || device.name} to ticket (${ticket.value.devices.length} total devices)`);
+        // Use immutable update to add the device
+        ticket.value = {
+          ...ticket.value,
+          devices: [...ticket.value.devices, device]
+        };
+        console.log(`✅ TicketView: Added device ${device.hostname || device.name} to ticket (${ticket.value.devices?.length} total devices)`);
       } else {
         console.log(`🔗 TicketView: Device ${device.hostname || device.name} already in ticket`);
       }
     } else {
-      ticket.value.devices = [device];
+      // Initialize devices array with the new device
+      ticket.value = {
+        ...ticket.value,
+        devices: [device]
+      };
       console.log(`✅ TicketView: Added first device ${device.hostname || device.name} to ticket`);
     }
     
@@ -1261,13 +1394,22 @@ const handleDeviceUnlinked = (data: any) => {
   
   console.log('🔗 TicketView: Device unlinked event matches current ticket:', eventData);
   
-  // Remove the device from the ticket's device list
+  // Remove the device from the ticket's device list using immutable update
   if (ticket.value.devices) {
     const deviceIndex = ticket.value.devices.findIndex(d => d.id === eventData.device_id);
     if (deviceIndex !== -1) {
       const removedDevice = ticket.value.devices[deviceIndex];
-      ticket.value.devices.splice(deviceIndex, 1);
-      console.log(`✅ TicketView: Removed device ${removedDevice.hostname || removedDevice.name} from ticket (${ticket.value.devices.length} devices remaining)`);
+      
+      // Create a new devices array without the removed device
+      const updatedDevices = ticket.value.devices.filter(d => d.id !== eventData.device_id);
+      
+      // Update the ticket state immutably
+      ticket.value = {
+        ...ticket.value,
+        devices: updatedDevices
+      };
+      
+      console.log(`✅ TicketView: Removed device ${removedDevice.hostname || removedDevice.name} from ticket (${ticket.value.devices?.length} devices remaining)`);
       
       // Show a brief visual indicator
       showDeviceUpdateIndicator.value = true;
@@ -1309,15 +1451,21 @@ const handleDeviceUpdated = (data: any) => {
     });
     
     if (deviceIndex !== -1) {
-      // Update the specific field that was changed
+      // Update the specific field that was changed using immutable update
       if (eventData.field && eventData.value !== undefined) {
         const oldValue = (ticket.value.devices[deviceIndex] as any)[eventData.field];
-        (ticket.value.devices[deviceIndex] as any)[eventData.field] = eventData.value;
+        
+        // Create a new devices array with the updated device
+        const updatedDevices = [...ticket.value.devices];
+        (updatedDevices[deviceIndex] as any)[eventData.field] = eventData.value;
+        
+        // Update the ticket state immutably
+        ticket.value = {
+          ...ticket.value,
+          devices: updatedDevices
+        };
         
         console.log(`✅ SSE: Updated device ${eventData.device_id} field ${eventData.field} from "${oldValue}" to "${eventData.value}"`);
-        
-        // Force reactivity update by creating a new array reference
-        ticket.value.devices = [...ticket.value.devices];
         
         // Show a brief visual indicator
         showDeviceUpdateIndicator.value = true;
@@ -1338,6 +1486,16 @@ const handleDeviceUpdated = (data: any) => {
 // Add visual indicator for real-time updates
 const showDeviceUpdateIndicator = ref(false);
 const recentlyAddedCommentIds = ref<Set<number>>(new Set());
+
+// Computed property for comments to ensure proper reactivity
+const comments = computed(() => {
+  return ticket.value?.commentsAndAttachments || [];
+});
+
+// Computed property for devices to ensure proper reactivity
+const devices = computed(() => {
+  return ticket.value?.devices || [];
+});
 
 const handleTicketLinked = async (data: any) => {
   console.log('🎫 TicketView: handleTicketLinked called with data:', data);
@@ -1594,7 +1752,7 @@ const handleProjectUnassigned = (data: any) => {
             
             <!-- Device section -->
             <template v-if="ticket">
-              <div v-if="ticket.devices?.length" class="flex flex-col gap-2">
+              <div v-if="devices.length" class="flex flex-col gap-2">
                 <div class="flex items-center justify-between">
                   <h3 class="text-sm font-medium text-slate-300">Devices</h3>
                   <a 
@@ -1607,7 +1765,7 @@ const handleProjectUnassigned = (data: any) => {
                 </div>
                 <div class="flex flex-col gap-2">
                   <DeviceDetails
-                    v-for="device in ticket.devices"
+                    v-for="device in devices"
                     :key="device.id"
                     :device="device"
                     @remove="() => removeDevice(device.id)"
@@ -1628,7 +1786,7 @@ const handleProjectUnassigned = (data: any) => {
               <DeviceSelectionModal
                 :show="showDeviceModal"
                 :current-ticket-id="ticket?.id"
-                :existing-device-ids="ticket?.devices?.map(d => d.id) || []"
+                :existing-device-ids="devices.map(d => d.id)"
                 :requester-uuid="ticket?.requester"
                 @close="showDeviceModal = false"
                 @select-device="handleAddDevice"
@@ -1716,7 +1874,7 @@ const handleProjectUnassigned = (data: any) => {
           <!-- Comments and Attachments -->
           <div class="comments-area rounded-xl">
             <CommentsAndAttachments 
-              :comments="ticket?.commentsAndAttachments || []"
+              :comments="comments"
               :current-user="authStore.user?.uuid || 'Unknown User'"
               :recently-added-comment-ids="recentlyAddedCommentIds"
               @add-comment="handleAddComment"

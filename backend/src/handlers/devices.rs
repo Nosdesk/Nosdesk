@@ -292,13 +292,14 @@ pub async fn update_device(
                 for (key, value) in update_obj {
                     if !value.is_null() {
                         println!("Broadcasting SSE event for device {}: {} = {:?}", device_id, key, value);
-                        crate::handlers::sse::broadcast_device_updated(
+                        use crate::utils::sse::SseBroadcaster;
+                        SseBroadcaster::broadcast_device_updated(
                             &sse_state,
                             device_id,
                             key,
                             value.clone(),
                             &user_info.sub,
-                        );
+                        ).await;
                     }
                 }
             }

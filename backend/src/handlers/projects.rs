@@ -133,7 +133,8 @@ pub async fn add_ticket_to_project(
         Ok(association) => {
             // Broadcast SSE event for project assignment
             println!("Broadcasting SSE event: Ticket {} assigned to project {}", ticket_id, project_id);
-            crate::handlers::sse::broadcast_project_assigned(&sse_state, ticket_id, project_id);
+            use crate::utils::sse::SseBroadcaster;
+            SseBroadcaster::broadcast_project_assigned(&sse_state, ticket_id, project_id).await;
             
             HttpResponse::Created().json(association)
         },
@@ -158,7 +159,8 @@ pub async fn remove_ticket_from_project(
         Ok(_) => {
             // Broadcast SSE event for project unassignment
             println!("Broadcasting SSE event: Ticket {} unassigned from project {}", ticket_id, project_id);
-            crate::handlers::sse::broadcast_project_unassigned(&sse_state, ticket_id, project_id);
+            use crate::utils::sse::SseBroadcaster;
+            SseBroadcaster::broadcast_project_unassigned(&sse_state, ticket_id, project_id).await;
             
             HttpResponse::NoContent().finish()
         },

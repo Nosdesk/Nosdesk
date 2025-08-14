@@ -136,6 +136,8 @@ pub async fn add_comment_to_ticket(
             
             // Now associate any attachments with this comment
             let mut attachments = Vec::new();
+            let mut attachment_errors = Vec::new();
+            
             for attachment_data in &comment_data.attachments {
                 println!("Processing attachment: {:?}", attachment_data);
                 // Find the existing attachment (uploaded to temp) by ID if available
@@ -175,26 +177,29 @@ pub async fn add_comment_to_ticket(
                                         }
                                     }
                                     
-                                    // Try to move the file
+                                    // Try to move the file using filesystem operations
                                     if let Err(e) = std::fs::rename(&old_fs_path, &new_fs_path) {
-                                        println!("Error moving file: {}", e);
-                                        // If move fails, try copying instead
+                                        println!("Error moving file with filesystem: {}", e);
+                                        // If move fails, try to copy and then delete
                                         if let Err(e) = std::fs::copy(&old_fs_path, &new_fs_path) {
                                             println!("Error copying file: {}", e);
+                                            attachment_errors.push(format!("Failed to copy file {}: {}", attachment.name, e));
                                         } else {
                                             // Try to delete the original file
                                             if let Err(e) = std::fs::remove_file(&old_fs_path) {
-                                                println!("Warning: Failed to remove original file after copy: {}", e);
+                                                println!("Error removing original file: {}", e);
                                             }
+                                            // Update the URL to point to the new location
+                                            attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
                                         }
+                                    } else {
+                                        // Update the URL to point to the new location
+                                        attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
                                     }
-                                    
-                                    // Update the URL
-                                    attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
                                 }
                             }
                             
-                            // Update the attachment in the database
+                            // Create updated attachment for database update
                             let updated_attachment = crate::models::NewAttachment {
                                 url: attachment.url.clone(),
                                 name: attachment.name.clone(),
@@ -212,12 +217,23 @@ pub async fn add_comment_to_ticket(
                                     println!("Updated attachment: {}", attachment.id);
                                     attachments.push(attachment);
                                 },
-                                Err(e) => println!("Error updating attachment: {}", e),
+                                Err(e) => {
+                                    println!("Error updating attachment: {}", e);
+                                    attachment_errors.push(format!("Failed to update attachment {} in database: {}", attachment.name, e));
+                                }
                             }
                         },
-                        Err(e) => println!("Error finding attachment {}: {}", id, e),
+                        Err(e) => {
+                            println!("Error finding attachment {}: {}", id, e);
+                            attachment_errors.push(format!("Failed to find attachment ID {}: {}", id, e));
+                        }
                     }
                 }
+            }
+            
+            // Log any attachment processing errors
+            if !attachment_errors.is_empty() {
+                println!("Warning: Some attachments had processing errors: {:?}", attachment_errors);
             }
             
             // Get user info
@@ -239,8 +255,20 @@ pub async fn add_comment_to_ticket(
                 "user": user
             });
             
-            // Broadcast SSE event for the new comment
-            crate::handlers::sse::broadcast_comment_added(&sse_state, ticket_id, response.clone());
+            // Broadcast SSE event for the new comment AFTER all file operations are complete
+            // This prevents stream interruption during file processing
+            println!("Broadcasting SSE event for comment {} with {} attachments", comment.id, attachments.len());
+            
+            // Small delay to ensure stream stability after file operations
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            
+            println!("SSE: About to broadcast comment-added event for ticket {}", ticket_id);
+            
+            // Use the centralized SSE broadcasting utility
+            use crate::utils::sse::SseBroadcaster;
+            SseBroadcaster::broadcast_comment_added(&sse_state, ticket_id, response.clone()).await;
+            
+            println!("SSE: Successfully broadcasted comment-added event for ticket {}", ticket_id);
             
             println!("Successfully created comment with {} attachments", attachments.len());
             println!("Returning JSON response: {}", response);
@@ -280,8 +308,9 @@ pub async fn delete_comment(
     match crate::repository::comments::delete_comment(&mut conn, comment_id) {
         Ok(deleted) => {
             if deleted > 0 {
-                // Broadcast SSE event for the deleted comment
-                crate::handlers::sse::broadcast_comment_deleted(&sse_state, ticket_id, comment_id);
+                // Broadcast SSE event for the deleted comment using centralized utility
+                use crate::utils::sse::SseBroadcaster;
+                SseBroadcaster::broadcast_comment_deleted(&sse_state, ticket_id, comment_id).await;
                 
                 println!("Successfully deleted comment");
                 HttpResponse::Ok().json(json!({"success": true, "message": "Comment deleted"}))
@@ -365,18 +394,20 @@ pub async fn delete_attachment(
 
 // Secure public file serving - ONLY for user avatars and thumbs
 pub async fn serve_public_file(
-    path: web::Path<String>,
+    filename: web::Path<String>,
     req: actix_web::HttpRequest,
     storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
 ) -> impl Responder {
-    let file_path = path.into_inner();
+    let filename = filename.into_inner();
     
-    // Security: Only allow access to user avatar files
-    // The route pattern ensures this is only called for /users/avatars/ or /users/thumbs/
-    let storage_path = if file_path.starts_with("users/avatars/") || file_path.starts_with("users/thumbs/") {
-        file_path
+    // Determine the storage path based on the request URI
+    let uri = req.uri().to_string();
+    let storage_path = if uri.starts_with("/uploads/users/avatars/") {
+        format!("users/avatars/{}", filename)
+    } else if uri.starts_with("/uploads/users/thumbs/") {
+        format!("users/thumbs/{}", filename)
     } else {
-        eprintln!("Security violation: Attempted to access non-avatar file: {}", file_path);
+        eprintln!("Security violation: Attempted to access non-avatar file: {}", filename);
         return HttpResponse::Forbidden().finish();
     };
     

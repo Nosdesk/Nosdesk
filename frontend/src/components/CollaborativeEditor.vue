@@ -444,6 +444,7 @@ const initEditor = async () => {
     // Add retry logic monitoring - simplified
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
     
     provider.on("status", (event: { status: "connected" | "disconnected" | "connecting" }) => {
       if (event.status === "connecting") {
@@ -456,12 +457,26 @@ const initEditor = async () => {
         if (reconnectAttempts > maxReconnectAttempts) {
           log.error("Max reconnection attempts exceeded - connection failed");
           log.error("Possible causes: server down, token expired, or network issues");
+          // Stop trying to reconnect
+          return;
         }
       } else if (event.status === "connected") {
         reconnectAttempts = 0; // Reset counter on successful connection
-        if (reconnectAttempts > 0) {
-          log.info("Reconnected successfully");
+        if (reconnectTimeout) {
+          clearTimeout(reconnectTimeout);
+          reconnectTimeout = null;
         }
+        log.info("WebSocket connected successfully");
+      } else if (event.status === "disconnected") {
+        // Add delay before allowing reconnection to prevent rapid cycling
+        if (reconnectTimeout) {
+          clearTimeout(reconnectTimeout);
+        }
+        reconnectTimeout = setTimeout(() => {
+          if (reconnectAttempts < maxReconnectAttempts) {
+            log.warn("WebSocket disconnected - will attempt to reconnect automatically");
+          }
+        }, 2000); // Wait 2 seconds before allowing reconnection
       }
     });
 
@@ -760,36 +775,37 @@ const redoEdit = () => {
 
 // Cleanup function
 const cleanup = () => {
-  log.debug("Cleaning up editor...");
+  if (reinitializeTimeout) {
+    clearTimeout(reinitializeTimeout);
+    reinitializeTimeout = null;
+  }
   
+  // Clean up WebSocket provider
+  if (provider) {
+    // Clean up awareness
+    if (provider.awareness) {
+      provider.awareness.destroy();
+    }
+    
+    // Clean up provider
+    provider.destroy();
+    provider = null;
+  }
+  
+  // Clean up editor view
   if (editorView) {
     editorView.destroy();
     editorView = null;
   }
-  if (provider) {
-    // Remove awareness listener
-    if (provider.awareness) {
-      provider.awareness.off("change", updateConnectedUsers);
-    }
-
-    // Ensure provider disconnects cleanly
-    provider.disconnect();
-    provider.destroy();
-    provider = null;
-  }
+  
+  // Clean up Yjs document
   if (ydoc) {
     ydoc.destroy();
     ydoc = null;
   }
-  yXmlFragment = null;
-
-  // Reset connected users
-  connectedUsers.value = [];
-
-  // Clean up global references
-  window.example = undefined;
   
-  log.debug("Cleanup completed");
+  isConnected.value = false;
+  isInitialized.value = false;
 };
 
 // Handle page unload to ensure clean disconnect
