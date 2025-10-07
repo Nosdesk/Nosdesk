@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   id="favicon"
+   viewBox="0 0 78.4 78.400004"
+   version="1.1"
+   sodipodi:docname="favicon.svg"
+   width="78.400002"
+   height="78.400002"
+   inkscape:version="1.4.2 (ebf0e940, 2025-05-08)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:export-bgcolor="#ffffff00"
+     inkscape:zoom="3.2961096"
+     inkscape:cx="38.530272"
+     inkscape:cy="11.528743"
+     inkscape:window-width="1512"
+     inkscape:window-height="945"
+     inkscape:window-x="0"
+     inkscape:window-y="37"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="favicon" />
+  <defs
+     id="defs1">
+    <style
+       id="style1">
+      .cls-1 {
+        fill: #e90;
+      }
+    </style>
+  </defs>
+  <path
+     class="cls-1"
+     d="m 52.250001,0 h 22.06 v 78.4 l -20.58,-0.34 -27.58,-36.29 V 78.39 H 4.0900008 V 0 l 20.6400002,0.06 27.52,38.69 z"
+     id="path1"
+     sodipodi:nodetypes="ccccccccccc" />
+</svg>
