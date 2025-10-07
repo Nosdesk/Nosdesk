@@ -75,6 +75,8 @@ services:
     container_name: nosdesk-backend-dev
     restart: unless-stopped
     env_file: docker.env
+    stdin_open: true
+    tty: true
     volumes:
       - ./backend/src:/app/src
       - ./backend/migrations:/app/migrations
@@ -94,8 +96,10 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - RUST_LOG=info
+      - RUST_LOG=debug,actix_web=debug,actix_server=info,diesel=debug
+      - RUST_BACKTRACE=1
       - CARGO_MESSAGE_FORMAT=short
+      - CARGO_TERM_COLOR=always
 
     profiles: ["dev"]
 
