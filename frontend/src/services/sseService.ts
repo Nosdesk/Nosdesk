@@ -1,97 +1,90 @@
-import { ref, computed, type Ref } from 'vue';
-import { useAuthStore } from '@/stores/auth';
+import { ref, computed } from "vue";
+import { useAuthStore } from "@/stores/auth";
 
 // Event types that match the backend
 export interface TicketEvent {
-  type: 'TicketUpdated' | 'CommentAdded' | 'CommentDeleted' | 'AttachmentAdded' | 'AttachmentDeleted' | 
-        'DeviceLinked' | 'DeviceUnlinked' | 'DeviceUpdated' | 'ProjectAssigned' | 'ProjectUnassigned' | 
-        'TicketLinked' | 'TicketUnlinked' | 'Heartbeat';
+  type:
+    | "TicketUpdated"
+    | "CommentAdded"
+    | "CommentDeleted"
+    | "AttachmentAdded"
+    | "AttachmentDeleted"
+    | "DeviceLinked"
+    | "DeviceUnlinked"
+    | "DeviceUpdated"
+    | "ProjectAssigned"
+    | "ProjectUnassigned"
+    | "TicketLinked"
+    | "TicketUnlinked"
+    | "Heartbeat";
   data: any;
-}
-
-export interface TicketUpdatedEvent {
-  ticket_id: number;
-  field: string;
-  value: any;
-  updated_by: string;
-  timestamp: string;
-}
-
-export interface CommentAddedEvent {
-  ticket_id: number;
-  comment: any;
-  timestamp: string;
-}
-
-export interface CommentDeletedEvent {
-  ticket_id: number;
-  comment_id: number;
-  timestamp: string;
-}
-
-export interface DeviceUpdatedEvent {
-  device_id: number;
-  field: string;
-  value: any;
-  updated_by: string;
-  timestamp: string;
 }
 
 // Event handler type
 type EventHandler = (data: any) => void;
 
-// SSE Event types for type safety
-type SSEEventType = 
-  | 'ticket-updated'
-  | 'comment-added'
-  | 'comment-deleted'
-  | 'device-linked'
-  | 'device-unlinked'
-  | 'device-updated'
-  | 'ticket-linked'
-  | 'ticket-unlinked'
-  | 'project-assigned'
-  | 'project-unassigned'
-  | 'heartbeat'
-  | 'reconnect';
+// SSE Event types
+type SSEEventType =
+  | "ticket-updated"
+  | "comment-added"
+  | "comment-deleted"
+  | "device-linked"
+  | "device-unlinked"
+  | "device-updated"
+  | "ticket-linked"
+  | "ticket-unlinked"
+  | "project-assigned"
+  | "project-unassigned"
+  | "heartbeat"
+  | "reconnect";
 
-// SSE Service class following Vue 3 composition API patterns
+// SSE Service class optimized for performance
 class SSEService {
-  private eventSource: Ref<EventSource | null> = ref(null);
-  private isConnected: Ref<boolean> = ref(false);
-  private isConnecting: Ref<boolean> = ref(false);
-  private lastError: Ref<string | null> = ref(null);
+  private eventSource: EventSource | null = null;
+  private isConnected = ref(false);
+  private isConnecting = ref(false);
+  private lastError = ref<string | null>(null);
   private eventListeners = new Map<SSEEventType, Set<EventHandler>>();
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
-  private readonly maxReconnectAttempts = 5;
+  private readonly maxReconnectAttempts = 10;
   private readonly baseReconnectDelay = 1000;
+  private sseToken: string | null = null;
+  private tokenExpiryTime: number | null = null;
 
-  // Computed properties for reactive state
+  // Connection status
   get connectionStatus() {
     return computed(() => ({
       isConnected: this.isConnected.value,
       isConnecting: this.isConnecting.value,
       error: this.lastError.value,
-      reconnectAttempts: this.reconnectAttempts
+      reconnectAttempts: this.reconnectAttempts,
     }));
   }
 
-  // Get SSE token from backend
+  // Get SSE token from backend with caching
   private async getSseToken(): Promise<string> {
-    // Initialize auth store when needed to avoid circular dependencies
-    const authStore = useAuthStore();
-    
-    if (!authStore.token) {
-      throw new Error('No authentication token available');
+    // Return cached token if still valid (with 5 min buffer)
+    if (
+      this.sseToken &&
+      this.tokenExpiryTime &&
+      Date.now() < this.tokenExpiryTime - 300000
+    ) {
+      return this.sseToken;
     }
-    
-    const response = await fetch('/api/events/token', {
-      method: 'POST',
+
+    const authStore = useAuthStore();
+
+    if (!authStore.token) {
+      throw new Error("No authentication token available");
+    }
+
+    const response = await fetch("/api/events/token", {
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${authStore.token}`,
-        'Content-Type': 'application/json'
-      }
+        Authorization: `Bearer ${authStore.token}`,
+        "Content-Type": "application/json",
+      },
     });
 
     if (!response.ok) {
@@ -99,90 +92,126 @@ class SSEService {
     }
 
     const data = await response.json();
-    return data.sse_token;
+
+    // Cache token and expiry
+    this.sseToken = data.sse_token;
+    this.tokenExpiryTime = Date.now() + data.expires_in * 1000;
+
+    console.log("SSE: Got new token, expires in", data.expires_in, "seconds");
+
+    return this.sseToken!;
   }
 
-  // Generic event handler setup
-  private setupEventHandler(eventType: SSEEventType, handler: (data: any) => void) {
-    if (!this.eventSource.value) return;
-
-    this.eventSource.value.addEventListener(eventType, (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log(`SSE: Received ${eventType} event:`, data);
-        handler(data);
-      } catch (error) {
-        console.error(`SSE: Failed to parse ${eventType} event:`, error);
-        console.log(`SSE: Raw event data:`, event.data);
-      }
-    });
-  }
-
-  // Setup all event handlers
+  // Setup event handlers efficiently
   private setupEventHandlers() {
-    if (!this.eventSource.value) return;
+    if (!this.eventSource) return;
 
-    // Generic event handler that emits to listeners
-    const createEventHandler = (eventType: SSEEventType) => (data: any) => {
-      this.emit(eventType, data);
-    };
+    console.log("SSE: Setting up event handlers");
 
-    // Setup all event types
+    // Event types to listen for
     const eventTypes: SSEEventType[] = [
-      'ticket-updated', 'comment-added', 'comment-deleted',
-      'device-linked', 'device-unlinked', 'device-updated',
-      'ticket-linked', 'ticket-unlinked', 'project-assigned', 'project-unassigned'
+      "ticket-updated",
+      "comment-added",
+      "comment-deleted",
+      "device-linked",
+      "device-unlinked",
+      "device-updated",
+      "ticket-linked",
+      "ticket-unlinked",
+      "project-assigned",
+      "project-unassigned",
     ];
 
-    eventTypes.forEach(eventType => {
-      this.setupEventHandler(eventType, createEventHandler(eventType));
+    // Setup listeners for each event type
+    eventTypes.forEach((eventType) => {
+      this.eventSource!.addEventListener(eventType, (event: MessageEvent) => {
+        console.log(`SSE: 📨 Received ${eventType} event`);
+        console.log(`SSE: Raw data:`, event.data);
+        try {
+          const data = JSON.parse(event.data);
+          console.log(`SSE: ✅ Parsed ${eventType} data:`, data);
+          console.log(
+            `SSE: About to emit to ${this.eventListeners.get(eventType)?.size || 0} listeners`,
+          );
+          this.emit(eventType, data);
+        } catch (error) {
+          console.error(`SSE: ❌ Failed to parse ${eventType}:`, error);
+        }
+      });
+      console.log(`SSE: Registered EventSource listener for: ${eventType}`);
     });
 
-    // Special handlers for system events
-    this.setupEventHandler('heartbeat', (data) => {
-      console.log('SSE: Heartbeat received:', data?.timestamp);
+    // Heartbeat handler
+    this.eventSource.addEventListener("heartbeat", () => {
+      console.log("SSE: ❤️ Heartbeat");
     });
 
-    this.setupEventHandler('reconnect', (data) => {
-      console.log('SSE: Reconnect requested:', data?.reason);
+    // Reconnect handler
+    this.eventSource.addEventListener("reconnect", (event: MessageEvent) => {
+      console.warn("SSE: Server requested reconnect");
+      this.handleReconnectRequest();
+    });
+
+    // Add generic message handler to catch any events we might be missing
+    this.eventSource.onmessage = (event: MessageEvent) => {
+      console.log("SSE: Generic onmessage received:", event.type, event.data);
+    };
+
+    // Add a catch-all listener to see ALL events
+    this.eventSource.addEventListener("message", (event: MessageEvent) => {
+      console.log("SSE: Message event listener:", event.type, event.data);
     });
   }
 
-  // Connection event handlers
+  // Connection handlers
   private setupConnectionHandlers() {
-    if (!this.eventSource.value) return;
+    if (!this.eventSource) return;
 
-    this.eventSource.value.onopen = () => {
-      console.log('SSE: Connected');
+    this.eventSource.onopen = () => {
       this.isConnected.value = true;
       this.isConnecting.value = false;
       this.lastError.value = null;
       this.reconnectAttempts = 0;
+      console.log("SSE: ✅ Connection opened");
+      console.log("SSE: ReadyState:", this.eventSource?.readyState);
+      console.log("SSE: URL:", this.eventSource?.url);
+      console.log(
+        "SSE: Registered event listeners count:",
+        this.eventListeners.size,
+      );
+      this.eventListeners.forEach((listeners, eventType) => {
+        console.log(`  - ${eventType}: ${listeners.size} listeners`);
+      });
     };
 
-    this.eventSource.value.onerror = (error) => {
-      console.error('SSE: Connection error', error);
+    this.eventSource.onerror = (error) => {
+      console.error("SSE: ❌ Error event:", error);
+      console.log("SSE: ReadyState:", this.eventSource?.readyState);
       this.handleConnectionError();
     };
-
-    // Additional error event listener for more detailed error information
-    this.eventSource.value.addEventListener('error', (event) => {
-      console.error('SSE: EventSource error event:', event);
-    });
   }
 
   // Handle connection errors
   private handleConnectionError() {
     this.isConnected.value = false;
     this.isConnecting.value = false;
-    this.lastError.value = 'Connection failed';
-    
-    this.cleanup();
-    
-    // Attempt reconnection if we haven't exceeded max attempts
+    this.lastError.value = "Connection failed";
+
+    this.cleanup(false); // Don't clear listeners
+
+    // Auto-reconnect
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.scheduleReconnection();
+    } else {
+      console.error("SSE: Max reconnection attempts reached");
     }
+  }
+
+  // Handle server-requested reconnection
+  private handleReconnectRequest() {
+    this.cleanup(false);
+    this.reconnectAttempts = 0; // Reset attempts for server-requested reconnects
+    this.connect();
   }
 
   // Schedule reconnection with exponential backoff
@@ -191,28 +220,30 @@ class SSEService {
       clearTimeout(this.reconnectTimeout);
     }
 
-    const delay = this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts);
-    console.log(`SSE: Scheduling reconnection in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+    const delay = Math.min(
+      this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
+      30000, // Max 30 seconds
+    );
+
+    console.log(
+      `SSE: Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1})`,
+    );
 
     this.reconnectTimeout = setTimeout(() => {
       this.reconnect();
     }, delay);
   }
 
-  // Reconnection logic
+  // Reconnect
   private async reconnect() {
-    if (this.isConnecting.value) {
-      console.log('SSE: Reconnection already in progress, skipping...');
-      return;
-    }
+    if (this.isConnecting.value) return;
 
     this.reconnectAttempts++;
-    console.log(`SSE: Attempting reconnection ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
 
     try {
       await this.connect();
     } catch (error) {
-      console.error('SSE: Reconnection failed:', error);
+      console.error("SSE: Reconnection failed:", error);
       if (this.reconnectAttempts < this.maxReconnectAttempts) {
         this.scheduleReconnection();
       }
@@ -222,19 +253,22 @@ class SSEService {
   // Connect to SSE
   async connect(ticketId?: number): Promise<void> {
     // Don't connect if already connected or connecting
-    if (this.eventSource.value || this.isConnecting.value) {
+    if (this.eventSource || this.isConnecting.value) {
+      console.log("SSE: Already connected or connecting");
       return;
     }
 
-    // Check for token when connecting, not at module level
+    // Check authentication
     try {
       const authStore = useAuthStore();
       if (!authStore.token) {
-        this.lastError.value = 'No authentication token';
+        this.lastError.value = "No authentication token";
+        console.error("SSE: No auth token");
         return;
       }
     } catch (error) {
-      this.lastError.value = 'Authentication store not available';
+      this.lastError.value = "Authentication not available";
+      console.error("SSE: Auth not available");
       return;
     }
 
@@ -248,57 +282,80 @@ class SSEService {
       // Build URL
       const params = new URLSearchParams({ sse_token: sseToken });
       if (ticketId) {
-        params.append('ticket_id', ticketId.toString());
+        params.append("ticket_id", ticketId.toString());
       }
       const url = `/api/events/tickets?${params.toString()}`;
 
+      console.log("SSE: Connecting to:", url);
+
       // Create EventSource
-      this.eventSource.value = new EventSource(url);
+      this.eventSource = new EventSource(url);
 
       // Setup handlers
       this.setupConnectionHandlers();
       this.setupEventHandlers();
 
+      console.log("SSE: EventSource created, waiting for connection...");
     } catch (error) {
-      console.error('SSE: Failed to connect', error);
+      console.error("SSE: Failed to connect:", error);
       this.isConnecting.value = false;
-      this.lastError.value = error instanceof Error ? error.message : 'Failed to connect';
-      throw error;
+      this.lastError.value =
+        error instanceof Error ? error.message : "Connection failed";
+
+      // Schedule reconnect on connection failure
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.scheduleReconnection();
+      }
     }
   }
 
-  // Disconnect from SSE
+  // Disconnect
   disconnect(): void {
-    this.cleanup();
+    console.log("SSE: Disconnecting");
+    this.cleanup(true);
     this.isConnected.value = false;
     this.isConnecting.value = false;
     this.lastError.value = null;
+    this.reconnectAttempts = 0;
   }
 
   // Cleanup resources
-  private cleanup(): void {
-    if (this.eventSource.value) {
-      this.eventSource.value.close();
-      this.eventSource.value = null;
+  private cleanup(clearListeners: boolean = true): void {
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+      console.log("SSE: EventSource closed");
     }
 
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
+
+    if (clearListeners) {
+      this.eventListeners.clear();
+      this.sseToken = null;
+      this.tokenExpiryTime = null;
+    }
   }
 
   // Emit event to listeners
   private emit(eventType: SSEEventType, data: any): void {
     const listeners = this.eventListeners.get(eventType);
-    if (listeners) {
-      listeners.forEach(listener => {
+    console.log(
+      `SSE: Emitting ${eventType} to ${listeners?.size || 0} listeners`,
+    );
+
+    if (listeners && listeners.size > 0) {
+      listeners.forEach((listener) => {
         try {
           listener(data);
         } catch (error) {
-          console.error(`SSE: Error in ${eventType} listener`, error);
+          console.error(`SSE: Error in ${eventType} listener:`, error);
         }
       });
+    } else {
+      console.warn(`SSE: No listeners registered for ${eventType}`);
     }
   }
 
@@ -308,6 +365,9 @@ class SSEService {
       this.eventListeners.set(eventType, new Set());
     }
     this.eventListeners.get(eventType)!.add(listener);
+    console.log(
+      `SSE: Added listener for ${eventType} (total: ${this.eventListeners.get(eventType)!.size})`,
+    );
   }
 
   // Remove event listener
@@ -318,6 +378,9 @@ class SSEService {
       if (listeners.size === 0) {
         this.eventListeners.delete(eventType);
       }
+      console.log(
+        `SSE: Removed listener for ${eventType} (remaining: ${listeners.size})`,
+      );
     }
   }
 
@@ -328,7 +391,7 @@ class SSEService {
   }
 }
 
-// Create singleton instance lazily to avoid circular dependencies
+// Singleton instance
 let sseServiceInstance: SSEService | null = null;
 
 const getSSEService = (): SSEService => {
@@ -338,22 +401,26 @@ const getSSEService = (): SSEService => {
   return sseServiceInstance;
 };
 
-// Vue 3 composable that provides the SSE service
+// Vue 3 composable
 export function useSSE() {
   const sseService = getSSEService();
-  
+
   return {
     // State
     isConnected: computed(() => sseService.connectionStatus.value.isConnected),
-    isConnecting: computed(() => sseService.connectionStatus.value.isConnecting),
+    isConnecting: computed(
+      () => sseService.connectionStatus.value.isConnecting,
+    ),
     error: computed(() => sseService.connectionStatus.value.error),
-    reconnectAttempts: computed(() => sseService.connectionStatus.value.reconnectAttempts),
-    
+    reconnectAttempts: computed(
+      () => sseService.connectionStatus.value.reconnectAttempts,
+    ),
+
     // Methods
     connect: sseService.connect.bind(sseService),
     disconnect: sseService.disconnect.bind(sseService),
     addEventListener: sseService.addEventListener.bind(sseService),
     removeEventListener: sseService.removeEventListener.bind(sseService),
-    triggerReconnection: sseService.triggerReconnection.bind(sseService)
+    triggerReconnection: sseService.triggerReconnection.bind(sseService),
   };
-} 
+}

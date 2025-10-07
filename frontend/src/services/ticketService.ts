@@ -337,6 +337,18 @@ export const cancelAllRequests = (): void => {
   requestManager.cancelAllRequests();
 };
 
+// Get recent tickets for the authenticated user
+export const getRecentTickets = async () => {
+  const response = await axios.get(`${API_BASE_URL}/tickets/recent`);
+  return response.data;
+};
+
+// Record a ticket view
+export const recordTicketView = async (ticketId: number) => {
+  const response = await axios.post(`${API_BASE_URL}/tickets/${ticketId}/view`);
+  return response.data;
+};
+
 // Export default object with all functions
 export default {
   getTickets,
@@ -355,5 +367,7 @@ export default {
   getCommentsByTicketId,
   addDeviceToTicket,
   removeDeviceFromTicket,
+  getRecentTickets,
+  recordTicketView,
   cancelAllRequests
 }; 

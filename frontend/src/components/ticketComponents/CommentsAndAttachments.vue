@@ -260,7 +260,8 @@ const handleDrop = (event: DragEvent) => {
     <div class="flex flex-col">
       <!-- Add New Comment Form -->
       <div
-        class="bg-slate-700/50 p-3 rounded-lg-bottom border-b border-slate-600/30 relative"
+        class="bg-slate-700/50 p-3 relative"
+        :class="props.comments.length > 0 ? 'border-b border-slate-600/30' : 'rounded-b-xl'"
         @dragenter="handleDragEnter"
         @dragleave="handleDragLeave"
         @dragover="handleDragOver"
@@ -424,14 +425,14 @@ const handleDrop = (event: DragEvent) => {
       </div>
 
       <!-- List of Comments -->
-      <div class="flex flex-col gap-2 p-2">
+      <div v-if="props.comments.length > 0" class="flex flex-col gap-2 p-2">
         <div
           v-for="comment in props.comments"
           :key="comment.id"
           class="flex flex-col gap-2 p-3 rounded-lg border transition-all duration-300"
           :class="[
-            props.recentlyAddedCommentIds?.has(comment.id) 
-              ? 'bg-blue-600/20 border-blue-500/50 animate-pulse' 
+            props.recentlyAddedCommentIds?.has(comment.id)
+              ? 'bg-blue-600/20 border-blue-500/50 animate-pulse'
               : 'bg-slate-700/50 border-slate-600/30'
           ]"
         >
