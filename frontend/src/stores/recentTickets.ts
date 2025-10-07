@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
+import ticketService from '@/services/ticketService'
 
 interface Ticket {
   id: number;
@@ -7,138 +8,76 @@ interface Ticket {
   status: 'open' | 'in-progress' | 'closed';
   requester?: string;
   assignee?: string;
-  created?: string;
-  modified?: string;
-  isDraft?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  last_viewed_at?: string;
+  view_count?: number;
 }
 
 export const useRecentTicketsStore = defineStore('recentTickets', () => {
   const recentTickets = ref<Ticket[]>([])
-  const MAX_RECENT_TICKETS = 15
+  const isLoading = ref(false)
+  const error = ref<string | null>(null)
 
-  // Initialize from localStorage if available
-  if (localStorage.getItem('recentTickets')) {
-    recentTickets.value = JSON.parse(localStorage.getItem('recentTickets')!)
-  }
+  // Fetch recent tickets from the server
+  const fetchRecentTickets = async () => {
+    isLoading.value = true
+    error.value = null
 
-  // Save to localStorage when updated
-  watch(recentTickets, (newTickets) => {
-    localStorage.setItem('recentTickets', JSON.stringify(newTickets))
-  }, { deep: true })
+    try {
+      const tickets = await ticketService.getRecentTickets()
+      recentTickets.value = tickets
 
-  const addRecentTicket = (ticket: Ticket, fromRecentList: boolean = false, isDraft: boolean = false) => {
-    // If clicking from recent list, don't rearrange
-    if (fromRecentList) {
-      return
-    }
-
-    // Only log in development mode
-    if (import.meta.env.DEV) {
-      console.log(`Adding/updating ticket #${ticket.id} with title: "${ticket.title}" to recent tickets store`)
-    }
-
-    // Add isDraft flag if specified
-    const ticketWithDraftStatus = {
-      ...ticket,
-      isDraft: isDraft
-    }
-
-    // Check if ticket already exists
-    const existingIndex = recentTickets.value.findIndex(t => t.id === ticket.id)
-    
-    if (existingIndex !== -1) {
       if (import.meta.env.DEV) {
-        console.log(`Ticket #${ticket.id} already exists in recent tickets store with title: "${recentTickets.value[existingIndex].title}"`)
+        console.log(`Fetched ${tickets.length} recent tickets from server`)
       }
-      
-      // Preserve the existing title unless explicitly changing it
-      // This ensures manual title changes aren't overwritten during refreshes
-      if (ticket.title !== 'New Ticket') {
-        const existingTitle = recentTickets.value[existingIndex].title
-        // Only preserve the title if it's been manually changed (not the default or same as incoming)
-        if (existingTitle !== 'New Ticket' && existingTitle !== ticket.title) {
-          if (import.meta.env.DEV) {
-            console.log(`Preserving existing title: "${existingTitle}" instead of using: "${ticket.title}"`)
-          }
-          ticketWithDraftStatus.title = existingTitle
-        }
-      }
-      
-      // Update existing ticket but preserve isDraft status if not explicitly changing it
-      if (isDraft === false && recentTickets.value[existingIndex].isDraft === true) {
-        ticketWithDraftStatus.isDraft = recentTickets.value[existingIndex].isDraft
-      }
-      
-      // Remove from current position
-      recentTickets.value.splice(existingIndex, 1)
-    }
-    
-    // Add to start of array
-    recentTickets.value.unshift(ticketWithDraftStatus)
-    
-    // Keep only the most recent tickets
-    if (recentTickets.value.length > MAX_RECENT_TICKETS) {
-      recentTickets.value = recentTickets.value.slice(0, MAX_RECENT_TICKETS)
-    }
-    
-    // Force reactivity update
-    recentTickets.value = [...recentTickets.value]
-  }
-
-  const removeRecentTicket = (ticketId: number) => {
-    recentTickets.value = recentTickets.value.filter(t => t.id !== ticketId)
-  }
-
-  const updateDraftStatus = (ticketId: number, isDraft: boolean) => {
-    const ticketIndex = recentTickets.value.findIndex(t => t.id === ticketId)
-    if (ticketIndex !== -1) {
-      recentTickets.value[ticketIndex].isDraft = isDraft
+    } catch (err) {
+      error.value = 'Failed to fetch recent tickets'
+      console.error('Error fetching recent tickets:', err)
+    } finally {
+      isLoading.value = false
     }
   }
 
-  // Enhanced method to update ticket data when it's modified in TicketView
+  // Record that a ticket was viewed (automatically updates server)
+  const recordTicketView = async (ticketId: number) => {
+    try {
+      await ticketService.recordTicketView(ticketId)
+
+      // Refresh the recent tickets list to reflect the new view
+      await fetchRecentTickets()
+
+      if (import.meta.env.DEV) {
+        console.log(`Recorded view for ticket #${ticketId}`)
+      }
+    } catch (err) {
+      console.error(`Error recording view for ticket #${ticketId}:`, err)
+    }
+  }
+
+  // Update ticket data in the local cache (after changes)
   const updateTicketData = (ticketId: number, updatedData: Partial<Ticket>) => {
-    // Only log detailed updates in development mode
-    if (import.meta.env.DEV) {
-      console.log(`Attempting to update ticket #${ticketId} with data:`, updatedData)
-    }
-    
     const ticketIndex = recentTickets.value.findIndex(t => t.id === ticketId)
-    
-    if (import.meta.env.DEV) {
-      console.log(`Found ticket at index: ${ticketIndex}`)
-    }
-    
+
     if (ticketIndex !== -1) {
-      const oldData = import.meta.env.DEV ? { ...recentTickets.value[ticketIndex] } : null
-      
-      // Update only the provided fields, preserving other data
-      recentTickets.value[ticketIndex] = {
-        ...recentTickets.value[ticketIndex],
-        ...updatedData
-      }
-      
+      // Use direct mutation to preserve object reference
+      const ticket = recentTickets.value[ticketIndex]
+      Object.keys(updatedData).forEach(key => {
+        (ticket as any)[key] = (updatedData as any)[key]
+      })
+
       if (import.meta.env.DEV) {
-        console.log(`Updated ticket #${ticketId} in recent tickets store:`)
-        console.log(`- Before:`, oldData)
-        console.log(`- After:`, recentTickets.value[ticketIndex])
-        console.log(`- Changes:`, updatedData)
-      }
-      
-      // Force reactivity update by creating a new array
-      recentTickets.value = [...recentTickets.value]
-    } else {
-      if (import.meta.env.DEV) {
-        console.warn(`Ticket #${ticketId} not found in recent tickets store`)
+        console.log(`Updated ticket #${ticketId} in recent tickets cache`)
       }
     }
   }
 
   return {
     recentTickets,
-    addRecentTicket,
-    removeRecentTicket,
-    updateDraftStatus,
+    isLoading,
+    error,
+    fetchRecentTickets,
+    recordTicketView,
     updateTicketData
   }
 })
