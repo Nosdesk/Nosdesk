@@ -15,6 +15,7 @@ pub mod users;
 pub mod active_sessions;
 pub mod security_events;
 pub mod mfa_reset_tokens;
+pub mod user_ticket_views;
 
 // Re-export all functions
 pub use article_content::*;

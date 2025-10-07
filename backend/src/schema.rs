@@ -342,6 +342,17 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    user_ticket_views (id) {
+        id -> Int4,
+        user_uuid -> Uuid,
+        ticket_id -> Int4,
+        first_viewed_at -> Timestamptz,
+        last_viewed_at -> Timestamptz,
+        view_count -> Int4,
+    }
+}
+
 diesel::joinable!(article_contents -> tickets (ticket_id));
 diesel::joinable!(attachments -> comments (comment_id));
 diesel::joinable!(comments -> tickets (ticket_id));
@@ -356,6 +367,7 @@ diesel::joinable!(ticket_devices -> devices (device_id));
 diesel::joinable!(ticket_devices -> tickets (ticket_id));
 diesel::joinable!(user_auth_identities -> users (user_id));
 diesel::joinable!(user_emails -> users (user_id));
+diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     active_sessions,
@@ -375,5 +387,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     tickets,
     user_auth_identities,
     user_emails,
+    user_ticket_views,
     users,
 );

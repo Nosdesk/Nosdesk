@@ -7,7 +7,7 @@ mod config_utils;
 mod utils;
 
 use actix_cors::Cors;
-use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, dev::ServiceRequest, Error};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, dev::ServiceRequest, Error, HttpMessage};
 use actix_web_httpauth::middleware::HttpAuthentication;
 use actix_files::Files;
 use actix_web_httpauth::extractors::bearer::BearerAuth;
@@ -87,10 +87,11 @@ async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<Servi
 
     // Use the new JWT utilities for authentication
     use crate::utils::jwt::JwtUtils;
-    
+
     match JwtUtils::authenticate_request(&credentials, &mut conn).await {
-        Ok((_claims, _user)) => {
-            // Token is valid, continue to the protected route
+        Ok((claims, _user)) => {
+            // Token is valid, insert claims into request extensions for handlers to access
+            req.request().extensions_mut().insert(claims);
             Ok(req)
         },
         Err(err) => {
@@ -103,12 +104,17 @@ async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<Servi
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    // Use eprintln for unbuffered output (writes to stderr)
+    eprintln!(">>> Backend starting...");
+
     // Load .env file if it exists (for local development), but don't fail if it doesn't exist
     // In Docker, environment variables are already loaded via docker-compose
     if let Err(e) = dotenv() {
         eprintln!("Note: Could not load .env file: {}. This is normal in Docker environments.", e);
     }
-    
+
+    eprintln!(">>> Initializing tracing...");
+
     // Initialize tracing/logging subsystem with better error handling
     let log_level = env::var("RUST_LOG")
         .unwrap_or_else(|_| {
@@ -119,13 +125,19 @@ async fn main() -> std::io::Result<()> {
             }
         });
 
-    if let Err(e) = tracing_subscriber::registry()
-        .with(fmt::layer().with_target(true).with_line_number(true))
+    // Ignore tracing init errors (might already be initialized by cargo watch)
+    // Docker best practice: log to stdout (not files), Docker daemon handles log forwarding
+    let _ = tracing_subscriber::registry()
+        .with(
+            fmt::layer()
+                .with_target(true)
+                .with_line_number(true)
+                .with_writer(std::io::stdout)
+        )
         .with(EnvFilter::new(&log_level))
-        .try_init() {
-        eprintln!("Failed to initialize tracing subscriber: {}", e);
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to initialize logging"));
-    }
+        .try_init();
+
+    eprintln!(">>> Tracing initialized, continuing startup...");
     
     // === SECURITY STARTUP VALIDATION ===
     info!("🚀 Starting Nosdesk API Server...");
@@ -575,12 +587,14 @@ async fn main() -> std::io::Result<()> {
                     // ===== TICKET MANAGEMENT =====
                     .route("/tickets", web::get().to(handlers::get_tickets))
                     .route("/tickets/paginated", web::get().to(handlers::get_paginated_tickets))
+                    .route("/tickets/recent", web::get().to(handlers::get_recent_tickets))
                     .route("/tickets", web::post().to(handlers::create_ticket))
                     .route("/tickets/empty", web::post().to(handlers::create_empty_ticket))
                     .route("/tickets/{id}", web::get().to(handlers::get_ticket))
                     .route("/tickets/{id}", web::put().to(handlers::update_ticket))
                     .route("/tickets/{id}", web::patch().to(handlers::update_ticket_partial))
                     .route("/tickets/{id}", web::delete().to(handlers::delete_ticket))
+                    .route("/tickets/{id}/view", web::post().to(handlers::record_ticket_view))
                     .route("/import/file", web::post().to(handlers::import_tickets_from_json))
                     .route("/import/json", web::post().to(handlers::import_tickets_from_json_string))
                     .route("/tickets/{ticket_id}/link/{linked_ticket_id}", web::post().to(handlers::link_tickets))

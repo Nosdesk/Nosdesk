@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 use uuid::Uuid;
 
-use crate::models::{NewTicket, TicketStatus, TicketPriority, TicketUpdate, TicketsJson, UserRole};
+use crate::models::{Claims, NewTicket, TicketPriority, TicketStatus, TicketUpdate, TicketsJson, UserRole};
 use crate::repository;
 
 // Helper type for database operations with proper error handling
@@ -13,13 +13,24 @@ type DbResult<T> = Result<T, HttpResponse>;
 
 // Helper function to get database connection with error handling
 async fn get_db_conn(pool: &web::Data<crate::db::Pool>) -> DbResult<crate::db::DbConnection> {
-    pool.get().map_err(|_| {
-        HttpResponse::InternalServerError().json("Database connection error")
-    })
+    pool.get()
+        .map_err(|_| HttpResponse::InternalServerError().json("Database connection error"))
+}
+
+// Helper function to extract user UUID from JWT claims
+fn get_user_uuid_from_claims(claims: &Claims) -> Result<Uuid, HttpResponse> {
+    Uuid::parse_str(&claims.sub)
+        .map_err(|_| HttpResponse::BadRequest().json(json!({
+            "error": "Invalid user UUID",
+            "message": "The user UUID in the authentication token is invalid"
+        })))
 }
 
 // Helper function to validate assignee role
-fn validate_assignee_role(assignee_uuid: &Uuid, conn: &mut crate::db::DbConnection) -> Result<(), HttpResponse> {
+fn validate_assignee_role(
+    assignee_uuid: &Uuid,
+    conn: &mut crate::db::DbConnection,
+) -> Result<(), HttpResponse> {
     match crate::repository::users::get_user_by_uuid(assignee_uuid, conn) {
         Ok(user) => {
             // Check if user has technician or admin role
@@ -31,18 +42,19 @@ fn validate_assignee_role(assignee_uuid: &Uuid, conn: &mut crate::db::DbConnecti
             } else {
                 Ok(())
             }
-        },
-        Err(_) => {
-            Err(HttpResponse::BadRequest().json(json!({
-                "error": "User not found", 
-                "message": "The specified assignee does not exist"
-            })))
         }
+        Err(_) => Err(HttpResponse::BadRequest().json(json!({
+            "error": "User not found",
+            "message": "The specified assignee does not exist"
+        }))),
     }
 }
 
 // Helper function to parse and validate assignee from string (for update operations)
-fn parse_and_validate_assignee_string(assignee_str: &str, conn: &mut crate::db::DbConnection) -> Result<Uuid, HttpResponse> {
+fn parse_and_validate_assignee_string(
+    assignee_str: &str,
+    conn: &mut crate::db::DbConnection,
+) -> Result<Uuid, HttpResponse> {
     // Try to parse as UUID first
     if let Ok(uuid) = Uuid::parse_str(assignee_str) {
         // Use the same validation logic but adapted for the update context
@@ -56,13 +68,11 @@ fn parse_and_validate_assignee_string(assignee_str: &str, conn: &mut crate::db::
                 } else {
                     Ok(uuid)
                 }
-            },
-            Err(_) => {
-                Err(HttpResponse::BadRequest().json(json!({
-                    "error": "User not found",
-                    "message": "The specified assignee does not exist"
-                })))
             }
+            Err(_) => Err(HttpResponse::BadRequest().json(json!({
+                "error": "User not found",
+                "message": "The specified assignee does not exist"
+            }))),
         }
     } else {
         // Try to look up by name
@@ -76,13 +86,11 @@ fn parse_and_validate_assignee_string(assignee_str: &str, conn: &mut crate::db::
                 } else {
                     Ok(user.uuid)
                 }
-            },
-            Err(_) => {
-                Err(HttpResponse::BadRequest().json(json!({
-                    "error": "User not found",
-                    "message": "The specified assignee does not exist"
-                })))
             }
+            Err(_) => Err(HttpResponse::BadRequest().json(json!({
+                "error": "User not found",
+                "message": "The specified assignee does not exist"
+            }))),
         }
     }
 }
@@ -95,14 +103,14 @@ async fn broadcast_sse_simple(
     data: serde_json::Value,
 ) {
     use crate::utils::sse::SseBroadcaster;
-    
+
     tokio::spawn(async move {
         match event_type.as_str() {
             "ticket_updated" => {
                 if let (Some(key), Some(value), Some(user_sub)) = (
                     data.get("key").and_then(|v| v.as_str()),
                     data.get("value"),
-                    data.get("user_sub").and_then(|v| v.as_str())
+                    data.get("user_sub").and_then(|v| v.as_str()),
                 ) {
                     SseBroadcaster::broadcast_ticket_updated(
                         &sse_state,
@@ -110,29 +118,50 @@ async fn broadcast_sse_simple(
                         key,
                         value.clone(),
                         user_sub,
-                    ).await;
+                    )
+                    .await;
                 }
-            },
+            }
             "ticket_linked" => {
                 if let Some(linked_id) = data.get("linked_ticket_id").and_then(|v| v.as_u64()) {
-                    SseBroadcaster::broadcast_ticket_linked(&sse_state, ticket_id, linked_id as i32).await;
+                    SseBroadcaster::broadcast_ticket_linked(
+                        &sse_state,
+                        ticket_id,
+                        linked_id as i32,
+                    )
+                    .await;
                 }
-            },
+            }
             "ticket_unlinked" => {
                 if let Some(linked_id) = data.get("linked_ticket_id").and_then(|v| v.as_u64()) {
-                    SseBroadcaster::broadcast_ticket_unlinked(&sse_state, ticket_id, linked_id as i32).await;
+                    SseBroadcaster::broadcast_ticket_unlinked(
+                        &sse_state,
+                        ticket_id,
+                        linked_id as i32,
+                    )
+                    .await;
                 }
-            },
+            }
             "device_linked" => {
                 if let Some(device_id) = data.get("device_id").and_then(|v| v.as_u64()) {
-                    SseBroadcaster::broadcast_device_linked(&sse_state, ticket_id, device_id as i32).await;
+                    SseBroadcaster::broadcast_device_linked(
+                        &sse_state,
+                        ticket_id,
+                        device_id as i32,
+                    )
+                    .await;
                 }
-            },
+            }
             "device_unlinked" => {
                 if let Some(device_id) = data.get("device_id").and_then(|v| v.as_u64()) {
-                    SseBroadcaster::broadcast_device_unlinked(&sse_state, ticket_id, device_id as i32).await;
+                    SseBroadcaster::broadcast_device_unlinked(
+                        &sse_state,
+                        ticket_id,
+                        device_id as i32,
+                    )
+                    .await;
                 }
-            },
+            }
             _ => eprintln!("Unknown SSE event type: {}", event_type),
         }
     });
@@ -191,10 +220,10 @@ pub async fn get_tickets(pool: web::Data<crate::db::Pool>) -> impl Responder {
         Ok(conn) => conn,
         Err(e) => return e,
     };
-    
+
     match repository::get_all_tickets(&mut conn) {
         Ok(tickets) => HttpResponse::Ok().json(tickets),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to get tickets")
+        Err(_) => HttpResponse::InternalServerError().json("Failed to get tickets"),
     }
 }
 
@@ -235,7 +264,7 @@ pub async fn get_paginated_tickets(
         Ok((tickets, total)) => {
             // Calculate total pages
             let total_pages = (total as f64 / page_size as f64).ceil() as i64;
-            
+
             // Create paginated response
             let response = PaginatedResponse {
                 data: tickets,
@@ -244,9 +273,9 @@ pub async fn get_paginated_tickets(
                 page_size,
                 total_pages,
             };
-            
+
             HttpResponse::Ok().json(response)
-        },
+        }
         Err(e) => {
             eprintln!("Error fetching paginated tickets: {:?}", e);
             HttpResponse::InternalServerError().json("Failed to get paginated tickets")
@@ -258,17 +287,40 @@ pub async fn get_paginated_tickets(
 pub async fn get_ticket(
     pool: web::Data<crate::db::Pool>,
     params: web::Path<i32>,
+    claims: web::ReqData<Claims>,
 ) -> impl Responder {
+    use crate::repository::user_ticket_views::UserTicketViewsRepository;
+
     let ticket_id = params.into_inner();
+    let claims_inner = claims.into_inner();
+
     let mut conn = match get_db_conn(&pool).await {
         Ok(conn) => conn,
         Err(e) => return e,
     };
-    
-    match repository::get_complete_ticket(&mut conn, ticket_id) {
-        Ok(complete_ticket) => HttpResponse::Ok().json(complete_ticket),
-        Err(_) => HttpResponse::NotFound().json("Ticket not found")
+
+    // Get the ticket first
+    let complete_ticket = match repository::get_complete_ticket(&mut conn, ticket_id) {
+        Ok(ticket) => ticket,
+        Err(_) => return HttpResponse::NotFound().json("Ticket not found"),
+    };
+
+    // Record the view (don't fail the request if this fails)
+    let user_uuid = match get_user_uuid_from_claims(&claims_inner) {
+        Ok(uuid) => uuid,
+        Err(_) => {
+            // Log but don't fail - still return the ticket
+            eprintln!("Warning: Invalid user UUID in claims, cannot record view");
+            return HttpResponse::Ok().json(complete_ticket);
+        }
+    };
+
+    let view_repo = UserTicketViewsRepository::new(pool.get_ref().clone());
+    if let Err(e) = view_repo.record_view(user_uuid, ticket_id) {
+        eprintln!("Warning: Failed to record ticket view for user {}: {:?}", user_uuid, e);
     }
+
+    HttpResponse::Ok().json(complete_ticket)
 }
 
 // Create a new ticket
@@ -291,7 +343,7 @@ pub async fn create_ticket(
 
     match repository::create_ticket(&mut conn, new_ticket) {
         Ok(ticket) => HttpResponse::Created().json(ticket),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to create ticket")
+        Err(_) => HttpResponse::InternalServerError().json("Failed to create ticket"),
     }
 }
 
@@ -336,15 +388,17 @@ pub async fn delete_ticket(
     };
 
     // Use the comprehensive deletion function that cleans up files
-    match repository::delete_ticket_with_cleanup(&mut conn, ticket_id, storage.as_ref().clone()).await {
+    match repository::delete_ticket_with_cleanup(&mut conn, ticket_id, storage.as_ref().clone())
+        .await
+    {
         Ok(rows_affected) => {
             if rows_affected > 0 {
                 HttpResponse::NoContent().finish()
             } else {
                 HttpResponse::NotFound().json("Ticket not found")
             }
-        },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to delete ticket")
+        }
+        Err(_) => HttpResponse::InternalServerError().json("Failed to delete ticket"),
     }
 }
 
@@ -355,7 +409,7 @@ pub async fn import_tickets_from_json(
 ) -> impl Responder {
     let json_path_str = json_path.into_inner();
     let path = Path::new(&json_path_str);
-    
+
     let json_content = match fs::read_to_string(path) {
         Ok(content) => content,
         Err(e) => {
@@ -456,7 +510,8 @@ pub async fn create_empty_ticket(
         Ok(ticket) => ticket,
         Err(e) => {
             println!("Error creating empty ticket: {:?}", e);
-            return HttpResponse::InternalServerError().json(format!("Failed to create empty ticket: {}", e));
+            return HttpResponse::InternalServerError()
+                .json(format!("Failed to create empty ticket: {}", e));
         }
     };
 
@@ -465,17 +520,17 @@ pub async fn create_empty_ticket(
         content: "".to_string(), // Empty string for content
         ticket_id: ticket.id,
     };
-    
+
     // Try to create article content, but don't fail if it doesn't work
     if let Err(_) = repository::create_article_content(&mut conn, new_article_content) {
         // If article content creation fails, still return the ticket
         return HttpResponse::Created().json(ticket);
     }
-    
+
     // Return the complete ticket with article content
     match repository::get_complete_ticket(&mut conn, ticket.id) {
         Ok(complete_ticket) => HttpResponse::Created().json(complete_ticket),
-        Err(_) => HttpResponse::Created().json(ticket) // Fallback to just the ticket if getting complete ticket fails
+        Err(_) => HttpResponse::Created().json(ticket), // Fallback to just the ticket if getting complete ticket fails
     }
 }
 
@@ -488,18 +543,18 @@ pub async fn update_ticket_partial(
     body: web::Json<Value>,
 ) -> impl Responder {
     let ticket_id = params.into_inner();
-    
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
-    
+
     // Get user info for SSE events
     let user_info = match crate::handlers::auth::validate_token_internal(&auth, &mut conn).await {
         Ok(claims) => claims,
         Err(_) => return HttpResponse::Unauthorized().json("Invalid token"),
     };
-    
+
     // Parse JSON and build TicketUpdate with user lookups
     let mut ticket_update = TicketUpdate {
         title: None,
@@ -511,16 +566,16 @@ pub async fn update_ticket_partial(
         updated_at: Some(chrono::Utc::now().naive_utc()),
         closed_at: None,
     };
-    
+
     // Handle simple string fields
     if let Some(title) = body.get("title").and_then(|v| v.as_str()) {
         ticket_update.title = Some(title.to_string());
     }
-    
+
     if let Some(description) = body.get("description").and_then(|v| v.as_str()) {
         ticket_update.description = Some(description.to_string());
     }
-    
+
     // Handle enum fields
     if let Some(status_str) = body.get("status").and_then(|v| v.as_str()) {
         match status_str {
@@ -530,7 +585,7 @@ pub async fn update_ticket_partial(
             _ => {}
         }
     }
-    
+
     if let Some(priority_str) = body.get("priority").and_then(|v| v.as_str()) {
         match priority_str {
             "low" => ticket_update.priority = Some(crate::models::TicketPriority::Low),
@@ -539,7 +594,7 @@ pub async fn update_ticket_partial(
             _ => {}
         }
     }
-    
+
     // Handle requester (can be name, UUID, or empty string for unassign)
     if let Some(requester_str) = body.get("requester").and_then(|v| v.as_str()) {
         if requester_str.is_empty() {
@@ -558,7 +613,7 @@ pub async fn update_ticket_partial(
             }
         }
     }
-    
+
     // Handle assignee (can be name, UUID, or empty string for unassign)
     if let Some(assignee_str) = body.get("assignee").and_then(|v| v.as_str()) {
         if assignee_str.is_empty() {
@@ -572,29 +627,43 @@ pub async fn update_ticket_partial(
             }
         }
     }
-    
+
     // Update the ticket
     match repository::update_ticket_partial(&mut conn, ticket_id, ticket_update) {
         Ok(_) => {
-            // Get the updated ticket to include user information in SSE events
+            // Broadcast SSE events IMMEDIATELY after DB update for low latency
+            // Don't wait for fetching complete ticket data
+            for (key, value) in body.0.as_object().unwrap_or(&serde_json::Map::new()) {
+                println!(
+                    "Broadcasting SSE event for ticket {}: {} = {:?}",
+                    ticket_id, key, value
+                );
+                broadcast_sse_simple(
+                    sse_state.clone(),
+                    ticket_id,
+                    "ticket_updated".to_string(),
+                    json!({
+                        "key": key,
+                        "value": value,
+                        "user_sub": user_info.sub
+                    }),
+                )
+                .await;
+            }
+
+            // Now fetch the complete ticket for the response
+            // This happens after SSE broadcast so it doesn't delay real-time updates
             let updated_ticket = match repository::get_complete_ticket(&mut conn, ticket_id) {
                 Ok(ticket) => ticket,
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to fetch updated ticket"),
+                Err(_) => {
+                    return HttpResponse::InternalServerError()
+                        .json("Failed to fetch updated ticket")
+                }
             };
-            
-            // Broadcast SSE events for each field that was updated
-            for (key, value) in body.0.as_object().unwrap_or(&serde_json::Map::new()) {
-                println!("Broadcasting SSE event for ticket {}: {} = {:?}", ticket_id, key, value);
-                broadcast_sse_simple(sse_state.clone(), ticket_id, "ticket_updated".to_string(), json!({
-                    "key": key,
-                    "value": value,
-                    "user_sub": user_info.sub
-                })).await;
-            }
-            
+
             // Return the updated complete ticket
             HttpResponse::Ok().json(updated_ticket)
-        },
+        }
         Err(e) => {
             println!("Error updating ticket: {:?}", e);
             HttpResponse::InternalServerError().json("Failed to update ticket")
@@ -617,15 +686,24 @@ pub async fn link_tickets(
     match repository::link_tickets(&mut conn, ticket_id, linked_ticket_id) {
         Ok(_) => {
             // Broadcast SSE event for ticket linking
-            println!("Broadcasting SSE event: Ticket {} linked to ticket {}", ticket_id, linked_ticket_id);
-            
+            println!(
+                "Broadcasting SSE event: Ticket {} linked to ticket {}",
+                ticket_id, linked_ticket_id
+            );
+
             // Broadcast SSE event for ticket linking
-            broadcast_sse_simple(sse_state.clone(), ticket_id, "ticket_linked".to_string(), json!({
-                "linked_ticket_id": linked_ticket_id
-            })).await;
-            
+            broadcast_sse_simple(
+                sse_state.clone(),
+                ticket_id,
+                "ticket_linked".to_string(),
+                json!({
+                    "linked_ticket_id": linked_ticket_id
+                }),
+            )
+            .await;
+
             HttpResponse::Ok().json(json!({"success": true}))
-        },
+        }
         Err(e) => {
             println!("Error linking tickets: {:?}", e);
             HttpResponse::InternalServerError().json("Failed to link tickets")
@@ -648,15 +726,24 @@ pub async fn unlink_tickets(
     match repository::unlink_tickets(&mut conn, ticket_id, linked_ticket_id) {
         Ok(_) => {
             // Broadcast SSE event for ticket unlinking
-            println!("Broadcasting SSE event: Ticket {} unlinked from ticket {}", ticket_id, linked_ticket_id);
-            
+            println!(
+                "Broadcasting SSE event: Ticket {} unlinked from ticket {}",
+                ticket_id, linked_ticket_id
+            );
+
             // Broadcast SSE event for ticket unlinking
-            broadcast_sse_simple(sse_state.clone(), ticket_id, "ticket_unlinked".to_string(), json!({
-                "linked_ticket_id": linked_ticket_id
-            })).await;
-            
+            broadcast_sse_simple(
+                sse_state.clone(),
+                ticket_id,
+                "ticket_unlinked".to_string(),
+                json!({
+                    "linked_ticket_id": linked_ticket_id
+                }),
+            )
+            .await;
+
             HttpResponse::Ok().json(json!({"success": true}))
-        },
+        }
         Err(e) => {
             println!("Error unlinking tickets: {:?}", e);
             HttpResponse::InternalServerError().json("Failed to unlink tickets")
@@ -679,17 +766,29 @@ pub async fn add_device_to_ticket(
     match repository::add_device_to_ticket(&mut conn, ticket_id, device_id) {
         Ok(_) => {
             // Broadcast SSE event for device linking
-            println!("Broadcasting SSE event: Device {} linked to ticket {}", device_id, ticket_id);
-            
+            println!(
+                "Broadcasting SSE event: Device {} linked to ticket {}",
+                device_id, ticket_id
+            );
+
             // Broadcast SSE event for device linking
-            broadcast_sse_simple(sse_state.clone(), ticket_id, "device_linked".to_string(), json!({
-                "device_id": device_id
-            })).await;
-            
+            broadcast_sse_simple(
+                sse_state.clone(),
+                ticket_id,
+                "device_linked".to_string(),
+                json!({
+                    "device_id": device_id
+                }),
+            )
+            .await;
+
             HttpResponse::Ok().json(json!({"success": true}))
-        },
+        }
         Err(e) => {
-            println!("Error adding device {} to ticket {}: {:?}", device_id, ticket_id, e);
+            println!(
+                "Error adding device {} to ticket {}: {:?}",
+                device_id, ticket_id, e
+            );
             HttpResponse::InternalServerError().json("Failed to add device to ticket")
         }
     }
@@ -711,21 +810,83 @@ pub async fn remove_device_from_ticket(
         Ok(rows_affected) => {
             if rows_affected > 0 {
                 // Broadcast SSE event for device unlinking
-                println!("Broadcasting SSE event: Device {} unlinked from ticket {}", device_id, ticket_id);
-                
+                println!(
+                    "Broadcasting SSE event: Device {} unlinked from ticket {}",
+                    device_id, ticket_id
+                );
+
                 // Broadcast SSE event for device unlinking
-                broadcast_sse_simple(sse_state.clone(), ticket_id, "device_unlinked".to_string(), json!({
-                    "device_id": device_id
-                })).await;
-                
+                broadcast_sse_simple(
+                    sse_state.clone(),
+                    ticket_id,
+                    "device_unlinked".to_string(),
+                    json!({
+                        "device_id": device_id
+                    }),
+                )
+                .await;
+
                 HttpResponse::Ok().json(json!({"success": true}))
             } else {
                 HttpResponse::NotFound().json("Device not associated with ticket")
             }
-        },
+        }
         Err(e) => {
-            println!("Error removing device {} from ticket {}: {:?}", device_id, ticket_id, e);
+            println!(
+                "Error removing device {} from ticket {}: {:?}",
+                device_id, ticket_id, e
+            );
             HttpResponse::InternalServerError().json("Failed to remove device from ticket")
         }
     }
-} 
+}
+
+// Get recent tickets for the authenticated user
+pub async fn get_recent_tickets(
+    pool: web::Data<crate::db::Pool>,
+    claims: web::ReqData<Claims>,
+) -> impl Responder {
+    use crate::repository::user_ticket_views::UserTicketViewsRepository;
+
+    let claims_inner = claims.into_inner();
+    let user_uuid = match get_user_uuid_from_claims(&claims_inner) {
+        Ok(uuid) => uuid,
+        Err(e) => return e,
+    };
+
+    let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
+
+    match repo.get_recent_tickets(user_uuid, 15) {
+        Ok(tickets) => HttpResponse::Ok().json(tickets),
+        Err(e) => {
+            eprintln!("Error fetching recent tickets: {:?}", e);
+            HttpResponse::InternalServerError().json("Failed to fetch recent tickets")
+        }
+    }
+}
+
+// Record a ticket view
+pub async fn record_ticket_view(
+    pool: web::Data<crate::db::Pool>,
+    path: web::Path<i32>,
+    claims: web::ReqData<Claims>,
+) -> impl Responder {
+    use crate::repository::user_ticket_views::UserTicketViewsRepository;
+
+    let ticket_id = path.into_inner();
+    let claims_inner = claims.into_inner();
+    let user_uuid = match get_user_uuid_from_claims(&claims_inner) {
+        Ok(uuid) => uuid,
+        Err(e) => return e,
+    };
+
+    let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
+
+    match repo.record_view(user_uuid, ticket_id) {
+        Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
+        Err(e) => {
+            eprintln!("Error recording ticket view: {:?}", e);
+            HttpResponse::InternalServerError().json("Failed to record ticket view")
+        }
+    }
+}

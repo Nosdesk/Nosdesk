@@ -289,12 +289,23 @@ CREATE TABLE mfa_reset_tokens (
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL, -- Typically 15 minutes
     used_at TIMESTAMP WITH TIME ZONE,
     is_used BOOLEAN NOT NULL DEFAULT FALSE,
-    
+
     -- Additional verification fields
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,
     admin_approved BOOLEAN NOT NULL DEFAULT FALSE, -- For high-privilege users
     admin_approved_by UUID REFERENCES users(uuid),
     admin_approved_at TIMESTAMP WITH TIME ZONE
+);
+
+-- User ticket views for tracking recently viewed tickets
+CREATE TABLE user_ticket_views (
+    id SERIAL PRIMARY KEY,
+    user_uuid UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
+    ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    first_viewed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    last_viewed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    view_count INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(user_uuid, ticket_id)
 );
 
 -- Create indexes for better performance
@@ -341,6 +352,12 @@ CREATE INDEX idx_mfa_reset_tokens_user_uuid ON mfa_reset_tokens(user_uuid);
 CREATE INDEX idx_mfa_reset_tokens_expires_at ON mfa_reset_tokens(expires_at);
 CREATE INDEX idx_mfa_reset_tokens_created_at ON mfa_reset_tokens(created_at);
 CREATE INDEX idx_mfa_reset_tokens_is_used ON mfa_reset_tokens(is_used);
+
+-- User ticket views indexes
+CREATE INDEX idx_user_ticket_views_user_uuid ON user_ticket_views(user_uuid);
+CREATE INDEX idx_user_ticket_views_ticket_id ON user_ticket_views(ticket_id);
+CREATE INDEX idx_user_ticket_views_last_viewed_at ON user_ticket_views(last_viewed_at);
+CREATE INDEX idx_user_ticket_views_user_last_viewed ON user_ticket_views(user_uuid, last_viewed_at DESC);
 
 -- Setup updated_at triggers
 SELECT diesel_manage_updated_at('users');
