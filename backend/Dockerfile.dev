@@ -36,4 +36,9 @@ RUN rm -rf src
 COPY backend/src ./src
 
 # Set up for live reloading with automatic migrations
-CMD ["cargo", "watch", "-x", "run"] 
+# Use --why flag to show which files triggered the rebuild
+# Force unbuffered output for Docker logs
+ENV RUST_BACKTRACE=1
+ENV RUST_LOG_STYLE=always
+# Use unbuffer or script to force PTY allocation for unbuffered output
+CMD ["cargo", "watch", "--why", "--no-vcs-ignores", "-x", "run"] 
