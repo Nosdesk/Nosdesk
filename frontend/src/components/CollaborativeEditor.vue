@@ -728,6 +728,19 @@ const handleKeydown = (event: KeyboardEvent) => {
     }
 };
 
+// Handle tab visibility changes to prevent wasteful reconnect cycles
+// When browser backgrounds tab, timers get throttled causing irregular resyncs
+// This leads to timeout->reconnect->timeout cycles. Clean disconnect is better.
+const handleVisibilityChange = () => {
+    if (document.hidden && provider?.wsconnected) {
+        log.info("Tab backgrounded - disconnecting WebSocket to save resources");
+        provider.disconnect();
+    } else if (!document.hidden && provider && !provider.wsconnected) {
+        log.info("Tab foregrounded - reconnecting WebSocket");
+        provider.connect();
+    }
+};
+
 const toggleTypeMenu = () => {
     showTypeMenu.value = !showTypeMenu.value;
     if (showTypeMenu.value) {
@@ -1152,6 +1165,9 @@ onMounted(() => {
     window.addEventListener("offline", () => {
         log.warn("Network went offline - websocket connection will be lost");
     });
+
+    // Add visibility change listener (handler defined at top level)
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 });
 
 onBeforeUnmount(() => {
@@ -1163,6 +1179,9 @@ onBeforeUnmount(() => {
     // Remove network status monitoring
     window.removeEventListener("online", () => {});
     window.removeEventListener("offline", () => {});
+
+    // Remove visibility change listener
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
 });
 </script>
 
