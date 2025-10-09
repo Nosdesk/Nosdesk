@@ -17,9 +17,9 @@ use base64::{Engine as _, engine::general_purpose};
 use crate::repository;
 use crate::models::NewArticleContent;
 
-// How often heartbeat pings are sent
-// IMPORTANT: Must be less than 30 seconds because y-websocket client has a hardcoded
-// 30-second timeout that closes the connection if no messages are received
+// How often heartbeat checks are performed (server-side connection health monitoring)
+// Note: y-websocket client maintains its own keepalive via resyncInterval (20s)
+// This server-side heartbeat is for detecting truly dead connections
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
 // How long before lack of client response causes a timeout
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -594,9 +594,9 @@ impl YjsWebSocket {
                 return;
             }
 
-            // Always send ping on every heartbeat check to keep y-websocket client alive
-            // The y-websocket library has a hardcoded 30s timeout, so we must send
-            // messages more frequently than that
+            // Send WebSocket PING to verify connection health
+            // Note: y-websocket client handles its own keepalive via resyncInterval
+            // This PING is for detecting dead connections at the WebSocket protocol level
             println!("📤 WebSocket sending PING to session {} (ping #{}, {}s since last activity)",
                     act.id, act.pings_sent + 1, time_since_last_hb.as_secs());
             act.pings_sent += 1;

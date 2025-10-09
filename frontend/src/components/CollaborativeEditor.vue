@@ -306,9 +306,10 @@ const initEditor = async () => {
         // y-websocket will append /${docId} to the baseWsUrl, creating the correct backend route
         provider = new WebsocketProvider(baseWsUrl, props.docId, ydoc, {
             params: { token: token },
-            // Disable periodic resync which causes clean disconnects every 30 seconds
-            // The server already handles persistence and will sync on reconnect if needed
-            resyncInterval: -1, // -1 disables periodic resync
+            // Set resync interval to 20 seconds to prevent 30-second timeout disconnects
+            // y-websocket closes connection if no message received in 30s, so we need
+            // periodic Yjs protocol messages to keep the connection alive
+            resyncInterval: 20000, // 20 seconds
             // Disable broadcast channel for now to reduce complexity
             disableBc: true,
         });
@@ -321,31 +322,6 @@ const initEditor = async () => {
                 uuid: authStore.user?.uuid || undefined,
             },
         });
-
-        // 3.5. Set up keep-alive to prevent 30-second timeout disconnect
-        // y-websocket has a hardcoded 30s timeout that closes connection if no messages received
-        // Awareness updates should happen every 15s, but we'll add a manual keep-alive as backup
-        const keepAliveInterval = setInterval(() => {
-            if (provider && provider.wsconnected) {
-                log.debug("[Keep-Alive] Sending awareness update to prevent timeout");
-                // Touch the awareness state to trigger an update without changing data
-                const currentState = provider.awareness.getLocalState();
-                if (currentState) {
-                    // Update timestamp to force awareness change event
-                    provider.awareness.setLocalState({
-                        ...currentState,
-                        _keepAlive: Date.now(),
-                    });
-                }
-            } else {
-                log.debug("[Keep-Alive] Skipped - provider not connected");
-            }
-        }, 15000); // Every 15 seconds - more aggressive than the 30s timeout
-
-        // Store interval ID for cleanup
-        (provider as any)._keepAliveInterval = keepAliveInterval;
-        log.info("[Keep-Alive] Keep-alive interval started (15s)");
-
 
         // 4. Get the XML fragment and initialize ProseMirror document
         yXmlFragment = ydoc.getXmlFragment("prosemirror");
@@ -912,12 +888,6 @@ const cleanup = () => {
     // 3. Now safe to destroy provider and awareness
     if (provider) {
         try {
-            // Clear keep-alive interval first
-            if ((provider as any)._keepAliveInterval) {
-                clearInterval((provider as any)._keepAliveInterval);
-                (provider as any)._keepAliveInterval = null;
-            }
-
             // Remove all event listeners first to prevent callbacks during destruction
             provider.off("status", null as any);
             provider.off("connection-error", null as any);
