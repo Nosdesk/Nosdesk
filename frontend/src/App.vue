@@ -51,21 +51,21 @@ const currentPageUrl = computed(() => {
 
 // Computed properties for responsive layout
 const contentPadding = computed(() => {
-  // Only apply left padding on large screens (lg)
+  // Apply left padding on tablet and desktop (md and up)
   if (navbarCollapsed.value) {
-    return 'lg:pl-16'; // 4rem when navbar is collapsed on desktop
+    return 'md:pl-16'; // 4rem when navbar is collapsed
   } else {
-    return 'lg:pl-64'; // 16rem when navbar is expanded on desktop
+    return 'md:pl-64'; // 16rem when navbar is expanded
   }
 })
 
 const headerLeft = computed(() => {
-  // On desktop, position header relative to sidebar
+  // On tablet/desktop, position header relative to sidebar
   // On mobile, position from edge of screen
   if (navbarCollapsed.value) {
-    return 'lg:left-16 left-0'; // 4rem when navbar is collapsed on desktop
+    return 'md:left-16 left-0'; // 4rem when navbar is collapsed
   } else {
-    return 'lg:left-64 left-0'; // 16rem when navbar is expanded on desktop
+    return 'md:left-64 left-0'; // 16rem when navbar is expanded
   }
 })
 
@@ -112,12 +112,12 @@ onMounted(async () => {
     <!-- Main content area with responsive padding -->
     <div class="flex flex-col w-full h-screen transition-all duration-300 ease-in-out" :class="contentPadding">
       <!-- Fixed header that adjusts with navbar -->
-      <PageHeader 
+      <PageHeader
         class="not-print:fixed top-0 z-10 border-b border-slate-600 bg-slate-800 transition-all duration-300 ease-in-out right-0"
         :class="[
           { 'left-0': true },
-          { 'lg:left-16': navbarCollapsed },
-          { 'lg:left-64': !navbarCollapsed }
+          { 'md:left-16': navbarCollapsed },
+          { 'md:left-64': !navbarCollapsed }
         ]"
         :useRouteTitle="!isDocumentationPage"
         :title="titleManager.pageTitle.value"
@@ -135,7 +135,7 @@ onMounted(async () => {
       />
       
       <!-- Scrollable content with bottom padding for mobile nav -->
-      <main class="flex-1 not-print:pt-16 overflow-hidden pb-16 lg:pb-0">
+      <main class="flex-1 not-print:pt-16 overflow-hidden pb-16 md:pb-0">
         <RouterView 
           v-slot="{ Component }" 
           @update:ticket="titleManager.setTicket"

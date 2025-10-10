@@ -18,7 +18,9 @@ const searchTerm = ref("");
 
 // State for collapsed/expanded navbar
 const isCollapsed = ref(false);
-const isSmallScreen = ref(false);
+const isMobile = ref(false); // <768px - shows bottom nav
+const isTablet = ref(false); // 768-1023px - shows collapsed sidebar
+const isDesktop = ref(false); // ≥1024px - shows expandable sidebar
 
 // State for section collapsing
 const isDocsCollapsed = ref(false);
@@ -51,6 +53,9 @@ const emit = defineEmits(["update:collapsed"]);
 
 // Toggle navbar collapsed state
 const toggleNav = () => {
+  // Don't allow toggling on mobile (bottom nav is shown instead)
+  if (isMobile.value) return;
+
   isCollapsed.value = !isCollapsed.value;
   emit("update:collapsed", isCollapsed.value);
   // Store preference in localStorage
@@ -71,25 +76,29 @@ const toggleTickets = () => {
 
 // Check screen size and set navbar state accordingly
 const checkScreenSize = () => {
-  const previouslySmall = isSmallScreen.value;
-  isSmallScreen.value = window.innerWidth < 1024; // lg breakpoint
+  const width = window.innerWidth;
+  const previousMobile = isMobile.value;
+  const previousTablet = isTablet.value;
+  const previousDesktop = isDesktop.value;
 
-  // Get stored preference (if any)
+  // Determine current screen size category
+  isMobile.value = width < 768; // md breakpoint
+  isTablet.value = width >= 768 && width < 1024; // md to lg
+  isDesktop.value = width >= 1024; // lg and above
+
+  // Get stored user preference
   const storedPref = localStorage.getItem("navbarCollapsed");
 
-  // If screen size changed from large to small
-  if (isSmallScreen.value && !previouslySmall) {
-    isCollapsed.value = true; // Always collapse on small screens
-  }
-  // If screen size changed from small to large
-  else if (!isSmallScreen.value && previouslySmall) {
-    // On larger screens, use the stored preference or default to expanded
+  // Only update collapsed state when transitioning between size categories
+  if (isMobile.value && !previousMobile) {
+    // Just became mobile: hide sidebar
+    isCollapsed.value = true;
+  } else if (isTablet.value && !previousTablet) {
+    // Just became tablet: collapsed by default, but check if user has a preference
+    isCollapsed.value = storedPref !== "false"; // Collapsed unless explicitly expanded
+  } else if (isDesktop.value && !previousDesktop) {
+    // Just became desktop: expanded by default, but respect user preference
     isCollapsed.value = storedPref === "true";
-  }
-  // On initial load for large screens
-  else if (!isSmallScreen.value && !previouslySmall && !storedPref) {
-    // Default to expanded on large screens if no preference is stored
-    isCollapsed.value = false;
   }
 
   // Emit the current state
@@ -98,25 +107,30 @@ const checkScreenSize = () => {
 
 // Initialize on mount
 onMounted(() => {
-  // Initial state - check if we have a stored preference
+  // Load stored preferences
   const storedPref = localStorage.getItem("navbarCollapsed");
   const storedDocsCollapsed = localStorage.getItem("docsCollapsed");
   const storedTicketsCollapsed = localStorage.getItem("ticketsCollapsed");
-  // ticketsHeight is now handled by the composable
 
-  // Check screen size first
-  isSmallScreen.value = window.innerWidth < 1024;
+  // Determine initial screen size
+  const width = window.innerWidth;
+  isMobile.value = width < 768;
+  isTablet.value = width >= 768 && width < 1024;
+  isDesktop.value = width >= 1024;
 
-  // Set initial state based on screen size and preference
-  if (isSmallScreen.value) {
-    // On small screens, always start collapsed
+  // Set initial collapsed state based on screen size
+  if (isMobile.value) {
+    // Mobile: hidden (bottom nav shows)
     isCollapsed.value = true;
+  } else if (isTablet.value) {
+    // Tablet: collapsed by default, but respect user preference
+    isCollapsed.value = storedPref !== "false";
   } else {
-    // On larger screens, use stored preference or default to expanded
+    // Desktop: expanded by default, but respect user preference
     isCollapsed.value = storedPref === "true";
   }
 
-  // Set sections collapsed state from localStorage or default to false
+  // Set sections collapsed state from localStorage
   isDocsCollapsed.value = storedDocsCollapsed === "true";
   isTicketsCollapsed.value = storedTicketsCollapsed === "true";
 
@@ -129,7 +143,6 @@ onMounted(() => {
   // Set initial sizes after mount
   nextTick(() => {
     if (!ticketsHeight.value || ticketsHeight.value < MIN_SECTION_HEIGHT) {
-      // Use local constant
       if (
         !isCollapsed.value &&
         !isTicketsCollapsed.value &&
@@ -217,13 +230,13 @@ const isRouteActive = (path: string, exact = false) => {
 </script>
 
 <template>
-  <!-- Desktop Sidebar - Hidden on small screens -->
+  <!-- Sidebar - Hidden on mobile, collapsed on tablet, expandable on desktop -->
   <nav
     ref="navbarRef"
-    class="h-screen bg-slate-800 border-r border-black flex flex-col flex-shrink-0 print:hidden transition-all duration-300 ease-in-out overflow-hidden lg:fixed lg:left-0 lg:top-0 lg:z-20 lg:flex"
+    class="h-screen bg-slate-800 border-r border-black flex flex-col flex-shrink-0 print:hidden transition-all duration-300 ease-in-out overflow-hidden md:fixed md:left-0 md:top-0 md:z-20 md:flex"
     :class="[
-      isCollapsed ? 'lg:w-16' : 'lg:w-64',
-      isSmallScreen ? 'hidden' : '',
+      isCollapsed ? 'md:w-16' : 'md:w-64',
+      isMobile ? 'hidden' : '',
     ]"
   >
     <div class="flex flex-col p-2 px-2 flex-shrink-0 gap-1">
@@ -404,8 +417,8 @@ const isRouteActive = (path: string, exact = false) => {
       </div>
     </div>
 
-    <!-- Toggle button at the bottom of sidebar -->
-    <div class="mt-auto border-t border-slate-700 flex flex-col justify-end">
+    <!-- Toggle button at the bottom of sidebar (hidden on mobile) -->
+    <div class="mt-auto border-t border-slate-700 flex flex-col justify-end" v-if="!isMobile">
       <button
         @click="toggleNav"
         class="w-full p-2 text-slate-300 hover:text-white hover:bg-slate-700/70 rounded-md transition-colors group flex"
@@ -450,10 +463,10 @@ const isRouteActive = (path: string, exact = false) => {
     </div>
   </nav>
 
-  <!-- Mobile Bottom Navigation -->
+  <!-- Mobile Bottom Navigation (only on mobile) -->
   <nav
-    class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 z-20 lg:hidden print:hidden"
-    v-if="isSmallScreen"
+    class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 z-20 md:hidden print:hidden"
+    v-if="isMobile"
   >
     <div class="flex justify-around items-center h-14">
       <RouterLink
@@ -484,12 +497,8 @@ const isRouteActive = (path: string, exact = false) => {
     </div>
   </nav>
 
-  <!-- Show semi-transparent overlay on small screens when nav is expanded -->
-  <div
-    v-if="isSmallScreen && !isCollapsed"
-    class="fixed inset-0 bg-black bg-opacity-50 z-10 lg:hidden"
-    @click="toggleNav"
-  ></div>
+  <!-- Overlay not needed - sidebar is hidden on mobile, visible but docked on tablet/desktop -->
+
 </template>
 
 <style scoped>
