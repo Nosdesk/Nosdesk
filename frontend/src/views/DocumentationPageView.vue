@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed, provide, onUnmounted, nextTick } from "vue";
+import { ref, onMounted, watch, computed, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import CollaborativeEditor from "@/components/CollaborativeEditor.vue";
 import { useTitleManager } from "@/composables/useTitleManager";
@@ -9,24 +9,7 @@ import type { Article, Page, PageChild } from "@/services/documentationService";
 import BackButton from '@/components/common/BackButton.vue';
 import DeleteButton from '@/components/common/DeleteButton.vue';
 import { useDocumentationNavStore } from "@/stores/documentationNav";
-import mitt from 'mitt';
 import DocumentationTocItem from '@/components/documentationComponents/DocumentationTocItem.vue';
-
-// Create events for documentation updates
-const emitter = mitt();
-
-// Define event types
-type Events = {
-  'doc:created': { id: string | number };
-  'doc:updated': { id: string | number };
-  'doc:deleted': { id: string | number };
-};
-
-// Create typed emitter
-const docsEmitter = mitt<Events>();
-
-// Provide the emitter to child components
-provide('docsEmitter', docsEmitter);
 
 const route = useRoute();
 const router = useRouter();
