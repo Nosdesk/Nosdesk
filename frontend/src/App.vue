@@ -112,7 +112,7 @@ onMounted(async () => {
       />
 
       <!-- Scrollable content with bottom padding for mobile nav -->
-      <main class="flex-1 overflow-hidden pb-16 md:pb-0">
+      <main class="flex-1 overflow-hidden pb-16 sm:pb-0">
         <RouterView
           v-slot="{ Component }"
           @update:ticket="titleManager.setTicket"

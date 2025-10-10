@@ -18,8 +18,8 @@ const searchTerm = ref("");
 
 // State for collapsed/expanded navbar
 const isCollapsed = ref(false);
-const isMobile = ref(false); // <768px - shows bottom nav
-const isTablet = ref(false); // 768-1023px - shows collapsed sidebar
+const isMobile = ref(false); // <640px - shows bottom nav (phones)
+const isTablet = ref(false); // 640-1023px - shows collapsed sidebar (tablets/landscape phones)
 const isDesktop = ref(false); // ≥1024px - shows expandable sidebar
 
 // State for section collapsing
@@ -82,8 +82,8 @@ const checkScreenSize = () => {
   const previousDesktop = isDesktop.value;
 
   // Determine current screen size category
-  isMobile.value = width < 768; // md breakpoint
-  isTablet.value = width >= 768 && width < 1024; // md to lg
+  isMobile.value = width < 640; // sm breakpoint (phones only)
+  isTablet.value = width >= 640 && width < 1024; // sm to lg (tablets and landscape phones)
   isDesktop.value = width >= 1024; // lg and above
 
   // Get stored user preference
@@ -94,10 +94,10 @@ const checkScreenSize = () => {
     // Just became mobile: hide sidebar
     isCollapsed.value = true;
   } else if (isTablet.value && !previousTablet) {
-    // Just became tablet: collapsed by default, but check if user has a preference
-    isCollapsed.value = storedPref !== "false"; // Collapsed unless explicitly expanded
+    // Just became tablet: always collapse
+    isCollapsed.value = true;
   } else if (isDesktop.value && !previousDesktop) {
-    // Just became desktop: expanded by default, but respect user preference
+    // Just became desktop: respect user preference (default expanded)
     isCollapsed.value = storedPref === "true";
   }
 
@@ -114,8 +114,8 @@ onMounted(() => {
 
   // Determine initial screen size
   const width = window.innerWidth;
-  isMobile.value = width < 768;
-  isTablet.value = width >= 768 && width < 1024;
+  isMobile.value = width < 640;
+  isTablet.value = width >= 640 && width < 1024;
   isDesktop.value = width >= 1024;
 
   // Set initial collapsed state based on screen size
@@ -123,10 +123,10 @@ onMounted(() => {
     // Mobile: hidden (bottom nav shows)
     isCollapsed.value = true;
   } else if (isTablet.value) {
-    // Tablet: collapsed by default, but respect user preference
-    isCollapsed.value = storedPref !== "false";
+    // Tablet: always collapsed
+    isCollapsed.value = true;
   } else {
-    // Desktop: expanded by default, but respect user preference
+    // Desktop: respect user preference (default expanded)
     isCollapsed.value = storedPref === "true";
   }
 
@@ -468,7 +468,7 @@ const isRouteActive = (path: string, exact = false) => {
 
   <!-- Mobile Bottom Navigation (only on mobile) -->
   <nav
-    class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 z-20 md:hidden print:hidden"
+    class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 z-20 sm:hidden print:hidden"
     v-if="isMobile"
   >
     <div class="flex justify-around items-center h-14">
