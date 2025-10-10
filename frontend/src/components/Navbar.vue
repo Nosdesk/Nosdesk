@@ -230,12 +230,12 @@ const isRouteActive = (path: string, exact = false) => {
 </script>
 
 <template>
-  <!-- Sidebar - Hidden on mobile, collapsed on tablet, expandable on desktop -->
+  <!-- Sidebar - Flex item in document flow, hidden on mobile -->
   <nav
     ref="navbarRef"
-    class="h-screen bg-slate-800 border-r border-black flex flex-col flex-shrink-0 print:hidden transition-all duration-300 ease-in-out overflow-hidden md:fixed md:left-0 md:top-0 md:z-20 md:flex"
+    class="h-screen bg-slate-800 border-r border-black flex flex-col flex-shrink-0 print:hidden transition-all duration-300 ease-in-out overflow-hidden"
     :class="[
-      isCollapsed ? 'md:w-16' : 'md:w-64',
+      isCollapsed ? 'w-16' : 'w-64',
       isMobile ? 'hidden' : '',
     ]"
   >
@@ -302,11 +302,13 @@ const isRouteActive = (path: string, exact = false) => {
     <!-- Separator -->
     <div class="border-t border-slate-700/50 my-1"></div>
 
-    <!-- Only show sections when navbar is expanded -->
-    <div
-      class="flex-1 min-h-0 flex flex-col overflow-hidden"
-      v-if="!isCollapsed"
-    >
+    <!-- Spacer: Always present to push toggle button to bottom -->
+    <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <!-- Only show sections when navbar is expanded -->
+      <div
+        class="flex-1 min-h-0 flex flex-col overflow-hidden"
+        v-if="!isCollapsed"
+      >
       <!-- Recent Tickets section with collapsible header -->
       <div
         ref="ticketsSectionRef"
@@ -415,13 +417,14 @@ const isRouteActive = (path: string, exact = false) => {
           <DocumentationNav v-if="!isDocsCollapsed" @search="handleDocSearch" />
         </div>
       </div>
+      </div>
     </div>
 
     <!-- Toggle button at the bottom of sidebar (hidden on mobile) -->
-    <div class="mt-auto border-t border-slate-700 flex flex-col justify-end" v-if="!isMobile">
+    <div class="flex-shrink-0 border-t border-slate-700" v-if="!isMobile">
       <button
         @click="toggleNav"
-        class="w-full p-2 text-slate-300 hover:text-white hover:bg-slate-700/70 rounded-md transition-colors group flex"
+        class="w-full h-12 px-2 text-slate-300 hover:text-white hover:bg-slate-700/70 rounded-md transition-colors group flex items-center"
         :class="isCollapsed ? 'justify-center' : 'justify-between'"
         aria-label="Toggle sidebar"
       >
@@ -449,7 +452,7 @@ const isRouteActive = (path: string, exact = false) => {
               d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
             />
           </svg>
-          <span v-if="!isCollapsed" class="ml-2 text-xs">Collapse Sidebar</span>
+          <span v-if="!isCollapsed" class="ml-2 text-xs whitespace-nowrap">Collapse Sidebar</span>
         </div>
 
         <!-- Keyboard shortcut (only shown when expanded) -->

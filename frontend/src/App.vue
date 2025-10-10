@@ -49,25 +49,7 @@ const currentPageUrl = computed(() => {
   return undefined;
 });
 
-// Computed properties for responsive layout
-const contentPadding = computed(() => {
-  // Apply left padding on tablet and desktop (md and up)
-  if (navbarCollapsed.value) {
-    return 'md:pl-16'; // 4rem when navbar is collapsed
-  } else {
-    return 'md:pl-64'; // 16rem when navbar is expanded
-  }
-})
-
-const headerLeft = computed(() => {
-  // On tablet/desktop, position header relative to sidebar
-  // On mobile, position from edge of screen
-  if (navbarCollapsed.value) {
-    return 'md:left-16 left-0'; // 4rem when navbar is collapsed
-  } else {
-    return 'md:left-64 left-0'; // 16rem when navbar is expanded
-  }
-})
+// No need for complex computed properties - flexbox handles it automatically
 
 // Security: Check if system requires initial setup on app initialization
 const router = useRouter();
@@ -104,21 +86,16 @@ onMounted(async () => {
   <!-- Blank layout for login -->
   <RouterView v-if="isBlankLayout" />
 
-  <!-- Default layout with responsive navigation -->
+  <!-- Default layout with responsive navigation - Simple flexbox layout -->
   <div v-else class="flex w-full h-screen bg-slate-900 overflow-hidden">
-    <!-- Navbar component (includes both desktop sidebar and mobile bottom nav) -->
+    <!-- Sidebar (includes both sidebar and mobile bottom nav) -->
     <Navbar @update:collapsed="handleNavCollapse" />
-    
-    <!-- Main content area with responsive padding -->
-    <div class="flex flex-col w-full h-screen transition-all duration-300 ease-in-out" :class="contentPadding">
-      <!-- Fixed header that adjusts with navbar -->
+
+    <!-- Main content area - takes remaining space -->
+    <div class="flex flex-col flex-1 min-w-0">
+      <!-- Header - sticky at top of content area -->
       <PageHeader
-        class="not-print:fixed top-0 z-10 border-b border-slate-600 bg-slate-800 transition-all duration-300 ease-in-out right-0"
-        :class="[
-          { 'left-0': true },
-          { 'md:left-16': navbarCollapsed },
-          { 'md:left-64': !navbarCollapsed }
-        ]"
+        class="flex-shrink-0 border-b border-slate-600 bg-slate-800"
         :useRouteTitle="!isDocumentationPage"
         :title="titleManager.pageTitle.value"
         :showCreateButton="true"
@@ -133,17 +110,17 @@ onMounted(async () => {
         @preview-document-title="titleManager.previewDocumentTitle"
         @update-document-icon="titleManager.updateDocumentIcon"
       />
-      
+
       <!-- Scrollable content with bottom padding for mobile nav -->
-      <main class="flex-1 not-print:pt-16 overflow-hidden pb-16 md:pb-0">
-        <RouterView 
-          v-slot="{ Component }" 
+      <main class="flex-1 overflow-hidden pb-16 md:pb-0">
+        <RouterView
+          v-slot="{ Component }"
           @update:ticket="titleManager.setTicket"
           @update:document="titleManager.setDocument"
           @update:title="titleManager.setCustomTitle"
         >
-          <Transition 
-            name="fade" 
+          <Transition
+            name="fade"
             mode="out-in"
             @before-enter="titleManager.startTransition"
             @after-enter="titleManager.endTransition"
