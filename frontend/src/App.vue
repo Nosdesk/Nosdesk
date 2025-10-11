@@ -60,7 +60,7 @@ onMounted(async () => {
   if (initializationChecked.value) {
     return;
   }
-  
+
   try {
     // Only check if we're not already on onboarding or login pages
     if (route.name !== 'onboarding' && route.name !== 'login') {
@@ -104,8 +104,6 @@ onMounted(async () => {
         :is-transitioning="titleManager.isTransitioning.value"
         :pageUrl="currentPageUrl"
         :navbarCollapsed="navbarCollapsed"
-        @update-ticket-title="titleManager.updateTicketTitle"
-        @preview-ticket-title="titleManager.previewTicketTitle"
         @update-document-title="titleManager.updateDocumentTitle"
         @preview-document-title="titleManager.previewDocumentTitle"
         @update-document-icon="titleManager.updateDocumentIcon"

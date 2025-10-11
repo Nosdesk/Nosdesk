@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, nextTick } from 'vue';
 
 interface Props {
   modelValue: string;
@@ -7,13 +7,15 @@ interface Props {
   textSize?: 'sm' | 'base' | 'lg' | 'xl' | '2xl';
   canEdit?: boolean;
   prefix?: string;
+  showEditHint?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   placeholder: 'Enter text...',
   textSize: 'base',
   canEdit: true,
-  prefix: ''
+  prefix: '',
+  showEditHint: true
 });
 
 const emit = defineEmits<{
@@ -22,10 +24,20 @@ const emit = defineEmits<{
 
 const isEditing = ref(false);
 const originalValue = ref(props.modelValue);
+const inputRef = ref<HTMLInputElement | null>(null);
 
 // Update original value when modelValue changes from parent
 watch(() => props.modelValue, (newValue) => {
   originalValue.value = newValue;
+});
+
+// Auto-focus input when entering edit mode
+watch(isEditing, async (newValue) => {
+  if (newValue) {
+    await nextTick();
+    inputRef.value?.focus();
+    inputRef.value?.select();
+  }
 });
 
 const handleClick = () => {
@@ -72,30 +84,44 @@ const textSizeClasses = {
     </span>
     
     <div class="flex-1 relative">
+      <!-- Display mode - shows wrapped text -->
+      <div
+        v-if="!isEditing"
+        @click="handleClick"
+        class="w-full font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-700/50 transition-all duration-150 border-2 border-transparent break-words"
+        :class="[
+          textSizeClasses[textSize],
+          {
+            'cursor-pointer': canEdit,
+            'cursor-default': !canEdit,
+            'text-white': modelValue,
+            'text-slate-400 italic': !modelValue
+          }
+        ]"
+      >
+        {{ modelValue || placeholder }}
+      </div>
+
+      <!-- Edit mode - input field -->
       <input
+        v-else
         :value="modelValue"
         @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
         type="text"
-        class="w-full bg-transparent text-white font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-700/50 focus:bg-slate-700 focus:outline-none transition-all duration-150 border-2 border-transparent focus:border-blue-500/50"
+        class="w-full bg-slate-700/50 text-white font-semibold px-1 py-0.5 rounded-lg focus:bg-slate-700 focus:outline-none transition-all duration-150 border-2 border-transparent focus:border-blue-500/50"
         :class="[
           textSizeClasses[textSize],
-          { 
-            'bg-slate-700/50': isEditing, 
-            'cursor-pointer': canEdit && !isEditing,
-            'cursor-text': isEditing,
-            'cursor-default': !canEdit
-          }
+          'cursor-text'
         ]"
         :placeholder="placeholder"
-        :readonly="!canEdit"
-        @click="handleClick"
         @blur="handleBlur"
         @keydown="handleKeydown"
+        ref="inputRef"
       />
-      
+
       <!-- Edit indicator -->
-      <span 
-        v-if="!isEditing && canEdit"
+      <span
+        v-if="!isEditing && canEdit && showEditHint"
         class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none select-none"
       >
         Click to edit

@@ -33,7 +33,7 @@ const props = withDefaults(defineProps<Props>(), {
   navbarCollapsed: false,
 });
 
-const emit = defineEmits(["updateTicketTitle", "updateDocumentTitle", "updateDocumentIcon", "previewTicketTitle", "previewDocumentTitle"]);
+const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle"]);
 
 const isTicketView = computed(() => {
   return props.ticket !== null;
@@ -61,18 +61,6 @@ const displayTitle = computed(() => {
   }
   return '';
 });
-
-const handleUpdateTitle = (newTitle: string) => {
-  if (props.ticket) {
-    emit("updateTicketTitle", newTitle);
-  }
-};
-
-const handlePreviewTitle = (newTitle: string) => {
-  if (props.ticket) {
-    emit("previewTicketTitle", newTitle);
-  }
-};
 
 const handleUpdateDocumentTitle = (newTitle: string) => {
   if (props.document) {
@@ -216,45 +204,35 @@ defineExpose({
   <header class="bg-slate-800 border-b border-slate-700 relative z-[999]">
     <div class="flex items-center justify-between h-16 px-4 md:px-6 gap-2">
       <!-- Left side - Title area -->
-      <div class="flex items-center flex-1 relative overflow-hidden min-w-0">
-        <div
-          class="w-full transition-all duration-300 ease-in-out min-w-0"
-          :class="{ 'opacity-0 -translate-y-4': isTransitioning }"
-        >
-          <template v-if="isTicketView && props.ticket">
-            <div class="flex items-center gap-2 min-w-0">
-              <TicketIdentifier :ticketId="props.ticket.id" size="md" class="flex-shrink-0" />
-              <HeaderTitle
-                :initialTitle="props.ticket.title"
-                :placeholder-text="'Enter ticket title...'"
-                @update-title="handleUpdateTitle"
-                @update-title-preview="handlePreviewTitle"
-                class="min-w-0 truncate"
-              />
-            </div>
-          </template>
-          <template v-else-if="isDocumentView && props.document">
-            <div class="flex items-center gap-2 min-w-0">
-              <DocumentIconSelector
-                :initial-icon="props.document.icon"
-                @update:icon="handleUpdateDocumentIcon"
-                class="flex-shrink-0"
-              />
-              <HeaderTitle
-                :initialTitle="props.document.title"
-                :placeholder-text="'Enter document title...'"
-                @update-title="handleUpdateDocumentTitle"
-                @update-title-preview="handlePreviewDocumentTitle"
-                class="min-w-0 truncate"
-              />
-            </div>
-          </template>
-          <template v-else>
-            <div class="flex items-center gap-2 min-w-0">
-              <h1 class="text-xl font-semibold text-white truncate">{{ displayTitle }}</h1>
-            </div>
-          </template>
-        </div>
+      <div class="flex items-center flex-1 min-w-0">
+        <template v-if="isTicketView && props.ticket">
+          <div class="flex items-center gap-2 min-w-0 flex-1">
+            <TicketIdentifier :ticketId="props.ticket.id" size="md" class="flex-shrink-0" />
+            <!-- Display ticket title as read-only in header -->
+            <h1 class="text-xl font-semibold text-white truncate flex-1 min-w-0">
+              {{ props.ticket.title || 'Untitled Ticket' }}
+            </h1>
+          </div>
+        </template>
+        <template v-else-if="isDocumentView && props.document">
+          <div class="flex items-center gap-2 min-w-0 flex-1">
+            <DocumentIconSelector
+              :initial-icon="props.document.icon"
+              @update:icon="handleUpdateDocumentIcon"
+              class="flex-shrink-0"
+            />
+            <HeaderTitle
+              :initialTitle="props.document.title"
+              :placeholder-text="'Enter document title...'"
+              @update-title="handleUpdateDocumentTitle"
+              @update-title-preview="handlePreviewDocumentTitle"
+              class="min-w-0 flex-1"
+            />
+          </div>
+        </template>
+        <template v-else>
+          <h1 class="text-xl font-semibold text-white truncate">{{ displayTitle }}</h1>
+        </template>
       </div>
 
       <!-- Right side -->
@@ -273,7 +251,7 @@ defineExpose({
             <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
           
-          <span class="inline">{{ isCreatingTicket ? 'Creating...' : 'Create Ticket' }}</span>
+          <span class="hidden md:inline">{{ isCreatingTicket ? 'Creating...' : 'Create Ticket' }}</span>
         </button>
 
         <!-- User Profile Menu -->
@@ -309,22 +287,7 @@ defineExpose({
 <style scoped>
 .dropdown-menu {
   position: fixed;
-  /* Ensure it's positioned relative to the viewport */
   transform: translateZ(0);
-  /* Force a new stacking context */
   will-change: transform;
-  /* Hint to the browser to create a new layer */
-}
-
-.transition-all {
-  transition-property: all;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .transition-all {
-    transition-duration: 0.1s;
-    transform: none !important;
-  }
 }
 </style>
