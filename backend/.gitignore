@@ -1,0 +1,31 @@
+# Rust build artifacts
+/target/
+/debug/
+/release/
+**/*.rs.bk
+*.pdb
+
+# File uploads
+uploads/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Public directory (built frontend)
+public/

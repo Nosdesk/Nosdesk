@@ -392,7 +392,7 @@ pub async fn delete_attachment(
     }
 }
 
-// Secure public file serving - ONLY for user avatars and thumbs
+// Secure public file serving - ONLY for user avatars, banners, and thumbs
 pub async fn serve_public_file(
     filename: web::Path<String>,
     req: actix_web::HttpRequest,
@@ -404,10 +404,12 @@ pub async fn serve_public_file(
     let uri = req.uri().to_string();
     let storage_path = if uri.starts_with("/uploads/users/avatars/") {
         format!("users/avatars/{}", filename)
+    } else if uri.starts_with("/uploads/users/banners/") {
+        format!("users/banners/{}", filename)
     } else if uri.starts_with("/uploads/users/thumbs/") {
         format!("users/thumbs/{}", filename)
     } else {
-        eprintln!("Security violation: Attempted to access non-avatar file: {}", filename);
+        eprintln!("Security violation: Attempted to access non-avatar/banner/thumb file: {}", filename);
         return HttpResponse::Forbidden().finish();
     };
     

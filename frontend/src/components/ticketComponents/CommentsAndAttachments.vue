@@ -4,6 +4,7 @@ import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
 import AttachmentPreview from "@/components/ticketComponents/AttachmentPreview.vue";
 import AudioPreview from "@/components/ticketComponents/AudioPreview.vue";
+import uploadService from "@/services/uploadService";
 
 interface UserInfo {
   uuid: string;
@@ -34,8 +35,8 @@ const shouldShowAbove = ref(false);
 const showRecordingInterface = ref(false);
 const showPreviewInterface = ref(false);
 const currentRecording = ref<{ blob: Blob; duration: number } | null>(null);
-const urlCreator = window.URL || window.webkitURL;
 const isDraggingFile = ref(false);
+const conversionMessage = ref<string | null>(null);
 
 const emit = defineEmits<{
   (
@@ -77,7 +78,34 @@ const addComment = () => {
   console.log("Comment submission complete, form reset");
 };
 
-const handleFileUpload = (event: Event) => {
+const processFiles = async (files: File[]): Promise<File[]> => {
+  const processedFiles: File[] = [];
+  for (const file of files) {
+    try {
+      // Convert HEIC to WebP if it's an image
+      const processedFile = file.type.startsWith('image/')
+        ? await uploadService.convertHeicToJpeg(file, (message) => {
+            conversionMessage.value = message;
+            // Auto-clear success message after 2 seconds
+            if (message.includes('successful')) {
+              setTimeout(() => {
+                conversionMessage.value = null;
+              }, 2000);
+            }
+          })
+        : file;
+      processedFiles.push(processedFile);
+    } catch (error) {
+      console.error(`Error processing file ${file.name}:`, error);
+      conversionMessage.value = null;
+      // Still add the original file if conversion fails
+      processedFiles.push(file);
+    }
+  }
+  return processedFiles;
+};
+
+const handleFileUpload = async (event: Event) => {
   const input = event.target as HTMLInputElement;
   if (input.files) {
     const files = Array.from(input.files);
@@ -94,8 +122,9 @@ const handleFileUpload = (event: Event) => {
       showPreviewInterface.value = true;
     }
 
-    // Add other files to the newAttachments array
-    newAttachments.value.push(...otherFiles);
+    // Process other files - convert HEIC images if needed
+    const processedFiles = await processFiles(otherFiles);
+    newAttachments.value.push(...processedFiles);
     showAttachmentMenu.value = false;
   }
 };
@@ -223,7 +252,7 @@ const handleDragOver = (event: DragEvent) => {
   event.stopPropagation();
 };
 
-const handleDrop = (event: DragEvent) => {
+const handleDrop = async (event: DragEvent) => {
   event.preventDefault();
   event.stopPropagation();
   isDraggingFile.value = false;
@@ -244,8 +273,9 @@ const handleDrop = (event: DragEvent) => {
     showPreviewInterface.value = true;
   }
 
-  // Add other files to the newAttachments array
-  newAttachments.value.push(...otherFiles);
+  // Process other files - convert HEIC images if needed
+  const processedFiles = await processFiles(otherFiles);
+  newAttachments.value.push(...processedFiles);
 };
 </script>
 
@@ -258,6 +288,21 @@ const handleDrop = (event: DragEvent) => {
     
     <!-- Content -->
     <div class="p-3 flex flex-col gap-3">
+      <!-- Conversion Status Message -->
+      <div
+        v-if="conversionMessage"
+        class="bg-blue-600/20 border border-blue-500/50 text-blue-300 px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+      >
+        <svg v-if="conversionMessage.includes('Converting')" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <svg v-else class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+        </svg>
+        {{ conversionMessage }}
+      </div>
+
       <!-- Add New Comment Form -->
       <div
         class="bg-slate-700/50 p-3 rounded-lg relative"
@@ -306,7 +351,7 @@ const handleDrop = (event: DragEvent) => {
               v-for="(file, index) in newAttachments"
               :key="index"
               :attachment="{
-                url: urlCreator.createObjectURL(file),
+                url: uploadService.createPreviewUrl(file),
                 name: file.name,
               }"
               :author="props.currentUser"

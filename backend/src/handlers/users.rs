@@ -968,11 +968,16 @@ pub async fn upload_user_image(
 
     // Ensure the directory exists using storage abstraction
     let full_storage_path = format!("{}/{}", storage_path, user_uuid);
-    
+
+    println!("📸 Processing {} upload for user: {}", image_type, user_uuid);
+
     // Process the uploaded image
     while let Ok(Some(mut field)) = payload.try_next().await {
+        println!("📦 Received multipart field: name={:?}", field.name());
+
         // Get content type
         let content_type = field.content_type().map(|ct| ct.to_string()).unwrap_or_else(|| "application/octet-stream".to_string());
+        println!("📋 Content type: {}", content_type);
         
         // Validate content type (only allow images)
         if !content_type.starts_with("image/") {
@@ -982,6 +987,14 @@ pub async fn upload_user_image(
             }));
         }
         
+        // Check for HEIC/HEIF - these should be converted on the client side
+        if content_type.as_str() == "image/heic" || content_type.as_str() == "image/heif" {
+            return HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": "HEIC/HEIF format should be converted to JPEG on the client side before upload"
+            }));
+        }
+
         // Extract file extension from content type
         let file_ext = match content_type.as_str() {
             "image/jpeg" => "jpg",
@@ -1062,9 +1075,26 @@ pub async fn upload_user_image(
                 }
             }
         } else {
-            // For banners, just save the original image
-            let banner_url = format!("/uploads/{}", file_path);
-            (banner_url, None)
+            // For banners, process and resize to WebP format with banner dimensions (1200x400 max)
+            match crate::utils::image::process_banner_image(&file_data, &user_uuid, 1200, 400).await {
+                Ok(Some(banner_url)) => {
+                    println!("Successfully processed banner for user {}: {}", user_uuid, banner_url);
+                    (banner_url, None)
+                },
+                Ok(None) => {
+                    return HttpResponse::InternalServerError().json(json!({
+                        "status": "error",
+                        "message": "Failed to process banner image"
+                    }));
+                },
+                Err(e) => {
+                    eprintln!("Error processing banner: {}", e);
+                    return HttpResponse::InternalServerError().json(json!({
+                        "status": "error",
+                        "message": format!("Failed to process banner image: {}", e)
+                    }));
+                }
+            }
         };
         
         // Update the user record with the new image URL

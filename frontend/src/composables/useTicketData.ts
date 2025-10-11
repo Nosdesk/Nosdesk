@@ -88,7 +88,7 @@ export function useTicketData() {
     const date = new Date(dateString);
     return date.toLocaleDateString("en-US", {
       year: "numeric",
-      month: "long",
+      month: "short",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
@@ -242,7 +242,17 @@ export function useTicketData() {
       }
 
       // Send update to backend - SSE will broadcast to other clients
-      await ticketService.updateTicket(ticket.value.id, updateData);
+      const response = await ticketService.updateTicket(ticket.value.id, updateData);
+
+      // Update user objects from backend response to keep UI in sync
+      if (response && ticket.value) {
+        if (field === "requester" && response.requester_user) {
+          ticket.value.requester_user = response.requester_user;
+        }
+        if (field === "assignee" && response.assignee_user) {
+          ticket.value.assignee_user = response.assignee_user;
+        }
+      }
     } catch (err) {
       console.error(`Error updating ${field}:`, err);
       // Revert optimistic update on error - also use direct mutation

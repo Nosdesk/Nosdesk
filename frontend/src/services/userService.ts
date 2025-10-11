@@ -375,28 +375,30 @@ const userService = {
   },
 
   // Upload image and return the URL path
-  async uploadImage(file: File, type: 'avatar' | 'banner'): Promise<string | null> {
+  async uploadImage(file: File, type: 'avatar' | 'banner', targetUserUuid?: string): Promise<string | null> {
     try {
-      // Always get fresh user data from the API to ensure we have the correct UUID
-      let userUuid = '';
-      
-      try {
-        const token = localStorage.getItem('token');
-        if (token) {
-          // Make a request to get current user to ensure we have the correct UUID
-          const userResponse = await apiClient.get('/auth/me');
-          if (userResponse.data && userResponse.data.uuid) {
-            userUuid = userResponse.data.uuid;
-            console.log('Retrieved user UUID from /auth/me endpoint:', userUuid);
-            
-            // Update localStorage with fresh user data
-            localStorage.setItem('user', JSON.stringify(userResponse.data));
+      // Use the provided UUID, or fetch the current user's UUID if not provided
+      let userUuid = targetUserUuid || '';
+
+      if (!userUuid) {
+        try {
+          const token = localStorage.getItem('token');
+          if (token) {
+            // Make a request to get current user to ensure we have the correct UUID
+            const userResponse = await apiClient.get('/auth/me');
+            if (userResponse.data && userResponse.data.uuid) {
+              userUuid = userResponse.data.uuid;
+              console.log('Retrieved user UUID from /auth/me endpoint:', userUuid);
+
+              // Update localStorage with fresh user data
+              localStorage.setItem('user', JSON.stringify(userResponse.data));
+            }
           }
+        } catch (e) {
+          console.error('Error fetching current user data:', e);
         }
-      } catch (e) {
-        console.error('Error fetching current user data:', e);
       }
-      
+
       if (!userUuid) {
         console.error('No user UUID found for image upload');
         return null;

@@ -30,7 +30,7 @@ README.md
 
 # Git
 .git/
-.gitignore
+# .gitignore - KEEP THIS FILE (needed for cargo-watch to ignore uploads/)
 
 # Testing
 tests/

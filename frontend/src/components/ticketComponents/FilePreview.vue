@@ -27,7 +27,6 @@ const isLoadingThumbnail = ref(false);
 const isLoadingImage = ref(false);
 const thumbnailError = ref<string | null>(null);
 const showPreview = ref(false);
-const convertedImageSrc = ref<string | null>(null);
 
 const fileExtension = computed(() => {
   const ext = props.filename.split('.').pop()?.toLowerCase() || '';
@@ -42,12 +41,8 @@ const fileType = computed(() => {
   if (['ppt', 'pptx'].includes(ext)) return 'powerpoint';
   if (['txt', 'rtf', 'md'].includes(ext)) return 'text';
   if (['zip', 'rar', '7z'].includes(ext)) return 'archive';
-  if (['jpg', 'jpeg', 'png', 'gif', 'apng', 'webp', 'heic', 'avif', 'jxl'].includes(ext)) return 'image';
+  if (['jpg', 'jpeg', 'png', 'gif', 'apng', 'webp', 'avif', 'jxl'].includes(ext)) return 'image';
   return 'generic';
-});
-
-const isHeicImage = computed(() => {
-  return fileExtension.value === 'heic';
 });
 
 // Add a computed property to detect animated images
@@ -156,20 +151,15 @@ const loadImagePreview = async () => {
     isLoadingImage.value = true;
     thumbnailError.value = null;
 
-    // Check if it's a HEIC image that needs conversion
-    if (isHeicImage.value && !convertedImageSrc.value) {
-      await convertHeicImage();
-    } else {
-      // Create a new image and wait for it to load
-      const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = () => reject(new Error('Failed to load image'));
-        img.src = convertedImageSrc.value || props.src;
-      });
+    // Create a new image and wait for it to load
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = props.src;
+    });
 
-      imagePreview.value = img;
-    }
+    imagePreview.value = img;
   } catch (error) {
     console.error('Error loading image preview:', error);
     thumbnailError.value = 'Failed to load image';
@@ -178,79 +168,11 @@ const loadImagePreview = async () => {
   }
 };
 
-const convertHeicImage = async () => {
-  try {
-    // Only need to convert HEIC files
-    if (fileExtension.value !== 'heic') {
-      // For other image formats, just use the original source
-      const response = await fetch(props.src);
-      const blob = await response.blob();
-      convertedImageSrc.value = URL.createObjectURL(blob);
-      
-      const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = () => reject(new Error('Failed to load image'));
-        img.src = convertedImageSrc.value || props.src;
-      });
-      
-      imagePreview.value = img;
-      return;
-    }
-    
-    // HEIC conversion with heic2any
-    const heic2any = await import('heic2any');
-    
-    // Fetch the HEIC file
-    const response = await fetch(props.src);
-    const blob = await response.blob();
-    
-    // Convert HEIC to JPEG
-    const jpegBlob = await heic2any.default({
-      blob,
-      toType: 'image/jpeg',
-      quality: 0.8
-    }) as Blob;
-    
-    // Create a URL for the converted image
-    convertedImageSrc.value = URL.createObjectURL(jpegBlob);
-    
-    // Create a new image and wait for it to load
-    const img = new Image();
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = () => reject(new Error('Failed to load converted image'));
-      // Fallback to original source if convertedImageSrc is null
-      img.src = convertedImageSrc.value || props.src;
-    });
-    
-    imagePreview.value = img;
-  } catch (error) {
-    console.error('Error converting HEIC image:', error);
-    thumbnailError.value = 'Failed to convert HEIC image';
-    throw error;
-  }
-};
-
 const openPreview = () => {
   if (fileType.value === 'pdf' || fileType.value === 'image') {
     showPreview.value = true;
-    // For HEIC images, emit the converted image source
-    if (isHeicImage.value && convertedImageSrc.value) {
-      emit('preview', convertedImageSrc.value);
-    } else {
-      emit('preview', props.src);
-    }
+    emit('preview', props.src);
   }
-};
-
-// Add a method to handle downloading converted images
-const getDownloadFilename = () => {
-  if (isHeicImage.value) {
-    // Replace .heic extension with .jpg for the downloaded file
-    return props.filename.replace(/\.heic$/i, '.jpg');
-  }
-  return props.filename;
 };
 
 // Add new function to extract display name from filename
@@ -345,11 +267,11 @@ onMounted(async () => {
         ></canvas>
 
         <!-- Image Preview -->
-        <img 
+        <img
           v-if="fileType === 'image' && !isLoadingImage"
           ref="imagePreview"
-          :src="isHeicImage && convertedImageSrc ? convertedImageSrc : src" 
-          :alt="filename" 
+          :src="src"
+          :alt="filename"
           class="w-full h-full object-cover"
           :class="{ 'animated-image': isAnimatedImage }"
         >
@@ -399,46 +321,14 @@ onMounted(async () => {
         <div class="flex items-start gap-2">
           <div class="flex-grow">
             <span class="text-xs text-slate-400 uppercase mt-1 block">
-              {{ isHeicImage ? 'HEIC (converted to JPEG)' : fileExtension }}
+              {{ fileExtension }}
             </span>
           </div>
         </div>
 
-        <!-- Download buttons -->
+        <!-- Download button -->
         <div class="flex items-center gap-2 justify-end mt-2">
-          <!-- For HEIC files, show both download options -->
-          <template v-if="isHeicImage">
-            <!-- Original HEIC download button -->
-            <a
-              :href="src"
-              target="_blank"
-              class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded hover:bg-slate-700 transition-colors flex items-center gap-2"
-              :download="filename"
-            >
-              <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
-              </svg>
-              Download (HEIC)
-            </a>
-            
-            <!-- Converted JPEG download button -->
-            <a
-              v-if="convertedImageSrc"
-              :href="convertedImageSrc"
-              target="_blank"
-              class="px-3 py-1.5 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition-colors flex items-center gap-2"
-              :download="getDownloadFilename()"
-            >
-              <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
-              </svg>
-              Download (JPEG)
-            </a>
-          </template>
-          
-          <!-- For non-HEIC files, show the standard download button -->
           <a
-            v-else
             :href="src"
             target="_blank"
             class="px-3 py-1.5 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition-colors flex items-center gap-2"

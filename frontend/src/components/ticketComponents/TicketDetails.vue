@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { computed } from 'vue';
 import UserAutocomplete from "@/components/ticketComponents/UserSelection.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
-import UserAvatar from "@/components/UserAvatar.vue";
 import ContentEditable from "@/components/ticketComponents/ContentEditable.vue";
-import { useDataStore } from '@/stores/dataStore';
 
 interface UserInfo {
   uuid: string;
@@ -41,68 +39,14 @@ const emit = defineEmits<{
   (e: "update:title", value: string): void;
 }>();
 
-// Set up reactive state for requester and assignee
-// Prefer UUID from user object, fallback to string field
-const selectedRequester = ref(props.ticket.requester_user?.uuid || props.ticket.requester || "");
-const selectedAssignee = ref(props.ticket.assignee_user?.uuid || props.ticket.assignee || "");
+// Computed values - single source of truth from props
+const selectedRequester = computed(() =>
+  props.ticket.requester_user?.uuid || props.ticket.requester || ""
+);
 
-
-// Debug logging to see what data we're getting
-console.log('🎫 TicketDetails received ticket data:', {
-  requester: props.ticket.requester,
-  requester_user: props.ticket.requester_user,
-  assignee: props.ticket.assignee,
-  assignee_user: props.ticket.assignee_user,
-  selectedRequester: selectedRequester.value,
-  selectedAssignee: selectedAssignee.value
-});
-
-// Track if we're updating from props to prevent circular emissions
-const isUpdatingFromProps = ref(false);
-
-// Watch for changes in the ticket props to update the local state
-watch(() => [props.ticket.requester_user, props.ticket.requester] as const, ([newRequesterUser, newRequester]) => {
-  const newValue = (newRequesterUser as UserInfo | null)?.uuid || newRequester || "";
-  if (newValue !== selectedRequester.value) {
-    console.log('🎫 TicketDetails: Updating selectedRequester from', selectedRequester.value, 'to', newValue);
-    isUpdatingFromProps.value = true;
-    selectedRequester.value = newValue;
-    isUpdatingFromProps.value = false;
-  }
-});
-
-watch(() => [props.ticket.assignee_user, props.ticket.assignee] as const, ([newAssigneeUser, newAssignee]) => {
-  const newValue = (newAssigneeUser as UserInfo | null)?.uuid || newAssignee || "";
-  if (newValue !== selectedAssignee.value) {
-    console.log('🎫 TicketDetails: Updating selectedAssignee from', selectedAssignee.value, 'to', newValue);
-    isUpdatingFromProps.value = true;
-    selectedAssignee.value = newValue;
-    isUpdatingFromProps.value = false;
-  }
-});
-
-// Watch for changes in the selected requester and emit the update
-watch(selectedRequester, (newRequester, oldRequester) => {
-  // Only emit if not updating from props and values are actually different
-  if (!isUpdatingFromProps.value && newRequester !== oldRequester) {
-    console.log(`TicketDetails: Emitting update:requester with value: ${newRequester} (was: ${oldRequester})`);
-    emit("update:requester", newRequester);
-  }
-}, { immediate: false });
-
-// Watch for changes in the selected assignee and emit the update
-watch(selectedAssignee, (newAssignee, oldAssignee) => {
-  // Only emit if not updating from props and values are actually different
-  if (!isUpdatingFromProps.value && newAssignee !== oldAssignee) {
-    console.log(`TicketDetails: Emitting update:assignee with value: ${newAssignee} (was: ${oldAssignee})`);
-    emit("update:assignee", newAssignee);
-  }
-}, { immediate: false });
-
-// Component mounted
-onMounted(() => {
-  // Component initialization if needed
-});
+const selectedAssignee = computed(() =>
+  props.ticket.assignee_user?.uuid || props.ticket.assignee || ""
+);
 
 // Handle title update
 const handleTitleUpdate = (newTitle: string) => {
@@ -139,7 +83,8 @@ const handleTitleUpdate = (newTitle: string) => {
               <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Requester</h3>
               <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
                 <UserAutocomplete
-                  v-model="selectedRequester"
+                  :modelValue="selectedRequester"
+                  @update:modelValue="emit('update:requester', $event)"
                   :currentUser="ticket.requester_user"
                   placeholder="Search or select requester..."
                   type="requester"
@@ -153,7 +98,8 @@ const handleTitleUpdate = (newTitle: string) => {
               <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Assignee</h3>
               <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
                 <UserAutocomplete
-                  v-model="selectedAssignee"
+                  :modelValue="selectedAssignee"
+                  @update:modelValue="emit('update:assignee', $event)"
                   :currentUser="ticket.assignee_user"
                   placeholder="Search or select assignee..."
                   type="assignee"

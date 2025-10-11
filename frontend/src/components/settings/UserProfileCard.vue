@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth';
 import UserAvatar from '@/components/UserAvatar.vue';
 import InlineEdit from '@/components/common/InlineEdit.vue';
 import userService from '@/services/userService';
+import uploadService from '@/services/uploadService';
 
 interface UserAvatarComponentType {
   refreshUser: (uuid?: string) => Promise<void>;
@@ -84,6 +85,7 @@ watch(() => displayUser.value, (newUserData) => {
   }
 }, { immediate: true });
 
+
 // File handling functions
 const handleAvatarClick = () => {
   fileInput.value?.click();
@@ -97,135 +99,107 @@ const handleFileChange = async (event: Event) => {
   const input = event.target as HTMLInputElement;
   if (!input.files?.length) return;
 
-  const file = input.files[0];
-  if (!file.type.startsWith('image/')) {
-    emit('error', 'Please select an image file');
+  let file = input.files[0];
+
+  const validation = uploadService.validateFile(file, { allowedTypes: ['image/*'] });
+  if (!validation.valid) {
+    emit('error', validation.error || 'Invalid file');
     return;
   }
 
-  avatarFile.value = file;
-  avatarPreview.value = URL.createObjectURL(file);
-  await uploadAvatar();
+  try {
+    file = await uploadService.convertHeicToJpeg(file, (message) => {
+      emit('success', message);
+    });
+    avatarFile.value = file;
+    avatarPreview.value = uploadService.createPreviewUrl(file);
+    await uploadAvatar();
+  } catch (error: any) {
+    emit('error', error.message || 'Failed to process image');
+  }
 };
 
 const handleBannerChange = async (event: Event) => {
   const input = event.target as HTMLInputElement;
   if (!input.files?.length) return;
 
-  const file = input.files[0];
-  if (!file.type.startsWith('image/')) {
-    emit('error', 'Please select an image file');
+  let file = input.files[0];
+
+  const validation = uploadService.validateFile(file, { allowedTypes: ['image/*'] });
+  if (!validation.valid) {
+    emit('error', validation.error || 'Invalid file');
     return;
   }
 
-  bannerFile.value = file;
-  bannerPreview.value = URL.createObjectURL(file);
-  await uploadBanner();
+  try {
+    file = await uploadService.convertHeicToJpeg(file, (message) => {
+      emit('success', message);
+    });
+    bannerFile.value = file;
+    bannerPreview.value = uploadService.createPreviewUrl(file);
+    await uploadBanner();
+  } catch (error: any) {
+    emit('error', error.message || 'Failed to process image');
+  }
 };
 
-const uploadAvatar = async () => {
-  if (!avatarFile.value) return;
-  
+const uploadImage = async (type: 'avatar' | 'banner') => {
+  const file = type === 'avatar' ? avatarFile.value : bannerFile.value;
+  if (!file) return;
+
   loading.value = true;
 
   try {
-    const userUuid = authStore.user?.uuid;
-    if (!userUuid) {
-      try {
-        await authStore.fetchUserData();
-        if (!authStore.user?.uuid) {
-          emit('error', "User not authenticated. Please log in again.");
-          return;
-        }
-      } catch (refreshErr) {
-        emit('error', "User not authenticated. Please log in again.");
-        return;
-      }
-    }
-    
-    const uploadedUrl = await userService.uploadImage(avatarFile.value, 'avatar');
-    
-    if (!uploadedUrl) {
-      emit('error', "Failed to upload image");
+    const targetUserUuid = displayUser.value?.uuid;
+    if (!targetUserUuid) {
+      emit('error', "User UUID not found");
       return;
     }
-    
-    emit('success', 'Profile picture updated successfully');
-    formData.value.avatar_url = uploadedUrl;
-    
-    if (authStore.user) {
+
+    const uploadedUrl = await userService.uploadImage(file, type, targetUserUuid);
+
+    if (!uploadedUrl) {
+      emit('error', `Failed to upload ${type}`);
+      return;
+    }
+
+    const successMessage = type === 'avatar' ? 'Profile picture updated successfully' : 'Cover image updated successfully';
+    emit('success', successMessage);
+
+    // Add cache-busting parameter to force browser to reload the image
+    const cacheBustedUrl = `${uploadedUrl}?t=${Date.now()}`;
+
+    // Update form data
+    if (type === 'avatar') {
+      formData.value.avatar_url = cacheBustedUrl;
+    } else {
+      formData.value.banner_url = cacheBustedUrl;
+    }
+
+    // Only update auth store if editing the current user
+    const isCurrentUser = authStore.user?.uuid === targetUserUuid;
+    if (isCurrentUser && authStore.user) {
       authStore.user = {
         ...authStore.user,
-        avatar_url: uploadedUrl
+        [type === 'avatar' ? 'avatar_url' : 'banner_url']: cacheBustedUrl
       };
+
+      if (userAvatarComponent.value?.refreshUser) {
+        userAvatarComponent.value.refreshUser(targetUserUuid);
+      }
+
+      setTimeout(() => authStore.fetchUserData(), 500);
     }
-    
-    if (userAvatarComponent.value && userAvatarComponent.value.refreshUser) {
-      userAvatarComponent.value.refreshUser(authStore.user?.uuid);
-    }
-    
-    setTimeout(() => {
-      authStore.fetchUserData();
-    }, 500);
   } catch (err) {
-    emit('error', 'Failed to update profile picture');
-    console.error('Error updating avatar:', err);
+    emit('error', `Failed to update ${type}`);
+    console.error(`Error updating ${type}:`, err);
   } finally {
     loading.value = false;
   }
 };
 
-const uploadBanner = async () => {
-  if (!bannerFile.value) return;
-  
-  loading.value = true;
-
-  try {
-    const userUuid = authStore.user?.uuid;
-    if (!userUuid) {
-      try {
-        await authStore.fetchUserData();
-        if (!authStore.user?.uuid) {
-          emit('error', "User not authenticated. Please log in again.");
-          return;
-        }
-      } catch (refreshErr) {
-        emit('error', "User not authenticated. Please log in again.");
-        return;
-      }
-    }
-    
-    const uploadedUrl = await userService.uploadImage(bannerFile.value, 'banner');
-    
-    if (!uploadedUrl) {
-      emit('error', "Failed to upload image");
-      return;
-    }
-    
-    emit('success', 'Cover image updated successfully');
-    formData.value.banner_url = uploadedUrl;
-    
-    if (authStore.user) {
-      authStore.user = {
-        ...authStore.user,
-        banner_url: uploadedUrl
-      };
-    }
-    
-    if (userAvatarComponent.value && userAvatarComponent.value.refreshUser) {
-      userAvatarComponent.value.refreshUser(authStore.user?.uuid);
-    }
-    
-    setTimeout(() => {
-      authStore.fetchUserData();
-    }, 500);
-  } catch (err) {
-    emit('error', 'Failed to update cover image');
-    console.error('Error updating banner:', err);
-  } finally {
-    loading.value = false;
-  }
-};
+const uploadAvatar = () => uploadImage('avatar');
+const uploadBanner = () => uploadImage('banner');
 
 // Update functions
 const updateName = async () => {

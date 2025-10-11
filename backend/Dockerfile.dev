@@ -40,5 +40,5 @@ COPY backend/src ./src
 # Force unbuffered output for Docker logs
 ENV RUST_BACKTRACE=1
 ENV RUST_LOG_STYLE=always
-# Use unbuffer or script to force PTY allocation for unbuffered output
-CMD ["cargo", "watch", "--why", "--no-vcs-ignores", "-x", "run"] 
+# Explicitly ignore uploads directory to prevent reload loops
+CMD ["cargo", "watch", "--why", "--ignore", "uploads", "-x", "run"] 
