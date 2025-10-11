@@ -78,17 +78,13 @@ onUnmounted(() => {
 
 // Simple error handler - just refresh user data if needed
 const handleImageError = async () => {
-  console.error('UserAvatar: Image failed to load for user:', props.name, 'URL:', effectiveAvatarUrl.value)
-  
   if (isUuid(props.name)) {
-    console.log('UserAvatar: Image failed to load, refreshing user data for:', props.name)
-    
     try {
       // Force refresh the user data in case avatar URLs have been updated
       await dataStore.getUserByUuid(props.name, true)
       forceRefresh.value++ // Trigger reactivity update
     } catch (error) {
-      console.warn('Failed to refresh user data after image error:', error)
+      // Silently fail - the colored initials will be shown as fallback
     }
   }
 }
@@ -256,12 +252,12 @@ const navigateToProfile = () => {
   }
 }
 
-// Track image loading state
-const imageLoaded = ref(false)
+// Track if image failed to load
+const imageFailed = ref(false)
 
-// Reset image loaded state when avatar URL changes
+// Reset failed state when avatar URL changes
 watch(effectiveAvatarUrl, () => {
-  imageLoaded.value = false
+  imageFailed.value = false
 })
 
 // Export methods for external components to use
@@ -281,35 +277,33 @@ defineExpose({
     ]"
     @click="navigateToProfile"
   >
-    <!-- Avatar container -->
-    <div 
+    <!-- Avatar with image -->
+    <LazyImage
+      v-if="effectiveAvatarUrl && !imageFailed"
+      :src="effectiveAvatarUrl"
+      :alt="displayName"
       :class="[
-        sizeClasses.base, 
-        sizeClasses.responsive
+        sizeClasses.base,
+        sizeClasses.responsive,
+        'rounded-full'
       ]"
-      class="rounded-full flex items-center justify-center flex-shrink-0 font-medium text-white relative overflow-hidden"
+      object-fit="cover"
+      loading="lazy"
+      @error="() => { imageFailed = true; handleImageError() }"
+    />
+
+    <!-- Avatar with initials fallback -->
+    <div
+      v-else
+      :class="[
+        sizeClasses.base,
+        sizeClasses.responsive,
+        sizeClasses.text
+      ]"
+      class="rounded-full flex items-center justify-center flex-shrink-0 font-medium text-white"
       :style="{ backgroundColor: getBackgroundColor(displayName) }"
     >
-      <!-- Avatar image with lazy loading -->
-      <LazyImage
-        v-if="effectiveAvatarUrl"
-        :src="effectiveAvatarUrl"
-        :alt="displayName"
-        class="w-full h-full rounded-full"
-        object-fit="cover"
-        loading="lazy"
-        @load="() => { console.log('UserAvatar: Image loaded successfully for:', props.name); imageLoaded = true }"
-        @error="() => { console.error('UserAvatar: Image load error for:', props.name, 'URL:', effectiveAvatarUrl); imageLoaded = false; handleImageError() }"
-      />
-      
-      <!-- Fallback initials (hidden when image loads) -->
-      <span 
-        v-show="!imageLoaded"
-        :class="sizeClasses.text"
-        class="absolute inset-0 flex items-center justify-center"
-      >
-        {{ getInitials(displayName) }}
-      </span>
+      {{ getInitials(displayName) }}
     </div>
     
     <!-- Text container with consistent spacing to prevent layout shift -->
@@ -324,16 +318,6 @@ defineExpose({
 </template>
 
 <style scoped>
-/* Smooth transitions */
-img {
-  transition: opacity 0.3s ease-out;
-}
-
-/* Smooth background color transitions */
-div {
-  transition: background-color 0.3s ease-out, opacity 0.3s ease-out;
-}
-
 /* Ensure text doesn't cause layout shifts */
 .truncate {
   white-space: nowrap;
