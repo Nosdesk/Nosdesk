@@ -8,7 +8,7 @@ const API_URL = import.meta.env.VITE_API_URL || '/api';
 interface ProjectResponse {
   id: number;
   name: string;
-  description: string | null;
+  description?: string | null;
   status: 'active' | 'completed' | 'archived';
   created_at: string;
   updated_at: string;
@@ -17,7 +17,7 @@ interface ProjectResponse {
 
 interface NewProjectRequest {
   name: string;
-  description: string | null;
+  description?: string | null;
   status: 'active' | 'completed' | 'archived';
 }
 
@@ -65,10 +65,14 @@ export const projectService = {
     try {
       const request: NewProjectRequest = {
         name: project.name,
-        description: project.description || null,
         status: project.status
       };
-      
+
+      // Only add description if it's provided
+      if (project.description !== undefined) {
+        request.description = project.description || null;
+      }
+
       const response = await axios.post<ProjectResponse>(`${API_URL}/projects`, request);
       return mapProjectResponse(response.data);
     } catch (error) {

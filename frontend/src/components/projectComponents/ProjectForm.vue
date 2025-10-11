@@ -16,7 +16,7 @@ const emit = defineEmits<{
 
 const formData = ref<Omit<Project, 'id' | 'ticketCount'> & { id?: number }>({
   name: '',
-  description: '',
+  description: undefined,
   status: 'active'
 })
 
@@ -30,7 +30,7 @@ watch(() => props.project, (newProject) => {
 
 const handleSubmit = (e: Event) => {
   e.preventDefault();
-  if (!formData.value.name || !formData.value.description) return;
+  if (!formData.value.name) return;
   emit('submit', formData.value);
 }
 
@@ -59,15 +59,14 @@ const statusOptions = [
 
     <!-- Project Description -->
     <div class="flex flex-col gap-2">
-      <label for="description" class="text-sm font-medium text-slate-300">Description</label>
+      <label for="description" class="text-sm font-medium text-slate-300">Description (optional)</label>
       <textarea
         id="description"
         v-model="formData.description"
         rows="3"
-        required
         :disabled="disabled"
         class="px-3 py-2 bg-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:opacity-50"
-        placeholder="Enter project description"
+        placeholder="Enter project description (optional)"
       ></textarea>
     </div>
 
