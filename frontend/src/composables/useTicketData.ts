@@ -51,7 +51,7 @@ interface LocalTicket {
   requester_user?: UserInfo;
   assignee_user?: UserInfo;
   commentsAndAttachments?: CommentWithAttachments[];
-  project?: string;
+  projects?: string[];  // Array of project IDs, supporting many-to-many relationship
   devices?: TicketDevice[];
   linkedTickets?: number[];
 }
@@ -159,9 +159,13 @@ export function useTicketData() {
       );
       const transformedDevices = transformDevices(fetchedTicket.devices || []);
 
+      // Extract project IDs from projects array
+      const projectIds = fetchedTicket.projects?.map(p => String(p.id)) || [];
+
       // Update ticket
       ticket.value = {
         ...fetchedTicket,
+        projects: projectIds,
         linkedTickets:
           fetchedTicket.linked_tickets || fetchedTicket.linkedTickets || [],
         devices: transformedDevices,

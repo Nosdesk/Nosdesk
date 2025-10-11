@@ -215,11 +215,18 @@ const animate = () => {
     // Decay the click glitch effect over time
     if (clickGlitchIntensity.value > 0) {
       clickGlitchIntensity.value *= clickGlitchDecay;
-      
+
       // Reset to zero if it gets too small
       if (clickGlitchIntensity.value < 0.01) {
         clickGlitchIntensity.value = 0;
       }
+    }
+
+    // Animate mouse entry transition
+    if (isMouseOverSvg.value && mouseEntryTransition.value < 1) {
+      mouseEntryTransition.value = Math.min(1, mouseEntryTransition.value + 0.05); // Smooth transition in
+    } else if (!isMouseOverSvg.value && mouseEntryTransition.value > 0) {
+      mouseEntryTransition.value = Math.max(0, mouseEntryTransition.value - 0.05); // Smooth transition out
     }
 
     // Mouse position is already normalized in handleMouseMove - direct input without smoothing
@@ -238,45 +245,52 @@ const animate = () => {
     // Calculate center proximity factor (1 at center, approaches 0 at edges)
     const centerProximityFactor = Math.max(0, 1 - distanceFromCenter);
 
-    // --- NEW: Create cursor-modulated wobble time ---
-    // This combines wobbleTime with cursor position to create a unified time-based influence
-    // The cursor position directly modulates the time parameter rather than individual properties
+    // --- Simplified time calculation without cursor modulation ---
+    // The cursor should affect the output, not the time progression itself
+    // This prevents accumulating phase drift over time
+
+    // Apply entry transition for smooth mouse entry
+    const transitionedCursorInfluence = cursorInfluence * mouseEntryTransition.value * 0.3; // Further reduced
+
+    // Boost effects when click is active
+    const clickBoost = 1.0 + (clickGlitchIntensity.value * 1.0); // Reduced click boost
+
+    // Use unmodulated wobble time to prevent phase accumulation
+    // Only apply a simple scale based on hover state, not cursor position
+    const autonomousWobbleScale = isMouseOverSvg.value ? 0.7 : 1.0; // Slower when hovering
+    const effectiveWobbleTime = wobbleTime * autonomousWobbleScale * clickBoost;
+
+    // Calculate cursor influence separately - this will be applied to displacement, not time
+    const cursorDisplacementInfluence = transitionedCursorInfluence * centerProximityFactor;
     
-    // SIGNIFICANTLY reduce cursor influence and apply entry transition
-    const transitionedCursorInfluence = cursorInfluence * mouseEntryTransition.value * 0.5; // Reduced by 50% and applied transition
-    
-    // Greatly reduced cursor offset values
-    const cursorTimeOffsetX = (effectiveMouseX - 0.5) * 0.8 * transitionedCursorInfluence * centerProximityFactor; // Reduced from 2.0 to 0.8
-    const cursorTimeOffsetY = (effectiveMouseY - 0.5) * 0.8 * transitionedCursorInfluence * centerProximityFactor; // Reduced from 2.0 to 0.8
+    // --- Parabolic Scanline Emanation from Cursor ---
+    // Create a parabolic field that originates from the cursor position
+    // The effect is minimal at the cursor and increases parabolically outward
 
-    // Calculate new cursor-modulated time parameters - much more subtle cursor influence
-    // X-axis cursor position affects the "speed" of the wobble time
-    // Y-axis cursor position affects the "amplitude" of the effect
-    const cursorTimeScale = 1.0 + Math.abs(cursorTimeOffsetX) * 0.3; // Reduced from 0.7 to 0.3
-    const cursorTimeOffset = cursorTimeOffsetY * 1.0; // Reduced from 2.5 to 1.0
+    // Calculate distance from cursor for radial effect
+    const distFromCursorX = effectiveMouseX - 0.5;
+    const distFromCursorY = effectiveMouseY - 0.5;
+    const radialDistance = Math.sqrt(distFromCursorX * distFromCursorX + distFromCursorY * distFromCursorY);
 
-    // Boost effects when click is active - reduced boost multiplier
-    const clickBoost = 1.0 + (clickGlitchIntensity.value * 1.5); // Reduced from 3.0 to 1.5
+    // Parabolic influence that's 0 at cursor, 1 at edges
+    // This creates the "eye of the storm" effect at cursor position
+    const parabolaRadius = 0.4; // Effect radius (40% of screen)
+    const parabolicDistortion = radialDistance <= parabolaRadius
+      ? Math.pow(radialDistance / parabolaRadius, 2) // Parabolic increase from center
+      : 1.0; // Full effect outside radius
 
-    // Enhance the wobble effect with click boost
-    const enhancedCursorTimeScale = cursorTimeScale * clickBoost;
-    const enhancedCursorTimeOffset = cursorTimeOffset * clickBoost;
+    // Directional parabolas for X and Y axes
+    // These control how the scanlines bend away from cursor
+    const xDistFromCursor = Math.abs(distFromCursorX);
+    const yDistFromCursor = Math.abs(distFromCursorY);
 
-    // Create a modulated wobble time that incorporates cursor position
-    const cursorModulatedWobbleTime = wobbleTime * enhancedCursorTimeScale + enhancedCursorTimeOffset;
+    // Inverted parabolas - minimal at cursor, maximum away
+    const axisParabolaX = Math.min(1, Math.pow(xDistFromCursor * 2, 2));
+    const axisParabolaY = Math.min(1, Math.pow(yDistFromCursor * 2, 2));
 
-    // Autonomous wobble speed modulation - slows down when cursor is near center
-    const autonomousWobbleScale = isMouseOverSvg.value ? (0.5 + (distanceFromCenter * 0.5)) : 1.0;
-    // Replace effectiveWobbleTime with cursorModulatedWobbleTime * autonomousWobbleScale
-    const effectiveWobbleTime = cursorModulatedWobbleTime * autonomousWobbleScale;
-    
-    // --- Parabolic Modulation Along Each Axis ---
-    // These factors peak (value = 1) directly beneath the cursor on their respective axis
-    const axisParabolaXRaw = 1 - Math.pow((effectiveMouseX - 0.5) / 0.5, 2);
-    const axisParabolaYRaw = 1 - Math.pow((effectiveMouseY - 0.5) / 0.5, 2);
-    // Square to enhance center emphasis
-    const axisParabolaX = Math.max(0, axisParabolaXRaw) ** 2;
-    const axisParabolaY = Math.max(0, axisParabolaYRaw) ** 2;
+    // Scanline emanation strength based on distance from cursor
+    const scanlineEmanation = parabolicDistortion;
+    const scanlineFrequencyModulation = 1.0 + radialDistance * 0.5; // Frequency increases away from cursor
 
     // --- Apply default values for all channels when effects are disabled ---
     if (!masterEffectEnabled) {
@@ -431,15 +445,15 @@ const animate = () => {
       const phaseConfig = channelPhaseOffsets[i];
       
       // Calculate base drift for this channel
-      // MODIFIED: Use cursorModulatedWobbleTime directly instead of adding cursor phase offsets
+      // Use clean time without cursor modulation to prevent phase accumulation
       const driftIntensityMultiplier = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 : 1;
       const baseDriftX = Math.sin(
-        effectiveWobbleTime * phaseConfig.driftX + 
+        effectiveWobbleTime * phaseConfig.driftX +
         (i === 0 ? 0 : i === 1 ? 1 : 3) // Phase offset specific to channel
       ) * driftAmplitude * driftIntensityMultiplier;
-      
+
       const baseDriftY = Math.cos(
-        effectiveWobbleTime * phaseConfig.driftY + 
+        effectiveWobbleTime * phaseConfig.driftY +
         (i === 0 ? 0 : i === 1 ? 2 : 4) // Phase offset specific to channel
       ) * driftAmplitude * driftIntensityMultiplier;
       
@@ -447,12 +461,30 @@ const animate = () => {
       const baseWobbleScale = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 : distortionScale;
       const wobbleScale = baseWobbleScale + ((globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 :
         Math.sin(
-          effectiveWobbleTime + phaseConfig.wobblePhase // Use modulated time directly
+          effectiveWobbleTime + phaseConfig.wobblePhase // Use clean time without cursor modulation
         ) * mouseDrivenWobbleAmplitude);
       
       // Final displacement values
       let finalDX = baseDriftX;
       let finalDY = baseDriftY;
+
+      // Add scanline emanation effect - scanlines appear to radiate from cursor
+      // The effect is minimal at cursor position and increases parabolically outward
+      if (isMouseOverSvg.value && !glitchCounters.value[i]) {
+        // Calculate direction from cursor to current position
+        // This creates the "emanation" effect where scanlines bend away from cursor
+        const directionX = distFromCursorX > 0 ? 1 : -1;
+        const directionY = distFromCursorY > 0 ? 1 : -1;
+
+        // Displacement increases with distance from cursor (parabolic)
+        // Minimal at cursor, maximum at edges
+        const scanlineBendX = directionX * axisParabolaX * scanlineEmanation * 2.0 * (i * 0.1 + 0.9);
+        const scanlineBendY = directionY * axisParabolaY * scanlineEmanation * 1.0 * (i * 0.1 + 0.9);
+
+        // Apply with reduced influence for subtlety
+        finalDX += scanlineBendX * cursorDisplacementInfluence;
+        finalDY += scanlineBendY * cursorDisplacementInfluence;
+      }
       
       // Glitch state handling
       if (glitchCounters.value[i] > 0) {
@@ -481,14 +513,14 @@ const animate = () => {
           ? glitchFrequencySettings.horizontal 
           : glitchFrequencySettings.vertical;
         
-        // Calculate frequency shifts based on cursor and wobble time
-        // MODIFIED: Use cursorModulatedWobbleTime directly instead of adding cursorPhaseOffsetX/Y
+        // Calculate frequency shifts based on wobble time (not cursor-modulated)
+        // This prevents accumulation of phase offset over time
         const autoFreqShiftX = Math.sin(
-          effectiveWobbleTime * (0.125 + 0.01 * i) // Use modulated time directly
+          effectiveWobbleTime * (0.125 + 0.01 * i) // Use clean time without cursor modulation
         ) * (freqSettings.xAmpFactor * 0.6 * (1.0 + centerProximityFactor * 0.3));
-        
+
         const autoFreqShiftY = Math.cos(
-          effectiveWobbleTime * (0.15 + 0.01 * i) // Use modulated time directly
+          effectiveWobbleTime * (0.15 + 0.01 * i) // Use clean time without cursor modulation
         ) * (freqSettings.yAmpFactor * 0.6 * (1.0 + centerProximityFactor * 0.3));
         
         // Calculate base frequencies
@@ -578,30 +610,62 @@ const animate = () => {
         glitchCounters.value[i]--;
       } else {
         // Normal non-glitch state
-        turbulence.setAttributeNS(null, "numOctaves", defaultNumOctaves);
+        // Use 2 octaves for smoother scanline patterns with some detail
+        const scanlineOctaves = isMouseOverSvg.value ? "2" : defaultNumOctaves;
+        turbulence.setAttributeNS(null, "numOctaves", scanlineOctaves);
         turbulence.setAttributeNS(null, "seed", `${Math.floor(seedCounter.value)}`);
         
         // Get frequency settings for this channel
         const freqSettings = channelFrequencySettings[i];
-        
-        // Calculate cursor frequency modulation
-        // MODIFIED: Use effectiveWobbleTime directly instead of cursor modulation
-        const defaultFreqX = Math.max(0.00001, 
-          globalEffectIntensity === 0 ? 0 : freqSettings.baseX * globalEffectIntensity
+
+        // Create radial scanline pattern emanating from cursor
+        // Frequency is lowest at cursor position and increases parabolically outward
+        // This creates the appearance of scanlines radiating from the cursor point
+
+        // Base frequencies that increase with distance from cursor
+        const scanlineBaseFreqX = 0.001 + (parabolicDistortion * 0.03); // Minimal at cursor, increases outward
+        const scanlineBaseFreqY = 0.0001 + (parabolicDistortion * 0.0003); // Very low Y for horizontal scanlines
+
+        // Add directional frequency modulation based on cursor position
+        // This creates asymmetric patterns above/below cursor
+        const directionalFreqX = scanlineBaseFreqX * (1.0 + Math.abs(distFromCursorY) * 0.5);
+        const directionalFreqY = scanlineBaseFreqY * (1.0 + Math.abs(distFromCursorX) * 0.5);
+
+        // Mix scanline frequencies with original turbulence
+        // Stronger scanline effect when hovering
+        const scanlineMixFactor = isMouseOverSvg.value ? 0.85 : 0.2; // Emphasize scanlines when hovering
+
+        const defaultFreqX = Math.max(0.00001,
+          globalEffectIntensity === 0 ? 0 :
+          (freqSettings.baseX * (1 - scanlineMixFactor) + directionalFreqX * scanlineMixFactor) * globalEffectIntensity
         );
-        const defaultFreqY = Math.max(0.00001, 
-          globalEffectIntensity === 0 ? 0 : freqSettings.baseY * globalEffectIntensity
+        const defaultFreqY = Math.max(0.00001,
+          globalEffectIntensity === 0 ? 0 :
+          (freqSettings.baseY * (1 - scanlineMixFactor) + directionalFreqY * scanlineMixFactor) * globalEffectIntensity
         );
-        
+
         // Set turbulence parameters
         turbulence.setAttributeNS(
         null,
-          "baseFrequency", 
+          "baseFrequency",
           `${defaultFreqX.toFixed(6)} ${defaultFreqY.toFixed(6)}`
         );
-        
-        // Set displacement scale
-        const effectiveWobbleScale = globalEffectIntensity === 0 ? 0 : wobbleScale;
+
+        // Set displacement scale with parabolic emanation from cursor
+        // Scale is minimal at cursor position and increases parabolically outward
+        const baseScale = globalEffectIntensity === 0 ? 0 : distortionScale * 0.2; // Base scale
+
+        // Calculate emanation-based scale
+        // Minimal displacement at cursor, maximum at edges (parabolic increase)
+        const emanationScale = isMouseOverSvg.value
+          ? baseScale * (0.1 + parabolicDistortion * 2.0) // Scale from 10% at cursor to 210% at edges
+          : baseScale * 0.8;
+
+        // Add subtle pulsation to make the emanation "breathe"
+        const pulsation = 1.0 + Math.sin(effectiveWobbleTime * 0.3) * 0.1;
+
+        // Apply the emanation scale with pulsation
+        const effectiveWobbleScale = globalEffectIntensity === 0 ? 0 : emanationScale * pulsation;
         displacement.setAttributeNS(null, "scale", `${effectiveWobbleScale}`);
       }
       

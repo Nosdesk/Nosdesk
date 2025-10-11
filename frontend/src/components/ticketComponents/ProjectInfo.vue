@@ -1,11 +1,11 @@
 <!-- components/ProjectInfo.vue -->
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import type { Project } from '@/services/ticketService';
+import { projectService } from '@/services/projectService';
 
 const props = defineProps<{
-  project: Project;
-  projectId: string;
+  projectId: string | number;
 }>();
 
 const emit = defineEmits<{
@@ -13,13 +13,37 @@ const emit = defineEmits<{
   (e: 'view'): void;
 }>();
 
+// Local state for project data
+const project = ref<Project | null>(null);
+const isLoading = ref(false);
+
+// Fetch project data on mount
+const fetchProject = async () => {
+  try {
+    isLoading.value = true;
+    const fetchedProject = await projectService.getProject(Number(props.projectId));
+    if (fetchedProject) {
+      project.value = fetchedProject;
+    }
+  } catch (error) {
+    console.error(`Error fetching project #${props.projectId}:`, error);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
 // Compute ticket count from project data or use a default value
 const ticketCount = computed(() => {
+  if (!project.value) return '—';
   // Check if the project has a ticket_count property (from API)
-  if ('ticket_count' in props.project) {
-    return (props.project as any).ticket_count;
+  if ('ticket_count' in project.value) {
+    return (project.value as any).ticket_count;
   }
-  return '—';
+  return project.value.ticketCount || '—';
+});
+
+onMounted(() => {
+  fetchProject();
 });
 
 const getStatusClass = (status: string) => {
@@ -37,7 +61,15 @@ const getStatusClass = (status: string) => {
 </script>
 
 <template>
-  <div class="bg-slate-800 rounded-xl border border-slate-700/50 overflow-hidden hover:border-slate-600/50 transition-colors">
+  <div v-if="isLoading" class="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
+    <div class="animate-pulse flex flex-col gap-3">
+      <div class="h-6 bg-slate-700 rounded w-1/2"></div>
+      <div class="h-4 bg-slate-700 rounded w-3/4"></div>
+      <div class="h-4 bg-slate-700 rounded w-1/3"></div>
+    </div>
+  </div>
+
+  <div v-else-if="project" class="bg-slate-800 rounded-xl border border-slate-700/50 overflow-hidden hover:border-slate-600/50 transition-colors">
     <!-- Header -->
     <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
       <div class="flex items-center justify-between">

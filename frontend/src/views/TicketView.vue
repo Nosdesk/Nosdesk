@@ -72,12 +72,10 @@ const { showDeviceModal, addDevice, removeDevice, updateDeviceField } =
 const {
     showLinkedTicketModal,
     showProjectModal,
-    projectDetails,
     linkTicket,
     unlinkTicket,
     addToProject,
     removeFromProject,
-    fetchProjectDetails,
 } = useTicketRelationships(ticket, refreshTicket);
 
 // Comments
@@ -165,11 +163,6 @@ onMounted(async () => {
     if (route.params.id) {
         const fromRecent = route.query.fromRecent === "true";
         await fetchTicket(route.params.id, fromRecent);
-
-        // Load project details if exists
-        if (ticket.value?.project) {
-            await fetchProjectDetails(ticket.value.project);
-        }
     }
 });
 
@@ -178,9 +171,6 @@ watch(
     async (newId) => {
         if (newId) {
             await fetchTicket(newId);
-            if (ticket.value?.project) {
-                await fetchProjectDetails(ticket.value.project);
-            }
         }
     },
 );
@@ -356,42 +346,41 @@ watch(
                             </a>
                         </div>
 
-                        <!-- Project -->
-                        <div class="flex flex-col gap-2">
-                            <div
-                                v-if="ticket.project"
-                                class="flex items-center justify-between"
-                            >
+                        <!-- Projects -->
+                        <div
+                            v-if="ticket.projects?.length"
+                            class="flex flex-col gap-2"
+                        >
+                            <div class="flex items-center justify-between">
                                 <h3 class="text-sm font-medium text-slate-300">
-                                    Project
+                                    Projects
                                 </h3>
                                 <a
                                     href="#"
                                     @click.prevent="showProjectModal = true"
                                     class="text-blue-500 hover:text-blue-400 text-sm hover:underline"
                                 >
-                                    Change project
-                                </a>
-                            </div>
-
-                            <div v-if="ticket.project && projectDetails">
-                                <ProjectInfo
-                                    :project="projectDetails"
-                                    :project-id="ticket.project"
-                                    @view="viewProject(ticket.project!)"
-                                    @remove="removeFromProject"
-                                />
-                            </div>
-
-                            <div v-else>
-                                <a
-                                    href="#"
-                                    @click.prevent="showProjectModal = true"
-                                    class="block text-blue-500 hover:underline"
-                                >
                                     + Add to project
                                 </a>
                             </div>
+                            <div class="flex flex-col gap-2">
+                                <ProjectInfo
+                                    v-for="projectId in ticket.projects"
+                                    :key="projectId"
+                                    :project-id="projectId"
+                                    @view="viewProject(projectId)"
+                                    @remove="() => removeFromProject(projectId)"
+                                />
+                            </div>
+                        </div>
+                        <div v-else>
+                            <a
+                                href="#"
+                                @click.prevent="showProjectModal = true"
+                                class="block text-blue-500 hover:underline"
+                            >
+                                + Add to project
+                            </a>
                         </div>
                     </div>
 
@@ -449,8 +438,8 @@ watch(
         <ProjectSelectionModal
             v-if="ticket"
             :show="showProjectModal"
-            :current-project-id="
-                ticket.project ? Number(ticket.project) : undefined
+            :existing-project-ids="
+                ticket.projects?.map(id => Number(id)) || []
             "
             @close="showProjectModal = false"
             @select-project="addToProject"

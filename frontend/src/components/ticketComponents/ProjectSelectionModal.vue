@@ -7,12 +7,12 @@ import { projectService } from '@/services/projectService'
 
 const props = defineProps<{
   show: boolean;
-  currentProjectId?: number;
+  existingProjectIds?: number[];
 }>()
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'select-project', projectId: number): void;
+  (e: 'select-project', project: Project): void;
 }>()
 
 // State management
@@ -108,8 +108,12 @@ const getStatusClass = (status: string) => {
   }
 }
 
-const selectProject = (projectId: number) => {
-  emit('select-project', projectId)
+const selectProject = (project: Project) => {
+  // Don't select if already added
+  if (props.existingProjectIds?.includes(project.id)) {
+    return;
+  }
+  emit('select-project', project)
 }
 
 // Format date for display
@@ -243,13 +247,13 @@ const formatDate = (dateString: string): string => {
               v-for="project in filteredProjects"
               :key="project.id"
               class="group relative hover:bg-slate-700/30 transition-colors duration-150 cursor-pointer"
-              :class="{ 'bg-blue-900/20 border-l-4 border-blue-500': project.id === currentProjectId }"
-              @click="selectProject(project.id)"
+              :class="{ 'bg-blue-900/20 border-l-4 border-blue-500': existingProjectIds?.includes(project.id) }"
+              @click="selectProject(project)"
             >
-              <!-- Current project indicator -->
-              <div v-if="project.id === currentProjectId" class="absolute -top-1 right-2 z-10">
+              <!-- Already added indicator -->
+              <div v-if="existingProjectIds?.includes(project.id)" class="absolute -top-1 right-2 z-10">
                 <div class="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-b-md shadow-sm">
-                  Current Project
+                  Already Added
                 </div>
               </div>
 
@@ -291,9 +295,18 @@ const formatDate = (dateString: string): string => {
 
                   <!-- Action Button -->
                   <div class="col-span-1 text-right">
-                    <button class="text-blue-400 hover:text-blue-300 text-xs font-medium px-2 py-1 rounded hover:bg-blue-900/20 transition-colors">
+                    <button
+                      v-if="!existingProjectIds?.includes(project.id)"
+                      class="text-blue-400 hover:text-blue-300 text-xs font-medium px-2 py-1 rounded hover:bg-blue-900/20 transition-colors"
+                    >
                       Select
                     </button>
+                    <span
+                      v-else
+                      class="text-slate-500 text-xs font-medium px-2 py-1"
+                    >
+                      Added
+                    </span>
                   </div>
                 </div>
               </div>

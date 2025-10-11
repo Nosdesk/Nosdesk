@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue';
 import ticketService from '@/services/ticketService';
 import { projectService } from '@/services/projectService';
+import type { Project } from '@/types/project';
 
 /**
  * Composable for managing ticket relationships (linked tickets and projects)
@@ -8,7 +9,6 @@ import { projectService } from '@/services/projectService';
 export function useTicketRelationships(ticket: Ref<any>, refreshTicket: () => Promise<void>) {
   const showLinkedTicketModal = ref(false);
   const showProjectModal = ref(false);
-  const projectDetails = ref<any>(null);
 
   // Link ticket
   async function linkTicket(linkedTicketId: number): Promise<void> {
@@ -43,73 +43,42 @@ export function useTicketRelationships(ticket: Ref<any>, refreshTicket: () => Pr
   }
 
   // Add ticket to project
-  async function addToProject(projectId: number): Promise<void> {
+  async function addToProject(project: Project): Promise<void> {
     if (!ticket.value) return;
 
-    try {
-      await projectService.addTicketToProject(projectId, ticket.value.id);
-
-      const project = await projectService.getProject(projectId);
-      projectDetails.value = {
-        id: project.id,
-        name: project.name,
-        description: project.description,
-        status: project.status,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        ticket_count: project.ticketCount || 0,
-      };
-
-      ticket.value.project = String(projectId);
+    // Check if already in this project
+    if (ticket.value.projects?.includes(String(project.id))) {
       showProjectModal.value = false;
+      return;
+    }
 
+    try {
+      await projectService.addTicketToProject(project.id, ticket.value.id);
       await refreshTicket();
+      showProjectModal.value = false;
     } catch (err) {
       console.error('Error adding ticket to project:', err);
     }
   }
 
   // Remove ticket from project
-  async function removeFromProject(): Promise<void> {
-    if (!ticket.value?.project) return;
+  async function removeFromProject(projectId: string): Promise<void> {
+    if (!ticket.value?.projects) return;
 
     try {
-      const projectId = Number(ticket.value.project);
-      await projectService.removeTicketFromProject(projectId, ticket.value.id);
-
-      ticket.value.project = undefined;
-      projectDetails.value = null;
+      await projectService.removeTicketFromProject(Number(projectId), ticket.value.id);
+      await refreshTicket();
     } catch (err) {
       console.error('Error removing ticket from project:', err);
-    }
-  }
-
-  // Fetch project details
-  async function fetchProjectDetails(projectId: string): Promise<void> {
-    try {
-      const project = await projectService.getProject(Number(projectId));
-      projectDetails.value = {
-        id: project.id,
-        name: project.name,
-        description: project.description,
-        status: project.status,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        ticket_count: project.ticketCount || 0,
-      };
-    } catch (err) {
-      console.error('Error fetching project details:', err);
     }
   }
 
   return {
     showLinkedTicketModal,
     showProjectModal,
-    projectDetails,
     linkTicket,
     unlinkTicket,
     addToProject,
     removeFromProject,
-    fetchProjectDetails,
   };
 }
