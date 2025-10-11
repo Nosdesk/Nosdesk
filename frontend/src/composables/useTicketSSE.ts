@@ -71,14 +71,22 @@ export function useTicketSSE(
       ticket.value.modified = data.value;
     } else if (data.field === "requester") {
       if (typeof data.value === "string") {
-        ticket.value.requester = data.value;
+        ticket.value.requester = data.value || null;
+        // Clear user object if empty
+        if (!data.value) {
+          ticket.value.requester_user = null;
+        }
       } else if (data.value?.uuid) {
         ticket.value.requester = data.value.uuid;
         ticket.value.requester_user = data.value.user_info || ticket.value.requester_user;
       }
     } else if (data.field === "assignee") {
       if (typeof data.value === "string") {
-        ticket.value.assignee = data.value;
+        ticket.value.assignee = data.value || null;
+        // Clear user object if empty
+        if (!data.value) {
+          ticket.value.assignee_user = null;
+        }
       } else if (data.value?.uuid) {
         ticket.value.assignee = data.value.uuid;
         ticket.value.assignee_user = data.value.user_info || ticket.value.assignee_user;

@@ -183,11 +183,11 @@ const clearSelection = () => {
 // Handle input focus
 const handleFocus = async (event: Event) => {
   isDropdownOpen.value = true;
-  
+
   // Select all text when input receives focus
   const input = event.target as HTMLInputElement;
   setTimeout(() => input.select(), 0);
-  
+
   // For assignees, always show all eligible users when focused
   if (props.type === 'assignee') {
     console.log('🎯 Loading assignee users on focus');
@@ -202,45 +202,24 @@ const handleFocus = async (event: Event) => {
 // Handle input changes
 const handleInput = () => {
   isDropdownOpen.value = true;
-  
-  // If user clears the input, handle based on type
+
+  // If user clears the input, clear the selection
   if (inputValue.value === '') {
     emit('update:modelValue', '');
     if (props.type === 'assignee') {
-      // For assignees, show all eligible users again
-      searchUsers(''); // Load all eligible users with empty search
+      searchUsers(''); // Show all eligible users for assignees
     } else {
-      // For requesters, clear results
       searchResults.value = [];
     }
     return;
   }
-  
+
   // Search when input changes (for both types)
   debouncedSearch(inputValue.value);
 };
 
-// Handle input blur
-const handleBlur = async () => {
-  // Restore the current user's name if input was changed but no new selection made
-  if (props.modelValue) {
-    // Use currentUser prop if available and matches
-    if (props.currentUser && props.currentUser.uuid === props.modelValue) {
-      inputValue.value = props.currentUser.name;
-    } else {
-      // Fallback to cache lookup
-      const userName = dataStore.getUserName(props.modelValue);
-      if (userName) {
-        inputValue.value = userName;
-      } else if (props.modelValue.length === 36 && props.modelValue.includes('-')) {
-        const user = await dataStore.getUserByUuid(props.modelValue);
-        if (user) {
-          inputValue.value = user.name;
-        }
-      }
-    }
-  }
-  
+// Handle input blur - just close dropdown, don't restore anything
+const handleBlur = () => {
   // Delay closing to allow click events on dropdown items
   setTimeout(() => {
     isDropdownOpen.value = false;
@@ -279,7 +258,7 @@ onUnmounted(() => {
       <!-- Avatar Space -->
       <div class="flex-shrink-0 w-6 h-6 flex items-center justify-center">
         <UserAvatar
-          v-if="modelValue && !isDropdownOpen"
+          v-if="modelValue && inputValue && !isDropdownOpen"
           :name="modelValue"
           :userName="currentUser?.uuid === modelValue ? currentUser.name : undefined"
           :avatarUrl="currentUser?.uuid === modelValue ? (currentUser.avatar_thumb || currentUser.avatar_url) : undefined"

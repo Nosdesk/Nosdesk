@@ -35,6 +35,7 @@ interface TicketDevice {
   hostname: string;
   serial_number: string;
   model: string;
+  manufacturer?: string;
   warranty_status: string;
 }
 
@@ -132,6 +133,7 @@ export function useTicketData() {
       hostname: device.hostname,
       serial_number: device.serial_number,
       model: device.model,
+      manufacturer: device.manufacturer,
       warranty_status: device.warranty_status,
     }));
   }
@@ -214,6 +216,14 @@ export function useTicketData() {
       // This prevents component remounts when the ticket object is updated
       (ticket.value as any)[field] = value;
       ticket.value.modified = nowDateTime;
+
+      // Clear user objects when clearing requester/assignee
+      if (field === "requester" && !value) {
+        ticket.value.requester_user = undefined;
+      }
+      if (field === "assignee" && !value) {
+        ticket.value.assignee_user = undefined;
+      }
 
       // Update UI-specific refs
       if (field === "status") selectedStatus.value = value;

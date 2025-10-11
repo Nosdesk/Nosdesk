@@ -15,6 +15,7 @@ const emit = defineEmits<{
   (e: 'update:hostname', value: string): void;
   (e: 'update:serial_number', value: string): void;
   (e: 'update:model', value: string): void;
+  (e: 'update:manufacturer', value: string): void;
   (e: 'update:warranty_status', value: string): void;
 }>();
 
@@ -23,6 +24,7 @@ const editableName = ref(props.device.name || '');
 const editableHostname = ref(props.device.hostname || '');
 const editableSerialNumber = ref(props.device.serial_number || '');
 const editableModel = ref(props.device.model || '');
+const editableManufacturer = ref(props.device.manufacturer || '');
 const editableWarrantyStatus = ref(props.device.warranty_status || '');
 
 // Edit mode states
@@ -30,6 +32,7 @@ const editingName = ref(false);
 const editingHostname = ref(false);
 const editingSerialNumber = ref(false);
 const editingModel = ref(false);
+const editingManufacturer = ref(false);
 const editingWarrantyStatus = ref(false);
 
 // Track if we're updating from props to prevent circular emissions
@@ -42,6 +45,7 @@ console.log('🔧 DeviceDetails received device data:', {
   hostname: props.device.hostname,
   serial_number: props.device.serial_number,
   model: props.device.model,
+  manufacturer: props.device.manufacturer,
   warranty_status: props.device.warranty_status
 });
 
@@ -78,6 +82,15 @@ watch(() => props.device.model, (newModel) => {
     console.log('🔧 DeviceDetails: Updating model from', editableModel.value, 'to', newModel);
     isUpdatingFromProps.value = true;
     editableModel.value = newModel || '';
+    isUpdatingFromProps.value = false;
+  }
+});
+
+watch(() => props.device.manufacturer, (newManufacturer) => {
+  if (newManufacturer !== editableManufacturer.value) {
+    console.log('🔧 DeviceDetails: Updating manufacturer from', editableManufacturer.value, 'to', newManufacturer);
+    isUpdatingFromProps.value = true;
+    editableManufacturer.value = newManufacturer || '';
     isUpdatingFromProps.value = false;
   }
 });
@@ -120,6 +133,13 @@ watch(editableModel, (newModel, oldModel) => {
   }
 }, { immediate: false });
 
+watch(editableManufacturer, (newManufacturer, oldManufacturer) => {
+  if (!isUpdatingFromProps.value && newManufacturer !== oldManufacturer) {
+    console.log(`DeviceDetails: Emitting update:manufacturer with value: ${newManufacturer} (was: ${oldManufacturer})`);
+    emit("update:manufacturer", newManufacturer);
+  }
+}, { immediate: false });
+
 watch(editableWarrantyStatus, (newWarrantyStatus, oldWarrantyStatus) => {
   if (!isUpdatingFromProps.value && newWarrantyStatus !== oldWarrantyStatus) {
     console.log(`DeviceDetails: Emitting update:warranty_status with value: ${newWarrantyStatus} (was: ${oldWarrantyStatus})`);
@@ -147,6 +167,9 @@ const startEditing = (field: string) => {
     case 'model':
       editingModel.value = true;
       break;
+    case 'manufacturer':
+      editingManufacturer.value = true;
+      break;
     case 'warranty_status':
       editingWarrantyStatus.value = true;
       break;
@@ -166,6 +189,9 @@ const stopEditing = (field: string) => {
       break;
     case 'model':
       editingModel.value = false;
+      break;
+    case 'manufacturer':
+      editingManufacturer.value = false;
       break;
     case 'warranty_status':
       editingWarrantyStatus.value = false;
@@ -194,6 +220,10 @@ const handleKeydown = (event: KeyboardEvent, field: string) => {
       case 'model':
         editableModel.value = props.device.model || '';
         editingModel.value = false;
+        break;
+      case 'manufacturer':
+        editableManufacturer.value = props.device.manufacturer || '';
+        editingManufacturer.value = false;
         break;
       case 'warranty_status':
         editableWarrantyStatus.value = props.device.warranty_status || '';
@@ -228,25 +258,24 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3 min-w-0 flex-1">
           <div class="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0"></div>
-          
-          <!-- Editable hostname -->
-          <div v-if="editingHostname" class="flex-1">
+
+          <!-- Editable device name (title) -->
+          <div v-if="editingName" class="flex-1">
             <input
-              v-model="editableHostname"
-              @blur="stopEditing('hostname')"
-              @keydown="handleKeydown($event, 'hostname')"
+              v-model="editableName"
+              @blur="stopEditing('name')"
+              @keydown="handleKeydown($event, 'name')"
               class="w-full bg-slate-600/50 text-white rounded px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-              placeholder="Enter hostname..."
-              ref="hostnameInput"
+              placeholder="Enter device name..."
             />
           </div>
-          <h3 
-            v-else 
-            @click="startEditing('hostname')"
+          <h3
+            v-else
+            @click="startEditing('name')"
             class="font-medium text-white truncate cursor-pointer hover:text-blue-300 transition-colors"
-            :title="editableHostname || 'Click to edit hostname'"
+            :title="editableName || 'Click to edit device name'"
           >
-            {{ editableHostname || 'Unknown Device' }}
+            {{ editableName || 'Unnamed Device' }}
           </h3>
           
           <!-- Warranty status badge -->
@@ -315,7 +344,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
                 placeholder="Enter serial number..."
               />
             </div>
-            <span 
+            <span
               v-else
               @click="startEditing('serial_number')"
               class="text-slate-200 font-mono text-xs cursor-pointer hover:text-blue-300 transition-colors"
@@ -324,7 +353,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
               {{ editableSerialNumber || 'N/A' }}
             </span>
           </div>
-          
+
           <!-- Model -->
           <div class="flex flex-col gap-1">
             <span class="text-xs text-slate-400 uppercase tracking-wide">Model</span>
@@ -337,7 +366,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
                 placeholder="Enter model..."
               />
             </div>
-            <span 
+            <span
               v-else
               @click="startEditing('model')"
               class="text-slate-200 text-xs truncate cursor-pointer hover:text-blue-300 transition-colors"
@@ -347,27 +376,52 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
             </span>
           </div>
         </div>
-        
-        <!-- Device Name (editable) -->
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-slate-400 uppercase tracking-wide">Device Name</span>
-          <div v-if="editingName">
-            <input
-              v-model="editableName"
-              @blur="stopEditing('name')"
-              @keydown="handleKeydown($event, 'name')"
-              class="w-full bg-slate-600/50 text-slate-200 rounded px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-              placeholder="Enter device name..."
-            />
+
+        <!-- Secondary info row -->
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <!-- Manufacturer -->
+          <div class="flex flex-col gap-1">
+            <span class="text-xs text-slate-400 uppercase tracking-wide">Manufacturer</span>
+            <div v-if="editingManufacturer">
+              <input
+                v-model="editableManufacturer"
+                @blur="stopEditing('manufacturer')"
+                @keydown="handleKeydown($event, 'manufacturer')"
+                class="w-full bg-slate-600/50 text-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                placeholder="Enter manufacturer..."
+              />
+            </div>
+            <span
+              v-else
+              @click="startEditing('manufacturer')"
+              class="text-slate-200 text-xs truncate cursor-pointer hover:text-blue-300 transition-colors"
+              :title="'Click to edit: ' + (editableManufacturer || 'Unknown')"
+            >
+              {{ editableManufacturer || 'Unknown' }}
+            </span>
           </div>
-          <span 
-            v-else
-            @click="startEditing('name')"
-            class="text-slate-200 text-sm font-medium cursor-pointer hover:text-blue-300 transition-colors"
-            :title="'Click to edit: ' + (editableName || 'Unnamed Device')"
-          >
-            {{ editableName || 'Unnamed Device' }}
-          </span>
+
+          <!-- Hostname -->
+          <div class="flex flex-col gap-1">
+            <span class="text-xs text-slate-400 uppercase tracking-wide">Hostname</span>
+            <div v-if="editingHostname">
+              <input
+                v-model="editableHostname"
+                @blur="stopEditing('hostname')"
+                @keydown="handleKeydown($event, 'hostname')"
+                class="w-full bg-slate-600/50 text-slate-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                placeholder="Enter hostname..."
+              />
+            </div>
+            <span
+              v-else
+              @click="startEditing('hostname')"
+              class="text-slate-200 font-mono text-xs truncate cursor-pointer hover:text-blue-300 transition-colors"
+              :title="'Click to edit: ' + (editableHostname || 'N/A')"
+            >
+              {{ editableHostname || 'N/A' }}
+            </span>
+          </div>
         </div>
         
         <!-- Quick action button -->

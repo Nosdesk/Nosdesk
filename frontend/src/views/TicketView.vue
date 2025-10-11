@@ -285,6 +285,14 @@ watch(
                                                 value,
                                             )
                                     "
+                                    @update:manufacturer="
+                                        (value) =>
+                                            updateDeviceField(
+                                                device.id,
+                                                'manufacturer',
+                                                value,
+                                            )
+                                    "
                                     @update:warranty_status="
                                         (value) =>
                                             updateDeviceField(

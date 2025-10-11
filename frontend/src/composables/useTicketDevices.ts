@@ -17,6 +17,7 @@ export function useTicketDevices(ticket: Ref<any>, refreshTicket: () => Promise<
       hostname: backendDevice.hostname,
       serial_number: backendDevice.serial_number,
       model: backendDevice.model,
+      manufacturer: backendDevice.manufacturer,
       warranty_status: backendDevice.warranty_status,
     };
   }
