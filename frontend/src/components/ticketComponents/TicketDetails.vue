@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import UserAutocomplete from "@/components/ticketComponents/UserSelection.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
+import ContentEditable from "@/components/ticketComponents/ContentEditable.vue";
 import { useDataStore } from '@/stores/dataStore';
 
 interface UserInfo {
@@ -37,12 +38,14 @@ const emit = defineEmits<{
   (e: "update:selectedPriority", value: string): void;
   (e: "update:requester", value: string): void;
   (e: "update:assignee", value: string): void;
+  (e: "update:title", value: string): void;
 }>();
 
 // Set up reactive state for requester and assignee
 // Prefer UUID from user object, fallback to string field
 const selectedRequester = ref(props.ticket.requester_user?.uuid || props.ticket.requester || "");
 const selectedAssignee = ref(props.ticket.assignee_user?.uuid || props.ticket.assignee || "");
+
 
 // Debug logging to see what data we're getting
 console.log('🎫 TicketDetails received ticket data:', {
@@ -100,6 +103,11 @@ watch(selectedAssignee, (newAssignee, oldAssignee) => {
 onMounted(() => {
   // Component initialization if needed
 });
+
+// Handle title update
+const handleTitleUpdate = (newTitle: string) => {
+  emit('update:title', newTitle);
+};
 </script>
 
 <template>
@@ -113,6 +121,17 @@ onMounted(() => {
       <!-- Content -->
       <div class="p-3">
         <div class="flex flex-col gap-3">
+          <!-- Title Section -->
+          <div class="flex flex-col gap-1.5">
+            <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Title</h3>
+            <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+              <ContentEditable
+                :modelValue="ticket.title || ''"
+                @update:modelValue="handleTitleUpdate"
+              />
+            </div>
+          </div>
+
           <!-- Assignment Section -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <!-- Requester -->

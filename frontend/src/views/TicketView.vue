@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted, watch, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
+import ticketService from "@/services/ticketService";
 
 // Composables
 import { useTicketData } from "@/composables/useTicketData";
@@ -10,6 +11,8 @@ import { useTicketSSE } from "@/composables/useTicketSSE";
 import { useTicketDevices } from "@/composables/useTicketDevices";
 import { useTicketRelationships } from "@/composables/useTicketRelationships";
 import { useTicketComments } from "@/composables/useTicketComments";
+import { useTitleManager } from "@/composables/useTitleManager";
+import { useRecentTicketsStore } from "@/stores/recentTickets";
 
 // Components
 import CollaborativeTicketArticle from "@/components/ticketComponents/CollaborativeTicketArticle.vue";
@@ -27,6 +30,7 @@ import DeleteButton from "@/components/common/DeleteButton.vue";
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const titleManager = useTitleManager();
 
 // Ticket data management
 const {
@@ -45,6 +49,7 @@ const {
     updatePriority,
     updateRequester,
     updateAssignee,
+    updateTitle,
     deleteTicket,
 } = useTicketData();
 
@@ -81,21 +86,66 @@ const { addComment, deleteAttachment, deleteComment } = useTicketComments(
     refreshTicket,
 );
 
-// Emit ticket updates
+// Debounced backend save for title
+let titleUpdateTimeout: NodeJS.Timeout | null = null;
+let lastSavedTitle: string | null = null;
+
+const handleTitleUpdate = (newTitle: string) => {
+    // Update local ticket immediately for instant UI feedback
+    if (ticket.value) {
+        // Store the last saved title on first edit
+        if (lastSavedTitle === null) {
+            lastSavedTitle = ticket.value.title;
+        }
+
+        // Update locally immediately
+        ticket.value.title = newTitle;
+
+        // Update title manager immediately so header updates
+        titleManager.setTicket(ticket.value);
+    }
+
+    // Clear any pending backend save
+    if (titleUpdateTimeout) {
+        clearTimeout(titleUpdateTimeout);
+    }
+
+    // Debounce the backend save (300ms)
+    titleUpdateTimeout = setTimeout(async () => {
+        if (ticket.value && lastSavedTitle !== newTitle) {
+            try {
+                // Temporarily revert to trigger the save
+                const currentTitle = ticket.value.title;
+                ticket.value.title = lastSavedTitle || '';
+
+                // Now updateTitle will see the change
+                await updateTitle(newTitle);
+
+                // Update our saved reference
+                lastSavedTitle = newTitle;
+            } catch (error) {
+                // On error, restore the UI to what user typed
+                if (ticket.value) {
+                    ticket.value.title = newTitle;
+                }
+                console.error('Failed to save title:', error);
+            }
+        }
+    }, 300);
+};
+
+// Emit ticket updates - pass the full reactive ticket object
 const emit = defineEmits<{
-    (e: "update:ticket", ticket: { id: number; title: string } | null): void;
+    (e: "update:ticket", ticket: any | null): void;
 }>();
 
 watch(
     ticket,
     (newTicket) => {
-        if (newTicket) {
-            emit("update:ticket", { id: newTicket.id, title: newTicket.title });
-        } else {
-            emit("update:ticket", null);
-        }
+        // Pass the actual reactive ticket object reference
+        emit("update:ticket", newTicket);
     },
-    { immediate: true },
+    { immediate: true, deep: true }, // deep: true to watch nested property changes
 );
 
 // Navigation
@@ -189,6 +239,7 @@ watch(
                             @update:selectedPriority="updatePriority"
                             @update:requester="updateRequester"
                             @update:assignee="updateAssignee"
+                            @update:title="handleTitleUpdate"
                         />
 
                         <!-- Devices -->

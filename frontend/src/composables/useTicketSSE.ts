@@ -58,7 +58,8 @@ export function useTicketSSE(
     // Use direct mutation to preserve object reference - prevents component remounts
     if (data.field === "title") {
       ticket.value.title = data.value;
-      titleManager.setTicket({ id: ticket.value.id, title: data.value });
+      // Pass the full reactive ticket object, not just id and title
+      titleManager.setTicket(ticket.value);
     } else if (data.field === "status") {
       ticket.value.status = data.value;
       selectedStatus.value = data.value; // Update dropdown ref

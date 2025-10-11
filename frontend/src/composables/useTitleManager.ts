@@ -14,12 +14,13 @@ export interface TitleableDocument {
 export interface TitleableTicket {
   id: number;
   title: string;
+  [key: string]: any; // Allow other properties from the reactive ticket object
 }
 
 export function useTitleManager() {
   const route = useRoute();
-  
-  // State
+
+  // State - store the full reactive ticket object
   const currentTicket = ref<TitleableTicket | null>(null);
   const currentDocument = ref<TitleableDocument | null>(null);
   const documentationTitle = ref<string | null>(null);
@@ -64,6 +65,23 @@ export function useTitleManager() {
       customTitle.value = null;
     }
   );
+
+  // Watch for changes in the current ticket's title (reactive updates)
+  watch(
+    () => currentTicket.value?.title,
+    (newTitle) => {
+      if (currentTicket.value && newTitle !== undefined) {
+        // Automatically update the document title when the ticket title changes
+        document.title = `#${currentTicket.value.id} ${newTitle} | Nosdesk`;
+
+        // Also update the recent tickets store
+        const recentTicketsStore = useRecentTicketsStore();
+        recentTicketsStore.updateTicketData(currentTicket.value.id, {
+          title: newTitle
+        });
+      }
+    }
+  );
   
   // Methods
   const setCustomTitle = (title: string | null) => {
@@ -74,7 +92,10 @@ export function useTitleManager() {
   };
   
   const setTicket = (ticketData: TitleableTicket | null) => {
+    // Store the actual reactive ticket object reference
     currentTicket.value = ticketData;
+    // The document title will automatically update when ticketData.title changes
+    // since we're watching the reactive object
     if (ticketData) {
       document.title = `#${ticketData.id} ${ticketData.title} | Nosdesk`;
     }
@@ -91,11 +112,9 @@ export function useTitleManager() {
   // Preview the ticket title as the user types (real-time updates)
   const previewTicketTitle = (newTitle: string) => {
     if (currentTicket.value) {
-      // Update the title in the current ticket for UI display only
+      // Update the title in the reactive ticket object
+      // The watcher will automatically handle document title and recent tickets updates
       currentTicket.value.title = newTitle;
-      
-      // Update the document title for real-time feedback
-      document.title = `#${currentTicket.value.id} ${newTitle} | Nosdesk`;
     }
   };
   
@@ -116,19 +135,11 @@ export function useTitleManager() {
       if (import.meta.env.DEV) {
         console.log(`useTitleManager: Updating ticket #${currentTicket.value.id} title to "${newTitle}"`);
       }
-      
-      // Update the title in the current ticket
+
+      // Update the title in the reactive ticket object
+      // The watcher will automatically handle document title and recent tickets updates
       currentTicket.value.title = newTitle;
-      
-      // Update the title in the recent tickets store immediately
-      const recentTicketsStore = useRecentTicketsStore();
-      recentTicketsStore.updateTicketData(currentTicket.value.id, {
-        title: newTitle
-      });
-      
-      // Update the document title
-      document.title = `#${currentTicket.value.id} ${newTitle} | Nosdesk`;
-      
+
       // Save the title change to the backend
       try {
         await ticketService.updateTicket(currentTicket.value.id, { title: newTitle });
