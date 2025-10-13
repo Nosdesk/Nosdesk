@@ -88,19 +88,19 @@ impl JwtUtils {
 
     /// Validate token and ensure user exists in database
     pub async fn validate_token_with_user_check(
-        token: &str, 
+        token: &str,
         conn: &mut DbConnection
     ) -> Result<(Claims, User), JwtError> {
         let claims = Self::validate_token(token)?;
-        
+
         // Parse UUID from claims
         let user_uuid = parse_uuid(&claims.sub)
             .map_err(|_| JwtError::InvalidUserUuid)?;
-        
+
         // Get user from database to ensure they still exist and are active
         let user = repository::get_user_by_uuid(&user_uuid, conn)
             .map_err(|_| JwtError::UserNotFound)?;
-        
+
         // Verify role hasn't changed since token was issued
         let current_role = role_to_string(&user.role);
         if claims.role != current_role {
@@ -108,6 +108,39 @@ impl JwtUtils {
                 token_role: claims.role,
                 current_role,
             });
+        }
+
+        // Skip session validation for SSE tokens (they're short-lived and not stored in active_sessions)
+        // SSE tokens are identified by having "SSE_TOKEN" in the name field
+        let is_sse_token = claims.name == "SSE_TOKEN";
+
+        if !is_sse_token {
+            // Check if session exists in database (session revocation check)
+            // Hash the JWT token with SHA-256 to match stored session tokens
+            use ring::digest;
+            let hash = digest::digest(&digest::SHA256, token.as_bytes());
+            let token_hash = hex::encode(hash.as_ref());
+
+            // Verify session exists and hasn't been revoked
+            match crate::repository::active_sessions::get_session_by_token(conn, &token_hash) {
+                Ok(session) => {
+                    // Verify session belongs to the user from the token
+                    if session.user_uuid != user_uuid {
+                        tracing::warn!("Session token mismatch: session belongs to {}, token claims {}",
+                            session.user_uuid, user_uuid);
+                        return Err(JwtError::SessionRevoked);
+                    }
+                    // Session exists and is valid
+                },
+                Err(_) => {
+                    // Session doesn't exist or has been revoked
+                    tracing::debug!("Session not found or revoked for token hash: {}", &token_hash[..8]);
+                    return Err(JwtError::SessionRevoked);
+                }
+            }
+        } else {
+            // SSE tokens are short-lived (1 hour) and rely on expiry, not session revocation
+            tracing::debug!("Validating SSE token for user {}", user_uuid);
         }
 
         Ok((claims, user))
@@ -157,6 +190,7 @@ pub enum JwtError {
     RoleMismatch { token_role: String, current_role: String },
     MissingToken,
     InsufficientPermissions { required: String, actual: String },
+    SessionRevoked,
 }
 
 impl std::fmt::Display for JwtError {
@@ -173,6 +207,7 @@ impl std::fmt::Display for JwtError {
             Self::InsufficientPermissions { required, actual } => {
                 write!(f, "Insufficient permissions - required: {}, actual: {}", required, actual)
             }
+            Self::SessionRevoked => write!(f, "Session has been revoked"),
         }
     }
 }
@@ -219,6 +254,9 @@ impl From<JwtError> for ActixError {
             JwtError::InsufficientPermissions { .. } => {
                 actix_web::error::ErrorForbidden("Insufficient permissions")
             },
+            JwtError::SessionRevoked => {
+                actix_web::error::ErrorUnauthorized("Session has been revoked - please log in again")
+            },
             JwtError::SystemTime => {
                 actix_web::error::ErrorInternalServerError("Server time error")
             },
@@ -263,6 +301,12 @@ impl From<JwtError> for HttpResponse {
                 HttpResponse::Forbidden().json(json!({
                     "status": "error",
                     "message": format!("Insufficient permissions - required: {}, actual: {}", required, actual)
+                }))
+            },
+            JwtError::SessionRevoked => {
+                HttpResponse::Unauthorized().json(json!({
+                    "status": "error",
+                    "message": "Session has been revoked - please log in again"
                 }))
             },
             JwtError::SystemTime => {

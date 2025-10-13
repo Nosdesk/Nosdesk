@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import authService from '@/services/authService';
 
 interface AuthMethod {
   id: string;
@@ -10,11 +11,15 @@ interface AuthMethod {
 }
 
 interface ActiveSession {
-  id: string;
-  device: string;
-  location: string;
-  lastActive: string;
-  isCurrent: boolean;
+  id: number;
+  device_name: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  location: string | null;
+  created_at: string;
+  last_active: string;
+  expires_at: string;
+  is_current: boolean;
 }
 
 // State
@@ -80,23 +85,18 @@ const loadAuthMethods = async () => {
 };
 
 const loadActiveSessions = async () => {
-  // TODO: Replace with actual API call
-  activeSessions.value = [
-    {
-      id: '1',
-      device: 'MacBook Pro - Chrome',
-      location: 'San Francisco, CA',
-      lastActive: '2024-01-15T10:30:00Z',
-      isCurrent: true
-    },
-    {
-      id: '2',
-      device: 'iPhone - Safari',
-      location: 'San Francisco, CA',
-      lastActive: '2024-01-14T15:20:00Z',
-      isCurrent: false
-    }
-  ];
+  try {
+    loading.value = true;
+    const sessions = await authService.getSessions();
+    console.log('📋 Loaded sessions:', sessions);
+    console.log('📋 Sessions count:', sessions?.length || 0);
+    activeSessions.value = sessions;
+  } catch (error) {
+    console.error('Failed to load active sessions:', error);
+    emit('error', 'Failed to load active sessions');
+  } finally {
+    loading.value = false;
+  }
 };
 
 // Auth method functions
@@ -166,11 +166,12 @@ const removeAuthMethod = async (methodId: string, methodType: string) => {
 };
 
 // Session functions
-const revokeSession = async (sessionId: string) => {
+const revokeSession = async (sessionId: number) => {
   loading.value = true;
   try {
-    // TODO: Implement session revocation API call
-    activeSessions.value = activeSessions.value.filter(session => session.id !== sessionId);
+    await authService.revokeSession(sessionId);
+    // Refresh sessions list
+    await loadActiveSessions();
     emit('success', 'Session revoked successfully');
   } catch (err) {
     emit('error', 'Failed to revoke session');
@@ -183,8 +184,9 @@ const revokeSession = async (sessionId: string) => {
 const revokeAllSessions = async () => {
   loading.value = true;
   try {
-    // TODO: Implement revoke all sessions API call
-    activeSessions.value = activeSessions.value.filter(session => session.isCurrent);
+    await authService.revokeAllOtherSessions();
+    // Refresh sessions list
+    await loadActiveSessions();
     emit('success', 'All other sessions revoked successfully');
   } catch (err) {
     emit('error', 'Failed to revoke sessions');
@@ -305,16 +307,16 @@ const getAuthMethodIcon = (type: string) => {
                 </div>
                 <div>
                   <div class="text-sm font-medium text-white">
-                    {{ session.device }}
-                    <span v-if="session.isCurrent" class="ml-2 px-2 py-1 bg-green-600/20 text-green-400 rounded text-xs">Current</span>
+                    {{ session.device_name || session.user_agent || 'Unknown Device' }}
+                    <span v-if="session.is_current" class="ml-2 px-2 py-1 bg-green-600/20 text-green-400 rounded text-xs">Current</span>
                   </div>
                   <div class="text-xs text-slate-400">
-                    {{ session.location }} • Last active {{ formatDate(session.lastActive) }}
+                    {{ session.location || session.ip_address || 'Unknown location' }} • Last active {{ formatDate(session.last_active) }}
                   </div>
                 </div>
               </div>
               <button
-                v-if="!session.isCurrent"
+                v-if="!session.is_current"
                 @click="revokeSession(session.id)"
                 :disabled="loading"
                 class="text-red-400 hover:text-red-300 text-sm font-medium disabled:opacity-50"

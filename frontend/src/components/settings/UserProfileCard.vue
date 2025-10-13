@@ -334,6 +334,13 @@ const cancelEdit = (field: 'email' | 'pronouns') => {
 
 // Role badge styling functions
 const getRoleBadgeClass = (role: string) => {
+  // Easter egg: Purple shiny badge for Kyle Phillips
+  if (role === 'admin' &&
+      displayUser.value?.name === 'Kyle Phillips' &&
+      displayUser.value?.email?.endsWith('@kyle.au')) {
+    return 'bg-purple-600/20 text-purple-400 developer-badge';
+  }
+
   switch (role) {
     case 'admin':
       return 'bg-red-600/20 text-red-400';
@@ -346,6 +353,13 @@ const getRoleBadgeClass = (role: string) => {
 };
 
 const getRoleDisplayName = (role: string) => {
+  // Easter egg: Special role for Kyle Phillips
+  if (role === 'admin' &&
+      displayUser.value?.name === 'Kyle Phillips' &&
+      displayUser.value?.email?.endsWith('@kyle.au')) {
+    return 'Developer';
+  }
+
   switch (role) {
     case 'admin':
       return 'Administrator';
@@ -361,16 +375,16 @@ const getRoleDisplayName = (role: string) => {
 <template>
   <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors overflow-hidden">
     <!-- Cover/Banner Image -->
-    <div 
-      class="h-42 bg-gradient-to-r from-blue-600 to-purple-600 relative"
+    <div
+      class="h-32 sm:h-42 bg-gradient-to-r from-blue-600 to-purple-600 relative"
       :style="formData.banner_url ? `background-image: url('${formData.banner_url}'); background-size: cover; background-position: center;` : ''"
     >
       <!-- Add cover image upload option -->
-      <button 
-        class="absolute bottom-2 right-2 bg-slate-800/50 hover:bg-slate-800/80 text-white rounded-full p-2 transition-colors"
+      <button
+        class="absolute bottom-2 right-2 bg-slate-800/50 hover:bg-slate-800/80 text-white rounded-full w-11 h-11 flex items-center justify-center transition-colors"
         @click="handleBannerClick"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
@@ -384,12 +398,12 @@ const getRoleDisplayName = (role: string) => {
         @change="handleBannerChange"
       />
     </div>
-    
+
     <!-- Profile Content -->
-    <div class="flex flex-col gap-2 px-6 pt-18 pb-6 relative">
+    <div class="flex flex-col gap-2 px-4 sm:px-6 pt-16 sm:pt-18 pb-4 sm:pb-6 relative">
       <!-- Avatar that overlaps the banner -->
-      <div 
-        class="absolute -top-16 left-8 w-32 h-32 rounded-full overflow-hidden border-4 border-slate-800 cursor-pointer shadow-lg"
+      <div
+        class="absolute -top-12 sm:-top-16 left-4 sm:left-8 w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-slate-800 cursor-pointer shadow-lg"
         @click="handleAvatarClick"
       >
         <UserAvatar
@@ -420,10 +434,10 @@ const getRoleDisplayName = (role: string) => {
           @change="handleFileChange"
         />
       </div>
-      
+
       <!-- User info section -->
-      <div class="flex justify-between items-start gap-2 mb-8">
-        <div class="flex flex-1 flex-col gap-1">
+      <div class="flex justify-between items-start gap-2 mb-4 sm:mb-8">
+        <div class="flex flex-1 flex-col gap-1 min-w-0">
           <!-- User Name - Inline Editing -->
           <div class="mb-2">
             <InlineEdit
@@ -434,11 +448,11 @@ const getRoleDisplayName = (role: string) => {
               @update:modelValue="handleNameUpdate"
             />
           </div>
-          
+
           <!-- Role badge section -->
-          <div class="flex gap-2 mb-3">
-            <div 
-              class="px-3 py-1 rounded-full text-sm font-medium"
+          <div class="flex flex-wrap gap-2 mb-3">
+            <div
+              class="px-2.5 py-1 sm:px-3 rounded-full text-xs sm:text-sm font-medium"
               :class="getRoleBadgeClass(displayUser?.role || 'user')"
             >
               {{ getRoleDisplayName(displayUser?.role || 'user') }}
@@ -446,26 +460,26 @@ const getRoleDisplayName = (role: string) => {
           </div>
         </div>
       </div>
-      
+
       <!-- Profile Fields -->
-      <div v-if="showEditableFields !== false" class="grid grid-cols-1 gap-4">
-        
+      <div v-if="showEditableFields !== false" class="grid grid-cols-1 gap-4 sm:gap-6">
+
         <!-- Pronouns field -->
         <div class="flex flex-col gap-1.5">
           <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Pronouns</h3>
-          <div class="flex items-start gap-3">
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-start gap-2 sm:gap-3">
             <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 flex-1">
               <input
                 v-model="formData.pronouns"
                 type="text"
-                class="w-full px-4 py-2 bg-transparent text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                class="w-full px-3 sm:px-4 py-2.5 sm:py-2 bg-transparent text-white text-sm sm:text-base rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 placeholder="Add pronouns (e.g., he/him, she/her, they/them)"
               />
             </div>
             <button
               @click="updatePronouns"
               :disabled="!pronounsModified || loading"
-              class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-600 flex items-center whitespace-nowrap"
+              class="px-4 py-2.5 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-600 flex items-center justify-center whitespace-nowrap text-sm sm:text-base min-h-[44px] active:scale-[0.98] transition-transform"
             >
               <span v-if="loading && pronounsModified" class="animate-spin h-4 w-4 mr-2">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -477,23 +491,23 @@ const getRoleDisplayName = (role: string) => {
             </button>
           </div>
         </div>
-        
+
         <!-- Email section -->
         <div class="flex flex-col gap-1.5">
           <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Primary Email</h3>
-          <div class="flex items-start gap-3">
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-start gap-2 sm:gap-3">
             <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 flex-1">
               <input
                 v-model="formData.email"
                 type="email"
-                class="w-full px-4 py-2 bg-transparent text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                class="w-full px-3 sm:px-4 py-2.5 sm:py-2 bg-transparent text-white text-sm sm:text-base rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 placeholder="your.email@example.com"
               />
             </div>
             <button
               @click="updateEmail"
               :disabled="!emailModified || loading"
-              class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-600 flex items-center whitespace-nowrap"
+              class="px-4 py-2.5 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-600 flex items-center justify-center whitespace-nowrap text-sm sm:text-base min-h-[44px] active:scale-[0.98] transition-transform"
             >
               <span v-if="loading && emailModified" class="animate-spin h-4 w-4 mr-2">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -508,4 +522,36 @@ const getRoleDisplayName = (role: string) => {
       </div>
     </div>
   </div>
-</template> 
+</template>
+
+<style scoped>
+.developer-badge {
+  position: relative;
+  overflow: hidden;
+}
+
+.developer-badge::before {
+  content: '';
+  position: absolute;
+  inset: -100%;
+  background: linear-gradient(
+    110deg,
+    transparent 20%,
+    rgba(168, 85, 247, 0.3) 40%,
+    rgba(217, 70, 239, 0.5) 50%,
+    rgba(168, 85, 247, 0.3) 60%,
+    transparent 80%
+  );
+  animation: enchant 6s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes enchant {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+</style> 

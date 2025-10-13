@@ -11,11 +11,14 @@ import ticketService from '@/services/ticketService';
 import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 
 interface Props {
   title?: string;
   showCreateButton?: boolean;
+  createButtonText?: string;
+  createButtonIcon?: string;
   useRouteTitle?: boolean;
   ticket: { id: number; title: string } | null;
   document: { id: string; title: string; icon: string } | null;
@@ -26,6 +29,8 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   useRouteTitle: false,
+  createButtonText: 'Create Ticket',
+  createButtonIcon: 'plus',
   ticket: null,
   document: null,
   isTransitioning: false,
@@ -33,7 +38,7 @@ const props = withDefaults(defineProps<Props>(), {
   navbarCollapsed: false,
 });
 
-const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle"]);
+const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle", "create"]);
 
 const isTicketView = computed(() => {
   return props.ticket !== null;
@@ -113,51 +118,57 @@ const closeUserMenu = () => {
   showUserMenu.value = false;
 };
 
-// Add isCreatingTicket ref
-const isCreatingTicket = ref(false);
+// Add isCreating ref (generic for any create action)
+const isCreating = ref(false);
 
-const navigateToCreateTicket = async () => {
+const handleCreateClick = async () => {
   if (import.meta.env.DEV) {
-    console.log('navigateToCreateTicket called');
+    console.log('handleCreateClick called');
   }
-  if (isCreatingTicket.value) {
+  if (isCreating.value) {
     if (import.meta.env.DEV) {
-      console.log('Already creating ticket, returning');
+      console.log('Already creating, returning');
     }
     return; // Prevent multiple clicks
   }
-  
-  try {
-    if (import.meta.env.DEV) {
-      console.log('Setting isCreatingTicket to true');
+
+  // Emit event to parent - parent can handle the action
+  emit('create');
+
+  // Default behavior for tickets if no listener is provided (backward compatibility)
+  // Only execute if we're on a tickets-related route
+  if (route.path.includes('/tickets') || route.path === '/') {
+    try {
+      if (import.meta.env.DEV) {
+        console.log('Setting isCreating to true');
+      }
+      isCreating.value = true;
+
+      if (import.meta.env.DEV) {
+        console.log('Creating empty ticket');
+      }
+      // Create an empty ticket
+      const newTicket = await ticketService.createEmptyTicket();
+
+      if (import.meta.env.DEV) {
+        console.log('Empty ticket created:', newTicket);
+      }
+      // Navigate to the new ticket
+      router.push(`/tickets/${newTicket.id}`);
+    } catch (error) {
+      console.error('Failed to create empty ticket:', error);
+
+      if (import.meta.env.DEV) {
+        console.log('Falling back to create ticket page');
+      }
+      // Fallback to the tickets page if creation fails
+      router.push("/tickets");
+    } finally {
+      if (import.meta.env.DEV) {
+        console.log('Setting isCreating to false');
+      }
+      isCreating.value = false;
     }
-    isCreatingTicket.value = true;
-    
-    if (import.meta.env.DEV) {
-      console.log('Creating empty ticket');
-    }
-    // Create an empty ticket
-    const newTicket = await ticketService.createEmptyTicket();
-    
-    if (import.meta.env.DEV) {
-      console.log('Empty ticket created:', newTicket);
-    }
-    // Navigate to the new ticket
-    router.push(`/tickets/${newTicket.id}`);
-  } catch (error) {
-    console.error('Failed to create empty ticket:', error);
-    // You could show an error notification here
-    
-    if (import.meta.env.DEV) {
-      console.log('Falling back to create ticket page');
-    }
-    // Fallback to the tickets page if creation fails
-    router.push("/tickets");
-  } finally {
-    if (import.meta.env.DEV) {
-      console.log('Setting isCreatingTicket to false');
-    }
-    isCreatingTicket.value = false;
   }
 };
 
@@ -237,21 +248,21 @@ defineExpose({
 
       <!-- Right side -->
       <div class="flex items-center gap-2 md:gap-4 flex-shrink-0">
-        <!-- Create Ticket Button -->
+        <!-- Create Button (generic - can be ticket, project, etc.) -->
         <button
           v-if="props.showCreateButton"
-          @click="navigateToCreateTicket"
-          :disabled="isCreatingTicket"
+          @click="handleCreateClick"
+          :disabled="isCreating"
           class="px-2 md:px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 md:gap-2"
-          :aria-label="isCreatingTicket ? 'Creating new ticket...' : 'Create new ticket'"
+          :aria-label="isCreating ? `Creating...` : `Create ${props.createButtonText}`"
         >
           <!-- Always show icon -->
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path v-if="isCreatingTicket" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" class="animate-spin" />
+            <path v-if="isCreating" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" class="animate-spin" />
             <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
-          
-          <span class="hidden md:inline">{{ isCreatingTicket ? 'Creating...' : 'Create Ticket' }}</span>
+
+          <span class="hidden md:inline">{{ isCreating ? 'Creating...' : props.createButtonText }}</span>
         </button>
 
         <!-- User Profile Menu -->

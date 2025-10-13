@@ -90,7 +90,7 @@ const removeProject = async (event: Event, projectId: number) => {
   try {
     isLoading.value = true
     error.value = null
-    
+
     await projectService.deleteProject(projectId)
     projects.value = projects.value.filter(p => p.id !== projectId)
   } catch (err) {
@@ -100,27 +100,20 @@ const removeProject = async (event: Event, projectId: number) => {
     isLoading.value = false
   }
 }
+
+// Method to open create modal - can be called from parent (e.g., SiteHeader)
+const openCreateModal = () => {
+  showCreateModal.value = true
+}
+
+// Expose the method so parent components can trigger it
+defineExpose({
+  openCreateModal
+})
 </script>
 
 <template>
   <div class="flex flex-col h-full">
-    <!-- Header Section -->
-    <div class="px-6 py-4 bg-slate-800/50 border-b border-slate-700/50">
-      <div class="flex justify-between items-center">
-        <h1 class="text-xl font-medium text-white">Projects</h1>
-        <button
-          @click="showCreateModal = true"
-          class="px-4 py-2 text-sm font-medium bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600/30 transition-colors flex items-center gap-2"
-          :disabled="isLoading"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-          </svg>
-          Create Project
-        </button>
-      </div>
-    </div>
-
     <div class="flex flex-col gap-4 p-6">
       <!-- Error message -->
       <div v-if="error" class="bg-red-900/30 border border-red-700/30 text-red-400 px-4 py-3 rounded-lg">

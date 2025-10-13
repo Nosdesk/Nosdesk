@@ -689,21 +689,21 @@ defineExpose({
                 <h4 class="text-sm font-medium text-white mb-2">Enter Verification Code</h4>
                 <p class="text-sm text-slate-400">Enter the 6-digit code from your authenticator app:</p>
               </div>
-              
-              <div class="flex gap-3">
+
+              <div class="flex flex-col sm:flex-row gap-3">
                 <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors flex-1">
                   <input
                     v-model="verificationCode"
                     type="text"
                     maxlength="6"
-                    class="w-full px-4 py-3 bg-transparent text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-center tracking-widest"
+                    class="w-full px-4 py-3 bg-transparent text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-center tracking-widest text-lg sm:text-base"
                     placeholder="000000"
                   />
                 </div>
                 <button
                   @click="verifyMFA"
                   :disabled="verificationCode.length !== 6 || verifying"
-                  class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-600 flex items-center transition-colors"
+                  class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-600 flex items-center justify-center transition-colors min-h-[52px] active:scale-[0.98]"
                 >
                   <span v-if="verifying" class="animate-spin h-4 w-4 mr-2">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -717,7 +717,7 @@ defineExpose({
               
               <button
                 @click="cancelMFASetup"
-                class="self-start text-sm text-slate-400 hover:text-white transition-colors"
+                class="self-start text-sm text-slate-400 hover:text-white transition-colors min-h-[44px] px-2"
               >
                 Cancel setup
               </button>
@@ -763,14 +763,14 @@ defineExpose({
         <!-- Backup Codes Display: only show after success or enabled -->
         <div v-if="backupCodes.length > 0 && (mfaStep === 'success' || mfaEnabled)" class="bg-amber-600/10 border border-amber-600/20 rounded-lg p-4">
           <div class="flex flex-col gap-4">
-            <div class="flex items-center justify-between">
-              <div>
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div class="min-w-0 flex-1">
                 <h4 class="text-sm font-medium text-amber-400 mb-2">Backup Codes</h4>
                 <p class="text-sm text-slate-300">Save these backup codes in a secure location. You can use them to access your account if you lose your authenticator device:</p>
               </div>
               <button
                 @click="downloadBackupCodes"
-                class="flex items-center gap-2 px-3 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 text-sm rounded-lg border border-amber-600/30 hover:border-amber-600/50 transition-colors"
+                class="flex items-center gap-2 px-3 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 text-sm rounded-lg border border-amber-600/30 hover:border-amber-600/50 transition-colors min-h-[44px] flex-shrink-0 active:scale-[0.98]"
                 title="Download backup codes as text file"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -779,9 +779,9 @@ defineExpose({
                 Download
               </button>
             </div>
-            <div class="bg-slate-700/50 rounded-lg p-4 font-mono text-sm text-white">
-              <div class="grid grid-cols-2 gap-2">
-                <div v-for="code in backupCodes" :key="code" class="text-center p-2 bg-slate-800/50 rounded">{{ code }}</div>
+            <div class="bg-slate-700/50 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm text-white">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div v-for="code in backupCodes" :key="code" class="text-center p-2 bg-slate-800/50 rounded break-all">{{ code }}</div>
               </div>
             </div>
             <p class="text-xs text-amber-400 flex items-center gap-2">
@@ -812,7 +812,7 @@ defineExpose({
             <div class="flex justify-center pt-2">
               <button
                 @click="completeSetup"
-                class="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium"
+                class="w-full sm:w-auto px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium min-h-[52px] active:scale-[0.98]"
               >
                 Start Using Nosdesk!
               </button>

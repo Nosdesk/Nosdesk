@@ -160,7 +160,7 @@ class AuthService {
    */
   async getCurrentUser(): Promise<any> {
     try {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No auth token found');
       }
@@ -181,28 +181,28 @@ class AuthService {
    * Logout the current user
    */
   logout(): void {
-    localStorage.removeItem('authToken');
+    localStorage.removeItem('token');
   }
 
   /**
    * Check if user is authenticated
    */
   isAuthenticated(): boolean {
-    return !!localStorage.getItem('authToken');
+    return !!localStorage.getItem('token');
   }
 
   /**
    * Get the stored auth token
    */
   getToken(): string | null {
-    return localStorage.getItem('authToken');
+    return localStorage.getItem('token');
   }
 
   /**
    * Store the auth token
    */
   setToken(token: string): void {
-    localStorage.setItem('authToken', token);
+    localStorage.setItem('token', token);
   }
 
   /**
@@ -212,6 +212,107 @@ class AuthService {
     this.setupStatusCache.data = null;
     this.setupStatusCache.timestamp = 0;
     console.log('🔄 AuthService: Setup status cache cleared');
+  }
+
+  /**
+   * Change the user's password
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    try {
+      const token = this.getToken();
+      if (!token) {
+        throw new Error('No auth token found');
+      }
+
+      await axios.post(
+        `${API_BASE_URL}/api/auth/change-password`,
+        {
+          current_password: currentPassword,
+          new_password: newPassword
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+    } catch (error) {
+      console.error('Error changing password:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all active sessions for the current user
+   */
+  async getSessions(): Promise<any[]> {
+    try {
+      const token = this.getToken();
+      if (!token) {
+        throw new Error('No auth token found');
+      }
+
+      const response = await axios.get(
+        `${API_BASE_URL}/api/auth/sessions`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+      return response.data.sessions;
+    } catch (error) {
+      console.error('Error getting sessions:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Revoke a specific session
+   */
+  async revokeSession(sessionId: number): Promise<void> {
+    try {
+      const token = this.getToken();
+      if (!token) {
+        throw new Error('No auth token found');
+      }
+
+      await axios.delete(
+        `${API_BASE_URL}/api/auth/sessions/${sessionId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+    } catch (error) {
+      console.error('Error revoking session:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Revoke all other sessions (keep current session)
+   */
+  async revokeAllOtherSessions(): Promise<void> {
+    try {
+      const token = this.getToken();
+      if (!token) {
+        throw new Error('No auth token found');
+      }
+
+      await axios.delete(
+        `${API_BASE_URL}/api/auth/sessions/others`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+    } catch (error) {
+      console.error('Error revoking all other sessions:', error);
+      throw error;
+    }
   }
 }
 

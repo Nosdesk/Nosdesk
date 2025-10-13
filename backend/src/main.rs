@@ -534,6 +534,14 @@ async fn main() -> std::io::Result<()> {
                     .route("/me", web::get().to(handlers::get_current_user).wrap(HttpAuthentication::bearer(validator)))
                     .route("/change-password", web::post().to(handlers::change_password).wrap(HttpAuthentication::bearer(validator)))
                     .route("/oauth/connect", web::post().to(handlers::oauth_connect).wrap(HttpAuthentication::bearer(validator)))
+                    // Session Management endpoints
+                    .service(
+                        web::scope("/sessions")
+                            .wrap(HttpAuthentication::bearer(validator))
+                            .route("", web::get().to(handlers::get_user_sessions))
+                            .route("/{id}", web::delete().to(handlers::revoke_session))
+                            .route("/others", web::delete().to(handlers::revoke_all_other_sessions))
+                    )
                     // MFA (Multi-Factor Authentication) endpoints
                     .service(
                         web::scope("/mfa")

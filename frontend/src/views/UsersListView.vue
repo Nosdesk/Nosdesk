@@ -92,6 +92,11 @@ const gridClass = "grid-cols-[auto_1fr_minmax(120px,auto)] md:grid-cols-[auto_mi
 const navigateToCreateUser = () => {
   router.push('/users/new');
 };
+
+// Expose method for parent (App.vue) to call from header button
+defineExpose({
+  navigateToCreateUser
+});
 </script>
 
 <template>
@@ -134,16 +139,8 @@ const navigateToCreateUser = () => {
           </button>
         </template>
 
-        <!-- Add button -->
-        <button
-          @click="navigateToCreateUser"
-          class="px-2 py-1 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 focus:ring-2 focus:outline-none focus:ring-green-800 ml-auto"
-        >
-          Add User
-        </button>
-
         <!-- Results count and cache stats -->
-        <div class="text-xs text-slate-400 flex items-center gap-4">
+        <div class="text-xs text-slate-400 flex items-center gap-4 ml-auto">
           <span>{{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}</span>
           <span v-if="dataStore.getCacheStats.individualUsers > 0" class="text-blue-400">
             📦 {{ dataStore.getCacheStats.individualUsers }} cached

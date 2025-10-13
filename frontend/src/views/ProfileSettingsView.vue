@@ -168,11 +168,11 @@ const clearMessages = () => {
   }, 5000);
 };
 
-// Handle success messages
+// Handle success messages (silently - no banner)
 const handleSuccess = (message: string) => {
-  successMessage.value = message;
+  // Clear any existing errors
   error.value = null;
-  clearMessages();
+  // Success is communicated through UI state changes, not banners
 };
 
 // Handle error messages  
@@ -323,23 +323,23 @@ const updateUserRole = async (newRole: string) => {
 <template>
   <div class="flex-1">
     <!-- Navigation and actions bar -->
-    <div class="pt-4 px-6 flex justify-between items-center">
-      <BackButton 
-        :fallbackRoute="isManagingOtherUser ? `/users/${targetUserUuid}` : '/'" 
-        :label="isManagingOtherUser ? 'Back to User Profile' : 'Back to Dashboard'" 
+    <div class="pt-4 px-4 sm:px-6 flex justify-between items-center">
+      <BackButton
+        :fallbackRoute="isManagingOtherUser ? `/users/${targetUserUuid}` : '/'"
+        :label="isManagingOtherUser ? 'Back to User Profile' : 'Back to Dashboard'"
       />
     </div>
-    
-    <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
+
+    <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-7xl">
       <!-- Page Header -->
-      <div class="mb-6">
+      <div class="mb-2 sm:mb-6">
         <div v-if="loadingTargetUser" class="flex items-center gap-3">
           <div class="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-          <h1 class="text-2xl font-bold text-white">Loading User Settings...</h1>
+          <h1 class="text-xl sm:text-2xl font-bold text-white">Loading User Settings...</h1>
         </div>
         <div v-else-if="isManagingOtherUser && targetUser">
-          <div class="flex items-center gap-3 mb-2">
-            <div class="w-8 h-8 bg-purple-600/20 rounded-full flex items-center justify-center">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-2">
+            <div class="w-8 h-8 bg-purple-600/20 rounded-full flex items-center justify-center flex-shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
                 stroke-linecap="round"
@@ -355,35 +355,61 @@ const updateUserRole = async (newRole: string) => {
               />
               </svg>
             </div>
-            <div>
-              <h1 class="text-2xl font-bold text-white">Managing User Settings</h1>
-              <p class="text-slate-400">
+            <div class="min-w-0 flex-1">
+              <h1 class="text-xl sm:text-2xl font-bold text-white">Managing User Settings</h1>
+              <p class="text-sm sm:text-base text-slate-400 truncate">
                 Managing settings for <span class="text-blue-400 font-medium">{{ targetUser.name }}</span> ({{ targetUser.email }})
               </p>
             </div>
           </div>
         </div>
         <div v-else>
-          <h1 class="text-2xl font-bold text-white">Settings</h1>
-          <p class="text-slate-400 mt-2">
+          <h1 class="text-xl sm:text-2xl font-bold text-white">Settings</h1>
+          <p class="text-sm sm:text-base text-slate-400 mt-1 sm:mt-2">
             Manage your profile, preferences, and security settings
           </p>
         </div>
       </div>
 
-      <!-- Success/Error messages -->
-      <div v-if="successMessage" class="p-4 bg-green-900/50 text-green-400 rounded-lg">
-        {{ successMessage }}
-      </div>
-      <div v-if="error" class="p-4 bg-red-900/50 text-red-400 rounded-lg">
+      <!-- Error messages only -->
+      <div v-if="error" class="p-3 sm:p-4 bg-red-900/50 text-red-400 rounded-lg text-sm sm:text-base border border-red-700/50">
         {{ error }}
       </div>
 
+      <!-- Mobile Tab Navigation (horizontal scroll) -->
+      <div class="lg:hidden -mx-4 sm:-mx-6 px-4 sm:px-6 mb-4">
+        <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+          <button
+            v-for="tab in settingsTabs"
+            :key="tab.id"
+            @click="activeTab = tab.id"
+            class="relative flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all whitespace-nowrap flex-shrink-0 min-h-[44px]"
+            :class="[
+              activeTab === tab.id
+                ? 'bg-slate-700 border border-slate-600 text-white font-medium'
+                : 'bg-slate-800 border border-slate-700/50 text-slate-300 hover:bg-slate-700/50 hover:text-white active:scale-95'
+            ]"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
+            <span class="text-sm">{{ tab.label }}</span>
+            <!-- Fancy underline indicator -->
+            <div
+              v-if="activeTab === tab.id"
+              class="absolute bottom-1.5 left-2 right-2 h-0.5 rounded-full transition-all duration-300"
+              :style="{
+                backgroundColor: tab.color,
+                boxShadow: `0 0 8px ${tab.color}40, 0 0 4px ${tab.color}60`
+              }"
+            ></div>
+          </button>
+        </div>
+      </div>
+
       <!-- Main content -->
-      <div class="flex gap-6">
-        <!-- Sidebar Navigation -->
-        <div class="w-64 flex-shrink-0">
-          <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+      <div class="flex flex-col lg:flex-row gap-4 lg:gap-6">
+        <!-- Desktop Sidebar Navigation -->
+        <aside class="hidden lg:block lg:w-64 flex-shrink-0">
+          <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors sticky top-4">
             <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
               <h2 class="text-lg font-medium text-white">Settings</h2>
             </div>
@@ -392,7 +418,7 @@ const updateUserRole = async (newRole: string) => {
               v-for="tab in settingsTabs"
               :key="tab.id"
               @click="activeTab = tab.id"
-              class="rounded-lg transition-colors duration-200 text-white flex items-center gap-3 relative overflow-hidden px-3 py-2"
+              class="rounded-lg transition-colors duration-200 text-white flex items-center gap-3 relative overflow-hidden px-3 py-2.5"
               :class="[
                 activeTab === tab.id
                     ? 'bg-slate-700/50 border border-slate-600/30 text-white font-medium'
@@ -405,16 +431,16 @@ const updateUserRole = async (newRole: string) => {
                   class="absolute left-0 top-0 bottom-0 w-1 rounded-r"
                 :style="{ backgroundColor: tab.color }"
               ></div>
-              
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
+
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
               <span class="text-sm whitespace-nowrap">{{ tab.label }}</span>
             </button>
           </nav>
           </div>
-        </div>
+        </aside>
 
         <!-- Content Area -->
-        <div class="flex-1">
+        <div class="flex-1 min-w-0">
           <!-- Profile Tab -->
           <div v-if="activeTab === 'profile'" class="flex flex-col gap-6">
             <UserProfileCard
@@ -427,35 +453,35 @@ const updateUserRole = async (newRole: string) => {
             
             <!-- Admin Role Management Card -->
             <div v-if="isManagingOtherUser && authStore.isAdmin && targetUser" class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
-              <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50 flex items-center gap-2">
-                <div class="w-6 h-6 bg-red-600/20 rounded-full flex items-center justify-center">
+              <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50 flex flex-wrap items-center gap-2">
+                <div class="w-6 h-6 bg-red-600/20 rounded-full flex items-center justify-center flex-shrink-0">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
                 </div>
-                <h2 class="text-lg font-medium text-white">Role Management</h2>
-                <span class="text-xs px-2 py-1 bg-red-900/30 text-red-300 rounded-full ml-auto">Admin Only</span>
+                <h2 class="text-base sm:text-lg font-medium text-white">Role Management</h2>
+                <span class="text-xs px-2 py-1 bg-red-900/30 text-red-300 rounded-full sm:ml-auto">Admin Only</span>
               </div>
-              <div class="p-4">
+              <div class="p-4 sm:p-6">
                 <div class="flex flex-col gap-4">
-                  <div class="flex items-start justify-between">
+                  <div class="flex flex-col gap-3">
                     <div class="flex-1">
                       <h3 class="text-sm font-medium text-white mb-1">User Role</h3>
                       <p class="text-xs text-slate-400 mb-3">
                         Control what {{ targetUser.name }} can access and manage in the system.
                       </p>
-                      
-                      <div class="flex items-center gap-3">
+
+                      <div class="flex flex-wrap items-center gap-3">
                         <div class="flex items-center gap-2">
                           <span class="text-sm text-slate-300">Current:</span>
-                          <span 
+                          <span
                             class="px-2 py-1 rounded text-xs font-medium"
                             :class="getRoleColorClass(targetUser.role)"
                           >
                             {{ targetUser.role.charAt(0).toUpperCase() + targetUser.role.slice(1) }}
                           </span>
                         </div>
-                        
+
                         <div v-if="updatingRole" class="flex items-center gap-2 text-blue-400">
                           <div class="animate-spin h-3 w-3 border border-blue-400 border-t-transparent rounded-full"></div>
                           <span class="text-xs">Updating...</span>
@@ -463,14 +489,14 @@ const updateUserRole = async (newRole: string) => {
                       </div>
                     </div>
                   </div>
-                  
-                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     <button
                       v-for="role in availableRoles"
                       :key="role.value"
                       @click="updateUserRole(role.value)"
                       :disabled="updatingRole || targetUser.role === role.value"
-                      class="p-3 rounded-lg border transition-all text-left"
+                      class="p-3 sm:p-4 rounded-lg border transition-all text-left min-h-[80px] active:scale-[0.98]"
                       :class="[
                         targetUser.role === role.value
                           ? 'border-blue-500/50 bg-blue-900/20'
@@ -479,35 +505,35 @@ const updateUserRole = async (newRole: string) => {
                       ]"
                     >
                       <div class="flex items-center gap-2 mb-2">
-                        <div 
-                          class="w-3 h-3 rounded-full"
+                        <div
+                          class="w-3 h-3 rounded-full flex-shrink-0"
                           :style="{ backgroundColor: role.color }"
                         ></div>
                         <span class="font-medium text-white text-sm">{{ role.label }}</span>
-                        <svg 
-                          v-if="targetUser.role === role.value" 
-                          xmlns="http://www.w3.org/2000/svg" 
-                          class="h-4 w-4 text-blue-400 ml-auto" 
-                          fill="none" 
-                          viewBox="0 0 24 24" 
+                        <svg
+                          v-if="targetUser.role === role.value"
+                          xmlns="http://www.w3.org/2000/svg"
+                          class="h-4 w-4 text-blue-400 ml-auto flex-shrink-0"
+                          fill="none"
+                          viewBox="0 0 24 24"
                           stroke="currentColor"
                         >
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                         </svg>
                       </div>
-                      <p class="text-xs text-slate-400">{{ role.description }}</p>
+                      <p class="text-xs text-slate-400 leading-relaxed">{{ role.description }}</p>
                     </button>
                   </div>
-                  
+
                   <div class="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-3">
-                    <div class="flex gap-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-yellow-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div class="flex gap-2 sm:gap-3">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-5 sm:w-5 text-yellow-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                       </svg>
-                      <div>
+                      <div class="min-w-0 flex-1">
                         <p class="text-xs font-medium text-yellow-300 mb-1">Role Change Warning</p>
-                        <p class="text-xs text-yellow-200">
-                          Changing a user's role will immediately affect their access permissions. 
+                        <p class="text-xs text-yellow-200 leading-relaxed">
+                          Changing a user's role will immediately affect their access permissions.
                           The user will need to log out and back in for changes to take full effect.
                         </p>
                       </div>

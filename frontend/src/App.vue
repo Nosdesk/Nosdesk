@@ -55,6 +55,25 @@ const currentPageUrl = computed(() => {
 const router = useRouter();
 const initializationChecked = ref(false);
 
+// Ref to access the current route view component
+const currentViewComponent = ref<any>(null);
+
+// Computed property for create button text from route meta
+const createButtonText = computed(() => {
+  return route.meta.createButtonText || 'Create Ticket';
+});
+
+// Handle create button click using route meta configuration
+const handleCreateClick = () => {
+  const actionName = route.meta.createButtonAction;
+
+  // If route specifies an action and the component has that method, call it
+  if (actionName && currentViewComponent.value?.[actionName]) {
+    currentViewComponent.value[actionName]();
+  }
+  // Otherwise, the SiteHeader's default ticket creation will handle it
+};
+
 onMounted(async () => {
   // Security: Prevent multiple initialization checks
   if (initializationChecked.value) {
@@ -99,6 +118,7 @@ onMounted(async () => {
         :useRouteTitle="!isDocumentationPage"
         :title="titleManager.pageTitle.value"
         :showCreateButton="true"
+        :createButtonText="createButtonText"
         :ticket="titleManager.currentTicket.value"
         :document="titleManager.currentDocument.value"
         :is-transitioning="titleManager.isTransitioning.value"
@@ -107,6 +127,7 @@ onMounted(async () => {
         @update-document-title="titleManager.updateDocumentTitle"
         @preview-document-title="titleManager.previewDocumentTitle"
         @update-document-icon="titleManager.updateDocumentIcon"
+        @create="handleCreateClick"
       />
 
       <!-- Scrollable content with bottom padding for mobile nav -->
@@ -129,7 +150,7 @@ onMounted(async () => {
               titleManager.endTransition();
             }"
           >
-            <component :is="Component" :key="$route.fullPath" class="h-full overflow-auto" />
+            <component :is="Component" :key="$route.fullPath" ref="currentViewComponent" class="h-full overflow-auto" />
           </Transition>
         </RouterView>
       </main>

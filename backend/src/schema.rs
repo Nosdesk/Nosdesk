@@ -1,23 +1,23 @@
 // @generated automatically by Diesel CLI.
 
 pub mod sql_types {
-    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "documentation_status"))]
     pub struct DocumentationStatus;
 
-    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "project_status"))]
     pub struct ProjectStatus;
 
-    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "ticket_priority"))]
     pub struct TicketPriority;
 
-    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "ticket_status"))]
     pub struct TicketStatus;
 
-    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "user_role"))]
     pub struct UserRole;
 }
@@ -311,6 +311,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_ticket_views (id) {
+        id -> Int4,
+        user_uuid -> Uuid,
+        ticket_id -> Int4,
+        first_viewed_at -> Timestamptz,
+        last_viewed_at -> Timestamptz,
+        view_count -> Int4,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::UserRole;
 
@@ -325,6 +336,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         password_hash -> Bytea,
+        password_changed_at -> Nullable<Timestamptz>,
         #[max_length = 100]
         pronouns -> Nullable<Varchar>,
         #[max_length = 500]
@@ -339,17 +351,6 @@ diesel::table! {
         mfa_enabled -> Bool,
         mfa_backup_codes -> Nullable<Jsonb>,
         passkey_credentials -> Nullable<Jsonb>,
-    }
-}
-
-diesel::table! {
-    user_ticket_views (id) {
-        id -> Int4,
-        user_uuid -> Uuid,
-        ticket_id -> Int4,
-        first_viewed_at -> Timestamptz,
-        last_viewed_at -> Timestamptz,
-        view_count -> Int4,
     }
 }
 

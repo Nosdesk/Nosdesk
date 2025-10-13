@@ -40,20 +40,10 @@ export function useTicketSSE(
 
   // Handle ticket updated
   function handleTicketUpdated(eventData: any): void {
-    console.log("🎯 handleTicketUpdated called with:", eventData);
     const data = eventData.data || eventData;
-    console.log("🎯 Extracted data:", data);
-    console.log(
-      "🎯 Current ticket ID:",
-      ticket.value?.id,
-      "Event ticket ID:",
-      data.ticket_id,
-    );
     if (!ticket.value || data.ticket_id !== ticket.value.id) {
-      console.log("🎯 Ignoring - ticket mismatch or no ticket");
       return;
     }
-    console.log("🎯 Processing field update:", data.field, "=", data.value);
 
     // Use direct mutation to preserve object reference - prevents component remounts
     if (data.field === "title") {
@@ -288,32 +278,32 @@ export function useTicketSSE(
     }
   }
 
+  // Event handler configuration - DRY principle
+  const eventHandlers = {
+    "ticket-updated": handleTicketUpdated,
+    "comment-added": handleCommentAdded,
+    "comment-deleted": handleCommentDeleted,
+    "device-linked": handleDeviceLinked,
+    "device-unlinked": handleDeviceUnlinked,
+    "device-updated": handleDeviceUpdated,
+    "ticket-linked": handleTicketLinked,
+    "ticket-unlinked": handleTicketUnlinked,
+    "project-assigned": handleProjectAssigned,
+    "project-unassigned": handleProjectUnassigned,
+  } as const;
+
   // Setup event listeners
   function setupEventListeners(): void {
-    addEventListener("ticket-updated", handleTicketUpdated);
-    addEventListener("comment-added", handleCommentAdded);
-    addEventListener("comment-deleted", handleCommentDeleted);
-    addEventListener("device-linked", handleDeviceLinked);
-    addEventListener("device-unlinked", handleDeviceUnlinked);
-    addEventListener("device-updated", handleDeviceUpdated);
-    addEventListener("ticket-linked", handleTicketLinked);
-    addEventListener("ticket-unlinked", handleTicketUnlinked);
-    addEventListener("project-assigned", handleProjectAssigned);
-    addEventListener("project-unassigned", handleProjectUnassigned);
+    Object.entries(eventHandlers).forEach(([event, handler]) => {
+      addEventListener(event as any, handler);
+    });
   }
 
   // Remove event listeners
   function cleanupEventListeners(): void {
-    removeEventListener("ticket-updated", handleTicketUpdated);
-    removeEventListener("comment-added", handleCommentAdded);
-    removeEventListener("comment-deleted", handleCommentDeleted);
-    removeEventListener("device-linked", handleDeviceLinked);
-    removeEventListener("device-unlinked", handleDeviceUnlinked);
-    removeEventListener("device-updated", handleDeviceUpdated);
-    removeEventListener("ticket-linked", handleTicketLinked);
-    removeEventListener("ticket-unlinked", handleTicketUnlinked);
-    removeEventListener("project-assigned", handleProjectAssigned);
-    removeEventListener("project-unassigned", handleProjectUnassigned);
+    Object.entries(eventHandlers).forEach(([event, handler]) => {
+      removeEventListener(event as any, handler);
+    });
   }
 
   // Auto-setup on mount - connect immediately for real-time updates

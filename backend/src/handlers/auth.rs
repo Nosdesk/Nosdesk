@@ -78,10 +78,125 @@ fn parse_user_role(role_str: &str) -> Result<UserRole, String> {
     }
 }
 
+/// Helper function to log password change security event
+async fn log_password_change_event(
+    user_uuid: &Uuid,
+    conn: &mut DbConnection,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use diesel::prelude::*;
+    use crate::schema::security_events;
+
+    #[derive(diesel::Insertable)]
+    #[diesel(table_name = security_events)]
+    struct NewSecurityEvent {
+        user_uuid: Uuid,
+        event_type: String,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+        location: Option<String>,
+        details: Option<serde_json::Value>,
+        severity: String,
+        created_at: chrono::NaiveDateTime,
+        session_id: Option<i32>,
+    }
+
+    let new_event = NewSecurityEvent {
+        user_uuid: *user_uuid,
+        event_type: "password_changed".to_string(),
+        ip_address: None,
+        user_agent: None,
+        location: None,
+        details: Some(json!({
+            "action": "password_change",
+            "success": true
+        })),
+        severity: "info".to_string(),
+        created_at: chrono::Utc::now().naive_utc(),
+        session_id: None,
+    };
+
+    diesel::insert_into(security_events::table)
+        .values(&new_event)
+        .execute(conn)?;
+
+    Ok(())
+}
+
+/// Helper function to create a session record after successful login
+async fn create_session_record(
+    user_uuid: &Uuid,
+    token: &str,
+    request: &HttpRequest,
+    conn: &mut DbConnection,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Hash the JWT token with SHA-256 for storage
+    use ring::digest;
+    let hash = digest::digest(&digest::SHA256, token.as_bytes());
+    let token_hash = hex::encode(hash.as_ref());
+
+    // Extract IP address from request
+    let ip_address = request.peer_addr()
+        .map(|addr| addr.ip().to_string());
+
+    // Extract user agent from request headers
+    let user_agent = request.headers()
+        .get("user-agent")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    // Parse device name from user agent (simple parsing)
+    let device_name = user_agent.as_ref().and_then(|ua| {
+        // Simple device name extraction - can be enhanced later
+        if ua.contains("iPhone") {
+            Some("iPhone".to_string())
+        } else if ua.contains("iPad") {
+            Some("iPad".to_string())
+        } else if ua.contains("Android") {
+            Some("Android Device".to_string())
+        } else if ua.contains("Macintosh") || ua.contains("Mac OS") {
+            Some("Mac".to_string())
+        } else if ua.contains("Windows") {
+            Some("Windows PC".to_string())
+        } else if ua.contains("Linux") {
+            Some("Linux".to_string())
+        } else {
+            Some("Unknown Device".to_string())
+        }
+    });
+
+    // Set expiration to 24 hours from now (matching JWT expiration)
+    let expires_at = chrono::Utc::now().naive_utc() + chrono::Duration::hours(24);
+
+    // Create new session record
+    let new_session = crate::models::NewActiveSession {
+        session_token: token_hash,
+        user_uuid: *user_uuid,
+        device_name,
+        ip_address,
+        user_agent,
+        location: None, // Could be derived from IP in the future
+        expires_at,
+        is_current: true,
+    };
+
+    // Insert session into database
+    match crate::repository::active_sessions::create_session(conn, new_session) {
+        Ok(session) => {
+            tracing::info!("Session created for user {}: session_id={}", user_uuid, session.id);
+            Ok(())
+        },
+        Err(e) => {
+            tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
+            Err(Box::new(e))
+        }
+    }
+}
+
 // Authentication handlers
 pub async fn login(
     db_pool: web::Data<crate::db::Pool>,
     login_data: web::Json<LoginRequest>,
+    request: HttpRequest,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -152,9 +267,21 @@ pub async fn login(
         return HttpResponse::Ok().json(response);
     }
 
+    // Store user UUID before moving user into create_login_response
+    let user_uuid = user.uuid;
+
     // Create standard login response (no MFA required)
     match jwt_helpers::create_login_response(user) {
-        Ok(response) => HttpResponse::Ok().json(response),
+        Ok(response) => {
+            // Create session record after successful login
+            if let Some(ref token) = response.token {
+                if let Err(e) = create_session_record(&user_uuid, token, &request, &mut conn).await {
+                    tracing::warn!("Failed to create session record for user {}: {}", user_uuid, e);
+                    // Don't fail the login if session creation fails
+                }
+            }
+            HttpResponse::Ok().json(response)
+        },
         Err(error_response) => error_response,
     }
 }
@@ -258,13 +385,25 @@ pub async fn mfa_login(
     // Log successful MFA attempt
     mfa::log_mfa_attempt(&user.uuid, true, "login", &request).await;
 
+    // Store user UUID before moving user into create_mfa_login_response
+    let user_uuid = user.uuid;
+
     // Create successful MFA login response
     match jwt_helpers::create_mfa_login_response(
         user,
         mfa_result.backup_code_used.is_some(),
         mfa_result.requires_backup_code_regeneration,
     ) {
-        Ok(response) => HttpResponse::Ok().json(response),
+        Ok(response) => {
+            // Create session record after successful MFA login
+            if let Some(ref token) = response.token {
+                if let Err(e) = create_session_record(&user_uuid, token, &request, &mut conn).await {
+                    tracing::warn!("Failed to create session record for user {}: {}", user_uuid, e);
+                    // Don't fail the login if session creation fails
+                }
+            }
+            HttpResponse::Ok().json(response)
+        },
         Err(error_response) => error_response,
     }
 }
@@ -528,13 +667,63 @@ pub async fn change_password(
                 })),
             };
 
-            // Update the user's password hash directly
+            // Update the user's password hash and password_changed_at timestamp
             use diesel::prelude::*;
+            let now = chrono::Utc::now().naive_utc();
+
             match diesel::update(crate::schema::users::table.find(user.id))
-                .set(crate::schema::users::password_hash.eq(new_password_hash.as_bytes()))
+                .set((
+                    crate::schema::users::password_hash.eq(new_password_hash.as_bytes()),
+                    crate::schema::users::password_changed_at.eq(now)
+                ))
                 .execute(&mut conn) {
                 Ok(_) => {
                     println!("✅ Password changed successfully for user: {}", user.email);
+
+                    // Log security event for password change
+                    if let Err(e) = log_password_change_event(&user.uuid, &mut conn).await {
+                        tracing::warn!("Failed to log password change event: {}", e);
+                        // Don't fail the password change if logging fails
+                    }
+
+                    // Revoke all other sessions for security (defense in depth)
+                    // Get current session token from the Bearer auth token
+                    let current_session_token = auth.token();
+
+                    // Hash the JWT token to match stored session tokens (SHA-256)
+                    use ring::digest;
+                    let hash = digest::digest(&digest::SHA256, current_session_token.as_bytes());
+                    let token_hash = hex::encode(hash.as_ref());
+
+                    // Look up current session ID to preserve it
+                    let current_session_id = match crate::repository::active_sessions::get_session_by_token(
+                        &mut conn,
+                        &token_hash
+                    ) {
+                        Ok(session) => Some(session.id),
+                        Err(e) => {
+                            tracing::warn!("Could not find current session during password change for user {}: {}", user.uuid, e);
+                            None
+                        }
+                    };
+
+                    // Revoke all other sessions (keep current session active)
+                    match crate::repository::active_sessions::revoke_other_sessions(
+                        &mut conn,
+                        &user.uuid,
+                        current_session_id
+                    ) {
+                        Ok(revoked_count) => {
+                            if revoked_count > 0 {
+                                println!("🔒 Revoked {} other session(s) after password change for user: {}", revoked_count, user.email);
+                            }
+                        },
+                        Err(e) => {
+                            tracing::warn!("Failed to revoke other sessions after password change for user {}: {}", user.uuid, e);
+                            // Don't fail the password change if session revocation fails
+                        }
+                    }
+
                     HttpResponse::Ok().json(json!({
                         "status": "success",
                         "message": "Password changed successfully"
@@ -1526,6 +1715,222 @@ async fn initiate_secure_mfa_reset(
     // - Consider requiring admin approval for high-privilege users
     
     tracing::warn!("MFA reset initiated for user: {} (secure procedures should be implemented)", user_uuid);
-    
+
     Ok(reset_token)
+}
+
+// === SESSION MANAGEMENT HANDLERS ===
+
+/// Get all active sessions for the current user
+pub async fn get_user_sessions(
+    db_pool: web::Data<crate::db::Pool>,
+    auth: BearerAuth,
+) -> impl Responder {
+    let mut conn = match db_pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Could not get database connection"
+        })),
+    };
+
+    let (claims, _user) = match JwtUtils::authenticate_request(&auth, &mut conn).await {
+        Ok((claims, user)) => (claims, user),
+        Err(_) => return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Invalid or expired token"
+        })),
+    };
+
+    // Parse UUID from claims
+    let user_uuid = match parse_uuid(&claims.sub) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid user UUID in token"
+        })),
+    };
+
+    // Get current session token to mark it as current
+    let current_session_token = auth.token();
+    use ring::digest;
+    let hash = digest::digest(&digest::SHA256, current_session_token.as_bytes());
+    let token_hash = hex::encode(hash.as_ref());
+
+    // Get all sessions for the user
+    let sessions = match crate::repository::active_sessions::get_user_sessions(&mut conn, &user_uuid) {
+        Ok(sessions) => sessions,
+        Err(e) => {
+            tracing::error!("Failed to get user sessions: {}", e);
+            return HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to retrieve sessions"
+            }));
+        }
+    };
+
+    // Convert sessions to response format
+    let session_responses: Vec<serde_json::Value> = sessions.into_iter().map(|session| {
+        json!({
+            "id": session.id,
+            "device_name": session.device_name,
+            "ip_address": session.ip_address,
+            "user_agent": session.user_agent,
+            "location": session.location,
+            "created_at": session.created_at,
+            "last_active": session.last_active,
+            "expires_at": session.expires_at,
+            "is_current": session.session_token == token_hash
+        })
+    }).collect();
+
+    HttpResponse::Ok().json(json!({
+        "status": "success",
+        "sessions": session_responses
+    }))
+}
+
+/// Revoke a specific session
+pub async fn revoke_session(
+    db_pool: web::Data<crate::db::Pool>,
+    auth: BearerAuth,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let session_id = path.into_inner();
+
+    let mut conn = match db_pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Could not get database connection"
+        })),
+    };
+
+    let (claims, _user) = match JwtUtils::authenticate_request(&auth, &mut conn).await {
+        Ok((claims, user)) => (claims, user),
+        Err(_) => return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Invalid or expired token"
+        })),
+    };
+
+    // Parse UUID from claims
+    let user_uuid = match parse_uuid(&claims.sub) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid user UUID in token"
+        })),
+    };
+
+    // Verify the session belongs to this user before revoking
+    match crate::repository::active_sessions::get_session_by_token(&mut conn, &session_id.to_string()) {
+        Ok(session) if session.user_uuid == user_uuid => {
+            // Session belongs to user, proceed with revocation
+        },
+        Ok(_) => {
+            return HttpResponse::Forbidden().json(json!({
+                "status": "error",
+                "message": "You can only revoke your own sessions"
+            }));
+        },
+        Err(_) => {
+            // Try to revoke anyway in case it's a valid session ID (not found by token lookup)
+            // The revoke_session function will handle if it doesn't exist
+        }
+    }
+
+    // Revoke the session
+    match crate::repository::active_sessions::revoke_session(&mut conn, session_id) {
+        Ok(count) if count > 0 => {
+            tracing::info!("Session {} revoked for user {}", session_id, user_uuid);
+            HttpResponse::Ok().json(json!({
+                "status": "success",
+                "message": "Session revoked successfully"
+            }))
+        },
+        Ok(_) => HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "Session not found"
+        })),
+        Err(e) => {
+            tracing::error!("Failed to revoke session: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to revoke session"
+            }))
+        }
+    }
+}
+
+/// Revoke all other sessions (keep current session active)
+pub async fn revoke_all_other_sessions(
+    db_pool: web::Data<crate::db::Pool>,
+    auth: BearerAuth,
+) -> impl Responder {
+    let mut conn = match db_pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Could not get database connection"
+        })),
+    };
+
+    let (claims, _user) = match JwtUtils::authenticate_request(&auth, &mut conn).await {
+        Ok((claims, user)) => (claims, user),
+        Err(_) => return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Invalid or expired token"
+        })),
+    };
+
+    // Parse UUID from claims
+    let user_uuid = match parse_uuid(&claims.sub) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid user UUID in token"
+        })),
+    };
+
+    // Get current session token to preserve it
+    let current_session_token = auth.token();
+    use ring::digest;
+    let hash = digest::digest(&digest::SHA256, current_session_token.as_bytes());
+    let token_hash = hex::encode(hash.as_ref());
+
+    // Look up current session ID
+    let current_session_id = match crate::repository::active_sessions::get_session_by_token(
+        &mut conn,
+        &token_hash
+    ) {
+        Ok(session) => Some(session.id),
+        Err(e) => {
+            tracing::warn!("Could not find current session for user {}: {}", user_uuid, e);
+            None
+        }
+    };
+
+    // Revoke all other sessions
+    match crate::repository::active_sessions::revoke_other_sessions(
+        &mut conn,
+        &user_uuid,
+        current_session_id
+    ) {
+        Ok(revoked_count) => {
+            tracing::info!("Revoked {} other session(s) for user {}", revoked_count, user_uuid);
+            HttpResponse::Ok().json(json!({
+                "status": "success",
+                "message": format!("Successfully revoked {} session(s)", revoked_count),
+                "revoked_count": revoked_count
+            }))
+        },
+        Err(e) => {
+            tracing::error!("Failed to revoke other sessions: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to revoke sessions"
+            }))
+        }
+    }
 }

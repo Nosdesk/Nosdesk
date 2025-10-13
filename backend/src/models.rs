@@ -557,6 +557,7 @@ pub struct User {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub password_hash: Vec<u8>,
+    pub password_changed_at: Option<NaiveDateTime>,
     pub pronouns: Option<String>,
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,

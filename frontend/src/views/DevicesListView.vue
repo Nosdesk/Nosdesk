@@ -140,6 +140,11 @@ const formatDate = (dateString: string) => {
     return 'Unknown';
   }
 };
+
+// Expose method for parent (App.vue) to call from header button
+defineExpose({
+  navigateToCreateDevice
+});
 </script>
 
 <template>
@@ -182,18 +187,7 @@ const formatDate = (dateString: string) => {
           </button>
         </template>
 
-        <!-- Add button -->
-        <button
-          @click="navigateToCreateDevice"
-          class="px-2 py-1 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 focus:ring-2 focus:outline-none focus:ring-green-800 ml-auto flex items-center gap-1"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Add Device
-        </button>
-
-        <div class="text-xs text-slate-400">
+        <div class="text-xs text-slate-400 ml-auto">
           {{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}
         </div>
       </div>

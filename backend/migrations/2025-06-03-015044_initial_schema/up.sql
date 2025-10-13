@@ -46,6 +46,7 @@ CREATE TABLE users (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     password_hash BYTEA NOT NULL DEFAULT '\x'::bytea,
+    password_changed_at TIMESTAMP WITH TIME ZONE, -- Track when password was last changed for session invalidation
     pronouns VARCHAR(100),
     avatar_url VARCHAR(500),
     banner_url VARCHAR(500),

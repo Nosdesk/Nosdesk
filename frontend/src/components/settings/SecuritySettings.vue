@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import authService from '@/services/authService';
 
 // Get current user info
 const authStore = useAuthStore();
@@ -38,17 +39,17 @@ const changePassword = async () => {
   loading.value = true;
 
   try {
-    // TODO: Implement password change API call
-    // await authService.changePassword(currentPassword.value, newPassword.value);
-    
-    // Reset form
+    await authService.changePassword(currentPassword.value, newPassword.value);
+
+    // Reset form on success
     currentPassword.value = '';
     newPassword.value = '';
     confirmPassword.value = '';
-    
+
     emit('success', 'Password changed successfully');
-  } catch (err) {
-    emit('error', 'Failed to change password. Please check your current password.');
+  } catch (err: any) {
+    const errorMessage = err.response?.data?.message || 'Failed to change password. Please check your current password.';
+    emit('error', errorMessage);
     console.error('Error changing password:', err);
   } finally {
     loading.value = false;

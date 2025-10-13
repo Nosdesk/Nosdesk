@@ -20,6 +20,8 @@ declare module 'vue-router' {
     title?: string;
     layout?: string;
     adminRequired?: boolean;
+    createButtonText?: string;
+    createButtonAction?: string; // Name of the method to call on the component
   }
 }
 
@@ -135,7 +137,9 @@ const router = createRouter({
       component: ProjectsView,
       meta: {
         requiresAuth: true,
-        title: 'Projects'
+        title: 'Projects',
+        createButtonText: 'Create Project',
+        createButtonAction: 'openCreateModal'
       }
     },
     {
@@ -168,7 +172,9 @@ const router = createRouter({
       component: () => import('../views/UsersListView.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Users'
+        title: 'Users',
+        createButtonText: 'Create User',
+        createButtonAction: 'navigateToCreateUser'
       }
     },
     {
@@ -177,7 +183,9 @@ const router = createRouter({
       component: () => import('../views/DevicesListView.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Devices'
+        title: 'Devices',
+        createButtonText: 'Create Device',
+        createButtonAction: 'navigateToCreateDevice'
       }
     },
     {

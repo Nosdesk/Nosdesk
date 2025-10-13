@@ -47,12 +47,12 @@ const handleCompactViewToggle = () => {
       <!-- Theme Selection -->
       <div class="flex flex-col gap-4">
         <h3 class="text-sm font-medium text-white">Theme</h3>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <!-- Light Theme -->
           <button
             @click="darkMode = false"
             :class="[
-              'p-4 rounded-lg border-2 transition-all duration-200',
+              'p-4 rounded-lg border-2 transition-all duration-200 min-h-[100px] active:scale-[0.98]',
               !darkMode
                 ? 'border-blue-500 bg-blue-500/10'
                 : 'border-slate-600 hover:border-slate-500'
@@ -72,7 +72,7 @@ const handleCompactViewToggle = () => {
           <button
             @click="darkMode = true"
             :class="[
-              'p-4 rounded-lg border-2 transition-all duration-200',
+              'p-4 rounded-lg border-2 transition-all duration-200 min-h-[100px] active:scale-[0.98]',
               darkMode
                 ? 'border-blue-500 bg-blue-500/10'
                 : 'border-slate-600 hover:border-slate-500'

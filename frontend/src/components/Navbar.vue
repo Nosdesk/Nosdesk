@@ -520,12 +520,12 @@ const isRouteActive = (path: string, exact = false) => {
         class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 z-20 sm:hidden print:hidden"
         v-if="isMobile"
     >
-        <div class="flex justify-around items-center h-14">
+        <div class="flex justify-around items-center h-12">
             <RouterLink
                 v-for="link in navLinks"
                 :key="link.to"
                 :to="link.to"
-                class="flex flex-col items-center justify-center px-2 py-1 rounded-lg transition-colors duration-200 hover:bg-slate-700/50 flex-1 relative"
+                class="flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px]"
                 :class="
                     isRouteActive(link.to, link.exact) ? '' : 'text-slate-300'
                 "
@@ -534,9 +534,11 @@ const isRouteActive = (path: string, exact = false) => {
                         ? { color: link.color }
                         : {}
                 "
+                :aria-label="link.text"
+                :title="link.text"
             >
                 <svg
-                    class="w-4 h-4"
+                    class="w-6 h-6"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -548,9 +550,6 @@ const isRouteActive = (path: string, exact = false) => {
                         :d="link.icon"
                     />
                 </svg>
-                <span class="text-xs mt-0.5 truncate w-full text-center">{{
-                    link.text
-                }}</span>
             </RouterLink>
         </div>
     </nav>

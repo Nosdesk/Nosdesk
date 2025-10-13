@@ -1714,7 +1714,7 @@ onBeforeUnmount(() => {
 .ProseMirror h4:first-child,
 .ProseMirror h5:first-child,
 .ProseMirror h6:first-child {
-    margin-top: 16px;
+    margin-top: 0;
 }
 
 
