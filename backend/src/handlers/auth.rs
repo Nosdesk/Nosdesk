@@ -271,7 +271,7 @@ pub async fn login(
     let user_uuid = user.uuid;
 
     // Create standard login response (no MFA required)
-    match jwt_helpers::create_login_response(user) {
+    match jwt_helpers::create_login_response(user, &mut conn) {
         Ok(response) => {
             // Create session record after successful login
             if let Some(ref token) = response.token {
@@ -393,6 +393,7 @@ pub async fn mfa_login(
         user,
         mfa_result.backup_code_used.is_some(),
         mfa_result.requires_backup_code_regeneration,
+        &mut conn,
     ) {
         Ok(response) => {
             // Create session record after successful MFA login
@@ -1210,7 +1211,7 @@ pub async fn mfa_enable(
     }
 }
 
-/// MFA Disable - Disable MFA for the user
+/// MFA Disable - Disable MFA for the user (accepts full or mfa_recovery scope)
 pub async fn mfa_disable(
     db_pool: web::Data<crate::db::Pool>,
     auth: BearerAuth,
@@ -1232,6 +1233,14 @@ pub async fn mfa_disable(
         })),
     };
 
+    // Verify scope - must be either "full" or "mfa_recovery"
+    if claims.scope != "full" && claims.scope != "mfa_recovery" {
+        return HttpResponse::Forbidden().json(json!({
+            "status": "error",
+            "message": "This action requires a full session or MFA recovery session"
+        }));
+    }
+
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
@@ -1241,7 +1250,7 @@ pub async fn mfa_disable(
         })),
     };
 
-    // Get user to verify password
+    // Get user
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(_) => return HttpResponse::NotFound().json(json!({
@@ -1250,20 +1259,23 @@ pub async fn mfa_disable(
         })),
     };
 
-    // Verify password
-    let password_hash_str = match String::from_utf8(user.password_hash.clone()) {
-        Ok(hash) => hash,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Error reading password hash"
-        })),
-    };
+    // If using full scope, verify password
+    // If using mfa_recovery scope, skip password check (magic link already authenticated)
+    if claims.scope == "full" {
+        let password_hash_str = match String::from_utf8(user.password_hash.clone()) {
+            Ok(hash) => hash,
+            Err(_) => return HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Error reading password hash"
+            })),
+        };
 
-    if !verify(&request.password, &password_hash_str).unwrap_or(false) {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid password"
-        }));
+        if !verify(&request.password, &password_hash_str).unwrap_or(false) {
+            return HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": "Invalid password"
+            }));
+        }
     }
 
     // Disable MFA
@@ -1275,10 +1287,13 @@ pub async fn mfa_disable(
     };
 
     match repository::update_user_mfa(&user_uuid, mfa_update, &mut conn) {
-        Ok(_) => HttpResponse::Ok().json(json!({
-            "status": "success",
-            "message": "MFA disabled successfully"
-        })),
+        Ok(_) => {
+            tracing::info!("MFA disabled for user: {} (scope: {})", user_uuid, claims.scope);
+            HttpResponse::Ok().json(json!({
+                "status": "success",
+                "message": "MFA disabled successfully"
+            }))
+        },
         Err(e) => {
             eprintln!("Error disabling MFA: {:?}", e);
             HttpResponse::InternalServerError().json(json!({
@@ -1659,9 +1674,9 @@ pub async fn mfa_enable_login(
     match repository::update_user_mfa(&user.uuid, mfa_update, &mut conn) {
         Ok(_) => {
             tracing::info!("MFA enabled successfully for user during login: {}", user.uuid);
-            
+
             // Generate JWT token and complete login
-            match jwt_helpers::create_login_response(user) {
+            match jwt_helpers::create_login_response(user, &mut conn) {
                 Ok(mut response) => {
                     // Attach plaintext backup codes for one-time display
                     response.backup_codes = Some(backup_codes_plaintext);
@@ -1933,4 +1948,89 @@ pub async fn revoke_all_other_sessions(
             }))
         }
     }
+}
+
+// === TOKEN REFRESH HANDLER ===
+
+/// Refresh access token using refresh token
+pub async fn refresh_token(
+    db_pool: web::Data<crate::db::Pool>,
+    request_data: web::Json<crate::models::RefreshTokenRequest>,
+) -> impl Responder {
+    let mut conn = match db_pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Could not get database connection"
+        })),
+    };
+
+    // Hash the provided refresh token to lookup in database
+    let token_hash = JwtUtils::hash_refresh_token(&request_data.refresh_token);
+
+    // Get and validate the refresh token
+    let refresh_token = match crate::repository::refresh_tokens::get_valid_refresh_token(&mut conn, &token_hash) {
+        Ok(token) => token,
+        Err(_) => {
+            return HttpResponse::Unauthorized().json(json!({
+                "status": "error",
+                "message": "Invalid or expired refresh token"
+            }));
+        }
+    };
+
+    // Get the user
+    let user = match repository::get_user_by_uuid(&refresh_token.user_uuid, &mut conn) {
+        Ok(user) => user,
+        Err(_) => {
+            return HttpResponse::Unauthorized().json(json!({
+                "status": "error",
+                "message": "User not found"
+            }));
+        }
+    };
+
+    // Revoke the old refresh token (token rotation for security)
+    if let Err(e) = crate::repository::refresh_tokens::revoke_refresh_token(&mut conn, &token_hash) {
+        tracing::error!("Failed to revoke old refresh token: {}", e);
+    }
+
+    // Generate new access token
+    let new_access_token = match JwtUtils::create_token(&user) {
+        Ok(token) => token,
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to create access token"
+            }));
+        }
+    };
+
+    // Generate new refresh token
+    let new_refresh_token = JwtUtils::generate_refresh_token();
+    let new_refresh_token_hash = JwtUtils::hash_refresh_token(&new_refresh_token);
+
+    // Store new refresh token (7 days expiration)
+    let new_refresh_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
+    let new_refresh_record = crate::models::NewRefreshToken {
+        token_hash: new_refresh_token_hash,
+        user_uuid: user.uuid,
+        expires_at: new_refresh_expires,
+    };
+
+    if let Err(e) = crate::repository::refresh_tokens::create_refresh_token(&mut conn, new_refresh_record) {
+        tracing::error!("Failed to store new refresh token: {}", e);
+        return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Failed to create refresh token"
+        }));
+    }
+
+    // Return both new tokens
+    let response = crate::models::RefreshTokenResponse {
+        token: new_access_token,
+        refresh_token: new_refresh_token,
+    };
+
+    HttpResponse::Ok().json(response)
 }

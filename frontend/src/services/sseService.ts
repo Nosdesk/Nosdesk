@@ -108,6 +108,16 @@ class SSEService {
     const handleEvent = (event: MessageEvent) => {
       const eventType = event.type as SSEEventType;
 
+      console.log(
+        `%c[SSE] Raw event from EventSource: ${eventType}`,
+        "color: #3b82f6; font-weight: bold",
+        {
+          type: eventType,
+          rawData: event.data,
+          timestamp: new Date().toISOString(),
+        }
+      );
+
       // Skip heartbeat events
       if (eventType === "heartbeat") return;
 
@@ -119,6 +129,11 @@ class SSEService {
 
       try {
         const data = JSON.parse(event.data);
+        console.log(
+          `%c[SSE] Parsed event data:`,
+          "color: #8b5cf6; font-weight: bold",
+          { eventType, parsedData: data }
+        );
         this.emit(eventType, data);
       } catch (error) {
         console.error(`SSE: Failed to parse ${eventType}:`, error);
@@ -155,7 +170,11 @@ class SSEService {
       this.isConnecting.value = false;
       this.lastError.value = null;
       this.reconnectAttempts = 0;
-      console.log("SSE: Connection opened");
+      console.log(
+        "%c[SSE Connection] ✅ Connected successfully",
+        "color: #22c55e; font-weight: bold; font-size: 14px",
+        { timestamp: new Date().toISOString() }
+      );
     };
 
     this.eventSource.onerror = () => {
@@ -297,6 +316,17 @@ class SSEService {
   private emit(eventType: SSEEventType, data: any): void {
     const listeners = this.eventListeners.get(eventType);
 
+    console.log(
+      `%c[SSE] Event received: ${eventType}`,
+      "color: #10b981; font-weight: bold",
+      {
+        eventType,
+        data,
+        timestamp: new Date().toISOString(),
+        listenerCount: listeners?.size || 0,
+      }
+    );
+
     if (listeners && listeners.size > 0) {
       listeners.forEach((listener) => {
         try {
@@ -305,6 +335,11 @@ class SSEService {
           console.error(`SSE: Error in ${eventType} listener:`, error);
         }
       });
+    } else {
+      console.warn(
+        `%c[SSE] No listeners for event: ${eventType}`,
+        "color: #f59e0b; font-weight: bold"
+      );
     }
   }
 

@@ -21,13 +21,26 @@ const authStore = useAuthStore();
 // Props for different modes
 const props = defineProps<{
   isLoginSetup?: boolean;
+  limitedSessionToken?: string;
 }>();
 
 // Emits for notifications
 const emit = defineEmits<{
   (e: 'success', message: string): void;
   (e: 'error', message: string): void;
+  (e: 'mfa-disabled'): void;
+  (e: 'mfa-enabled'): void;
 }>();
+
+// Computed property for authentication token - use limited session token if provided
+const authToken = computed(() => {
+  return props.limitedSessionToken || authStore.token;
+});
+
+// Check if using limited session (for conditional password requirements)
+const isLimitedSession = computed(() => {
+  return !!props.limitedSessionToken;
+});
 
 // Computed properties - simplified and optimized
 const showSetupSteps = computed(() => !mfaEnabled.value && mfaStep.value === 'setup');
@@ -65,7 +78,7 @@ const checkMFAStatus = async () => {
   try {
     const response = await fetch('/api/auth/mfa/status', {
       headers: {
-        'Authorization': `Bearer ${authStore.token}`,
+        'Authorization': `Bearer ${authToken.value}`,
         'Content-Type': 'application/json'
       }
     });
@@ -192,7 +205,7 @@ const startMFASetup = async () => {
       const response = await fetch('/api/auth/mfa/setup', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${authStore.token}`,
+          'Authorization': `Bearer ${authToken.value}`,
           'Content-Type': 'application/json'
         }
       });
@@ -200,7 +213,7 @@ const startMFASetup = async () => {
       if (response.ok) {
         const data = await response.json();
         await new Promise(resolve => setTimeout(resolve, 600));
-        
+
         qrCodeUrl.value = data.qr_code;
         mfaSecret.value = data.secret;
         backupCodes.value = [];
@@ -275,7 +288,7 @@ const performVerification = async () => {
     return await fetch('/api/auth/mfa/verify-setup', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${authStore.token}`,
+        'Authorization': `Bearer ${authToken.value}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -312,7 +325,7 @@ const enableMFA = async () => {
     enableResponse = await fetch('/api/auth/mfa/enable', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${authStore.token}`,
+        'Authorization': `Bearer ${authToken.value}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -350,15 +363,16 @@ const handleLoginSetupSuccess = (enableData: any) => {
     authStore.user = enableData.user;
     authStore.mfaSetupRequired = false;
     authStore.mfaUserUuid = '';
-    
+
     axios.defaults.headers.common['Authorization'] = `Bearer ${enableData.token}`;
     axios.defaults.headers.common['X-Auth-Provider'] = 'local';
-    
+
     localStorage.setItem('token', enableData.token);
     localStorage.setItem('authProvider', 'local');
-    
+
     mfaStep.value = 'success';
     mfaEnabled.value = true;
+    emit('mfa-enabled'); // Notify parent component
   } else {
     emit('error', 'MFA enabled but login response was incomplete');
   }
@@ -369,18 +383,24 @@ const handleNormalSetupSuccess = () => {
   mfaStep.value = 'enabled';
   verificationCode.value = '';
   emit('success', 'MFA enabled successfully! Your account is now more secure.');
+  emit('mfa-enabled'); // Notify parent component
 };
 
 const disableMFA = async () => {
-  const password = prompt('Please enter your password to disable MFA:');
-  if (!password) return;
+  // Skip password prompt for limited sessions (already authenticated via magic link)
+  let password = '';
+  if (!isLimitedSession.value) {
+    const userPassword = prompt('Please enter your password to disable MFA:');
+    if (!userPassword) return;
+    password = userPassword;
+  }
 
   loading.value = true;
   try {
     const response = await fetch('/api/auth/mfa/disable', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${authStore.token}`,
+        'Authorization': `Bearer ${authToken.value}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ password })
@@ -389,6 +409,7 @@ const disableMFA = async () => {
     if (response.ok) {
       resetMFASetup();
       emit('success', 'MFA disabled successfully');
+      emit('mfa-disabled'); // Notify parent component
     } else {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || 'Failed to disable MFA');
@@ -482,6 +503,25 @@ Security Notice:
   } catch (err) {
     console.error('Failed to download backup codes:', err);
     emit('error', 'Failed to download backup codes');
+  }
+};
+
+// Handle paste events for verification codes - auto-submit on 6-digit code
+const handleVerificationPaste = (event: ClipboardEvent) => {
+  event.preventDefault();
+  const pastedText = event.clipboardData?.getData('text') || '';
+  const cleanValue = pastedText.replace(/[^0-9]/g, '');
+
+  if (cleanValue.length >= 6) {
+    // Take first 6 characters for standard TOTP codes
+    verificationCode.value = cleanValue.slice(0, 6);
+    // Auto-submit if we got exactly a 6-digit code
+    if (cleanValue.length === 6) {
+      // Small delay to let the UI update
+      setTimeout(() => {
+        verifyMFA();
+      }, 100);
+    }
   }
 };
 
@@ -698,6 +738,7 @@ defineExpose({
                     maxlength="6"
                     class="w-full px-4 py-3 bg-transparent text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-center tracking-widest text-lg sm:text-base"
                     placeholder="000000"
+                    @paste="handleVerificationPaste"
                   />
                 </div>
                 <button

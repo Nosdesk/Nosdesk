@@ -526,6 +526,13 @@ async fn main() -> std::io::Result<()> {
                         .route("/mfa-setup-login", web::post().to(handlers::mfa_setup_login))
                         .route("/mfa-enable-login", web::post().to(handlers::mfa_enable_login))
                         .route("/register", web::post().to(handlers::register))
+                        .route("/refresh", web::post().to(handlers::refresh_token))
+                    // Password reset routes (public, rate-limited)
+                    .route("/password-reset/request", web::post().to(handlers::password_reset::request_password_reset))
+                    .route("/password-reset/complete", web::post().to(handlers::password_reset::reset_password_with_token))
+                    // MFA reset routes (public, rate-limited)
+                    .route("/mfa-reset/request", web::post().to(handlers::mfa_reset::request_mfa_reset))
+                    .route("/mfa-reset/complete", web::post().to(handlers::mfa_reset::complete_mfa_reset))
                     .route("/providers", web::get().to(handlers::get_enabled_auth_providers))
                     .route("/oauth/authorize", web::post().to(handlers::oauth_authorize))
                     .route("/oauth/callback", web::get().to(handlers::oauth_callback))
@@ -562,7 +569,11 @@ async fn main() -> std::io::Result<()> {
                     
                     // Authentication Provider management (admin only) - simplified for environment-based config
                     .route("/admin/auth/providers", web::get().to(handlers::get_auth_providers))
-                    
+
+                    // Email configuration (admin only) - environment-based config
+                    .route("/admin/email/config", web::get().to(handlers::email::get_email_config))
+                    .route("/admin/email/test", web::post().to(handlers::email::send_test_email))
+
                     // Microsoft Graph API endpoints
                     .route("/auth/microsoft/graph", web::post().to(handlers::process_graph_request))
                     .service(

@@ -4,6 +4,8 @@ import { ref, onMounted, nextTick } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";
+import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
+import MFARecoveryModal from "@/components/auth/MFARecoveryModal.vue";
 import logo from "@/assets/logo.svg";
 import axios from "axios";
 
@@ -17,6 +19,8 @@ const rememberMe = ref(false);
 const isLoading = ref(false);
 const errorMessage = ref("");
 const successMessage = ref("");
+const showForgotPasswordModal = ref(false);
+const showMFARecoveryModal = ref(false);
 
 // MFA state
 const mfaToken = ref("");
@@ -356,6 +360,17 @@ const handleMicrosoftLogoutClick = async () => {
               <span v-else>Verify & Sign In</span>
             </button>
           </div>
+
+          <!-- MFA Recovery Link -->
+          <div class="text-center">
+            <button
+              type="button"
+              @click="showMFARecoveryModal = true"
+              class="text-sm text-blue-500 hover:text-blue-400 transition-colors"
+            >
+              Lost access to your authenticator?
+            </button>
+          </div>
         </form>
       </div>
 
@@ -412,9 +427,13 @@ const handleMicrosoftLogoutClick = async () => {
             >
           </div>
 
-          <a href="#" class="text-sm text-blue-500 hover:text-blue-400"
-            >Forgot password?</a
+          <button
+            type="button"
+            @click="showForgotPasswordModal = true"
+            class="text-sm text-blue-500 hover:text-blue-400 transition-colors"
           >
+            Forgot password?
+          </button>
         </div>
 
         <button
@@ -474,6 +493,18 @@ const handleMicrosoftLogoutClick = async () => {
           </button>
         </div>
       </form>
+
+      <!-- Forgot Password Modal -->
+      <ForgotPasswordModal
+        :is-open="showForgotPasswordModal"
+        @close="showForgotPasswordModal = false"
+      />
+
+      <!-- MFA Recovery Modal -->
+      <MFARecoveryModal
+        :is-open="showMFARecoveryModal"
+        @close="showMFARecoveryModal = false"
+      />
     </div>
   </div>
 </template>

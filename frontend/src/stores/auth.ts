@@ -28,6 +28,7 @@ interface LoginCredentials {
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('token'));
+  const refreshToken = ref<string | null>(localStorage.getItem('refreshToken'));
   const user = ref<User | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
@@ -167,7 +168,7 @@ export const useAuthStore = defineStore('auth', () => {
       
       // Handle successful login
       if (response.data.success && response.data.token) {
-        setAuthData(response.data.token, response.data.user);
+        setAuthData(response.data.token, response.data.user, response.data.refresh_token);
         router.push('/');
         return true;
       }
@@ -198,7 +199,7 @@ export const useAuthStore = defineStore('auth', () => {
       });
       
               if (response.data.success && response.data.token) {
-          setAuthData(response.data.token, response.data.user);
+          setAuthData(response.data.token, response.data.user, response.data.refresh_token);
           
           // Show backup code warning if needed
           if (response.data.mfa_backup_code_used && response.data.requires_backup_code_regeneration) {
@@ -224,14 +225,21 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     // Helper function to set authentication data
-    function setAuthData(tokenValue: string, userData: User) {
+    function setAuthData(tokenValue: string, userData: User, refreshTokenValue?: string) {
       token.value = tokenValue;
       user.value = userData;
-      
+
       localStorage.setItem('token', tokenValue);
+
+      // Store refresh token if provided
+      if (refreshTokenValue) {
+        refreshToken.value = refreshTokenValue;
+        localStorage.setItem('refreshToken', refreshTokenValue);
+      }
+
       authProvider.value = 'local';
       localStorage.setItem('authProvider', 'local');
-      
+
       axios.defaults.headers.common['Authorization'] = `Bearer ${tokenValue}`;
       axios.defaults.headers.common['X-Auth-Provider'] = 'local';
     }
@@ -272,7 +280,7 @@ export const useAuthStore = defineStore('auth', () => {
         });
         
         if (response.data.success && response.data.token) {
-          setAuthData(response.data.token, response.data.user);
+          setAuthData(response.data.token, response.data.user, response.data.refresh_token);
           mfaSetupRequired.value = false;
           mfaUserUuid.value = '';
           router.push('/');
@@ -327,17 +335,19 @@ export const useAuthStore = defineStore('auth', () => {
   function logout() {
     // Clear token and user
     token.value = null;
+    refreshToken.value = null;
     user.value = null;
     authProvider.value = null;
-    
+
     // Remove from localStorage
     localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('authProvider');
-    
+
     // Remove Authorization header
     delete axios.defaults.headers.common['Authorization'];
     delete axios.defaults.headers.common['X-Auth-Provider'];
-    
+
     // Redirect to login page
     router.push('/login');
   }

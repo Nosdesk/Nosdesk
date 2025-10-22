@@ -26,10 +26,10 @@ const adminMenuItems = [
     route: '/admin/settings/branding'
   },
   {
-    title: 'Email Settings',
-    description: 'Configure email notifications and templates',
+    title: 'Email Configuration',
+    description: 'Configure SMTP settings and send test emails',
     icon: 'mail',
-    route: '/admin/settings/email'
+    route: '/admin/email-settings'
   },
   {
     title: 'Data Import',

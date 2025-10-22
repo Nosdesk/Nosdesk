@@ -264,6 +264,16 @@ CREATE TABLE active_sessions (
     is_current BOOLEAN NOT NULL DEFAULT FALSE -- Mark the current session
 );
 
+-- Refresh tokens for JWT token rotation
+CREATE TABLE refresh_tokens (
+    id SERIAL PRIMARY KEY,
+    token_hash VARCHAR(64) NOT NULL UNIQUE, -- SHA-256 hash of refresh token
+    user_uuid UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    revoked_at TIMESTAMP WITH TIME ZONE -- NULL if still valid
+);
+
 -- Security events for MFA and authentication monitoring
 CREATE TABLE security_events (
     id SERIAL PRIMARY KEY,
@@ -280,22 +290,20 @@ CREATE TABLE security_events (
     session_id INTEGER REFERENCES active_sessions(id) ON DELETE SET NULL
 );
 
--- MFA reset tokens for secure MFA recovery procedures
-CREATE TABLE mfa_reset_tokens (
-    token VARCHAR(64) NOT NULL PRIMARY KEY, -- Secure random token
+-- Generic reset tokens for password resets, MFA resets, and other temporary tokens
+CREATE TABLE reset_tokens (
+    token_hash VARCHAR(64) NOT NULL PRIMARY KEY, -- SHA-256 hash of the token
     user_uuid UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
+    token_type VARCHAR(50) NOT NULL, -- 'password_reset', 'mfa_reset', etc.
     ip_address TEXT, -- Store IP addresses as text for compatibility
     user_agent TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL, -- Typically 15 minutes
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL, -- Configurable per token type
     used_at TIMESTAMP WITH TIME ZONE,
     is_used BOOLEAN NOT NULL DEFAULT FALSE,
 
-    -- Additional verification fields
-    email_verified BOOLEAN NOT NULL DEFAULT FALSE,
-    admin_approved BOOLEAN NOT NULL DEFAULT FALSE, -- For high-privilege users
-    admin_approved_by UUID REFERENCES users(uuid),
-    admin_approved_at TIMESTAMP WITH TIME ZONE
+    -- Flexible metadata for token-type-specific data (MFA admin approval, etc.)
+    metadata JSONB
 );
 
 -- User ticket views for tracking recently viewed tickets
@@ -340,6 +348,11 @@ CREATE INDEX idx_active_sessions_expires_at ON active_sessions(expires_at);
 CREATE INDEX idx_active_sessions_last_active ON active_sessions(last_active);
 CREATE INDEX idx_active_sessions_ip_address ON active_sessions(ip_address);
 
+-- Refresh tokens indexes
+CREATE INDEX idx_refresh_tokens_user_uuid ON refresh_tokens(user_uuid);
+CREATE INDEX idx_refresh_tokens_token_hash ON refresh_tokens(token_hash);
+CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+
 -- Security events indexes
 CREATE INDEX idx_security_events_user_uuid ON security_events(user_uuid);
 CREATE INDEX idx_security_events_event_type ON security_events(event_type);
@@ -348,11 +361,13 @@ CREATE INDEX idx_security_events_severity ON security_events(severity);
 CREATE INDEX idx_security_events_ip_address ON security_events(ip_address);
 CREATE INDEX idx_security_events_session_id ON security_events(session_id);
 
--- MFA reset tokens indexes
-CREATE INDEX idx_mfa_reset_tokens_user_uuid ON mfa_reset_tokens(user_uuid);
-CREATE INDEX idx_mfa_reset_tokens_expires_at ON mfa_reset_tokens(expires_at);
-CREATE INDEX idx_mfa_reset_tokens_created_at ON mfa_reset_tokens(created_at);
-CREATE INDEX idx_mfa_reset_tokens_is_used ON mfa_reset_tokens(is_used);
+-- Reset tokens indexes
+CREATE INDEX idx_reset_tokens_user_uuid ON reset_tokens(user_uuid);
+CREATE INDEX idx_reset_tokens_token_type ON reset_tokens(token_type);
+CREATE INDEX idx_reset_tokens_expires_at ON reset_tokens(expires_at);
+CREATE INDEX idx_reset_tokens_created_at ON reset_tokens(created_at);
+CREATE INDEX idx_reset_tokens_is_used ON reset_tokens(is_used);
+CREATE INDEX idx_reset_tokens_user_type ON reset_tokens(user_uuid, token_type);
 
 -- User ticket views indexes
 CREATE INDEX idx_user_ticket_views_user_uuid ON user_ticket_views(user_uuid);

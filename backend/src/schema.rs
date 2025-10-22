@@ -173,24 +173,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    mfa_reset_tokens (token) {
-        #[max_length = 64]
-        token -> Varchar,
-        user_uuid -> Uuid,
-        ip_address -> Nullable<Text>,
-        user_agent -> Nullable<Text>,
-        created_at -> Timestamptz,
-        expires_at -> Timestamptz,
-        used_at -> Nullable<Timestamptz>,
-        is_used -> Bool,
-        email_verified -> Bool,
-        admin_approved -> Bool,
-        admin_approved_by -> Nullable<Uuid>,
-        admin_approved_at -> Nullable<Timestamptz>,
-    }
-}
-
-diesel::table! {
     project_tickets (project_id, ticket_id) {
         project_id -> Int4,
         ticket_id -> Int4,
@@ -211,6 +193,35 @@ diesel::table! {
         end_date -> Nullable<Date>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    refresh_tokens (id) {
+        id -> Int4,
+        #[max_length = 64]
+        token_hash -> Varchar,
+        user_uuid -> Uuid,
+        created_at -> Timestamptz,
+        expires_at -> Timestamptz,
+        revoked_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    reset_tokens (token_hash) {
+        #[max_length = 64]
+        token_hash -> Varchar,
+        user_uuid -> Uuid,
+        #[max_length = 50]
+        token_type -> Varchar,
+        ip_address -> Nullable<Text>,
+        user_agent -> Nullable<Text>,
+        created_at -> Timestamptz,
+        expires_at -> Timestamptz,
+        used_at -> Nullable<Timestamptz>,
+        is_used -> Bool,
+        metadata -> Nullable<Jsonb>,
     }
 }
 
@@ -379,9 +390,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     documentation_pages,
     documentation_revisions,
     linked_tickets,
-    mfa_reset_tokens,
     project_tickets,
     projects,
+    refresh_tokens,
+    reset_tokens,
     security_events,
     sync_history,
     ticket_devices,

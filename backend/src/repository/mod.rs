@@ -13,8 +13,9 @@ pub mod users;
 
 // Security and session management repositories
 pub mod active_sessions;
+pub mod refresh_tokens;
 pub mod security_events;
-pub mod mfa_reset_tokens;
+pub mod reset_tokens;
 pub mod user_ticket_views;
 
 // Re-export all functions

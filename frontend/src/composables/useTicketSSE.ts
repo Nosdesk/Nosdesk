@@ -40,29 +40,46 @@ export function useTicketSSE(
 
   // Handle ticket updated
   function handleTicketUpdated(eventData: any): void {
+    console.log(
+      "%c[SSE Handler] ticket-updated received",
+      "color: #f97316; font-weight: bold",
+      { rawData: eventData, timestamp: new Date().toISOString() }
+    );
+
     const data = eventData.data || eventData;
     if (!ticket.value || data.ticket_id !== ticket.value.id) {
+      console.log("[SSE Handler] ticket-updated: Not for this ticket, ignoring", {
+        currentTicketId: ticket.value?.id,
+        eventTicketId: data.ticket_id,
+      });
       return;
     }
+
+    console.log("[SSE Handler] ticket-updated: Processing field update", {
+      field: data.field,
+      value: data.value,
+      updatedBy: data.updated_by,
+    });
 
     // Use direct mutation to preserve object reference - prevents component remounts
     if (data.field === "title") {
       ticket.value.title = data.value;
-      // Pass the full reactive ticket object, not just id and title
       titleManager.setTicket(ticket.value);
+      console.log("%c[SSE Handler] ✅ ticket-updated: Title updated", "color: #22c55e; font-weight: bold");
     } else if (data.field === "status") {
       ticket.value.status = data.value;
-      selectedStatus.value = data.value; // Update dropdown ref
+      selectedStatus.value = data.value;
+      console.log("%c[SSE Handler] ✅ ticket-updated: Status updated", "color: #22c55e; font-weight: bold");
     } else if (data.field === "priority") {
       ticket.value.priority = data.value;
-      selectedPriority.value = data.value; // Update dropdown ref
+      selectedPriority.value = data.value;
+      console.log("%c[SSE Handler] ✅ ticket-updated: Priority updated", "color: #22c55e; font-weight: bold");
     } else if (data.field === "modified") {
-      // Update modified timestamp
       ticket.value.modified = data.value;
+      console.log("%c[SSE Handler] ✅ ticket-updated: Modified timestamp updated", "color: #22c55e; font-weight: bold");
     } else if (data.field === "requester") {
       if (typeof data.value === "string") {
         ticket.value.requester = data.value || null;
-        // Clear user object if empty
         if (!data.value) {
           ticket.value.requester_user = null;
         }
@@ -70,10 +87,10 @@ export function useTicketSSE(
         ticket.value.requester = data.value.uuid;
         ticket.value.requester_user = data.value.user_info || ticket.value.requester_user;
       }
+      console.log("%c[SSE Handler] ✅ ticket-updated: Requester updated", "color: #22c55e; font-weight: bold");
     } else if (data.field === "assignee") {
       if (typeof data.value === "string") {
         ticket.value.assignee = data.value || null;
-        // Clear user object if empty
         if (!data.value) {
           ticket.value.assignee_user = null;
         }
@@ -81,6 +98,7 @@ export function useTicketSSE(
         ticket.value.assignee = data.value.uuid;
         ticket.value.assignee_user = data.value.user_info || ticket.value.assignee_user;
       }
+      console.log("%c[SSE Handler] ✅ ticket-updated: Assignee updated", "color: #22c55e; font-weight: bold");
     }
 
     recentTicketsStore.updateTicketData(ticket.value.id, {
@@ -230,51 +248,170 @@ export function useTicketSSE(
 
   // Handle ticket unlinked
   function handleTicketUnlinked(data: any): void {
+    console.log(
+      "%c[SSE Handler] ticket-unlinked received",
+      "color: #f97316; font-weight: bold",
+      { rawData: data, timestamp: new Date().toISOString() }
+    );
+
     const eventData = data.data || data;
-    if (!ticket.value) return;
+    if (!ticket.value) {
+      console.log("[SSE Handler] ticket-unlinked: No ticket.value, ignoring");
+      return;
+    }
 
     const isSourceTicket = eventData.ticket_id === ticket.value.id;
     const isTargetTicket = eventData.linked_ticket_id === ticket.value.id;
 
-    if (!isSourceTicket && !isTargetTicket) return;
+    console.log("[SSE Handler] ticket-unlinked: Checking ticket match", {
+      currentTicketId: ticket.value.id,
+      eventTicketId: eventData.ticket_id,
+      eventLinkedTicketId: eventData.linked_ticket_id,
+      isSourceTicket,
+      isTargetTicket,
+      currentLinkedTickets: ticket.value.linkedTickets,
+    });
+
+    if (!isSourceTicket && !isTargetTicket) {
+      console.log(
+        "[SSE Handler] ticket-unlinked: Not for this ticket, ignoring"
+      );
+      return;
+    }
 
     const linkedTicketIdToRemove = isSourceTicket
       ? eventData.linked_ticket_id
       : eventData.ticket_id;
 
+    console.log("[SSE Handler] ticket-unlinked: Removing linked ticket", {
+      linkedTicketIdToRemove,
+      beforeLength: ticket.value.linkedTickets?.length || 0,
+    });
+
     if (ticket.value.linkedTickets) {
       const index = ticket.value.linkedTickets.indexOf(linkedTicketIdToRemove);
       if (index !== -1) {
         ticket.value.linkedTickets.splice(index, 1);
+        console.log(
+          "%c[SSE Handler] ✅ ticket-unlinked: Successfully removed",
+          "color: #22c55e; font-weight: bold",
+          {
+            removedTicketId: linkedTicketIdToRemove,
+            afterLength: ticket.value.linkedTickets.length,
+            remainingLinkedTickets: ticket.value.linkedTickets,
+          }
+        );
+      } else {
+        console.warn(
+          "[SSE Handler] ticket-unlinked: Ticket not found in linkedTickets array",
+          { searchedFor: linkedTicketIdToRemove }
+        );
       }
+    } else {
+      console.warn("[SSE Handler] ticket-unlinked: No linkedTickets array");
     }
   }
 
   // Handle project assigned
   async function handleProjectAssigned(data: any): Promise<void> {
-    const eventData = data.data || data;
-    if (!ticket.value || eventData.ticket_id !== ticket.value.id) return;
+    console.log(
+      "%c[SSE Handler] project-assigned received",
+      "color: #f97316; font-weight: bold",
+      { rawData: data, timestamp: new Date().toISOString() }
+    );
 
-    try {
-      const project = await projectService.getProject(eventData.project_id);
-      if (project) {
-        ticket.value.project = String(project.id);
+    const eventData = data.data || data;
+    if (!ticket.value || eventData.ticket_id !== ticket.value.id) {
+      console.log(
+        "[SSE Handler] project-assigned: Not for this ticket, ignoring",
+        {
+          currentTicketId: ticket.value?.id,
+          eventTicketId: eventData.ticket_id,
+        }
+      );
+      return;
+    }
+
+    const projectId = eventData.project_id;
+
+    console.log("[SSE Handler] project-assigned: Adding to projects array", {
+      projectId,
+      currentProjects: ticket.value.projects,
+    });
+
+    // Check if already in the array
+    const alreadyAssigned = ticket.value.projects?.includes(projectId);
+    if (!alreadyAssigned) {
+      if (ticket.value.projects) {
+        ticket.value.projects.push(projectId);
+      } else {
+        ticket.value.projects = [projectId];
       }
-    } catch (error) {
-      console.error("Error fetching assigned project:", error);
+      console.log(
+        "%c[SSE Handler] ✅ project-assigned: Successfully assigned",
+        "color: #22c55e; font-weight: bold",
+        {
+          projectId,
+          updatedProjects: ticket.value.projects
+        }
+      );
+    } else {
+      console.log(
+        "[SSE Handler] project-assigned: Already assigned, skipping",
+        { projectId }
+      );
     }
   }
 
   // Handle project unassigned
   function handleProjectUnassigned(data: any): void {
-    const eventData = data.data || data;
-    if (!ticket.value || eventData.ticket_id !== ticket.value.id) return;
+    console.log(
+      "%c[SSE Handler] project-unassigned received",
+      "color: #f97316; font-weight: bold",
+      { rawData: data, timestamp: new Date().toISOString() }
+    );
 
-    if (
-      ticket.value.project &&
-      Number(ticket.value.project) === eventData.project_id
-    ) {
-      ticket.value.project = undefined;
+    const eventData = data.data || data;
+    if (!ticket.value || eventData.ticket_id !== ticket.value.id) {
+      console.log(
+        "[SSE Handler] project-unassigned: Not for this ticket, ignoring",
+        {
+          currentTicketId: ticket.value?.id,
+          eventTicketId: eventData.ticket_id,
+        }
+      );
+      return;
+    }
+
+    const projectId = eventData.project_id;
+
+    console.log("[SSE Handler] project-unassigned: Removing from projects array", {
+      projectId,
+      currentProjects: ticket.value.projects,
+      beforeLength: ticket.value.projects?.length || 0,
+    });
+
+    if (ticket.value.projects) {
+      const index = ticket.value.projects.indexOf(projectId);
+      if (index !== -1) {
+        ticket.value.projects.splice(index, 1);
+        console.log(
+          "%c[SSE Handler] ✅ project-unassigned: Successfully unassigned",
+          "color: #22c55e; font-weight: bold",
+          {
+            unassignedProjectId: projectId,
+            afterLength: ticket.value.projects.length,
+            remainingProjects: ticket.value.projects,
+          }
+        );
+      } else {
+        console.warn(
+          "[SSE Handler] project-unassigned: Project not found in array",
+          { searchedFor: projectId, currentProjects: ticket.value.projects }
+        );
+      }
+    } else {
+      console.warn("[SSE Handler] project-unassigned: No projects array");
     }
   }
 
@@ -294,8 +431,14 @@ export function useTicketSSE(
 
   // Setup event listeners
   function setupEventListeners(): void {
+    console.log(
+      "%c[SSE Setup] Registering event listeners",
+      "color: #06b6d4; font-weight: bold",
+      { eventTypes: Object.keys(eventHandlers) }
+    );
     Object.entries(eventHandlers).forEach(([event, handler]) => {
       addEventListener(event as any, handler);
+      console.log(`[SSE Setup] ✓ Registered listener for: ${event}`);
     });
   }
 
@@ -308,10 +451,22 @@ export function useTicketSSE(
 
   // Auto-setup on mount - connect immediately for real-time updates
   onMounted(async () => {
+    console.log(
+      "%c[SSE Setup] Mounting ticket SSE handlers",
+      "color: #06b6d4; font-weight: bold; font-size: 14px",
+      { ticketId: ticketId.value, hasAuthToken: !!authStore.token }
+    );
     setupEventListeners();
     // Connect immediately - no delay needed
     if (authStore.token && ticketId.value) {
+      console.log("[SSE Setup] Connecting to SSE...", { ticketId: ticketId.value });
       await connect(ticketId.value);
+      console.log("[SSE Setup] SSE connection initiated");
+    } else {
+      console.warn("[SSE Setup] Cannot connect - missing auth token or ticket ID", {
+        hasToken: !!authStore.token,
+        ticketId: ticketId.value,
+      });
     }
   });
 

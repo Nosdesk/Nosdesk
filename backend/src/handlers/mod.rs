@@ -8,9 +8,12 @@ pub mod projects;
 pub mod devices;
 pub mod documentation;
 pub mod auth_providers;
+pub mod email;
 pub mod microsoft_graph;
 pub mod msgraph_integration;
 pub mod sse;
+pub mod password_reset;
+pub mod mfa_reset;
 
 // Import all handlers from modules
 pub use auth::*;

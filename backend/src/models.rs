@@ -900,8 +900,15 @@ pub struct Claims {
     pub name: String, // User's name
     pub email: String, // User's email
     pub role: String, // User's role
+    #[serde(default = "default_scope")] // Default to "full" for backward compatibility with existing tokens
+    pub scope: String, // Token scope: "full" for normal sessions, "mfa_recovery" for limited MFA management
     pub exp: usize,   // Expiration time
     pub iat: usize,   // Issued at
+}
+
+// Default scope for backward compatibility
+fn default_scope() -> String {
+    "full".to_string()
 }
 
 // Login request structure
@@ -912,13 +919,14 @@ pub struct LoginRequest {
 }
 
 // Login response structure - supports both standard login and MFA flow
+// Note: tokens are now in httpOnly cookies, only CSRF token is in response body
 #[derive(Debug, Serialize)]
 pub struct LoginResponse {
     pub success: bool,
     pub mfa_required: Option<bool>,
     pub mfa_setup_required: Option<bool>,
     pub user_uuid: Option<String>,
-    pub token: Option<String>,
+    pub csrf_token: Option<String>, // CSRF token for the frontend
     pub user: Option<UserResponse>,
     pub message: Option<String>,
     pub mfa_backup_code_used: Option<bool>,
@@ -948,6 +956,20 @@ pub struct MfaEnableLoginRequest {
     pub password: String,
     pub token: String,
     pub secret: Option<String>,
+}
+
+/// Request for refreshing access token
+#[derive(Debug, Deserialize)]
+pub struct RefreshTokenRequest {
+    pub refresh_token: String,
+}
+
+/// Response for token refresh
+/// Note: tokens are now in httpOnly cookies, only CSRF token is in response
+#[derive(Debug, Serialize)]
+pub struct RefreshTokenResponse {
+    pub success: bool,
+    pub csrf_token: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -1461,6 +1483,27 @@ pub struct ActiveSessionUpdate {
     pub is_current: Option<bool>,
 }
 
+/// Refresh token for JWT token rotation
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::refresh_tokens)]
+pub struct RefreshToken {
+    pub id: i32,
+    pub token_hash: String,
+    pub user_uuid: Uuid,
+    pub created_at: chrono::NaiveDateTime,
+    pub expires_at: chrono::NaiveDateTime,
+    pub revoked_at: Option<chrono::NaiveDateTime>,
+}
+
+/// New refresh token for creation
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::refresh_tokens)]
+pub struct NewRefreshToken {
+    pub token_hash: String,
+    pub user_uuid: Uuid,
+    pub expires_at: chrono::NaiveDateTime,
+}
+
 /// Response model for active sessions in user profile
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ActiveSessionResponse {
@@ -1665,50 +1708,45 @@ impl From<SecurityEvent> for SecurityEventResponse {
     }
 }
 
-// ===== MFA RESET TOKENS MODELS =====
+// ===== RESET TOKENS MODELS =====
 
-/// MFA reset tokens for secure MFA recovery procedures
+/// Generic reset tokens for password resets, MFA resets, and other temporary tokens
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]
-#[diesel(table_name = crate::schema::mfa_reset_tokens)]
-#[diesel(primary_key(token))]
-pub struct MfaResetToken {
-    pub token: String,
+#[diesel(table_name = crate::schema::reset_tokens)]
+#[diesel(primary_key(token_hash))]
+pub struct ResetToken {
+    pub token_hash: String,
     pub user_uuid: Uuid,
-    pub ip_address: Option<String>, // Store as string for API responses
+    pub token_type: String,
+    pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub created_at: chrono::NaiveDateTime,
     pub expires_at: chrono::NaiveDateTime,
     pub used_at: Option<chrono::NaiveDateTime>,
     pub is_used: bool,
-    pub email_verified: bool,
-    pub admin_approved: bool,
-    pub admin_approved_by: Option<Uuid>,
-    pub admin_approved_at: Option<chrono::NaiveDateTime>,
+    pub metadata: Option<serde_json::Value>,
 }
 
-/// New MFA reset token for creation
+/// New reset token for creation
 #[derive(Debug, Serialize, Deserialize, Insertable)]
-#[diesel(table_name = crate::schema::mfa_reset_tokens)]
-pub struct NewMfaResetToken {
-    pub token: String,
+#[diesel(table_name = crate::schema::reset_tokens)]
+pub struct NewResetToken<'a> {
+    pub token_hash: &'a str,
     pub user_uuid: Uuid,
-    pub ip_address: Option<String>, // Convert from ipnetwork::IpNetwork when needed
-    pub user_agent: Option<String>,
-    pub expires_at: chrono::NaiveDateTime,
-    pub email_verified: bool,
-    pub admin_approved: bool,
+    pub token_type: &'a str,
+    pub ip_address: Option<&'a str>,
+    pub user_agent: Option<&'a str>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub metadata: Option<serde_json::Value>,
 }
 
-/// Update struct for MFA reset tokens
+/// Update struct for reset tokens
 #[derive(Debug, Serialize, Deserialize, AsChangeset)]
-#[diesel(table_name = crate::schema::mfa_reset_tokens)]
-pub struct MfaResetTokenUpdate {
+#[diesel(table_name = crate::schema::reset_tokens)]
+pub struct ResetTokenUpdate {
     pub used_at: Option<chrono::NaiveDateTime>,
     pub is_used: Option<bool>,
-    pub email_verified: Option<bool>,
-    pub admin_approved: Option<bool>,
-    pub admin_approved_by: Option<Uuid>,
-    pub admin_approved_at: Option<chrono::NaiveDateTime>,
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Request to initiate MFA reset
@@ -1731,6 +1769,27 @@ pub struct MfaResetResponse {
 pub struct MfaResetCompleteRequest {
     pub token: String,
     pub email_code: Option<String>, // Email verification code
+}
+
+// ===== PASSWORD RESET MODELS =====
+
+/// Request to initiate password reset
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PasswordResetRequest {
+    pub email: String,
+}
+
+/// Response for password reset initiation
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PasswordResetResponse {
+    pub message: String,
+}
+
+/// Request to complete password reset with token
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PasswordResetCompleteRequest {
+    pub token: String,
+    pub new_password: String,
 }
 
 /// Session revocation request

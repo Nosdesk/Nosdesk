@@ -9,6 +9,8 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio::time::interval;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 // Event types for SSE
@@ -170,7 +172,7 @@ impl SseState {
 
 // SSE stream implementation
 pub struct SseStream {
-    receiver: EventReceiver,
+    event_stream: BroadcastStream<TicketEvent>,
     heartbeat_interval: tokio::time::Interval,
     client_id: String,
     state: web::Data<SseState>,
@@ -182,8 +184,11 @@ impl SseStream {
         let mut heartbeat_interval = interval(Duration::from_secs(15));
         heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        // Wrap the receiver in BroadcastStream for proper waker registration
+        let event_stream = BroadcastStream::new(receiver);
+
         Self {
-            receiver,
+            event_stream,
             heartbeat_interval,
             client_id,
             state,
@@ -195,58 +200,60 @@ impl Stream for SseStream {
     type Item = Result<actix_web::web::Bytes, actix_web::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // Check for new events FIRST (prioritize real-time updates over heartbeat)
-        loop {
-            match self.receiver.try_recv() {
-                Ok(event) => {
-                    // Determine event type string (avoid allocations where possible)
-                    let event_type = match &event {
-                        TicketEvent::TicketUpdated { .. } => "ticket-updated",
-                        TicketEvent::CommentAdded { .. } => "comment-added",
-                        TicketEvent::CommentDeleted { .. } => "comment-deleted",
-                        TicketEvent::AttachmentAdded { .. } => "attachment-added",
-                        TicketEvent::AttachmentDeleted { .. } => "attachment-deleted",
-                        TicketEvent::DeviceLinked { .. } => "device-linked",
-                        TicketEvent::DeviceUnlinked { .. } => "device-unlinked",
-                        TicketEvent::DeviceUpdated { .. } => "device-updated",
-                        TicketEvent::ProjectAssigned { .. } => "project-assigned",
-                        TicketEvent::ProjectUnassigned { .. } => "project-unassigned",
-                        TicketEvent::TicketLinked { .. } => "ticket-linked",
-                        TicketEvent::TicketUnlinked { .. } => "ticket-unlinked",
-                        TicketEvent::Heartbeat { .. } => "heartbeat",
-                    };
+        let this = self.get_mut();
+        let client_id = this.client_id.clone();
 
-                    // Serialize event data
-                    let event_data = serde_json::to_string(&event).unwrap_or_default();
-                    let sse_data = format!("event: {}\ndata: {}\n\n", event_type, event_data);
+        // Poll the BroadcastStream - this properly maintains waker registration across polls
+        match Pin::new(&mut this.event_stream).poll_next(cx) {
+            Poll::Ready(Some(Ok(event))) => {
+                // Got event - determine event type and serialize
+                let event_type = match &event {
+                    TicketEvent::TicketUpdated { .. } => "ticket-updated",
+                    TicketEvent::CommentAdded { .. } => "comment-added",
+                    TicketEvent::CommentDeleted { .. } => "comment-deleted",
+                    TicketEvent::AttachmentAdded { .. } => "attachment-added",
+                    TicketEvent::AttachmentDeleted { .. } => "attachment-deleted",
+                    TicketEvent::DeviceLinked { .. } => "device-linked",
+                    TicketEvent::DeviceUnlinked { .. } => "device-unlinked",
+                    TicketEvent::DeviceUpdated { .. } => "device-updated",
+                    TicketEvent::ProjectAssigned { .. } => "project-assigned",
+                    TicketEvent::ProjectUnassigned { .. } => "project-unassigned",
+                    TicketEvent::TicketLinked { .. } => "ticket-linked",
+                    TicketEvent::TicketUnlinked { .. } => "ticket-unlinked",
+                    TicketEvent::Heartbeat { .. } => "heartbeat",
+                };
 
-                    return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(sse_data))));
-                }
-                Err(broadcast::error::TryRecvError::Empty) => {
-                    // No events available right now, check heartbeat
-                    break;
-                }
-                Err(broadcast::error::TryRecvError::Lagged(count)) => {
-                    // Client is lagging - close connection so they can reconnect with fresh buffer
-                    tracing::warn!("SSE: Client {} lagged by {} events, closing connection", self.client_id, count);
-                    return Poll::Ready(None);
-                }
-                Err(broadcast::error::TryRecvError::Closed) => {
-                    // Channel closed - end stream
-                    tracing::info!("SSE: Channel closed for client {}", self.client_id);
-                    return Poll::Ready(None);
-                }
+                // Serialize event data
+                let event_data = serde_json::to_string(&event).unwrap_or_default();
+                let sse_data = format!("event: {}\ndata: {}\n\n", event_type, event_data);
+
+                return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(sse_data))));
+            }
+            Poll::Ready(Some(Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(count)))) => {
+                // Client is lagging - close connection so they can reconnect with fresh buffer
+                tracing::warn!("SSE: Client {} lagged by {} events, closing connection", client_id, count);
+                return Poll::Ready(None);
+            }
+            Poll::Ready(None) => {
+                // Stream ended (channel closed)
+                tracing::info!("SSE: Channel closed for client {}", client_id);
+                return Poll::Ready(None);
+            }
+            Poll::Pending => {
+                // No event yet - check heartbeat before returning Pending
             }
         }
 
         // Check for heartbeat
-        if let Poll::Ready(_) = self.heartbeat_interval.poll_tick(cx) {
+        if let Poll::Ready(_) = this.heartbeat_interval.poll_tick(cx) {
             let sse_data = "event: heartbeat\ndata: {}\n\n";
             return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(sse_data))));
         }
 
-        // Register waker and return pending
-        // The broadcast receiver and heartbeat interval will wake us when ready
+        // Both event stream and heartbeat are Pending
+        // BroadcastStream properly maintains waker registration, so we'll wake when either:
+        // 1. A new event is broadcast (stream waker fires immediately)
+        // 2. Heartbeat interval elapses (interval waker fires)
         Poll::Pending
     }
 }

@@ -20,8 +20,18 @@ lazy_static::lazy_static! {
 pub struct JwtUtils;
 
 impl JwtUtils {
-    /// Create a JWT token for a user
+    /// Create a JWT token for a user with full scope
     pub fn create_token(user: &User) -> Result<String, JwtError> {
+        Self::create_scoped_token(user, "full", 24 * 60 * 60)
+    }
+
+    /// Create a limited-scope JWT token for MFA recovery (15 minute expiry)
+    pub fn create_mfa_recovery_token(user: &User) -> Result<String, JwtError> {
+        Self::create_scoped_token(user, "mfa_recovery", 15 * 60)
+    }
+
+    /// Create a JWT token with specified scope and expiry
+    fn create_scoped_token(user: &User, scope: &str, expiry_seconds: usize) -> Result<String, JwtError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| JwtError::SystemTime)?
@@ -32,7 +42,8 @@ impl JwtUtils {
             name: user.name.clone(),
             email: user.email.clone(),
             role: role_to_string(&user.role),
-            exp: now + 24 * 60 * 60, // 24 hours from now
+            scope: scope.to_string(),
+            exp: now + expiry_seconds,
             iat: now,
         };
 
@@ -58,6 +69,7 @@ impl JwtUtils {
             name: "SSE_TOKEN".to_string(), // Mark this as an SSE token
             email: String::new(), // No email needed for SSE
             role: role.to_string(),
+            scope: "sse".to_string(), // SSE-specific scope
             exp: now + 3600, // 1 hour from now (in seconds)
             iat: now,
         };
@@ -172,11 +184,38 @@ impl JwtUtils {
         }
     }
 
+    /// Check if token has required scope
+    /// Returns Ok if token has "full" scope or matches the required scope
+    pub fn check_scope(claims: &Claims, required_scope: &str) -> Result<(), JwtError> {
+        if claims.scope == "full" || claims.scope == required_scope {
+            Ok(())
+        } else {
+            Err(JwtError::InsufficientScope {
+                required: required_scope.to_string(),
+                actual: claims.scope.clone(),
+            })
+        }
+    }
+
     /// Extract token from query parameters (for SSE where headers aren't supported)
     pub fn extract_token_from_query(query_token: Option<&String>) -> Result<&str, JwtError> {
         query_token
             .map(|s| s.as_str())
             .ok_or(JwtError::MissingToken)
+    }
+
+    /// Generate a cryptographically secure refresh token (32 bytes = 64 hex chars)
+    pub fn generate_refresh_token() -> String {
+        use rand::Rng;
+        let token_bytes: [u8; 32] = rand::thread_rng().gen();
+        hex::encode(token_bytes)
+    }
+
+    /// Hash a refresh token using SHA-256 for storage
+    pub fn hash_refresh_token(token: &str) -> String {
+        use ring::digest;
+        let hash = digest::digest(&digest::SHA256, token.as_bytes());
+        hex::encode(hash.as_ref())
     }
 }
 
@@ -190,6 +229,7 @@ pub enum JwtError {
     RoleMismatch { token_role: String, current_role: String },
     MissingToken,
     InsufficientPermissions { required: String, actual: String },
+    InsufficientScope { required: String, actual: String },
     SessionRevoked,
 }
 
@@ -206,6 +246,9 @@ impl std::fmt::Display for JwtError {
             Self::MissingToken => write!(f, "Missing authentication token"),
             Self::InsufficientPermissions { required, actual } => {
                 write!(f, "Insufficient permissions - required: {}, actual: {}", required, actual)
+            }
+            Self::InsufficientScope { required, actual } => {
+                write!(f, "Insufficient token scope - required: {}, actual: {}", required, actual)
             }
             Self::SessionRevoked => write!(f, "Session has been revoked"),
         }
@@ -253,6 +296,9 @@ impl From<JwtError> for ActixError {
             },
             JwtError::InsufficientPermissions { .. } => {
                 actix_web::error::ErrorForbidden("Insufficient permissions")
+            },
+            JwtError::InsufficientScope { .. } => {
+                actix_web::error::ErrorForbidden("This action requires a full session - please log in again")
             },
             JwtError::SessionRevoked => {
                 actix_web::error::ErrorUnauthorized("Session has been revoked - please log in again")
@@ -303,6 +349,12 @@ impl From<JwtError> for HttpResponse {
                     "message": format!("Insufficient permissions - required: {}, actual: {}", required, actual)
                 }))
             },
+            JwtError::InsufficientScope { required, actual } => {
+                HttpResponse::Forbidden().json(json!({
+                    "status": "error",
+                    "message": format!("This action requires a full session - please log in again (required: {}, actual: {})", required, actual)
+                }))
+            },
             JwtError::SessionRevoked => {
                 HttpResponse::Unauthorized().json(json!({
                     "status": "error",
@@ -323,26 +375,64 @@ impl From<JwtError> for HttpResponse {
 pub mod helpers {
     use super::*;
 
-    /// Create a successful login response with JWT token
-    pub fn create_login_response(user: User) -> Result<crate::models::LoginResponse, HttpResponse> {
+    /// Struct containing login tokens for cookie setting
+    pub struct LoginTokens {
+        pub access_token: String,
+        pub refresh_token: String,
+        pub csrf_token: String,
+    }
+
+    /// Create a successful login response with tokens (caller sets cookies)
+    pub fn create_login_response(user: User, conn: &mut DbConnection) -> Result<(crate::models::LoginResponse, LoginTokens), HttpResponse> {
         let token = JwtUtils::create_token(&user)
             .map_err(|_| HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Error generating token"
             })))?;
 
-        Ok(crate::models::LoginResponse {
+        // Generate refresh token
+        let refresh_token = JwtUtils::generate_refresh_token();
+        let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
+
+        // Store refresh token (7 days expiration)
+        let refresh_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
+        let new_refresh_token = crate::models::NewRefreshToken {
+            token_hash: refresh_token_hash,
+            user_uuid: user.uuid,
+            expires_at: refresh_expires,
+        };
+
+        if let Err(e) = crate::repository::refresh_tokens::create_refresh_token(conn, new_refresh_token) {
+            tracing::error!("Failed to store refresh token: {}", e);
+            return Err(HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to create refresh token"
+            })));
+        }
+
+        // Generate CSRF token
+        let csrf_token = crate::utils::csrf::generate_csrf_token();
+
+        let response = crate::models::LoginResponse {
             success: true,
             mfa_required: Some(false),
             mfa_setup_required: Some(false),
             user_uuid: Some(user.uuid.to_string()),
-            token: Some(token),
+            csrf_token: Some(csrf_token.clone()),
             user: Some(user.into()),
             message: Some("Login successful".to_string()),
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
             backup_codes: None,
-        })
+        };
+
+        let tokens = LoginTokens {
+            access_token: token,
+            refresh_token,
+            csrf_token,
+        };
+
+        Ok((response, tokens))
     }
 
     /// Create a response indicating MFA is required
@@ -352,7 +442,7 @@ pub mod helpers {
             mfa_required: Some(true),
             mfa_setup_required: Some(false),
             user_uuid: Some(user_uuid.to_string()),
-            token: None,
+            csrf_token: None,
             user: None,
             message: Some("Multi-factor authentication required".to_string()),
             mfa_backup_code_used: None,
@@ -368,7 +458,7 @@ pub mod helpers {
             mfa_required: Some(false),
             mfa_setup_required: Some(true),
             user_uuid: Some(user_uuid.to_string()),
-            token: None,
+            csrf_token: None,
             user: None,
             message: Some("Multi-factor authentication setup required for your account type".to_string()),
             mfa_backup_code_used: None,
@@ -379,17 +469,41 @@ pub mod helpers {
 
 
 
-    /// Create a successful MFA login response
+    /// Create a successful MFA login response with tokens (caller sets cookies)
     pub fn create_mfa_login_response(
         user: User,
         backup_code_used: bool,
         requires_regeneration: bool,
-    ) -> Result<crate::models::LoginResponse, HttpResponse> {
+        conn: &mut DbConnection,
+    ) -> Result<(crate::models::LoginResponse, LoginTokens), HttpResponse> {
         let token = JwtUtils::create_token(&user)
             .map_err(|_| HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Error generating token"
             })))?;
+
+        // Generate refresh token
+        let refresh_token = JwtUtils::generate_refresh_token();
+        let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
+
+        // Store refresh token (7 days expiration)
+        let refresh_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
+        let new_refresh_token = crate::models::NewRefreshToken {
+            token_hash: refresh_token_hash,
+            user_uuid: user.uuid,
+            expires_at: refresh_expires,
+        };
+
+        if let Err(e) = crate::repository::refresh_tokens::create_refresh_token(conn, new_refresh_token) {
+            tracing::error!("Failed to store refresh token: {}", e);
+            return Err(HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to create refresh token"
+            })));
+        }
+
+        // Generate CSRF token
+        let csrf_token = crate::utils::csrf::generate_csrf_token();
 
         let mut message = "Login successful".to_string();
         if backup_code_used {
@@ -400,18 +514,26 @@ pub mod helpers {
             };
         }
 
-        Ok(crate::models::LoginResponse {
+        let response = crate::models::LoginResponse {
             success: true,
             mfa_required: Some(false),
             mfa_setup_required: Some(false),
             user_uuid: Some(user.uuid.to_string()),
-            token: Some(token),
+            csrf_token: Some(csrf_token.clone()),
             user: Some(user.into()),
             message: Some(message),
             mfa_backup_code_used: Some(backup_code_used),
             requires_backup_code_regeneration: Some(requires_regeneration),
             backup_codes: None,
-        })
+        };
+
+        let tokens = LoginTokens {
+            access_token: token,
+            refresh_token,
+            csrf_token,
+        };
+
+        Ok((response, tokens))
     }
 
     /// Middleware helper for role-based access control
@@ -446,6 +568,7 @@ mod tests {
             name: "Admin User".to_string(),
             email: "admin@test.com".to_string(),
             role: "admin".to_string(),
+            scope: "full".to_string(),
             exp: 9999999999,
             iat: 1000000000,
         };
@@ -455,6 +578,7 @@ mod tests {
             name: "Regular User".to_string(),
             email: "user@test.com".to_string(),
             role: "user".to_string(),
+            scope: "full".to_string(),
             exp: 9999999999,
             iat: 1000000000,
         };
@@ -468,5 +592,36 @@ mod tests {
         assert!(JwtUtils::check_role_permission(&user_claims, "user").is_ok());
         assert!(JwtUtils::check_role_permission(&user_claims, "technician").is_err());
         assert!(JwtUtils::check_role_permission(&user_claims, "admin").is_err());
+    }
+
+    #[test]
+    fn test_scope_check() {
+        let full_scope_claims = Claims {
+            sub: "test-uuid".to_string(),
+            name: "Test User".to_string(),
+            email: "test@test.com".to_string(),
+            role: "user".to_string(),
+            scope: "full".to_string(),
+            exp: 9999999999,
+            iat: 1000000000,
+        };
+
+        let limited_scope_claims = Claims {
+            sub: "test-uuid".to_string(),
+            name: "Test User".to_string(),
+            email: "test@test.com".to_string(),
+            role: "user".to_string(),
+            scope: "mfa_recovery".to_string(),
+            exp: 9999999999,
+            iat: 1000000000,
+        };
+
+        // Full scope can access everything
+        assert!(JwtUtils::check_scope(&full_scope_claims, "full").is_ok());
+        assert!(JwtUtils::check_scope(&full_scope_claims, "mfa_recovery").is_ok());
+
+        // Limited scope can only access matching scope
+        assert!(JwtUtils::check_scope(&limited_scope_claims, "mfa_recovery").is_ok());
+        assert!(JwtUtils::check_scope(&limited_scope_claims, "full").is_err());
     }
 } 

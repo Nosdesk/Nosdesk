@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
 import LoginView from '../views/LoginView.vue'
+import PasswordResetView from '../views/PasswordResetView.vue'
+import MFARecoveryView from '../views/MFARecoveryView.vue'
 import OnboardingView from '../views/OnboardingView.vue'
 import ErrorView from '../views/ErrorView.vue'
 import TicketsListView from '../views/TicketsListView.vue'
@@ -36,6 +38,26 @@ const router = createRouter({
         layout: 'blank',
         requiresAuth: false,
         title: 'Sign In'
+      }
+    },
+    {
+      path: '/reset-password',
+      name: 'reset-password',
+      component: PasswordResetView,
+      meta: {
+        layout: 'blank',
+        requiresAuth: false,
+        title: 'Reset Password'
+      }
+    },
+    {
+      path: '/mfa-recovery',
+      name: 'mfa-recovery',
+      component: MFARecoveryView,
+      meta: {
+        layout: 'blank',
+        requiresAuth: false,
+        title: 'MFA Account Recovery'
       }
     },
     {
@@ -403,6 +425,16 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'System Settings',
+        adminRequired: true
+      }
+    },
+    {
+      path: '/admin/email-settings',
+      name: 'admin-email-settings',
+      component: () => import('../views/EmailSettingsView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Email Configuration',
         adminRequired: true
       }
     },

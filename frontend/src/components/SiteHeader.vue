@@ -287,6 +287,7 @@ defineExpose({
           <!-- User Dropdown Menu -->
           <UserDropdownMenu
             :showMenu="showUserMenu"
+            :buttonRef="buttonRef"
             @close="closeUserMenu"
           />
         </div>

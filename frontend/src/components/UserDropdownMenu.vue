@@ -6,6 +6,7 @@ import UserAvatar from './UserAvatar.vue';
 
 interface Props {
   showMenu: boolean;
+  buttonRef?: HTMLElement | null;
 }
 
 const props = defineProps<Props>();
@@ -33,9 +34,13 @@ const user = computed(() => {
   };
 });
 
-// Click outside handler
+// Click outside handler - exclude the toggle button from click-outside logic
 const handleClickOutside = (event: MouseEvent) => {
-  if (dropdownRef.value && !dropdownRef.value.contains(event.target as Node)) {
+  const target = event.target as Node;
+  const clickedOutsideDropdown = dropdownRef.value && !dropdownRef.value.contains(target);
+  const clickedOutsideButton = props.buttonRef && !props.buttonRef.contains(target);
+
+  if (clickedOutsideDropdown && clickedOutsideButton) {
     emit('close');
   }
 };

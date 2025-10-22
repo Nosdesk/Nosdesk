@@ -6,6 +6,10 @@ pub mod jwt;
 pub mod sse;
 pub mod mfa;
 pub mod storage;
+pub mod email;
+pub mod reset_tokens;
+pub mod csrf;
+pub mod cookies;
 
 use uuid::Uuid;
 use crate::models::{UserRole, UserInfo};
