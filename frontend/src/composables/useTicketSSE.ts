@@ -454,17 +454,17 @@ export function useTicketSSE(
     console.log(
       "%c[SSE Setup] Mounting ticket SSE handlers",
       "color: #06b6d4; font-weight: bold; font-size: 14px",
-      { ticketId: ticketId.value, hasAuthToken: !!authStore.token }
+      { ticketId: ticketId.value, isAuthenticated: authStore.isAuthenticated }
     );
     setupEventListeners();
     // Connect immediately - no delay needed
-    if (authStore.token && ticketId.value) {
+    if (authStore.isAuthenticated && ticketId.value) {
       console.log("[SSE Setup] Connecting to SSE...", { ticketId: ticketId.value });
       await connect(ticketId.value);
       console.log("[SSE Setup] SSE connection initiated");
     } else {
-      console.warn("[SSE Setup] Cannot connect - missing auth token or ticket ID", {
-        hasToken: !!authStore.token,
+      console.warn("[SSE Setup] Cannot connect - missing auth or ticket ID", {
+        isAuthenticated: authStore.isAuthenticated,
         ticketId: ticketId.value,
       });
     }

@@ -797,22 +797,21 @@ pub async fn ws_handler(
     let doc_id = path.into_inner();
     println!("WebSocket connection request for document: {}", doc_id);
     
-    // Extract and validate JWT token from query parameters
-    let query_string = req.query_string();
-    let token = query_string.split('&')
-        .find(|param| param.starts_with("token="))
-        .and_then(|param| param.split('=').nth(1))
-        .ok_or_else(|| actix_web::error::ErrorUnauthorized("No authentication token provided"))?;
-    
+    // Extract and validate JWT token from httpOnly cookie
+    use actix_web::HttpMessage;
+
+    let token = req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
+        .ok_or_else(|| actix_web::error::ErrorUnauthorized("No authentication cookie"))?;
+
     // Validate the token using our JWT utilities
     if let Some(pool) = req.app_data::<web::Data<crate::db::Pool>>() {
         let mut conn = pool.get()
             .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
-        
+
         // Use our centralized JWT validation
         use crate::utils::jwt::JwtUtils;
-        
-        match JwtUtils::validate_token_with_user_check(token, &mut conn).await {
+
+        match JwtUtils::validate_token_with_user_check(token.value(), &mut conn).await {
             Ok((_claims, _user)) => (),
             Err(_) => return Err(actix_web::error::ErrorUnauthorized("Invalid or expired token")),
         }

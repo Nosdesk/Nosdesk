@@ -47,13 +47,12 @@ onMounted(async () => {
 const loadAuthMethods = async () => {
   try {
     loading.value = true;
-    
-    // Load OAuth providers from the API
-    const response = await fetch('/api/auth/providers');
-    const providers = await response.json();
-    
+
+    // Load OAuth providers from the API using authService
+    const providers = await authService.getAuthProviders();
+
     const methods: AuthMethod[] = [];
-    
+
     // Always include email as primary method
     methods.push({
       id: 'email-primary',
@@ -62,7 +61,7 @@ const loadAuthMethods = async () => {
       isPrimary: true,
       createdAt: '2024-01-01'
     });
-    
+
     // Add Microsoft provider if it exists and is enabled
     const microsoftProvider = providers.find((p: any) => p.provider_type === 'microsoft' && p.enabled);
     if (microsoftProvider) {
@@ -74,7 +73,7 @@ const loadAuthMethods = async () => {
         createdAt: microsoftProvider.created_at
       });
     }
-    
+
     authMethods.value = methods;
   } catch (error) {
     console.error('Failed to load auth methods:', error);
@@ -103,30 +102,15 @@ const loadActiveSessions = async () => {
 const addAuthMethod = async (type: 'microsoft') => {
   loading.value = true;
   try {
-    // Use the existing OAuth connect endpoint
-    const response = await fetch('/api/auth/oauth/connect', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({
-        provider_type: type
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Failed to initiate ${type} connection`);
-    }
-    
-    const data = await response.json();
-    
+    // Use authService to connect OAuth provider
+    const data = await authService.connectOAuthProvider(type);
+
     if (data.auth_url) {
       // Redirect to OAuth provider
       window.location.href = data.auth_url;
       return;
     }
-    
+
     emit('success', `${type.charAt(0).toUpperCase() + type.slice(1)} account linked successfully`);
   } catch (err) {
     emit('error', `Failed to link ${type} account`);
@@ -145,16 +129,10 @@ const removeAuthMethod = async (methodId: string, methodType: string) => {
   loading.value = true;
   try {
     if (methodType === 'microsoft') {
-      // Handle Microsoft provider removal
-      const response = await fetch(`/api/auth/providers/${methodId}`, {
-        method: 'DELETE',
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to remove Microsoft provider');
-      }
+      // Handle Microsoft provider removal using authService
+      await authService.deleteAuthProvider(methodId);
     }
-    
+
     authMethods.value = authMethods.value.filter(method => method.id !== methodId);
     emit('success', 'Authentication method removed successfully');
   } catch (err) {

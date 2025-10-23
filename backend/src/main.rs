@@ -74,32 +74,48 @@ async fn serve_spa(req: HttpRequest) -> impl Responder {
     }
 }
 
-// JWT Authentication validator for middleware
-async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<ServiceRequest, (Error, ServiceRequest)> {
-    let pool = req.app_data::<web::Data<crate::db::Pool>>().unwrap();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            let error = actix_web::error::ErrorInternalServerError("Database connection failed");
-            return Err((error, req));
-        }
-    };
+// Cookie-based authentication middleware
+async fn cookie_auth_middleware(
+    req: actix_web::dev::ServiceRequest,
+    next: actix_web::middleware::Next<impl actix_web::body::MessageBody>,
+) -> Result<actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>, Error> {
+    let pool = req.app_data::<web::Data<crate::db::Pool>>()
+        .ok_or_else(|| actix_web::error::ErrorInternalServerError("Database pool not found"))?;
 
-    // Use the new JWT utilities for authentication
+    let mut conn = pool.get()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
+
     use crate::utils::jwt::JwtUtils;
 
-    match JwtUtils::authenticate_request(&credentials, &mut conn).await {
-        Ok((claims, _user)) => {
-            // Token is valid, insert claims into request extensions for handlers to access
-            req.request().extensions_mut().insert(claims);
-            Ok(req)
-        },
-        Err(err) => {
-            // Return the specific authentication error (401 for invalid token, etc.)
-            eprintln!("JWT validation failed: {:?}", err);
-            Err((err, req))
-        }
-    }
+    // Debug logging
+    let cookie_names: Vec<String> = req.cookies()
+        .map(|jar| jar.iter().map(|c| c.name().to_string()).collect())
+        .unwrap_or_default();
+    tracing::debug!("🔐 Cookie Auth Middleware: {} - Cookies: {:?}", req.path(), cookie_names);
+
+    // Extract access token from httpOnly cookie
+    let token = req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
+        .ok_or_else(|| {
+            tracing::warn!("🔐 Cookie Auth: No access_token cookie for {}", req.path());
+            actix_web::error::ErrorUnauthorized("Authentication required")
+        })?;
+
+    tracing::debug!("🔐 Cookie Auth: Validating token from cookie");
+
+    // Validate token and get claims
+    let (claims, _user) = JwtUtils::authenticate_with_token(token.value(), &mut conn).await
+        .map_err(|err| {
+            tracing::error!("🔐 Cookie Auth: Token validation failed: {:?}", err);
+            actix_web::error::ErrorUnauthorized("Invalid or expired token")
+        })?;
+
+    tracing::info!("🔐 Cookie Auth: ✅ Authenticated user: {}", claims.sub);
+
+    // Insert claims into request extensions
+    req.extensions_mut().insert(claims);
+
+    // Continue to the handler
+    next.call(req).await
 }
 
 #[actix_web::main]
@@ -456,11 +472,12 @@ async fn main() -> std::io::Result<()> {
             .allowed_origin(&frontend_url)
             .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
             .allowed_headers(vec![
-                "Authorization", 
-                "Content-Type", 
+                "Authorization",
+                "Content-Type",
                 "Accept",
                 "Origin",
-                "X-Requested-With"
+                "X-Requested-With",
+                "X-CSRF-Token"
             ])
             .expose_headers(vec!["content-disposition"])
             .supports_credentials()
@@ -481,6 +498,7 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .wrap(cors)
+            .wrap(crate::utils::csrf::CsrfProtection)
             .app_data(public_limiter_data.clone())
             .app_data(auth_limiter_data.clone())
             .app_data(web::Data::new(pool.clone()))
@@ -522,6 +540,7 @@ async fn main() -> std::io::Result<()> {
                             .route("/admin", web::post().to(handlers::setup_initial_admin))
                     )
                                             .route("/login", web::post().to(handlers::login))
+                        .route("/logout", web::post().to(handlers::logout))
                         .route("/mfa-login", web::post().to(handlers::mfa_login))
                         .route("/mfa-setup-login", web::post().to(handlers::mfa_setup_login))
                         .route("/mfa-enable-login", web::post().to(handlers::mfa_enable_login))
@@ -538,13 +557,13 @@ async fn main() -> std::io::Result<()> {
                     .route("/oauth/callback", web::get().to(handlers::oauth_callback))
                     .route("/oauth/logout", web::post().to(handlers::oauth_logout))
                     // Protected auth routes
-                    .route("/me", web::get().to(handlers::get_current_user).wrap(HttpAuthentication::bearer(validator)))
-                    .route("/change-password", web::post().to(handlers::change_password).wrap(HttpAuthentication::bearer(validator)))
-                    .route("/oauth/connect", web::post().to(handlers::oauth_connect).wrap(HttpAuthentication::bearer(validator)))
+                    .route("/me", web::get().to(handlers::get_current_user).wrap(actix_web::middleware::from_fn(cookie_auth_middleware)))
+                    .route("/change-password", web::post().to(handlers::change_password).wrap(actix_web::middleware::from_fn(cookie_auth_middleware)))
+                    .route("/oauth/connect", web::post().to(handlers::oauth_connect).wrap(actix_web::middleware::from_fn(cookie_auth_middleware)))
                     // Session Management endpoints
                     .service(
                         web::scope("/sessions")
-                            .wrap(HttpAuthentication::bearer(validator))
+                            .wrap(actix_web::middleware::from_fn(cookie_auth_middleware))
                             .route("", web::get().to(handlers::get_user_sessions))
                             .route("/{id}", web::delete().to(handlers::revoke_session))
                             .route("/others", web::delete().to(handlers::revoke_all_other_sessions))
@@ -552,7 +571,7 @@ async fn main() -> std::io::Result<()> {
                     // MFA (Multi-Factor Authentication) endpoints
                     .service(
                         web::scope("/mfa")
-                            .wrap(HttpAuthentication::bearer(validator))
+                            .wrap(actix_web::middleware::from_fn(cookie_auth_middleware))
                             .route("/setup", web::post().to(handlers::mfa_setup))
                             .route("/verify-setup", web::post().to(handlers::mfa_verify_setup))
                             .route("/enable", web::post().to(handlers::mfa_enable))
@@ -565,7 +584,7 @@ async fn main() -> std::io::Result<()> {
             // === PROTECTED ROUTES (AUTHENTICATION REQUIRED) ===
             .service(
                 web::scope("/api")
-                    .wrap(HttpAuthentication::bearer(validator))
+                    .wrap(actix_web::middleware::from_fn(cookie_auth_middleware))
                     
                     // Authentication Provider management (admin only) - simplified for environment-based config
                     .route("/admin/auth/providers", web::get().to(handlers::get_auth_providers))
@@ -692,8 +711,8 @@ async fn main() -> std::io::Result<()> {
             )
             
             // Unified file serving using storage abstraction (protected routes)
-            .route("/uploads/tickets/{path:.*}", web::get().to(handlers::serve_protected_file).wrap(HttpAuthentication::bearer(validator)))
-            .route("/uploads/temp/{path:.*}", web::get().to(handlers::serve_protected_file).wrap(HttpAuthentication::bearer(validator)))
+            .route("/uploads/tickets/{path:.*}", web::get().to(handlers::serve_protected_file))
+            .route("/uploads/temp/{path:.*}", web::get().to(handlers::serve_protected_file))
             
             // === FRONTEND STATIC FILES (CATCH-ALL) ===
             // Serve static frontend files - this must be LAST to not interfere with API routes

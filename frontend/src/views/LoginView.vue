@@ -7,7 +7,6 @@ import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
 import MFARecoveryModal from "@/components/auth/MFARecoveryModal.vue";
 import logo from "@/assets/logo.svg";
-import axios from "axios";
 
 const router = useRouter();
 const route = useRoute();

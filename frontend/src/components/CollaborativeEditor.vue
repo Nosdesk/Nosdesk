@@ -289,9 +289,9 @@ const initEditor = async () => {
                 window.location.hostname
             }:8080/api/collaboration/ws`;
 
-        // Get JWT token for authentication
-        const token = localStorage.getItem("token");
-        if (!token) {
+        // Check authentication using auth store (httpOnly cookies)
+        const authStore = useAuthStore();
+        if (!authStore.isAuthenticated) {
             log.error("No authentication token found. Please log in.");
             return;
         }
@@ -299,13 +299,15 @@ const initEditor = async () => {
         log.debug("WebSocket connection details:", {
             baseUrl: baseWsUrl,
             documentId: props.docId,
-            hasToken: !!token,
+            isAuthenticated: authStore.isAuthenticated,
         });
+
+        // Note: Authentication is handled via httpOnly cookies automatically
+        // No need to pass token - WebSocket upgrade request includes cookies
 
         // Create WebsocketProvider with custom URL construction
         // y-websocket will append /${docId} to the baseWsUrl, creating the correct backend route
         provider = new WebsocketProvider(baseWsUrl, props.docId, ydoc, {
-            params: { token: token },
             // Set resync interval to 20 seconds to prevent 30-second timeout disconnects
             // y-websocket closes connection if no message received in 30s, so we need
             // periodic Yjs protocol messages to keep the connection alive
@@ -1119,8 +1121,9 @@ const diagnoseConnectionIssue = () => {
 
     // Troubleshooting suggestions
     log.info("=== Troubleshooting Suggestions ===");
-    if (!token) {
-        log.error("❌ No authentication token found - Please log in again");
+    const authStore = useAuthStore();
+    if (!authStore.isAuthenticated) {
+        log.error("❌ Not authenticated - Please log in again");
     }
     if (!navigator.onLine) {
         log.error(

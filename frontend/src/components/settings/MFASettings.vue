@@ -2,21 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import { useAuthStore } from '@/stores/auth';
-import axios from 'axios';
-
-// MFA state
-const mfaEnabled = ref(false);
-const mfaStep = ref<'setup' | 'verify' | 'enabled' | 'success'>('setup');
-const qrCodeUrl = ref('');
-const verificationCode = ref('');
-const loading = ref(false);
-const verifying = ref(false);
-const backupCodes = ref<string[]>([]);
-const mfaSecret = ref('');
-const showSecret = ref(false);
-const secretCopied = ref(false);
-
-const authStore = useAuthStore();
+import { useMfa } from '@/composables/useMfa';
 
 // Props for different modes
 const props = defineProps<{
@@ -32,10 +18,16 @@ const emit = defineEmits<{
   (e: 'mfa-enabled'): void;
 }>();
 
-// Computed property for authentication token - use limited session token if provided
-const authToken = computed(() => {
-  return props.limitedSessionToken || authStore.token;
-});
+// Use MFA composable - follows Vue 3 best practices
+const mfa = useMfa({ isLoginSetup: props.isLoginSetup });
+
+// Auth store for user data
+const authStore = useAuthStore();
+
+// UI-specific state
+const verificationCode = ref('');
+const showSecret = ref(false);
+const secretCopied = ref(false);
 
 // Check if using limited session (for conditional password requirements)
 const isLimitedSession = computed(() => {
@@ -43,20 +35,16 @@ const isLimitedSession = computed(() => {
 });
 
 // Computed properties - simplified and optimized
-const showSetupSteps = computed(() => !mfaEnabled.value && mfaStep.value === 'setup');
-const showVerificationStep = computed(() => !mfaEnabled.value && mfaStep.value === 'verify');
-const showEnabledState = computed(() => mfaEnabled.value && !props.isLoginSetup);
-const showSuccessState = computed(() => mfaStep.value === 'success');
-const isInSuccessState = computed(() => mfaStep.value === 'success');
+const isInSuccessState = computed(() => mfa.mfaStep.value === 'success');
 
 // Computed for conditional rendering
 const shouldShowSetupInterface = computed(() => {
   // For login setup mode, show interface immediately
   if (props.isLoginSetup) {
-    return !mfaEnabled.value;
+    return !mfa.mfaEnabled.value;
   }
   // For normal mode, only show when in verify step (after user clicks toggle)
-  return !mfaEnabled.value && mfaStep.value === 'verify';
+  return !mfa.mfaEnabled.value && mfa.mfaStep.value === 'verify';
 });
 
 // Static data for setup steps and QR markers
@@ -73,25 +61,13 @@ const qrMarkers = [
   { position: 'bottom-2 left-2' }
 ];
 
-// Check current MFA status
-const checkMFAStatus = async () => {
-  try {
-    const response = await fetch('/api/auth/mfa/status', {
-      headers: {
-        'Authorization': `Bearer ${authToken.value}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      mfaEnabled.value = data.enabled || false;
-      if (mfaEnabled.value) {
-        mfaStep.value = 'enabled';
-      }
-    }
-  } catch (err) {
-    console.error('Error checking MFA status:', err);
+// Wrapper methods that emit events based on composable state
+const emitMfaMessages = () => {
+  if (mfa.error.value) {
+    emit('error', mfa.error.value);
+  }
+  if (mfa.successMessage.value) {
+    emit('success', mfa.successMessage.value);
   }
 };
 
@@ -99,29 +75,24 @@ const checkMFAStatus = async () => {
 const setupMFAData = async () => {
   if (props.isLoginSetup) {
     const context = await waitForContext();
-    const setupData = await authStore.startMfaSetupLogin(context.email, context.password);
-    
+    const setupData = await mfa.setupMFAForLogin(context.email, context.password);
+
     if (!setupData) {
       throw new Error('Failed to start MFA setup');
     }
-    
-    // Set up the component state
-    qrCodeUrl.value = setupData.qr_code;
-    mfaSecret.value = setupData.secret;
-    backupCodes.value = [];
-    mfaStep.value = 'verify';
-    
+
     // Update the context with setup data
     sessionStorage.setItem('mfaLoginSetupContext', JSON.stringify({
       ...context,
       setupData,
       timestamp: Date.now()
     }));
-    
-    emit('success', 'MFA setup initiated. Please scan the QR code with your authenticator app.');
+
+    emitMfaMessages();
     return setupData;
   } else {
-    await checkMFAStatus();
+    await mfa.checkMFAStatus();
+    emitMfaMessages();
     return null;
   }
 };
@@ -165,7 +136,7 @@ const waitForContext = async (): Promise<any> => {
   });
 };
 
-// Initialize based on mode - moved to onMounted to avoid top-level await
+// Initialize based on mode
 onMounted(async () => {
   if (props.isLoginSetup) {
     try {
@@ -175,15 +146,14 @@ onMounted(async () => {
       emit('error', 'Failed to initialize MFA setup');
     }
   } else {
-    await checkMFAStatus();
+    await mfa.checkMFAStatus();
+    emitMfaMessages();
   }
 });
 
-// MFA functions
+// MFA action methods using composable
 const toggleMFA = async (newValue: boolean) => {
-  const currentState = mfaEnabled.value;
-  
-  if (currentState) {
+  if (mfa.mfaEnabled.value) {
     await disableMFA();
   } else {
     await startMFASetup();
@@ -191,199 +161,94 @@ const toggleMFA = async (newValue: boolean) => {
 };
 
 const startMFASetup = async () => {
-  console.log('🔐 startMFASetup called, isLoginSetup:', props.isLoginSetup, 'qrCodeUrl exists:', !!qrCodeUrl.value);
-  
-  loading.value = true;
-  mfaStep.value = 'verify';
-  
-  try {
-    if (props.isLoginSetup) {
-      if (!qrCodeUrl.value) {
-        throw new Error('MFA setup not initialized properly');
-      }
-    } else {
-      const response = await fetch('/api/auth/mfa/setup', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken.value}`,
-          'Content-Type': 'application/json'
-        }
-      });
+  console.log('🔐 startMFASetup called, isLoginSetup:', props.isLoginSetup, 'qrCodeUrl exists:', !!mfa.qrCodeUrl.value);
 
-      if (response.ok) {
-        const data = await response.json();
-        await new Promise(resolve => setTimeout(resolve, 600));
-
-        qrCodeUrl.value = data.qr_code;
-        mfaSecret.value = data.secret;
-        backupCodes.value = [];
-        emit('success', 'MFA setup initiated. Please scan the QR code with your authenticator app.');
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to setup MFA');
-      }
+  if (props.isLoginSetup) {
+    if (!mfa.qrCodeUrl.value) {
+      emit('error', 'MFA setup not initialized properly');
+      return;
     }
-  } catch (err) {
-    emit('error', 'Failed to setup MFA');
-    console.error('Error setting up MFA:', err);
-    resetMFASetup();
-  } finally {
-    loading.value = false;
+  } else {
+    await mfa.startMFASetup();
+    emitMfaMessages();
   }
 };
 
 const verifyMFA = async () => {
   console.log('🔐 verifyMFA called, isLoginSetup:', props.isLoginSetup);
-  
+
   if (verificationCode.value.length !== 6) {
     emit('error', 'Please enter a valid 6-digit code');
     return;
   }
 
-  if (!mfaSecret.value) {
+  if (!mfa.mfaSecret.value) {
     emit('error', 'MFA secret is missing. Please restart the setup process.');
     return;
   }
 
+  mfa.clearMessages();
   emit('success', '');
   emit('error', '');
-  
-  verifying.value = true;
+
   try {
-    const response = await performVerification();
-    if (response.ok) {
-      await enableMFA();
+    if (props.isLoginSetup) {
+      await enableMFAForLogin();
     } else {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || 'Invalid verification code');
+      // First verify, then enable
+      const isValid = await mfa.verifyMFAToken(verificationCode.value);
+      if (isValid) {
+        await enableMFAForAuthenticatedUser();
+      } else {
+        emitMfaMessages();
+      }
     }
   } catch (err) {
     console.error('🔐 MFA verification error:', err);
     emit('error', err instanceof Error ? err.message : 'Invalid verification code. Please try again.');
-  } finally {
-    verifying.value = false;
   }
 };
 
-const performVerification = async () => {
-  if (props.isLoginSetup) {
-    const context = sessionStorage.getItem('mfaLoginSetupContext');
-    if (!context) {
-      throw new Error('MFA setup context not found');
-    }
-    
-    const { email, password } = JSON.parse(context);
-    
-    return await fetch('/api/auth/mfa-setup-login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        password,
-        token: verificationCode.value,
-        secret: mfaSecret.value
-      })
-    });
-  } else {
-    return await fetch('/api/auth/mfa/verify-setup', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${authToken.value}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        token: verificationCode.value,
-        secret: mfaSecret.value
-      })
-    });
-  }
-};
-
-const enableMFA = async () => {
-  console.log('🔐 Enabling MFA...');
-  
-  let enableResponse;
-  if (props.isLoginSetup) {
-    const context = sessionStorage.getItem('mfaLoginSetupContext');
-    if (!context) {
-      throw new Error('MFA setup context not found');
-    }
-    
-    const { email, password } = JSON.parse(context);
-    
-    enableResponse = await fetch('/api/auth/mfa-enable-login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        password,
-        token: verificationCode.value,
-        secret: mfaSecret.value
-      })
-    });
-  } else {
-    enableResponse = await fetch('/api/auth/mfa/enable', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${authToken.value}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        token: verificationCode.value,
-        secret: mfaSecret.value
-      })
-    });
+const enableMFAForLogin = async () => {
+  const context = sessionStorage.getItem('mfaLoginSetupContext');
+  if (!context) {
+    throw new Error('MFA setup context not found');
   }
 
-  console.log('🔐 Enable MFA response status:', enableResponse.status);
+  const { email, password } = JSON.parse(context);
 
-  if (enableResponse.ok) {
-    const enableData = await enableResponse.json();
-    console.log('🔐 MFA enabled successfully:', enableData);
-    
-    if (enableData.backup_codes && Array.isArray(enableData.backup_codes)) {
-      backupCodes.value = enableData.backup_codes;
-    }
-    
-    if (props.isLoginSetup && enableData.token) {
-      handleLoginSetupSuccess(enableData);
+  const result = await mfa.enableMFAForLogin(email, password, verificationCode.value);
+
+  if (result.success) {
+    // Handle successful login-flow MFA setup
+    if (result.csrf_token && result.user) {
+      authStore.user = result.user;
+      authStore.mfaSetupRequired = false;
+      authStore.mfaUserUuid = '';
+
+      // Set auth provider (handled by auth store now)
+      authStore.setAuthProvider('local');
+
+      emit('mfa-enabled');
+      emitMfaMessages();
     } else {
-      handleNormalSetupSuccess();
+      emit('error', 'MFA enabled but login response was incomplete');
     }
   } else {
-    const enableErrorData = await enableResponse.json().catch(() => ({}));
-    console.error('🔐 Enable MFA failed:', enableErrorData);
-    throw new Error(enableErrorData.message || 'Failed to enable MFA after verification');
+    emitMfaMessages();
   }
 };
 
-const handleLoginSetupSuccess = (enableData: any) => {
-  if (enableData.token && enableData.user) {
-    authStore.token = enableData.token;
-    authStore.user = enableData.user;
-    authStore.mfaSetupRequired = false;
-    authStore.mfaUserUuid = '';
+const enableMFAForAuthenticatedUser = async () => {
+  const result = await mfa.enableMFA(verificationCode.value);
 
-    axios.defaults.headers.common['Authorization'] = `Bearer ${enableData.token}`;
-    axios.defaults.headers.common['X-Auth-Provider'] = 'local';
-
-    localStorage.setItem('token', enableData.token);
-    localStorage.setItem('authProvider', 'local');
-
-    mfaStep.value = 'success';
-    mfaEnabled.value = true;
-    emit('mfa-enabled'); // Notify parent component
+  if (result.success) {
+    verificationCode.value = '';
+    emit('mfa-enabled');
+    emitMfaMessages();
   } else {
-    emit('error', 'MFA enabled but login response was incomplete');
+    emitMfaMessages();
   }
-};
-
-const handleNormalSetupSuccess = () => {
-  mfaEnabled.value = true;
-  mfaStep.value = 'enabled';
-  verificationCode.value = '';
-  emit('success', 'MFA enabled successfully! Your account is now more secure.');
-  emit('mfa-enabled'); // Notify parent component
 };
 
 const disableMFA = async () => {
@@ -395,41 +260,18 @@ const disableMFA = async () => {
     password = userPassword;
   }
 
-  loading.value = true;
-  try {
-    const response = await fetch('/api/auth/mfa/disable', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${authToken.value}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ password })
-    });
+  const success = await mfa.disableMFA(password);
 
-    if (response.ok) {
-      resetMFASetup();
-      emit('success', 'MFA disabled successfully');
-      emit('mfa-disabled'); // Notify parent component
-    } else {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || 'Failed to disable MFA');
-    }
-  } catch (err) {
-    emit('error', err instanceof Error ? err.message : 'Failed to disable MFA');
-    console.error('Error disabling MFA:', err);
-    mfaEnabled.value = true;
-  } finally {
-    loading.value = false;
+  if (success) {
+    resetMFASetup();
+    emit('mfa-disabled');
   }
+  emitMfaMessages();
 };
 
 const resetMFASetup = () => {
-  mfaEnabled.value = false;
-  mfaStep.value = 'setup';
-  qrCodeUrl.value = '';
+  mfa.resetMFASetup();
   verificationCode.value = '';
-  backupCodes.value = [];
-  mfaSecret.value = '';
   showSecret.value = false;
   secretCopied.value = false;
 };
@@ -452,12 +294,12 @@ const formatSecret = (secret: string) => {
 
 // Copy secret to clipboard
 const copySecret = async () => {
-  if (!mfaSecret.value || secretCopied.value) return;
-  
+  if (!mfa.mfaSecret.value || secretCopied.value) return;
+
   try {
-    await navigator.clipboard.writeText(mfaSecret.value);
+    await navigator.clipboard.writeText(mfa.mfaSecret.value);
     secretCopied.value = true;
-    
+
     setTimeout(() => {
       secretCopied.value = false;
     }, 2000);
@@ -469,8 +311,8 @@ const copySecret = async () => {
 
 // Download backup codes as text file
 const downloadBackupCodes = () => {
-  if (!backupCodes.value.length) return;
-  
+  if (!mfa.backupCodes.value.length) return;
+
   try {
     const content = `Nosdesk Backup Codes
 
@@ -478,7 +320,7 @@ IMPORTANT: Save these backup codes in a secure location.
 Each code can only be used once to access your account if you lose your authenticator device.
 
 Backup Codes:
-${backupCodes.value.map((code, index) => `${index + 1}. ${code}`).join('\n')}
+${mfa.backupCodes.value.map((code, index) => `${index + 1}. ${code}`).join('\n')}
 
 Generated on: ${new Date().toLocaleString()}
 Account: ${authStore.user?.email || 'Unknown'}
@@ -493,11 +335,11 @@ Security Notice:
     const link = document.createElement('a');
     link.href = url;
     link.download = `nosdesk-backup-codes-${new Date().toISOString().split('T')[0]}.txt`;
-    
+
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
+
     URL.revokeObjectURL(url);
     emit('success', 'Backup codes downloaded successfully');
   } catch (err) {
@@ -608,16 +450,16 @@ defineExpose({
         <!-- MFA Toggle / Status (hidden in login setup mode) -->
         <div v-if="!props.isLoginSetup" class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors p-4">
           <ToggleSwitch
-            :modelValue="mfaEnabled"
-            :disabled="loading"
+            :modelValue="mfa.mfaEnabled.value"
+            :disabled="mfa.loading.value"
             label="Enable Two-Factor Authentication"
-            :description="mfaEnabled ? 'Your account is protected with 2FA' : 'Secure your account with an authenticator app'"
+            :description="mfa.mfaEnabled.value ? 'Your account is protected with 2FA' : 'Secure your account with an authenticator app'"
             @update:modelValue="toggleMFA"
           />
         </div>
 
         <!-- Setup Steps (hidden in login setup mode) -->
-        <div v-if="showSetupSteps && !props.isLoginSetup" class="bg-slate-700/30 rounded-lg border border-slate-600/20 p-4">
+        <div v-if="mfa.showSetupSteps.value && !props.isLoginSetup" class="bg-slate-700/30 rounded-lg border border-slate-600/20 p-4">
           <h3 class="text-sm font-medium text-white mb-4">How to set up 2FA:</h3>
           <ol class="flex flex-col gap-3 text-sm text-slate-300">
             <li v-for="(step, index) in setupSteps" :key="index" class="flex items-start gap-3">
@@ -628,12 +470,12 @@ defineExpose({
         </div>
 
         <!-- Main MFA Setup Component - Hidden when verification is successful -->
-        <div v-if="shouldShowSetupInterface && !verifying" class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-start">
+        <div v-if="shouldShowSetupInterface && !mfa.verifying.value" class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-start">
           <!-- QR Code Section -->
           <div class="flex justify-center lg:justify-start">
             <div class="bg-white p-4 rounded-lg shadow-lg">
               <!-- QR Code Skeleton when loading -->
-              <div v-if="loading || !qrCodeUrl" class="w-48 h-48 lg:w-44 lg:h-44 bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg flex items-center justify-center relative overflow-hidden">
+              <div v-if="mfa.loading.value || !mfa.qrCodeUrl.value" class="w-48 h-48 lg:w-44 lg:h-44 bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg flex items-center justify-center relative overflow-hidden">
                 <!-- Shimmer Effect -->
                 <div class="absolute inset-0 skeleton-shimmer"></div>
                 
@@ -672,10 +514,10 @@ defineExpose({
               </div>
               
               <!-- Actual QR Code when loaded -->
-              <img 
+              <img
                 v-else
-                :src="qrCodeUrl" 
-                alt="MFA QR Code" 
+                :src="mfa.qrCodeUrl.value"
+                alt="MFA QR Code"
                 class="w-48 h-48 lg:w-44 lg:h-44 fade-in"
               />
             </div>
@@ -706,7 +548,7 @@ defineExpose({
                 <p class="text-sm text-slate-400">Enter this secret key in your authenticator app:</p>
                 <div class="bg-slate-700/50 rounded-lg p-3 border border-slate-600/30">
                   <div class="flex items-center justify-between gap-3">
-                    <code class="text-sm font-mono text-green-400 select-all flex-1 break-all">{{ formatSecret(mfaSecret) }}</code>
+                    <code class="text-sm font-mono text-green-400 select-all flex-1 break-all">{{ formatSecret(mfa.mfaSecret.value) }}</code>
                     <button
                       @click="copySecret"
                       :disabled="secretCopied"
@@ -743,16 +585,16 @@ defineExpose({
                 </div>
                 <button
                   @click="verifyMFA"
-                  :disabled="verificationCode.length !== 6 || verifying"
+                  :disabled="verificationCode.length !== 6 || mfa.verifying.value"
                   class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-600 flex items-center justify-center transition-colors min-h-[52px] active:scale-[0.98]"
                 >
-                  <span v-if="verifying" class="animate-spin h-4 w-4 mr-2">
+                  <span v-if="mfa.verifying.value" class="animate-spin h-4 w-4 mr-2">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                       <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
                   </span>
-                  {{ verifying ? 'Verifying...' : 'Verify' }}
+                  {{ mfa.verifying.value ? 'Verifying...' : 'Verify' }}
                 </button>
               </div>
               
@@ -767,14 +609,14 @@ defineExpose({
         </div>
 
         <!-- Verification Loading State - Replaces the setup interface when verifying -->
-        <div v-if="shouldShowSetupInterface && verifying" class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-start">
+        <div v-if="shouldShowSetupInterface && mfa.verifying.value" class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-start">
           <!-- QR Code Section (keep visible during verification) -->
           <div class="flex justify-center lg:justify-start">
             <div class="bg-white p-4 rounded-lg shadow-lg">
-              <img 
-                v-if="qrCodeUrl"
-                :src="qrCodeUrl" 
-                alt="MFA QR Code" 
+              <img
+                v-if="mfa.qrCodeUrl.value"
+                :src="mfa.qrCodeUrl.value"
+                alt="MFA QR Code"
                 class="w-48 h-48 lg:w-44 lg:h-44"
               />
             </div>
@@ -802,7 +644,7 @@ defineExpose({
 
 
         <!-- Backup Codes Display: only show after success or enabled -->
-        <div v-if="backupCodes.length > 0 && (mfaStep === 'success' || mfaEnabled)" class="bg-amber-600/10 border border-amber-600/20 rounded-lg p-4">
+        <div v-if="mfa.backupCodes.value.length > 0 && (mfa.mfaStep.value === 'success' || mfa.mfaEnabled.value)" class="bg-amber-600/10 border border-amber-600/20 rounded-lg p-4">
           <div class="flex flex-col gap-4">
             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div class="min-w-0 flex-1">
@@ -822,7 +664,7 @@ defineExpose({
             </div>
             <div class="bg-slate-700/50 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm text-white">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div v-for="code in backupCodes" :key="code" class="text-center p-2 bg-slate-800/50 rounded break-all">{{ code }}</div>
+                <div v-for="code in mfa.backupCodes.value" :key="code" class="text-center p-2 bg-slate-800/50 rounded break-all">{{ code }}</div>
               </div>
             </div>
             <p class="text-xs text-amber-400 flex items-center gap-2">
@@ -835,7 +677,7 @@ defineExpose({
         </div>
 
         <!-- Success State (for login setup) -->
-        <div v-if="showSuccessState" class="bg-green-600/10 border border-green-600/20 rounded-lg p-6">
+        <div v-if="mfa.showSuccessState.value" class="bg-green-600/10 border border-green-600/20 rounded-lg p-6">
           <div class="flex flex-col gap-4">
             <div class="flex items-center gap-3">
               <div class="bg-green-600 rounded-full p-2">
@@ -862,7 +704,7 @@ defineExpose({
         </div>
 
         <!-- Enabled State -->
-        <div v-if="showEnabledState" class="bg-green-600/10 border border-green-600/20 rounded-lg p-4">
+        <div v-if="mfa.showEnabledState.value" class="bg-green-600/10 border border-green-600/20 rounded-lg p-4">
           <div class="flex flex-col gap-1">
             <div class="flex items-center gap-1">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">

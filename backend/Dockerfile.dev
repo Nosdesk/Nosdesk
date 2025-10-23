@@ -40,5 +40,5 @@ COPY backend/src ./src
 # Force unbuffered output for Docker logs
 ENV RUST_BACKTRACE=1
 ENV RUST_LOG_STYLE=always
-# Explicitly ignore uploads directory to prevent reload loops
-CMD ["cargo", "watch", "--why", "--ignore", "uploads", "-x", "run"] 
+# Explicitly ignore uploads and public directories to prevent reload loops
+CMD ["cargo", "watch", "--why", "--ignore", "uploads", "--ignore", "public", "-x", "run"] 

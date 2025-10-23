@@ -1,8 +1,5 @@
-import axios from 'axios';
+import apiClient from './apiConfig';
 import type { Device, DeviceFormData } from '@/types/device';
-
-// Define the API base URL
-const API_BASE_URL = '/api';
 
 // Request cancellation manager
 class RequestManager {
@@ -88,7 +85,7 @@ const transformDeviceResponse = (backendDevice: any): Device => {
  */
 export const getDevices = async (): Promise<Device[]> => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/devices`);
+    const response = await apiClient.get(`/devices`);
     return response.data.map(transformDeviceResponse);
   } catch (error) {
     console.error('Error fetching devices:', error);
@@ -102,7 +99,7 @@ export const getPaginatedDevices = async (params: PaginationParams, requestKey: 
     // Create cancellable request
     const controller = requestManager.createRequest(requestKey);
     
-    const response = await axios.get(`${API_BASE_URL}/devices/paginated`, { 
+    const response = await apiClient.get(`/devices/paginated`, { 
       params,
       signal: controller.signal 
     });
@@ -135,7 +132,7 @@ export const getPaginatedDevices = async (params: PaginationParams, requestKey: 
  */
 export const getDeviceById = async (id: number | string): Promise<Device> => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/devices/${id}`);
+    const response = await apiClient.get(`/devices/${id}`);
     return transformDeviceResponse(response.data);
   } catch (error) {
     console.error(`Error fetching device with ID ${id}:`, error);
@@ -150,7 +147,7 @@ export const getDeviceById = async (id: number | string): Promise<Device> => {
  */
 export const getDeviceByTicketId = async (ticketId: number): Promise<Device | null> => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/tickets/${ticketId}/device`);
+    const response = await apiClient.get(`/tickets/${ticketId}/device`);
     return transformDeviceResponse(response.data);
   } catch (error) {
     console.error(`Error fetching device for ticket ID ${ticketId}:`, error);
@@ -165,7 +162,7 @@ export const getDeviceByTicketId = async (ticketId: number): Promise<Device | nu
  */
 export const getDevicesByUser = async (userUuid: string): Promise<Device[]> => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/users/${userUuid}/devices`);
+    const response = await apiClient.get(`/users/${userUuid}/devices`);
     return response.data.map(transformDeviceResponse);
   } catch (error) {
     console.error(`Error fetching devices for user ${userUuid}:`, error);
@@ -180,7 +177,7 @@ export const getDevicesByUser = async (userUuid: string): Promise<Device[]> => {
  */
 export const createDevice = async (deviceData: DeviceFormData): Promise<Device> => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/devices`, deviceData);
+    const response = await apiClient.post(`/devices`, deviceData);
     return transformDeviceResponse(response.data);
   } catch (error) {
     console.error('Error creating device:', error);
@@ -211,7 +208,7 @@ export const updateDevice = async (id: number, device: Partial<Device>): Promise
       entra_device_id: device.entra_device_id
     };
     
-    const response = await axios.put(`${API_BASE_URL}/devices/${id}`, backendDevice);
+    const response = await apiClient.put(`/devices/${id}`, backendDevice);
     return transformDeviceResponse(response.data);
   } catch (error) {
     console.error(`Error updating device with ID ${id}:`, error);
@@ -226,7 +223,7 @@ export const updateDevice = async (id: number, device: Partial<Device>): Promise
  */
 export const deleteDevice = async (id: number): Promise<void> => {
   try {
-    await axios.delete(`${API_BASE_URL}/devices/${id}`);
+    await apiClient.delete(`/devices/${id}`);
   } catch (error) {
     console.error(`Error deleting device with ID ${id}:`, error);
     throw error;
@@ -301,7 +298,7 @@ export const cancelAllRequests = (): void => {
 // Get devices for a specific user (prioritized devices)
 export const getUserDevices = async (userUuid: string): Promise<Device[]> => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/users/${userUuid}/devices`);
+    const response = await apiClient.get(`/users/${userUuid}/devices`);
     return response.data.map(transformDeviceResponse);
   } catch (error) {
     console.error('Error fetching user devices:', error);
@@ -317,7 +314,7 @@ export const getPaginatedDevicesExcluding = async (params: {
   excludeIds?: number[];
 }): Promise<PaginatedResponse<Device>> => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/devices/paginated/excluding`, {
+    const response = await apiClient.get(`/devices/paginated/excluding`, {
       params: {
         page: params.page,
         pageSize: params.pageSize,

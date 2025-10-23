@@ -333,9 +333,11 @@ pub async fn sse_status(state: web::Data<SseState>) -> impl actix_web::Responder
 
 // Secure endpoint to get SSE token
 pub async fn get_sse_token(
-    auth: actix_web_httpauth::extractors::bearer::BearerAuth,
+    req: actix_web::HttpRequest,
     pool: web::Data<crate::db::Pool>,
 ) -> impl actix_web::Responder {
+    use actix_web::HttpMessage;
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => {
@@ -343,12 +345,11 @@ pub async fn get_sse_token(
         }
     };
 
-    // Authenticate the request
-    use crate::utils::jwt::helpers as jwt_helpers;
-    let (user_info, _user) = match jwt_helpers::require_role(&auth, &mut conn, "user").await {
-        Ok((claims, user)) => (claims, user),
-        Err(e) => {
-            return e.into();
+    // Extract claims from request extensions (set by cookie_auth_middleware)
+    let user_info = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json("Authentication required");
         }
     };
 

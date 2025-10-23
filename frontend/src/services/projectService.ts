@@ -1,8 +1,5 @@
-import axios from 'axios';
+import apiClient from './apiConfig';
 import type { Project } from '@/types/project';
-
-// Define the API base URL
-const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Define the types for API responses
 interface ProjectResponse {
@@ -41,7 +38,7 @@ export const projectService = {
   // Get all projects
   async getProjects(): Promise<Project[]> {
     try {
-      const response = await axios.get<ProjectResponse[]>(`${API_URL}/projects`);
+      const response = await apiClient.get<ProjectResponse[]>(`/projects`);
       return response.data.map(mapProjectResponse);
     } catch (error) {
       console.error('Error fetching projects:', error);
@@ -52,7 +49,7 @@ export const projectService = {
   // Get a single project by ID
   async getProject(id: number): Promise<Project> {
     try {
-      const response = await axios.get<ProjectResponse>(`${API_URL}/projects/${id}`);
+      const response = await apiClient.get<ProjectResponse>(`/projects/${id}`);
       return mapProjectResponse(response.data);
     } catch (error) {
       console.error(`Error fetching project ${id}:`, error);
@@ -73,7 +70,7 @@ export const projectService = {
         request.description = project.description || null;
       }
 
-      const response = await axios.post<ProjectResponse>(`${API_URL}/projects`, request);
+      const response = await apiClient.post<ProjectResponse>(`/projects`, request);
       return mapProjectResponse(response.data);
     } catch (error) {
       console.error('Error creating project:', error);
@@ -90,7 +87,7 @@ export const projectService = {
         status: project.status
       };
       
-      const response = await axios.put<ProjectResponse>(`${API_URL}/projects/${id}`, request);
+      const response = await apiClient.put<ProjectResponse>(`/projects/${id}`, request);
       return mapProjectResponse(response.data);
     } catch (error) {
       console.error(`Error updating project ${id}:`, error);
@@ -101,7 +98,7 @@ export const projectService = {
   // Delete a project
   async deleteProject(id: number): Promise<void> {
     try {
-      await axios.delete(`${API_URL}/projects/${id}`);
+      await apiClient.delete(`/projects/${id}`);
     } catch (error) {
       console.error(`Error deleting project ${id}:`, error);
       throw error;
@@ -111,7 +108,7 @@ export const projectService = {
   // Get all tickets for a project
   async getProjectTickets(id: number): Promise<any[]> {
     try {
-      const response = await axios.get(`${API_URL}/projects/${id}/tickets`);
+      const response = await apiClient.get(`/projects/${id}/tickets`);
       return response.data;
     } catch (error) {
       console.error(`Error fetching tickets for project ${id}:`, error);
@@ -122,7 +119,7 @@ export const projectService = {
   // Add a ticket to a project
   async addTicketToProject(projectId: number, ticketId: number): Promise<void> {
     try {
-      await axios.post(`${API_URL}/projects/${projectId}/tickets/${ticketId}`);
+      await apiClient.post(`/projects/${projectId}/tickets/${ticketId}`);
     } catch (error) {
       console.error(`Error adding ticket ${ticketId} to project ${projectId}:`, error);
       throw error;
@@ -132,7 +129,7 @@ export const projectService = {
   // Remove a ticket from a project
   async removeTicketFromProject(projectId: number, ticketId: number): Promise<void> {
     try {
-      await axios.delete(`${API_URL}/projects/${projectId}/tickets/${ticketId}`);
+      await apiClient.delete(`/projects/${projectId}/tickets/${ticketId}`);
     } catch (error) {
       console.error(`Error removing ticket ${ticketId} from project ${projectId}:`, error);
       throw error;

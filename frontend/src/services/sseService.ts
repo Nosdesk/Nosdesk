@@ -1,5 +1,6 @@
 import { ref, computed } from "vue";
 import { useAuthStore } from "@/stores/auth";
+import apiClient from "./apiConfig";
 
 // Event types that match the backend
 export interface TicketEvent {
@@ -75,29 +76,24 @@ class SSEService {
 
     const authStore = useAuthStore();
 
-    if (!authStore.token) {
+    if (!authStore.isAuthenticated) {
       throw new Error("No authentication token available");
     }
 
-    const response = await fetch("/api/events/token", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${authStore.token}`,
-        "Content-Type": "application/json",
-      },
-    });
+    try {
+      const response = await apiClient.post("/events/token");
+      const data = response.data;
 
-    if (!response.ok) {
-      throw new Error(`Failed to get SSE token: ${response.status}`);
+      // Cache token and expiry
+      this.sseToken = data.sse_token;
+      this.tokenExpiryTime = Date.now() + data.expires_in * 1000;
+
+      return this.sseToken!;
+    } catch (error: any) {
+      throw new Error(
+        `Failed to get SSE token: ${error.response?.status || 'Network error'}`
+      );
     }
-
-    const data = await response.json();
-
-    // Cache token and expiry
-    this.sseToken = data.sse_token;
-    this.tokenExpiryTime = Date.now() + data.expires_in * 1000;
-
-    return this.sseToken!;
   }
 
   // Setup event handlers efficiently using a single generic handler
@@ -246,7 +242,7 @@ class SSEService {
 
     // Check authentication
     const authStore = useAuthStore();
-    if (!authStore.token) {
+    if (!authStore.isAuthenticated) {
       this.lastError.value = "No authentication token";
       return;
     }

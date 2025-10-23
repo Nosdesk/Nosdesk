@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder, HttpRequest, HttpMessage};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
@@ -476,17 +476,17 @@ pub async fn import_tickets_from_json_string(
 // Create an empty ticket with default values
 pub async fn create_empty_ticket(
     pool: web::Data<crate::db::Pool>,
-    auth: actix_web_httpauth::extractors::bearer::BearerAuth,
+    req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match get_db_conn(&pool).await {
         Ok(conn) => conn,
         Err(e) => return e,
     };
 
-    // Validate token and get authenticated user's UUID
-    let claims = match crate::handlers::auth::validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json("Invalid or expired token"),
+    // Extract claims from request extensions (set by cookie_auth_middleware)
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
     };
 
     // Parse the user UUID from the JWT claims
@@ -538,7 +538,7 @@ pub async fn create_empty_ticket(
 pub async fn update_ticket_partial(
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
-    auth: actix_web_httpauth::extractors::bearer::BearerAuth,
+    req: HttpRequest,
     params: web::Path<i32>,
     body: web::Json<Value>,
 ) -> impl Responder {
@@ -549,10 +549,10 @@ pub async fn update_ticket_partial(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    // Get user info for SSE events
-    let user_info = match crate::handlers::auth::validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json("Invalid token"),
+    // Extract claims from request extensions (set by cookie_auth_middleware)
+    let user_info = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
     };
 
     // Parse JSON and build TicketUpdate with user lookups

@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './apiConfig';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -27,6 +27,42 @@ export interface LoginCredentials {
 export interface LoginResponse {
   token: string;
   user: any;
+}
+
+// MFA Interfaces
+export interface MFASetupData {
+  secret: string;
+  qr_code: string;
+  backup_codes: string[];
+}
+
+export interface MFAStatusResponse {
+  enabled: boolean;
+  has_backup_codes?: boolean;
+}
+
+export interface MFAVerifyRequest {
+  token: string;
+  secret: string;
+}
+
+export interface MFAEnableRequest {
+  token: string;
+  secret: string;
+  password?: string;
+}
+
+export interface MFALoginSetupRequest {
+  email: string;
+  password: string;
+}
+
+export interface MFALoginEnableRequest {
+  email: string;
+  password: string;
+  token: string;
+  secret: string;
+  backup_codes: string[];
 }
 
 class AuthService {
@@ -92,11 +128,8 @@ class AuthService {
    */
   private async _performSetupStatusCheck(): Promise<OnboardingStatus> {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/auth/setup/status`, {
+      const response = await apiClient.get(`/auth/setup/status`, {
         timeout: 10000, // 10 second timeout for security
-        headers: {
-          'X-Requested-With': 'XMLHttpRequest', // CSRF protection
-        }
       });
       
       // Security: Validate response data
@@ -134,7 +167,7 @@ class AuthService {
    */
   async setupInitialAdmin(adminData: AdminSetupRequest): Promise<AdminSetupResponse> {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/setup/admin`, adminData);
+      const response = await apiClient.post('/auth/setup/admin', adminData);
       return response.data;
     } catch (error) {
       console.error('Error setting up initial admin:', error);
@@ -147,7 +180,7 @@ class AuthService {
    */
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, credentials);
+      const response = await apiClient.post('/auth/login', credentials);
       return response.data;
     } catch (error) {
       console.error('Login error:', error);
@@ -160,16 +193,7 @@ class AuthService {
    */
   async getCurrentUser(): Promise<any> {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No auth token found');
-      }
-
-      const response = await axios.get(`${API_BASE_URL}/api/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await apiClient.get('/auth/me');
       return response.data;
     } catch (error) {
       console.error('Error getting current user:', error);
@@ -178,31 +202,22 @@ class AuthService {
   }
 
   /**
-   * Logout the current user
+   * Logout the current user (clears httpOnly cookies on server)
    */
-  logout(): void {
-    localStorage.removeItem('token');
+  async logout(): Promise<void> {
+    try {
+      await apiClient.post('/auth/logout');
+    } catch (error) {
+      console.error('Error logging out:', error);
+      throw error;
+    }
   }
 
   /**
-   * Check if user is authenticated
+   * Check if user is authenticated (by checking for CSRF token cookie)
    */
   isAuthenticated(): boolean {
-    return !!localStorage.getItem('token');
-  }
-
-  /**
-   * Get the stored auth token
-   */
-  getToken(): string | null {
-    return localStorage.getItem('token');
-  }
-
-  /**
-   * Store the auth token
-   */
-  setToken(token: string): void {
-    localStorage.setItem('token', token);
+    return !!document.cookie.match(/csrf_token=([^;]+)/);
   }
 
   /**
@@ -219,23 +234,10 @@ class AuthService {
    */
   async changePassword(currentPassword: string, newPassword: string): Promise<void> {
     try {
-      const token = this.getToken();
-      if (!token) {
-        throw new Error('No auth token found');
-      }
-
-      await axios.post(
-        `${API_BASE_URL}/api/auth/change-password`,
-        {
-          current_password: currentPassword,
-          new_password: newPassword
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        }
-      );
+      await apiClient.post('/auth/change-password', {
+        current_password: currentPassword,
+        new_password: newPassword
+      });
     } catch (error) {
       console.error('Error changing password:', error);
       throw error;
@@ -247,19 +249,7 @@ class AuthService {
    */
   async getSessions(): Promise<any[]> {
     try {
-      const token = this.getToken();
-      if (!token) {
-        throw new Error('No auth token found');
-      }
-
-      const response = await axios.get(
-        `${API_BASE_URL}/api/auth/sessions`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        }
-      );
+      const response = await apiClient.get('/auth/sessions');
       return response.data.sessions;
     } catch (error) {
       console.error('Error getting sessions:', error);
@@ -272,19 +262,7 @@ class AuthService {
    */
   async revokeSession(sessionId: number): Promise<void> {
     try {
-      const token = this.getToken();
-      if (!token) {
-        throw new Error('No auth token found');
-      }
-
-      await axios.delete(
-        `${API_BASE_URL}/api/auth/sessions/${sessionId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        }
-      );
+      await apiClient.delete(`/auth/sessions/${sessionId}`);
     } catch (error) {
       console.error('Error revoking session:', error);
       throw error;
@@ -296,21 +274,251 @@ class AuthService {
    */
   async revokeAllOtherSessions(): Promise<void> {
     try {
-      const token = this.getToken();
-      if (!token) {
-        throw new Error('No auth token found');
-      }
+      await apiClient.delete('/auth/sessions/others');
+    } catch (error) {
+      console.error('Error revoking all other sessions:', error);
+      throw error;
+    }
+  }
 
-      await axios.delete(
-        `${API_BASE_URL}/api/auth/sessions/others`,
+  // ===== MFA METHODS =====
+
+  /**
+   * Setup MFA for login (unauthenticated - used during login flow)
+   */
+  async setupMFAForLogin(request: MFALoginSetupRequest): Promise<MFASetupData> {
+    try {
+      const response = await apiClient.post('/auth/mfa-setup-login', request);
+      return response.data;
+    } catch (error) {
+      console.error('Error setting up MFA for login:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Enable MFA during login flow
+   */
+  async enableMFAForLogin(request: MFALoginEnableRequest): Promise<LoginResponse> {
+    try {
+      const response = await apiClient.post('/auth/mfa-enable-login', request);
+      return response.data;
+    } catch (error) {
+      console.error('Error enabling MFA for login:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Setup MFA for authenticated user
+   */
+  async setupMFA(): Promise<MFASetupData> {
+    try {
+      const response = await apiClient.post('/auth/mfa/setup');
+      return response.data;
+    } catch (error) {
+      console.error('Error setting up MFA:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Verify MFA token during setup
+   */
+  async verifyMFA(request: MFAVerifyRequest): Promise<{ valid: boolean }> {
+    try {
+      const response = await apiClient.post('/auth/mfa/verify', request);
+      return response.data;
+    } catch (error) {
+      console.error('Error verifying MFA:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Enable MFA for authenticated user
+   */
+  async enableMFA(request: MFAEnableRequest): Promise<{ success: boolean; backup_codes: string[] }> {
+    try {
+      const response = await apiClient.post('/auth/mfa/enable', request);
+      return response.data;
+    } catch (error) {
+      console.error('Error enabling MFA:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Disable MFA
+   */
+  async disableMFA(password: string): Promise<{ success: boolean }> {
+    try {
+      const response = await apiClient.post('/auth/mfa/disable', { password });
+      return response.data;
+    } catch (error) {
+      console.error('Error disabling MFA:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get MFA status
+   */
+  async getMFAStatus(): Promise<MFAStatusResponse> {
+    try {
+      const response = await apiClient.get('/auth/mfa/status');
+      return response.data;
+    } catch (error) {
+      console.error('Error getting MFA status:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Regenerate backup codes
+   */
+  async regenerateBackupCodes(password: string): Promise<{ backup_codes: string[] }> {
+    try {
+      const response = await apiClient.post('/auth/mfa/regenerate-backup-codes', { password });
+      return response.data;
+    } catch (error) {
+      console.error('Error regenerating backup codes:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Login with MFA token
+   */
+  async loginWithMFA(email: string, password: string, mfaToken: string, userUuid: string): Promise<LoginResponse> {
+    try {
+      const response = await apiClient.post('/auth/mfa-login', {
+        email,
+        password,
+        mfa_token: mfaToken,
+        user_uuid: userUuid
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error logging in with MFA:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get OAuth auth providers
+   */
+  async getAuthProviders(): Promise<any[]> {
+    try {
+      const response = await apiClient.get('/auth/providers');
+      return response.data;
+    } catch (error) {
+      console.error('Error getting auth providers:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Connect OAuth provider
+   */
+  async connectOAuthProvider(providerType: string): Promise<{ auth_url?: string }> {
+    try {
+      const response = await apiClient.post('/auth/oauth/connect', {
+        provider_type: providerType
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error connecting OAuth provider:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete OAuth provider
+   */
+  async deleteAuthProvider(providerId: string): Promise<void> {
+    try {
+      await apiClient.delete(`/auth/providers/${providerId}`);
+    } catch (error) {
+      console.error('Error deleting auth provider:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Request password reset
+   */
+  async requestPasswordReset(email: string): Promise<{ message: string }> {
+    try {
+      const response = await apiClient.post('/auth/password-reset/request', { email });
+      return response.data;
+    } catch (error) {
+      console.error('Error requesting password reset:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Complete password reset
+   */
+  async completePasswordReset(token: string, newPassword: string): Promise<{ message: string }> {
+    try {
+      const response = await apiClient.post('/auth/password-reset/complete', {
+        token,
+        new_password: newPassword
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error completing password reset:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Request MFA reset
+   */
+  async requestMFAReset(email: string, password: string): Promise<{ message: string }> {
+    try {
+      const response = await apiClient.post('/auth/mfa-reset/request', {
+        email,
+        password
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error requesting MFA reset:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Complete MFA reset (returns limited-scope token for disabling MFA)
+   */
+  async completeMFAReset(token: string): Promise<{ token: string; user_uuid: string }> {
+    try {
+      const response = await apiClient.post('/auth/mfa-reset/complete', { token });
+      return response.data;
+    } catch (error) {
+      console.error('Error completing MFA reset:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Disable MFA with limited-scope token
+   */
+  async disableMFAWithToken(bearerToken: string): Promise<{ message: string }> {
+    try {
+      const response = await apiClient.post('/auth/mfa/disable',
+        {},
         {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${bearerToken}`
           }
         }
       );
+      return response.data;
     } catch (error) {
-      console.error('Error revoking all other sessions:', error);
+      console.error('Error disabling MFA with token:', error);
       throw error;
     }
   }

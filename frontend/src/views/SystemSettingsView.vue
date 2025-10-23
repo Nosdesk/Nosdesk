@@ -169,6 +169,7 @@ import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import BackButton from '@/components/common/BackButton.vue'
+import userService from '@/services/userService'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -242,43 +243,23 @@ const formatUptime = (milliseconds: number): string => {
 
 const cleanupStaleImages = async () => {
   if (isCleaningUp.value) return
-  
+
   // Confirm action
   if (!confirm('Are you sure you want to clean up stale images? This action cannot be undone.')) {
     return
   }
-  
+
   isCleaningUp.value = true
   cleanupResults.value = null
-  
+
   try {
-    const response = await fetch('/api/users/cleanup-images', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${authStore.token}`,
-        'Content-Type': 'application/json'
-      }
-    })
-    
-    const data = await response.json()
-    
-    if (response.ok) {
-      cleanupResults.value = {
-        success: true,
-        message: data.message,
-        stats: data.stats
-      }
-    } else {
-      cleanupResults.value = {
-        success: false,
-        message: data.message || 'Failed to cleanup stale images'
-      }
-    }
+    const data = await userService.cleanupStaleImages()
+    cleanupResults.value = data
   } catch (error) {
     console.error('Error cleaning up stale images:', error)
     cleanupResults.value = {
       success: false,
-      message: 'Network error occurred while cleaning up images'
+      message: 'An unexpected error occurred while cleaning up images'
     }
   } finally {
     isCleaningUp.value = false

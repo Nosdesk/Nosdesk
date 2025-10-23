@@ -203,6 +203,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import authService from '@/services/authService';
 
 const route = useRoute();
 const router = useRouter();
@@ -229,28 +230,16 @@ onMounted(async () => {
 
   try {
     // Validate the token and get the limited-scope JWT
-    const response = await fetch('/api/auth/mfa-reset/complete', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ token }),
-    });
+    const data = await authService.completeMFAReset(token);
 
-    const data = await response.json();
+    recoveryToken.value = data.token;
+    user.value = data.user_uuid;
 
-    if (response.ok) {
-      recoveryToken.value = data.token;
-      user.value = data.user;
-
-      // Start countdown timer
-      startTimer();
-    } else {
-      error.value = data.message || 'Invalid or expired recovery link. Please request a new one.';
-    }
-  } catch (err) {
+    // Start countdown timer
+    startTimer();
+  } catch (err: any) {
     console.error('MFA recovery error:', err);
-    error.value = 'Network error. Please check your connection and try again.';
+    error.value = err.response?.data?.message || 'Invalid or expired recovery link. Please request a new one.';
   } finally {
     loading.value = false;
   }
@@ -287,32 +276,17 @@ const disableMFA = async () => {
   disabling.value = true;
 
   try {
-    const response = await fetch('/api/auth/mfa/disable', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${recoveryToken.value}`,
-      },
-      body: JSON.stringify({
-        password: '' // Empty password for recovery session (magic link authenticated)
-      }),
-    });
+    await authService.disableMFAWithToken(recoveryToken.value);
 
-    const data = await response.json();
+    // MFA disabled successfully
+    showDisableConfirm.value = false;
 
-    if (response.ok) {
-      // MFA disabled successfully
-      showDisableConfirm.value = false;
-
-      // Show success message and redirect to login
-      alert('MFA has been disabled successfully. You can now log in with just your password.');
-      router.push('/login');
-    } else {
-      disableError.value = data.message || 'Failed to disable MFA. Please try again.';
-    }
-  } catch (err) {
+    // Show success message and redirect to login
+    alert('MFA has been disabled successfully. You can now log in with just your password.');
+    router.push('/login');
+  } catch (err: any) {
     console.error('MFA disable error:', err);
-    disableError.value = 'Network error. Please check your connection and try again.';
+    disableError.value = err.response?.data?.message || 'Failed to disable MFA. Please try again.';
   } finally {
     disabling.value = false;
   }

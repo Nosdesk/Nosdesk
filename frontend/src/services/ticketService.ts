@@ -1,8 +1,5 @@
-import axios from 'axios';
+import apiClient from './apiConfig';
 import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions';
-
-// Define the API base URL - use relative URL to work from any device
-const API_BASE_URL = '/api';
 
 // Request cancellation manager
 class RequestManager {
@@ -141,7 +138,7 @@ export interface CommentWithAttachments {
 // API functions for tickets
 export const getTickets = async (): Promise<Ticket[]> => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/tickets`);
+    const response = await apiClient.get('/tickets');
     return response.data;
   } catch (error) {
     console.error('Error fetching tickets:', error);
@@ -155,7 +152,7 @@ export const getPaginatedTickets = async (params: PaginationParams, requestKey: 
     // Create cancellable request
     const controller = requestManager.createRequest(requestKey);
     
-    const response = await axios.get(`${API_BASE_URL}/tickets/paginated`, { 
+    const response = await apiClient.get('/tickets/paginated', { 
       params,
       signal: controller.signal 
     });
@@ -177,7 +174,7 @@ export const getPaginatedTickets = async (params: PaginationParams, requestKey: 
 
 export const getTicketById = async (id: number): Promise<Ticket> => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/tickets/${id}`);
+    const response = await apiClient.get(`/tickets/${id}`);
     return response.data;
   } catch (error) {
     console.error(`Error fetching ticket ${id}:`, error);
@@ -188,7 +185,7 @@ export const getTicketById = async (id: number): Promise<Ticket> => {
 // Remove this function as we are using the createEmptyTicket function instead
 export const createTicket = async (ticket: Omit<Ticket, 'id' | 'created' | 'modified'>): Promise<Ticket> => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/tickets`, ticket);
+    const response = await apiClient.post(`/tickets`, ticket);
     return response.data;
   } catch (error) {
     console.error('Error creating ticket:', error);
@@ -198,7 +195,7 @@ export const createTicket = async (ticket: Omit<Ticket, 'id' | 'created' | 'modi
 
 export const updateTicket = async (id: number, ticket: Partial<Ticket>): Promise<Ticket> => {
   try {
-    const response = await axios.patch(`${API_BASE_URL}/tickets/${id}`, ticket);
+    const response = await apiClient.patch(`/tickets/${id}`, ticket);
     return response.data;
   } catch (error) {
     console.error(`Error updating ticket ${id}:`, error);
@@ -208,7 +205,7 @@ export const updateTicket = async (id: number, ticket: Partial<Ticket>): Promise
 
 export const deleteTicket = async (id: number): Promise<void> => {
   try {
-    await axios.delete(`${API_BASE_URL}/tickets/${id}`);
+    await apiClient.delete(`/tickets/${id}`);
   } catch (error) {
     console.error(`Error deleting ticket ${id}:`, error);
     throw error;
@@ -219,7 +216,7 @@ export const createEmptyTicket = async (): Promise<Ticket> => {
   console.log('createEmptyTicket called');
   try {
     console.log('Sending POST request to create empty ticket');
-    const response = await axios.post(`${API_BASE_URL}/tickets/empty`);
+    const response = await apiClient.post('/tickets/empty');
     console.log('Empty ticket created successfully:', response.data);
     return response.data;
   } catch (error) {
@@ -231,7 +228,7 @@ export const createEmptyTicket = async (): Promise<Ticket> => {
 // Link a ticket to another ticket
 export const linkTicket = async (ticketId: number, linkedTicketId: number): Promise<void> => {
   try {
-    await axios.post(`${API_BASE_URL}/tickets/${ticketId}/link/${linkedTicketId}`);
+    await apiClient.post(`/tickets/${ticketId}/link/${linkedTicketId}`);
   } catch (error) {
     console.error(`Error linking ticket ${ticketId} to ${linkedTicketId}:`, error);
     throw error;
@@ -241,7 +238,7 @@ export const linkTicket = async (ticketId: number, linkedTicketId: number): Prom
 // Unlink a ticket from another ticket
 export const unlinkTicket = async (ticketId: number, linkedTicketId: number): Promise<void> => {
   try {
-    await axios.delete(`${API_BASE_URL}/tickets/${ticketId}/unlink/${linkedTicketId}`);
+    await apiClient.delete(`/tickets/${ticketId}/unlink/${linkedTicketId}`);
   } catch (error) {
     console.error(`Error unlinking ticket ${ticketId} from ${linkedTicketId}:`, error);
     throw error;
@@ -255,7 +252,7 @@ export const addCommentToTicket = async (
   attachments: { url: string; name: string }[] = []
 ): Promise<Comment> => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/tickets/${ticketId}/comments`, {
+    const response = await apiClient.post(`/tickets/${ticketId}/comments`, {
       content,
       // user information is extracted from JWT token on backend for security
       attachments
@@ -270,7 +267,7 @@ export const addCommentToTicket = async (
 // Add an attachment to a comment
 export const addAttachmentToComment = async (commentId: number, url: string, name: string): Promise<Attachment> => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/comments/${commentId}/attachments`, {
+    const response = await apiClient.post(`/comments/${commentId}/attachments`, {
       url,
       name,
     });
@@ -284,7 +281,7 @@ export const addAttachmentToComment = async (commentId: number, url: string, nam
 // Delete a comment
 export const deleteComment = async (commentId: number): Promise<void> => {
   try {
-    await axios.delete(`${API_BASE_URL}/comments/${commentId}`);
+    await apiClient.delete(`/comments/${commentId}`);
   } catch (error) {
     console.error(`Error deleting comment ${commentId}:`, error);
     throw error;
@@ -294,7 +291,7 @@ export const deleteComment = async (commentId: number): Promise<void> => {
 // Delete an attachment
 export const deleteAttachment = async (attachmentId: number): Promise<void> => {
   try {
-    await axios.delete(`${API_BASE_URL}/attachments/${attachmentId}`);
+    await apiClient.delete(`/attachments/${attachmentId}`);
   } catch (error) {
     console.error(`Error deleting attachment ${attachmentId}:`, error);
     throw error;
@@ -304,7 +301,7 @@ export const deleteAttachment = async (attachmentId: number): Promise<void> => {
 // Get comments for a ticket
 export const getCommentsByTicketId = async (ticketId: number): Promise<CommentWithAttachments[]> => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/tickets/${ticketId}/comments`);
+    const response = await apiClient.get(`/tickets/${ticketId}/comments`);
     return response.data;
   } catch (error) {
     console.error(`Error getting comments for ticket ${ticketId}:`, error);
@@ -315,7 +312,7 @@ export const getCommentsByTicketId = async (ticketId: number): Promise<CommentWi
 // Add device to ticket
 export const addDeviceToTicket = async (ticketId: number, deviceId: number): Promise<void> => {
   try {
-    await axios.post(`${API_BASE_URL}/tickets/${ticketId}/devices/${deviceId}`);
+    await apiClient.post(`/tickets/${ticketId}/devices/${deviceId}`);
   } catch (error) {
     console.error(`Error adding device ${deviceId} to ticket ${ticketId}:`, error);
     throw error;
@@ -325,7 +322,7 @@ export const addDeviceToTicket = async (ticketId: number, deviceId: number): Pro
 // Remove device from ticket
 export const removeDeviceFromTicket = async (ticketId: number, deviceId: number): Promise<void> => {
   try {
-    await axios.delete(`${API_BASE_URL}/tickets/${ticketId}/devices/${deviceId}`);
+    await apiClient.delete(`/tickets/${ticketId}/devices/${deviceId}`);
   } catch (error) {
     console.error(`Error removing device ${deviceId} from ticket ${ticketId}:`, error);
     throw error;
@@ -339,13 +336,13 @@ export const cancelAllRequests = (): void => {
 
 // Get recent tickets for the authenticated user
 export const getRecentTickets = async () => {
-  const response = await axios.get(`${API_BASE_URL}/tickets/recent`);
+  const response = await apiClient.get('/tickets/recent');
   return response.data;
 };
 
 // Record a ticket view
 export const recordTicketView = async (ticketId: number) => {
-  const response = await axios.post(`${API_BASE_URL}/tickets/${ticketId}/view`);
+  const response = await apiClient.post(`/tickets/${ticketId}/view`);
   return response.data;
 };
 

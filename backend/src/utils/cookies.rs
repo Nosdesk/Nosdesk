@@ -2,9 +2,9 @@ use actix_web::cookie::{Cookie, SameSite};
 use chrono::{Duration, Utc};
 
 /// Cookie configuration constants
-const ACCESS_TOKEN_COOKIE: &str = "access_token";
-const REFRESH_TOKEN_COOKIE: &str = "refresh_token";
-const CSRF_TOKEN_COOKIE: &str = "csrf_token";
+pub const ACCESS_TOKEN_COOKIE: &str = "access_token";
+pub const REFRESH_TOKEN_COOKIE: &str = "refresh_token";
+pub const CSRF_TOKEN_COOKIE: &str = "csrf_token";
 
 /// Create an httpOnly cookie for the access token (24 hours)
 pub fn create_access_token_cookie(token: &str) -> Cookie<'static> {

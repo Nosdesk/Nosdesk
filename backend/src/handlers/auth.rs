@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, Responder, HttpRequest};
+use actix_web::{web, HttpResponse, Responder, HttpRequest, HttpMessage};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
 use bcrypt::verify;
 use serde::Deserialize;
@@ -272,15 +272,19 @@ pub async fn login(
 
     // Create standard login response (no MFA required)
     match jwt_helpers::create_login_response(user, &mut conn) {
-        Ok(response) => {
+        Ok((response, tokens)) => {
             // Create session record after successful login
-            if let Some(ref token) = response.token {
-                if let Err(e) = create_session_record(&user_uuid, token, &request, &mut conn).await {
-                    tracing::warn!("Failed to create session record for user {}: {}", user_uuid, e);
-                    // Don't fail the login if session creation fails
-                }
+            if let Err(e) = create_session_record(&user_uuid, &tokens.access_token, &request, &mut conn).await {
+                tracing::warn!("Failed to create session record for user {}: {}", user_uuid, e);
+                // Don't fail the login if session creation fails
             }
-            HttpResponse::Ok().json(response)
+
+            // Set httpOnly cookies for tokens
+            HttpResponse::Ok()
+                .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
+                .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
+                .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
+                .json(response)
         },
         Err(error_response) => error_response,
     }
@@ -395,18 +399,38 @@ pub async fn mfa_login(
         mfa_result.requires_backup_code_regeneration,
         &mut conn,
     ) {
-        Ok(response) => {
+        Ok((response, tokens)) => {
             // Create session record after successful MFA login
-            if let Some(ref token) = response.token {
-                if let Err(e) = create_session_record(&user_uuid, token, &request, &mut conn).await {
-                    tracing::warn!("Failed to create session record for user {}: {}", user_uuid, e);
-                    // Don't fail the login if session creation fails
-                }
+            if let Err(e) = create_session_record(&user_uuid, &tokens.access_token, &request, &mut conn).await {
+                tracing::warn!("Failed to create session record for user {}: {}", user_uuid, e);
+                // Don't fail the login if session creation fails
             }
-            HttpResponse::Ok().json(response)
+
+            // Set httpOnly cookies for tokens
+            HttpResponse::Ok()
+                .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
+                .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
+                .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
+                .json(response)
         },
         Err(error_response) => error_response,
     }
+}
+
+/// Logout endpoint - clears all authentication cookies
+pub async fn logout() -> impl Responder {
+    use crate::utils::cookies::{delete_access_token_cookie, delete_refresh_token_cookie, delete_csrf_token_cookie};
+
+    tracing::info!("🔓 User logging out");
+
+    HttpResponse::Ok()
+        .cookie(delete_access_token_cookie())
+        .cookie(delete_refresh_token_cookie())
+        .cookie(delete_csrf_token_cookie())
+        .json(json!({
+            "success": true,
+            "message": "Logged out successfully"
+        }))
 }
 
 pub async fn register(
@@ -819,7 +843,7 @@ pub async fn admin_reset_password(
 // Handler to get current authenticated user
 pub async fn get_current_user(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -829,11 +853,30 @@ pub async fn get_current_user(
         })),
     };
 
-    let (_claims, user) = match JwtUtils::authenticate_request(&auth, &mut conn).await {
-        Ok((claims, user)) => (claims, user),
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from request extensions (set by cookie_auth_middleware)
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
+        })),
+    };
+
+    // Parse UUID from claims
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid user UUID"
+        })),
+    };
+
+    // Get user from database using claims
+    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
+        Ok(user) => user,
+        Err(_) => return HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "User not found"
         })),
     };
 
@@ -1677,10 +1720,16 @@ pub async fn mfa_enable_login(
 
             // Generate JWT token and complete login
             match jwt_helpers::create_login_response(user, &mut conn) {
-                Ok(mut response) => {
+                Ok((mut response, tokens)) => {
                     // Attach plaintext backup codes for one-time display
                     response.backup_codes = Some(backup_codes_plaintext);
-                    HttpResponse::Ok().json(response)
+
+                    // Set httpOnly cookies for tokens
+                    HttpResponse::Ok()
+                        .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
+                        .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
+                        .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
+                        .json(response)
                 },
                 Err(error_response) => error_response,
             }
@@ -1955,7 +2004,7 @@ pub async fn revoke_all_other_sessions(
 /// Refresh access token using refresh token
 pub async fn refresh_token(
     db_pool: web::Data<crate::db::Pool>,
-    request_data: web::Json<crate::models::RefreshTokenRequest>,
+    request: HttpRequest,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -1965,8 +2014,19 @@ pub async fn refresh_token(
         })),
     };
 
+    // Read refresh token from cookie
+    let refresh_token = match request.cookie(crate::utils::cookies::REFRESH_TOKEN_COOKIE) {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(json!({
+                "status": "error",
+                "message": "Refresh token not found"
+            }));
+        }
+    };
+
     // Hash the provided refresh token to lookup in database
-    let token_hash = JwtUtils::hash_refresh_token(&request_data.refresh_token);
+    let token_hash = JwtUtils::hash_refresh_token(&refresh_token);
 
     // Get and validate the refresh token
     let refresh_token = match crate::repository::refresh_tokens::get_valid_refresh_token(&mut conn, &token_hash) {
@@ -2026,11 +2086,18 @@ pub async fn refresh_token(
         }));
     }
 
-    // Return both new tokens
+    // Generate new CSRF token
+    let new_csrf_token = crate::utils::csrf::generate_csrf_token();
+
+    // Return new tokens in cookies
     let response = crate::models::RefreshTokenResponse {
-        token: new_access_token,
-        refresh_token: new_refresh_token,
+        success: true,
+        csrf_token: new_csrf_token.clone(),
     };
 
-    HttpResponse::Ok().json(response)
+    HttpResponse::Ok()
+        .cookie(crate::utils::cookies::create_access_token_cookie(&new_access_token))
+        .cookie(crate::utils::cookies::create_refresh_token_cookie(&new_refresh_token))
+        .cookie(crate::utils::cookies::create_csrf_token_cookie(&new_csrf_token))
+        .json(response)
 }

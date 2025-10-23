@@ -83,10 +83,11 @@ totp-rs = "5.4.0"         # TOTP (Time-based One-Time Password) implementation
 qrcode = "0.14.1"         # QR code generation
 base32 = "0.4.0"          # Base32 encoding for TOTP secrets
 
-# Security dependencies for MFA encryption
+# Security dependencies for MFA encryption and CSRF
 ring = "0.17.8"           # Cryptographic primitives for AES-256-GCM encryption and SHA-256 hashing
 zeroize = { version = "1.8.1", features = ["derive"] } # Memory zeroing for sensitive data
 hex = "0.4.3"             # Hex encoding/decoding
+constant_time_eq = "0.3"  # Constant-time comparison for CSRF tokens
 ipnetwork = "0.20.0"      # IP network types for security events and sessions
 anyhow = "1.0"             # Error handling for applications
 async-trait = "0.1.83"     # Async traits for storage abstraction

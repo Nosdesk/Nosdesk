@@ -195,6 +195,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import authService from '@/services/authService';
 import logo from '@/assets/logo.svg';
 
 const router = useRouter();
@@ -251,27 +252,11 @@ const handleSubmit = async () => {
   loading.value = true;
 
   try {
-    const response = await fetch('/api/auth/password-reset/complete', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        token: token.value,
-        new_password: newPassword.value,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      resetSuccess.value = true;
-    } else {
-      errorMessage.value = data.message || 'Failed to reset password. The link may have expired.';
-    }
-  } catch (error) {
+    await authService.completePasswordReset(token.value, newPassword.value);
+    resetSuccess.value = true;
+  } catch (error: any) {
     console.error('Password reset error:', error);
-    errorMessage.value = 'Network error. Please check your connection and try again.';
+    errorMessage.value = error.response?.data?.message || 'Failed to reset password. The link may have expired.';
   } finally {
     loading.value = false;
   }

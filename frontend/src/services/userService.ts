@@ -543,6 +543,30 @@ const userService = {
   // Cancel all active requests
   cancelAllRequests(): void {
     requestManager.cancelAllRequests();
+  },
+
+  // Cleanup stale images (avatars, banners, thumbnails)
+  async cleanupStaleImages(): Promise<{
+    success: boolean;
+    message: string;
+    stats?: {
+      avatars_removed: number;
+      banners_removed: number;
+      thumbnails_removed?: number;
+      total_files_checked: number;
+      errors: string[];
+    };
+  }> {
+    try {
+      const response = await apiClient.post('/users/cleanup-images');
+      return response.data;
+    } catch (error: any) {
+      console.error('Error cleaning up stale images:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to cleanup stale images'
+      };
+    }
   }
 };
 

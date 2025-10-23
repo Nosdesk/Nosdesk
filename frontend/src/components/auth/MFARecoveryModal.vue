@@ -152,6 +152,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import authService from '@/services/authService';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -183,28 +184,12 @@ const handleSubmit = async () => {
   loading.value = true;
 
   try {
-    const response = await fetch('/api/auth/mfa-reset/request', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        email: email.value,
-        password: password.value
-      }),
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      emailSent.value = true;
-    } else {
-      // Show generic error to prevent account enumeration
-      errorMessage.value = data.message || 'Failed to send recovery email. Please try again.';
-    }
-  } catch (error) {
+    await authService.requestMFAReset(email.value, password.value);
+    emailSent.value = true;
+  } catch (error: any) {
     console.error('MFA recovery request error:', error);
-    errorMessage.value = 'Network error. Please check your connection and try again.';
+    // Show generic error to prevent account enumeration
+    errorMessage.value = error.response?.data?.message || 'Failed to send recovery email. Please try again.';
   } finally {
     loading.value = false;
   }

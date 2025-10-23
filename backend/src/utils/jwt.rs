@@ -164,7 +164,18 @@ impl JwtUtils {
         conn: &mut DbConnection,
     ) -> Result<(Claims, User), ActixError> {
         let token = auth.token();
-        
+
+        match Self::validate_token_with_user_check(token, conn).await {
+            Ok((claims, user)) => Ok((claims, user)),
+            Err(jwt_error) => Err(jwt_error.into()),
+        }
+    }
+
+    /// Authenticate request using token string (for cookie-based auth)
+    pub async fn authenticate_with_token(
+        token: &str,
+        conn: &mut DbConnection,
+    ) -> Result<(Claims, User), ActixError> {
         match Self::validate_token_with_user_check(token, conn).await {
             Ok((claims, user)) => Ok((claims, user)),
             Err(jwt_error) => Err(jwt_error.into()),
