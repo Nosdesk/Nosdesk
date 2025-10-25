@@ -166,17 +166,15 @@ async fn main() -> std::io::Result<()> {
     debug!("  PORT: {}", env::var("PORT").unwrap_or("NOT_SET".to_string()));
     
     // Validate that JWT_SECRET is set and secure
-    info!("Validating JWT_SECRET...");
     let _jwt_secret = match std::env::var("JWT_SECRET") {
         Ok(secret) => {
             if secret.len() < 32 {
                 warn!("JWT_SECRET is less than 32 characters - consider using a longer key for production");
             }
-            info!("✅ JWT_SECRET validation passed");
             secret
         },
         Err(e) => {
-            error!("❌ ERROR: JWT_SECRET environment variable must be set: {}", e);
+            error!("❌ JWT_SECRET environment variable must be set: {}", e);
             error!("   Generate a secure key with: openssl rand -base64 32");
             std::process::exit(1);
         }
@@ -187,57 +185,50 @@ async fn main() -> std::io::Result<()> {
     info!("Environment: {}", environment);
     
     // Validate that MFA_ENCRYPTION_KEY is set for production
-    info!("Validating MFA_ENCRYPTION_KEY...");
     if environment == "production" {
         match std::env::var("MFA_ENCRYPTION_KEY") {
             Ok(key) => {
                 if key.len() != 64 {
-                    error!("❌ ERROR: MFA_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)");
+                    error!("❌ MFA_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)");
                     error!("   Generate a secure key with: openssl rand -hex 32");
                     std::process::exit(1);
                 }
                 // Validate it's valid hex
                 if hex::decode(&key).is_err() {
-                    error!("❌ ERROR: MFA_ENCRYPTION_KEY must be valid hexadecimal");
+                    error!("❌ MFA_ENCRYPTION_KEY must be valid hexadecimal");
                     error!("   Generate a secure key with: openssl rand -hex 32");
                     std::process::exit(1);
                 }
-                info!("✅ MFA_ENCRYPTION_KEY validation passed");
             },
             Err(e) => {
-                error!("❌ ERROR: MFA_ENCRYPTION_KEY environment variable must be set in production: {}", e);
+                error!("❌ MFA_ENCRYPTION_KEY environment variable must be set in production: {}", e);
                 error!("   Generate a secure key with: openssl rand -hex 32");
                 std::process::exit(1);
             }
         }
     } else if std::env::var("MFA_ENCRYPTION_KEY").is_err() {
-        warn!("⚠️  WARNING: MFA_ENCRYPTION_KEY not set - MFA features will be disabled");
-        warn!("   Generate a secure key with: openssl rand -hex 32");
-    } else {
-        info!("✅ MFA_ENCRYPTION_KEY is set for development");
+        warn!("⚠️  MFA_ENCRYPTION_KEY not set - MFA features will be disabled");
+        warn!("   Generate with: openssl rand -hex 32");
     }
     
     // Security: Validate environment (already declared above)
     if environment == "production" {
-        info!("Running production security checks...");
         // Check for HTTPS in production URLs
         if let Ok(frontend_url) = env::var("FRONTEND_URL") {
             if !frontend_url.starts_with("https://") && !frontend_url.starts_with("http://localhost") {
-                warn!("⚠️  WARNING: FRONTEND_URL should use HTTPS in production");
+                warn!("⚠️  FRONTEND_URL should use HTTPS in production");
             }
         }
-        
+
         // Check database SSL in production
         if let Ok(db_url) = env::var("DATABASE_URL") {
             if !db_url.contains("sslmode=require") && !db_url.contains("localhost") {
-                warn!("⚠️  WARNING: DATABASE_URL should use sslmode=require in production");
+                warn!("⚠️  DATABASE_URL should use sslmode=require in production");
             }
         }
-        info!("✅ Production security checks completed");
     }
     
     // === RATE LIMITING CONFIGURATION ===
-    info!("Setting up rate limiting configuration...");
     // Get rate limiting configuration from environment with reasonable defaults
     let rate_limit_per_minute = env::var("RATE_LIMIT_PER_MINUTE")
         .unwrap_or("60".to_string()) // Conservative limit for public endpoints
@@ -251,20 +242,15 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(600)
         .clamp(120, 5000); // Higher limits for authenticated users: 120-5000 requests per minute
 
-    debug!("Rate limits - Public: {}/min, Auth: {}/min", rate_limit_per_minute, auth_rate_limit_per_minute);
-
     // Create rate limiter with Redis backend (fallback to in-memory for development)
     let redis_url = env::var("REDIS_URL").unwrap_or_else(|_| {
         if environment == "production" {
-            warn!("⚠️  WARNING: REDIS_URL not configured in production - using in-memory rate limiting");
+            warn!("⚠️  REDIS_URL not configured in production - using in-memory rate limiting");
         }
         "memory://".to_string()
     });
-    
-    debug!("Redis URL configured: {}", if redis_url.starts_with("redis://") { "redis://[redacted]" } else { &redis_url });
 
     // Build the public limiter (for unauthenticated requests)
-    info!("Building rate limiters...");
     let public_limiter = Limiter::builder(&redis_url)
         .key_by(|req: &actix_web::dev::ServiceRequest| {
             // Use IP address as the key for rate limiting
@@ -287,13 +273,10 @@ async fn main() -> std::io::Result<()> {
         .build();
 
     let public_limiter = match public_limiter {
-        Ok(limiter) => {
-            info!("✅ Public rate limiter initialized successfully");
-            limiter
-        },
+        Ok(limiter) => limiter,
         Err(e) => {
             warn!("⚠️  Rate limiter fallback: {}", e);
-            
+
             // Fallback to memory limiter
             let fallback = Limiter::builder("memory://")
                 .key_by(|req: &actix_web::dev::ServiceRequest| {
@@ -303,12 +286,9 @@ async fn main() -> std::io::Result<()> {
                 .limit(rate_limit_per_minute as usize)
                 .period(Duration::from_secs(60))
                 .build();
-                
+
             match fallback {
-                Ok(limiter) => {
-                    info!("✅ Fallback memory rate limiter initialized");
-                    limiter
-                },
+                Ok(limiter) => limiter,
                 Err(fallback_err) => {
                     error!("❌ Failed to initialize fallback rate limiter: {}", fallback_err);
                     return Err(std::io::Error::new(std::io::ErrorKind::Other, "Rate limiter initialization failed"));
@@ -318,13 +298,10 @@ async fn main() -> std::io::Result<()> {
     };
 
     let auth_limiter = match auth_limiter {
-        Ok(limiter) => {
-            info!("✅ Auth rate limiter initialized successfully");
-            limiter
-        },
+        Ok(limiter) => limiter,
         Err(e) => {
             warn!("⚠️  Auth rate limiter fallback: {}", e);
-            
+
             // Fallback to memory limiter
             let fallback = Limiter::builder("memory://")
                 .key_by(|req: &actix_web::dev::ServiceRequest| {
@@ -334,12 +311,9 @@ async fn main() -> std::io::Result<()> {
                 .limit(auth_rate_limit_per_minute as usize)
                 .period(Duration::from_secs(60))
                 .build();
-                
+
             match fallback {
-                Ok(limiter) => {
-                    info!("✅ Fallback memory auth rate limiter initialized");
-                    limiter
-                },
+                Ok(limiter) => limiter,
                 Err(fallback_err) => {
                     error!("❌ Failed to initialize fallback auth rate limiter: {}", fallback_err);
                     return Err(std::io::Error::new(std::io::ErrorKind::Other, "Auth rate limiter initialization failed"));
@@ -354,11 +328,8 @@ async fn main() -> std::io::Result<()> {
         error!("❌ Invalid PORT value: {}", e);
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid PORT")
     })?;
-    
-    info!("Server will bind to {}:{}", host, port);
 
     // Security: Get file upload limits from environment
-    info!("Configuring file upload limits...");
     let max_file_size_mb = env::var("MAX_FILE_SIZE_MB")
         .unwrap_or("50".to_string())
         .parse::<usize>()
@@ -366,18 +337,14 @@ async fn main() -> std::io::Result<()> {
         .clamp(1, 500); // 1MB to 500MB limit
 
     let max_payload_size = max_file_size_mb * 1024 * 1024; // Convert to bytes
-    debug!("Max file size: {}MB ({}bytes)", max_file_size_mb, max_payload_size);
 
     // Validate CORS configuration
-    info!("Configuring CORS...");
     let frontend_url = env::var("FRONTEND_URL").unwrap_or_else(|_| {
         if environment == "production" {
-            warn!("⚠️  WARNING: FRONTEND_URL not set in production");
+            warn!("⚠️  FRONTEND_URL not set in production");
         }
         "http://localhost:3000".to_string()
     });
-    
-    debug!("Frontend URL: {}", frontend_url);
 
     // Parse additional CORS origins if provided
     let additional_origins: Vec<String> = env::var("ADDITIONAL_CORS_ORIGINS")
@@ -386,18 +353,10 @@ async fn main() -> std::io::Result<()> {
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().to_string())
         .collect();
-        
-    if !additional_origins.is_empty() {
-        debug!("Additional CORS origins: {:?}", additional_origins);
-    }
 
     // Set up database connection pool
-    info!("Initializing database connection pool...");
     let pool = match std::panic::catch_unwind(|| db::establish_connection_pool()) {
-        Ok(pool) => {
-            info!("✅ Database connection pool initialized successfully");
-            pool
-        },
+        Ok(pool) => pool,
         Err(e) => {
             error!("❌ Database connection pool initialization panicked: {:?}", e);
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Database connection pool failed"));
@@ -405,9 +364,8 @@ async fn main() -> std::io::Result<()> {
     };
 
     // === DATABASE INITIALIZATION ===
-    info!("Initializing database...");
     match db::initialize_database(&pool).await {
-        Ok(_) => info!("✅ Database initialization completed successfully"),
+        Ok(_) => {},
         Err(e) => {
             error!("❌ Database initialization failed: {}", e);
             return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Database initialization failed: {}", e)));
@@ -421,13 +379,12 @@ async fn main() -> std::io::Result<()> {
     }
 
     // Create uploads directory structure if it doesn't exist
-    info!("Setting up file upload directories...");
     let uploads_dir = "/app/uploads";
     let directories = ["", "temp", "tickets", "users", "users/avatars", "users/banners", "users/thumbs"];
     for dir in directories.iter() {
         let full_path = format!("{}/{}", uploads_dir, dir);
         match std::fs::create_dir_all(&full_path) {
-            Ok(_) => debug!("✅ Directory ensured: {}", full_path),
+            Ok(_) => {},
             Err(e) => {
                 error!("❌ Failed to create directory {}: {}", full_path, e);
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create directory: {}", full_path)));
@@ -436,36 +393,27 @@ async fn main() -> std::io::Result<()> {
     }
 
     // Initialize WebSocket app state for collaborative editing
-    info!("Initializing WebSocket state for collaborative editing...");
     let yjs_app_state = web::Data::new(handlers::collaboration::YjsAppState::new(web::Data::new(pool.clone())));
-    
+
     // Initialize SSE state for real-time ticket updates
-    info!("Initializing SSE state for real-time updates...");
     let sse_state = web::Data::new(handlers::sse::SseState::new());
 
     // Share the limiters across all app instances
     let public_limiter_data = web::Data::new(public_limiter);
     let auth_limiter_data = web::Data::new(auth_limiter);
 
-    info!("🌐 Server configuration complete - binding to http://{}:{}", host, port);
-    if environment == "production" {
-        info!("🔒 Production mode active");
-    }
     if host == "0.0.0.0" {
-        warn!("⚠️  WARNING: Server bound to all interfaces (0.0.0.0)");
+        warn!("⚠️  Server bound to all interfaces (0.0.0.0)");
     }
-    
+
     // Initialize storage backend
-    info!("🗂️  Initializing storage backend...");
     let storage_config = get_storage_config();
     let storage = create_storage(storage_config);
     let storage_data = web::Data::new(storage.clone());
-    
-    info!("🚀 Starting HTTP server...");
+
+    info!("🚀 Server starting on http://{}:{} ({})", host, port, environment);
     
     let server_result = HttpServer::new(move || {
-        debug!("Creating new App instance...");
-        
         // Configure CORS with specific allowed origins
         let mut cors = Cors::default()
             .allowed_origin(&frontend_url)

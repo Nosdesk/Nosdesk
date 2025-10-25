@@ -21,30 +21,25 @@ static INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// This function is designed to be called only once
 pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if INITIALIZED.load(Ordering::Acquire) {
-        info!("✅ Database already initialized");
         return Ok(());
     }
 
-    info!("🔧 Initializing database...");
-    
     // Wait for database to be ready
-    info!("⏳ Waiting for database...");
     let mut attempts = 0;
     while attempts < 30 {
         match pool.get() {
             Ok(mut conn) => {
                 if diesel::sql_query("SELECT 1").execute(&mut conn).is_ok() {
-                    info!("✅ Database is ready");
                     break;
                 }
             }
             Err(_) => {}
         }
-        
+
         attempts += 1;
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
-    
+
     if attempts >= 30 {
         return Err("Database not ready after 60 seconds".into());
     }
@@ -52,14 +47,11 @@ pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::
     // Run migrations
     let mut conn = pool.get()
         .map_err(|e| format!("Failed to get database connection: {}", e))?;
-    
-    info!("📋 Running migrations...");
+
     match conn.run_pending_migrations(MIGRATIONS) {
         Ok(migrations) => {
-            if migrations.is_empty() {
-                info!("✅ Database schema is up to date");
-            } else {
-                info!("✅ Applied {} migration(s)", migrations.len());
+            if !migrations.is_empty() {
+                info!("Applied {} database migration(s)", migrations.len());
             }
         }
         Err(e) => {
@@ -83,7 +75,6 @@ pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::
     }
 
     INITIALIZED.store(true, Ordering::Release);
-    info!("✅ Database initialization completed");
     Ok(())
 }
 
