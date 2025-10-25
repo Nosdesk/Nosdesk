@@ -1,5 +1,4 @@
 use diesel::prelude::*;
-use chrono::Utc;
 use crate::db::DbConnection;
 use crate::models::{SyncHistory, NewSyncHistory, SyncHistoryUpdate};
 use crate::schema::sync_history;

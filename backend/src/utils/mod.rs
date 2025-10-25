@@ -9,6 +9,8 @@ pub mod email;
 pub mod reset_tokens;
 pub mod csrf;
 pub mod cookies;
+pub mod file_validation;
+pub mod rate_limit;
 
 use uuid::Uuid;
 use crate::models::{UserRole, UserInfo};

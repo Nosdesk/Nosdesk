@@ -5,6 +5,7 @@ mod repository;
 mod schema;
 mod config_utils;
 mod utils;
+mod middleware;
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Error, HttpMessage};
@@ -496,6 +497,7 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .wrap(cors)
+            .wrap(crate::middleware::SecurityHeaders) // Apply security headers globally
             .wrap(crate::utils::csrf::CsrfProtection)
             .app_data(public_limiter_data.clone())
             .app_data(auth_limiter_data.clone())

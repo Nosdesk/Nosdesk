@@ -17,11 +17,30 @@ pub mod mfa_reset;
 
 // Import all handlers from modules
 pub use auth::*;
-pub use users::*;
+// Export specific items from users to avoid conflicts
+pub use users::{
+    get_users, get_paginated_users, get_users_batch, create_user,
+    get_user_by_uuid, update_user_by_uuid, delete_user, upload_user_image,
+    get_user_emails, get_user_with_emails, cleanup_stale_images,
+    get_user_auth_identities, delete_user_auth_identity,
+    get_user_auth_identities_by_uuid, delete_user_auth_identity_by_uuid
+};
 pub use files::*;
-pub use tickets::*;
+// Export specific items from tickets to avoid conflicts
+pub use tickets::{
+    get_tickets, get_paginated_tickets, get_recent_tickets, create_ticket,
+    create_empty_ticket, get_ticket, update_ticket, update_ticket_partial,
+    delete_ticket, record_ticket_view, import_tickets_from_json,
+    import_tickets_from_json_string, link_tickets, unlink_tickets,
+    add_device_to_ticket, remove_device_from_ticket
+};
 pub use projects::*;
-pub use devices::*;
+// Export specific items from devices to avoid conflicts
+pub use devices::{
+    get_all_devices, get_paginated_devices, get_paginated_devices_excluding,
+    create_device, get_device_by_id, update_device, delete_device,
+    get_user_devices
+};
 pub use documentation::*;
 pub use auth_providers::*;
 pub use microsoft_graph::*;

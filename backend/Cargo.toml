@@ -77,6 +77,7 @@ image = { version = "0.24", features = ["webp", "jpeg", "png"] }
 
 # Rate limiting for security
 actix-limitation = "0.5.1"
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
 
 # MFA (Multi-Factor Authentication) dependencies
 totp-rs = "5.4.0"         # TOTP (Time-based One-Time Password) implementation
@@ -94,6 +95,9 @@ async-trait = "0.1.83"     # Async traits for storage abstraction
 
 # Email dependencies
 lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder", "hostname"] }
+
+# File validation - MIME type detection via magic numbers
+infer = "0.16"             # Detect file types from magic numbers for secure upload validation
 
 # For testing only
 [dev-dependencies]

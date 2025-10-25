@@ -43,15 +43,13 @@ pub fn get_paginated_users(
     // Handle role filter - convert string to UserRole enum
     if let Some(role_filter) = role.clone() {
         if role_filter != "all" {
-            if let Ok(role_enum) = role_filter.parse::<String>() {
-                let user_role = match role_enum.as_str() {
-                    "admin" => UserRole::Admin,
-                    "technician" => UserRole::Technician,
-                    "user" => UserRole::User,
-                    _ => UserRole::User,
-                };
-                query = query.filter(users::role.eq(user_role));
-            }
+            let user_role = match role_filter.as_str() {
+                "admin" => UserRole::Admin,
+                "technician" => UserRole::Technician,
+                "user" => UserRole::User,
+                _ => UserRole::User,
+            };
+            query = query.filter(users::role.eq(user_role));
         }
     }
     
@@ -75,15 +73,13 @@ pub fn get_paginated_users(
     // Handle role filter for count query
     if let Some(role_filter) = role {
         if role_filter != "all" {
-            if let Ok(role_enum) = role_filter.parse::<String>() {
-                let user_role = match role_enum.as_str() {
-                    "admin" => UserRole::Admin,
-                    "technician" => UserRole::Technician,
-                    "user" => UserRole::User,
-                    _ => UserRole::User,
-                };
-                count_query = count_query.filter(users::role.eq(user_role));
-            }
+            let user_role = match role_filter.as_str() {
+                "admin" => UserRole::Admin,
+                "technician" => UserRole::Technician,
+                "user" => UserRole::User,
+                _ => UserRole::User,
+            };
+            count_query = count_query.filter(users::role.eq(user_role));
         }
     }
     

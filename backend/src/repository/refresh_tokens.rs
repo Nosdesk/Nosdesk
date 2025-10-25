@@ -1,5 +1,4 @@
 use diesel::prelude::*;
-use uuid::Uuid;
 use chrono::Utc;
 
 use crate::db::DbConnection;

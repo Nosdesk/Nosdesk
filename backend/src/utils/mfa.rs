@@ -370,9 +370,47 @@ pub async fn log_mfa_attempt(
     }
 }
 
-/// MFA rate limiting check (placeholder for future implementation)
+/// MFA rate limiting configuration
+const MFA_MAX_ATTEMPTS: u32 = 5; // Maximum attempts
+const MFA_WINDOW_SECONDS: u64 = 900; // 15 minutes (OWASP recommended)
+
+/// MFA rate limiting check using Redis
+/// Allows 5 attempts per 15 minutes following OWASP guidance
+///
+/// # Arguments
+/// * `user_uuid` - User's UUID to check rate limit for
+///
+/// # Returns
+/// * `true` - Request is allowed (under limit)
+/// * `false` - Rate limit exceeded (too many attempts)
 pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
-    // TODO: Implement rate limiting using Redis or database
-    tracing::info!("MFA attempt for user {} (rate limiting not yet implemented)", user_uuid);
-    true
+    use crate::utils::rate_limit::RateLimiter;
+
+    // Get Redis URL from environment
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+
+    // Generate rate limit key for this user
+    let key = RateLimiter::mfa_attempt_key(user_uuid);
+
+    // Check the rate limit
+    match RateLimiter::check_rate_limit(&redis_url, &key, MFA_MAX_ATTEMPTS, MFA_WINDOW_SECONDS).await {
+        Ok(allowed) => {
+            if !allowed {
+                tracing::warn!(
+                    "MFA rate limit exceeded for user {} ({} attempts in {} seconds)",
+                    user_uuid,
+                    MFA_MAX_ATTEMPTS,
+                    MFA_WINDOW_SECONDS
+                );
+            }
+            allowed
+        }
+        Err(e) => {
+            // On Redis error, log it but allow the attempt (fail open for availability)
+            // In production, you might want to fail closed instead
+            tracing::error!("MFA rate limit check failed for user {}: {}", user_uuid, e);
+            tracing::warn!("Allowing MFA attempt due to rate limit check failure (fail-open mode)");
+            true
+        }
+    }
 } 

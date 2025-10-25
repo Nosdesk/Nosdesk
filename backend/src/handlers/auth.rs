@@ -10,7 +10,7 @@ use tracing::{error, debug};
 use crate::db::DbConnection;
 use crate::models::{
     Claims, LoginRequest, PasswordChangeRequest,
-    UserRegistration, UserResponse, UserRole
+    UserRegistration, UserResponse
 };
 use crate::repository;
 use crate::utils::{self, ValidationError, parse_uuid};
@@ -886,11 +886,8 @@ pub async fn check_setup_status(
                 user_count,
             };
             
-            HttpResponse::Ok()
-                .insert_header(("X-Content-Type-Options", "nosniff"))
-                .insert_header(("X-Frame-Options", "DENY"))
-                .insert_header(("X-XSS-Protection", "1; mode=block"))
-                .json(response)
+            // Security headers now applied globally by SecurityHeaders middleware
+            HttpResponse::Ok().json(response)
         },
         Err(e) => {
             error!("Error counting users: {:?}", e);

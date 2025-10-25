@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::db::DbConnection;
 use crate::models::NewAttachment;
 use crate::utils::storage::Storage;
+use crate::utils::file_validation::FileValidator;
 
 // Upload files using the storage abstraction
 pub async fn upload_files(
@@ -34,31 +35,51 @@ pub async fn upload_files(
         
         // Get the filename from the field
         let content_disposition = field.content_disposition();
-        let filename = content_disposition
+        let original_filename = content_disposition
             .get_filename()
-            .map_or_else(|| format!("unnamed_file_{}", uuid::Uuid::new_v4()), |f| f.to_string());
-        
-        // Get content type if available
-        let content_type = field.content_type().map(|ct| ct.to_string()).unwrap_or_else(|| "application/octet-stream".to_string());
-        
-        println!("Processing uploaded file: {} ({})", filename, content_type);
-        
+            .ok_or_else(|| actix_web::error::ErrorBadRequest("Filename is required"))?;
 
-        
-        // Read the field data
+        // SECURITY: Sanitize filename to prevent path traversal attacks
+        let sanitized_filename = FileValidator::sanitize_filename(original_filename)
+            .map_err(|e| {
+                eprintln!("Filename sanitization failed: {:?}", e);
+                actix_web::error::ErrorBadRequest(format!("Invalid filename: {}", e))
+            })?;
+
+        println!("Processing uploaded file: {} (sanitized: {})", original_filename, sanitized_filename);
+
+        // Read the field data with incremental size validation
         let mut file_data = Vec::new();
+        let mut total_size = 0usize;
+
         while let Some(chunk) = field.next().await {
             let data = chunk.map_err(|e| {
                 eprintln!("Error reading chunk: {:?}", e);
                 actix_web::error::ErrorInternalServerError("Error reading chunk")
             })?;
+
+            // SECURITY: Validate chunk doesn't cause file to exceed max size
+            // This prevents memory exhaustion attacks
+            FileValidator::validate_chunk_size(total_size, data.len())?;
+
+            total_size += data.len();
             file_data.extend_from_slice(&data);
         }
+
+        println!("Read {} bytes of data for file {}", total_size, sanitized_filename);
+
+        // SECURITY: Validate MIME type using magic number detection
+        // This is more secure than trusting Content-Type headers
+        let detected_mime = FileValidator::validate_mime_type(&file_data)
+            .map_err(|e| {
+                eprintln!("MIME validation failed: {:?}", e);
+                actix_web::error::ErrorBadRequest(format!("Invalid file type: {}", e))
+            })?;
+
+        println!("Validated MIME type: {}", detected_mime);
         
-        println!("Read {} bytes of data for file {}", file_data.len(), filename);
-        
-        // Store the file using the storage abstraction
-        let stored_file = storage.store_file(&file_data, &filename, &content_type, "temp")
+        // Store the file using the storage abstraction with validated MIME type
+        let stored_file = storage.store_file(&file_data, &sanitized_filename, &detected_mime, "temp")
             .await
             .map_err(|e| {
                 eprintln!("Failed to store file: {:?}", e);
@@ -80,7 +101,7 @@ pub async fn upload_files(
                 let attachment_json = json!({
                     "id": attachment.id,
                     "url": stored_file.url,
-                    "name": filename // Use original filename for display
+                    "name": sanitized_filename // Use sanitized filename
                 });
                 println!("Attachment created successfully: {:?}", attachment_json);
                 uploaded_attachments.push(attachment_json);
