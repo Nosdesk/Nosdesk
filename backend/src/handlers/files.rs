@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use crate::db::DbConnection;
 use crate::models::NewAttachment;
-use crate::repository;
 use crate::utils::storage::Storage;
 
 // Upload files using the storage abstraction

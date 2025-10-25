@@ -7,10 +7,7 @@ use serde_json::json;
 use uuid::Uuid;
 use futures::{StreamExt, TryStreamExt};
 use actix_multipart::Multipart;
-use std::fs;
-use std::path::Path;
 use std::collections::HashSet;
-use chrono::NaiveDateTime;
 
 use crate::models::{NewUser, UserResponse, UserUpdate, UserUpdateWithPassword, UserProfileUpdate};
 use crate::repository;

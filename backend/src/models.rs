@@ -5,7 +5,7 @@ use diesel::deserialize::{self, FromSql};
 use diesel::pg::{Pg, PgValue};
 use diesel::serialize::{self, IsNull, Output, ToSql};
 // Removed unused import: use diesel::sql_types::Text;
-use serde::{Deserialize, Serialize, Deserializer};
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 use serde_json;
 use uuid::Uuid;
@@ -488,24 +488,9 @@ pub struct DocumentationPageWithChildren {
     pub children: Vec<DocumentationPage>,
 }
 
-// Model for reordering pages
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ReorderPagesRequest {
-    pub parent_id: Option<i32>,
-    pub page_orders: Vec<PageOrder>,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PageOrder {
     pub page_id: i32,
-    pub display_order: i32,
-}
-
-// Model for moving a page to a new parent
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MovePageRequest {
-    pub page_id: i32,
-    pub new_parent_id: Option<i32>,
     pub display_order: i32,
 }
 
@@ -956,12 +941,6 @@ pub struct MfaEnableLoginRequest {
     pub password: String,
     pub token: String,
     pub secret: Option<String>,
-}
-
-/// Request for refreshing access token
-#[derive(Debug, Deserialize)]
-pub struct RefreshTokenRequest {
-    pub refresh_token: String,
 }
 
 /// Response for token refresh

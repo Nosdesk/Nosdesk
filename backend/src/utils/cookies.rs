@@ -1,5 +1,4 @@
 use actix_web::cookie::{Cookie, SameSite};
-use chrono::{Duration, Utc};
 
 /// Cookie configuration constants
 pub const ACCESS_TOKEN_COOKIE: &str = "access_token";
@@ -80,7 +79,3 @@ fn is_production() -> bool {
         == "production"
 }
 
-/// Cookie name constants for extraction
-pub const ACCESS_TOKEN_COOKIE_NAME: &str = ACCESS_TOKEN_COOKIE;
-pub const REFRESH_TOKEN_COOKIE_NAME: &str = REFRESH_TOKEN_COOKIE;
-pub const CSRF_TOKEN_COOKIE_NAME: &str = CSRF_TOKEN_COOKIE;

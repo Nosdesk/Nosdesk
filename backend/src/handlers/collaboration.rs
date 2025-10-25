@@ -798,7 +798,7 @@ pub async fn ws_handler(
     println!("WebSocket connection request for document: {}", doc_id);
     
     // Extract and validate JWT token from httpOnly cookie
-    use actix_web::HttpMessage;
+    
 
     let token = req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("No authentication cookie"))?;

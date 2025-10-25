@@ -87,7 +87,7 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
-    // Handle authentication errors
+    // Handle authentication errors silently (expired tokens)
     if (error.response && error.response.status === 401) {
       // If we're already on the login page, don't redirect
       if (!window.location.pathname.includes('/login')) {
@@ -95,9 +95,11 @@ apiClient.interceptors.response.use(
         localStorage.removeItem('authProvider');
         window.location.href = '/login';
       }
+      // Return rejected promise without logging to console (expected behavior for expired tokens)
+      return Promise.reject(new Error('Authentication expired'));
     }
-    
-    // Log error details in development
+
+    // Log other errors in development
     if (import.meta.env.DEV) {
       console.error('API Error:', {
         message: error.message,
@@ -108,7 +110,7 @@ apiClient.interceptors.response.use(
         } : 'No response'
       });
     }
-    
+
     return Promise.reject(error);
   }
 );

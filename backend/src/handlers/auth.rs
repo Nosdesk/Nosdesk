@@ -54,30 +54,6 @@ impl From<ValidationError> for HttpResponse {
 
 
 
-/// Helper function to parse UUID from string (like JWT claims)
-fn parse_uuid_from_string(uuid_str: &str) -> Result<Uuid, String> {
-    Uuid::parse_str(uuid_str).map_err(|_| "Invalid UUID format".to_string())
-}
-
-/// Helper function to convert UserRole enum to string for JWT
-fn user_role_to_string(role: &UserRole) -> String {
-    match role {
-        UserRole::Admin => "admin".to_string(),
-        UserRole::Technician => "technician".to_string(),
-        UserRole::User => "user".to_string(),
-    }
-}
-
-/// Helper function to parse string to UserRole enum
-fn parse_user_role(role_str: &str) -> Result<UserRole, String> {
-    match role_str.to_lowercase().as_str() {
-        "admin" => Ok(UserRole::Admin),
-        "technician" => Ok(UserRole::Technician),
-        "user" => Ok(UserRole::User),
-        _ => Err("Invalid role".to_string()),
-    }
-}
-
 /// Helper function to log password change security event
 async fn log_password_change_event(
     user_uuid: &Uuid,

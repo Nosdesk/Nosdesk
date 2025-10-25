@@ -1,5 +1,4 @@
 use actix_web::{web, HttpResponse, Responder};
-use serde_json::json;
 use diesel::result::Error;
 
 use crate::db::Pool;

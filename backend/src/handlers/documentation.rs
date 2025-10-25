@@ -1,8 +1,7 @@
 use actix_web::{web, HttpResponse, Responder};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
-use serde_json::json;
 use chrono::Utc;
-use serde::{Serialize, Deserialize};
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::db::Pool;

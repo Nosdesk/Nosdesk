@@ -1,4 +1,4 @@
-use chrono::{NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::QueryResult;
@@ -408,11 +408,6 @@ fn extract_storage_path_from_url(url: &str) -> Option<String> {
     } else {
         None
     }
-}
-
-/// Simple ticket deletion (kept for backward compatibility)
-pub fn delete_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usize> {
-    diesel::delete(tickets::table.find(ticket_id)).execute(conn)
 }
 
 // Composite operations for tickets

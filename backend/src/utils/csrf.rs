@@ -1,7 +1,7 @@
 use rand::Rng;
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error, HttpMessage, HttpResponse, http::Method,
+    Error, HttpMessage, http::Method,
 };
 use futures::future::LocalBoxFuture;
 use std::future::{ready, Ready};

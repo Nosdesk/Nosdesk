@@ -7,14 +7,13 @@ use urlencoding;
 use querystring;
 use serde::Deserialize;
 use reqwest;
-use uuid::Uuid;
 
 use crate::db::{Pool, DbConnection};
 use crate::handlers::auth::validate_token_internal;
-use crate::utils::jwt::{JwtUtils, JWT_SECRET};
+use crate::utils::jwt::JWT_SECRET;
 use crate::models::{
     OAuthRequest, OAuthExchangeRequest,
-    OAuthState, UserAuthIdentity, Claims, NewUserAuthIdentity, AuthProvider
+    OAuthState, Claims, AuthProvider
 };
 // Auth providers are now configured via environment variables
 use crate::repository::user_auth_identities;
@@ -654,7 +653,7 @@ pub async fn oauth_logout(
     logout_request: web::Json<OAuthLogoutRequest>,
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
+    let conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -893,7 +892,7 @@ async fn find_or_create_oauth_user(
         None => return Err("No id in user info".to_string()),
     };
     
-    use crate::models::{User, NewUserAuthIdentity};
+    use crate::models::NewUserAuthIdentity;
     
     // First try to find the user by their external identity
     match user_auth_identities::find_user_by_identity(&provider.provider_type, &provider_user_id, conn) {
@@ -941,7 +940,7 @@ async fn find_or_create_oauth_user(
     }
     
     // Create a new user
-    use crate::models::{NewUser, UserRole};
+    use crate::models::UserRole;
     // Removed unused import: use uuid::Uuid;
     
     // Generate a secure random password for the user

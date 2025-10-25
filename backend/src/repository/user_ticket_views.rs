@@ -1,5 +1,4 @@
 use crate::models::{NewUserTicketView, RecentTicket, UpdateUserTicketView, UserTicketView};
-use crate::schema::{tickets, user_ticket_views};
 use chrono::Utc;
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool};

@@ -1,7 +1,6 @@
 use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::sql_types::{Integer, Nullable};
-use chrono::NaiveDateTime;
 
 use crate::db::DbConnection;
 use crate::models::{
@@ -82,7 +81,7 @@ pub fn get_documentation_pages_by_ticket_id(conn: &mut DbConnection, ticket_id: 
 }
 
 // Define a SQL function for coalesce
-sql_function! {
+diesel::define_sql_function! {
     fn coalesce(x: Nullable<Integer>, y: Integer) -> Integer;
 }
 

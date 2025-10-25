@@ -7,10 +7,8 @@ mod config_utils;
 mod utils;
 
 use actix_cors::Cors;
-use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, dev::ServiceRequest, Error, HttpMessage};
-use actix_web_httpauth::middleware::HttpAuthentication;
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Error, HttpMessage};
 use actix_files::Files;
-use actix_web_httpauth::extractors::bearer::BearerAuth;
 use actix_limitation::{Limiter, RateLimiter};
 use dotenv::dotenv;
 use serde_json;

@@ -6,7 +6,7 @@ use dotenv::dotenv;
 use std::env;
 use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tracing::{info, warn, error, debug};
+use tracing::{info, warn, error};
 
 pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;

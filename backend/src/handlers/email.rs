@@ -1,9 +1,9 @@
 use actix_web::{web, HttpResponse, Responder};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 
-use crate::db::{Pool, DbConnection};
+use crate::db::Pool;
 use crate::handlers::auth::validate_token_internal;
 use crate::utils::email::{EmailService, EmailConfig};
 

@@ -2,7 +2,6 @@ use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde_json::json;
 use chrono::{Duration, Utc};
 
-use crate::db::DbConnection;
 use crate::models::{MfaResetRequest, MfaResetResponse, MfaResetCompleteRequest};
 use crate::repository;
 use crate::utils::reset_tokens::{ResetTokenUtils, TokenType};

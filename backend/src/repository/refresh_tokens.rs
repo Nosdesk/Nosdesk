@@ -40,27 +40,3 @@ pub fn revoke_refresh_token(
     .execute(conn)
 }
 
-/// Revoke all refresh tokens for a user
-pub fn revoke_all_user_tokens(
-    conn: &mut DbConnection,
-    user_uuid: &Uuid,
-) -> Result<usize, diesel::result::Error> {
-    diesel::update(
-        refresh_tokens::table.filter(refresh_tokens::user_uuid.eq(user_uuid))
-    )
-    .set(refresh_tokens::revoked_at.eq(Utc::now().naive_utc()))
-    .execute(conn)
-}
-
-/// Clean up expired and revoked tokens
-pub fn cleanup_expired_tokens(
-    conn: &mut DbConnection,
-) -> Result<usize, diesel::result::Error> {
-    diesel::delete(
-        refresh_tokens::table.filter(
-            refresh_tokens::expires_at.lt(Utc::now().naive_utc())
-                .or(refresh_tokens::revoked_at.is_not_null())
-        )
-    )
-    .execute(conn)
-}

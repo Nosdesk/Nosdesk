@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{UserAuthIdentity, NewUserAuthIdentity, UserAuthIdentityDisplay};
-use crate::schema::{user_auth_identities, users};
+use crate::schema::user_auth_identities;
 
 // Create a new user auth identity
 pub fn create_identity(
@@ -148,28 +148,4 @@ pub fn delete_identity_by_uuid(
     ).execute(conn)
 }
 
-// Check if a user has any identities of a specific provider type
-pub fn has_provider_identity(
-    user_id: i32,
-    provider_type: &str,
-    conn: &mut DbConnection,
-) -> Result<bool, Error> {
-    // Check if the user has an identity for this provider
-    let count = user_auth_identities::table
-        .filter(user_auth_identities::user_id.eq(user_id))
-        .filter(user_auth_identities::provider_type.eq(provider_type))
-        .count()
-        .get_result::<i64>(conn)?;
-    
-    Ok(count > 0)
-}
-
-// Get all identities for a specific provider type
-pub fn get_identities_by_provider_type(
-    provider_type: &str,
-    conn: &mut DbConnection,
-) -> Result<Vec<UserAuthIdentity>, Error> {
-    user_auth_identities::table
-        .filter(user_auth_identities::provider_type.eq(provider_type))
-        .load::<UserAuthIdentity>(conn)
-} 
+ 

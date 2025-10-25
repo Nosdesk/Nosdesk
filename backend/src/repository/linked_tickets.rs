@@ -3,7 +3,6 @@ use diesel::QueryResult;
 
 use crate::db::DbConnection;
 use crate::models::*;
-use crate::schema::*;
 
 // Linked Tickets
 pub fn get_linked_tickets(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<i32>> {

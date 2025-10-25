@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio::time::interval;
 use tokio_stream::wrappers::BroadcastStream;
-use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 // Event types for SSE
@@ -199,7 +198,7 @@ impl SseStream {
 impl Stream for SseStream {
     type Item = Result<actix_web::web::Bytes, actix_web::Error>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         let client_id = this.client_id.clone();
 
@@ -338,7 +337,7 @@ pub async fn get_sse_token(
 ) -> impl actix_web::Responder {
     use actix_web::HttpMessage;
 
-    let mut conn = match pool.get() {
+    let conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => {
             return HttpResponse::InternalServerError().json("Database connection error");

@@ -4,7 +4,7 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::ResetToken;
 use crate::schema::reset_tokens;
-use crate::utils::reset_tokens::{TokenType, ResetTokenUtils};
+use crate::utils::reset_tokens::ResetTokenUtils;
 
 /// Create a new reset token in the database
 pub fn create_reset_token(
@@ -53,26 +53,6 @@ pub fn mark_token_as_used(
             reset_tokens::is_used.eq(true),
         ))
         .get_result(conn)
-}
-
-/// Delete expired tokens (cleanup job)
-pub fn delete_expired_tokens(conn: &mut DbConnection) -> QueryResult<usize> {
-    diesel::delete(reset_tokens::table.filter(reset_tokens::expires_at.lt(Utc::now())))
-        .execute(conn)
-}
-
-/// Delete all tokens for a user of a specific type
-pub fn delete_user_tokens_by_type(
-    conn: &mut DbConnection,
-    user_uuid_value: Uuid,
-    token_type_value: &str,
-) -> QueryResult<usize> {
-    diesel::delete(
-        reset_tokens::table
-            .filter(reset_tokens::user_uuid.eq(user_uuid_value))
-            .filter(reset_tokens::token_type.eq(token_type_value))
-    )
-    .execute(conn)
 }
 
 /// Count tokens for a user created within a time window (for rate limiting)
