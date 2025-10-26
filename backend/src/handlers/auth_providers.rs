@@ -985,7 +985,7 @@ fn generate_app_jwt_token(user: &crate::models::User) -> Result<String, String> 
     let claims = Claims {
         sub: crate::utils::uuid_to_string(&user.uuid),
         name: user.name.clone(),
-        email: user.email.clone(),
+        email: String::new(),
         role: crate::utils::role_to_string(&user.role),
         scope: "full".to_string(),
         exp: now + 24 * 60 * 60, // 24 hours from now

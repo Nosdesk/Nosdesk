@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, Responder, HttpRequest, HttpMessage};
+use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
 use bcrypt::verify;
 use serde::Deserialize;
@@ -517,7 +517,7 @@ pub async fn register(
 
     // Create new user using builder pattern with normalized data
     let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
-    let new_user = utils::NewUserBuilder::new(normalized_name, normalized_email, user_role)
+    let (new_user, email) = utils::NewUserBuilder::new(normalized_name, normalized_email.clone(), user_role)
         .with_uuid(user_uuid)
         .with_password_hash(password_hash.as_bytes().to_vec())
         .with_pronouns(utils::normalization::normalize_optional_string(user_data.pronouns.as_ref()))
@@ -526,13 +526,14 @@ pub async fn register(
             utils::normalization::normalize_optional_string(user_data.avatar_thumb.as_ref())
         )
         .with_banner(utils::normalization::normalize_optional_string(user_data.banner_url.as_ref()))
-        .build();
+        .build_with_email();
 
-    // Save user to database
-    match repository::create_user(new_user, &mut conn) {
-        Ok(created_user) => {
-            println!("✅ New user registered successfully: {}", created_user.email);
-            HttpResponse::Created().json(UserResponse::from(created_user))
+    // Save user to database with email (atomically creates both user and email entry)
+    match repository::user_helpers::create_user_with_email(new_user, email, true, Some("manual".to_string()), &mut conn) {
+        Ok((created_user, _email_entry)) => {
+            println!("✅ New user registered successfully: {} (UUID: {})", created_user.name, created_user.uuid);
+            let response = repository::user_helpers::get_user_with_primary_email(created_user, &mut conn);
+            HttpResponse::Created().json(response)
         },
         Err(e) => {
             eprintln!("Error creating user: {:?}", e);
@@ -679,7 +680,7 @@ pub async fn change_password(
                 ))
                 .execute(&mut conn) {
                 Ok(_) => {
-                    println!("✅ Password changed successfully for user: {}", user.email);
+                    println!("✅ Password changed successfully for user: {}", user.name);
 
                     // Log security event for password change
                     if let Err(e) = log_password_change_event(&user.uuid, &mut conn).await {
@@ -716,7 +717,7 @@ pub async fn change_password(
                     ) {
                         Ok(revoked_count) => {
                             if revoked_count > 0 {
-                                println!("🔒 Revoked {} other session(s) after password change for user: {}", revoked_count, user.email);
+                                println!("🔒 Revoked {} other session(s) after password change for user: {}", revoked_count, user.name);
                             }
                         },
                         Err(e) => {
@@ -800,7 +801,7 @@ pub async fn admin_reset_password(
         .set(crate::schema::users::password_hash.eq(new_password_hash.as_bytes()))
         .execute(&mut conn) {
         Ok(_) => {
-            println!("✅ Password reset successfully for user: {}", user.email);
+            println!("✅ Password reset successfully for user: {}", user.name);
             HttpResponse::Ok().json(json!({
                 "status": "success",
                 "message": "Password reset successfully"
@@ -829,10 +830,9 @@ pub async fn get_current_user(
         })),
     };
 
-    // Extract claims from request extensions (set by cookie_auth_middleware)
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
+    let claims = match JwtUtils::extract_claims(&req) {
+        Ok(claims) => claims,
+        Err(_) => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
             "message": "Authentication required"
         })),
@@ -982,22 +982,22 @@ pub async fn setup_initial_admin(
     // Generate UUID for the admin user
     let _user_uuid = Uuid::new_v4();
 
-    // Create the admin user using convenience function
+    // Create the admin user using convenience function with email
     let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&admin_data.name, &admin_data.email);
-    let new_user = utils::NewUserBuilder::admin_user(
+    let (new_user, email) = utils::NewUserBuilder::admin_user(
         normalized_name,
         normalized_email,
         password_hash.as_bytes().to_vec()
-    ).build();
+    ).build_with_email();
 
-    match repository::create_user(new_user, &mut conn) {
-        Ok(created_user) => {
-            println!("✅ Initial admin user created successfully: {}", created_user.email);
+    match repository::user_helpers::create_user_with_email(new_user, email, true, Some("manual".to_string()), &mut conn) {
+        Ok((created_user, _email_entry)) => {
+            println!("✅ Initial admin user created successfully: {}", created_user.name);
             
             let response = crate::models::AdminSetupResponse {
                 success: true,
                 message: "Initial admin user created successfully".to_string(),
-                user: Some(UserResponse::from(created_user)),
+                user: Some(repository::user_helpers::get_user_with_primary_email(created_user, &mut conn)),
             };
             HttpResponse::Created().json(response)
         },
@@ -1053,9 +1053,13 @@ pub async fn mfa_setup(
 
     // Generate new TOTP secret (backup codes will be generated after successful verification)
     let secret = mfa::generate_totp_secret();
-    
+
+    // Get user's primary email for QR code
+    let user_email = repository::user_helpers::get_primary_email(user.id, &mut conn)
+        .unwrap_or_else(|| format!("user-{}", user.uuid));
+
     // Generate QR code
-    let qr_code = match mfa::generate_qr_code(secret.as_str(), &user.email, "Nosdesk") {
+    let qr_code = match mfa::generate_qr_code(secret.as_str(), &user_email, "Nosdesk") {
         Ok(qr) => qr,
         Err(e) => {
             tracing::error!("Failed to generate QR code: {}", e);
@@ -1407,7 +1411,7 @@ pub async fn mfa_regenerate_backup_codes(
 /// MFA Status - Get current MFA status for the user
 pub async fn mfa_status(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -1417,11 +1421,11 @@ pub async fn mfa_status(
         })),
     };
 
-    let claims = match validate_token_internal(&auth, &mut conn).await {
+    let claims = match JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
         Err(_) => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -1542,9 +1546,13 @@ pub async fn mfa_setup_login(
 
     // Generate new TOTP secret (backup codes will be generated after verification)
     let secret = mfa::generate_totp_secret();
-    
+
+    // Get user's primary email for QR code
+    let user_email = repository::user_helpers::get_primary_email(user.id, &mut conn)
+        .unwrap_or_else(|| format!("user-{}", user.uuid));
+
     // Generate QR code
-    let qr_code = match mfa::generate_qr_code(secret.as_str(), &user.email, "Nosdesk") {
+    let qr_code = match mfa::generate_qr_code(secret.as_str(), &user_email, "Nosdesk") {
         Ok(qr) => qr,
         Err(e) => {
             tracing::error!("Failed to generate QR code: {}", e);
@@ -1570,6 +1578,7 @@ pub async fn mfa_setup_login(
 pub async fn mfa_enable_login(
     db_pool: web::Data<crate::db::Pool>,
     request: web::Json<crate::models::MfaEnableLoginRequest>,
+    http_request: HttpRequest,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -1687,15 +1696,24 @@ pub async fn mfa_enable_login(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    match repository::update_user_mfa(&user.uuid, mfa_update, &mut conn) {
+    // Store user UUID before moving
+    let user_uuid = user.uuid;
+
+    match repository::update_user_mfa(&user_uuid, mfa_update, &mut conn) {
         Ok(_) => {
-            tracing::info!("MFA enabled successfully for user during login: {}", user.uuid);
+            tracing::info!("MFA enabled successfully for user during login: {}", user_uuid);
 
             // Generate JWT token and complete login
             match jwt_helpers::create_login_response(user, &mut conn) {
                 Ok((mut response, tokens)) => {
                     // Attach plaintext backup codes for one-time display
                     response.backup_codes = Some(backup_codes_plaintext);
+
+                    // Create session record after successful login (IMPORTANT!)
+                    if let Err(e) = create_session_record(&user_uuid, &tokens.access_token, &http_request, &mut conn).await {
+                        tracing::warn!("Failed to create session record for user {}: {}", user_uuid, e);
+                        // Don't fail the login if session creation fails
+                    }
 
                     // Set httpOnly cookies for tokens
                     HttpResponse::Ok()
@@ -1761,7 +1779,7 @@ async fn initiate_secure_mfa_reset(
 /// Get all active sessions for the current user
 pub async fn get_user_sessions(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -1771,11 +1789,11 @@ pub async fn get_user_sessions(
         })),
     };
 
-    let (claims, _user) = match JwtUtils::authenticate_request(&auth, &mut conn).await {
-        Ok((claims, user)) => (claims, user),
+    let claims = match JwtUtils::extract_claims(&req) {
+        Ok(claims) => claims,
         Err(_) => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -1788,8 +1806,17 @@ pub async fn get_user_sessions(
         })),
     };
 
-    // Get current session token to mark it as current
-    let current_session_token = auth.token();
+    // Get current session token from cookie to mark it as current
+    let current_session_token = match req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE) {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(json!({
+                "status": "error",
+                "message": "Session token not found"
+            }));
+        }
+    };
+
     use ring::digest;
     let hash = digest::digest(&digest::SHA256, current_session_token.as_bytes());
     let token_hash = hex::encode(hash.as_ref());
@@ -1830,7 +1857,7 @@ pub async fn get_user_sessions(
 /// Revoke a specific session
 pub async fn revoke_session(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     path: web::Path<i32>,
 ) -> impl Responder {
     let session_id = path.into_inner();
@@ -1843,11 +1870,11 @@ pub async fn revoke_session(
         })),
     };
 
-    let (claims, _user) = match JwtUtils::authenticate_request(&auth, &mut conn).await {
-        Ok((claims, user)) => (claims, user),
+    let claims = match JwtUtils::extract_claims(&req) {
+        Ok(claims) => claims,
         Err(_) => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -1903,7 +1930,7 @@ pub async fn revoke_session(
 /// Revoke all other sessions (keep current session active)
 pub async fn revoke_all_other_sessions(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -1913,11 +1940,11 @@ pub async fn revoke_all_other_sessions(
         })),
     };
 
-    let (claims, _user) = match JwtUtils::authenticate_request(&auth, &mut conn).await {
-        Ok((claims, user)) => (claims, user),
+    let claims = match JwtUtils::extract_claims(&req) {
+        Ok(claims) => claims,
         Err(_) => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -1930,8 +1957,17 @@ pub async fn revoke_all_other_sessions(
         })),
     };
 
-    // Get current session token to preserve it
-    let current_session_token = auth.token();
+    // Get current session token from cookie to preserve it
+    let current_session_token = match req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE) {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(json!({
+                "status": "error",
+                "message": "Session token not found"
+            }));
+        }
+    };
+
     use ring::digest;
     let hash = digest::digest(&digest::SHA256, current_session_token.as_bytes());
     let token_hash = hex::encode(hash.as_ref());

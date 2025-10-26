@@ -21,7 +21,8 @@ pub use auth::*;
 pub use users::{
     get_users, get_paginated_users, get_users_batch, create_user,
     get_user_by_uuid, update_user_by_uuid, delete_user, upload_user_image,
-    get_user_emails, get_user_with_emails, cleanup_stale_images,
+    get_user_emails, get_user_with_emails, add_user_email, update_user_email, delete_user_email,
+    cleanup_stale_images,
     get_user_auth_identities, delete_user_auth_identity,
     get_user_auth_identities_by_uuid, delete_user_auth_identity_by_uuid
 };

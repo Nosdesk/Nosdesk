@@ -537,7 +537,7 @@ pub struct User {
     pub id: i32,
     pub uuid: Uuid,
     pub name: String,
-    pub email: String,
+    // Email removed - now stored in user_emails table only
     pub role: UserRole,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
@@ -555,12 +555,13 @@ pub struct User {
 }
 
 // New user for creation
+// Note: Email is no longer part of NewUser - it's created separately in user_emails table
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
 #[diesel(table_name = crate::schema::users)]
 pub struct NewUser {
     pub uuid: Uuid,
     pub name: String,
-    pub email: String,
+    // Email removed - handled separately via user_emails table
     pub role: UserRole,
     pub password_hash: Vec<u8>,
     pub pronouns: Option<String>,
@@ -592,7 +593,7 @@ pub struct UserRegistration {
 #[diesel(table_name = crate::schema::users)]
 pub struct UserUpdate {
     pub name: Option<String>,
-    pub email: Option<String>,
+    // Email removed - update via user_emails table instead
     pub role: Option<UserRole>,
     pub pronouns: Option<String>,
     pub avatar_url: Option<String>,
@@ -606,7 +607,7 @@ pub struct UserUpdate {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserUpdateWithPassword {
     pub name: Option<String>,
-    pub email: Option<String>,
+    // Email removed - update via user_emails table
     pub role: Option<String>,
     pub pronouns: Option<String>,
     pub avatar_url: Option<String>,
@@ -620,7 +621,7 @@ pub struct UserUpdateWithPassword {
 pub struct UserProfileUpdate {
     pub id: i32,
     pub name: Option<String>,
-    pub email: Option<String>,
+    // Email removed - update via user_emails table
     pub role: Option<String>,
     pub pronouns: Option<String>,
     pub avatar_url: Option<String>,
@@ -635,7 +636,7 @@ pub struct UserResponse {
     pub id: i32,
     pub uuid: Uuid,
     pub name: String,
-    pub email: String,
+    pub email: Option<String>, // Now optional - populated from user_emails table
     pub role: UserRole,
     pub pronouns: Option<String>,
     pub avatar_url: Option<String>,
@@ -662,13 +663,15 @@ pub struct UserInfoWithAvatar {
 }
 
 // Convert User to UserResponse
+// Note: This From implementation sets email to None
+// Use repository::user_helpers::get_user_with_primary_email() to include email
 impl From<User> for UserResponse {
     fn from(user: User) -> Self {
         UserResponse {
             id: user.id,
             uuid: user.uuid,
             name: user.name,
-            email: user.email,
+            email: None, // Email must be fetched from user_emails table separately
             role: user.role,
             pronouns: user.pronouns,
             avatar_url: user.avatar_url,
@@ -709,8 +712,10 @@ pub struct UserEmail {
     pub id: i32,
     pub user_id: i32,
     pub email: String,
+    pub email_type: String,
     pub is_primary: bool,
     pub is_verified: bool,
+    pub source: Option<String>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -720,8 +725,10 @@ pub struct UserEmail {
 pub struct NewUserEmail {
     pub user_id: i32,
     pub email: String,
+    pub email_type: String,
     pub is_primary: bool,
     pub is_verified: bool,
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, AsChangeset)]

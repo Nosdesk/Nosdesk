@@ -120,6 +120,18 @@ pub async fn request_password_reset(
             format!("{}://{}", scheme, host)
         });
 
+    // Get user's primary email for sending reset link
+    let user_email = match crate::repository::user_helpers::get_primary_email(user.id, &mut conn) {
+        Some(email) => email,
+        None => {
+            warn!("User {} has no primary email - cannot send password reset", user.uuid);
+            // Return success anyway to prevent enumeration
+            return HttpResponse::Ok().json(PasswordResetResponse {
+                message: "If an account with that email exists, a password reset link has been sent.".to_string(),
+            });
+        }
+    };
+
     // Send password reset email
     let email_service = match EmailService::from_env() {
         Ok(service) => service,
@@ -134,16 +146,16 @@ pub async fn request_password_reset(
 
     // Send the email asynchronously
     match email_service.send_password_reset_email(
-        &user.email,
+        &user_email,
         &user.name,
         &reset_token.raw_token,
         &base_url,
     ).await {
         Ok(_) => {
-            info!("Password reset email sent to: {} (user_uuid={})", user.email, user.uuid);
+            info!("Password reset email sent to: {} (user_uuid={})", user_email, user.uuid);
         },
         Err(e) => {
-            error!("Failed to send password reset email to {}: {}", user.email, e);
+            error!("Failed to send password reset email to {}: {}", user_email, e);
             // Don't fail the request - return success to prevent enumeration
         }
     }
@@ -232,7 +244,7 @@ pub async fn reset_password_with_token(
         ))
         .execute(&mut conn) {
         Ok(_) => {
-            info!("Password reset successfully for user: {} (uuid={})", user.email, user.uuid);
+            info!("Password reset successfully for user: {} (uuid={})", user.name, user.uuid);
 
             // Log security event for password reset
             if let Err(e) = log_password_reset_event(&user.uuid, &http_request, &mut conn).await {
@@ -249,7 +261,7 @@ pub async fn reset_password_with_token(
                 Ok(revoked_count) => {
                     if revoked_count > 0 {
                         info!("Revoked {} session(s) after password reset for user: {}",
-                              revoked_count, user.email);
+                              revoked_count, user.name);
                     }
                 },
                 Err(e) => {

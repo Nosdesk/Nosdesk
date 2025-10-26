@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, HttpRequest, Responder};
 use actix_web_httpauth::extractors::bearer::BearerAuth;
 use bcrypt::DEFAULT_COST;
 use diesel::prelude::*;
@@ -198,9 +198,23 @@ pub async fn get_users_batch(
     }
 }
 
+// API request model for user creation (includes email which goes in user_emails table)
+#[derive(Debug, Deserialize)]
+pub struct CreateUserRequest {
+    uuid: Uuid,
+    name: String,
+    email: String,
+    role: crate::models::UserRole,
+    pronouns: Option<String>,
+    avatar_url: Option<String>,
+    banner_url: Option<String>,
+    avatar_thumb: Option<String>,
+    microsoft_uuid: Option<Uuid>,
+}
+
 pub async fn create_user(
     db_pool: web::Data<crate::db::Pool>,
-    user_data: web::Json<NewUser>,
+    user_data: web::Json<CreateUserRequest>,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -274,7 +288,7 @@ pub async fn create_user(
 
     // Create new user with normalized data using builder
     let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
-    let new_user = utils::NewUserBuilder::new(normalized_name, normalized_email, user_data.role)
+    let (new_user, email) = utils::NewUserBuilder::new(normalized_name, normalized_email, user_data.role)
         .with_uuid(user_uuid)
         .with_pronouns(user_data.pronouns.as_ref().map(|p| p.trim().to_string()))
         .with_avatar(
@@ -283,14 +297,14 @@ pub async fn create_user(
         )
         .with_banner(user_data.banner_url.as_ref().map(|u| u.trim().to_string()))
         .with_microsoft_uuid(user_data.microsoft_uuid)
-        .build();
+        .build_with_email();
 
-    match repository::create_user(new_user, &mut conn) {
-        Ok(user) => {
+    match repository::user_helpers::create_user_with_email(new_user, email.clone(), true, Some("manual".to_string()), &mut conn) {
+        Ok((user, _email_entry)) => {
             // Create default password hash for this user
             use bcrypt::hash;
             use crate::models::NewUserAuthIdentity;
-            
+
             let password_hash = match hash("changeme", DEFAULT_COST) {
                 Ok(hash) => hash,
                 Err(e) => {
@@ -301,23 +315,24 @@ pub async fn create_user(
                     }));
                 }
             };
-            
+
             println!("Created user with ID: {}", user.id);
-            
+
             // Create local auth identity with default password
             let new_identity = NewUserAuthIdentity {
                 user_id: user.id,
                 provider_type: "local".to_string(),
                 external_id: utils::uuid_to_string(&user.uuid),
-                email: Some(user.email.clone()),
+                email: Some(email.clone()),
                 metadata: None,
                 password_hash: Some(password_hash),
             };
-            
+
             match repository::user_auth_identities::create_identity(new_identity, &mut conn) {
                 Ok(_) => {
-                    println!("✅ New user created successfully: {} (default password: changeme)", user.email);
-                    HttpResponse::Created().json(UserResponse::from(user))
+                    println!("✅ New user created successfully: {} (default password: changeme)", user.name);
+                    let response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+                    HttpResponse::Created().json(response)
                 },
                 Err(e) => {
                     eprintln!("Error creating auth identity: {:?}", e);
@@ -382,17 +397,7 @@ pub async fn update_user(
         }));
     }
 
-    // Check if email is being updated and if it's already in use
-    if let Some(email) = &user_data.email {
-        if let Ok(existing_user) = repository::get_user_by_email(email, &mut conn) {
-            if existing_user.id != user_id {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": "Email already exists"
-                }));
-            }
-        }
-    }
+    // Email updates removed - use dedicated email management endpoints (/users/{uuid}/emails)
 
     // Update user
     match repository::update_user(user_id, user_data.into_inner(), &mut conn) {
@@ -791,17 +796,7 @@ pub async fn update_user_profile(
         }));
     }
 
-    // Check if email is being updated and if it's already in use
-    if let Some(email) = &profile_data.email {
-        if let Ok(existing_user) = repository::get_user_by_email(email, &mut conn) {
-            if existing_user.id != user_id {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": "Email already in use by another user"
-                }));
-            }
-        }
-    }
+    // Email updates removed - use dedicated email endpoints
 
     // Create password hash if password is provided
     if let Some(password) = &profile_data.password {
@@ -873,9 +868,9 @@ pub async fn update_user_profile(
                     user_id,
                     provider_type: "local".to_string(),
                     external_id: Uuid::new_v4().to_string(), // Generate a new provider user ID
-                    email: profile_data.email.clone(),
                     metadata: None,
                     password_hash: Some(password_hash),
+                    email: None,
                 };
                 
                 if let Err(e) = repository::user_auth_identities::create_identity(new_auth_identity, &mut conn) {
@@ -892,7 +887,7 @@ pub async fn update_user_profile(
     // Update user
     let user_update = UserUpdate {
         name: profile_data.name.clone(),
-        email: profile_data.email.clone(),
+        // Email removed - use dedicated email endpoints
         role: profile_data.role.as_ref().and_then(|r| utils::parse_role(r).ok()),
         pronouns: profile_data.pronouns.clone(),
         avatar_url: profile_data.avatar_url.clone(),
@@ -1098,7 +1093,6 @@ pub async fn upload_user_image(
         
         let user_update = UserUpdate {
             name: None,
-            email: None,
             role: None,
             pronouns: None,
             avatar_url: if image_type == "avatar" { Some(final_url.clone()) } else { None },
@@ -1379,7 +1373,7 @@ fn should_keep_file(filename: &str, valid_uuids: &HashSet<String>, valid_suffixe
 
 pub async fn update_user_by_uuid(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     path: web::Path<String>,
     user_data: web::Json<UserUpdateWithPassword>,
 ) -> impl Responder {
@@ -1392,11 +1386,27 @@ pub async fn update_user_by_uuid(
         })),
     };
 
+    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
+        Ok(claims) => claims,
+        Err(_) => return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Authentication required"
+        })),
+    };
+
     // First get the user by UUID to get the ID
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
         Err(_) => return HttpResponse::BadRequest().json("Invalid UUID format"),
     };
+
+    // Authorization: Users can only update their own profile, admins can update anyone
+    if claims.sub != user_uuid && claims.role != "admin" {
+        return HttpResponse::Forbidden().json(json!({
+            "status": "error",
+            "message": "You can only update your own profile"
+        }));
+    }
 
     let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
@@ -1409,18 +1419,6 @@ pub async fn update_user_by_uuid(
     let user_id = user.id;
 
     // Check if email is being updated and if it's already in use
-    if let Some(email) = &user_data.email {
-        if let Ok(existing_user) = repository::get_user_by_email(email, &mut conn) {
-            if existing_user.id != user_id {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": "Email already in use by another user"
-                }));
-            }
-        }
-    }
-
-    // Create password hash if password is provided
     if let Some(password) = &user_data.password {
         use bcrypt::hash;
         use crate::models::NewUserAuthIdentity;
@@ -1490,7 +1488,7 @@ pub async fn update_user_by_uuid(
                     user_id,
                     provider_type: "local".to_string(),
                     external_id: Uuid::new_v4().to_string(), // Generate a new provider user ID
-                    email: user_data.email.clone(),
+                    email: None, // Email in user_emails table
                     metadata: None,
                     password_hash: Some(password_hash),
                 };
@@ -1509,7 +1507,7 @@ pub async fn update_user_by_uuid(
     // Update user
     let user_update = UserUpdate {
         name: user_data.name.clone(),
-        email: user_data.email.clone(),
+        // Email removed - use dedicated email endpoints
         role: user_data.role.as_ref().and_then(|r| utils::parse_role(r).ok()),
         pronouns: user_data.pronouns.clone(),
         avatar_url: user_data.avatar_url.clone(),
@@ -1531,7 +1529,7 @@ pub async fn update_user_by_uuid(
 /// Get user email addresses
 pub async fn get_user_emails(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     path: web::Path<String>, // User UUID
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
@@ -1544,12 +1542,11 @@ pub async fn get_user_emails(
 
     let user_uuid = path.into_inner();
 
-    // Validate token
-    let claims = match validate_token_internal(&auth, &mut conn).await {
+    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
         Err(_) => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -1570,27 +1567,303 @@ pub async fn get_user_emails(
         })),
     };
 
-    match user_emails_repo::get_user_emails_by_uuid(&mut conn, &uuid_parsed) {
-        Ok(emails) => HttpResponse::Ok().json(json!({
+    // Get user first to ensure they exist
+    let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
+        Ok(user) => user,
+        Err(_) => return HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "User not found"
+        })),
+    };
+
+    // Get emails from user_emails table (single source of truth)
+    let emails = user_emails_repo::get_user_emails_by_uuid(&mut conn, &uuid_parsed)
+        .unwrap_or_else(|_| Vec::new());
+
+    HttpResponse::Ok().json(json!({
+        "status": "success",
+        "emails": emails
+    }))
+}
+
+/// Add a new email address for a user
+pub async fn add_user_email(
+    db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
+    path: web::Path<String>,
+    email_data: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let user_uuid = path.into_inner();
+    let mut conn = match db_pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Database connection failed"
+        })),
+    };
+
+    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
+        Ok(claims) => claims,
+        Err(_) => return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Authentication required"
+        })),
+    };
+
+    // Authorization: Users can only add emails to their own account, admins can add to anyone
+    if claims.sub != user_uuid && claims.role != "admin" {
+        return HttpResponse::Forbidden().json(json!({
+            "status": "error",
+            "message": "Not authorized"
+        }));
+    }
+
+    // Extract email from request
+    let email = match email_data.get("email").and_then(|e| e.as_str()) {
+        Some(e) => e.trim().to_lowercase(),
+        None => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Email is required"
+        })),
+    };
+
+    // Validate email format
+    if !email.contains('@') || !email.contains('.') {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid email format"
+        }));
+    }
+
+    // Get user ID
+    let uuid_parsed = match utils::parse_uuid(&user_uuid) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid UUID format"
+        })),
+    };
+
+    let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
+        Ok(user) => user,
+        Err(_) => return HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "User not found"
+        })),
+    };
+
+    // Check if email already exists
+    if let Ok(_) = user_emails_repo::find_user_by_any_email(&mut conn, &email) {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Email address already in use"
+        }));
+    }
+
+    // Create new email
+    let new_email = crate::models::NewUserEmail {
+        user_id: user.id,
+        email: email.clone(),
+        email_type: "personal".to_string(),
+        is_primary: false,
+        is_verified: false,
+        source: Some("manual".to_string()),
+    };
+
+    use diesel::prelude::*;
+    match diesel::insert_into(crate::schema::user_emails::table)
+        .values(&new_email)
+        .get_result::<crate::models::UserEmail>(&mut conn)
+    {
+        Ok(created_email) => HttpResponse::Created().json(json!({
             "status": "success",
-            "emails": emails
+            "message": "Email added successfully",
+            "email": created_email
         })),
         Err(e) => {
-            eprintln!("Error fetching user emails for UUID {}: {:?}", user_uuid, e);
-            match e {
-                diesel::result::Error::NotFound => {
-                    HttpResponse::NotFound().json(json!({
-                        "status": "error",
-                        "message": "User not found"
-                    }))
-                },
-                _ => {
-                    HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Failed to retrieve user emails"
-                    }))
-                }
-            }
+            eprintln!("Error adding email: {:?}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to add email"
+            }))
+        }
+    }
+}
+
+/// Update an email address (set as primary)
+pub async fn update_user_email(
+    db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
+    path: web::Path<(String, i32)>,
+    update_data: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let (user_uuid, email_id) = path.into_inner();
+    let mut conn = match db_pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Database connection failed"
+        })),
+    };
+
+    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
+        Ok(claims) => claims,
+        Err(_) => return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Authentication required"
+        })),
+    };
+
+    // Authorization
+    if claims.sub != user_uuid && claims.role != "admin" {
+        return HttpResponse::Forbidden().json(json!({
+            "status": "error",
+            "message": "Not authorized"
+        }));
+    }
+
+    // Get user
+    let uuid_parsed = match utils::parse_uuid(&user_uuid) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid UUID format"
+        })),
+    };
+
+    let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
+        Ok(user) => user,
+        Err(_) => return HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "User not found"
+        })),
+    };
+
+    // If setting as primary, unset other primary emails first
+    if update_data.get("is_primary").and_then(|p| p.as_bool()).unwrap_or(false) {
+        use diesel::prelude::*;
+        let _ = diesel::update(crate::schema::user_emails::table)
+            .filter(crate::schema::user_emails::user_id.eq(user.id))
+            .set(crate::schema::user_emails::is_primary.eq(false))
+            .execute(&mut conn);
+    }
+
+    // Update the email
+    let email_update = crate::models::UserEmailUpdate {
+        is_primary: update_data.get("is_primary").and_then(|p| p.as_bool()),
+        is_verified: update_data.get("is_verified").and_then(|v| v.as_bool()),
+        updated_at: Some(chrono::Utc::now().naive_utc()),
+    };
+
+    use diesel::prelude::*;
+    match diesel::update(crate::schema::user_emails::table.find(email_id))
+        .set(&email_update)
+        .get_result::<crate::models::UserEmail>(&mut conn)
+    {
+        Ok(updated_email) => HttpResponse::Ok().json(json!({
+            "status": "success",
+            "message": "Email updated successfully",
+            "email": updated_email
+        })),
+        Err(e) => {
+            eprintln!("Error updating email: {:?}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to update email"
+            }))
+        }
+    }
+}
+
+/// Delete an email address
+pub async fn delete_user_email(
+    db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
+    path: web::Path<(String, i32)>,
+) -> impl Responder {
+    let (user_uuid, email_id) = path.into_inner();
+    let mut conn = match db_pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Database connection failed"
+        })),
+    };
+
+    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
+        Ok(claims) => claims,
+        Err(_) => return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Authentication required"
+        })),
+    };
+
+    // Authorization
+    if claims.sub != user_uuid && claims.role != "admin" {
+        return HttpResponse::Forbidden().json(json!({
+            "status": "error",
+            "message": "Not authorized"
+        }));
+    }
+
+    // Get user and verify email belongs to them
+    let uuid_parsed = match utils::parse_uuid(&user_uuid) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid UUID format"
+        })),
+    };
+
+    let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
+        Ok(user) => user,
+        Err(_) => return HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "User not found"
+        })),
+    };
+
+    // Check if email is primary
+    use diesel::prelude::*;
+    let email: crate::models::UserEmail = match crate::schema::user_emails::table
+        .find(email_id)
+        .first(&mut conn)
+    {
+        Ok(email) => email,
+        Err(_) => return HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "Email not found"
+        })),
+    };
+
+    if email.user_id != user.id {
+        return HttpResponse::Forbidden().json(json!({
+            "status": "error",
+            "message": "Email does not belong to this user"
+        }));
+    }
+
+    if email.is_primary {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Cannot delete primary email address"
+        }));
+    }
+
+    // Delete the email
+    match diesel::delete(crate::schema::user_emails::table.find(email_id))
+        .execute(&mut conn)
+    {
+        Ok(_) => HttpResponse::Ok().json(json!({
+            "status": "success",
+            "message": "Email deleted successfully"
+        })),
+        Err(e) => {
+            eprintln!("Error deleting email: {:?}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to delete email"
+            }))
         }
     }
 }
@@ -1598,7 +1871,7 @@ pub async fn get_user_emails(
 /// Get user with all email addresses
 pub async fn get_user_with_emails(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     path: web::Path<String>, // User UUID
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
@@ -1611,12 +1884,11 @@ pub async fn get_user_with_emails(
 
     let user_uuid = path.into_inner();
 
-    // Validate token
-    let claims = match validate_token_internal(&auth, &mut conn).await {
+    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
         Err(_) => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 

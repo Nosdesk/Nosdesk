@@ -41,6 +41,9 @@ pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::
     }
 
     if attempts >= 30 {
+        error!("❌ FATAL: Database not ready after 60 seconds");
+        error!("   Tried to connect 30 times over 60 seconds");
+        error!("   Check that PostgreSQL is running and DATABASE_URL is correct");
         return Err("Database not ready after 60 seconds".into());
     }
 
@@ -86,11 +89,31 @@ pub fn is_initialized() -> bool {
 pub fn establish_connection_pool() -> Pool {
     dotenv().ok();
 
-    let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set");
+    let database_url = match env::var("DATABASE_URL") {
+        Ok(url) => {
+            eprintln!("✅ DATABASE_URL found: {}", url.chars().take(30).collect::<String>() + "...");
+            url
+        },
+        Err(e) => {
+            eprintln!("❌ FATAL: DATABASE_URL environment variable must be set");
+            eprintln!("   Error: {}", e);
+            std::process::exit(1);
+        }
+    };
 
+    eprintln!("🔌 Attempting to create database connection pool...");
     let manager = ConnectionManager::<PgConnection>::new(database_url);
-    r2d2::Pool::builder()
-        .build(manager)
-        .expect("Failed to create pool")
+
+    match r2d2::Pool::builder().build(manager) {
+        Ok(pool) => {
+            eprintln!("✅ Database connection pool created successfully");
+            pool
+        },
+        Err(e) => {
+            eprintln!("❌ FATAL: Failed to create database connection pool");
+            eprintln!("   Error: {}", e);
+            eprintln!("   This usually means the database is not accessible or DATABASE_URL is incorrect");
+            std::process::exit(1);
+        }
+    }
 } 

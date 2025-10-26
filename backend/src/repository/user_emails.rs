@@ -55,11 +55,13 @@ pub fn add_multiple_emails(
     let new_emails: Vec<NewUserEmail> = emails
         .into_iter()
         .enumerate()
-        .map(|(i, (email, _email_type, verified, _source))| NewUserEmail {
+        .map(|(i, (email, email_type, verified, source))| NewUserEmail {
             user_id,
             email,
+            email_type,
             is_primary: i == 0, // First email is primary
             is_verified: verified,
+            source: Some(source),
         })
         .collect();
     

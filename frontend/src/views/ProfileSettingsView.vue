@@ -11,6 +11,7 @@ import {
   MFASettings,
   AuthMethodsSettings
 } from '@/components/settings';
+import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import userService from '@/services/userService';
 import type { User } from '@/services/userService';
 
@@ -30,6 +31,9 @@ const targetUser = ref<User | null>(null);
 const isManagingOtherUser = ref(false);
 const loadingTargetUser = ref(false);
 const updatingRole = ref(false);
+
+// Get the current user being edited (either targetUser for admin or authStore.user for self)
+const currentUser = computed(() => targetUser.value || authStore.user);
 
 // Check if we're in admin user management mode
 const targetUserUuid = computed(() => {
@@ -444,13 +448,22 @@ const updateUserRole = async (newRole: string) => {
           <!-- Profile Tab -->
           <div v-if="activeTab === 'profile'" class="flex flex-col gap-6">
             <UserProfileCard
-              :user="targetUser"
+              :user="currentUser"
               :can-edit="true"
               :show-editable-fields="true"
               @success="handleSuccess"
               @error="handleError"
             />
-            
+
+            <!-- Email Addresses Management -->
+            <UserEmailsCard
+              v-if="currentUser?.uuid"
+              :user-uuid="currentUser.uuid"
+              :can-edit="true"
+              @success="handleSuccess"
+              @error="handleError"
+            />
+
             <!-- Admin Role Management Card -->
             <div v-if="isManagingOtherUser && authStore.isAdmin && targetUser" class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
               <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50 flex flex-wrap items-center gap-2">

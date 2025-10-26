@@ -1498,7 +1498,6 @@ async fn update_existing_microsoft_user(
     // Only update core fields, preserve role/pronouns/avatars, but update timestamp
     let user_update = crate::models::UserUpdate {
         name: if updated_name != &user.name { Some(updated_name.clone()) } else { None },
-        email: if updated_email != &user.email { Some(updated_email.clone()) } else { None },
         role: None, // Don't change role during sync
         pronouns: None, // Preserve pronouns
         avatar_url: None, // Preserve avatar
@@ -1509,7 +1508,7 @@ async fn update_existing_microsoft_user(
     };
 
     // Update user if there are changes
-    if user_update.name.is_some() || user_update.email.is_some() {
+    if user_update.name.is_some() || false /* email removed */ {
         user_repo::update_user(user.id, user_update, conn)
             .map_err(|e| format!("Failed to update user: {}", e))?;
         println!("Updated user information for: {}", user.name);
@@ -1562,7 +1561,7 @@ async fn link_existing_user_to_microsoft(
     stats: &mut UserSyncStats,
     access_token: &str,
 ) -> Result<(), String> {
-    println!("Linking existing user to Microsoft: {} -> {}", existing_user.email, ms_user.user_principal_name);
+    println!("Linking existing user to Microsoft: {} -> {}", existing_user.name, ms_user.user_principal_name);
 
     // Create Microsoft identity for existing user
     let identity_data = serde_json::to_value(ms_user)
@@ -1585,7 +1584,6 @@ async fn link_existing_user_to_microsoft(
     if updated_name != &existing_user.name {
         let user_update = crate::models::UserUpdate {
             name: Some(updated_name.clone()),
-            email: None, // Don't change email when linking
             role: None,
             pronouns: None,
             avatar_url: None,
@@ -1715,7 +1713,6 @@ async fn update_existing_microsoft_user_optimized(
     // Only update core fields, preserve role/pronouns/avatars, but update timestamp and Microsoft UUID
     let user_update = crate::models::UserUpdate {
         name: if updated_name != &user.name { Some(updated_name.clone()) } else { None },
-        email: if primary_email != user.email { Some(primary_email.clone()) } else { None },
         role: None, // Don't change role during sync
         pronouns: None, // Preserve pronouns
         avatar_url: None, // Preserve avatar
@@ -1726,7 +1723,7 @@ async fn update_existing_microsoft_user_optimized(
     };
 
     // Update user if there are changes
-    if user_update.name.is_some() || user_update.email.is_some() || user_update.microsoft_uuid.is_some() {
+    if user_update.name.is_some() || false /* email removed */ || user_update.microsoft_uuid.is_some() {
         user_repo::update_user(user.id, user_update, conn)
             .map_err(|e| format!("Failed to update user: {}", e))?;
         println!("Updated user information for: {}", user.name);
@@ -1787,7 +1784,7 @@ async fn update_existing_microsoft_user_optimized(
 }
 
 /// Link existing local user to Microsoft identity (optimized version)
-#[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(existing_user_email = %existing_user.email, user_principal_name = %ms_user.user_principal_name, provider_id = provider_id))]
+#[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(existing_user_email = %existing_user.name, user_principal_name = %ms_user.user_principal_name, provider_id = provider_id))]
 async fn link_existing_user_to_microsoft_optimized(
     conn: &mut DbConnection,
     provider_id: i32,
@@ -1824,7 +1821,6 @@ async fn link_existing_user_to_microsoft_optimized(
     let updated_name = ms_user.display_name.as_ref().unwrap_or(&existing_user.name);
     let user_update = crate::models::UserUpdate {
         name: if updated_name != &existing_user.name { Some(updated_name.clone()) } else { None },
-        email: if primary_email != existing_user.email { Some(primary_email.clone()) } else { None },
         role: None,
         pronouns: None,
         avatar_url: None,
@@ -2309,7 +2305,6 @@ async fn update_user_avatar_by_id(
         
         let user_update = crate::models::UserUpdate {
             name: None,
-            email: None,
             role: None,
             pronouns: None,
             avatar_url: avatar_url.clone(),
@@ -3127,7 +3122,6 @@ async fn update_existing_microsoft_user_no_photos(
     // Update user if needed
     let user_update = crate::models::UserUpdate {
         name: if updated_name != &user.name { Some(updated_name.clone()) } else { None },
-        email: if primary_email != user.email { Some(primary_email.clone()) } else { None },
         role: None,
         pronouns: None,
         avatar_url: None,
@@ -3137,7 +3131,7 @@ async fn update_existing_microsoft_user_no_photos(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    if user_update.name.is_some() || user_update.email.is_some() || user_update.microsoft_uuid.is_some() {
+    if user_update.name.is_some() || false /* email removed */ || user_update.microsoft_uuid.is_some() {
         user_repo::update_user(user.id, user_update, conn)
             .map_err(|e| format!("Failed to update user: {}", e))?;
     }
@@ -3190,7 +3184,6 @@ async fn link_existing_user_to_microsoft_no_photos(
     // Update user with Microsoft UUID
     let user_update = crate::models::UserUpdate {
         name: None,
-        email: None,
         role: None,
         pronouns: None,
         avatar_url: None,

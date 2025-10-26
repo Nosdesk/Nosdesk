@@ -40,7 +40,7 @@ impl JwtUtils {
         let claims = Claims {
             sub: uuid_to_string(&user.uuid),
             name: user.name.clone(),
-            email: user.email.clone(),
+            email: String::new(), // Email removed from User struct
             role: role_to_string(&user.role),
             scope: scope.to_string(),
             exp: now + expiry_seconds,
@@ -180,6 +180,24 @@ impl JwtUtils {
             Ok((claims, user)) => Ok((claims, user)),
             Err(jwt_error) => Err(jwt_error.into()),
         }
+    }
+
+    /// Extract claims from request extensions (set by cookie_auth_middleware)
+    /// This is a DRY helper to avoid repeating the same pattern in every handler
+    ///
+    /// # Arguments
+    /// * `req` - The HTTP request with extensions populated by middleware
+    ///
+    /// # Returns
+    /// * `Ok(Claims)` - Successfully extracted claims
+    /// * `Err(ActixError)` - No claims found (not authenticated)
+    pub fn extract_claims(req: &actix_web::HttpRequest) -> Result<Claims, ActixError> {
+        use actix_web::HttpMessage;
+
+        req.extensions()
+            .get::<Claims>()
+            .cloned()
+            .ok_or_else(|| actix_web::error::ErrorUnauthorized("Authentication required"))
     }
 
     /// Check if user has required role

@@ -9,6 +9,7 @@ pub mod sync_history;
 pub mod tickets;
 pub mod user_auth_identities;
 pub mod user_emails;
+pub mod user_helpers; // Helper functions for user/email operations
 pub mod users;
 
 // Security and session management repositories

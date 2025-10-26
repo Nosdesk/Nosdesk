@@ -23,6 +23,7 @@ impl SecurityHeaders {
             concat!(
                 "default-src 'self'; ",
                 "script-src 'self'; ",
+                "worker-src 'self' blob:; ", // Allow web workers from blob URLs
                 "style-src 'self' 'unsafe-inline'; ", // unsafe-inline needed for some frameworks
                 "img-src 'self' data: https:; ",
                 "font-src 'self' data:; ",
@@ -37,6 +38,7 @@ impl SecurityHeaders {
             concat!(
                 "default-src 'self'; ",
                 "script-src 'self' 'unsafe-eval'; ", // unsafe-eval for Vue dev tools
+                "worker-src 'self' blob:; ", // Allow web workers from blob URLs
                 "style-src 'self' 'unsafe-inline'; ",
                 "img-src 'self' data: https:; ",
                 "font-src 'self' data:; ",

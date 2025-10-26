@@ -87,13 +87,28 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
-    // Handle authentication errors silently (expired tokens)
+    // Handle authentication errors
     if (error.response && error.response.status === 401) {
-      // If we're already on the login page, don't redirect
-      if (!window.location.pathname.includes('/login')) {
-        // Clear auth provider and redirect to login (cookies cleared by backend)
+      // Prevent infinite redirect loop - only redirect once
+      if (!window.location.pathname.includes('/login') && !sessionStorage.getItem('redirecting-to-login')) {
+        console.warn('🔐 Session invalid - clearing cookies and redirecting to login');
+
+        // Set flag to prevent multiple redirects
+        sessionStorage.setItem('redirecting-to-login', 'true');
+
+        // Clear ALL auth-related cookies immediately
+        document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Strict';
+        document.cookie = 'refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Strict';
+        document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Strict';
+
+        // Clear auth state
         localStorage.removeItem('authProvider');
-        window.location.href = '/login';
+
+        // Redirect to login
+        setTimeout(() => {
+          sessionStorage.removeItem('redirecting-to-login');
+          window.location.href = '/login';
+        }, 100);
       }
       // Return rejected promise without logging to console (expected behavior for expired tokens)
       return Promise.reject(new Error('Authentication expired'));

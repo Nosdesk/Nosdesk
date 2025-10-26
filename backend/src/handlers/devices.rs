@@ -80,12 +80,15 @@ impl DeviceResponse {
             entra_device_id: device.entra_device_id,
             created_at: device.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             updated_at: device.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-            primary_user: user.map(|u| UserInfo {
-                uuid: utils::uuid_to_string(&u.uuid),
-                name: u.name,
-                email: u.email,
-                avatar_url: u.avatar_url,
-                avatar_thumb: u.avatar_thumb,
+            primary_user: user.map(|u| {
+                let name = u.name;
+                UserInfo {
+                    uuid: utils::uuid_to_string(&u.uuid),
+                    name: name.clone(),
+                    email: name, // Email removed from User, using name
+                    avatar_url: u.avatar_url,
+                    avatar_thumb: u.avatar_thumb,
+                }
             }),
         }
     }

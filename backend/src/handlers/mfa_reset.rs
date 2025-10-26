@@ -1,6 +1,7 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde_json::json;
 use chrono::{Duration, Utc};
+use tracing::{info, error, warn};
 
 use crate::models::{MfaResetRequest, MfaResetResponse, MfaResetCompleteRequest};
 use crate::repository;
@@ -144,9 +145,22 @@ pub async fn request_mfa_reset(
     let base_url = std::env::var("FRONTEND_URL")
         .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+    // Get user's primary email
+    let primary_email = match crate::repository::user_helpers::get_primary_email(user.id, &mut conn) {
+        Some(email) => email,
+        None => {
+            warn!("User {} has no primary email - cannot send MFA reset", user.uuid);
+            return HttpResponse::Ok().json(MfaResetResponse {
+                message: "If an account with that email exists, an MFA reset link has been sent.".to_string(),
+                requires_admin_approval: false,
+                token_id: None,
+            });
+        }
+    };
+
     // Send MFA reset email
     if let Err(e) = email_service.send_mfa_reset_email(
-        &user.email,
+        &primary_email,
         &user.name,
         &reset_token_data.raw_token,
         &base_url,

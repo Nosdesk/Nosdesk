@@ -119,14 +119,31 @@ async fn cookie_auth_middleware(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Use eprintln for unbuffered output (writes to stderr)
-    eprintln!(">>> Backend starting...");
+    // Force flush by using println! with immediate panic to test output
+    println!("🚀 BACKEND STARTING - If you see this, logging works!");
+    std::io::Write::flush(&mut std::io::stdout()).ok();
+    eprintln!("🚀 BACKEND STARTING (stderr) - Current dir: {:?}", std::env::current_dir());
+    std::io::Write::flush(&mut std::io::stderr()).ok();
 
     // Load .env file if it exists (for local development), but don't fail if it doesn't exist
     // In Docker, environment variables are already loaded via docker-compose
     if let Err(e) = dotenv() {
         eprintln!("Note: Could not load .env file: {}. This is normal in Docker environments.", e);
     }
+
+    // Critical check: Verify DATABASE_URL exists
+    if std::env::var("DATABASE_URL").is_err() {
+        eprintln!("❌ FATAL ERROR: DATABASE_URL environment variable is not set!");
+        eprintln!("   Cannot proceed without database connection");
+        std::process::exit(1);
+    }
+    eprintln!("✅ DATABASE_URL is set");
+
+    if std::env::var("JWT_SECRET").is_err() {
+        eprintln!("❌ FATAL ERROR: JWT_SECRET environment variable is not set!");
+        std::process::exit(1);
+    }
+    eprintln!("✅ JWT_SECRET is set");
 
     eprintln!(">>> Initializing tracing...");
 
@@ -619,6 +636,9 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/{uuid}", web::delete().to(handlers::delete_user))
                     .route("/users/{uuid}/image", web::post().to(handlers::upload_user_image))
                     .route("/users/{uuid}/emails", web::get().to(handlers::get_user_emails))
+                    .route("/users/{uuid}/emails", web::post().to(handlers::add_user_email))
+                    .route("/users/{uuid}/emails/{email_id}", web::put().to(handlers::update_user_email))
+                    .route("/users/{uuid}/emails/{email_id}", web::delete().to(handlers::delete_user_email))
                     .route("/users/{uuid}/with-emails", web::get().to(handlers::get_user_with_emails))
                     .route("/users/cleanup-images", web::post().to(handlers::cleanup_stale_images))
                     .route("/users/auth-identities", web::get().to(handlers::get_user_auth_identities))

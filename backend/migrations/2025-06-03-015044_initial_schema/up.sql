@@ -37,11 +37,11 @@ CREATE TYPE user_role AS ENUM (
 );
 
 -- Users table with authentication and profile fields
+-- Note: Email is now stored in user_emails table, not here
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     uuid UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
     name VARCHAR(255) NOT NULL,
-    email VARCHAR(255) NOT NULL UNIQUE,
     role user_role NOT NULL DEFAULT 'user',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -73,16 +73,22 @@ CREATE TABLE user_auth_identities (
 );
 
 -- User emails for multiple email addresses per user
+-- This is now the single source of truth for all user emails
 CREATE TABLE user_emails (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     email VARCHAR(255) NOT NULL,
+    email_type VARCHAR(50) NOT NULL DEFAULT 'personal', -- 'personal', 'work', 'other'
     is_primary BOOLEAN NOT NULL DEFAULT FALSE,
     is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    source VARCHAR(50), -- 'manual', 'microsoft', 'google', etc.
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     UNIQUE(email)
 );
+
+-- Partial unique index to ensure each user has only one primary email
+CREATE UNIQUE INDEX user_emails_one_primary_per_user ON user_emails(user_id) WHERE is_primary = TRUE;
 
 -- Devices table
 CREATE TABLE devices (
@@ -318,8 +324,11 @@ CREATE TABLE user_ticket_views (
 );
 
 -- Create indexes for better performance
-CREATE INDEX idx_users_email ON users(email);
+-- idx_users_email removed - email now in user_emails table
 CREATE INDEX idx_users_uuid ON users(uuid);
+CREATE INDEX idx_user_emails_email ON user_emails(email);
+CREATE INDEX idx_user_emails_user_id ON user_emails(user_id);
+CREATE INDEX idx_user_emails_is_primary ON user_emails(user_id, is_primary);
 
 -- Documentation system indexes
 CREATE INDEX idx_documentation_pages_parent_id ON documentation_pages(parent_id);

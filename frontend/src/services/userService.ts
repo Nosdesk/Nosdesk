@@ -169,6 +169,38 @@ const userService = {
     }
   },
 
+  // Add a new email address
+  async addUserEmail(uuid: string, email: string): Promise<UserEmail | null> {
+    try {
+      const response = await apiClient.post(`/users/${uuid}/emails`, { email });
+      return response.data.email || null;
+    } catch (error: any) {
+      console.error(`Error adding email for user ${uuid}:`, error);
+      throw error;
+    }
+  },
+
+  // Update email (set as primary or verified)
+  async updateUserEmail(uuid: string, emailId: number, updates: { is_primary?: boolean; is_verified?: boolean }): Promise<UserEmail | null> {
+    try {
+      const response = await apiClient.put(`/users/${uuid}/emails/${emailId}`, updates);
+      return response.data.email || null;
+    } catch (error: any) {
+      console.error(`Error updating email ${emailId}:`, error);
+      throw error;
+    }
+  },
+
+  // Delete an email address
+  async deleteUserEmail(uuid: string, emailId: number): Promise<void> {
+    try {
+      await apiClient.delete(`/users/${uuid}/emails/${emailId}`);
+    } catch (error: any) {
+      console.error(`Error deleting email ${emailId}:`, error);
+      throw error;
+    }
+  },
+
   // Create a new user
   async createUser(user: { name: string; email: string; role: string; pronouns?: string }): Promise<User | null> {
     try {

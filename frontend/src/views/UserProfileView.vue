@@ -7,12 +7,13 @@ import UserAvatar from "@/components/UserAvatar.vue";
 import BackButton from "@/components/common/BackButton.vue";
 import DeleteButton from "@/components/common/DeleteButton.vue";
 import UserProfileCard from "@/components/settings/UserProfileCard.vue";
+import UserEmailsCard from "@/components/settings/UserEmailsCard.vue";
 import { RouterLink } from "vue-router";
 import ticketService from "@/services/ticketService";
 import userService from "@/services/userService";
 import { getDevicesByUser } from "@/services/deviceService";
 import type { Ticket } from "@/services/ticketService";
-import type { User, UserEmail } from "@/services/userService";
+import type { User } from "@/services/userService";
 import type { Device } from "@/types/device";
 
 interface UserProfile extends User {
@@ -36,7 +37,6 @@ const userProfile = ref<UserProfile | null>(null);
 const assignedTickets = ref<Ticket[]>([]);
 const requestedTickets = ref<Ticket[]>([]);
 const devices = ref<Device[]>([]);
-const userEmails = ref<UserEmail[]>([]);
 
 // Creation and editing state
 const isCreationMode = ref(false);
@@ -186,14 +186,7 @@ const fetchUserData = async () => {
             devices.value = [];
         }
 
-        // Load user emails from the API
-        try {
-            userEmails.value = await userService.getUserEmails(userUuid);
-        } catch (emailError) {
-            console.error("Error loading emails for user:", emailError);
-            // Don't fail the whole page if emails can't be loaded
-            userEmails.value = [];
-        }
+        // User emails are now loaded by the UserEmailsCard component
     } catch (e) {
         error.value = "Failed to load user profile";
         console.error("Error loading user profile:", e);
@@ -312,46 +305,6 @@ onMounted(() => {
             <div class="pt-4 px-6 flex justify-between items-center">
                 <BackButton fallbackRoute="/users" label="Back to Users" />
                 <div v-if="!isCreationMode" class="flex items-center gap-2">
-                    <!-- Delete Button or Protected Warning (appears first) -->
-                    <DeleteButton
-                        v-if="
-                            canEdit &&
-                            userProfile &&
-                            !isOwnProfile &&
-                            userProfile.role !== 'admin'
-                        "
-                        :item-name="`${userProfile.name}`"
-                        fallback-route="/users"
-                        @delete="handleDeleteUser"
-                    />
-
-                    <!-- Info tooltip for when delete is not available -->
-                    <div
-                        v-else-if="
-                            canEdit &&
-                            userProfile &&
-                            (isOwnProfile || userProfile.role === 'admin')
-                        "
-                        class="relative flex gap-1 items-center text-slate-400 text-sm"
-                        title="Delete not available - You cannot delete your own account or administrator accounts for security reasons"
-                    >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="h-4 w-4 mr-1"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                            />
-                        </svg>
-                        Delete Protected
-                    </div>
-
                     <!-- Own Profile Settings Button -->
                     <RouterLink
                         v-if="isOwnProfile"
@@ -608,110 +561,19 @@ onMounted(() => {
                 >
                     <!-- User Info Area -->
                     <div class="flex flex-col gap-4 xl:w-1/2 xl:min-w-0">
-                        <!-- User Profile Card -->
+                        <!-- User Profile Card (Read-only in profile view) -->
                         <UserProfileCard
                             :user="userProfile"
-                            :canEdit="canEdit"
-                            :showEditableFields="canEdit"
-                            @success="
-                                (message) => {
-                                    /* TODO: Show success notification */
-                                }
-                            "
-                            @error="
-                                (message) => {
-                                    /* TODO: Show error notification */
-                                }
-                            "
+                            :canEdit="false"
+                            :showEditableFields="false"
                         />
 
-                        <!-- Email Aliases Section -->
-                        <div
-                            class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors"
-                        >
-                            <div
-                                class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50"
-                            >
-                                <h2 class="text-lg font-medium text-white">
-                                    Email Addresses
-                                </h2>
-                            </div>
-                            <div class="p-3">
-                                <div
-                                    v-if="userEmails.length === 0"
-                                    class="text-slate-400 text-sm"
-                                >
-                                    No additional email addresses found
-                                </div>
-                                <div v-else class="flex flex-col gap-3">
-                                    <div
-                                        v-for="email in userEmails"
-                                        :key="email.id"
-                                        class="bg-slate-700/50 p-3 rounded-lg"
-                                    >
-                                        <div
-                                            class="flex items-start justify-between"
-                                        >
-                                            <div class="flex-1">
-                                                <div
-                                                    class="flex items-center gap-2"
-                                                >
-                                                    <span
-                                                        class="font-medium text-white"
-                                                        >{{ email.email }}</span
-                                                    >
-                                                    <span
-                                                        v-if="email.is_primary"
-                                                        class="text-xs px-2 py-1 rounded-full bg-blue-900/20 text-blue-400"
-                                                    >
-                                                        Primary
-                                                    </span>
-                                                </div>
-                                                <div
-                                                    class="flex items-center gap-2 mt-1"
-                                                >
-                                                    <span
-                                                        class="text-sm text-slate-400 capitalize"
-                                                        >{{
-                                                            email.email_type
-                                                        }}</span
-                                                    >
-                                                    <span
-                                                        v-if="email.source"
-                                                        class="text-slate-600"
-                                                        >•</span
-                                                    >
-                                                    <span
-                                                        v-if="email.source"
-                                                        class="text-xs text-slate-500 capitalize"
-                                                        >{{
-                                                            email.source
-                                                        }}</span
-                                                    >
-                                                </div>
-                                            </div>
-                                            <div class="flex-shrink-0 ml-3">
-                                                <span
-                                                    class="text-xs px-2 py-1 rounded-full"
-                                                    :class="{
-                                                        'text-green-400 bg-green-900/20':
-                                                            email.verified,
-                                                        'text-yellow-400 bg-yellow-900/20':
-                                                            !email.verified,
-                                                    }"
-                                                >
-                                                    {{
-                                                        email.verified
-                                                            ? "Verified"
-                                                            : "Unverified"
-                                                    }}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <!-- Email Addresses Section -->
+                        <UserEmailsCard
+                            v-if="userProfile?.uuid"
+                            :user-uuid="userProfile.uuid"
+                            :can-edit="false"
+                        />
 
                         <!-- Devices Section -->
                         <div

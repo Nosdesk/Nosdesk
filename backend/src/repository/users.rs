@@ -27,12 +27,12 @@ pub fn get_paginated_users(
     let mut query = users::table.into_boxed();
     
     // Apply filters if provided
+    // Note: Email search removed - email is now in user_emails table
     if let Some(search_term) = search.clone() {
         if !search_term.is_empty() {
             let search_pattern = format!("%{}%", search_term.to_lowercase());
             query = query.filter(
                 users::name.ilike(search_pattern.clone())
-                    .or(users::email.ilike(search_pattern.clone()))
                     .or(users::id.eq_any(
                         search_term.parse::<i32>().ok().map(|id| vec![id]).unwrap_or_default()
                     ))
@@ -62,7 +62,6 @@ pub fn get_paginated_users(
             let search_pattern = format!("%{}%", search_term.to_lowercase());
             count_query = count_query.filter(
                 users::name.ilike(search_pattern.clone())
-                    .or(users::email.ilike(search_pattern.clone()))
                     .or(users::id.eq_any(
                         search_term.parse::<i32>().ok().map(|id| vec![id]).unwrap_or_default()
                     ))
@@ -87,13 +86,14 @@ pub fn get_paginated_users(
     let total: i64 = count_query.count().get_result(conn)?;
     
     // Apply sorting to the main query
+    // Note: Email sorting removed - would require join with user_emails table
     match (sort_field.as_deref(), sort_direction.as_deref()) {
         (Some("id"), Some("asc")) => query = query.order(users::id.asc()),
         (Some("id"), _) => query = query.order(users::id.desc()),
         (Some("name"), Some("asc")) => query = query.order(users::name.asc()),
         (Some("name"), _) => query = query.order(users::name.desc()),
-        (Some("email"), Some("asc")) => query = query.order(users::email.asc()),
-        (Some("email"), _) => query = query.order(users::email.desc()),
+        (Some("email"), Some("asc")) => query = query.order(users::name.asc()), // Fallback to name
+        (Some("email"), _) => query = query.order(users::name.desc()), // Fallback to name
         (Some("role"), Some("asc")) => query = query.order(users::role.asc()),
         (Some("role"), _) => query = query.order(users::role.desc()),
         _ => query = query.order(users::name.asc()), // Default sort by name
@@ -126,10 +126,9 @@ pub fn get_user_by_microsoft_uuid(conn: &mut DbConnection, microsoft_uuid: &Uuid
     users::table.filter(users::microsoft_uuid.eq(microsoft_uuid)).first(conn)
 }
 
+// This function now delegates to user_helpers module since email is in user_emails table
 pub fn get_user_by_email(email: &str, conn: &mut DbConnection) -> Result<User, Error> {
-    users::table
-        .filter(users::email.eq(email))
-        .first::<User>(conn)
+    crate::repository::user_helpers::get_user_by_email(email, conn)
 }
 
 pub fn get_user_by_name(name: &str, conn: &mut DbConnection) -> Result<User, Error> {

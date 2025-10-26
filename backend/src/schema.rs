@@ -314,8 +314,12 @@ diesel::table! {
         user_id -> Int4,
         #[max_length = 255]
         email -> Varchar,
+        #[max_length = 50]
+        email_type -> Varchar,
         is_primary -> Bool,
         is_verified -> Bool,
+        #[max_length = 50]
+        source -> Nullable<Varchar>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
     }
@@ -341,8 +345,6 @@ diesel::table! {
         uuid -> Uuid,
         #[max_length = 255]
         name -> Varchar,
-        #[max_length = 255]
-        email -> Varchar,
         role -> UserRole,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
