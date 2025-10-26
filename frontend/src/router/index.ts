@@ -470,129 +470,104 @@ router.beforeResolve((to, from, next) => {
   next();
 });
 
-// Authentication guard
-router.beforeEach(async (to, from, next) => {
-  console.log(`🔄 Router Guard: Navigating from "${from.name}" to "${to.name}"`, {
-    toPath: to.path,
-    fromPath: from.path
-  });
+// ===== NAVIGATION GUARD MIDDLEWARE =====
+// Modern Vue Router 4 pattern using return values instead of next() callbacks
 
-  // Import auth store inside the guard to avoid circular dependencies
-  const { useAuthStore } = await import('@/stores/auth');
-  const authStore = useAuthStore();
-
-  console.log('🔄 Router Guard: Auth state:', {
-    isAuthenticated: authStore.isAuthenticated,
-    hasUser: !!authStore.user,
-    userName: authStore.user?.name,
-    loading: authStore.loading
-  });
-
-  // Security: Check for onboarding requirements FIRST (before any other checks)
-  // This ensures new users are always directed to onboarding regardless of auth state
-  if (to.name !== 'onboarding' && to.name !== 'error' && to.name !== 'login') {
-    try {
-      // Security: Prevent excessive setup checks during navigation
-      const setupStatus = await authService.checkSetupStatus();
-      console.log('🔄 Router Guard: Setup status:', setupStatus);
-
-      if (setupStatus.requires_setup) {
-        // Security: Check if we're already trying to redirect to onboarding
-        if (from.name === 'onboarding') {
-          console.warn('⚠️  Router: Already on onboarding, preventing redirect loop');
-          next(false);
-          return;
-        }
-
-        // System requires setup, redirect to onboarding
-        console.log('🔄 Router: System requires setup, redirecting to onboarding');
-        next({ name: 'onboarding' });
-        return;
-      }
-    } catch (error) {
-      console.error('Failed to check setup status during navigation:', error);
-      // Security: If we can't check setup status, continue normally
-      // The error will be handled by the onboarding component if needed
-    }
-  }
-
-  // Check for unsaved changes
+/**
+ * Check for unsaved changes before navigation
+ */
+async function checkUnsavedChanges(to: any, from: any) {
   // @ts-ignore
   if (window.hasUnsavedChanges && !window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
-    next(false);
+    return false; // Cancel navigation
+  }
+}
+
+/**
+ * Check if system requires initial setup/onboarding
+ * Redirects to onboarding if no admin user exists
+ */
+async function checkOnboarding(to: any, from: any) {
+  // Skip check for onboarding, error, and login pages
+  if (to.name === 'onboarding' || to.name === 'error' || to.name === 'login') {
     return;
   }
 
-  // Check if the route requires authentication
-  const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
-  const requiresAdmin = to.matched.some(record => record.meta.adminRequired);
+  try {
+    const setupStatus = await authService.checkSetupStatus();
 
-  console.log('🔄 Router Guard: Route requirements:', {
-    requiresAuth,
-    requiresAdmin
-  });
+    if (setupStatus.requires_setup) {
+      // Prevent redirect loop if already coming from onboarding
+      if (from.name === 'onboarding') {
+        return false;
+      }
+      return { name: 'onboarding' };
+    }
+  } catch (error) {
+    console.error('Failed to check setup status:', error);
+    // Continue navigation - error handled by onboarding component if needed
+  }
+}
 
-  // Use auth store to check authentication and admin status
+/**
+ * Fetch user data if authenticated but not yet loaded
+ * Handles authentication state and redirects
+ */
+async function checkAuthentication(to: any, from: any) {
+  const { useAuthStore } = await import('@/stores/auth');
+  const authStore = useAuthStore();
+
+  const requiresAuth = to.matched.some((record: any) => record.meta.requiresAuth);
   const isAuthenticated = authStore.isAuthenticated;
 
-  // Fetch user data if authenticated but no user data loaded yet
-  // Skip if we're already on the login page to prevent infinite loops
+  // Fetch user data if needed
   if (isAuthenticated && !authStore.user && !authStore.loading && to.name !== 'login') {
-    console.log('🔄 Router Guard: Need to fetch user data');
     try {
-      const userData = await authStore.fetchUserData();
-
-      // If fetchUserData returns null (cooldown or no CSRF token), continue anyway
-      if (userData === null && isAuthenticated) {
-        // Still authenticated but couldn't fetch - allow navigation
-        console.warn('Could not fetch user data, but authentication cookies present');
-      } else {
-        console.log('🔄 Router Guard: User data fetched successfully');
-      }
+      await authStore.fetchUserData();
     } catch (error: any) {
-      console.error('Failed to fetch user data during navigation:', error);
-
-      // Only logout and redirect for auth errors, not rate limit or network errors
+      // Only logout for auth errors (401/403)
       if (error?.response?.status === 401 || error?.response?.status === 403) {
-        console.log('🔄 Router Guard: Auth error, logging out and redirecting to login');
         authStore.logout();
-        next({ name: 'login', query: { redirect: to.fullPath } });
-        return;
+        return { name: 'login', query: { redirect: to.fullPath } };
       }
-
-      // For other errors (429, network, etc.), allow navigation to continue
-      // The user is still authenticated based on cookies
-      console.warn('Allowing navigation despite fetch error');
+      // Allow navigation for other errors (rate limit, network, etc.)
     }
-  } else if (isAuthenticated && authStore.user) {
-    console.log('🔄 Router Guard: User already loaded, no fetch needed');
   }
 
-  // Use auth store to check admin status
-  const isAdmin = authStore.isAdmin;
-
+  // Redirect unauthenticated users from protected routes
   if (requiresAuth && !isAuthenticated) {
-    console.log('🔄 Router Guard: Route requires auth but not authenticated, redirecting to login');
-    // Redirect to login page if not authenticated
-    next({ name: 'login', query: { redirect: to.fullPath } });
-  } else if (requiresAdmin && !isAdmin) {
-    console.log('🔄 Router Guard: Route requires admin but not admin, redirecting to home');
-    // Redirect to home if not an admin
-    next({ name: 'home' });
-  } else if (to.path === '/login' && isAuthenticated) {
-    console.log('🔄 Router Guard: Already authenticated, redirecting from login to home');
-    // Redirect to home if already authenticated and trying to access login page
-    next({ name: 'home' });
-  } else if (to.name === 'onboarding' && isAuthenticated) {
-    console.log('🔄 Router Guard: Already authenticated, redirecting from onboarding to home');
-    // If user is authenticated and trying to access onboarding, redirect to home
-    next({ name: 'home' });
-  } else {
-    console.log('🔄 Router Guard: All checks passed, allowing navigation to', to.name);
-    // Continue to the route
-    next();
+    return { name: 'login', query: { redirect: to.fullPath } };
   }
-});
+
+  // Redirect authenticated users away from login/onboarding
+  if (isAuthenticated && authStore.user) {
+    if (to.path === '/login' || to.name === 'onboarding') {
+      return { name: 'home' };
+    }
+  }
+}
+
+/**
+ * Check admin access for admin-only routes
+ */
+async function checkAdminAccess(to: any, from: any) {
+  const requiresAdmin = to.matched.some((record: any) => record.meta.adminRequired);
+
+  if (requiresAdmin) {
+    const { useAuthStore } = await import('@/stores/auth');
+    const authStore = useAuthStore();
+
+    if (!authStore.isAdmin) {
+      return { name: 'home' };
+    }
+  }
+}
+
+// Register middleware in order of execution
+router.beforeEach(checkUnsavedChanges);
+router.beforeEach(checkOnboarding);
+router.beforeEach(checkAuthentication);
+router.beforeEach(checkAdminAccess);
 
 router.onError((error) => {
   router.push({
