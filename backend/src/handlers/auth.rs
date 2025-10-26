@@ -1,5 +1,4 @@
-use actix_web::{web, HttpResponse, Responder, HttpRequest};
-use actix_web_httpauth::extractors::bearer::BearerAuth;
+use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use bcrypt::verify;
 use serde::Deserialize;
 use serde_json::json;
@@ -99,7 +98,7 @@ async fn log_password_change_event(
 }
 
 /// Helper function to create a session record after successful login
-async fn create_session_record(
+pub async fn create_session_record(
     user_uuid: &Uuid,
     token: &str,
     request: &HttpRequest,
@@ -555,19 +554,33 @@ pub async fn register(
 
 // Middleware for validating JWT tokens
 #[allow(dead_code)]
-pub async fn validate_token(auth: BearerAuth, db_pool: web::Data<crate::db::Pool>) -> Result<UserResponse, actix_web::Error> {
+pub async fn validate_token(req: HttpRequest, db_pool: web::Data<crate::db::Pool>) -> Result<UserResponse, actix_web::Error> {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return Err(actix_web::error::ErrorInternalServerError("Database error")),
     };
-    
-    let (_claims, user) = JwtUtils::authenticate_request(&auth, &mut conn).await?;
+
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return Err(actix_web::error::ErrorUnauthorized("Authentication required")),
+    };
+
+    let user_uuid = match parse_uuid(&claims.sub) {
+        Ok(uuid) => uuid,
+        Err(_) => return Err(actix_web::error::ErrorBadRequest("Invalid user UUID")),
+    };
+
+    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
+        Ok(user) => user,
+        Err(_) => return Err(actix_web::error::ErrorNotFound("User not found")),
+    };
+
     Ok(UserResponse::from(user))
 }
 
 pub async fn change_password(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     password_data: web::Json<PasswordChangeRequest>,
 ) -> impl Responder {
     // Validate new password first
@@ -592,12 +605,12 @@ pub async fn change_password(
         })),
     };
 
-    // Validate the token and get claims
-    let (claims, _user) = match JwtUtils::authenticate_request(&auth, &mut conn).await {
-        Ok((claims, user)) => (claims, user),
-        Err(_e) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -689,8 +702,18 @@ pub async fn change_password(
                     }
 
                     // Revoke all other sessions for security (defense in depth)
-                    // Get current session token from the Bearer auth token
-                    let current_session_token = auth.token();
+                    // Get current session token from cookie
+                    let current_session_token = match req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE) {
+                        Some(cookie) => cookie.value().to_string(),
+                        None => {
+                            tracing::warn!("Could not find access token cookie during password change for user {}", user.uuid);
+                            // Continue even if we can't find the cookie - password change succeeded
+                            return HttpResponse::Ok().json(json!({
+                                "status": "success",
+                                "message": "Password changed successfully"
+                            }));
+                        }
+                    };
 
                     // Hash the JWT token to match stored session tokens (SHA-256)
                     use ring::digest;
@@ -747,16 +770,21 @@ pub async fn change_password(
     }
 }
 
-// Helper function to validate token internally - deprecated, use JwtUtils instead
-pub async fn validate_token_internal(auth: &BearerAuth, conn: &mut DbConnection) -> Result<Claims, actix_web::Error> {
-    let (claims, _user) = JwtUtils::authenticate_request(auth, conn).await?;
+// Helper function to validate token internally - deprecated, use cookie middleware instead
+// This is kept for backward compatibility but should not be used with new code
+#[allow(dead_code)]
+pub async fn validate_token_internal_deprecated(req: &HttpRequest) -> Result<Claims, actix_web::Error> {
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return Err(actix_web::error::ErrorUnauthorized("Authentication required")),
+    };
     Ok(claims)
 }
 
 #[allow(dead_code)]
 pub async fn admin_reset_password(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     reset_data: web::Json<AdminPasswordResetRequest>,
 ) -> impl Responder {
     // Get database connection
@@ -768,14 +796,22 @@ pub async fn admin_reset_password(
         })),
     };
 
-    // Validate the token and check admin permissions
-    let (_claims, _user) = match jwt_helpers::require_admin(&auth, &mut conn).await {
-        Ok((claims, user)) => (claims, user),
-        Err(_) => return HttpResponse::Forbidden().json(json!({
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Only administrators can reset passwords"
+            "message": "Authentication required"
         })),
     };
+
+    // Check admin permissions
+    if claims.role != "admin" {
+        return HttpResponse::Forbidden().json(json!({
+            "status": "error",
+            "message": "Only administrators can reset passwords"
+        }));
+    }
 
     // Get the target user
     let user = match repository::get_user_by_id(reset_data.user_id, &mut conn) {
@@ -1024,7 +1060,7 @@ pub async fn setup_initial_admin(
 /// MFA Setup - Generate secret and QR code
 pub async fn mfa_setup(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -1034,11 +1070,27 @@ pub async fn mfa_setup(
         })),
     };
 
-    let (_claims, user) = match JwtUtils::authenticate_request(&auth, &mut conn).await {
-        Ok((claims, user)) => (claims, user),
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
+        })),
+    };
+
+    let user_uuid = match parse_uuid(&claims.sub) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid user UUID"
+        })),
+    };
+
+    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
+        Ok(user) => user,
+        Err(_) => return HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "User not found"
         })),
     };
 
@@ -1085,10 +1137,10 @@ pub async fn mfa_setup(
 /// MFA Verify Setup - Verify the TOTP token during setup
 pub async fn mfa_verify_setup(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     request: web::Json<crate::models::MfaVerifySetupRequest>,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -1096,11 +1148,11 @@ pub async fn mfa_verify_setup(
         })),
     };
 
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -1127,7 +1179,7 @@ pub async fn mfa_verify_setup(
 /// MFA Enable - Enable MFA for the user
 pub async fn mfa_enable(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     request: web::Json<crate::models::MfaEnableRequest>,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
@@ -1138,11 +1190,11 @@ pub async fn mfa_enable(
         })),
     };
 
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -1234,7 +1286,7 @@ pub async fn mfa_enable(
 /// MFA Disable - Disable MFA for the user (accepts full or mfa_recovery scope)
 pub async fn mfa_disable(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     request: web::Json<crate::models::MfaDisableRequest>,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
@@ -1245,11 +1297,11 @@ pub async fn mfa_disable(
         })),
     };
 
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -1327,7 +1379,7 @@ pub async fn mfa_disable(
 /// MFA Regenerate Backup Codes - Generate new backup codes
 pub async fn mfa_regenerate_backup_codes(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     request: web::Json<crate::models::MfaRegenerateBackupCodesRequest>,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
@@ -1338,11 +1390,11 @@ pub async fn mfa_regenerate_backup_codes(
         })),
     };
 
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 

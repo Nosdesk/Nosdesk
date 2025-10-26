@@ -1,5 +1,4 @@
-use actix_web::{web, HttpResponse, Responder};
-use actix_web_httpauth::extractors::bearer::BearerAuth;
+use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 // Removed unused import: use diesel::prelude::*;
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,12 +8,12 @@ use serde::Deserialize;
 use reqwest;
 
 use crate::db::{Pool, DbConnection};
-use crate::handlers::auth::validate_token_internal;
 use crate::utils::jwt::JWT_SECRET;
 use crate::models::{
     OAuthRequest, OAuthExchangeRequest,
     OAuthState, Claims, AuthProvider
 };
+use diesel::prelude::*;
 // Auth providers are now configured via environment variables
 use crate::repository::user_auth_identities;
 use crate::config_utils;
@@ -88,7 +87,7 @@ fn get_provider_by_id(provider_id: i32) -> Result<AuthProvider, diesel::result::
 // Get all authentication providers (admin only) - now returns environment-based config
 pub async fn get_auth_providers(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
     let mut conn = match db_pool.get() {
@@ -99,12 +98,12 @@ pub async fn get_auth_providers(
         })),
     };
 
-    // Validate the token and get admin info
-    let claims = match validate_token_internal(&auth, &mut conn).await {
+    // Extract claims from cookie auth middleware
+    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
         Err(_) => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -174,12 +173,12 @@ pub async fn get_enabled_auth_providers(
 #[allow(dead_code)]
 pub async fn update_auth_provider(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     _path: web::Path<i32>,
     _provider_data: web::Json<serde_json::Value>,
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -187,12 +186,12 @@ pub async fn update_auth_provider(
         })),
     };
 
-    // Validate the token and get admin info
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -219,7 +218,7 @@ pub async fn update_auth_provider(
 pub async fn oauth_authorize(
     db_pool: web::Data<Pool>,
     oauth_request: web::Json<OAuthRequest>,
-    auth: Option<BearerAuth>, // Make auth optional, it's only required for user connection
+    req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
     let mut conn = match db_pool.get() {
@@ -234,24 +233,16 @@ pub async fn oauth_authorize(
     let is_user_connection = oauth_request.user_connection.unwrap_or(false);
 
     let _user_uuid = if is_user_connection {
-        // Validate token for user connection
-        match &auth {
-            Some(auth_bearer) => {
-                let claims = match validate_token_internal(&auth_bearer, &mut conn).await {
-                    Ok(claims) => claims,
-                    Err(_) => return HttpResponse::Unauthorized().json(json!({
-                        "status": "error",
-                        "message": "Invalid or expired token"
-                    })),
-                };
-
-                Some(claims.sub)
-            },
+        // Extract claims from cookie auth middleware for user connection
+        let claims = match req.extensions().get::<crate::models::Claims>() {
+            Some(claims) => claims.clone(),
             None => return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
                 "message": "Authentication required for user connection"
             })),
-        }
+        };
+
+        Some(claims.sub)
     } else {
         None
     };
@@ -355,6 +346,7 @@ pub async fn oauth_authorize(
 pub async fn oauth_callback(
     db_pool: web::Data<Pool>,
     query: web::Query<OAuthExchangeRequest>,
+    request: actix_web::HttpRequest,
 ) -> impl Responder {
     // Get database connection
     let mut conn = match db_pool.get() {
@@ -513,11 +505,33 @@ pub async fn oauth_callback(
                 if is_connection {
                     // This is a connection request - check if this identity is already linked to another account
                     match user_auth_identities::find_user_by_identity(&provider.provider_type, &provider_user_id, &mut conn) {
-                        Ok(Some(_)) => {
-                            return HttpResponse::BadRequest().json(json!({
-                                "status": "error",
-                                "message": "This Microsoft account is already connected to another user account"
-                            }));
+                        Ok(Some(existing_user_id)) => {
+                            // Found an existing identity - verify the user still exists
+                            match crate::repository::users::get_user_by_id(existing_user_id, &mut conn) {
+                                Ok(_user) => {
+                                    // User exists, can't reconnect
+                                    return HttpResponse::BadRequest().json(json!({
+                                        "status": "error",
+                                        "message": "This Microsoft account is already connected to another user account"
+                                    }));
+                                },
+                                Err(_) => {
+                                    // User doesn't exist (orphaned record) - clean it up and proceed
+                                    tracing::warn!(
+                                        "Found orphaned auth identity for user_id {} (provider: {}, external_id: {}). Cleaning up...",
+                                        existing_user_id, provider.provider_type, provider_user_id
+                                    );
+                                    // Delete the orphaned identity
+                                    if let Err(e) = diesel::delete(
+                                        crate::schema::user_auth_identities::table
+                                            .filter(crate::schema::user_auth_identities::provider_type.eq(&provider.provider_type))
+                                            .filter(crate::schema::user_auth_identities::external_id.eq(&provider_user_id))
+                                    ).execute(&mut conn) {
+                                        tracing::error!("Failed to clean up orphaned auth identity: {:?}", e);
+                                    }
+                                    // Allow connection to proceed
+                                }
+                            }
                         },
                         Ok(None) => {
                             // Identity not yet linked to any account, we can proceed
@@ -599,27 +613,38 @@ pub async fn oauth_callback(
                     // Regular login/signup flow
                     // Find or create user based on OAuth identity
                     let user_result = find_or_create_oauth_user(&user_info, &provider, &mut conn).await;
-                    
+
                     match user_result {
                         Ok(user) => {
-                            // Generate JWT token for our application
-                            let token = match generate_app_jwt_token(&user) {
-                                Ok(token) => token,
-                                Err(e) => {
-                                    eprintln!("Error generating app JWT token: {:?}", e);
-                                    return HttpResponse::InternalServerError().json(json!({
-                                        "status": "error",
-                                        "message": "Failed to generate authentication token"
-                                    }));
-                                }
-                            };
-                            
-                            // Instead of redirecting, return a JSON response with the token and user info
-                            HttpResponse::Ok().json(json!({
-                                "token": token,
-                                "user": crate::models::UserResponse::from(user),
-                                "redirect": state_data.redirect_uri
-                            }))
+                            // Store user UUID before moving user into create_login_response
+                            let user_uuid = user.uuid;
+
+                            // Create standard login response with httpOnly cookies
+                            match crate::utils::jwt::helpers::create_login_response(user, &mut conn) {
+                                Ok((response, tokens)) => {
+                                    tracing::info!("🔐 OAuth: Created login response for user {}, creating session...", user_uuid);
+
+                                    // Create session record after successful OAuth login
+                                    if let Err(e) = crate::handlers::auth::create_session_record(&user_uuid, &tokens.access_token, &request, &mut conn).await {
+                                        tracing::error!("❌ OAuth: Failed to create session record for user {}: {}", user_uuid, e);
+                                        // Return error instead of continuing without session
+                                        return HttpResponse::InternalServerError().json(json!({
+                                            "status": "error",
+                                            "message": "Failed to create authentication session"
+                                        }));
+                                    }
+
+                                    tracing::info!("✅ OAuth: Session created successfully for user {}", user_uuid);
+
+                                    // Set httpOnly cookies for tokens
+                                    HttpResponse::Ok()
+                                        .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
+                                        .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
+                                        .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
+                                        .json(response)
+                                },
+                                Err(error_response) => error_response,
+                            }
                         },
                         Err(e) => {
                             eprintln!("Error finding/creating user: {:?}", e);
@@ -1056,7 +1081,7 @@ async fn add_oauth_identity_to_user(
 // Direct endpoint for connecting a new authentication method to an existing user
 pub async fn oauth_connect(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth, // Required auth token
+    req: HttpRequest,
     oauth_request: web::Json<OAuthRequest>,
 ) -> impl Responder {
     // Get database connection
@@ -1068,12 +1093,12 @@ pub async fn oauth_connect(
         })),
     };
 
-    // Validate token and get user info - this is required for connections
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -1203,7 +1228,7 @@ pub async fn oauth_connect(
 #[allow(dead_code)]
 pub async fn test_microsoft_config(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     path: web::Path<i32>,
 ) -> impl Responder {
     // Get database connection
@@ -1215,12 +1240,12 @@ pub async fn test_microsoft_config(
         })),
     };
 
-    // Validate the token and get admin info
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -1355,7 +1380,7 @@ pub async fn test_microsoft_config(
 #[allow(dead_code)]
 pub async fn set_default_auth_provider(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     request_data: web::Json<serde_json::Value>,
 ) -> impl Responder {
     // Get database connection
@@ -1367,12 +1392,12 @@ pub async fn set_default_auth_provider(
         })),
     };
 
-    // Validate the token and get admin info
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 

@@ -83,6 +83,9 @@ where
             || path == "/api/auth/mfa-enable-login"
             || path == "/api/auth/microsoft"
             || path.starts_with("/api/auth/microsoft/callback")
+            || path == "/api/auth/oauth/authorize"
+            || path == "/api/auth/oauth/callback"
+            || path == "/api/auth/oauth/logout"
             || path == "/api/auth/setup/admin"
             || path == "/api/auth/setup/status"
             || path == "/api/auth/register"

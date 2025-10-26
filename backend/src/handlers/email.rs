@@ -1,10 +1,8 @@
-use actix_web::{web, HttpResponse, Responder};
-use actix_web_httpauth::extractors::bearer::BearerAuth;
+use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::db::Pool;
-use crate::handlers::auth::validate_token_internal;
 use crate::utils::email::{EmailService, EmailConfig};
 
 /// Test email request
@@ -16,7 +14,7 @@ pub struct TestEmailRequest {
 /// Get email configuration status (admin only, read-only)
 pub async fn get_email_config(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
     let mut conn = match db_pool.get() {
@@ -29,13 +27,13 @@ pub async fn get_email_config(
         }
     };
 
-    // Validate the token and get admin info
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => {
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => {
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
-                "message": "Invalid or expired token"
+                "message": "Authentication required"
             }))
         }
     };
@@ -74,7 +72,7 @@ pub async fn get_email_config(
 /// Send a test email (admin only)
 pub async fn send_test_email(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     request: web::Json<TestEmailRequest>,
 ) -> impl Responder {
     // Get database connection
@@ -88,13 +86,13 @@ pub async fn send_test_email(
         }
     };
 
-    // Validate the token and get admin info
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => {
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => {
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
-                "message": "Invalid or expired token"
+                "message": "Authentication required"
             }))
         }
     };

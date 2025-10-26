@@ -3,6 +3,7 @@ import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import BackButton from '@/components/common/BackButton.vue';
+import Modal from '@/components/Modal.vue';
 import {
   UserProfileCard,
   AppearanceSettings,
@@ -14,6 +15,7 @@ import {
 import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import userService from '@/services/userService';
 import type { User } from '@/services/userService';
+import apiClient from '@/services/apiConfig';
 
 const route = useRoute();
 const router = useRouter();
@@ -322,6 +324,54 @@ const updateUserRole = async (newRole: string) => {
     updatingRole.value = false;
   }
 };
+
+// Delete account functionality
+const showDeleteModal = ref(false);
+const deletePassword = ref('');
+const isDeleting = ref(false);
+
+const deleteAccount = async () => {
+  if (!deletePassword.value) {
+    handleError('Please enter your password to confirm deletion');
+    return;
+  }
+
+  try {
+    isDeleting.value = true;
+
+    const userToDelete = currentUser.value;
+    if (!userToDelete?.uuid) {
+      handleError('Unable to identify user account');
+      return;
+    }
+
+    // Delete the user account
+    await apiClient.delete(`/users/${userToDelete.uuid}`, {
+      data: { password: deletePassword.value }
+    });
+
+    // If deleting own account, logout and redirect
+    if (!isAdminMode.value) {
+      await authStore.logout();
+      router.push('/login?deleted=true');
+    } else {
+      // Admin deleted another user, redirect to users list
+      router.push('/users?deleted=true');
+    }
+  } catch (error: any) {
+    console.error('Failed to delete account:', error);
+    handleError(error.response?.data?.message || 'Failed to delete account. Please try again.');
+    isDeleting.value = false;
+  } finally {
+    showDeleteModal.value = false;
+    deletePassword.value = '';
+  }
+};
+
+const cancelDelete = () => {
+  showDeleteModal.value = false;
+  deletePassword.value = '';
+};
 </script>
 
 <template>
@@ -592,10 +642,118 @@ const updateUserRole = async (newRole: string) => {
               @success="handleSuccess"
               @error="handleError"
             />
+
+            <!-- Delete Account Section -->
+            <div class="bg-slate-800 rounded-xl border border-red-700/50 hover:border-red-600/50 transition-colors">
+              <div class="px-4 py-3 bg-red-900/20 border-b border-red-700/50">
+                <div class="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <h2 class="text-lg font-medium text-red-400">Danger Zone</h2>
+                </div>
+                <p class="text-sm text-red-300 mt-1">Irreversible and destructive actions</p>
+              </div>
+
+              <div class="p-6">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div class="flex-1">
+                    <h3 class="text-base font-medium text-white mb-1">
+                      {{ isAdminMode ? 'Delete User Account' : 'Delete Account' }}
+                    </h3>
+                    <p class="text-sm text-slate-400">
+                      {{ isAdminMode
+                        ? `Permanently delete ${currentUser?.name}'s account and all associated data.`
+                        : 'Permanently delete your account and all associated data.'
+                      }}
+                      This action cannot be undone.
+                    </p>
+                  </div>
+                  <button
+                    @click="showDeleteModal = true"
+                    class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors flex items-center gap-2 whitespace-nowrap"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete Account
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- Delete Confirmation Modal -->
+    <Modal
+      :show="showDeleteModal"
+      title="Confirm Account Deletion"
+      @close="cancelDelete"
+    >
+      <div class="flex flex-col gap-4">
+        <div class="bg-red-900/20 border border-red-700/50 rounded-lg p-4">
+          <div class="flex gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <p class="font-medium text-red-300 mb-2">This action is permanent and cannot be undone!</p>
+              <p class="text-sm text-red-200">
+                {{ isAdminMode
+                  ? `Deleting ${currentUser?.name}'s account will permanently remove:`
+                  : 'Deleting your account will permanently remove:'
+                }}
+              </p>
+              <ul class="list-disc list-inside text-sm text-red-200 mt-2 space-y-1">
+                <li>Profile information and settings</li>
+                <li>All tickets created or assigned to this user</li>
+                <li>Comments and activity history</li>
+                <li>Access to all systems and resources</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <label class="text-sm font-medium text-slate-300">
+            {{ isAdminMode ? 'Enter your admin password to confirm:' : 'Enter your password to confirm:' }}
+          </label>
+          <input
+            v-model="deletePassword"
+            type="password"
+            autocomplete="current-password"
+            class="w-full px-4 py-2 bg-slate-700 text-white rounded-lg border border-slate-600 focus:ring-2 focus:ring-red-500 focus:outline-none"
+            placeholder="Password"
+            @keyup.enter="deleteAccount"
+          />
+        </div>
+
+        <div class="flex justify-end gap-3 pt-2">
+          <button
+            @click="cancelDelete"
+            :disabled="isDeleting"
+            class="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            @click="deleteAccount"
+            :disabled="!deletePassword || isDeleting"
+            class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            <span v-if="isDeleting" class="animate-spin h-4 w-4">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 004 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </span>
+            {{ isDeleting ? 'Deleting...' : 'Delete Account Permanently' }}
+          </button>
+        </div>
+      </div>
+    </Modal>
   </div>
 </template>
 

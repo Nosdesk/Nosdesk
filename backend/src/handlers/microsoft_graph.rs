@@ -1,11 +1,9 @@
-use actix_web::{web, HttpResponse, Responder};
-use actix_web_httpauth::extractors::bearer::BearerAuth;
+use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use serde_json::json;
 use serde::Deserialize;
 use urlencoding;
 
 use crate::db::Pool;
-use crate::handlers::auth::validate_token_internal;
 // Auth providers are now configured via environment variables
 use crate::config_utils;
 use crate::models::AuthProvider;
@@ -49,10 +47,83 @@ pub struct MicrosoftGraphRequest {
     pub headers: Option<serde_json::Value>,
 }
 
+/// Provides helpful permission guidance based on the endpoint being accessed
+fn get_permission_help_message(endpoint: &str) -> serde_json::Value {
+    // Determine the resource type from the endpoint
+    let (resource_type, permissions) = if endpoint.contains("/users") || endpoint.starts_with("/users") {
+        ("Users", json!({
+            "required_permissions": ["User.Read.All"],
+            "recommended_permissions": ["User.ReadWrite.All"],
+            "description": "Read user profiles and basic directory information"
+        }))
+    } else if endpoint.contains("/devices") || endpoint.starts_with("/devices") {
+        ("Devices", json!({
+            "required_permissions": ["Device.Read.All"],
+            "recommended_permissions": ["Device.ReadWrite.All"],
+            "description": "Read device information from Intune and Azure AD"
+        }))
+    } else if endpoint.contains("/groups") || endpoint.starts_with("/groups") {
+        ("Groups", json!({
+            "required_permissions": ["Group.Read.All"],
+            "recommended_permissions": ["Group.ReadWrite.All"],
+            "description": "Read group information and memberships"
+        }))
+    } else if endpoint.contains("/directoryObjects") || endpoint.starts_with("/directoryObjects") {
+        ("Directory Objects", json!({
+            "required_permissions": ["Directory.Read.All"],
+            "recommended_permissions": ["Directory.ReadWrite.All"],
+            "description": "Read directory objects including users, groups, and devices"
+        }))
+    } else if endpoint.contains("/organization") || endpoint.starts_with("/organization") {
+        ("Organization", json!({
+            "required_permissions": ["Organization.Read.All"],
+            "recommended_permissions": ["Organization.Read.All"],
+            "description": "Read organization and tenant information"
+        }))
+    } else if endpoint.contains("/deviceManagement") || endpoint.starts_with("/deviceManagement") {
+        ("Device Management (Intune)", json!({
+            "required_permissions": ["DeviceManagementManagedDevices.Read.All"],
+            "recommended_permissions": [
+                "DeviceManagementManagedDevices.ReadWrite.All",
+                "DeviceManagementConfiguration.Read.All"
+            ],
+            "description": "Read and manage devices enrolled in Microsoft Intune"
+        }))
+    } else {
+        ("Microsoft Graph", json!({
+            "required_permissions": ["Directory.Read.All"],
+            "recommended_permissions": ["Directory.ReadWrite.All"],
+            "description": "General directory read access"
+        }))
+    };
+
+    json!({
+        "message": format!("Your Azure AD application needs API permissions to access {} data", resource_type),
+        "permissions": permissions,
+        "setup_instructions": {
+            "steps": [
+                "1. Go to Azure Portal (portal.azure.com)",
+                "2. Navigate to 'Azure Active Directory' → 'App registrations'",
+                "3. Select your application",
+                "4. Click 'API permissions' in the left menu",
+                "5. Click 'Add a permission' → 'Microsoft Graph' → 'Application permissions'",
+                "6. Search for and add the required permissions listed above",
+                "7. Click 'Grant admin consent' (requires admin privileges)",
+                "8. Wait a few minutes for permissions to propagate"
+            ],
+            "important_notes": [
+                "Application permissions require admin consent",
+                "Changes may take 5-10 minutes to take effect",
+                "Ensure you're adding 'Application permissions', not 'Delegated permissions'"
+            ]
+        }
+    })
+}
+
 // Microsoft Graph API request handler
 pub async fn process_graph_request(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     request_data: web::Json<MicrosoftGraphRequest>,
 ) -> impl Responder {
     // Get database connection
@@ -64,12 +135,12 @@ pub async fn process_graph_request(
         })),
     };
 
-    // Validate the token and get user info
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let _claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -275,12 +346,67 @@ pub async fn process_graph_request(
     match request_builder.send().await {
         Ok(response) => {
             let status = response.status();
+
+            // Handle permission errors with helpful messages
+            if status == 403 {
+                match response.json::<serde_json::Value>().await {
+                    Ok(error_data) => {
+                        let error_msg = error_data
+                            .get("error")
+                            .and_then(|err| err.get("message"))
+                            .and_then(|msg| msg.as_str())
+                            .unwrap_or("Insufficient permissions");
+
+                        let error_code = error_data
+                            .get("error")
+                            .and_then(|err| err.get("code"))
+                            .and_then(|code| code.as_str())
+                            .unwrap_or("Authorization_RequestDenied");
+
+                        // Provide helpful permission guidance based on the endpoint
+                        let permission_help = get_permission_help_message(&endpoint);
+
+                        return HttpResponse::Forbidden().json(json!({
+                            "status": "error",
+                            "message": error_msg,
+                            "error_code": error_code,
+                            "permission_help": permission_help,
+                            "documentation": "https://learn.microsoft.com/en-us/graph/permissions-reference"
+                        }));
+                    },
+                    Err(_) => {
+                        return HttpResponse::Forbidden().json(json!({
+                            "status": "error",
+                            "message": "Insufficient permissions to access Microsoft Graph API",
+                            "permission_help": get_permission_help_message(&endpoint),
+                            "documentation": "https://learn.microsoft.com/en-us/graph/permissions-reference"
+                        }));
+                    }
+                }
+            }
+
+            // Parse response for other status codes
             match response.json::<serde_json::Value>().await {
                 Ok(data) => {
-                    HttpResponse::build(status).json(json!({
-                        "status": if status.is_success() { "success" } else { "error" },
-                        "data": data
-                    }))
+                    if status.is_success() {
+                        HttpResponse::build(status).json(json!({
+                            "status": "success",
+                            "data": data
+                        }))
+                    } else {
+                        // Include error details for non-success responses
+                        let error_msg = data
+                            .get("error")
+                            .and_then(|err| err.get("message"))
+                            .and_then(|msg| msg.as_str())
+                            .unwrap_or("Microsoft Graph API error");
+
+                        HttpResponse::build(status).json(json!({
+                            "status": "error",
+                            "message": error_msg,
+                            "data": data
+                        }))
+                    }
                 },
                 Err(e) => {
                     eprintln!("Error parsing Microsoft Graph response: {:?}", e);
@@ -304,7 +430,7 @@ pub async fn process_graph_request(
 // Helper endpoints for common Graph API operations
 pub async fn get_graph_users(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     // Convert the query parameters to what Microsoft Graph needs, only including non-empty values
@@ -342,12 +468,12 @@ pub async fn get_graph_users(
     };
 
     // Process the request
-    process_graph_request(db_pool, auth, web::Json(graph_request)).await
+    process_graph_request(db_pool, req, web::Json(graph_request)).await
 }
 
 pub async fn get_graph_devices(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     // Convert the query parameters to what Microsoft Graph needs, only including non-empty values
@@ -385,12 +511,12 @@ pub async fn get_graph_devices(
     };
 
     // Process the request
-    process_graph_request(db_pool, auth, web::Json(graph_request)).await
+    process_graph_request(db_pool, req, web::Json(graph_request)).await
 }
 
 pub async fn get_graph_groups(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     // Convert the query parameters to what Microsoft Graph needs, only including non-empty values
@@ -428,12 +554,12 @@ pub async fn get_graph_groups(
     };
 
     // Process the request
-    process_graph_request(db_pool, auth, web::Json(graph_request)).await
+    process_graph_request(db_pool, req, web::Json(graph_request)).await
 }
 
 pub async fn get_graph_directory_objects(
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     // Convert the query parameters to what Microsoft Graph needs, only including non-empty values
@@ -471,5 +597,5 @@ pub async fn get_graph_directory_objects(
     };
 
     // Process the request
-    process_graph_request(db_pool, auth, web::Json(graph_request)).await
+    process_graph_request(db_pool, req, web::Json(graph_request)).await
 } 

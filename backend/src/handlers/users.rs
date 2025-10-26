@@ -1,5 +1,4 @@
-use actix_web::{web, HttpResponse, HttpRequest, Responder};
-use actix_web_httpauth::extractors::bearer::BearerAuth;
+use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use bcrypt::DEFAULT_COST;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -12,7 +11,6 @@ use std::collections::HashSet;
 use crate::models::{NewUser, UserResponse, UserUpdate, UserUpdateWithPassword, UserProfileUpdate};
 use crate::repository;
 use crate::repository::user_emails as user_emails_repo;
-use crate::handlers::auth::validate_token_internal;
 use crate::utils;
 
 // Pagination query parameters
@@ -369,7 +367,7 @@ pub async fn create_user(
 pub async fn update_user(
     path: web::Path<String>,
     user_data: web::Json<UserUpdate>,
-    _auth: BearerAuth,
+    req: HttpRequest,
     db_pool: web::Data<crate::db::Pool>,
 ) -> impl Responder {
     let user_id_str = path.into_inner();
@@ -420,7 +418,7 @@ pub async fn update_user(
 pub async fn delete_user(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
 ) -> impl Responder {
     let user_uuid = uuid.into_inner();
     let mut conn = match pool.get() {
@@ -428,10 +426,10 @@ pub async fn delete_user(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    // Validate token and get authenticated user
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json("Invalid or expired token"),
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
     };
 
     // Only admins can delete users
@@ -481,7 +479,7 @@ pub async fn delete_user(
 // Get user's authentication identities
 pub async fn get_user_auth_identities(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
     let mut conn = match db_pool.get() {
@@ -492,16 +490,15 @@ pub async fn get_user_auth_identities(
         })),
     };
 
-    // Validate token and get user UUID
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(e) => {
-            eprintln!("Token validation error: {:?}", e);
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => {
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
-                "message": "Invalid or expired token"
+                "message": "Authentication required"
             }));
-        },
+        }
     };
 
     // Get the user ID
@@ -540,7 +537,7 @@ pub async fn get_user_auth_identities(
 // Get user's authentication identities by UUID
 pub async fn get_user_auth_identities_by_uuid(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     path: web::Path<String>, // User UUID
 ) -> impl Responder {
     // Get database connection
@@ -557,14 +554,13 @@ pub async fn get_user_auth_identities_by_uuid(
 
     let user_uuid = path.into_inner();
 
-    // Validate token and get user UUID from token
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(e) => {
-            eprintln!("Token validation error: {:?}", e);
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => {
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
-                "message": "Invalid or expired token"
+                "message": "Authentication required"
             }));
         }
     };
@@ -602,7 +598,7 @@ pub async fn get_user_auth_identities_by_uuid(
 // Delete a user authentication identity
 pub async fn delete_user_auth_identity(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     path: web::Path<i32>, // Auth identity ID
 ) -> impl Responder {
     let identity_id = path.into_inner();
@@ -614,12 +610,12 @@ pub async fn delete_user_auth_identity(
         })),
     };
 
-    // Validate the token
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -691,7 +687,7 @@ pub async fn delete_user_auth_identity(
 // Delete a user authentication identity by UUID
 pub async fn delete_user_auth_identity_by_uuid(
     db_pool: web::Data<crate::db::Pool>,
-    auth: BearerAuth,
+    req: HttpRequest,
     path: web::Path<(String, i32)>, // (User UUID, Auth identity ID)
 ) -> impl Responder {
     let (user_uuid, identity_id) = path.into_inner();
@@ -703,12 +699,12 @@ pub async fn delete_user_auth_identity_by_uuid(
         })),
     };
 
-    // Validate the token
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -777,7 +773,7 @@ pub async fn delete_user_auth_identity_by_uuid(
 pub async fn update_user_profile(
     _path: web::Path<String>,
     profile_data: web::Json<UserProfileUpdate>,
-    _auth: BearerAuth,
+    req: HttpRequest,
     db_pool: web::Data<crate::db::Pool>,
 ) -> impl Responder {
     let user_id = profile_data.id;
@@ -1170,7 +1166,7 @@ async fn cleanup_old_user_images(
 
 /// Clean up all stale user images (admin endpoint)
 pub async fn cleanup_stale_images(
-    _auth: BearerAuth,
+    req: HttpRequest,
     db_pool: web::Data<crate::db::Pool>,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
@@ -1181,12 +1177,12 @@ pub async fn cleanup_stale_images(
         })),
     };
 
-    // Validate token and check admin permissions
-    let claims = match validate_token_internal(&_auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 

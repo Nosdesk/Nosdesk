@@ -127,20 +127,25 @@ onMounted(async () => {
     });
 
     console.log('Backend response received:', response.status);
-    
-    // Store the token and user data
+
+    // Handle cookie-based authentication response
     const data = response.data;
-    
-    if (data && data.token) {
-      message.value = 'Authentication successful, loading profile...';
-      console.log('Authentication successful, token received');
-      
-      // Save token and user data in auth store using the new method
-      // This will set the X-Auth-Provider header and fetch user data if needed
-      await authStore.setExternalAuth(data.token, data.user || null, 'microsoft');
-      
+
+    if (data && data.success && data.csrf_token) {
+      message.value = 'Authentication successful, redirecting...';
+      console.log('Authentication successful, cookies set, user data:', data.user);
+
+      // Set auth provider to microsoft
+      authStore.setAuthProvider('microsoft');
+
+      // Use the user data from the response (already authenticated via cookies)
+      // Don't call fetchUserData() - it causes a race condition before cookies are processed
+      if (data.user) {
+        authStore.user = data.user;
+      }
+
       // Redirect to dashboard or original destination
-      let redirectPath = data.redirect || sessionStorage.getItem('authRedirect') || '/';
+      let redirectPath = sessionStorage.getItem('authRedirect') || '/';
       // If the redirect is the callback URL, go to home instead
       if (redirectPath.includes('/auth/microsoft/callback')) {
         redirectPath = '/';
@@ -151,7 +156,7 @@ onMounted(async () => {
     } else {
       console.error('Invalid response format:', data);
       error.value = 'Invalid response from server';
-      detailedError.value = 'Server response did not contain a token. Response format: ' + 
+      detailedError.value = 'Server response did not contain expected authentication data. Response format: ' +
                           JSON.stringify(data, null, 2).substring(0, 200);
       loading.value = false;
     }

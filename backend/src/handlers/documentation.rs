@@ -1,5 +1,4 @@
-use actix_web::{web, HttpResponse, Responder};
-use actix_web_httpauth::extractors::bearer::BearerAuth;
+use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use chrono::Utc;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -7,7 +6,6 @@ use uuid::Uuid;
 use crate::db::Pool;
 use crate::models::{NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus};
 use crate::repository;
-use crate::handlers::auth::validate_token_internal;
 use crate::utils;
 
 // Get all documentation pages
@@ -61,7 +59,7 @@ pub async fn get_documentation_page_by_slug(
 
 // Create a new documentation page
 pub async fn create_documentation_page(
-    auth: BearerAuth,
+    req: HttpRequest,
     page: web::Json<NewDocumentationPage>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
@@ -70,10 +68,10 @@ pub async fn create_documentation_page(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    // Validate token and get user info
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json("Invalid or expired token"),
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
     };
 
     let mut new_page = page.into_inner();
@@ -100,7 +98,7 @@ pub async fn create_documentation_page(
 
 // Update an existing documentation page
 pub async fn update_documentation_page(
-    auth: BearerAuth,
+    req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<i32>,
     page: web::Json<NewDocumentationPage>,
@@ -111,10 +109,10 @@ pub async fn update_documentation_page(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    // Validate token and get user info
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json("Invalid or expired token"),
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
     };
 
     // Check if the page exists and get its current state
@@ -168,7 +166,7 @@ pub async fn update_documentation_page(
 
 // Delete a documentation page
 pub async fn delete_documentation_page(
-    auth: BearerAuth,
+    req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<i32>,
 ) -> impl Responder {
@@ -178,10 +176,10 @@ pub async fn delete_documentation_page(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    // Validate token and get user info
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json("Invalid or expired token"),
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
     };
 
     // Check if the page exists
@@ -438,7 +436,7 @@ pub struct CreateDocPageFromTicket {
 
 // Create a documentation page from a ticket's article content
 pub async fn create_documentation_page_from_ticket(
-    auth: BearerAuth,
+    req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<i32>,
     page_data: web::Json<CreateDocPageFromTicket>,
@@ -449,10 +447,10 @@ pub async fn create_documentation_page_from_ticket(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    // Validate token and get user info
-    let claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json("Invalid or expired token"),
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
     };
 
     // Get the ticket's article content

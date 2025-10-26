@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import axios from 'axios';
+import apiClient from '@/services/apiConfig';
 
 export function useMicrosoftAuth() {
   const isLoading = ref(false);
@@ -15,7 +15,7 @@ export function useMicrosoftAuth() {
       sessionStorage.setItem('authRedirect', redirectPath);
 
       // Get authorization URL from backend
-      const response = await axios.post('/api/auth/oauth/authorize', {
+      const response = await apiClient.post('/auth/oauth/authorize', {
         provider_type: 'microsoft',
         redirect_uri: `${window.location.origin}/auth/microsoft/callback`,
       });
@@ -42,7 +42,7 @@ export function useMicrosoftAuth() {
 
     try {
       // Get the sign-out URL from backend
-      const response = await axios.post('/api/auth/oauth/logout', {
+      const response = await apiClient.post('/auth/oauth/logout', {
         provider_type: 'microsoft',
         redirect_uri: redirectUri || window.location.href,
       });

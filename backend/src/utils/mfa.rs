@@ -370,12 +370,29 @@ pub async fn log_mfa_attempt(
     }
 }
 
-/// MFA rate limiting configuration
-const MFA_MAX_ATTEMPTS: u32 = 5; // Maximum attempts
-const MFA_WINDOW_SECONDS: u64 = 900; // 15 minutes (OWASP recommended)
+/// Get MFA rate limiting configuration from environment
+/// Defaults: 5 attempts per 15 minutes (OWASP recommended for production)
+/// Can be relaxed for development via environment variables
+fn get_mfa_rate_limit_config() -> (u32, u64) {
+    let max_attempts = std::env::var("MFA_MAX_ATTEMPTS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(5); // Default: 5 attempts
+
+    let window_seconds = std::env::var("MFA_WINDOW_SECONDS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(900); // Default: 900 seconds (15 minutes)
+
+    (max_attempts, window_seconds)
+}
 
 /// MFA rate limiting check using Redis
-/// Allows 5 attempts per 15 minutes following OWASP guidance
+/// Configurable via environment variables:
+/// - MFA_MAX_ATTEMPTS: Maximum attempts (default: 5)
+/// - MFA_WINDOW_SECONDS: Time window in seconds (default: 900 = 15 min)
+///
+/// Example for development: MFA_MAX_ATTEMPTS=50 MFA_WINDOW_SECONDS=60
 ///
 /// # Arguments
 /// * `user_uuid` - User's UUID to check rate limit for
@@ -386,6 +403,9 @@ const MFA_WINDOW_SECONDS: u64 = 900; // 15 minutes (OWASP recommended)
 pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
     use crate::utils::rate_limit::RateLimiter;
 
+    // Get configuration from environment
+    let (max_attempts, window_seconds) = get_mfa_rate_limit_config();
+
     // Get Redis URL from environment
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
 
@@ -393,14 +413,14 @@ pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
     let key = RateLimiter::mfa_attempt_key(user_uuid);
 
     // Check the rate limit
-    match RateLimiter::check_rate_limit(&redis_url, &key, MFA_MAX_ATTEMPTS, MFA_WINDOW_SECONDS).await {
+    match RateLimiter::check_rate_limit(&redis_url, &key, max_attempts, window_seconds).await {
         Ok(allowed) => {
             if !allowed {
                 tracing::warn!(
                     "MFA rate limit exceeded for user {} ({} attempts in {} seconds)",
                     user_uuid,
-                    MFA_MAX_ATTEMPTS,
-                    MFA_WINDOW_SECONDS
+                    max_attempts,
+                    window_seconds
                 );
             }
             allowed

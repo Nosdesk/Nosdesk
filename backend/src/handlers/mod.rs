@@ -45,10 +45,10 @@ pub use devices::{
 pub use documentation::*;
 pub use auth_providers::*;
 pub use microsoft_graph::*;
-pub use msgraph_integration::{get_connection_status, test_connection, sync_data, get_sync_progress_endpoint, get_active_syncs, cancel_sync_session, get_last_sync, get_entra_object_id};
+pub use msgraph_integration::{get_connection_status, get_config_validation, test_connection, sync_data, get_sync_progress_endpoint, get_active_syncs, cancel_sync_session, get_last_sync, get_entra_object_id};
 
 // Import necessary types for placeholders
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -106,13 +106,13 @@ pub async fn add_comment_to_ticket(
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
-    auth: actix_web_httpauth::extractors::bearer::BearerAuth,
+    req: actix_web::HttpRequest,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
     println!("Adding comment to ticket {}", ticket_id);
     println!("Comment content: {}", comment_data.content);
     println!("Attachments count: {}", comment_data.attachments.len());
-    
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(e) => {
@@ -121,10 +121,10 @@ pub async fn add_comment_to_ticket(
         }
     };
 
-    // Validate JWT token and get authenticated user information (SECURE)
-    let claims = match crate::handlers::auth::validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({"error": "Invalid or expired token"})),
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
     };
 
     // Parse the authenticated user's UUID from the JWT claims

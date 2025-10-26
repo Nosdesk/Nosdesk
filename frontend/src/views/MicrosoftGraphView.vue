@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
-import axios from "axios";
+import apiClient from "@/services/apiConfig";
 import BackButton from "@/components/common/BackButton.vue";
 import Modal from "@/components/Modal.vue";
-import MicrosoftConfigView from "@/views/MicrosoftConfigView.vue";
+import type {
+  ConfigValidation,
+  ConnectionStatus,
+  SyncProgress,
+  SyncResult,
+  ActiveSync,
+  LastSyncDetails,
+  GraphApiTestResult,
+  PermissionTestResult,
+} from "@/types";
 
 // Connection state
 const connectionStatus = ref<
@@ -14,29 +23,34 @@ const lastSync = ref<string | null>(null);
 const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
 const isLoading = ref(false);
-const configurationStatus = ref<any>(null);
-const graphApiResults = ref<any>(null);
-const permissionTestResults = ref<any>(null);
-const syncResults = ref<any>(null);
+const configurationStatus = ref<ConnectionStatus | null>(null);
+const graphApiResults = ref<GraphApiTestResult | null>(null);
+const permissionTestResults = ref<PermissionTestResult | null>(null);
+const syncResults = ref<SyncResult | null>(null);
 
 // Progress tracking state
-const syncProgress = ref<any>(null);
+const syncProgress = ref<SyncProgress | null>(null);
 const currentSessionId = ref<string | null>(null);
 const progressPollingInterval = ref<number | null>(null);
 const isSyncing = ref(false);
 
 // Active syncs management
-const activeSyncs = ref<any[]>([]);
+const activeSyncs = ref<ActiveSync[]>([]);
 const isLoadingActiveSyncs = ref(false);
 
 // Last sync details
-const lastSyncDetails = ref<any>(null);
+const lastSyncDetails = ref<LastSyncDetails | null>(null);
 const isLoadingLastSync = ref(false);
 
 
 
 // Connection details
-const graphConfig = ref({
+const graphConfig = ref<{
+  clientId: string;
+  clientSecret: string;
+  tenantId: string;
+  scopes: string[];
+}>({
   clientId: "",
   clientSecret: "",
   tenantId: "",
@@ -48,7 +62,7 @@ const microsoftAuthProviderFound = ref(false);
 const microsoftAuthProviderId = ref<string | null>(null);
 
 // Configuration validation state
-const configValidation = ref<any>(null);
+const configValidation = ref<ConfigValidation | null>(null);
 const isValidatingConfig = ref(false);
 
 // Import options
@@ -72,7 +86,6 @@ const availableEntities = [
 ];
 
 // Modals
-const showConfigModal = ref(false);
 const showSyncModal = ref(false);
 
 const router = useRouter();
@@ -83,18 +96,12 @@ const validateConfiguration = async () => {
   errorMessage.value = null;
 
   try {
-    const response = await axios.get("/api/integrations/graph/config");
+    const response = await apiClient.get("/integrations/graph/config");
     configValidation.value = response.data;
-    
-    if (response.data.valid) {
-      successMessage.value = "Configuration is valid and ready to use";
-    } else {
-      errorMessage.value = "Configuration validation failed. Check your environment variables.";
-    }
 
-    setTimeout(() => {
-      successMessage.value = null;
-    }, 3000);
+    if (!response.data.valid) {
+      errorMessage.value = response.data.message || "Configuration validation failed. Check your environment variables.";
+    }
   } catch (error: any) {
     console.error("Failed to validate configuration:", error);
     errorMessage.value = error.response?.data?.message || "Failed to validate configuration";
@@ -110,7 +117,7 @@ const fetchConnectionStatus = async () => {
 
   try {
     // Use the real Microsoft Graph integration endpoint
-    const response = await axios.get("/api/integrations/graph/status");
+    const response = await apiClient.get("/integrations/graph/status");
     connectionStatus.value = response.data.status;
 
     if (response.data.last_sync) {
@@ -154,7 +161,7 @@ const testConnection = async () => {
 
   try {
     // Use the real Microsoft Graph integration endpoint
-    const response = await axios.post("/api/integrations/graph/test");
+    const response = await apiClient.post("/integrations/graph/test");
 
     if (response.data.success) {
       connectionStatus.value = "connected";
@@ -204,37 +211,39 @@ const startProgressPolling = (sessionId: string) => {
   // Poll every 1 second
   progressPollingInterval.value = setInterval(async () => {
     try {
-      const response = await axios.get(`/api/integrations/graph/progress/${sessionId}`);
+      const response = await apiClient.get(`/integrations/graph/progress/${sessionId}`);
       syncProgress.value = response.data;
       
       // Stop polling if sync is completed, failed, or cancelled
-      if (response.data.status === 'completed' || 
-          response.data.status === 'error' || 
+      if (response.data.status === 'completed' ||
+          response.data.status === 'error' ||
           response.data.status === 'cancelled' ||
           response.data.status === 'completed_with_errors') {
-        stopProgressPolling();
+        stopProgressPolling(true); // Refresh data when sync completes
       }
     } catch (error: any) {
       console.error("Failed to fetch sync progress:", error);
       // If we get a 404, the session might be completed or expired
       if (error?.response?.status === 404) {
-        stopProgressPolling();
+        stopProgressPolling(true); // Refresh data if session not found
       }
     }
   }, 1000);
 };
 
-const stopProgressPolling = () => {
+const stopProgressPolling = (refreshData = false) => {
   if (progressPollingInterval.value) {
     clearInterval(progressPollingInterval.value);
     progressPollingInterval.value = null;
   }
   isSyncing.value = false;
   currentSessionId.value = null;
-  
-  // Refresh both active syncs and last sync details when polling stops
-  fetchActiveSyncs();
-  fetchLastSyncDetails();
+
+  // Only refresh if explicitly requested (e.g., after sync completes)
+  if (refreshData) {
+    fetchActiveSyncs();
+    fetchLastSyncDetails();
+  }
 };
 
 
@@ -242,7 +251,7 @@ const stopProgressPolling = () => {
 // Cancel a sync session
 const cancelSync = async (sessionId: string) => {
   try {
-    const response = await axios.post(`/api/integrations/graph/cancel/${sessionId}`);
+    const response = await apiClient.post(`/integrations/graph/cancel/${sessionId}`);
     
     if (response.data.success) {
       successMessage.value = response.data.message || "Sync cancellation requested";
@@ -279,7 +288,7 @@ const startSync = async () => {
 
   try {
     // Use the real Microsoft Graph integration endpoint
-    const response = await axios.post("/api/integrations/graph/sync", {
+    const response = await apiClient.post("/integrations/graph/sync", {
       entities: selectedEntities.value,
     });
 
@@ -345,15 +354,11 @@ const getStatusDisplay = (status: string) => {
   }
 };
 
-// Handle configuration completion
-const handleConfigured = async () => {
-  showConfigModal.value = false;
-  await fetchConnectionStatus();
-};
-
 // Format sync type for display
-const formatSyncType = (syncType: string) => {
-  switch (syncType) {
+const formatSyncType = (syncType?: string): string => {
+  const type = syncType ?? 'unknown';
+
+  switch (type) {
     case 'users':
       return 'User Accounts';
     case 'profile_photos':
@@ -363,7 +368,7 @@ const formatSyncType = (syncType: string) => {
     case 'groups':
       return 'Security Groups';
     default:
-      return syncType.charAt(0).toUpperCase() + syncType.slice(1);
+      return type.charAt(0).toUpperCase() + type.slice(1);
   }
 };
 
@@ -404,7 +409,7 @@ const formatDuration = (startDate: string, endDate: string) => {
 const fetchActiveSyncs = async () => {
   isLoadingActiveSyncs.value = true;
   try {
-    const response = await axios.get("/api/integrations/graph/active-syncs");
+    const response = await apiClient.get("/integrations/graph/active-syncs");
     activeSyncs.value = response.data.active_syncs || [];
     
     // Only start monitoring if there are truly active syncs (running/starting) and we're not already monitoring
@@ -439,7 +444,7 @@ const resumeSync = (sessionId: string) => {
 const fetchLastSyncDetails = async () => {
   isLoadingLastSync.value = true;
   try {
-    const response = await axios.get("/api/integrations/graph/last-sync");
+    const response = await apiClient.get("/integrations/graph/last-sync");
     lastSyncDetails.value = response.data;
   } catch (error: any) {
     console.error("Failed to fetch last sync details:", error);
@@ -1048,21 +1053,6 @@ onMounted(async () => {
 
 
     </div>
-
-    <!-- Configure Connection Modal -->
-    <!-- Remove or comment out this modal since we're using a separate page now -->
-    <!-- <Modal
-      :show="showConfigModal"
-      title="Configure Microsoft Graph Connection"
-      contentClass="max-w-6xl"
-      @close="showConfigModal = false"
-    >
-      <MicrosoftConfigView
-        mode="graph"
-        :showBackButton="false"
-        @configured="handleConfigured"
-      />
-    </Modal> -->
 
     <!-- Sync Data Modal -->
     <Modal

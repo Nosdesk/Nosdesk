@@ -572,6 +572,8 @@ async fn main() -> std::io::Result<()> {
                     // Microsoft Graph Integration endpoints
                     .service(
                         web::scope("/integrations/graph")
+                            .wrap(actix_web::middleware::from_fn(cookie_auth_middleware))
+                            .route("/config", web::get().to(handlers::get_config_validation))
                             .route("/status", web::get().to(handlers::get_connection_status))
                             .route("/test", web::post().to(handlers::test_connection))
                             .route("/sync", web::post().to(handlers::sync_data))
@@ -627,9 +629,13 @@ async fn main() -> std::io::Result<()> {
                     .route("/projects/{project_id}/tickets/{ticket_id}", web::delete().to(handlers::remove_ticket_from_project))
                     
                     // ===== USER MANAGEMENT =====
+                    // Note: Specific routes must come BEFORE generic {uuid} routes to avoid matching conflicts
                     .route("/users", web::get().to(handlers::get_users))
                     .route("/users/paginated", web::get().to(handlers::get_paginated_users))
                     .route("/users/batch", web::post().to(handlers::get_users_batch))
+                    .route("/users/cleanup-images", web::post().to(handlers::cleanup_stale_images))
+                    .route("/users/auth-identities", web::get().to(handlers::get_user_auth_identities))
+                    .route("/users/auth-identities/{id}", web::delete().to(handlers::delete_user_auth_identity))
                     .route("/users", web::post().to(handlers::create_user))
                     .route("/users/{uuid}", web::get().to(handlers::get_user_by_uuid))
                     .route("/users/{uuid}", web::put().to(handlers::update_user_by_uuid))
@@ -640,9 +646,6 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/{uuid}/emails/{email_id}", web::put().to(handlers::update_user_email))
                     .route("/users/{uuid}/emails/{email_id}", web::delete().to(handlers::delete_user_email))
                     .route("/users/{uuid}/with-emails", web::get().to(handlers::get_user_with_emails))
-                    .route("/users/cleanup-images", web::post().to(handlers::cleanup_stale_images))
-                    .route("/users/auth-identities", web::get().to(handlers::get_user_auth_identities))
-                    .route("/users/auth-identities/{id}", web::delete().to(handlers::delete_user_auth_identity))
                     .route("/users/{uuid}/auth-identities", web::get().to(handlers::get_user_auth_identities_by_uuid))
                     .route("/users/{uuid}/auth-identities/{id}", web::delete().to(handlers::delete_user_auth_identity_by_uuid))
                     

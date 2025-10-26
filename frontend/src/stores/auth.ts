@@ -3,30 +3,12 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 import apiClient from '@/services/apiConfig';
 import router from '@/router';
+import type { User, LoginCredentials } from '@/types';
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
 axios.defaults.baseURL = '';
 axios.defaults.withCredentials = true; // Enable sending httpOnly cookies with all requests
-
-interface User {
-  id: number;
-  uuid: string;
-  name: string;
-  email: string;
-  role: string;
-  pronouns?: string | null;
-  avatar_url?: string | null;
-  banner_url?: string | null;
-  avatar_thumb?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface LoginCredentials {
-  email: string;
-  password: string;
-}
 
 // Helper function to check if CSRF token cookie exists (indicates authentication)
 function hasCsrfToken(): boolean {

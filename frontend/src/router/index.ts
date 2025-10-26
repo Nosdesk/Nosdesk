@@ -13,7 +13,6 @@ import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationPageView from '@/views/DocumentationPageView.vue'
 import ProfileSettingsView from '@/views/ProfileSettingsView.vue'
 import PDFViewerView from '@/views/PDFViewerView.vue'
-import MicrosoftConfigView from '@/views/MicrosoftConfigView.vue'
 import authService from '@/services/authService'
 
 declare module 'vue-router' {
@@ -405,17 +404,6 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'PDF Viewer'
-      }
-    },
-    {
-      path: '/admin/microsoft-config/:providerId?',
-      name: 'admin-microsoft-config',
-      component: MicrosoftConfigView,
-      props: true,
-      meta: {
-        requiresAuth: true,
-        title: 'Microsoft Entra Configuration',
-        adminRequired: true
       }
     },
     {

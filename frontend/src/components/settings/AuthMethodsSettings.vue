@@ -48,36 +48,35 @@ const loadAuthMethods = async () => {
   try {
     loading.value = true;
 
-    // Load OAuth providers from the API using authService
-    const providers = await authService.getAuthProviders();
-
     const methods: AuthMethod[] = [];
 
     // Always include email as primary method
     methods.push({
       id: 'email-primary',
       type: 'email',
-      identifier: 'user@example.com', // TODO: Get from user profile
+      identifier: 'Email / Password', // Email is always available
       isPrimary: true,
       createdAt: '2024-01-01'
     });
 
-    // Add Microsoft provider if it exists and is enabled
-    const microsoftProvider = providers.find((p: any) => p.provider_type === 'microsoft' && p.enabled);
-    if (microsoftProvider) {
+    // Load user's connected auth identities from the API
+    const identities = await authService.getUserAuthIdentities();
+
+    // Add connected OAuth providers
+    identities.forEach((identity: any) => {
       methods.push({
-        id: microsoftProvider.id,
-        type: 'microsoft',
-        identifier: 'Microsoft Account',
+        id: identity.id.toString(),
+        type: identity.provider_type as 'microsoft',
+        identifier: identity.email || `${identity.provider_name} Account`,
         isPrimary: false,
-        createdAt: microsoftProvider.created_at
+        createdAt: identity.created_at
       });
-    }
+    });
 
     authMethods.value = methods;
   } catch (error) {
     console.error('Failed to load auth methods:', error);
-    // Don't show error for this as it might just mean no providers are configured
+    // Don't show error for this as it might just mean no identities are connected
   } finally {
     loading.value = false;
   }
@@ -106,12 +105,15 @@ const addAuthMethod = async (type: 'microsoft') => {
     const data = await authService.connectOAuthProvider(type);
 
     if (data.auth_url) {
-      // Redirect to OAuth provider
+      // Redirect to OAuth provider - when user returns, the page will reload
+      // and the new connected account will be displayed
       window.location.href = data.auth_url;
       return;
     }
 
     emit('success', `${type.charAt(0).toUpperCase() + type.slice(1)} account linked successfully`);
+    // Reload auth methods to show the newly connected account
+    await loadAuthMethods();
   } catch (err) {
     emit('error', `Failed to link ${type} account`);
     console.error(`Error linking ${type} account:`, err);
@@ -129,11 +131,12 @@ const removeAuthMethod = async (methodId: string, methodType: string) => {
   loading.value = true;
   try {
     if (methodType === 'microsoft') {
-      // Handle Microsoft provider removal using authService
-      await authService.deleteAuthProvider(methodId);
+      // Handle Microsoft identity removal using authService
+      await authService.deleteUserAuthIdentity(parseInt(methodId));
     }
 
-    authMethods.value = authMethods.value.filter(method => method.id !== methodId);
+    // Reload auth methods after deletion
+    await loadAuthMethods();
     emit('success', 'Authentication method removed successfully');
   } catch (err) {
     emit('error', 'Failed to remove authentication method');

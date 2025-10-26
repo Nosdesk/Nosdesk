@@ -446,6 +446,31 @@ class AuthService {
   }
 
   /**
+   * Get user's connected auth identities
+   */
+  async getUserAuthIdentities(): Promise<any[]> {
+    try {
+      const response = await apiClient.get('/users/auth-identities');
+      return response.data;
+    } catch (error) {
+      console.error('Error getting user auth identities:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete user's auth identity
+   */
+  async deleteUserAuthIdentity(identityId: number): Promise<void> {
+    try {
+      await apiClient.delete(`/users/auth-identities/${identityId}`);
+    } catch (error) {
+      console.error('Error deleting user auth identity:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Request password reset
    */
   async requestPasswordReset(email: string): Promise<{ message: string }> {

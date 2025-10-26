@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use diesel::result::Error;
@@ -268,7 +268,7 @@ pub async fn update_device(
     path: web::Path<i32>,
     device_update: web::Json<DeviceUpdate>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
-    auth: actix_web_httpauth::extractors::bearer::BearerAuth,
+    req: HttpRequest,
 ) -> impl Responder {
     let device_id = path.into_inner();
     let mut conn = match pool.get() {
@@ -276,11 +276,10 @@ pub async fn update_device(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    // Get user info for SSE events
-    use crate::utils::jwt::helpers as jwt_helpers;
-    let (user_info, _user) = match jwt_helpers::require_role(&auth, &mut conn, "user").await {
-        Ok((claims, user)) => (claims, user),
-        Err(e) => return e.into(),
+    // Extract claims from cookie auth middleware for SSE events
+    let user_info = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
     };
     
     let update_data = device_update.into_inner();

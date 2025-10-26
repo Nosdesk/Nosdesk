@@ -1,5 +1,4 @@
-use actix_web::{web, HttpResponse, Responder};
-use actix_web_httpauth::extractors::bearer::BearerAuth;
+use actix_web::{web, HttpResponse, Responder, HttpMessage};
 use serde_json::json;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
@@ -14,7 +13,6 @@ use std::time::Duration;
 use tracing::{info, warn, error, debug, trace, instrument};
 
 use crate::db::{Pool, DbConnection};
-use crate::handlers::auth::validate_token_internal;
 // Auth providers are now configured via environment variables
 use crate::repository::users as user_repo;
 use crate::repository::devices as device_repo;
@@ -305,8 +303,8 @@ fn initialize_sync_session(session_id: &str) {
 
 /// Get sync progress for a specific session
 pub async fn get_sync_progress_endpoint(
+    req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
     path: web::Path<String>,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
@@ -316,13 +314,12 @@ pub async fn get_sync_progress_endpoint(
             "message": "Database connection failed"
         })),
     };
-
-    // Validate token
-    let _claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let _claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -339,9 +336,9 @@ pub async fn get_sync_progress_endpoint(
 
 /// Get all active sync sessions
 pub async fn get_active_syncs(
+    req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
-) -> impl Responder {
+    ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
@@ -349,13 +346,12 @@ pub async fn get_active_syncs(
             "message": "Database connection failed"
         })),
     };
-
-    // Validate token
-    let _claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let _claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -385,9 +381,9 @@ pub async fn get_active_syncs(
 
 /// Get the most recent completed sync session
 pub async fn get_last_sync(
+    req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
-) -> impl Responder {
+    ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
@@ -395,13 +391,12 @@ pub async fn get_last_sync(
             "message": "Database connection failed"
         })),
     };
-
-    // Validate token
-    let _claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let _claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -453,8 +448,8 @@ pub async fn get_last_sync(
 
 /// Cancel a sync session
 pub async fn cancel_sync_session(
+    req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
     path: web::Path<String>,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
@@ -464,13 +459,12 @@ pub async fn cancel_sync_session(
             "message": "Database connection failed"
         })),
     };
-
-    // Validate token
-    let _claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let _claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -500,11 +494,68 @@ pub async fn cancel_sync_session(
     }
 }
 
+/// Validate Microsoft Graph configuration
+pub async fn get_config_validation(
+    req: actix_web::HttpRequest,
+) -> impl Responder {
+    // Extract claims from cookie auth middleware
+    let _claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Authentication required"
+        })),
+    };
+
+    let mut missing_fields = Vec::new();
+
+    // Check and retrieve each required environment variable
+    let client_id = std::env::var("MICROSOFT_CLIENT_ID").ok();
+    let client_secret = std::env::var("MICROSOFT_CLIENT_SECRET").ok();
+    let tenant_id = std::env::var("MICROSOFT_TENANT_ID").ok();
+    let redirect_uri = std::env::var("MICROSOFT_REDIRECT_URI").ok();
+
+    if client_id.is_none() {
+        missing_fields.push("MICROSOFT_CLIENT_ID".to_string());
+    }
+    if client_secret.is_none() {
+        missing_fields.push("MICROSOFT_CLIENT_SECRET".to_string());
+    }
+    if tenant_id.is_none() {
+        missing_fields.push("MICROSOFT_TENANT_ID".to_string());
+    }
+    if redirect_uri.is_none() {
+        missing_fields.push("MICROSOFT_REDIRECT_URI".to_string());
+    }
+
+    if !missing_fields.is_empty() {
+        return HttpResponse::Ok().json(json!({
+            "valid": false,
+            "message": format!("Missing required environment variables: {}", missing_fields.join(", ")),
+            "missing_fields": missing_fields,
+            "client_id": client_id,
+            "tenant_id": tenant_id,
+            "client_secret_configured": client_secret.is_some(),
+            "redirect_uri": redirect_uri
+        }));
+    }
+
+    // All required fields are present
+    HttpResponse::Ok().json(json!({
+        "valid": true,
+        "message": "Microsoft Graph configuration is valid",
+        "client_id": client_id,
+        "tenant_id": tenant_id,
+        "client_secret_configured": client_secret.is_some(),
+        "redirect_uri": redirect_uri
+    }))
+}
+
 /// Get Microsoft Graph connection status
 pub async fn get_connection_status(
+    req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
-) -> impl Responder {
+    ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
@@ -512,13 +563,12 @@ pub async fn get_connection_status(
             "message": "Database connection failed"
         })),
     };
-
-    // Validate token
-    let _claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let _claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -558,25 +608,18 @@ pub async fn get_connection_status(
 
 /// Test Microsoft Graph connection
 pub async fn test_connection(
-    db_pool: web::Data<Pool>,
-    auth: BearerAuth,
+    req: actix_web::HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
+    // Extract claims from cookie auth middleware
+    let _claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Database connection failed"
+            "message": "Authentication required"
         })),
     };
 
-    // Validate token
-    let _claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Invalid or expired token"
-        })),
-    };
+    tracing::info!("🔬 Testing Microsoft Graph connection");
 
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {
@@ -599,10 +642,10 @@ pub async fn test_connection(
 }
 
 /// Sync data from Microsoft Graph
-#[instrument(level = "info", skip(db_pool, auth, request), fields(entities = ?request.entities))]
+#[instrument(level = "info", skip(req, db_pool, request), fields(entities = ?request.entities))]
 pub async fn sync_data(
+    req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
     request: web::Json<SyncDataRequest>,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
@@ -612,13 +655,12 @@ pub async fn sync_data(
             "message": "Database connection failed"
         })),
     };
-
-    // Validate token
-    let _claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let _claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
@@ -928,14 +970,45 @@ async fn test_graph_connection(provider_id: i32) -> Result<serde_json::Value, St
             .json()
             .await
             .unwrap_or_else(|_| json!({"error": {"message": "Unknown error"}}));
-        
+
         let error_msg = error_data
             .get("error")
             .and_then(|err| err.get("message"))
             .and_then(|msg| msg.as_str())
             .unwrap_or("Unknown Microsoft Graph error");
-            
-        Err(format!("Microsoft Graph API error ({}): {}", status, error_msg))
+
+        let error_code = error_data
+            .get("error")
+            .and_then(|err| err.get("code"))
+            .and_then(|code| code.as_str())
+            .unwrap_or("UnknownError");
+
+        // Provide detailed permission help for 403 Forbidden errors
+        if status == 403 {
+            return Err(format!(
+                "Microsoft Graph API error (403 Forbidden): {}. \n\n\
+                Your Azure AD application is missing required API permissions:\n\
+                • Organization.Read.All (to read tenant/organization information)\n\n\
+                To fix this:\n\
+                1. Go to Azure Portal (portal.azure.com)\n\
+                2. Navigate to 'Azure Active Directory' → 'App registrations'\n\
+                3. Select your application\n\
+                4. Click 'API permissions' → 'Add a permission' → 'Microsoft Graph' → 'Application permissions'\n\
+                5. Add: Organization.Read.All, User.Read.All, Device.Read.All, Group.Read.All\n\
+                6. Click 'Grant admin consent for [Your Tenant]' (requires Global Admin)\n\
+                7. Wait 5-10 minutes for permissions to propagate\n\n\
+                Common required permissions for full functionality:\n\
+                • Organization.Read.All - Read tenant information\n\
+                • User.Read.All - Read user profiles\n\
+                • Device.Read.All - Read device information\n\
+                • Group.Read.All - Read group information\n\
+                • DeviceManagementManagedDevices.Read.All - Read Intune devices\n\n\
+                Error Code: {}",
+                error_msg, error_code
+            ));
+        }
+
+        Err(format!("Microsoft Graph API error ({} {}): {} (Error Code: {})", status.as_u16(), status.canonical_reason().unwrap_or("Unknown"), error_msg, error_code))
     }
 }
 
@@ -2718,8 +2791,8 @@ async fn process_microsoft_device(
 
 /// Get Entra Object ID from Azure AD Device ID
 pub async fn get_entra_object_id(
+    req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-    auth: BearerAuth,
     path: web::Path<String>,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
@@ -2729,13 +2802,12 @@ pub async fn get_entra_object_id(
             "message": "Database connection failed"
         })),
     };
-
-    // Validate token
-    let _claims = match validate_token_internal(&auth, &mut conn).await {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
+    // Extract claims from cookie auth middleware
+    let _claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
             "status": "error",
-            "message": "Invalid or expired token"
+            "message": "Authentication required"
         })),
     };
 
