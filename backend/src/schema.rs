@@ -30,7 +30,7 @@ diesel::table! {
         user_uuid -> Uuid,
         #[max_length = 255]
         device_name -> Nullable<Varchar>,
-        ip_address -> Nullable<Text>,
+        ip_address -> Nullable<Inet>,
         user_agent -> Nullable<Text>,
         #[max_length = 255]
         location -> Nullable<Varchar>,
@@ -46,17 +46,26 @@ diesel::table! {
         id -> Int4,
         content -> Text,
         ticket_id -> Nullable<Int4>,
+        created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
 diesel::table! {
     attachments (id) {
         id -> Int4,
-        #[max_length = 255]
+        #[max_length = 2048]
         url -> Varchar,
         #[max_length = 255]
         name -> Varchar,
+        file_size -> Nullable<Int8>,
+        #[max_length = 100]
+        mime_type -> Nullable<Varchar>,
+        #[max_length = 64]
+        checksum -> Nullable<Varchar>,
         comment_id -> Nullable<Int4>,
+        uploaded_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
     }
 }
 
@@ -65,9 +74,11 @@ diesel::table! {
         id -> Int4,
         content -> Text,
         ticket_id -> Int4,
-        user_id -> Int4,
+        user_uuid -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        is_edited -> Bool,
+        edit_count -> Int4,
     }
 }
 
@@ -92,8 +103,8 @@ diesel::table! {
         location -> Nullable<Varchar>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
         notes -> Nullable<Text>,
-        user_id -> Nullable<Int4>,
         primary_user_uuid -> Nullable<Uuid>,
         #[max_length = 255]
         azure_device_id -> Nullable<Varchar>,
@@ -126,7 +137,7 @@ diesel::table! {
         slug -> Nullable<Varchar>,
         #[max_length = 50]
         icon -> Nullable<Varchar>,
-        #[max_length = 500]
+        #[max_length = 2048]
         cover_image -> Nullable<Varchar>,
         status -> DocumentationStatus,
         created_at -> Timestamptz,
@@ -168,7 +179,11 @@ diesel::table! {
     linked_tickets (ticket_id, linked_ticket_id) {
         ticket_id -> Int4,
         linked_ticket_id -> Int4,
+        #[max_length = 50]
+        link_type -> Varchar,
+        description -> Nullable<Text>,
         created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -176,6 +191,8 @@ diesel::table! {
     project_tickets (project_id, ticket_id) {
         project_id -> Int4,
         ticket_id -> Int4,
+        created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -193,6 +210,8 @@ diesel::table! {
         end_date -> Nullable<Date>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+        owner_uuid -> Nullable<Uuid>,
     }
 }
 
@@ -215,7 +234,7 @@ diesel::table! {
         user_uuid -> Uuid,
         #[max_length = 50]
         token_type -> Varchar,
-        ip_address -> Nullable<Text>,
+        ip_address -> Nullable<Inet>,
         user_agent -> Nullable<Text>,
         created_at -> Timestamptz,
         expires_at -> Timestamptz,
@@ -231,7 +250,7 @@ diesel::table! {
         user_uuid -> Uuid,
         #[max_length = 50]
         event_type -> Varchar,
-        ip_address -> Nullable<Text>,
+        ip_address -> Nullable<Inet>,
         user_agent -> Nullable<Text>,
         #[max_length = 255]
         location -> Nullable<Varchar>,
@@ -259,6 +278,7 @@ diesel::table! {
         records_failed -> Nullable<Int4>,
         #[max_length = 255]
         tenant_id -> Nullable<Varchar>,
+        initiated_by -> Nullable<Uuid>,
     }
 }
 
@@ -267,6 +287,7 @@ diesel::table! {
         ticket_id -> Int4,
         device_id -> Int4,
         created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -286,33 +307,36 @@ diesel::table! {
         assignee_uuid -> Nullable<Uuid>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
         closed_at -> Nullable<Timestamptz>,
+        closed_by -> Nullable<Uuid>,
     }
 }
 
 diesel::table! {
     user_auth_identities (id) {
         id -> Int4,
-        user_id -> Int4,
+        user_uuid -> Uuid,
         #[max_length = 50]
         provider_type -> Varchar,
         #[max_length = 255]
         external_id -> Varchar,
-        #[max_length = 255]
+        #[max_length = 320]
         email -> Nullable<Varchar>,
         metadata -> Nullable<Jsonb>,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
         #[max_length = 255]
         password_hash -> Nullable<Varchar>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
 diesel::table! {
     user_emails (id) {
         id -> Int4,
-        user_id -> Int4,
-        #[max_length = 255]
+        user_uuid -> Uuid,
+        #[max_length = 320]
         email -> Varchar,
         #[max_length = 50]
         email_type -> Varchar,
@@ -322,6 +346,7 @@ diesel::table! {
         source -> Nullable<Varchar>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -340,23 +365,21 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::UserRole;
 
-    users (id) {
-        id -> Int4,
+    users (uuid) {
         uuid -> Uuid,
         #[max_length = 255]
         name -> Varchar,
         role -> UserRole,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        password_hash -> Bytea,
         password_changed_at -> Nullable<Timestamptz>,
         #[max_length = 100]
         pronouns -> Nullable<Varchar>,
-        #[max_length = 500]
+        #[max_length = 2048]
         avatar_url -> Nullable<Varchar>,
-        #[max_length = 500]
+        #[max_length = 2048]
         banner_url -> Nullable<Varchar>,
-        #[max_length = 500]
+        #[max_length = 2048]
         avatar_thumb -> Nullable<Varchar>,
         microsoft_uuid -> Nullable<Uuid>,
         #[max_length = 255]
@@ -367,21 +390,30 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(active_sessions -> users (user_uuid));
 diesel::joinable!(article_contents -> tickets (ticket_id));
+diesel::joinable!(article_contents -> users (created_by));
 diesel::joinable!(attachments -> comments (comment_id));
+diesel::joinable!(attachments -> users (uploaded_by));
 diesel::joinable!(comments -> tickets (ticket_id));
-diesel::joinable!(comments -> users (user_id));
-diesel::joinable!(devices -> users (user_id));
+diesel::joinable!(comments -> users (user_uuid));
 diesel::joinable!(documentation_pages -> tickets (ticket_id));
 diesel::joinable!(documentation_revisions -> documentation_pages (page_id));
+diesel::joinable!(documentation_revisions -> users (created_by));
+diesel::joinable!(linked_tickets -> users (created_by));
 diesel::joinable!(project_tickets -> projects (project_id));
 diesel::joinable!(project_tickets -> tickets (ticket_id));
+diesel::joinable!(project_tickets -> users (created_by));
+diesel::joinable!(refresh_tokens -> users (user_uuid));
+diesel::joinable!(reset_tokens -> users (user_uuid));
 diesel::joinable!(security_events -> active_sessions (session_id));
+diesel::joinable!(security_events -> users (user_uuid));
+diesel::joinable!(sync_history -> users (initiated_by));
 diesel::joinable!(ticket_devices -> devices (device_id));
 diesel::joinable!(ticket_devices -> tickets (ticket_id));
-diesel::joinable!(user_auth_identities -> users (user_id));
-diesel::joinable!(user_emails -> users (user_id));
+diesel::joinable!(ticket_devices -> users (created_by));
 diesel::joinable!(user_ticket_views -> tickets (ticket_id));
+diesel::joinable!(user_ticket_views -> users (user_uuid));
 
 diesel::allow_tables_to_appear_in_same_query!(
     active_sessions,

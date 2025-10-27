@@ -6,7 +6,6 @@ export type UserRole = 'admin' | 'technician' | 'user';
  * Complete user object with all fields
  */
 export interface User {
-  id: number;
   uuid: string;
   name: string;
   email: string;
@@ -23,7 +22,6 @@ export interface User {
  * Minimal user info (for lists, dropdowns, etc.)
  */
 export interface UserInfo {
-  id: number;
   uuid: string;
   name: string;
   email: string;
@@ -65,7 +63,7 @@ export interface LoginCredentials {
  * User session information
  */
 export interface UserSession {
-  id: number;
+  session_token: string; // Session identifier
   user_uuid: string;
   device_name?: string;
   ip_address?: string;

@@ -61,12 +61,13 @@ pub struct UserInfo {
     pub uuid: String,
     pub name: String,
     pub email: String,
+    pub role: String,
     pub avatar_url: Option<String>,
     pub avatar_thumb: Option<String>,
 }
 
 impl DeviceResponse {
-    pub fn from_device_and_user(device: Device, user: Option<User>) -> Self {
+    pub fn from_device_and_user(device: Device, user: Option<User>, conn: &mut crate::db::DbConnection) -> Self {
         Self {
             id: device.id,
             name: device.name,
@@ -81,11 +82,22 @@ impl DeviceResponse {
             created_at: device.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             updated_at: device.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             primary_user: user.map(|u| {
-                let name = u.name;
+                let name = u.name.clone();
+                let role = match u.role {
+                    crate::models::UserRole::Admin => "admin",
+                    crate::models::UserRole::Technician => "technician",
+                    crate::models::UserRole::User => "user",
+                }.to_string();
+
+                // Fetch primary email from user_emails table
+                let email = repository::user_helpers::get_primary_email(&u.uuid, conn)
+                    .unwrap_or_else(|| name.clone());
+
                 UserInfo {
                     uuid: utils::uuid_to_string(&u.uuid),
-                    name: name.clone(),
-                    email: name, // Email removed from User, using name
+                    name,
+                    email,
+                    role,
                     avatar_url: u.avatar_url,
                     avatar_thumb: u.avatar_thumb,
                 }
@@ -105,7 +117,7 @@ fn devices_to_responses(conn: &mut crate::db::DbConnection, devices: Vec<Device>
     devices.into_iter().map(|device| {
         let user = device.primary_user_uuid.as_ref()
             .and_then(|uuid| get_user_by_uuid(conn, uuid));
-        DeviceResponse::from_device_and_user(device, user)
+        DeviceResponse::from_device_and_user(device, user, conn)
     }).collect()
 }
 
@@ -191,8 +203,8 @@ pub async fn get_device_by_id(
             // Get user data if device has a primary user
             let user = device.primary_user_uuid.as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
-            
-            let device_response = DeviceResponse::from_device_and_user(device, user);
+
+            let device_response = DeviceResponse::from_device_and_user(device, user, &mut conn);
             HttpResponse::Ok().json(device_response)
         },
         Err(e) => {
@@ -251,8 +263,8 @@ pub async fn create_device(
             // Get user data if device has a primary user
             let user = device.primary_user_uuid.as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
-            
-            let device_response = DeviceResponse::from_device_and_user(device, user);
+
+            let device_response = DeviceResponse::from_device_and_user(device, user, &mut conn);
             HttpResponse::Created().json(device_response)
         },
         Err(e) => {
@@ -305,12 +317,13 @@ pub async fn update_device(
                     }
                 }
             }
-            
+
+
             // Get user data if device has a primary user
             let user = device.primary_user_uuid.as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
-            
-            let device_response = DeviceResponse::from_device_and_user(device, user);
+
+            let device_response = DeviceResponse::from_device_and_user(device, user, &mut conn);
             HttpResponse::Ok().json(device_response)
         },
         Err(e) => {

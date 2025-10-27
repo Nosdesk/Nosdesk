@@ -1,28 +1,15 @@
 use diesel::prelude::*;
+use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::{User, UserEmail};
-use crate::repository::user_emails as user_emails_repo;
 
 /// Get a user's primary email address
 /// This is now the canonical way to get a user's email since users table no longer has email field
-pub fn get_primary_email(user_id: i32, conn: &mut DbConnection) -> Option<String> {
+pub fn get_primary_email(user_uuid: &Uuid, conn: &mut DbConnection) -> Option<String> {
     use crate::schema::user_emails;
 
     user_emails::table
-        .filter(user_emails::user_id.eq(user_id))
-        .filter(user_emails::is_primary.eq(true))
-        .select(user_emails::email)
-        .first::<String>(conn)
-        .ok()
-}
-
-/// Get a user's primary email by UUID
-pub fn get_primary_email_by_uuid(user_uuid: &uuid::Uuid, conn: &mut DbConnection) -> Option<String> {
-    use crate::schema::{users, user_emails};
-
-    user_emails::table
-        .inner_join(users::table.on(user_emails::user_id.eq(users::id)))
-        .filter(users::uuid.eq(user_uuid))
+        .filter(user_emails::user_uuid.eq(user_uuid))
         .filter(user_emails::is_primary.eq(true))
         .select(user_emails::email)
         .first::<String>(conn)
@@ -36,7 +23,7 @@ pub fn get_user_by_email(email: &str, conn: &mut DbConnection) -> Result<User, d
     use crate::schema::{users, user_emails};
 
     users::table
-        .inner_join(user_emails::table.on(users::id.eq(user_emails::user_id)))
+        .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
         .filter(user_emails::email.eq(email))
         .filter(user_emails::is_primary.eq(true)) // Only allow login with primary email
         .select(users::all_columns)
@@ -59,9 +46,8 @@ pub fn create_user_with_email(
             .get_result(conn)?;
 
         // Then create primary email
-        // Note: email_type and source will be available after schema regeneration
         let new_email = crate::models::NewUserEmail {
-            user_id: user.id,
+            user_uuid: user.uuid,
             email: email.clone(),
             email_type: "personal".to_string(),
             is_primary: true,
@@ -82,10 +68,9 @@ pub fn get_user_with_primary_email(
     user: crate::models::User,
     conn: &mut DbConnection,
 ) -> crate::models::UserResponse {
-    let primary_email = get_primary_email(user.id, conn);
+    let primary_email = get_primary_email(&user.uuid, conn);
 
     crate::models::UserResponse {
-        id: user.id,
         uuid: user.uuid,
         name: user.name,
         email: primary_email, // Fetched from user_emails table
@@ -102,7 +87,7 @@ pub fn get_user_with_primary_email(
 
 /// Update user's primary email (updates the primary email in user_emails table)
 pub fn update_primary_email(
-    user_id: i32,
+    user_uuid: &Uuid,
     new_email: String,
     conn: &mut DbConnection,
 ) -> Result<UserEmail, diesel::result::Error> {
@@ -110,7 +95,7 @@ pub fn update_primary_email(
 
     // Find current primary email
     let current_primary = user_emails::table
-        .filter(user_emails::user_id.eq(user_id))
+        .filter(user_emails::user_uuid.eq(user_uuid))
         .filter(user_emails::is_primary.eq(true))
         .first::<UserEmail>(conn)?;
 

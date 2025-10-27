@@ -24,7 +24,7 @@ const optimisticUpdates = useOptimisticUpdates();
 // Use the composable for all common functionality
 const listManager = useListManagement<UIUser>({
   itemIdField: 'uuid',
-  defaultSortField: 'id',
+  defaultSortField: 'name',
   defaultSortDirection: 'asc',
   fetchFunction: async (params) => {
     // Check if we have cached data for this exact query
@@ -60,7 +60,6 @@ const listManager = useListManagement<UIUser>({
 
 // Define table columns with responsive behavior
 const columns = [
-  { field: 'id', label: 'ID', width: 'minmax(60px,auto)', sortable: true, responsive: 'md' as const },
   { field: 'user', label: 'User', width: '1fr', sortable: false, responsive: 'always' as const },
   { field: 'role', label: 'Role', width: 'minmax(120px,auto)', sortable: true, responsive: 'md' as const },
   { field: 'department', label: 'Department', width: 'minmax(120px,auto)', sortable: false, responsive: 'lg' as const }
@@ -86,7 +85,7 @@ const filterOptions = computed(() => {
 });
 
 // Custom grid template for responsive layout
-const gridClass = "grid-cols-[auto_1fr_minmax(120px,auto)] md:grid-cols-[auto_minmax(60px,auto)_1fr_minmax(120px,auto)] lg:grid-cols-[auto_minmax(60px,auto)_1fr_minmax(120px,auto)_minmax(120px,auto)]";
+const gridClass = "grid-cols-[auto_1fr_minmax(120px,auto)] md:grid-cols-[auto_1fr_minmax(120px,auto)] lg:grid-cols-[auto_1fr_minmax(120px,auto)_minmax(120px,auto)]";
 
 // Navigate to user creation
 const navigateToCreateUser = () => {
@@ -175,6 +174,7 @@ defineExpose({
             :columns="columns"
             :data="listManager.items.value"
             :selected-items="listManager.selectedItems.value"
+            :item-id-field="'uuid'"
             :sort-field="listManager.sortField.value"
             :sort-direction="listManager.sortDirection.value"
             :grid-class="gridClass"
@@ -184,10 +184,6 @@ defineExpose({
             @row-click="listManager.navigateToItem"
           >
             <!-- Custom cell templates -->
-            <template #cell-id="{ value }">
-              <IdCell :id="value" />
-            </template>
-            
             <template #cell-user="{ item }">
               <UserInfoCell 
                 :user-id="item.uuid"
@@ -232,7 +228,6 @@ defineExpose({
                       <div class="font-medium truncate text-slate-200">{{ user.name }}</div>
                       <div class="text-xs text-slate-400 truncate">{{ user.email }}</div>
                     </div>
-                    <div class="text-xs text-slate-400">#{{ user.id }}</div>
                   </div>
                   <div class="mt-2 flex flex-wrap gap-2 text-xs">
                     <span class="bg-slate-700 px-2 py-1 rounded text-slate-200">

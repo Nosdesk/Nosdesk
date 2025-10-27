@@ -17,11 +17,14 @@ pub fn create_reset_token(
     expires_at: DateTime<Utc>,
     metadata: Option<serde_json::Value>,
 ) -> QueryResult<ResetToken> {
+    // Convert IP address string to IpNetwork
+    let ip_network = ip_address.and_then(|ip_str| ip_str.parse().ok());
+
     let new_token = crate::models::NewResetToken {
         token_hash,
         user_uuid,
         token_type,
-        ip_address,
+        ip_address: ip_network,
         user_agent,
         expires_at,
         metadata,

@@ -17,18 +17,26 @@ export interface TitleableTicket {
   [key: string]: any; // Allow other properties from the reactive ticket object
 }
 
+export interface TitleableDevice {
+  id: number;
+  hostname: string;
+  [key: string]: any; // Allow other properties from the reactive device object
+}
+
 export function useTitleManager() {
   const route = useRoute();
 
-  // State - store the full reactive ticket object
+  // State - store the full reactive objects
   const currentTicket = ref<TitleableTicket | null>(null);
+  const currentDevice = ref<TitleableDevice | null>(null);
   const currentDocument = ref<TitleableDocument | null>(null);
   const documentationTitle = ref<string | null>(null);
   const customTitle = ref<string | null>(null);
   const isTransitioning = ref(false);
-  
+
   // Computed properties
   const isTicketView = computed(() => currentTicket.value !== null);
+  const isDeviceView = computed(() => currentDevice.value !== null);
   const isDocumentView = computed(() => currentDocument.value !== null);
   
   const pageTitle = computed(() => {
@@ -36,24 +44,29 @@ export function useTitleManager() {
     if (customTitle.value) {
       return customTitle.value;
     }
-    
+
     // Documentation title is next in priority
     if (isDocumentView.value && documentationTitle.value) {
       return documentationTitle.value;
     }
-    
+
     // Ticket title with ID
     if (isTicketView.value && currentTicket.value) {
       return `#${currentTicket.value.id} ${currentTicket.value.title}`;
     }
-    
+
+    // Device title with ID
+    if (isDeviceView.value && currentDevice.value) {
+      return `#${currentDevice.value.id} ${currentDevice.value.hostname}`;
+    }
+
     // Get title from route meta
     const routeTitle = route.meta?.title as string;
-    
+
     // Update document title
     const finalTitle = routeTitle || 'Nosdesk';
     document.title = `${finalTitle} | Nosdesk`;
-    
+
     return finalTitle;
   });
   
@@ -101,6 +114,14 @@ export function useTitleManager() {
     }
   };
   
+  const setDevice = (deviceData: TitleableDevice | null) => {
+    // Store the actual reactive device object reference
+    currentDevice.value = deviceData;
+    if (deviceData) {
+      document.title = `#${deviceData.id} ${deviceData.hostname} | Nosdesk`;
+    }
+  };
+
   const setDocument = (documentData: TitleableDocument | null) => {
     currentDocument.value = documentData;
     if (documentData) {
@@ -250,26 +271,33 @@ export function useTitleManager() {
     currentTicket.value = null;
   };
   
+  const clearDevice = () => {
+    currentDevice.value = null;
+  };
+
   const clearDocument = () => {
     currentDocument.value = null;
     documentationTitle.value = null;
   };
-  
+
   return {
     // State
     currentTicket,
+    currentDevice,
     currentDocument,
     documentationTitle,
     isTransitioning,
-    
+
     // Computed
     pageTitle,
     isTicketView,
+    isDeviceView,
     isDocumentView,
-    
+
     // Methods
     setCustomTitle,
     setTicket,
+    setDevice,
     setDocument,
     previewTicketTitle,
     previewDocumentTitle,
@@ -279,6 +307,7 @@ export function useTitleManager() {
     startTransition,
     endTransition,
     clearTicket,
+    clearDevice,
     clearDocument
   };
 } 

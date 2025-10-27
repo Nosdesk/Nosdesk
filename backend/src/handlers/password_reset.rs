@@ -121,7 +121,7 @@ pub async fn request_password_reset(
         });
 
     // Get user's primary email for sending reset link
-    let user_email = match crate::repository::user_helpers::get_primary_email(user.id, &mut conn) {
+    let user_email = match crate::repository::user_helpers::get_primary_email(&user.uuid, &mut conn) {
         Some(email) => email,
         None => {
             warn!("User {} has no primary email - cannot send password reset", user.uuid);
@@ -233,15 +233,29 @@ pub async fn reset_password_with_token(
         }
     };
 
-    // Update the user's password hash and password_changed_at timestamp
+    // Update the user's password hash in user_auth_identities and password_changed_at timestamp in users
     use diesel::prelude::*;
     let now = Utc::now().naive_utc();
 
-    match diesel::update(crate::schema::users::table.find(user.id))
-        .set((
-            crate::schema::users::password_hash.eq(new_password_hash.as_bytes()),
-            crate::schema::users::password_changed_at.eq(now)
-        ))
+    // Update password hash in user_auth_identities
+    use crate::schema::user_auth_identities;
+    if let Err(e) = diesel::update(
+        user_auth_identities::table
+            .filter(user_auth_identities::user_uuid.eq(&user.uuid))
+            .filter(user_auth_identities::provider_type.eq("local"))
+    )
+    .set(user_auth_identities::password_hash.eq(Some(new_password_hash)))
+    .execute(&mut conn) {
+        error!("Failed to update password hash: {:?}", e);
+        return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Error updating password"
+        }));
+    }
+
+    // Update password_changed_at timestamp in users table
+    match diesel::update(crate::schema::users::table.find(&user.uuid))
+        .set(crate::schema::users::password_changed_at.eq(now))
         .execute(&mut conn) {
         Ok(_) => {
             info!("Password reset successfully for user: {} (uuid={})", user.name, user.uuid);
@@ -297,7 +311,7 @@ async fn log_password_reset_event(
 
     // Extract IP address and user agent
     let ip_address = request.peer_addr()
-        .map(|addr| addr.ip().to_string());
+        .and_then(|addr| addr.ip().to_string().parse().ok());
 
     let user_agent = request.headers()
         .get("user-agent")
@@ -309,7 +323,7 @@ async fn log_password_reset_event(
     struct NewSecurityEvent {
         user_uuid: uuid::Uuid,
         event_type: String,
-        ip_address: Option<String>,
+        ip_address: Option<ipnetwork::IpNetwork>,
         user_agent: Option<String>,
         location: Option<String>,
         details: Option<serde_json::Value>,

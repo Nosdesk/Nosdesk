@@ -505,9 +505,9 @@ pub async fn oauth_callback(
                 if is_connection {
                     // This is a connection request - check if this identity is already linked to another account
                     match user_auth_identities::find_user_by_identity(&provider.provider_type, &provider_user_id, &mut conn) {
-                        Ok(Some(existing_user_id)) => {
+                        Ok(Some(existing_user_uuid)) => {
                             // Found an existing identity - verify the user still exists
-                            match crate::repository::users::get_user_by_id(existing_user_id, &mut conn) {
+                            match crate::repository::users::get_user_by_uuid(&existing_user_uuid, &mut conn) {
                                 Ok(_user) => {
                                     // User exists, can't reconnect
                                     return HttpResponse::BadRequest().json(json!({
@@ -518,8 +518,8 @@ pub async fn oauth_callback(
                                 Err(_) => {
                                     // User doesn't exist (orphaned record) - clean it up and proceed
                                     tracing::warn!(
-                                        "Found orphaned auth identity for user_id {} (provider: {}, external_id: {}). Cleaning up...",
-                                        existing_user_id, provider.provider_type, provider_user_id
+                                        "Found orphaned auth identity for user_uuid {} (provider: {}, external_id: {}). Cleaning up...",
+                                        existing_user_uuid, provider.provider_type, provider_user_id
                                     );
                                     // Delete the orphaned identity
                                     if let Err(e) = diesel::delete(
@@ -918,12 +918,12 @@ async fn find_or_create_oauth_user(
     };
     
     use crate::models::NewUserAuthIdentity;
-    
+
     // First try to find the user by their external identity
     match user_auth_identities::find_user_by_identity(&provider.provider_type, &provider_user_id, conn) {
-        Ok(Some(user_id)) => {
+        Ok(Some(user_uuid)) => {
             // User found by identity, return the user
-            match crate::repository::get_user_by_id(user_id, conn) {
+            match crate::repository::users::get_user_by_uuid(&user_uuid, conn) {
                 Ok(user) => return Ok(user),
                 Err(e) => return Err(format!("Error retrieving user: {:?}", e)),
             }
@@ -934,17 +934,35 @@ async fn find_or_create_oauth_user(
                 Ok(user) => {
                     // User found by email, create an identity for them
                     let new_identity = NewUserAuthIdentity {
-                        user_id: user.id,
+                        user_uuid: user.uuid,
                         provider_type: "microsoft".to_string(),
                         external_id: provider_user_id.clone(),
                         email: Some(email.clone()),
                         metadata: Some(user_info.clone()),
                         password_hash: None, // No password for OAuth identities
                     };
-                    
+
                     match crate::repository::user_auth_identities::create_identity(new_identity, conn) {
                         Ok(_) => {
-                            // Identity created, return the user
+                            // Identity created, now add the Microsoft email to user_emails if not already present
+                            if let Err(_) = crate::repository::user_emails::find_user_by_any_email(conn, &email) {
+                                let new_email = crate::models::NewUserEmail {
+                                    user_uuid: user.uuid,
+                                    email: email.to_lowercase(),
+                                    email_type: "work".to_string(),
+                                    is_primary: false,
+                                    is_verified: true,
+                                    source: Some("microsoft".to_string()),
+                                };
+
+                                if let Err(e) = diesel::insert_into(crate::schema::user_emails::table)
+                                    .values(&new_email)
+                                    .execute(conn)
+                                {
+                                    tracing::warn!("Failed to add Microsoft email to user_emails: {:?}", e);
+                                }
+                            }
+
                             return Ok(user);
                         },
                         Err(e) => {
@@ -975,14 +993,14 @@ async fn find_or_create_oauth_user(
         Err(e) => return Err(format!("Failed to hash password: {}", e)),
     };
     
-    // Create local user with password hash
-    let new_user = utils::NewUserBuilder::local_user(name, email.clone(), UserRole::User, password_hash.as_bytes().to_vec()).build();
+    // Create local user (password will be stored in user_auth_identities)
+    let new_user = utils::NewUserBuilder::local_user(name, email.clone(), UserRole::User).build();
     
     match crate::repository::create_user(new_user, conn) {
         Ok(user) => {
             // Create an identity for the new user
             let new_identity = NewUserAuthIdentity {
-                user_id: user.id,
+                user_uuid: user.uuid,
                 provider_type: "microsoft".to_string(),
                 external_id: provider_user_id,
                 email: Some(email),
@@ -1030,7 +1048,7 @@ fn generate_app_jwt_token(user: &crate::models::User) -> Result<String, String> 
 // Helper function to add an OAuth identity to an existing user
 async fn add_oauth_identity_to_user(
     user_uuid: &str,
-    user_info: &serde_json::Value, 
+    user_info: &serde_json::Value,
     provider: &AuthProvider,
     conn: &mut DbConnection
 ) -> Result<(), String> {
@@ -1039,13 +1057,13 @@ async fn add_oauth_identity_to_user(
         Ok(uuid) => uuid,
         Err(e) => return Err(format!("Invalid UUID format: {}", e)),
     };
-    
+
     // First find the user by UUID
     let user = match crate::repository::get_user_by_uuid(&parsed_uuid, conn) {
         Ok(user) => user,
         Err(e) => return Err(format!("User not found: {:?}", e)),
     };
-    
+
     // Extract unique identifier for Microsoft (object ID)
     let external_id = match user_info.get("id") {
         Some(id) => match id.as_str() {
@@ -1054,28 +1072,54 @@ async fn add_oauth_identity_to_user(
         },
         None => return Err("No id in user info".to_string()),
     };
-    
+
     // Extract email from user info (optional)
     let email = user_info.get("mail")
         .or_else(|| user_info.get("userPrincipalName"))
         .and_then(|e| e.as_str())
         .map(|e| e.to_string());
-    
+
     // Create a new identity for the user
     let new_identity = crate::models::NewUserAuthIdentity {
-        user_id: user.id,
+        user_uuid: user.uuid,
         provider_type: "microsoft".to_string(),
         external_id,
-        email,
+        email: email.clone(),
         metadata: Some(user_info.clone()),
         password_hash: None, // No password for OAuth identities
     };
-    
+
     // Save the identity to the database
     match crate::repository::user_auth_identities::create_identity(new_identity, conn) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("Failed to create auth identity: {:?}", e)),
+        Ok(_) => {},
+        Err(e) => return Err(format!("Failed to create auth identity: {:?}", e)),
     }
+
+    // Also add the Microsoft email to user_emails table if we have one
+    if let Some(email_address) = email {
+        // Check if email already exists in user_emails table
+        if let Err(_) = crate::repository::user_emails::find_user_by_any_email(conn, &email_address) {
+            // Email doesn't exist, add it
+            let new_email = crate::models::NewUserEmail {
+                user_uuid: user.uuid,
+                email: email_address.to_lowercase(),
+                email_type: "work".to_string(), // Microsoft emails are typically work emails
+                is_primary: false, // Don't make it primary automatically
+                is_verified: true, // Microsoft verifies emails
+                source: Some("microsoft".to_string()),
+            };
+
+            if let Err(e) = diesel::insert_into(crate::schema::user_emails::table)
+                .values(&new_email)
+                .execute(conn)
+            {
+                tracing::warn!("Failed to add Microsoft email to user_emails: {:?}", e);
+                // Don't fail the whole operation if email insert fails
+            }
+        }
+    }
+
+    Ok(())
 }
 
 // Direct endpoint for connecting a new authentication method to an existing user

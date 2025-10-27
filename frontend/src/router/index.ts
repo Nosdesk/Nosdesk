@@ -226,9 +226,6 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Device Details'
-      },
-      beforeEnter: (to) => {
-        to.meta.title = `Device #${to.params.id}`
       }
     },
     {

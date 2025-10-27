@@ -1,9 +1,9 @@
-<!-- TicketIdentifier.vue -->
+<!-- ItemIdentifier.vue - Generic identifier component for tickets, devices, etc. -->
 <script setup lang="ts">
 import { computed } from 'vue';
 
 interface Props {
-  ticketId?: number | string;
+  id?: number | string;
   showPrefix?: boolean;
   size?: 'sm' | 'md' | 'lg';
 }
@@ -13,10 +13,10 @@ const props = withDefaults(defineProps<Props>(), {
   size: 'md'
 });
 
-// Compute the display text based on the ticket ID
+// Compute the display text
 const displayText = computed(() => {
-  if (!props.ticketId) return '';
-  return props.showPrefix ? `#${props.ticketId}` : `${props.ticketId}`;
+  if (!props.id) return '';
+  return props.showPrefix ? `#${props.id}` : `${props.id}`;
 });
 
 // Size classes for different display sizes
@@ -30,8 +30,8 @@ const sizeClasses = computed(() => {
 </script>
 
 <template>
-  <div v-if="ticketId" class="flex items-center">
-    <span 
+  <div v-if="id" class="flex items-center">
+    <span
       class="text-slate-400 font-medium flex items-center select-none"
       :class="sizeClasses"
     >

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import BackButton from '@/components/common/BackButton.vue';
-import UserAvatar from '@/components/UserAvatar.vue';
 import InlineEdit from '@/components/common/InlineEdit.vue';
+import UserProfileCard from '@/components/settings/UserProfileCard.vue';
 import { getDeviceById, updateDevice, createDevice } from '@/services/deviceService';
 import MicrosoftGraphService from '@/services/MicrosoftGraphService';
 import { IntuneIcon, EntraIcon } from '@/components/icons';
@@ -11,6 +11,7 @@ import type { Device, DeviceFormData } from '@/types/device';
 
 const route = useRoute();
 const router = useRouter();
+const emit = defineEmits(['update:device']);
 const device = ref<Device | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
@@ -48,7 +49,10 @@ const fetchDeviceData = async () => {
     if (!route.params.id || route.params.id === 'new') {
       isCreationMode.value = true;
       isNewDevice.value = true;
-      
+
+      // In creation mode, emit null for device
+      emit('update:device', null);
+
       // Set default values for new device
       editValues.value = {
         name: '',
@@ -58,7 +62,7 @@ const fetchDeviceData = async () => {
         serial_number: '',
         warranty_status: 'Unknown'
       };
-      
+
       // Enable editing mode for all fields
       editingName.value = true;
       editingManufacturer.value = true;
@@ -66,15 +70,15 @@ const fetchDeviceData = async () => {
       editingHostname.value = true;
       editingSerialNumber.value = true;
       editingWarrantyStatus.value = true;
-      
-      // Focus on name field after DOM update
+
+      // Focus on hostname field after DOM update
       setTimeout(() => {
-        const nameInput = document.getElementById('name-input') as HTMLInputElement;
-        if (nameInput) {
-          nameInput.focus();
+        const hostnameInput = document.getElementById('hostname-input') as HTMLInputElement;
+        if (hostnameInput) {
+          hostnameInput.focus();
         }
       }, 100);
-      
+
       loading.value = false;
       return;
     }
@@ -104,13 +108,13 @@ const fetchDeviceData = async () => {
     
     // If it's a new device, enable editing mode for key fields
     if (isNewDevice.value) {
-      editingName.value = true;
-      // Focus on name field after DOM update
+      editingHostname.value = true;
+      // Focus on hostname field after DOM update
       setTimeout(() => {
-        const nameInput = document.getElementById('name-input') as HTMLInputElement;
-        if (nameInput) {
-          nameInput.focus();
-          nameInput.select();
+        const hostnameInput = document.getElementById('hostname-input') as HTMLInputElement;
+        if (hostnameInput) {
+          hostnameInput.focus();
+          hostnameInput.select();
         }
       }, 100);
     }
@@ -222,9 +226,9 @@ const saveDevice = async () => {
     isSaving.value = true;
     
     if (isCreationMode.value) {
-      // Create new device
+      // Create new device - use hostname as the name
       const deviceData: DeviceFormData = {
-        name: editValues.value.name,
+        name: editValues.value.hostname || editValues.value.name,
         manufacturer: editValues.value.manufacturer,
         model: editValues.value.model,
         hostname: editValues.value.hostname,
@@ -280,16 +284,17 @@ const handleNameUpdate = (newName: string) => {
 // Simple save function for individual fields (for existing devices)
 const saveField = async (field: keyof typeof editValues.value) => {
   if (!device.value) return;
-  
+
   try {
     isSaving.value = true;
     const updatedDevice = await updateDevice(device.value.id, {
       [field]: editValues.value[field]
     });
-    
+
     // Update the device data
     device.value = { ...device.value, ...updatedDevice };
-    
+    // Note: Title update is handled automatically by the hostname watcher
+
     // Exit edit mode for this field
     switch (field) {
       case 'name':
@@ -353,6 +358,12 @@ const cancelEdit = (field: keyof typeof editValues.value) => {
   }
 };
 
+// Watch device and emit device object updates
+watch(device, (newDevice) => {
+  // Pass the actual reactive device object reference
+  emit('update:device', newDevice);
+}, { immediate: true, deep: true }); // deep: true to watch nested property changes
+
 onMounted(() => {
   fetchDeviceData();
 });
@@ -380,23 +391,23 @@ onMounted(() => {
         <div class="bg-slate-800 rounded-2xl p-6">
           <div class="flex items-start justify-between">
             <div class="flex-1">
-              <!-- Device Name - Inline Editing -->
+              <!-- Device Hostname - Inline Editing -->
               <InlineEdit
                 v-if="!isCreationMode"
-                v-model="editValues.name"
-                :placeholder="device?.name || 'Enter device name...'"
+                v-model="editValues.hostname"
+                :placeholder="device?.hostname || 'Enter hostname...'"
                 text-size="2xl"
                 :can-edit="true"
-                @update:modelValue="handleNameUpdate"
+                @update:modelValue="() => saveField('hostname')"
               />
               <div v-else class="flex items-center gap-3 group">
                 <div class="flex-1 relative">
                   <input
-                    id="name-input"
-                    v-model="editValues.name"
+                    id="hostname-input"
+                    v-model="editValues.hostname"
                     type="text"
                     class="w-full text-2xl font-semibold text-white px-1 py-0.5 rounded-lg hover:bg-slate-700/50 focus:bg-slate-700 focus:outline-none transition-all duration-150 border-2 border-transparent focus:border-blue-500/50 bg-slate-700/50"
-                    placeholder="Enter device name..."
+                    placeholder="Enter hostname..."
                   />
                 </div>
               </div>
@@ -688,71 +699,36 @@ onMounted(() => {
 
           <!-- User Account Information -->
           <div class="xl:col-span-1">
-            <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors overflow-hidden">
+            <div class="flex flex-col">
               <!-- Primary User Heading -->
-              <div class="px-6 pt-6 pb-0">
+              <div class="mb-4">
                 <h2 class="text-lg font-medium text-white">Primary User</h2>
               </div>
-              
+
+              <!-- User Profile Card (Compact Variant) -->
               <div v-if="device.primary_user">
-                <!-- Profile Content -->
-                <div class="flex flex-col gap-4 pt-0 p-6">
-                  <!-- User Card with Banner Background -->
-                  <div class="relative rounded-xl overflow-hidden mb-6">
-                    <!-- Faded Banner Background -->
-                    <div class="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20"></div>
-                    <div class="absolute inset-0 bg-slate-800/60"></div>
-                    
-                    <!-- Card Content -->
-                    <div class="relative p-6">
-                      <div class="flex items-start gap-6">
-                        <!-- Large Profile Image -->
-                        <div class="flex-shrink-0">
-                          <RouterLink :to="`/users/${device.primary_user.uuid}`" class="block hover:opacity-90 transition-opacity">
-                            <UserAvatar
-                              :name="device.primary_user.uuid"
-                              size="full"
-                              :avatar="device.primary_user.avatar_url || null"
-                              :showName="false"
-                              :clickable="false"
-                              class="w-24 h-24"
-                            />
-                          </RouterLink>
-                        </div>
-                        
-                        <!-- User Details -->
-                        <div class="flex-1 min-w-0">
-                          <h3 class="text-2xl font-bold text-white truncate mb-2">{{ device.primary_user.name }}</h3>
-                          <p class="text-slate-300 truncate mb-4 text-lg">{{ device.primary_user.email }}</p>
-                          
-                          <!-- Quick Action Button -->
-                          <RouterLink 
-                            :to="`/users/${device.primary_user.uuid}`"
-                            class="inline-flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur-sm text-white rounded-lg hover:bg-white/20 transition-all duration-200 text-sm font-medium border border-white/20"
-                          >
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
-                            </svg>
-                            View Full Profile
-                          </RouterLink>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
+                <UserProfileCard
+                  :user="device.primary_user"
+                  variant="compact"
+                  :show-banner="true"
+                  :show-pronouns="false"
+                  :show-email="true"
+                  :can-edit="false"
+                  :enable-avatar-navigation="true"
+                >
                   <!-- User UUID -->
                   <div class="flex flex-col gap-2">
-                    <h4 class="text-sm font-medium text-slate-300 uppercase tracking-wide">User UUID</h4>
+                    <h4 class="text-xs font-medium text-slate-400 uppercase tracking-wide">User UUID</h4>
                     <div class="bg-slate-700/50 rounded-lg p-3 border border-slate-600/30">
                       <span class="text-white font-mono text-sm break-all">{{ device.primary_user.uuid }}</span>
                     </div>
                   </div>
-                </div>
+                </UserProfileCard>
               </div>
-              
+
               <!-- No User Assigned -->
-              <div v-else class="px-6 pb-6">
-                <div class="text-center py-8">
+              <div v-else class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+                <div class="text-center py-8 px-6">
                   <div class="inline-flex items-center justify-center w-12 h-12 bg-slate-700 rounded-full mb-4">
                     <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
@@ -777,7 +753,7 @@ onMounted(() => {
             </button>
             <button
               @click="saveDevice"
-              :disabled="isSaving || !editValues.name"
+              :disabled="isSaving || !editValues.hostname"
               class="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
             >
               <svg v-if="isSaving" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">

@@ -16,6 +16,7 @@ export interface Device {
     uuid: string;
     name: string;
     email: string;
+    role: string;
     avatar_url?: string | null;
     avatar_thumb?: string | null;
   } | null;

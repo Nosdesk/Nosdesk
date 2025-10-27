@@ -23,8 +23,41 @@ use crate::utils::jwt::{JwtUtils, helpers as jwt_helpers};
 #[derive(Deserialize)]
 #[allow(dead_code)]
 pub struct AdminPasswordResetRequest {
-    pub user_id: i32,
+    pub user_uuid: Uuid,
     pub new_password: String,
+}
+
+/// Helper function to get password hash from user_auth_identities for local auth
+fn get_local_password_hash(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<String, String> {
+    use diesel::prelude::*;
+    use crate::schema::user_auth_identities;
+
+    let password_hash: Option<String> = user_auth_identities::table
+        .filter(user_auth_identities::user_uuid.eq(user_uuid))
+        .filter(user_auth_identities::provider_type.eq("local"))
+        .select(user_auth_identities::password_hash)
+        .first::<Option<String>>(conn)
+        .optional()
+        .map_err(|e| format!("Database error: {}", e))?
+        .flatten();
+
+    password_hash.ok_or_else(|| "No local password found for this user".to_string())
+}
+
+/// Helper function to update password hash in user_auth_identities for local auth
+fn update_local_password_hash(user_uuid: &Uuid, new_password_hash: &str, conn: &mut DbConnection) -> Result<(), diesel::result::Error> {
+    use diesel::prelude::*;
+    use crate::schema::user_auth_identities;
+
+    diesel::update(
+        user_auth_identities::table
+            .filter(user_auth_identities::user_uuid.eq(user_uuid))
+            .filter(user_auth_identities::provider_type.eq("local"))
+    )
+    .set(user_auth_identities::password_hash.eq(Some(new_password_hash)))
+    .execute(conn)?;
+
+    Ok(())
 }
 
 
@@ -66,7 +99,7 @@ async fn log_password_change_event(
     struct NewSecurityEvent {
         user_uuid: Uuid,
         event_type: String,
-        ip_address: Option<String>,
+        ip_address: Option<ipnetwork::IpNetwork>,
         user_agent: Option<String>,
         location: Option<String>,
         details: Option<serde_json::Value>,
@@ -109,9 +142,9 @@ pub async fn create_session_record(
     let hash = digest::digest(&digest::SHA256, token.as_bytes());
     let token_hash = hex::encode(hash.as_ref());
 
-    // Extract IP address from request
+    // Extract IP address from request and convert to IpNetwork
     let ip_address = request.peer_addr()
-        .map(|addr| addr.ip().to_string());
+        .and_then(|addr| addr.ip().to_string().parse().ok());
 
     // Extract user agent from request headers
     let user_agent = request.headers()
@@ -193,22 +226,11 @@ pub async fn login(
         }
     };
 
-
-
-    // Check if user has a password hash for local authentication
-    let password_hash = match String::from_utf8(user.password_hash.clone()) {
-        Ok(hash) => {
-            if hash.is_empty() {
-                eprintln!("No password hash found for user: {}", user.id);
-                return HttpResponse::Unauthorized().json(json!({
-                    "status": "error",
-                    "message": "Invalid email or password"
-                }));
-            }
-            hash
-        }
+    // Get password hash from user_auth_identities for local authentication
+    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
+        Ok(hash) => hash,
         Err(_) => {
-            eprintln!("Invalid password hash format for user: {}", user.id);
+            eprintln!("No local password found for user: {}", user.uuid);
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
                 "message": "Invalid email or password"
@@ -290,17 +312,9 @@ pub async fn mfa_login(
         }
     };
 
-    // Verify password first
-    let password_hash = match String::from_utf8(user.password_hash.clone()) {
-        Ok(hash) => {
-            if hash.is_empty() {
-                return HttpResponse::Unauthorized().json(json!({
-                    "status": "error",
-                    "message": "Invalid email or password"
-                }));
-            }
-            hash
-        }
+    // Get password hash from user_auth_identities for local authentication
+    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
+        Ok(hash) => hash,
         Err(_) => {
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
@@ -518,7 +532,6 @@ pub async fn register(
     let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
     let (new_user, email) = utils::NewUserBuilder::new(normalized_name, normalized_email.clone(), user_role)
         .with_uuid(user_uuid)
-        .with_password_hash(password_hash.as_bytes().to_vec())
         .with_pronouns(utils::normalization::normalize_optional_string(user_data.pronouns.as_ref()))
         .with_avatar(
             utils::normalization::normalize_optional_string(user_data.avatar_url.as_ref()),
@@ -530,6 +543,40 @@ pub async fn register(
     // Save user to database with email (atomically creates both user and email entry)
     match repository::user_helpers::create_user_with_email(new_user, email, true, Some("manual".to_string()), &mut conn) {
         Ok((created_user, _email_entry)) => {
+            // Create local auth identity with password hash
+            use diesel::prelude::*;
+            use crate::schema::user_auth_identities;
+
+            #[derive(diesel::Insertable)]
+            #[diesel(table_name = user_auth_identities)]
+            struct NewLocalAuthIdentity {
+                user_uuid: Uuid,
+                provider_type: String,
+                external_id: String,
+                email: Option<String>,
+                password_hash: Option<String>,
+            }
+
+            let auth_identity = NewLocalAuthIdentity {
+                user_uuid: created_user.uuid,
+                provider_type: "local".to_string(),
+                external_id: normalized_email.clone(),
+                email: Some(normalized_email.clone()),
+                password_hash: Some(password_hash),
+            };
+
+            if let Err(e) = diesel::insert_into(user_auth_identities::table)
+                .values(&auth_identity)
+                .execute(&mut conn) {
+                eprintln!("Error creating auth identity: {:?}", e);
+                // Rollback by deleting the user
+                let _ = repository::users::delete_user(&created_user.uuid, &mut conn);
+                return HttpResponse::InternalServerError().json(json!({
+                    "status": "error",
+                    "message": "Error creating user authentication"
+                }));
+            }
+
             println!("✅ New user registered successfully: {} (UUID: {})", created_user.name, created_user.uuid);
             let response = repository::user_helpers::get_user_with_primary_email(created_user, &mut conn);
             HttpResponse::Created().json(response)
@@ -625,23 +672,14 @@ pub async fn change_password(
 
     match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => {
-            // Check if user has a password hash for local authentication
-            let current_password_hash = match String::from_utf8(user.password_hash.clone()) {
-                Ok(hash) => {
-                    if hash.is_empty() {
-                        eprintln!("No password hash found for user: {}", user.id);
-                        return HttpResponse::BadRequest().json(json!({
-                            "status": "error",
-                            "message": "No local password found for this user"
-                        }));
-                    }
-                    hash
-                }
+            // Get current password hash from user_auth_identities
+            let current_password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
+                Ok(hash) => hash,
                 Err(_) => {
-                    eprintln!("Invalid password hash format for user: {}", user.id);
+                    eprintln!("No local password found for user: {}", user.uuid);
                     return HttpResponse::BadRequest().json(json!({
                         "status": "error",
-                        "message": "No password is set for this account"
+                        "message": "No local password found for this user"
                     }));
                 }
             };
@@ -682,15 +720,22 @@ pub async fn change_password(
                 })),
             };
 
-            // Update the user's password hash and password_changed_at timestamp
+            // Update the user's password hash in user_auth_identities and password_changed_at timestamp in users
             use diesel::prelude::*;
             let now = chrono::Utc::now().naive_utc();
 
-            match diesel::update(crate::schema::users::table.find(user.id))
-                .set((
-                    crate::schema::users::password_hash.eq(new_password_hash.as_bytes()),
-                    crate::schema::users::password_changed_at.eq(now)
-                ))
+            // Update password hash in user_auth_identities
+            if let Err(e) = update_local_password_hash(&user.uuid, &new_password_hash, &mut conn) {
+                eprintln!("Error updating password hash: {:?}", e);
+                return HttpResponse::InternalServerError().json(json!({
+                    "status": "error",
+                    "message": "Error updating password"
+                }));
+            }
+
+            // Update password_changed_at timestamp in users table
+            match diesel::update(crate::schema::users::table.find(&user.uuid))
+                .set(crate::schema::users::password_changed_at.eq(now))
                 .execute(&mut conn) {
                 Ok(_) => {
                     println!("✅ Password changed successfully for user: {}", user.name);
@@ -814,7 +859,7 @@ pub async fn admin_reset_password(
     }
 
     // Get the target user
-    let user = match repository::get_user_by_id(reset_data.user_id, &mut conn) {
+    let user = match repository::get_user_by_uuid(&reset_data.user_uuid, &mut conn) {
         Ok(user) => user,
         Err(_) => return HttpResponse::NotFound().json(json!({
             "status": "error",
@@ -831,11 +876,8 @@ pub async fn admin_reset_password(
         })),
     };
 
-    // Update the user's password hash directly
-    use diesel::prelude::*;
-    match diesel::update(crate::schema::users::table.find(user.id))
-        .set(crate::schema::users::password_hash.eq(new_password_hash.as_bytes()))
-        .execute(&mut conn) {
+    // Update the user's password hash in user_auth_identities
+    match update_local_password_hash(&user.uuid, &new_password_hash, &mut conn) {
         Ok(_) => {
             println!("✅ Password reset successfully for user: {}", user.name);
             HttpResponse::Ok().json(json!({
@@ -1022,14 +1064,47 @@ pub async fn setup_initial_admin(
     let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&admin_data.name, &admin_data.email);
     let (new_user, email) = utils::NewUserBuilder::admin_user(
         normalized_name,
-        normalized_email,
-        password_hash.as_bytes().to_vec()
+        normalized_email.clone()
     ).build_with_email();
 
     match repository::user_helpers::create_user_with_email(new_user, email, true, Some("manual".to_string()), &mut conn) {
         Ok((created_user, _email_entry)) => {
+            // Create local auth identity with password hash
+            use diesel::prelude::*;
+            use crate::schema::user_auth_identities;
+
+            #[derive(diesel::Insertable)]
+            #[diesel(table_name = user_auth_identities)]
+            struct NewLocalAuthIdentity {
+                user_uuid: Uuid,
+                provider_type: String,
+                external_id: String,
+                email: Option<String>,
+                password_hash: Option<String>,
+            }
+
+            let auth_identity = NewLocalAuthIdentity {
+                user_uuid: created_user.uuid,
+                provider_type: "local".to_string(),
+                external_id: normalized_email.clone(),
+                email: Some(normalized_email.clone()),
+                password_hash: Some(password_hash),
+            };
+
+            if let Err(e) = diesel::insert_into(user_auth_identities::table)
+                .values(&auth_identity)
+                .execute(&mut conn) {
+                eprintln!("Error creating auth identity: {:?}", e);
+                // Rollback by deleting the user
+                let _ = repository::users::delete_user(&created_user.uuid, &mut conn);
+                return HttpResponse::InternalServerError().json(json!({
+                    "status": "error",
+                    "message": "Error creating user authentication"
+                }));
+            }
+
             println!("✅ Initial admin user created successfully: {}", created_user.name);
-            
+
             let response = crate::models::AdminSetupResponse {
                 success: true,
                 message: "Initial admin user created successfully".to_string(),
@@ -1107,7 +1182,7 @@ pub async fn mfa_setup(
     let secret = mfa::generate_totp_secret();
 
     // Get user's primary email for QR code
-    let user_email = repository::user_helpers::get_primary_email(user.id, &mut conn)
+    let user_email = repository::user_helpers::get_primary_email(&user.uuid, &mut conn)
         .unwrap_or_else(|| format!("user-{}", user.uuid));
 
     // Generate QR code
@@ -1334,7 +1409,7 @@ pub async fn mfa_disable(
     // If using full scope, verify password
     // If using mfa_recovery scope, skip password check (magic link already authenticated)
     if claims.scope == "full" {
-        let password_hash_str = match String::from_utf8(user.password_hash.clone()) {
+        let password_hash_str = match get_local_password_hash(&user.uuid, &mut conn) {
             Ok(hash) => hash,
             Err(_) => return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
@@ -1417,7 +1492,7 @@ pub async fn mfa_regenerate_backup_codes(
     };
 
     // Verify password
-    let password_hash_str = match String::from_utf8(user.password_hash.clone()) {
+    let password_hash_str = match get_local_password_hash(&user.uuid, &mut conn) {
         Ok(hash) => hash,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -1540,17 +1615,9 @@ pub async fn mfa_setup_login(
         }
     };
 
-    // Verify password
-    let password_hash = match String::from_utf8(user.password_hash.clone()) {
-        Ok(hash) => {
-            if hash.is_empty() {
-                return HttpResponse::Unauthorized().json(json!({
-                    "status": "error",
-                    "message": "Invalid email or password"
-                }));
-            }
-            hash
-        }
+    // Get password hash from user_auth_identities for local authentication
+    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
+        Ok(hash) => hash,
         Err(_) => {
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
@@ -1600,7 +1667,7 @@ pub async fn mfa_setup_login(
     let secret = mfa::generate_totp_secret();
 
     // Get user's primary email for QR code
-    let user_email = repository::user_helpers::get_primary_email(user.id, &mut conn)
+    let user_email = repository::user_helpers::get_primary_email(&user.uuid, &mut conn)
         .unwrap_or_else(|| format!("user-{}", user.uuid));
 
     // Generate QR code
@@ -1651,17 +1718,9 @@ pub async fn mfa_enable_login(
         }
     };
 
-    // Verify password
-    let password_hash = match String::from_utf8(user.password_hash.clone()) {
-        Ok(hash) => {
-            if hash.is_empty() {
-                return HttpResponse::Unauthorized().json(json!({
-                    "status": "error",
-                    "message": "Invalid email or password"
-                }));
-            }
-            hash
-        }
+    // Get password hash from user_auth_identities for local authentication
+    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
+        Ok(hash) => hash,
         Err(_) => {
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
@@ -1791,17 +1850,16 @@ pub async fn mfa_enable_login(
 /// This function demonstrates a secure MFA reset procedure
 #[allow(dead_code)]
 async fn initiate_secure_mfa_reset(
-    user_uuid: &uuid::Uuid, 
+    user_uuid: &uuid::Uuid,
     password: &str,
     conn: &mut DbConnection
 ) -> Result<String, String> {
     // Step 1: Verify current password
-    let user = repository::get_user_by_uuid(user_uuid, conn)
+    let _user = repository::get_user_by_uuid(user_uuid, conn)
         .map_err(|_| "User not found")?;
-    
-    let password_hash_str = String::from_utf8(user.password_hash.clone())
-        .map_err(|_| "Error reading password hash")?;
-    
+
+    let password_hash_str = get_local_password_hash(user_uuid, conn)?;
+
     if !bcrypt::verify(password, &password_hash_str).unwrap_or(false) {
         return Err("Invalid password".to_string());
     }
@@ -1890,7 +1948,7 @@ pub async fn get_user_sessions(
         json!({
             "id": session.id,
             "device_name": session.device_name,
-            "ip_address": session.ip_address,
+            "ip_address": session.ip_address.map(|ip| ip.to_string()),
             "user_agent": session.user_agent,
             "location": session.location,
             "created_at": session.created_at,

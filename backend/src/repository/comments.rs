@@ -39,23 +39,23 @@ pub fn get_comment_by_id(conn: &mut DbConnection, comment_id: i32) -> QueryResul
 pub fn get_comments_with_attachments_by_ticket_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<CommentWithAttachments>> {
     let comments = get_comments_by_ticket_id(conn, ticket_id)?;
     let mut comments_with_attachments = Vec::new();
-    
+
     for comment in comments {
         let attachments = get_attachments_by_comment_id(conn, comment.id)?;
-        
-        // Get user information for this comment using user_id with avatar
-        let user = match crate::repository::users::get_user_by_id(comment.user_id, conn) {
+
+        // Get user information for this comment using user_uuid with avatar
+        let user = match crate::repository::users::get_user_by_uuid(&comment.user_uuid, conn) {
             Ok(user) => Some(UserInfoWithAvatar::from(user)),
             Err(_) => None,
         };
-        
+
         comments_with_attachments.push(CommentWithAttachments {
             comment,
             attachments,
             user,
         });
     }
-    
+
     Ok(comments_with_attachments)
 }
 

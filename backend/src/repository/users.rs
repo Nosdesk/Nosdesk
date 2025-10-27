@@ -31,12 +31,8 @@ pub fn get_paginated_users(
     if let Some(search_term) = search.clone() {
         if !search_term.is_empty() {
             let search_pattern = format!("%{}%", search_term.to_lowercase());
-            query = query.filter(
-                users::name.ilike(search_pattern.clone())
-                    .or(users::id.eq_any(
-                        search_term.parse::<i32>().ok().map(|id| vec![id]).unwrap_or_default()
-                    ))
-            );
+            // Note: ID-based search removed since users table now uses UUID primary key
+            query = query.filter(users::name.ilike(search_pattern.clone()));
         }
     }
     
@@ -60,12 +56,8 @@ pub fn get_paginated_users(
     if let Some(search_term) = search {
         if !search_term.is_empty() {
             let search_pattern = format!("%{}%", search_term.to_lowercase());
-            count_query = count_query.filter(
-                users::name.ilike(search_pattern.clone())
-                    .or(users::id.eq_any(
-                        search_term.parse::<i32>().ok().map(|id| vec![id]).unwrap_or_default()
-                    ))
-            );
+            // Note: ID-based search removed since users table now uses UUID primary key
+            count_query = count_query.filter(users::name.ilike(search_pattern.clone()));
         }
     }
     
@@ -87,9 +79,8 @@ pub fn get_paginated_users(
     
     // Apply sorting to the main query
     // Note: Email sorting removed - would require join with user_emails table
+    // Note: ID sorting removed - users table now uses UUID primary key (not sortable by id)
     match (sort_field.as_deref(), sort_direction.as_deref()) {
-        (Some("id"), Some("asc")) => query = query.order(users::id.asc()),
-        (Some("id"), _) => query = query.order(users::id.desc()),
         (Some("name"), Some("asc")) => query = query.order(users::name.asc()),
         (Some("name"), _) => query = query.order(users::name.desc()),
         (Some("email"), Some("asc")) => query = query.order(users::name.asc()), // Fallback to name
@@ -109,15 +100,11 @@ pub fn get_paginated_users(
     Ok((results, total))
 }
 
-pub fn get_user_by_id(id: i32, conn: &mut DbConnection) -> Result<User, Error> {
-    users::table
-        .find(id)
-        .first::<User>(conn)
-}
-
+// Note: get_user_by_id removed - users table now uses UUID as primary key
+// Use get_user_by_uuid instead
 pub fn get_user_by_uuid(uuid: &Uuid, conn: &mut DbConnection) -> Result<User, Error> {
     users::table
-        .filter(users::uuid.eq(uuid))
+        .find(uuid)
         .first::<User>(conn)
 }
 
@@ -147,41 +134,44 @@ pub fn create_user(
 }
 
 pub fn update_user(
-    id: i32,
+    user_uuid: &Uuid,
     user: UserUpdate,
     conn: &mut DbConnection,
 ) -> Result<User, Error> {
-    diesel::update(users::table.find(id))
+    diesel::update(users::table.find(user_uuid))
         .set(user)
         .get_result(conn)
 }
 
-pub fn delete_user(id: i32, conn: &mut DbConnection) -> Result<usize, Error> {
+pub fn delete_user(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<usize, Error> {
     use crate::schema::{comments, devices, user_auth_identities, user_emails};
-    
+
     // Start a transaction to ensure all-or-nothing deletion
     conn.transaction::<_, Error, _>(|conn| {
-        // 1. Delete all comments by this user (set user_id to NULL or delete)
-        // For now we'll delete the comments entirely, but you could also set user_id to NULL
-        diesel::delete(comments::table.filter(comments::user_id.eq(id)))
+        // 1. Delete all comments by this user
+        // Note: comments.user_uuid references users.uuid
+        diesel::delete(comments::table.filter(comments::user_uuid.eq(user_uuid)))
             .execute(conn)?;
-        
-        // 2. Update devices to remove user associations (set user_id to NULL)
-        diesel::update(devices::table.filter(devices::user_id.eq(id)))
-            .set(devices::user_id.eq::<Option<i32>>(None))
+
+        // 2. Update devices to remove user associations (set primary_user_uuid to NULL)
+        // Note: devices.primary_user_uuid references users.uuid
+        diesel::update(devices::table.filter(devices::primary_user_uuid.eq(user_uuid)))
+            .set(devices::primary_user_uuid.eq::<Option<Uuid>>(None))
             .execute(conn)?;
-        
-        // 3. Delete user auth identities (these have ON DELETE CASCADE so they should delete automatically, but let's be explicit)
-        diesel::delete(user_auth_identities::table.filter(user_auth_identities::user_id.eq(id)))
+
+        // 3. Delete user auth identities
+        // Note: user_auth_identities.user_uuid references users.uuid with ON DELETE CASCADE
+        diesel::delete(user_auth_identities::table.filter(user_auth_identities::user_uuid.eq(user_uuid)))
             .execute(conn)?;
-        
-        // 4. Delete user emails (these have ON DELETE CASCADE so they should delete automatically, but let's be explicit)
-        diesel::delete(user_emails::table.filter(user_emails::user_id.eq(id)))
+
+        // 4. Delete user emails
+        // Note: user_emails.user_uuid references users.uuid with ON DELETE CASCADE
+        diesel::delete(user_emails::table.filter(user_emails::user_uuid.eq(user_uuid)))
             .execute(conn)?;
-        
+
         // 5. Finally delete the user
-        let deleted_count = diesel::delete(users::table.find(id)).execute(conn)?;
-        
+        let deleted_count = diesel::delete(users::table.find(user_uuid)).execute(conn)?;
+
         Ok(deleted_count)
     })
 }

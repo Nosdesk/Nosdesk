@@ -3,12 +3,12 @@ use crate::models::{NewUser, UserRole};
 
 /// Builder for creating NewUser instances with sensible defaults
 /// Email is stored separately and returned in build_with_email()
+/// Password is NOT stored in User anymore - it goes in user_auth_identities table
 pub struct NewUserBuilder {
     uuid: Uuid,
     name: String,
     email: String, // Stored but not part of NewUser - returned separately
     role: UserRole,
-    password_hash: Vec<u8>,
     pronouns: Option<String>,
     avatar_url: Option<String>,
     banner_url: Option<String>,
@@ -24,7 +24,6 @@ impl NewUserBuilder {
             name,
             email,
             role,
-            password_hash: Vec::new(),
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -35,11 +34,6 @@ impl NewUserBuilder {
 
     pub fn with_uuid(mut self, uuid: Uuid) -> Self {
         self.uuid = uuid;
-        self
-    }
-
-    pub fn with_password_hash(mut self, hash: Vec<u8>) -> Self {
-        self.password_hash = hash;
         self
     }
 
@@ -66,12 +60,12 @@ impl NewUserBuilder {
 
     /// Build and return (NewUser, email) tuple
     /// Email is returned separately since it goes in user_emails table
+    /// Password must be handled separately in user_auth_identities table
     pub fn build_with_email(self) -> (NewUser, String) {
         let new_user = NewUser {
             uuid: self.uuid,
             name: self.name,
             role: self.role,
-            password_hash: self.password_hash,
             pronouns: self.pronouns,
             avatar_url: self.avatar_url,
             banner_url: self.banner_url,
@@ -86,12 +80,12 @@ impl NewUserBuilder {
     }
 
     /// Build NewUser only (for cases where email is handled separately)
+    /// Password must be handled separately in user_auth_identities table
     pub fn build(self) -> NewUser {
         NewUser {
             uuid: self.uuid,
             name: self.name,
             role: self.role,
-            password_hash: self.password_hash,
             pronouns: self.pronouns,
             avatar_url: self.avatar_url,
             banner_url: self.banner_url,
@@ -106,9 +100,10 @@ impl NewUserBuilder {
 }
 
 /// Convenience functions for common user creation patterns
+/// Note: Password must be handled separately in user_auth_identities table
 impl NewUserBuilder {
-    pub fn local_user(name: String, email: String, role: UserRole, password_hash: Vec<u8>) -> Self {
-        Self::new(name, email, role).with_password_hash(password_hash)
+    pub fn local_user(name: String, email: String, role: UserRole) -> Self {
+        Self::new(name, email, role)
     }
 
     pub fn oauth_user(name: String, email: String, role: UserRole) -> Self {
@@ -119,8 +114,8 @@ impl NewUserBuilder {
         Self::new(name, email, role).with_microsoft_uuid(microsoft_uuid)
     }
 
-    pub fn admin_user(name: String, email: String, password_hash: Vec<u8>) -> Self {
-        Self::new(name, email, UserRole::Admin).with_password_hash(password_hash)
+    pub fn admin_user(name: String, email: String) -> Self {
+        Self::new(name, email, UserRole::Admin)
     }
 }
 

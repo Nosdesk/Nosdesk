@@ -1561,8 +1561,8 @@ async fn update_existing_microsoft_user(
     println!("Updating existing Microsoft user: {}", ms_user.user_principal_name);
 
     // Get the associated user
-    let user = user_repo::get_user_by_id(existing_identity.user_id, conn)
-        .map_err(|e| format!("Failed to get user by ID {}: {}", existing_identity.user_id, e))?;
+    let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)
+        .map_err(|e| format!("Failed to get user by UUID {}: {}", existing_identity.user_uuid, e))?;
 
     // Update user information with latest from Microsoft Graph
     let updated_name = ms_user.display_name.as_ref().unwrap_or(&user.name);
@@ -1582,7 +1582,7 @@ async fn update_existing_microsoft_user(
 
     // Update user if there are changes
     if user_update.name.is_some() || false /* email removed */ {
-        user_repo::update_user(user.id, user_update, conn)
+        user_repo::update_user(&user.uuid, user_update, conn)
             .map_err(|e| format!("Failed to update user: {}", e))?;
         println!("Updated user information for: {}", user.name);
     }
@@ -1598,7 +1598,7 @@ async fn update_existing_microsoft_user(
     let client = reqwest::Client::new();
     if let Ok(photo_urls) = sync_user_profile_photo(&client, access_token, ms_user, &utils::uuid_to_string(&user.uuid)).await {
         println!("sync_user_profile_photo returned URLs for user: {} - avatar: {:?}, thumb: {:?}", user.name, photo_urls.avatar_url, photo_urls.avatar_thumb);
-        if let Err(e) = update_user_avatar_by_id(conn, user.id, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
+        if let Err(e) = update_user_avatar_by_id(conn, &user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
             println!("Warning: Failed to update avatar for user {}: {}", user.name, e);
         } else {
             println!("Successfully updated avatar for user: {}", user.name);
@@ -1641,7 +1641,7 @@ async fn link_existing_user_to_microsoft(
         .map_err(|e| format!("Failed to serialize Microsoft user data: {}", e))?;
 
     let new_identity = NewUserAuthIdentity {
-        user_id: existing_user.id,
+        user_uuid: existing_user.uuid,
         provider_type: "microsoft".to_string(),
         external_id: ms_user.id.clone(),
         email: ms_user.mail.clone(),
@@ -1666,7 +1666,7 @@ async fn link_existing_user_to_microsoft(
             updated_at: Some(chrono::Utc::now().naive_utc()),
         };
 
-        user_repo::update_user(existing_user.id, user_update, conn)
+        user_repo::update_user(&existing_user.uuid, user_update, conn)
             .map_err(|e| format!("Failed to update user name: {}", e))?;
     }
 
@@ -1674,7 +1674,7 @@ async fn link_existing_user_to_microsoft(
     let client = reqwest::Client::new();
     if let Ok(photo_urls) = sync_user_profile_photo(&client, access_token, ms_user, &utils::uuid_to_string(&existing_user.uuid)).await {
         println!("sync_user_profile_photo returned URLs for user: {} - avatar: {:?}, thumb: {:?}", existing_user.name, photo_urls.avatar_url, photo_urls.avatar_thumb);
-        if let Err(e) = update_user_avatar_by_id(conn, existing_user.id, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
+        if let Err(e) = update_user_avatar_by_id(conn, &existing_user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
             println!("Warning: Failed to update avatar for user {}: {}", existing_user.name, e);
         } else {
             println!("Successfully updated avatar for user: {}", existing_user.name);
@@ -1730,7 +1730,7 @@ async fn create_new_user_from_microsoft(
         .map_err(|e| format!("Failed to serialize Microsoft user data: {}", e))?;
 
     let new_identity = NewUserAuthIdentity {
-        user_id: created_user.id,
+        user_uuid: created_user.uuid,
         provider_type: "microsoft".to_string(),
         external_id: ms_user.id.clone(),
         email: ms_user.mail.clone(),
@@ -1745,7 +1745,7 @@ async fn create_new_user_from_microsoft(
     let client = reqwest::Client::new();
     if let Ok(photo_urls) = sync_user_profile_photo(&client, access_token, ms_user, &utils::uuid_to_string(&user_uuid)).await {
         println!("sync_user_profile_photo returned URLs for new user: {} - avatar: {:?}, thumb: {:?}", name, photo_urls.avatar_url, photo_urls.avatar_thumb);
-        if let Err(e) = update_user_avatar_by_id(conn, created_user.id, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
+        if let Err(e) = update_user_avatar_by_id(conn, &created_user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
             println!("Warning: Failed to update avatar for user {}: {}", name, e);
         } else {
             println!("Successfully updated avatar for new user: {}", name);
@@ -1760,7 +1760,7 @@ async fn create_new_user_from_microsoft(
 }
 
 /// Update existing user who already has Microsoft identity (optimized version)
-#[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(user_principal_name = %ms_user.user_principal_name, user_id = %existing_identity.user_id))]
+#[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(user_principal_name = %ms_user.user_principal_name, user_uuid = %existing_identity.user_uuid))]
 async fn update_existing_microsoft_user_optimized(
     conn: &mut DbConnection,
     ms_user: &MicrosoftGraphUser,
@@ -1772,8 +1772,8 @@ async fn update_existing_microsoft_user_optimized(
     // User info is in the span context
 
     // Get the associated user
-    let user = user_repo::get_user_by_id(existing_identity.user_id, conn)
-        .map_err(|e| format!("Failed to get user by ID {}: {}", existing_identity.user_id, e))?;
+    let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)
+        .map_err(|e| format!("Failed to get user by UUID {}: {}", existing_identity.user_uuid, e))?;
 
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
@@ -1797,7 +1797,7 @@ async fn update_existing_microsoft_user_optimized(
 
     // Update user if there are changes
     if user_update.name.is_some() || false /* email removed */ || user_update.microsoft_uuid.is_some() {
-        user_repo::update_user(user.id, user_update, conn)
+        user_repo::update_user(&user.uuid, user_update, conn)
             .map_err(|e| format!("Failed to update user: {}", e))?;
         println!("Updated user information for: {}", user.name);
     }
@@ -1810,15 +1810,15 @@ async fn update_existing_microsoft_user_optimized(
 
     if !email_data.is_empty() {
         debug!("Storing {} email addresses for user: {}", email_data.len(), user.name);
-        
-        match user_emails_repo::add_multiple_emails(conn, user.id, email_data.clone()) {
+
+        match user_emails_repo::add_multiple_emails(conn, &user.uuid, email_data.clone()) {
             Ok(stored_emails) => {
                 let added_count = stored_emails.len();
                 debug!("Successfully stored {} email addresses for user: {}", added_count, user.name);
-                
+
                 // Clean up any Microsoft emails that are no longer present
                 let current_emails: Vec<String> = email_data.iter().map(|(email, _, _, _)| email.clone()).collect();
-                match user_emails_repo::cleanup_obsolete_emails(conn, user.id, &current_emails, "microsoft") {
+                match user_emails_repo::cleanup_obsolete_emails(conn, &user.uuid, &current_emails, "microsoft") {
                     Ok(cleaned_count) => {
                         if cleaned_count > 0 {
                             debug!("Cleaned up {} obsolete Microsoft email addresses for user: {}", cleaned_count, user.name);
@@ -1847,7 +1847,7 @@ async fn update_existing_microsoft_user_optimized(
 
     // Sync profile photo using optimized client
     if let Ok(photo_urls) = sync_user_profile_photo(client, access_token, ms_user, &utils::uuid_to_string(&user.uuid)).await {
-        if let Err(e) = update_user_avatar_by_id(conn, user.id, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
+        if let Err(e) = update_user_avatar_by_id(conn, &user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
             println!("Warning: Failed to update avatar for user {}: {}", user.name, e);
         }
     }
@@ -1874,7 +1874,7 @@ async fn link_existing_user_to_microsoft_optimized(
         .map_err(|e| format!("Failed to serialize Microsoft user data: {}", e))?;
 
     let new_identity = NewUserAuthIdentity {
-        user_id: existing_user.id,
+        user_uuid: existing_user.uuid,
         provider_type: "microsoft".to_string(),
         external_id: ms_user.id.clone(),
         email: ms_user.mail.clone(),
@@ -1904,7 +1904,7 @@ async fn link_existing_user_to_microsoft_optimized(
     };
 
     // Always update to store the Microsoft UUID
-    user_repo::update_user(existing_user.id, user_update, conn)
+    user_repo::update_user(&existing_user.uuid, user_update, conn)
         .map_err(|e| format!("Failed to update user with Microsoft UUID: {}", e))?;
 
     // Store all email addresses
@@ -1915,8 +1915,8 @@ async fn link_existing_user_to_microsoft_optimized(
 
     if !email_data.is_empty() {
         debug!("Storing {} email addresses for linked user: {}", email_data.len(), existing_user.name);
-        
-        match user_emails_repo::add_multiple_emails(conn, existing_user.id, email_data.clone()) {
+
+        match user_emails_repo::add_multiple_emails(conn, &existing_user.uuid, email_data.clone()) {
             Ok(stored_emails) => {
                 let added_count = stored_emails.len();
                 debug!("Successfully stored {} email addresses for linked user: {}", added_count, existing_user.name);
@@ -1932,7 +1932,7 @@ async fn link_existing_user_to_microsoft_optimized(
 
     // Sync profile photo using optimized client
     if let Ok(photo_urls) = sync_user_profile_photo(client, access_token, ms_user, &utils::uuid_to_string(&existing_user.uuid)).await {
-        if let Err(e) = update_user_avatar_by_id(conn, existing_user.id, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
+        if let Err(e) = update_user_avatar_by_id(conn, &existing_user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
             warn!("Failed to update avatar for user {}: {}", existing_user.name, e);
         }
     }
@@ -1997,8 +1997,8 @@ async fn create_new_user_from_microsoft_optimized(
 
     if !email_data.is_empty() {
         debug!("Storing {} email addresses for new user: {}", email_data.len(), name);
-        
-        match user_emails_repo::add_multiple_emails(conn, created_user.id, email_data.clone()) {
+
+        match user_emails_repo::add_multiple_emails(conn, &created_user.uuid, email_data.clone()) {
             Ok(stored_emails) => {
                 let added_count = stored_emails.len();
                 debug!("Successfully stored {} email addresses for new user: {}", added_count, name);
@@ -2017,7 +2017,7 @@ async fn create_new_user_from_microsoft_optimized(
         .map_err(|e| format!("Failed to serialize Microsoft user data: {}", e))?;
 
     let new_identity = NewUserAuthIdentity {
-        user_id: created_user.id,
+        user_uuid: created_user.uuid,
         provider_type: "microsoft".to_string(),
         external_id: ms_user.id.clone(),
         email: ms_user.mail.clone(),
@@ -2030,7 +2030,7 @@ async fn create_new_user_from_microsoft_optimized(
 
     // Sync profile photo using optimized client
     if let Ok(photo_urls) = sync_user_profile_photo(client, access_token, ms_user, &utils::uuid_to_string(&user_uuid)).await {
-        if let Err(e) = update_user_avatar_by_id(conn, created_user.id, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
+        if let Err(e) = update_user_avatar_by_id(conn, &created_user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
             warn!("Failed to update avatar for user {}: {}", name, e);
         }
     }
@@ -2367,15 +2367,15 @@ async fn save_profile_photo_to_disk(
 /// Update user avatar URLs in the database
 async fn update_user_avatar_by_id(
     conn: &mut DbConnection,
-    user_id: i32,
+    user_uuid: &Uuid,
     avatar_url: Option<String>,
     avatar_thumb: Option<String>,
 ) -> Result<(), String> {
-    println!("update_user_avatar_by_id called for user_id: {}, avatar_url: {:?}, avatar_thumb: {:?}", user_id, avatar_url, avatar_thumb);
-    
+    println!("update_user_avatar_by_id called for user_uuid: {}, avatar_url: {:?}, avatar_thumb: {:?}", user_uuid, avatar_url, avatar_thumb);
+
     if avatar_url.is_some() || avatar_thumb.is_some() {
-        println!("Updating avatar URLs for user ID {} - main: {:?}, thumb: {:?}", user_id, avatar_url, avatar_thumb);
-        
+        println!("Updating avatar URLs for user UUID {} - main: {:?}, thumb: {:?}", user_uuid, avatar_url, avatar_thumb);
+
         let user_update = crate::models::UserUpdate {
             name: None,
             role: None,
@@ -2387,9 +2387,9 @@ async fn update_user_avatar_by_id(
             updated_at: Some(chrono::Utc::now().naive_utc()),
         };
 
-        match user_repo::update_user(user_id, user_update, conn) {
+        match user_repo::update_user(user_uuid, user_update, conn) {
             Ok(updated_user) => {
-                println!("Successfully updated avatar URLs for user ID {} - main: {:?}, thumb: {:?}", user_id, updated_user.avatar_url, updated_user.avatar_thumb);
+                println!("Successfully updated avatar URLs for user UUID {} - main: {:?}, thumb: {:?}", user_uuid, updated_user.avatar_url, updated_user.avatar_thumb);
             },
             Err(e) => {
                 let error_msg = format!("Failed to update user avatar: {}", e);
@@ -2398,7 +2398,7 @@ async fn update_user_avatar_by_id(
             }
         }
     } else {
-        println!("No avatar URLs provided for user ID {}, skipping update", user_id);
+        println!("No avatar URLs provided for user UUID {}, skipping update", user_uuid);
     }
 
     Ok(())
@@ -2730,7 +2730,6 @@ async fn process_microsoft_device(
             device_type: None, // Keep existing device type
             location: None, // Keep existing location
             notes: None, // Keep existing notes
-            user_id: None, // Keep existing user_id
             azure_device_id: ms_device.azure_ad_device_id.clone(),
             compliance_state: ms_device.compliance_state.clone(),
             last_sync_time: parse_microsoft_datetime(&ms_device.last_sync_date_time),
@@ -2765,7 +2764,6 @@ async fn process_microsoft_device(
             device_type: Some("Computer".to_string()), // Default for Intune devices
             location: None,
             notes: None,
-            user_id: None, // This may be deprecated in favor of primary_user_uuid
             azure_device_id: ms_device.azure_ad_device_id.clone(),
             compliance_state: ms_device.compliance_state.clone(),
             last_sync_time: parse_microsoft_datetime(&ms_device.last_sync_date_time),
@@ -3127,17 +3125,27 @@ async fn background_photo_sync_task(
     let mut success_count = 0;
 
     // Process photos sequentially (simple approach)
-    for (user_id, user_uuid, ms_user_id) in users_needing_photos {
-        match sync_user_photo_by_id(&client, &access_token, &ms_user_id, &user_uuid).await {
+    for (_user_id, user_uuid_str, ms_user_id) in users_needing_photos {
+        // Parse UUID string to Uuid type
+        let user_uuid = match uuid::Uuid::parse_str(&user_uuid_str) {
+            Ok(uuid) => uuid,
+            Err(e) => {
+                debug!("Failed to parse UUID {}: {}", user_uuid_str, e);
+                processed += 1;
+                continue;
+            }
+        };
+
+        match sync_user_photo_by_id(&client, &access_token, &ms_user_id, &user_uuid_str).await {
             Ok(photo_urls) => {
-                if let Err(e) = update_user_avatar_by_id(&mut conn, user_id, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
+                if let Err(e) = update_user_avatar_by_id(&mut conn, &user_uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
                     debug!("Failed to update user avatar: {}", e);
                 } else {
                     success_count += 1;
                 }
             }
             Err(e) => {
-                debug!("Photo sync error for user {}: {}", user_uuid, e);
+                debug!("Photo sync error for user {}: {}", user_uuid_str, e);
             }
         }
 
@@ -3181,8 +3189,8 @@ async fn update_existing_microsoft_user_no_photos(
     stats: &mut UserSyncStats,
 ) -> Result<(), String> {
     // Get the associated user
-    let user = user_repo::get_user_by_id(existing_identity.user_id, conn)
-        .map_err(|e| format!("Failed to get user by ID {}: {}", existing_identity.user_id, e))?;
+    let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)
+        .map_err(|e| format!("Failed to get user by UUID {}: {}", existing_identity.user_uuid, e))?;
 
     // Extract emails and update user info
     let emails = extract_user_emails(ms_user);
@@ -3204,7 +3212,7 @@ async fn update_existing_microsoft_user_no_photos(
     };
 
     if user_update.name.is_some() || false /* email removed */ || user_update.microsoft_uuid.is_some() {
-        user_repo::update_user(user.id, user_update, conn)
+        user_repo::update_user(&user.uuid, user_update, conn)
             .map_err(|e| format!("Failed to update user: {}", e))?;
     }
 
@@ -3214,8 +3222,8 @@ async fn update_existing_microsoft_user_no_photos(
             .into_iter()
             .map(|(email, email_type, verified)| (email, email_type, verified, "microsoft".to_string()))
             .collect();
-        
-        let _ = user_emails_repo::add_multiple_emails(conn, user.id, email_data);
+
+        let _ = user_emails_repo::add_multiple_emails(conn, &user.uuid, email_data);
     }
 
     // Update identity data
@@ -3242,7 +3250,7 @@ async fn link_existing_user_to_microsoft_no_photos(
         .map_err(|e| format!("Failed to serialize Microsoft user data: {}", e))?;
 
     let new_identity = NewUserAuthIdentity {
-        user_id: existing_user.id,
+        user_uuid: existing_user.uuid,
         provider_type: "microsoft".to_string(),
         external_id: ms_user.id.clone(),
         email: ms_user.mail.clone(),
@@ -3265,7 +3273,7 @@ async fn link_existing_user_to_microsoft_no_photos(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    user_repo::update_user(existing_user.id, user_update, conn)
+    user_repo::update_user(&existing_user.uuid, user_update, conn)
         .map_err(|e| format!("Failed to update user with Microsoft UUID: {}", e))?;
 
     stats.identities_linked += 1;
@@ -3315,7 +3323,7 @@ async fn create_new_user_from_microsoft_no_photos(
         .map_err(|e| format!("Failed to serialize Microsoft user data: {}", e))?;
 
     let new_identity = NewUserAuthIdentity {
-        user_id: created_user.id,
+        user_uuid: created_user.uuid,
         provider_type: "microsoft".to_string(),
         external_id: ms_user.id.clone(),
         email: ms_user.mail.clone(),
@@ -3333,8 +3341,8 @@ async fn create_new_user_from_microsoft_no_photos(
             .into_iter()
             .map(|(email, email_type, verified)| (email, email_type, verified, "microsoft".to_string()))
             .collect();
-        
-        let _ = user_emails_repo::add_multiple_emails(conn, created_user.id, email_data);
+
+        let _ = user_emails_repo::add_multiple_emails(conn, &created_user.uuid, email_data);
     }
 
     info!("Created new user: {}", name);
@@ -3364,18 +3372,21 @@ fn find_users_without_photos(
     use diesel::prelude::*;
 
     // Query for users without photos and get their data
-    let results: Vec<(i32, uuid::Uuid, String)> = users::table
-        .inner_join(user_auth_identities::table.on(users::id.eq(user_auth_identities::user_id)))
+    let results: Vec<(uuid::Uuid, String)> = users::table
+        .inner_join(user_auth_identities::table.on(users::uuid.eq(user_auth_identities::user_uuid)))
         .filter(user_auth_identities::provider_type.eq("microsoft"))
         .filter(users::avatar_url.is_null())
-        .select((users::id, users::uuid, user_auth_identities::external_id))
+        .select((users::uuid, user_auth_identities::external_id))
         .load(conn)
         .map_err(|e| format!("Failed to find users without photos: {}", e))?;
 
-    // Convert UUID to String
+    // Convert UUID to String - we no longer have an id field, but the function signature expects (i32, String, String)
+    // Since the function return type expects (i32, String, String), but we're using UUIDs now,
+    // we need to adjust the return type or the calling code. For now, let's return (uuid_string, uuid_string, external_id)
+    // and update the function signature
     let converted_results = results
         .into_iter()
-        .map(|(id, uuid, external_id)| (id, uuid.to_string(), external_id))
+        .map(|(uuid, external_id)| (0, uuid.to_string(), external_id)) // Using 0 as placeholder for deprecated id
         .collect();
 
     Ok(converted_results)

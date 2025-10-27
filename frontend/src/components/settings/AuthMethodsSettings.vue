@@ -123,11 +123,6 @@ const addAuthMethod = async (type: 'microsoft') => {
 };
 
 const removeAuthMethod = async (methodId: string, methodType: string) => {
-  if (authMethods.value.length <= 1) {
-    emit('error', 'You must have at least one authentication method');
-    return;
-  }
-
   loading.value = true;
   try {
     if (methodType === 'microsoft') {
@@ -138,8 +133,10 @@ const removeAuthMethod = async (methodId: string, methodType: string) => {
     // Reload auth methods after deletion
     await loadAuthMethods();
     emit('success', 'Authentication method removed successfully');
-  } catch (err) {
-    emit('error', 'Failed to remove authentication method');
+  } catch (err: any) {
+    // Extract error message from backend response
+    const errorMessage = err.response?.data?.message || 'Failed to remove authentication method';
+    emit('error', errorMessage);
     console.error('Error removing auth method:', err);
   } finally {
     loading.value = false;

@@ -114,21 +114,17 @@ pub async fn get_paginated_users(
     }
 }
 
+// DEPRECATED: Use get_user_by_uuid instead
 #[allow(dead_code)]
 pub async fn get_user_by_id(
     id: web::Path<i32>,
     pool: web::Data<crate::db::Pool>,
 ) -> impl Responder {
-    let user_id = id.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
-    };
-
-    match repository::get_user_by_id(user_id, &mut conn) {
-        Ok(user) => HttpResponse::Ok().json(UserResponse::from(user)),
-        Err(_) => HttpResponse::NotFound().json("User not found"),
-    }
+    // This function is deprecated as users no longer have integer IDs
+    HttpResponse::Gone().json(json!({
+        "status": "error",
+        "message": "This endpoint is deprecated. Use /users/:uuid instead"
+    }))
 }
 
 pub async fn get_user_by_uuid(
@@ -149,7 +145,11 @@ pub async fn get_user_by_uuid(
     };
 
     match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
-        Ok(user) => HttpResponse::Ok().json(UserResponse::from(user)),
+        Ok(user) => {
+            // Use helper function to fetch primary email from user_emails table
+            let user_response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+            HttpResponse::Ok().json(user_response)
+        },
         Err(_) => HttpResponse::NotFound().json("User not found"),
     }
 }
@@ -314,11 +314,11 @@ pub async fn create_user(
                 }
             };
 
-            println!("Created user with ID: {}", user.id);
+            println!("Created user with UUID: {}", user.uuid);
 
             // Create local auth identity with default password
             let new_identity = NewUserAuthIdentity {
-                user_id: user.id,
+                user_uuid: user.uuid,
                 provider_type: "local".to_string(),
                 external_id: utils::uuid_to_string(&user.uuid),
                 email: Some(email.clone()),
@@ -334,8 +334,9 @@ pub async fn create_user(
                 },
                 Err(e) => {
                     eprintln!("Error creating auth identity: {:?}", e);
-                    // If identity creation fails, still return the user
-                    HttpResponse::Created().json(UserResponse::from(user))
+                    // If identity creation fails, still return the user (with primary email)
+                    let user_response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+                    HttpResponse::Created().json(user_response)
                 }
             }
         },
@@ -363,56 +364,20 @@ pub async fn create_user(
     }
 }
 
+// DEPRECATED: Use update_user_by_uuid instead
+// This function used integer IDs which are no longer supported
 #[allow(dead_code)]
 pub async fn update_user(
-    path: web::Path<String>,
-    user_data: web::Json<UserUpdate>,
-    req: HttpRequest,
-    db_pool: web::Data<crate::db::Pool>,
+    _path: web::Path<String>,
+    _user_data: web::Json<UserUpdate>,
+    _req: HttpRequest,
+    _db_pool: web::Data<crate::db::Pool>,
 ) -> impl Responder {
-    let user_id_str = path.into_inner();
-    let user_id = match user_id_str.parse::<i32>() {
-        Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user ID"
-        })),
-    };
-
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
-    };
-
-    // Check if user exists
-    if let Err(_) = repository::get_user_by_id(user_id, &mut conn) {
-        return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        }));
-    }
-
-    // Email updates removed - use dedicated email management endpoints (/users/{uuid}/emails)
-
-    // Update user
-    match repository::update_user(user_id, user_data.into_inner(), &mut conn) {
-        Ok(updated_user) => {
-            HttpResponse::Ok().json(json!({
-                "status": "success",
-                "user": UserResponse::from(updated_user)
-            }))
-        },
-        Err(e) => {
-            eprintln!("Error updating user: {:?}", e);
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error", 
-                "message": "Error updating user"
-            }))
-        }
-    }
+    // This function is deprecated as users no longer have integer IDs
+    HttpResponse::Gone().json(json!({
+        "status": "error",
+        "message": "This endpoint is deprecated. Use PATCH /users/:uuid instead"
+    }))
 }
 
 pub async fn delete_user(
@@ -469,7 +434,7 @@ pub async fn delete_user(
     }
 
     // Delete the user
-    match repository::delete_user(target_user.id, &mut conn) {
+    match repository::delete_user(&target_user.uuid, &mut conn) {
         Ok(count) if count > 0 => HttpResponse::NoContent().finish(),
         Ok(_) => HttpResponse::NotFound().json("User not found"),
         Err(_) => HttpResponse::InternalServerError().json("Failed to delete user"),
@@ -522,7 +487,7 @@ pub async fn get_user_auth_identities(
     };
 
     // Get auth identities for the user
-    match repository::user_auth_identities::get_user_identities_display(user.id, &mut conn) {
+    match repository::user_auth_identities::get_user_identities_display(&user.uuid, &mut conn) {
         Ok(identities) => HttpResponse::Ok().json(identities),
         Err(e) => {
             eprintln!("Error fetching auth identities: {:?}", e);
@@ -583,7 +548,7 @@ pub async fn get_user_auth_identities_by_uuid(
         })),
     };
 
-    match repository::user_auth_identities::get_user_identities_display_by_uuid(&user_uuid_parsed, &mut conn) {
+    match repository::user_auth_identities::get_user_identities_display(&user_uuid_parsed, &mut conn) {
         Ok(identities) => HttpResponse::Ok().json(identities),
         Err(e) => {
             eprintln!("Error fetching auth identities for UUID {}: {:?}", user_uuid, e);
@@ -641,7 +606,7 @@ pub async fn delete_user_auth_identity(
 
     // Ensure the user has at least one other auth method before deleting
     // (to prevent locking themselves out)
-    let identities = match repository::user_auth_identities::get_user_identities(user.id, &mut conn) {
+    let identities = match repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn) {
         Ok(identities) => identities,
         Err(e) => {
             eprintln!("Error getting user auth identities: {:?}", e);
@@ -660,7 +625,7 @@ pub async fn delete_user_auth_identity(
     }
 
     // Delete the identity
-    match repository::user_auth_identities::delete_identity(identity_id, user.id, &mut conn) {
+    match repository::user_auth_identities::delete_identity(identity_id, &user.uuid, &mut conn) {
         Ok(count) => {
             if count == 0 {
                 HttpResponse::NotFound().json(json!({
@@ -726,7 +691,7 @@ pub async fn delete_user_auth_identity_by_uuid(
         })),
     };
 
-    let identities = match repository::user_auth_identities::get_user_identities_by_uuid(&user_uuid_parsed, &mut conn) {
+    let identities = match repository::user_auth_identities::get_user_identities(&user_uuid_parsed, &mut conn) {
         Ok(identities) => identities,
         Err(e) => {
             eprintln!("Error getting user auth identities: {:?}", e);
@@ -745,7 +710,7 @@ pub async fn delete_user_auth_identity_by_uuid(
     }
 
     // Delete the identity
-    match repository::user_auth_identities::delete_identity_by_uuid(identity_id, &user_uuid_parsed, &mut conn) {
+    match repository::user_auth_identities::delete_identity(identity_id, &user_uuid_parsed, &mut conn) {
         Ok(count) => {
             if count == 0 {
                 HttpResponse::NotFound().json(json!({
@@ -769,140 +734,20 @@ pub async fn delete_user_auth_identity_by_uuid(
     }
 }
 
+// DEPRECATED: This function uses the old profile update structure
+// Use update_user_by_uuid instead
 #[allow(dead_code)]
 pub async fn update_user_profile(
     _path: web::Path<String>,
-    profile_data: web::Json<UserProfileUpdate>,
-    req: HttpRequest,
-    db_pool: web::Data<crate::db::Pool>,
+    _profile_data: web::Json<UserProfileUpdate>,
+    _req: HttpRequest,
+    _db_pool: web::Data<crate::db::Pool>,
 ) -> impl Responder {
-    let user_id = profile_data.id;
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
-    };
-
-    if let Err(_) = repository::get_user_by_id(user_id, &mut conn) {
-        return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        }));
-    }
-
-    // Email updates removed - use dedicated email endpoints
-
-    // Create password hash if password is provided
-    if let Some(password) = &profile_data.password {
-        use bcrypt::hash;
-        use crate::models::NewUserAuthIdentity;
-        
-        // Hash the new password
-        let password_hash = match hash(password, DEFAULT_COST) {
-            Ok(hash) => hash,
-            Err(_) => return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error hashing password"
-            })),
-        };
-        
-        // Find existing local auth identity
-        let auth_identities = match repository::user_auth_identities::get_user_identities(user_id, &mut conn) {
-            Ok(identities) => identities,
-            Err(e) => {
-                eprintln!("Error fetching auth identities: {:?}", e);
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Error processing user identities"
-                }));
-            }
-        };
-        
-        // Find local identity
-        let local_identity = auth_identities.iter().find(|identity| identity.provider_type == "local");
-        
-        match local_identity {
-            Some(identity) => {
-                // Update existing local identity
-                // Delete the old identity 
-                match diesel::delete(
-                    crate::schema::user_auth_identities::table.filter(crate::schema::user_auth_identities::id.eq(identity.id))
-                ).execute(&mut conn) {
-                    Ok(_) => {},
-                    Err(e) => {
-                        eprintln!("Error deleting auth identity: {:?}", e);
-                        return HttpResponse::InternalServerError().json(json!({
-                            "status": "error",
-                            "message": "Error updating password"
-                        }));
-                    }
-                }
-                
-                // Create new identity with updated password
-                let new_auth_identity = NewUserAuthIdentity {
-                    user_id,
-                    provider_type: identity.provider_type.clone(),
-                    external_id: identity.external_id.clone(),
-                    email: identity.email.clone(),
-                    metadata: identity.metadata.clone(),
-                    password_hash: Some(password_hash),
-                };
-                
-                if let Err(e) = repository::user_auth_identities::create_identity(new_auth_identity, &mut conn) {
-                    eprintln!("Error creating updated auth identity: {:?}", e);
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Error updating password"
-                    }));
-                }
-            },
-            None => {
-                // Create new local identity if none exists
-                let new_auth_identity = NewUserAuthIdentity {
-                    user_id,
-                    provider_type: "local".to_string(),
-                    external_id: Uuid::new_v4().to_string(), // Generate a new provider user ID
-                    metadata: None,
-                    password_hash: Some(password_hash),
-                    email: None,
-                };
-                
-                if let Err(e) = repository::user_auth_identities::create_identity(new_auth_identity, &mut conn) {
-                    eprintln!("Error creating auth identity: {:?}", e);
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Error setting password"
-                    }));
-                }
-            }
-        }
-    }
-
-    // Update user
-    let user_update = UserUpdate {
-        name: profile_data.name.clone(),
-        // Email removed - use dedicated email endpoints
-        role: profile_data.role.as_ref().and_then(|r| utils::parse_role(r).ok()),
-        pronouns: profile_data.pronouns.clone(),
-        avatar_url: profile_data.avatar_url.clone(),
-        banner_url: profile_data.banner_url.clone(),
-        avatar_thumb: profile_data.avatar_thumb.clone(),
-        microsoft_uuid: None, // Don't update Microsoft UUID in regular user updates
-        updated_at: Some(chrono::Utc::now().naive_utc()),
-    };
-
-    match repository::update_user(user_id, user_update, &mut conn) {
-        Ok(updated_user) => HttpResponse::Ok().json(UserResponse::from(updated_user)),
-        Err(e) => {
-            eprintln!("Error updating user: {:?}", e);
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error updating user"
-            }))
-        },
-    }
+    // This function is deprecated as it relied on profile_data.id which no longer exists
+    HttpResponse::Gone().json(json!({
+        "status": "error",
+        "message": "This endpoint is deprecated. Use PATCH /users/:uuid instead"
+    }))
 }
 
 // Upload user profile images (avatar or banner)
@@ -1098,7 +943,7 @@ pub async fn upload_user_image(
             updated_at: Some(chrono::Utc::now().naive_utc()),
         };
         
-        match repository::update_user(user.id, user_update, &mut conn) {
+        match repository::update_user(&user.uuid, user_update, &mut conn) {
             Ok(updated_user) => {
                 return HttpResponse::Ok().json(json!({
                     "status": "success",
@@ -1412,13 +1257,11 @@ pub async fn update_user_by_uuid(
         })),
     };
 
-    let user_id = user.id;
-
     // Check if email is being updated and if it's already in use
     if let Some(password) = &user_data.password {
         use bcrypt::hash;
         use crate::models::NewUserAuthIdentity;
-        
+
         // Hash the new password
         let password_hash = match hash(password, DEFAULT_COST) {
             Ok(hash) => hash,
@@ -1427,9 +1270,9 @@ pub async fn update_user_by_uuid(
                 "message": "Error hashing password"
             })),
         };
-        
+
         // Find existing local auth identity
-        let auth_identities = match repository::user_auth_identities::get_user_identities(user_id, &mut conn) {
+        let auth_identities = match repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn) {
             Ok(identities) => identities,
             Err(e) => {
                 eprintln!("Error fetching auth identities: {:?}", e);
@@ -1462,14 +1305,14 @@ pub async fn update_user_by_uuid(
                 
                 // Create new identity with updated password
                 let new_auth_identity = NewUserAuthIdentity {
-                    user_id,
+                    user_uuid: user.uuid,
                     provider_type: identity.provider_type.clone(),
                     external_id: identity.external_id.clone(),
                     email: identity.email.clone(),
                     metadata: identity.metadata.clone(),
                     password_hash: Some(password_hash),
                 };
-                
+
                 if let Err(e) = repository::user_auth_identities::create_identity(new_auth_identity, &mut conn) {
                     eprintln!("Error creating updated auth identity: {:?}", e);
                     return HttpResponse::InternalServerError().json(json!({
@@ -1481,7 +1324,7 @@ pub async fn update_user_by_uuid(
             None => {
                 // Create new local identity if none exists
                 let new_auth_identity = NewUserAuthIdentity {
-                    user_id,
+                    user_uuid: user.uuid,
                     provider_type: "local".to_string(),
                     external_id: Uuid::new_v4().to_string(), // Generate a new provider user ID
                     email: None, // Email in user_emails table
@@ -1513,8 +1356,12 @@ pub async fn update_user_by_uuid(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    match repository::update_user(user_id, user_update, &mut conn) {
-        Ok(user) => HttpResponse::Ok().json(UserResponse::from(user)),
+    match repository::update_user(&user.uuid, user_update, &mut conn) {
+        Ok(user) => {
+            // Use helper function to fetch primary email from user_emails table
+            let user_response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+            HttpResponse::Ok().json(user_response)
+        },
         Err(_) => HttpResponse::InternalServerError().json(json!({
             "status": "error",
             "message": "Error updating user"
@@ -1658,7 +1505,7 @@ pub async fn add_user_email(
 
     // Create new email
     let new_email = crate::models::NewUserEmail {
-        user_id: user.id,
+        user_uuid: user.uuid,
         email: email.clone(),
         email_type: "personal".to_string(),
         is_primary: false,
@@ -1739,7 +1586,7 @@ pub async fn update_user_email(
     if update_data.get("is_primary").and_then(|p| p.as_bool()).unwrap_or(false) {
         use diesel::prelude::*;
         let _ = diesel::update(crate::schema::user_emails::table)
-            .filter(crate::schema::user_emails::user_id.eq(user.id))
+            .filter(crate::schema::user_emails::user_uuid.eq(&user.uuid))
             .set(crate::schema::user_emails::is_primary.eq(false))
             .execute(&mut conn);
     }
@@ -1832,7 +1679,7 @@ pub async fn delete_user_email(
         })),
     };
 
-    if email.user_id != user.id {
+    if email.user_uuid != user.uuid {
         return HttpResponse::Forbidden().json(json!({
             "status": "error",
             "message": "Email does not belong to this user"
@@ -1914,16 +1761,19 @@ pub async fn get_user_with_emails(
     };
 
     // Get user emails
-    let emails = match user_emails_repo::get_user_emails(&mut conn, user.id) {
+    let emails = match user_emails_repo::get_user_emails_by_uuid(&mut conn, &user.uuid) {
         Ok(emails) => emails,
         Err(e) => {
-            eprintln!("Error fetching emails for user {}: {:?}", user.id, e);
+            eprintln!("Error fetching emails for user {}: {:?}", user.uuid, e);
             Vec::new() // Return empty vec if error fetching emails
         }
     };
 
+    // Get user response with primary email populated
+    let user_response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+
     let user_with_emails = crate::models::UserWithEmails {
-        user: UserResponse::from(user),
+        user: user_response,
         emails,
     };
 

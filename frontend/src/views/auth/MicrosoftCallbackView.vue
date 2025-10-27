@@ -119,7 +119,7 @@ onMounted(async () => {
     message.value = 'Processing authentication response...';
     console.log('Sending callback request to backend...');
     
-    const response = await apiClient.get(`auth/oauth/callback`, {
+    const response = await apiClient.get(`/auth/oauth/callback`, {
       params: {
         code,
         state

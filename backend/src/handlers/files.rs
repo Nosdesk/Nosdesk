@@ -77,7 +77,12 @@ pub async fn upload_files(
             })?;
 
         println!("Validated MIME type: {}", detected_mime);
-        
+
+        // SECURITY: Compute SHA-256 checksum for file integrity verification
+        use ring::digest;
+        let checksum_bytes = digest::digest(&digest::SHA256, &file_data);
+        let checksum = checksum_bytes.as_ref().iter().map(|b| format!("{:02x}", b)).collect::<String>();
+
         // Store the file using the storage abstraction with validated MIME type
         let stored_file = storage.store_file(&file_data, &sanitized_filename, &detected_mime, "temp")
             .await
@@ -85,12 +90,16 @@ pub async fn upload_files(
                 eprintln!("Failed to store file: {:?}", e);
                 actix_web::error::ErrorInternalServerError("Failed to store file")
             })?;
-        
+
         // Create a new attachment record in the database
         let new_attachment = NewAttachment {
             url: stored_file.url.clone(),
-            name: stored_file.id.clone(),
+            name: sanitized_filename.clone(),
+            file_size: Some(total_size as i64),
+            mime_type: Some(detected_mime.clone()),
+            checksum: Some(checksum),
             comment_id: None, // Not linked to a comment yet
+            uploaded_by: None, // Will be set when attached to a comment
         };
         
         println!("Creating attachment record in database: {:?}", new_attachment);

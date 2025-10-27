@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
+import { RouterLink } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "@/components/UserAvatar.vue";
 import InlineEdit from "@/components/common/InlineEdit.vue";
@@ -49,10 +50,20 @@ const props = withDefaults(
         user?: any; // User data to display (if different from auth user)
         canEdit?: boolean; // Whether editing is allowed
         showEditableFields?: boolean; // Whether to show editable fields
+        variant?: 'full' | 'compact'; // Display variant
+        showBanner?: boolean; // Whether to show banner
+        showPronouns?: boolean; // Whether to show pronouns
+        showEmail?: boolean; // Whether to show email
+        enableAvatarNavigation?: boolean; // Whether clicking avatar navigates to profile
     }>(),
     {
         canEdit: false,
         showEditableFields: false,
+        variant: 'full',
+        showBanner: true,
+        showPronouns: true,
+        showEmail: true,
+        enableAvatarNavigation: false,
     },
 );
 
@@ -61,6 +72,17 @@ const displayUser = computed(() => props.user || authStore.user);
 
 // Computed property for determining if component should be in edit mode
 const isEditable = computed(() => props.canEdit && props.showEditableFields);
+
+// Computed properties for variant-based styling
+const isCompact = computed(() => props.variant === 'compact');
+
+const bannerHeight = computed(() => isCompact.value ? 'h-20' : 'h-32 sm:h-42');
+
+const avatarSize = computed(() => isCompact.value ? 'w-20 h-20' : 'w-28 h-28 sm:w-32 sm:h-32');
+
+const avatarOffset = computed(() => isCompact.value ? '-top-10' : '-top-14 sm:-top-16');
+
+const contentPadding = computed(() => isCompact.value ? 'pt-12' : 'pt-16 sm:pt-20');
 
 // Editing states (name editing handled by InlineEdit component)
 const editingEmail = ref(false);
@@ -419,7 +441,9 @@ const getRoleDisplayName = (role: string) => {
     >
         <!-- Cover/Banner Image -->
         <div
-            class="h-32 sm:h-42 bg-gradient-to-r from-blue-600 to-purple-600 relative"
+            v-if="showBanner"
+            class="bg-gradient-to-r from-blue-600 to-purple-600 relative"
+            :class="bannerHeight"
             :style="
                 formData.banner_url
                     ? `background-image: url('${formData.banner_url}'); background-size: cover; background-position: center;`
@@ -465,10 +489,35 @@ const getRoleDisplayName = (role: string) => {
 
         <!-- Profile Content -->
         <div class="px-4 sm:px-6 pb-4 relative">
-            <!-- Avatar (overlaps banner) -->
+            <!-- Avatar (overlaps banner or positioned at top if no banner) -->
+            <!-- Clickable avatar with RouterLink when navigation is enabled and not editing -->
+            <RouterLink
+                v-if="enableAvatarNavigation && !isEditable && displayUser?.uuid"
+                :to="`/users/${displayUser.uuid}`"
+                class="block rounded-full overflow-hidden border-4 border-slate-800 shadow-lg hover:ring-2 hover:ring-blue-500 transition-all"
+                :class="[
+                    avatarSize,
+                    showBanner ? `absolute ${avatarOffset} left-4 sm:left-6` : 'mx-auto mt-4'
+                ]"
+            >
+                <UserAvatar
+                    :name="displayUser?.name || ''"
+                    size="full"
+                    :avatar="formData.avatar_url || null"
+                    :showName="false"
+                    :clickable="false"
+                    class="w-full h-full"
+                />
+            </RouterLink>
+            <!-- Non-clickable avatar for edit mode or when navigation is disabled -->
             <div
-                class="absolute -top-14 sm:-top-16 left-4 sm:left-6 w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-slate-800 shadow-lg"
-                :class="{ 'cursor-pointer': isEditable }"
+                v-else
+                class="rounded-full overflow-hidden border-4 border-slate-800 shadow-lg"
+                :class="[
+                    avatarSize,
+                    showBanner ? `absolute ${avatarOffset} left-4 sm:left-6` : 'mx-auto mt-4',
+                    { 'cursor-pointer': isEditable }
+                ]"
                 @click="isEditable ? handleAvatarClick() : undefined"
             >
                 <UserAvatar
@@ -521,7 +570,7 @@ const getRoleDisplayName = (role: string) => {
 
             <!-- EDITABLE MODE -->
             <template v-if="isEditable">
-                <div class="pt-16 sm:pt-20">
+                <div :class="showBanner ? contentPadding : 'pt-4'">
                     <div class="mb-6">
                         <!-- Name with inline edit -->
                         <div class="mb-3">
@@ -556,7 +605,7 @@ const getRoleDisplayName = (role: string) => {
                     </div>
 
                     <!-- Editable fields -->
-                    <div class="grid grid-cols-1 gap-6">
+                    <div v-if="showPronouns" class="grid grid-cols-1 gap-6">
                         <!-- Pronouns -->
                         <div class="flex flex-col gap-1.5">
                             <h3
@@ -587,7 +636,7 @@ const getRoleDisplayName = (role: string) => {
             <!-- READ-ONLY MODE -->
             <template v-else>
                 <!-- Mobile: Stacked layout -->
-                <div class="flex flex-col gap-3 pt-16 sm:hidden">
+                <div class="flex flex-col gap-3 sm:hidden" :class="showBanner ? contentPadding : 'pt-4'">
                     <!-- Name on top -->
                     <h2 class="text-2xl font-semibold text-white">
                         {{ displayUser?.name || "Unknown User" }}
@@ -605,29 +654,40 @@ const getRoleDisplayName = (role: string) => {
                             }}
                         </div>
                         <span
-                            v-if="displayUser?.pronouns"
+                            v-if="showPronouns && displayUser?.pronouns"
                             class="text-sm text-slate-400"
                         >
                             {{ displayUser.pronouns }}
                         </span>
                     </div>
+                    <!-- Email (if provided via slot or showEmail prop) -->
+                    <p v-if="showEmail && displayUser?.email" class="text-slate-300 text-lg">
+                        {{ displayUser.email }}
+                    </p>
                 </div>
 
                 <!-- Desktop: Single row with baseline alignment -->
                 <div
-                    class="hidden sm:flex pl-34 pt-4 items-baseline justify-between gap-4"
+                    class="hidden sm:flex items-baseline justify-between gap-4"
+                    :class="showBanner ? 'pl-34 pt-4' : 'pt-4'"
                 >
                     <!-- Left: Name and pronouns -->
-                    <div class="flex items-baseline gap-3 flex-1 min-w-0">
-                        <h2 class="text-2xl font-semibold text-white">
-                            {{ displayUser?.name || "Unknown User" }}
-                        </h2>
-                        <span
-                            v-if="displayUser?.pronouns"
-                            class="text-sm text-slate-400"
-                        >
-                            {{ displayUser.pronouns }}
-                        </span>
+                    <div class="flex flex-col gap-2 flex-1 min-w-0">
+                        <div class="flex items-baseline gap-3">
+                            <h2 class="text-2xl font-semibold text-white">
+                                {{ displayUser?.name || "Unknown User" }}
+                            </h2>
+                            <span
+                                v-if="showPronouns && displayUser?.pronouns"
+                                class="text-sm text-slate-400"
+                            >
+                                {{ displayUser.pronouns }}
+                            </span>
+                        </div>
+                        <!-- Email (if provided) -->
+                        <p v-if="showEmail && displayUser?.email" class="text-slate-300 text-lg">
+                            {{ displayUser.email }}
+                        </p>
                     </div>
 
                     <!-- Right: Badge -->
@@ -637,6 +697,11 @@ const getRoleDisplayName = (role: string) => {
                     >
                         {{ getRoleDisplayName(displayUser?.role || "user") }}
                     </div>
+                </div>
+
+                <!-- Custom content slot for additional information -->
+                <div v-if="$slots.default" class="mt-6 space-y-4">
+                    <slot></slot>
                 </div>
             </template>
         </div>

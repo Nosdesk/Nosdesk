@@ -5,7 +5,7 @@ import UserAvatar from "./UserAvatar.vue";
 import UserDropdownMenu from "./UserDropdownMenu.vue";
 import HeaderTitle from "./HeaderTitle.vue";
 import DocumentIconSelector from "./DocumentIconSelector.vue";
-import TicketIdentifier from "./TicketIdentifier.vue";
+import ItemIdentifier from "./ItemIdentifier.vue";
 import PageUrlDisplay from "./PageUrlDisplay.vue";
 import ticketService from '@/services/ticketService';
 import { useAuthStore } from '@/stores/auth';
@@ -22,6 +22,7 @@ interface Props {
   useRouteTitle?: boolean;
   ticket: { id: number; title: string } | null;
   document: { id: string; title: string; icon: string } | null;
+  device: { id: number; hostname: string } | null;
   isTransitioning?: boolean;
   pageUrl?: string;
   navbarCollapsed?: boolean;
@@ -33,6 +34,7 @@ const props = withDefaults(defineProps<Props>(), {
   createButtonIcon: 'plus',
   ticket: null,
   document: null,
+  device: null,
   isTransitioning: false,
   pageUrl: undefined,
   navbarCollapsed: false,
@@ -46,6 +48,10 @@ const isTicketView = computed(() => {
 
 const isDocumentView = computed(() => {
   return props.document !== null;
+});
+
+const isDeviceView = computed(() => {
+  return props.device !== null;
 });
 
 // Only log in development mode
@@ -218,10 +224,19 @@ defineExpose({
       <div class="flex items-center flex-1 min-w-0">
         <template v-if="isTicketView && props.ticket">
           <div class="flex items-center gap-2 min-w-0 flex-1">
-            <TicketIdentifier :ticketId="props.ticket.id" size="md" class="flex-shrink-0" />
+            <ItemIdentifier :id="props.ticket.id" size="md" class="flex-shrink-0" />
             <!-- Display ticket title as read-only in header -->
             <h1 class="text-xl font-semibold text-white truncate flex-1 min-w-0">
               {{ props.ticket.title || 'Untitled Ticket' }}
+            </h1>
+          </div>
+        </template>
+        <template v-else-if="isDeviceView && props.device">
+          <div class="flex items-center gap-2 min-w-0 flex-1">
+            <ItemIdentifier :id="props.device.id" size="md" class="flex-shrink-0" />
+            <!-- Display device hostname as read-only in header -->
+            <h1 class="text-xl font-semibold text-white truncate flex-1 min-w-0">
+              {{ props.device.hostname || 'Unknown Device' }}
             </h1>
           </div>
         </template>

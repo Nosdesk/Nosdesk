@@ -81,7 +81,7 @@ pub async fn get_comments_by_ticket_id(
                 json!({
                     "id": c.comment.id,
                     "content": c.comment.content,
-                    "user_id": c.comment.user_id,  // Use user_id, not user_uuid
+                    "user_uuid": c.comment.user_uuid.to_string(),
                     "created_at": created_at,
                     "createdAt": created_at,
                     "ticket_id": c.comment.ticket_id,
@@ -134,10 +134,10 @@ pub async fn add_comment_to_ticket(
     };
 
     // Get the authenticated user's information
-    let (user_id, user_info) = match crate::repository::users::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
+    let user_info = match crate::repository::users::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => {
             println!("Authenticated user: {} ({})", user.name, user.uuid);
-            (user.id, Some(crate::models::UserInfo::from(user)))
+            Some(crate::models::UserInfo::from(user))
         },
         Err(e) => {
             println!("Error: Authenticated user UUID '{}' not found in database: {:?}", claims.sub, e);
@@ -145,10 +145,10 @@ pub async fn add_comment_to_ticket(
         }
     };
 
-    // Create the new comment using the authenticated user's ID
+    // Create the new comment using the authenticated user's UUID
     let new_comment = crate::models::NewComment {
         content: comment_data.content.clone(),
-        user_id: user_id,  // Use the user_id looked up from JWT token
+        user_uuid: user_uuid_parsed,  // Use the user_uuid from JWT token
         ticket_id,
     };
 
@@ -226,7 +226,11 @@ pub async fn add_comment_to_ticket(
                             let updated_attachment = crate::models::NewAttachment {
                                 url: attachment.url.clone(),
                                 name: attachment.name.clone(),
+                                file_size: attachment.file_size,
+                                mime_type: attachment.mime_type.clone(),
+                                checksum: attachment.checksum.clone(),
                                 comment_id: Some(comment.id),
+                                uploaded_by: Some(user_uuid_parsed),
                             };
                             
                             println!("Updating attachment in database: {}", attachment.id);
@@ -269,8 +273,7 @@ pub async fn add_comment_to_ticket(
             let response = json!({
                 "id": comment.id,
                 "content": comment.content,
-                "user_uuid": user_uuid_parsed.to_string(),  // Return user_uuid for frontend compatibility
-                "user_id": comment.user_id,
+                "user_uuid": comment.user_uuid.to_string(),
                 "created_at": created_at,
                 "createdAt": created_at,
                 "ticket_id": comment.ticket_id,

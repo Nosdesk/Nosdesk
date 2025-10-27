@@ -120,6 +120,7 @@ onMounted(async () => {
         :showCreateButton="true"
         :createButtonText="createButtonText"
         :ticket="titleManager.currentTicket.value"
+        :device="titleManager.currentDevice.value"
         :document="titleManager.currentDocument.value"
         :is-transitioning="titleManager.isTransitioning.value"
         :pageUrl="currentPageUrl"
@@ -135,6 +136,7 @@ onMounted(async () => {
         <RouterView
           v-slot="{ Component }"
           @update:ticket="titleManager.setTicket"
+          @update:device="titleManager.setDevice"
           @update:document="titleManager.setDocument"
           @update:title="titleManager.setCustomTitle"
         >
@@ -146,6 +148,7 @@ onMounted(async () => {
             @before-leave="titleManager.startTransition"
             @after-leave="() => {
               if (route.name !== 'ticket') titleManager.clearTicket();
+              if (route.name !== 'device') titleManager.clearDevice();
               if (route.name !== 'documentation-article') titleManager.clearDocument();
               titleManager.endTransition();
             }"

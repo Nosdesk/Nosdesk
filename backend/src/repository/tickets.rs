@@ -440,13 +440,13 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
     
     for comment in comments {
         let attachments = crate::repository::comments::get_attachments_by_comment_id(conn, comment.id)?;
-        
+
         // Get user information for this comment with avatar
-        let user = match crate::repository::users::get_user_by_id(comment.user_id, conn) {
+        let user = match crate::repository::users::get_user_by_uuid(&comment.user_uuid, conn) {
             Ok(user) => Some(UserInfoWithAvatar::from(user)),
             Err(_) => None,
         };
-        
+
         comments_with_attachments.push(CommentWithAttachments {
             comment,
             attachments,
@@ -534,7 +534,6 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
             warranty_status: Some(device_json.warranty_status.clone()),
             location: None,
             notes: None,
-            user_id: None,
             primary_user_uuid: None, // Will be populated during Microsoft Entra sync
             azure_device_id: None,
             intune_device_id: None,
@@ -556,10 +555,14 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
             let created_at = NaiveDateTime::parse_from_str(&comment_json.created_at, "%Y-%m-%dT%H:%M:%S")
                 .unwrap_or_else(|_| chrono::Local::now().naive_local());
             
+            // Parse user UUID from JSON or use a default system user UUID
+            let default_user_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
+                .unwrap_or_else(|_| Uuid::new_v4());
+
             let new_comment = NewComment {
                 content: comment_json.content.clone(),
                 ticket_id: ticket.id,
-                user_id: 1, // Default user ID since we don't have user mapping from UUID
+                user_uuid: default_user_uuid, // Default system user UUID since we don't have user mapping
             };
             
             let comment = crate::repository::comments::create_comment(conn, new_comment)?;
@@ -569,7 +572,11 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
                 let new_attachment = NewAttachment {
                     url: attachment_json.url.clone(),
                     name: attachment_json.name.clone(),
+                    file_size: None,
+                    mime_type: None,
+                    checksum: None,
                     comment_id: Some(comment.id),
+                    uploaded_by: None,
                 };
                 
                 crate::repository::comments::create_attachment(conn, new_attachment)?;
@@ -645,7 +652,6 @@ pub fn create_complete_ticket(conn: &mut DbConnection, ticket_json: TicketJson) 
             warranty_status: Some(device_json.warranty_status.clone()),
             location: None,
             notes: None,
-            user_id: None,
             primary_user_uuid: None, // Will be populated during Microsoft Entra sync
             azure_device_id: None,
             intune_device_id: None,
@@ -667,10 +673,14 @@ pub fn create_complete_ticket(conn: &mut DbConnection, ticket_json: TicketJson) 
             let created_at = NaiveDateTime::parse_from_str(&comment_json.created_at, "%Y-%m-%dT%H:%M:%S")
                 .unwrap_or_else(|_| chrono::Local::now().naive_local());
             
+            // Parse user UUID from JSON or use a default system user UUID
+            let default_user_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
+                .unwrap_or_else(|_| Uuid::new_v4());
+
             let new_comment = NewComment {
                 content: comment_json.content.clone(),
                 ticket_id: ticket.id,
-                user_id: 1, // Default user ID since we don't have user mapping from UUID
+                user_uuid: default_user_uuid, // Default system user UUID since we don't have user mapping
             };
             
             let comment = crate::repository::comments::create_comment(conn, new_comment)?;
@@ -680,7 +690,11 @@ pub fn create_complete_ticket(conn: &mut DbConnection, ticket_json: TicketJson) 
                 let new_attachment = NewAttachment {
                     url: attachment_json.url.clone(),
                     name: attachment_json.name.clone(),
+                    file_size: None,
+                    mime_type: None,
+                    checksum: None,
                     comment_id: Some(comment.id),
+                    uploaded_by: None,
                 };
                 
                 crate::repository::comments::create_attachment(conn, new_attachment)?;

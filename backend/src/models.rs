@@ -113,7 +113,9 @@ pub struct Ticket {
     pub created_at: NaiveDateTime,
     #[serde(rename = "modified")] // Map to frontend field name
     pub updated_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
     pub closed_at: Option<NaiveDateTime>,
+    pub closed_by: Option<Uuid>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
@@ -157,8 +159,8 @@ pub struct Device {
     pub location: Option<String>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
     pub notes: Option<String>,
-    pub user_id: Option<i32>,
     pub primary_user_uuid: Option<Uuid>,
     pub azure_device_id: Option<String>,
     pub intune_device_id: Option<String>,
@@ -183,7 +185,6 @@ pub struct NewDevice {
     pub warranty_status: Option<String>,
     pub location: Option<String>,
     pub notes: Option<String>,
-    pub user_id: Option<i32>,
     pub primary_user_uuid: Option<Uuid>,
     pub azure_device_id: Option<String>,
     pub intune_device_id: Option<String>,
@@ -208,7 +209,6 @@ pub struct DeviceUpdate {
     pub warranty_status: Option<String>,
     pub location: Option<String>,
     pub notes: Option<String>,
-    pub user_id: Option<i32>,
     pub primary_user_uuid: Option<Uuid>,
     pub azure_device_id: Option<String>,
     pub intune_device_id: Option<String>,
@@ -231,6 +231,7 @@ pub struct TicketDevice {
     pub ticket_id: i32,
     pub device_id: i32,
     pub created_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -243,13 +244,16 @@ pub struct NewTicketDevice {
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[diesel(table_name = crate::schema::comments)]
 #[diesel(belongs_to(Ticket))]
+#[diesel(belongs_to(User, foreign_key = user_uuid))]
 pub struct Comment {
     pub id: i32,
     pub content: String,
     pub ticket_id: i32,
-    pub user_id: i32,
+    pub user_uuid: Uuid,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub is_edited: bool,
+    pub edit_count: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -257,40 +261,22 @@ pub struct Comment {
 pub struct NewComment {
     pub content: String,
     pub ticket_id: i32,
-    pub user_id: i32,
+    pub user_uuid: Uuid,
 }
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Associations, Clone)]
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
 #[diesel(table_name = crate::schema::attachments)]
 #[diesel(belongs_to(Comment))]
 pub struct Attachment {
     pub id: i32,
     pub url: String,
     pub name: String,
+    pub file_size: Option<i64>,
+    pub mime_type: Option<String>,
+    pub checksum: Option<String>,
     pub comment_id: Option<i32>,
-}
-
-impl Queryable<(
-    diesel::sql_types::Integer,
-    diesel::sql_types::Text,
-    diesel::sql_types::Text,
-    diesel::sql_types::Nullable<diesel::sql_types::Integer>,
-), Pg> for Attachment {
-    type Row = (
-        i32,
-        String,
-        String,
-        Option<i32>,
-    );
-
-    fn build(row: Self::Row) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Attachment {
-            id: row.0,
-            url: row.1,
-            name: row.2,
-            comment_id: row.3,
-        })
-    }
+    pub uploaded_by: Option<Uuid>,
+    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
@@ -298,36 +284,22 @@ impl Queryable<(
 pub struct NewAttachment {
     pub url: String,
     pub name: String,
+    pub file_size: Option<i64>,
+    pub mime_type: Option<String>,
+    pub checksum: Option<String>,
     pub comment_id: Option<i32>,
+    pub uploaded_by: Option<Uuid>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Associations)]
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[diesel(table_name = crate::schema::article_contents)]
 #[diesel(belongs_to(Ticket))]
 pub struct ArticleContent {
     pub id: i32,
     pub content: String,
     pub ticket_id: Option<i32>,
-}
-
-impl Queryable<(
-    diesel::sql_types::Integer,
-    diesel::sql_types::Text,
-    diesel::sql_types::Nullable<diesel::sql_types::Integer>,
-), Pg> for ArticleContent {
-    type Row = (
-        i32,
-        String,
-        Option<i32>,
-    );
-
-    fn build(row: Self::Row) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(ArticleContent {
-            id: row.0,
-            content: row.1,
-            ticket_id: row.2,
-        })
-    }
+    pub created_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
@@ -533,15 +505,14 @@ impl FromSql<crate::schema::sql_types::UserRole, Pg> for UserRole {
 // User model - updated to match the actual database schema
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::users)]
+#[diesel(primary_key(uuid))]
 pub struct User {
-    pub id: i32,
     pub uuid: Uuid,
     pub name: String,
     // Email removed - now stored in user_emails table only
     pub role: UserRole,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
-    pub password_hash: Vec<u8>,
     pub password_changed_at: Option<NaiveDateTime>,
     pub pronouns: Option<String>,
     pub avatar_url: Option<String>,
@@ -563,7 +534,6 @@ pub struct NewUser {
     pub name: String,
     // Email removed - handled separately via user_emails table
     pub role: UserRole,
-    pub password_hash: Vec<u8>,
     pub pronouns: Option<String>,
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
@@ -616,10 +586,9 @@ pub struct UserUpdateWithPassword {
     pub password: Option<String>,
 }
 
-// User profile update with ID for profile management
+// User profile update for profile management
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserProfileUpdate {
-    pub id: i32,
     pub name: Option<String>,
     // Email removed - update via user_emails table
     pub role: Option<String>,
@@ -633,7 +602,6 @@ pub struct UserProfileUpdate {
 // User response with minimal information
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserResponse {
-    pub id: i32,
     pub uuid: Uuid,
     pub name: String,
     pub email: Option<String>, // Now optional - populated from user_emails table
@@ -668,7 +636,6 @@ pub struct UserInfoWithAvatar {
 impl From<User> for UserResponse {
     fn from(user: User) -> Self {
         UserResponse {
-            id: user.id,
             uuid: user.uuid,
             name: user.name,
             email: None, // Email must be fetched from user_emails table separately
@@ -707,10 +674,10 @@ impl From<User> for UserInfoWithAvatar {
 // User Email models for storing multiple email addresses per user
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[diesel(table_name = crate::schema::user_emails)]
-#[diesel(belongs_to(User))]
+#[diesel(belongs_to(User, foreign_key = user_uuid))]
 pub struct UserEmail {
     pub id: i32,
-    pub user_id: i32,
+    pub user_uuid: Uuid,
     pub email: String,
     pub email_type: String,
     pub is_primary: bool,
@@ -718,12 +685,13 @@ pub struct UserEmail {
     pub source: Option<String>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
 #[diesel(table_name = crate::schema::user_emails)]
 pub struct NewUserEmail {
-    pub user_id: i32,
+    pub user_uuid: Uuid,
     pub email: String,
     pub email_type: String,
     pub is_primary: bool,
@@ -795,6 +763,8 @@ pub struct Project {
     pub end_date: Option<NaiveDate>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
+    pub owner_uuid: Option<Uuid>,
 }
 
 // New Project for creating projects
@@ -829,6 +799,8 @@ pub struct ProjectUpdate {
 pub struct ProjectTicket {
     pub project_id: i32,
     pub ticket_id: i32,
+    pub created_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
 }
 
 // New Project Ticket for creating associations
@@ -861,7 +833,10 @@ pub struct ProjectWithTicketCount {
 pub struct LinkedTicket {
     pub ticket_id: i32,
     pub linked_ticket_id: i32,
+    pub link_type: String,
+    pub description: Option<String>,
     pub created_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -1111,20 +1086,21 @@ pub struct MicrosoftAuthConfig {
 #[diesel(table_name = crate::schema::user_auth_identities)]
 pub struct UserAuthIdentity {
     pub id: i32,
-    pub user_id: i32,
+    pub user_uuid: Uuid,
     pub provider_type: String,
     pub external_id: String,
     pub email: Option<String>,
     pub metadata: Option<serde_json::Value>,
+    pub password_hash: Option<String>,
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: chrono::NaiveDateTime,
-    pub password_hash: Option<String>,
+    pub created_by: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
 #[diesel(table_name = crate::schema::user_auth_identities)]
 pub struct NewUserAuthIdentity {
-    pub user_id: i32,
+    pub user_uuid: Uuid,
     pub provider_type: String,
     pub external_id: String,
     pub email: Option<String>,
@@ -1259,6 +1235,7 @@ pub struct SyncHistory {
     pub records_updated: Option<i32>,
     pub records_failed: Option<i32>,
     pub tenant_id: Option<String>,
+    pub initiated_by: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -1437,7 +1414,7 @@ pub struct ActiveSession {
     pub session_token: String,
     pub user_uuid: Uuid,
     pub device_name: Option<String>,
-    pub ip_address: Option<String>,
+    pub ip_address: Option<ipnetwork::IpNetwork>,
     pub user_agent: Option<String>,
     pub location: Option<String>,
     pub created_at: chrono::NaiveDateTime,
@@ -1453,7 +1430,7 @@ pub struct NewActiveSession {
     pub session_token: String,
     pub user_uuid: Uuid,
     pub device_name: Option<String>,
-    pub ip_address: Option<String>, // Convert from ipnetwork::IpNetwork when needed
+    pub ip_address: Option<ipnetwork::IpNetwork>,
     pub user_agent: Option<String>,
     pub location: Option<String>,
     pub expires_at: chrono::NaiveDateTime,
@@ -1529,7 +1506,7 @@ pub struct SecurityEvent {
     pub id: i32,
     pub user_uuid: Uuid,
     pub event_type: String,
-    pub ip_address: Option<String>, // Store as string for API responses
+    pub ip_address: Option<ipnetwork::IpNetwork>,
     pub user_agent: Option<String>,
     pub location: Option<String>,
     pub details: Option<serde_json::Value>,
@@ -1544,7 +1521,7 @@ pub struct SecurityEvent {
 pub struct NewSecurityEvent {
     pub user_uuid: Uuid,
     pub event_type: String,
-    pub ip_address: Option<String>, // Convert from ipnetwork::IpNetwork when needed
+    pub ip_address: Option<ipnetwork::IpNetwork>,
     pub user_agent: Option<String>,
     pub location: Option<String>,
     pub details: Option<serde_json::Value>,
@@ -1704,7 +1681,7 @@ pub struct ResetToken {
     pub token_hash: String,
     pub user_uuid: Uuid,
     pub token_type: String,
-    pub ip_address: Option<String>,
+    pub ip_address: Option<ipnetwork::IpNetwork>,
     pub user_agent: Option<String>,
     pub created_at: chrono::NaiveDateTime,
     pub expires_at: chrono::NaiveDateTime,
@@ -1720,7 +1697,7 @@ pub struct NewResetToken<'a> {
     pub token_hash: &'a str,
     pub user_uuid: Uuid,
     pub token_type: &'a str,
-    pub ip_address: Option<&'a str>,
+    pub ip_address: Option<ipnetwork::IpNetwork>,
     pub user_agent: Option<&'a str>,
     pub expires_at: chrono::DateTime<chrono::Utc>,
     pub metadata: Option<serde_json::Value>,

@@ -1,15 +1,34 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde_json::json;
 use chrono::{Duration, Utc};
-use tracing::{info, error, warn};
+use tracing::warn;
+use uuid::Uuid;
 
 use crate::models::{MfaResetRequest, MfaResetResponse, MfaResetCompleteRequest};
 use crate::repository;
 use crate::utils::reset_tokens::{ResetTokenUtils, TokenType};
 use crate::utils::email::EmailService;
+use crate::db::DbConnection;
 
 /// Maximum MFA reset requests per user per hour (rate limiting)
 const MAX_MFA_RESET_REQUESTS_PER_HOUR: i64 = 3;
+
+/// Helper function to get password hash from user_auth_identities for local auth
+fn get_local_password_hash(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<String, String> {
+    use diesel::prelude::*;
+    use crate::schema::user_auth_identities;
+
+    let password_hash: Option<String> = user_auth_identities::table
+        .filter(user_auth_identities::user_uuid.eq(user_uuid))
+        .filter(user_auth_identities::provider_type.eq("local"))
+        .select(user_auth_identities::password_hash)
+        .first::<Option<String>>(conn)
+        .optional()
+        .map_err(|e| format!("Database error: {}", e))?
+        .flatten();
+
+    password_hash.ok_or_else(|| "No local password found for this user".to_string())
+}
 
 /// Request MFA reset - Send email with reset link
 pub async fn request_mfa_reset(
@@ -39,9 +58,9 @@ pub async fn request_mfa_reset(
     };
 
     // Verify password
-    let password_hash = match String::from_utf8(user.password_hash.clone()) {
-        Ok(hash) if !hash.is_empty() => hash,
-        _ => {
+    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
+        Ok(hash) => hash,
+        Err(_) => {
             // Don't reveal if password authentication is available
             return HttpResponse::Ok().json(MfaResetResponse {
                 message: "If an account with that email exists and has MFA enabled, a reset link has been sent.".to_string(),
@@ -146,7 +165,7 @@ pub async fn request_mfa_reset(
         .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     // Get user's primary email
-    let primary_email = match crate::repository::user_helpers::get_primary_email(user.id, &mut conn) {
+    let primary_email = match crate::repository::user_helpers::get_primary_email(&user.uuid, &mut conn) {
         Some(email) => email,
         None => {
             warn!("User {} has no primary email - cannot send MFA reset", user.uuid);
@@ -243,7 +262,7 @@ pub async fn complete_mfa_reset(
     struct NewSecurityEvent {
         user_uuid: uuid::Uuid,
         event_type: String,
-        ip_address: Option<String>,
+        ip_address: Option<ipnetwork::IpNetwork>,
         user_agent: Option<String>,
         location: Option<String>,
         details: Option<serde_json::Value>,
