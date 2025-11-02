@@ -939,6 +939,7 @@ pub async fn upload_user_image(
             avatar_url: if image_type == "avatar" { Some(final_url.clone()) } else { None },
             banner_url: if image_type == "banner" { Some(final_url.clone()) } else { None },
             avatar_thumb: thumbnail_url,
+            theme: None, // Don't update theme when uploading images
             microsoft_uuid: None, // Don't update Microsoft UUID in regular user updates
             updated_at: Some(chrono::Utc::now().naive_utc()),
         };
@@ -1343,6 +1344,16 @@ pub async fn update_user_by_uuid(
         }
     }
 
+    // Validate theme if provided
+    if let Some(ref theme) = user_data.theme {
+        if theme != "system" && theme != "light" && theme != "dark" {
+            return HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": "Theme must be 'system', 'light', or 'dark'"
+            }));
+        }
+    }
+
     // Update user
     let user_update = UserUpdate {
         name: user_data.name.clone(),
@@ -1352,6 +1363,7 @@ pub async fn update_user_by_uuid(
         avatar_url: user_data.avatar_url.clone(),
         banner_url: user_data.banner_url.clone(),
         avatar_thumb: user_data.avatar_thumb.clone(),
+        theme: user_data.theme.clone(),
         microsoft_uuid: None, // Don't update Microsoft UUID in regular user updates
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };

@@ -4,6 +4,7 @@ import axios from 'axios';
 import apiClient from '@/services/apiConfig';
 import router from '@/router';
 import type { User, LoginCredentials } from '@/types';
+import { useThemeStore } from './theme';
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
@@ -85,6 +86,11 @@ export const useAuthStore = defineStore('auth', () => {
 
         const response = await apiClient.get('/auth/me');
         user.value = response.data;
+
+        // Load theme from user profile
+        const themeStore = useThemeStore();
+        themeStore.loadThemeFromUser(response.data);
+
         // Reset cooldown on success
         lastFetchAttempt = 0;
         return response.data;
@@ -235,6 +241,10 @@ export const useAuthStore = defineStore('auth', () => {
       authProvider.value = 'local';
       localStorage.setItem('authProvider', 'local');
       axios.defaults.headers.common['X-Auth-Provider'] = 'local';
+
+      // Load theme from user profile
+      const themeStore = useThemeStore();
+      themeStore.loadThemeFromUser(userData);
     }
 
     // MFA Setup for Login - Start setup process for users who need MFA

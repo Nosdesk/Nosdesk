@@ -75,15 +75,15 @@ watch(filename, (newFilename) => {
 </script>
 
 <template>
-  <div class="bg-slate-900 flex flex-col h-full">
+  <div class="bg-app flex flex-col h-full">
     <!-- Header with back button -->
-    <div class="bg-gradient-to-r from-slate-900 to-slate-800 border-b border-slate-700 px-6 py-3">
+    <div class="bg-gradient-to-r from-app to-surface border-b border-default px-6 py-3">
       <div class="flex items-center justify-between">
         <!-- Back button -->
         <BackButton @click="goBack" label="Back" class="hover:scale-105 transition-transform duration-200" />
         
         <!-- Document title -->
-        <h1 class="text-white font-medium text-lg flex items-center">
+        <h1 class="text-primary font-medium text-lg flex items-center">
           <svg class="w-5 h-5 text-red-500 mr-2" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
           </svg>
@@ -104,13 +104,13 @@ watch(filename, (newFilename) => {
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-          <span class="text-slate-300">Loading PDF document...</span>
+          <span class="text-secondary">Loading PDF document...</span>
         </div>
       </div>
       
       <!-- Error state -->
       <div v-else-if="errorMessage" class="h-full flex items-center justify-center p-6">
-        <div class="bg-red-900/30 text-red-200 p-6 rounded-lg border border-red-700 shadow-lg max-w-md">
+        <div class="bg-status-error/30 text-red-200 p-6 rounded-lg border border-red-700 shadow-lg max-w-md">
           <div class="flex items-start gap-4">
             <svg class="w-8 h-8 text-red-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />

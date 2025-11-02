@@ -71,8 +71,8 @@ const navigateToOption = (route: string) => {
     
     <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-white">Administration</h1>
-        <p class="text-slate-400 mt-2">
+        <h1 class="text-2xl font-bold text-primary">Administration</h1>
+        <p class="text-secondary mt-2">
           Configure global settings and manage enterprise features
         </p>
       </div>
@@ -83,35 +83,35 @@ const navigateToOption = (route: string) => {
           v-for="(item, index) in adminMenuItems"
           :key="index"
           @click="navigateToOption(item.route)"
-          class="bg-slate-800 border border-slate-700 rounded-lg p-5 hover:bg-slate-750 cursor-pointer transition duration-150 ease-in-out"
+          class="bg-surface border border-default rounded-lg p-5 hover:bg-surface-hover cursor-pointer transition duration-150 ease-in-out"
         >
           <div class="flex items-start gap-2">
-            <div class="flex-shrink-0 h-10 w-10 rounded-md bg-blue-600/20 flex items-center justify-center text-blue-400 mr-4">
+            <div class="flex-shrink-0 h-10 w-10 rounded-md bg-brand-blue/20 flex items-center justify-center text-brand-blue mr-4">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderIcon(item.icon)"></svg>
             </div>
             <div>
-              <h3 class="text-white font-medium">{{ item.title }}</h3>
-              <p class="mt-1 text-sm text-slate-400">{{ item.description }}</p>
+              <h3 class="text-primary font-medium">{{ item.title }}</h3>
+              <p class="mt-1 text-sm text-secondary">{{ item.description }}</p>
             </div>
           </div>
         </div>
       </div>
 
       <!-- System Information -->
-      <div class="bg-slate-800 border border-slate-700 rounded-lg p-6 mb-8">
-        <h2 class="text-xl font-medium text-white mb-4">System Information</h2>
+      <div class="bg-surface border border-default rounded-lg p-6 mb-8">
+        <h2 class="text-xl font-medium text-primary mb-4">System Information</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div class="py-2">
-            <div class="text-sm text-slate-400">Application Version</div>
-            <div class="text-white">Nosdesk v1.0.0</div>
+            <div class="text-sm text-tertiary">Application Version</div>
+            <div class="text-primary">Nosdesk v1.0.0</div>
           </div>
           <div class="py-2">
-            <div class="text-sm text-slate-400">Last Update</div>
-            <div class="text-white">April 4, 2023</div>
+            <div class="text-sm text-tertiary">Last Update</div>
+            <div class="text-primary">April 4, 2023</div>
           </div>
           <div class="py-2">
-            <div class="text-sm text-slate-400">Environment</div>
-            <div class="text-white">Production</div>
+            <div class="text-sm text-tertiary">Environment</div>
+            <div class="text-primary">Production</div>
           </div>
         </div>
       </div>

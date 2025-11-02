@@ -80,7 +80,7 @@ const fileColor = computed(() => {
     case 'archive':
       return 'text-yellow-400';
     default:
-      return 'text-slate-400';
+      return 'text-tertiary';
   }
 });
 
@@ -224,22 +224,22 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 bg-slate-800 rounded-lg p-3 max-w-[350px]">
+  <div class="flex flex-col gap-2 bg-surface-alt rounded-lg p-3 max-w-[350px]">
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
         <div class="flex flex-col">
-          <span class="text-sm text-slate-200 line-clamp-2">{{ getDisplayName(filename) }}</span>
+          <span class="text-sm text-primary line-clamp-2">{{ getDisplayName(filename) }}</span>
 
-          <span class="text-xs text-slate-400">{{ timestamp }}</span>
+          <span class="text-xs text-tertiary">{{ timestamp }}</span>
         </div>
       </div>
-      
+
       <!-- Delete button -->
       <button
         v-if="showDelete"
         type="button"
         @click.stop="emit('delete')"
-        class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+        class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
         title="Delete file"
       >
         <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -248,12 +248,12 @@ onMounted(async () => {
       </button>
     </div>
 
-    <div class="flex flex-col gap-3 bg-slate-900/50 rounded-lg p-3">
+    <div class="flex flex-col gap-3 bg-surface/50 rounded-lg p-3">
       <!-- File Preview/Thumbnail -->
-      <div class="flex-shrink-0 w-full h-40 flex items-center justify-center rounded-lg overflow-hidden bg-slate-800 relative group">
+      <div class="flex-shrink-0 w-full h-40 flex items-center justify-center rounded-lg overflow-hidden bg-surface-alt relative group">
         <!-- Loading Spinner -->
         <div v-if="isLoadingThumbnail || isLoadingImage" class="flex items-center justify-center w-full h-full">
-          <svg class="animate-spin h-6 w-6 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <svg class="animate-spin h-6 w-6 text-tertiary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
@@ -292,23 +292,23 @@ onMounted(async () => {
         </div>
 
         <!-- Preview Overlay - shared between PDF and Image -->
-        <div 
+        <div
           v-if="showOverlay"
-          class="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer"
+          class="absolute inset-0 bg-surface/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer"
           @click="openPreview"
         >
-          <svg class="w-8 h-8 text-white" viewBox="0 0 20 20" fill="currentColor">
+          <svg class="w-8 h-8 text-primary" viewBox="0 0 20 20" fill="currentColor">
             <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
             <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
           </svg>
         </div>
-        
+
         <!-- Delete button for preview -->
         <button
           v-if="showDelete && showOverlay"
           type="button"
           @click.stop="emit('delete')"
-          class="absolute top-2 right-2 z-10 p-1.5 bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors opacity-0 group-hover:opacity-100"
+          class="absolute top-2 right-2 z-10 p-1.5 bg-surface-alt/80 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors opacity-0 group-hover:opacity-100"
           title="Delete file"
         >
           <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -320,7 +320,7 @@ onMounted(async () => {
       <div class="min-w-0 flex flex-col gap-1">
         <div class="flex items-start gap-2">
           <div class="flex-grow">
-            <span class="text-xs text-slate-400 uppercase mt-1 block">
+            <span class="text-xs text-tertiary uppercase mt-1 block">
               {{ fileExtension }}
             </span>
           </div>

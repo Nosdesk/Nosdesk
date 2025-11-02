@@ -1,11 +1,11 @@
 <template>
-  <div class="min-h-screen w-full flex items-center justify-center bg-slate-900 p-4">
+  <div class="min-h-screen w-full flex items-center justify-center bg-app p-4">
     <div class="flex flex-col gap-6 w-full max-w-md">
       <!-- Header -->
       <div class="flex flex-col gap-2 items-center">
         <img :src="logo" alt="Nosdesk Logo" class="px-4 max-w-xs" />
-        <h1 class="text-2xl font-bold text-white mt-4">Reset Your Password</h1>
-        <p class="text-slate-400 text-center text-sm">
+        <h1 class="text-2xl font-bold text-primary mt-4">Reset Your Password</h1>
+        <p class="text-secondary text-center text-sm">
           Enter your new password below
         </p>
       </div>
@@ -21,7 +21,7 @@
       <!-- Success State -->
       <div
         v-if="resetSuccess"
-        class="bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden"
+        class="bg-surface rounded-xl border border-default shadow-xl overflow-hidden"
       >
         <div class="p-8">
           <div class="flex flex-col items-center gap-4 text-center">
@@ -31,8 +31,8 @@
               </svg>
             </div>
             <div>
-              <h2 class="text-xl font-semibold text-white mb-2">Password Reset Complete!</h2>
-              <p class="text-sm text-slate-400">
+              <h2 class="text-xl font-semibold text-primary mb-2">Password Reset Complete!</h2>
+              <p class="text-sm text-secondary">
                 Your password has been successfully updated. You can now log in with your new password.
               </p>
             </div>
@@ -49,13 +49,13 @@
       <!-- Form State -->
       <div
         v-else
-        class="bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden"
+        class="bg-surface rounded-xl border border-default shadow-xl overflow-hidden"
       >
         <div class="p-8">
           <form @submit.prevent="handleSubmit" class="flex flex-col gap-4">
             <!-- New Password -->
             <div>
-              <label for="new-password" class="block text-sm font-medium text-slate-300 mb-2">
+              <label for="new-password" class="block text-sm font-medium text-secondary mb-2">
                 New Password
               </label>
               <div class="relative">
@@ -66,14 +66,14 @@
                   required
                   autocomplete="new-password"
                   placeholder="Enter new password"
-                  class="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors pr-12"
+                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors pr-12"
                   :disabled="loading"
                   @input="validatePassword"
                 />
                 <button
                   type="button"
                   @click="showPassword = !showPassword"
-                  class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors p-1"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary hover:text-primary transition-colors p-1"
                   tabindex="-1"
                 >
                   <svg v-if="showPassword" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -90,7 +90,7 @@
               <div class="mt-2 text-xs space-y-1">
                 <p
                   class="flex items-center gap-2 transition-colors"
-                  :class="passwordValidation.length ? 'text-green-400' : 'text-slate-400'"
+                  :class="passwordValidation.length ? 'text-green-400' : 'text-tertiary'"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -107,7 +107,7 @@
 
             <!-- Confirm Password -->
             <div>
-              <label for="confirm-password" class="block text-sm font-medium text-slate-300 mb-2">
+              <label for="confirm-password" class="block text-sm font-medium text-secondary mb-2">
                 Confirm New Password
               </label>
               <div class="relative">
@@ -118,14 +118,14 @@
                   required
                   autocomplete="new-password"
                   placeholder="Confirm new password"
-                  class="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors pr-12"
+                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors pr-12"
                   :disabled="loading"
                   @input="validatePasswordMatch"
                 />
                 <button
                   type="button"
                   @click="showConfirmPassword = !showConfirmPassword"
-                  class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors p-1"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary hover:text-primary transition-colors p-1"
                   tabindex="-1"
                 >
                   <svg v-if="showConfirmPassword" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -181,7 +181,7 @@
       <button
         v-if="!resetSuccess"
         @click="goToLogin"
-        class="flex items-center justify-center gap-2 text-sm text-slate-400 hover:text-white transition-colors py-2"
+        class="flex items-center justify-center gap-2 text-sm text-tertiary hover:text-primary transition-colors py-2"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>

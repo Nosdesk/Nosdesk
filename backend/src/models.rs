@@ -518,6 +518,7 @@ pub struct User {
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
     pub avatar_thumb: Option<String>,
+    pub theme: Option<String>,
     pub microsoft_uuid: Option<Uuid>,
     pub mfa_secret: Option<String>,
     pub mfa_enabled: bool,
@@ -538,6 +539,7 @@ pub struct NewUser {
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
     pub avatar_thumb: Option<String>,
+    pub theme: Option<String>,
     pub microsoft_uuid: Option<Uuid>,
     pub mfa_secret: Option<String>,
     pub mfa_enabled: bool,
@@ -569,6 +571,7 @@ pub struct UserUpdate {
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
     pub avatar_thumb: Option<String>,
+    pub theme: Option<String>,
     pub microsoft_uuid: Option<Uuid>,
     pub updated_at: Option<chrono::NaiveDateTime>,
 }
@@ -583,6 +586,7 @@ pub struct UserUpdateWithPassword {
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
     pub avatar_thumb: Option<String>,
+    pub theme: Option<String>,
     pub password: Option<String>,
 }
 
@@ -610,6 +614,7 @@ pub struct UserResponse {
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
     pub avatar_thumb: Option<String>,
+    pub theme: Option<String>,
     pub microsoft_uuid: Option<Uuid>,
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: chrono::NaiveDateTime,
@@ -644,6 +649,7 @@ impl From<User> for UserResponse {
             avatar_url: user.avatar_url,
             banner_url: user.banner_url,
             avatar_thumb: user.avatar_thumb,
+            theme: user.theme,
             microsoft_uuid: user.microsoft_uuid,
             created_at: user.created_at,
             updated_at: user.updated_at,

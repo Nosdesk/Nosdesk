@@ -74,27 +74,27 @@ onUnmounted(() => {
     <div
       v-if="showTooltip"
       ref="tooltipRef"
-      class="fixed z-50 bg-slate-800 border border-slate-600 rounded-lg shadow-lg p-3 min-w-[200px] max-w-[300px]"
+      class="fixed z-50 bg-surface border border-default rounded-lg shadow-lg p-3 min-w-[200px] max-w-[300px]"
       :style="{
         left: `${position.x}px`,
         top: `${position.y}px`
       }"
     >
-      <div class="text-sm text-gray-400 mb-1">{{ details.date }}</div>
-      <div class="text-white font-medium mb-2">{{ details.title }}</div>
-      
+      <div class="text-sm text-secondary mb-1">{{ details.date }}</div>
+      <div class="text-primary font-medium mb-2">{{ details.title }}</div>
+
       <div v-if="details.tickets && details.tickets.length > 0" class="flex flex-col gap-1">
         <div
           v-for="ticket in details.tickets"
           :key="ticket.id"
-          class="text-sm text-gray-300 truncate"
+          class="text-sm text-secondary truncate"
         >
           #{{ ticket.id }}: {{ ticket.title }}
         </div>
-        
+
         <div
           v-if="details.totalTickets && details.totalTickets > 5"
-          class="text-xs text-gray-400"
+          class="text-xs text-tertiary"
         >
           ...and {{ details.totalTickets - 5 }} more
         </div>

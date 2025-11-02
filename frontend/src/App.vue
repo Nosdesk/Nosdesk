@@ -106,7 +106,7 @@ onMounted(async () => {
   <RouterView v-if="isBlankLayout" />
 
   <!-- Default layout with responsive navigation - Simple flexbox layout -->
-  <div v-else class="flex w-full h-screen bg-slate-900 overflow-hidden">
+  <div v-else class="flex w-full h-screen bg-app overflow-hidden">
     <!-- Sidebar (includes both sidebar and mobile bottom nav) -->
     <Navbar @update:collapsed="handleNavCollapse" />
 
@@ -114,7 +114,7 @@ onMounted(async () => {
     <div class="flex flex-col flex-1 min-w-0">
       <!-- Header - sticky at top of content area -->
       <PageHeader
-        class="flex-shrink-0 border-b border-slate-600 bg-slate-800"
+        class="flex-shrink-0 border-b border-default bg-surface"
         :useRouteTitle="!isDocumentationPage"
         :title="titleManager.pageTitle.value"
         :showCreateButton="true"
@@ -164,7 +164,7 @@ onMounted(async () => {
 <style>
 /* Global styles */
 html, body {
-  background-color: rgb(15 23 42); /* bg-slate-900 */
+  background-color: var(--color-bg-app);
   min-height: 100vh;
 }
 
@@ -175,22 +175,22 @@ html, body {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgb(30 41 59); /* bg-slate-800 */
+  background: var(--color-bg-surface);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(100 116 139); /* bg-slate-500 */
+  background: var(--color-text-tertiary);
   border-radius: 0.25rem;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(148 163 184); /* bg-slate-400 */
+  background: var(--color-text-secondary);
 }
 
 /* Firefox scrollbar styles */
 * {
   scrollbar-width: auto; /* Changed from 'thin' to 'auto' for wider scrollbar */
-  scrollbar-color: rgb(100 116 139) rgb(30 41 59); /* thumb track */
+  scrollbar-color: var(--color-text-tertiary) var(--color-bg-surface); /* thumb track */
 }
 
 /* Ensure reduced motion preferences are respected */

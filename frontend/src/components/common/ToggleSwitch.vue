@@ -50,8 +50,8 @@ const currentSize = sizeClasses[props.size];
   <div class="flex items-center justify-between" :class="label ? 'py-2' : ''">
     <!-- Label and description (if provided) -->
     <div v-if="label || description" class="flex-1 mr-4">
-      <div v-if="label" class="text-sm font-medium text-white">{{ label }}</div>
-      <div v-if="description" class="text-xs text-slate-400">{{ description }}</div>
+      <div v-if="label" class="text-sm font-medium text-primary">{{ label }}</div>
+      <div v-if="description" class="text-xs text-tertiary">{{ description }}</div>
     </div>
 
     <!-- Toggle Switch -->
@@ -59,9 +59,9 @@ const currentSize = sizeClasses[props.size];
       @click="toggle"
       :disabled="disabled"
       :class="[
-        'relative inline-flex items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2 focus:ring-offset-slate-800',
+        'relative inline-flex items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2 focus:ring-offset-surface',
         currentSize.container,
-        modelValue ? 'bg-blue-600' : 'bg-slate-600',
+        modelValue ? 'bg-blue-600' : 'bg-border-default',
         disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
       ]"
     >

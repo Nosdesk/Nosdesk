@@ -51,7 +51,7 @@ const formatDate = (dateValue: string | Date, format: string) => {
 </script>
 
 <template>
-  <span class="text-slate-300 text-sm">
+  <span class="text-secondary text-sm">
     {{ formatDate(value, format) }}
   </span>
 </template> 

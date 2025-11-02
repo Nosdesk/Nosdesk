@@ -79,6 +79,7 @@ pub fn get_user_with_primary_email(
         avatar_url: user.avatar_url,
         banner_url: user.banner_url,
         avatar_thumb: user.avatar_thumb,
+        theme: user.theme,
         microsoft_uuid: user.microsoft_uuid,
         created_at: user.created_at,
         updated_at: user.updated_at,

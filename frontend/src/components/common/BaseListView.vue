@@ -128,15 +128,15 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Error state -->
-      <div v-else-if="error" class="flex flex-col items-center gap-4 justify-center p-8 text-center text-red-400">
+      <div v-else-if="error" class="flex flex-col items-center gap-4 justify-center p-8 text-center text-status-error">
         {{ error }}
-        <button @click="emit('retry')" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
+        <button @click="emit('retry')" class="mt-4 px-4 py-2 bg-blue-600 text-primary rounded hover:bg-blue-700 transition-colors">
           Try Again
         </button>
       </div>
 
       <!-- Empty state -->
-      <div v-else-if="isEmpty" class="p-8 text-center text-gray-400">
+      <div v-else-if="isEmpty" class="p-8 text-center text-secondary">
         {{ emptyMessage || defaultEmptyMessage }}
       </div>
 
@@ -145,28 +145,28 @@ onBeforeUnmount(() => {
         <!-- Desktop Table View -->
         <template v-if="!isMobile">
           <!-- Table Header (if columns are provided) -->
-          <div v-if="columns && columns.length > 0" class="sticky top-0 z-10 bg-slate-800 border-b border-slate-700 text-sm text-gray-200">
+          <div v-if="columns && columns.length > 0" class="sticky top-0 z-10 bg-surface border-b border-default text-sm text-primary">
             <div class="flex min-w-[800px] gap-1">
               <!-- Selection checkbox in header -->
               <div v-if="enableSelection" class="p-3 py-4 w-10 flex-shrink-0">
                 <input
                   type="checkbox"
-                  class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+                  class="w-4 h-4 rounded border-default bg-surface-alt text-blue-600 focus:ring-blue-500"
                   :checked="allSelected && visibleItems && visibleItems.length > 0"
                   :indeterminate="selectedItems && selectedItems.length > 0 && !allSelected"
                   @change="toggleAllItems"
                 />
               </div>
-              
+
               <!-- Custom header prefix slot -->
               <slot name="header-prefix" class="p-3 py-4"></slot>
-              
+
               <!-- Generated column headers -->
-              <div 
-                v-for="column in columns" 
+              <div
+                v-for="column in columns"
                 :key="column.field"
                 :class="[
-                  'p-3 py-4 font-medium', 
+                  'p-3 py-4 font-medium',
                   column.sortable !== false ? 'cursor-pointer select-none' : '',
                   column.width || (column.field === 'id' ? 'w-20 flex-shrink-0' : 'flex-1 min-w-0'),
                   column.class || ''
@@ -175,12 +175,12 @@ onBeforeUnmount(() => {
               >
                 <div class="flex items-center gap-1">
                   {{ column.label }}
-                  <span v-if="column.sortable !== false && sortField === column.field" class="text-white">
+                  <span v-if="column.sortable !== false && sortField === column.field" class="text-primary">
                     {{ sortDirection === 'asc' ? '↑' : '↓' }}
                   </span>
                 </div>
               </div>
-              
+
               <!-- Slot for additional header columns -->
               <slot name="header-suffix" class="p-3 py-4"></slot>
             </div>
@@ -222,16 +222,16 @@ body {
 }
 
 .overflow-y-auto::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: var(--color-bg-surface);
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb {
-  background: #475569;
+  background: var(--color-border-default);
   border-radius: 4px;
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: var(--color-border-strong);
 }
 
 /* Mobile-specific styles */

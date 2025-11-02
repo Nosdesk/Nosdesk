@@ -193,13 +193,13 @@ const handleMicrosoftLogoutClick = async () => {
 
 <template>
   <div
-    class="min-h-screen w-full flex items-center justify-center bg-slate-900"
+    class="min-h-screen w-full flex items-center justify-center bg-app"
   >
     <div class="flex flex-col gap-4 w-full max-w-md p-8">
       <!-- Logo/Brand -->
       <div class="flex flex-col gap-2 items-center">
         <img :src="logo" alt="Nosdesk Logo" class="px-4" />
-        <p class="text-slate-400 mt-2">Sign in to your account</p>
+        <p class="text-secondary mt-2">Sign in to your account</p>
       </div>
 
       <!-- Success Message -->
@@ -245,10 +245,10 @@ const handleMicrosoftLogoutClick = async () => {
                 ></path>
               </svg>
             </div>
-            <h2 class="text-xl font-semibold text-white mb-2">
+            <h2 class="text-xl font-semibold text-primary mb-2">
               Two-Factor Authentication
             </h2>
-            <p class="text-slate-400 text-sm">
+            <p class="text-secondary text-sm">
               Please enter your authentication code
             </p>
           </div>
@@ -280,7 +280,7 @@ const handleMicrosoftLogoutClick = async () => {
           <div class="flex flex-col gap-2">
             <label
               for="mfa-token"
-              class="block text-sm font-medium text-slate-300"
+              class="block text-sm font-medium text-secondary"
             >
               Authentication Code
             </label>
@@ -292,7 +292,7 @@ const handleMicrosoftLogoutClick = async () => {
                 required
                 autocomplete="one-time-code"
                 placeholder="000000"
-                class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-center text-xl tracking-[0.5em] font-mono"
+                class="w-full px-4 py-3 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-center text-xl tracking-[0.5em] font-mono"
                 maxlength="8"
                 @input="handleMfaInput"
                 @paste="handleMfaPaste"
@@ -301,7 +301,7 @@ const handleMicrosoftLogoutClick = async () => {
                 class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none"
               >
                 <svg
-                  class="w-5 h-5 text-slate-400"
+                  class="w-5 h-5 text-tertiary"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -315,7 +315,7 @@ const handleMicrosoftLogoutClick = async () => {
                 </svg>
               </div>
             </div>
-            <p class="text-xs text-slate-500 text-center">
+            <p class="text-xs text-tertiary text-center">
               Enter the 6-digit code from your authenticator app or an
               8-character backup code
             </p>
@@ -326,7 +326,7 @@ const handleMicrosoftLogoutClick = async () => {
             <button
               type="button"
               @click="handleBackToLogin"
-              class="flex-1 py-3 px-4 border border-slate-600 rounded-lg text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900 transition-colors"
+              class="flex-1 py-3 px-4 border border-default rounded-lg text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900 transition-colors"
             >
               Back
             </button>
@@ -384,7 +384,7 @@ const handleMicrosoftLogoutClick = async () => {
         </div>
 
         <div class="flex flex-col gap-1">
-          <label for="email" class="block text-sm font-medium text-slate-300"
+          <label for="email" class="block text-sm font-medium text-secondary"
             >Email</label
           >
           <input
@@ -393,13 +393,13 @@ const handleMicrosoftLogoutClick = async () => {
             type="email"
             required
             autocomplete="email"
-            class="mt-1 block w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             placeholder="Enter your email"
           />
         </div>
 
         <div class="flex flex-col gap-1">
-          <label for="password" class="block text-sm font-medium text-slate-300"
+          <label for="password" class="block text-sm font-medium text-secondary"
             >Password</label
           >
           <input
@@ -408,7 +408,7 @@ const handleMicrosoftLogoutClick = async () => {
             type="password"
             required
             autocomplete="current-password"
-            class="mt-1 block w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             placeholder="Enter your password"
           />
         </div>
@@ -419,9 +419,9 @@ const handleMicrosoftLogoutClick = async () => {
               id="remember-me"
               v-model="rememberMe"
               type="checkbox"
-              class="h-4 w-4 rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900"
+              class="h-4 w-4 rounded border-default bg-surface text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900"
             />
-            <label for="remember-me" class="ml-2 block text-sm text-slate-300"
+            <label for="remember-me" class="ml-2 block text-sm text-secondary"
               >Remember me</label
             >
           </div>
@@ -445,16 +445,16 @@ const handleMicrosoftLogoutClick = async () => {
         </button>
 
         <div class="relative flex gap-2 items-center justify-center">
-          <div class="border-t border-slate-700 flex-grow"></div>
-          <span class="mx-4 text-sm text-slate-500">or</span>
-          <div class="border-t border-slate-700 flex-grow"></div>
+          <div class="border-t border-default flex-grow"></div>
+          <span class="mx-4 text-sm text-tertiary">or</span>
+          <div class="border-t border-default flex-grow"></div>
         </div>
 
         <div class="flex gap-2">
           <button
             type="button"
             @click="handleMicrosoftLoginClick"
-            class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-slate-600 rounded-lg shadow-sm text-sm font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
+            class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -475,7 +475,7 @@ const handleMicrosoftLogoutClick = async () => {
             type="button"
             @click="handleMicrosoftLogoutClick"
             title="Sign out of Microsoft account"
-            class="p-2 border border-slate-600 rounded-lg text-slate-400 bg-slate-800 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
+            class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

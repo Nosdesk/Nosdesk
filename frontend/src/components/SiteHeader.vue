@@ -218,7 +218,7 @@ defineExpose({
 </script>
 
 <template>
-  <header class="bg-slate-800 border-b border-slate-700 relative z-[999]">
+  <header class="bg-surface border-b border-default relative z-[999]">
     <div class="flex items-center justify-between h-16 px-4 md:px-6 gap-2">
       <!-- Left side - Title area -->
       <div class="flex items-center flex-1 min-w-0">
@@ -226,7 +226,7 @@ defineExpose({
           <div class="flex items-center gap-2 min-w-0 flex-1">
             <ItemIdentifier :id="props.ticket.id" size="md" class="flex-shrink-0" />
             <!-- Display ticket title as read-only in header -->
-            <h1 class="text-xl font-semibold text-white truncate flex-1 min-w-0">
+            <h1 class="text-xl font-semibold text-primary truncate flex-1 min-w-0">
               {{ props.ticket.title || 'Untitled Ticket' }}
             </h1>
           </div>
@@ -235,7 +235,7 @@ defineExpose({
           <div class="flex items-center gap-2 min-w-0 flex-1">
             <ItemIdentifier :id="props.device.id" size="md" class="flex-shrink-0" />
             <!-- Display device hostname as read-only in header -->
-            <h1 class="text-xl font-semibold text-white truncate flex-1 min-w-0">
+            <h1 class="text-xl font-semibold text-primary truncate flex-1 min-w-0">
               {{ props.device.hostname || 'Unknown Device' }}
             </h1>
           </div>
@@ -257,7 +257,7 @@ defineExpose({
           </div>
         </template>
         <template v-else>
-          <h1 class="text-xl font-semibold text-white truncate">{{ displayTitle }}</h1>
+          <h1 class="text-xl font-semibold text-primary truncate">{{ displayTitle }}</h1>
         </template>
       </div>
 
@@ -268,7 +268,7 @@ defineExpose({
           v-if="props.showCreateButton"
           @click="handleCreateClick"
           :disabled="isCreating"
-          class="px-2 md:px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 md:gap-2"
+          class="px-2 md:px-4 py-2 text-sm font-medium bg-brand-blue text-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 md:gap-2"
           :aria-label="isCreating ? `Creating...` : `Create ${props.createButtonText}`"
         >
           <!-- Always show icon -->
@@ -285,7 +285,7 @@ defineExpose({
           <button
             ref="buttonRef"
             @click="toggleUserMenu"
-            class="flex items-center justify-center hover:ring-2 hover:ring-blue-500 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+            class="flex items-center justify-center hover:ring-2 hover:ring-brand-blue rounded-full focus:outline-none focus:ring-2 focus:ring-brand-blue"
             aria-haspopup="true"
             :aria-expanded="showUserMenu"
           >

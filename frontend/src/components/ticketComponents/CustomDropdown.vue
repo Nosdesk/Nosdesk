@@ -89,23 +89,23 @@ onUnmounted(() => {
 <template>
   <div class="relative" ref="dropdownRef">
     <!-- Dropdown trigger -->
-    <button 
-      type="button" 
+    <button
+      type="button"
       @click="toggleDropdown"
-      class="w-full px-3 py-2 bg-transparent text-slate-200 text-left flex items-center justify-between hover:bg-slate-600/50 transition-colors rounded-lg"
+      class="w-full px-3 py-2 bg-transparent text-primary text-left flex items-center justify-between hover:bg-surface-hover transition-colors rounded-lg"
     >
       <div class="flex items-center gap-2">
-        <div 
+        <div
           class="w-2 h-2 rounded-full"
           :class="getStatusColor(value)"
         ></div>
         <span class="text-sm">{{ selectedOption?.label || 'Select an option' }}</span>
       </div>
-      <svg 
-        class="w-4 h-4 text-slate-400 transition-transform duration-200" 
-        :class="{ 'rotate-180': isOpen }" 
+      <svg
+        class="w-4 h-4 text-tertiary transition-transform duration-200"
+        :class="{ 'rotate-180': isOpen }"
         fill="none"
-        stroke="currentColor" 
+        stroke="currentColor"
         viewBox="0 0 24 24"
       >
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -114,9 +114,9 @@ onUnmounted(() => {
 
     <!-- Dropdown menu -->
     <Teleport to="body">
-      <div 
-        v-if="isOpen && dropdownRef" 
-        class="fixed bg-slate-700 border border-slate-600/50 rounded-lg shadow-lg overflow-hidden min-w-max"
+      <div
+        v-if="isOpen && dropdownRef"
+        class="fixed bg-surface border border-default rounded-lg shadow-lg overflow-hidden min-w-max"
         :style="{
           ...dropdownPosition,
           zIndex: 9999
@@ -124,11 +124,11 @@ onUnmounted(() => {
       >
         <div class="py-1">
           <button
-            v-for="option in options" 
+            v-for="option in options"
             :key="option.value"
             @click="selectOption(option)"
-            class="w-full px-3 py-2 text-left text-slate-200 hover:bg-slate-600 transition-colors flex items-center gap-2"
-            :class="{ 'bg-slate-600': option.value === value }"
+            class="w-full px-3 py-2 text-left text-primary hover:bg-surface-hover transition-colors flex items-center gap-2"
+            :class="{ 'bg-surface-hover': option.value === value }"
           >
             <div 
               class="w-2 h-2 rounded-full"

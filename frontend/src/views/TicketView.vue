@@ -195,11 +195,11 @@ watch(
                         <div
                             class="w-2 h-2 rounded-full"
                             :class="{
-                                'bg-green-400': isConnected,
-                                'bg-yellow-400 animate-pulse': !isConnected,
+                                'bg-status-success': isConnected,
+                                'bg-status-warning animate-pulse': !isConnected,
                             }"
                         ></div>
-                        <span class="text-slate-400">
+                        <span class="text-secondary">
                             {{ isConnected ? "Live updates" : "Connecting..." }}
                         </span>
                     </div>
@@ -235,13 +235,13 @@ watch(
                         <!-- Devices -->
                         <div v-if="devices.length" class="flex flex-col gap-2">
                             <div class="flex items-center justify-between">
-                                <h3 class="text-sm font-medium text-slate-300">
+                                <h3 class="text-sm font-medium text-secondary">
                                     Devices
                                 </h3>
                                 <a
                                     href="#"
                                     @click.prevent="showDeviceModal = true"
-                                    class="text-blue-500 hover:text-blue-400 text-sm hover:underline"
+                                    class="text-brand-blue hover:text-brand-blue/80 text-sm hover:underline"
                                 >
                                     + Add device
                                 </a>
@@ -308,7 +308,7 @@ watch(
                             <a
                                 href="#"
                                 @click.prevent="showDeviceModal = true"
-                                class="block text-blue-500 hover:underline"
+                                class="block text-brand-blue hover:underline"
                             >
                                 + Add device
                             </a>
@@ -320,7 +320,7 @@ watch(
                             class="flex flex-col gap-2"
                         >
                             <div class="flex items-center justify-between">
-                                <h3 class="text-sm font-medium text-slate-300">
+                                <h3 class="text-sm font-medium text-secondary">
                                     Linked Tickets
                                 </h3>
                                 <a
@@ -328,7 +328,7 @@ watch(
                                     @click.prevent="
                                         showLinkedTicketModal = true
                                     "
-                                    class="text-blue-500 hover:text-blue-400 text-sm hover:underline"
+                                    class="text-brand-blue hover:text-brand-blue/80 text-sm hover:underline"
                                 >
                                     + Add linked ticket
                                 </a>
@@ -348,7 +348,7 @@ watch(
                             <a
                                 href="#"
                                 @click.prevent="showLinkedTicketModal = true"
-                                class="block text-blue-500 hover:underline"
+                                class="block text-brand-blue hover:underline"
                             >
                                 + Add linked ticket
                             </a>
@@ -360,13 +360,13 @@ watch(
                             class="flex flex-col gap-2"
                         >
                             <div class="flex items-center justify-between">
-                                <h3 class="text-sm font-medium text-slate-300">
+                                <h3 class="text-sm font-medium text-secondary">
                                     Projects
                                 </h3>
                                 <a
                                     href="#"
                                     @click.prevent="showProjectModal = true"
-                                    class="text-blue-500 hover:text-blue-400 text-sm hover:underline"
+                                    class="text-brand-blue hover:text-brand-blue/80 text-sm hover:underline"
                                 >
                                     + Add to project
                                 </a>
@@ -385,7 +385,7 @@ watch(
                             <a
                                 href="#"
                                 @click.prevent="showProjectModal = true"
-                                class="block text-blue-500 hover:underline"
+                                class="block text-brand-blue hover:underline"
                             >
                                 + Add to project
                             </a>
@@ -419,7 +419,7 @@ watch(
             </div>
         </div>
 
-        <div v-else class="p-6 text-center text-gray-400">
+        <div v-else class="p-6 text-center text-secondary">
             Loading ticket...
         </div>
 

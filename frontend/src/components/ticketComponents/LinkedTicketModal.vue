@@ -234,10 +234,10 @@ const formatDate = (dateString: string): string => {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
-        <input 
-          type="text" 
+        <input
+          type="text"
           v-model="searchQuery"
-          class="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-600 bg-slate-700 text-white placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-colors"
+          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-colors"
           placeholder="Search tickets by ID, title, or description..."
         >
         <div v-if="loading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
@@ -249,7 +249,7 @@ const formatDate = (dateString: string): string => {
       </div>
 
       <!-- Loading state (initial load) -->
-      <div v-if="loading && tickets.length === 0" class="text-center py-8 text-slate-400">
+      <div v-if="loading && tickets.length === 0" class="text-center py-8 text-tertiary">
         <div class="inline-flex items-center gap-3">
           <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -278,26 +278,26 @@ const formatDate = (dateString: string): string => {
       </div>
 
       <!-- No results -->
-      <div v-else-if="!loading && filteredTickets.length === 0 && searchQuery" class="text-center py-8 text-slate-400">
+      <div v-else-if="!loading && filteredTickets.length === 0 && searchQuery" class="text-center py-8 text-tertiary">
         <div class="inline-flex flex-col items-center gap-3">
           <svg class="w-12 h-12 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           <div class="text-center">
-            <p class="text-lg font-medium text-slate-300">No tickets found</p>
+            <p class="text-lg font-medium text-secondary">No tickets found</p>
             <p class="text-sm">Try adjusting your search criteria</p>
           </div>
         </div>
       </div>
 
       <!-- No available tickets -->
-      <div v-else-if="!loading && filteredTickets.length === 0 && !searchQuery" class="text-center py-8 text-slate-400">
+      <div v-else-if="!loading && filteredTickets.length === 0 && !searchQuery" class="text-center py-8 text-tertiary">
         <div class="inline-flex flex-col items-center gap-3">
           <svg class="w-12 h-12 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           <div class="text-center">
-            <p class="text-lg font-medium text-slate-300">No tickets available</p>
+            <p class="text-lg font-medium text-secondary">No tickets available</p>
             <p class="text-sm">All tickets are either linked or is the current ticket</p>
           </div>
         </div>
@@ -309,10 +309,10 @@ const formatDate = (dateString: string): string => {
         ref="scrollContainer"
         class="max-h-[500px] overflow-y-auto"
       >
-        <div class="bg-slate-800 rounded-lg border border-slate-700/50 overflow-hidden">
+        <div class="bg-surface-alt rounded-lg border border-default overflow-hidden">
           <!-- Table header -->
-          <div class="bg-slate-700/50 px-4 py-3 border-b border-slate-600/50 sticky top-0 z-10">
-            <div class="grid grid-cols-12 gap-3 text-xs font-medium text-slate-300 uppercase tracking-wide">
+          <div class="bg-surface px-4 py-3 border-b border-default sticky top-0 z-10">
+            <div class="grid grid-cols-12 gap-3 text-xs font-medium text-secondary uppercase tracking-wide">
               <div class="col-span-1">ID</div>
               <div class="col-span-4">Title</div>
               <div class="col-span-2">Status & Priority</div>
@@ -323,27 +323,27 @@ const formatDate = (dateString: string): string => {
           </div>
           
           <!-- Ticket rows -->
-          <div class="divide-y divide-slate-700/30">
-            <div 
-              v-for="ticket in filteredTickets" 
+          <div class="divide-y divide-subtle">
+            <div
+              v-for="ticket in filteredTickets"
               :key="ticket.id"
-              class="group relative hover:bg-slate-700/30 transition-colors duration-150 cursor-pointer"
+              class="group relative hover:bg-surface-hover transition-colors duration-150 cursor-pointer"
               @click="selectTicket(ticket.id)"
             >
               <div class="px-4 py-3">
                 <div class="grid grid-cols-12 gap-3 items-center">
                   <!-- Ticket ID -->
                   <div class="col-span-1 min-w-0">
-                    <span class="text-sm font-mono text-slate-300">#{{ ticket.id }}</span>
+                    <span class="text-sm font-mono text-secondary">#{{ ticket.id }}</span>
                   </div>
 
                   <!-- Title -->
                   <div class="col-span-4 min-w-0">
                     <div class="flex flex-col gap-1">
-                      <div class="font-medium text-white truncate text-sm" :title="ticket.title">
+                      <div class="font-medium text-primary truncate text-sm" :title="ticket.title">
                         {{ ticket.title }}
                       </div>
-                      <div v-if="ticket.article_content" class="text-xs text-slate-400 truncate" :title="ticket.article_content">
+                      <div v-if="ticket.article_content" class="text-xs text-tertiary truncate" :title="ticket.article_content">
                         {{ ticket.article_content }}
                       </div>
                     </div>
@@ -392,15 +392,15 @@ const formatDate = (dateString: string): string => {
 
                   <!-- Updated -->
                   <div class="col-span-2 min-w-0">
-                    <span class="text-xs text-slate-400">{{ formatDate(ticket.modified) }}</span>
+                    <span class="text-xs text-tertiary">{{ formatDate(ticket.modified) }}</span>
                   </div>
 
                   <!-- Actions -->
                   <div class="col-span-1 text-right">
                     <div class="flex items-center justify-end gap-2">
-                      <button 
+                      <button
                         @click="viewTicket(ticket.id, $event)"
-                        class="text-gray-400 hover:text-white text-xs opacity-0 group-hover:opacity-100 transition-all px-2 py-1 rounded hover:bg-slate-600"
+                        class="text-tertiary hover:text-primary text-xs opacity-0 group-hover:opacity-100 transition-all px-2 py-1 rounded hover:bg-surface-hover"
                       >
                         View
                       </button>
@@ -420,8 +420,8 @@ const formatDate = (dateString: string): string => {
     </div>
 
     <!-- Footer -->
-    <div class="mt-6 flex justify-between items-center pt-4 border-t border-slate-700">
-      <div class="flex items-center gap-2 text-sm text-slate-400">
+    <div class="mt-6 flex justify-between items-center pt-4 border-t border-default">
+      <div class="flex items-center gap-2 text-sm text-tertiary">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
@@ -429,10 +429,10 @@ const formatDate = (dateString: string): string => {
           {{ filteredTickets.length }} ticket{{ filteredTickets.length !== 1 ? 's' : '' }} available
         </span>
       </div>
-      
-      <button 
+
+      <button
         type="button"
-        class="px-4 py-2 text-sm text-slate-300 hover:text-slate-100 hover:bg-slate-700 rounded-md transition-colors"
+        class="px-4 py-2 text-sm text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
         @click="emit('close')"
       >
         Cancel

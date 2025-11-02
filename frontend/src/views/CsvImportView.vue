@@ -145,8 +145,8 @@ const showTemplateDialog = () => {
     
     <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-white">CSV Import</h1>
-        <p class="text-slate-400 mt-2">
+        <h1 class="text-2xl font-bold text-primary">CSV Import</h1>
+        <p class="text-secondary mt-2">
           Import data from CSV files into your system
         </p>
       </div>
@@ -178,9 +178,9 @@ const showTemplateDialog = () => {
           Import Data
         </button>
         
-        <button 
+        <button
           @click="showTemplateDialog"
-          class="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors border border-slate-600 flex items-center gap-2"
+          class="px-4 py-2 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors border border-subtle flex items-center gap-2"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -190,10 +190,10 @@ const showTemplateDialog = () => {
       </div>
       
       <!-- Import status card (shows after an import) -->
-      <div v-if="importStatus !== 'none'" class="bg-slate-800 border border-slate-700 rounded-lg p-6 mb-4">
+      <div v-if="importStatus !== 'none'" class="bg-surface border border-default rounded-lg p-6 mb-4">
         <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
           <div>
-            <h2 class="text-xl font-medium text-white mb-2">Import Status</h2>
+            <h2 class="text-xl font-medium text-primary mb-2">Import Status</h2>
             <div class="flex items-center">
               <span 
                 :class="[
@@ -216,24 +216,24 @@ const showTemplateDialog = () => {
                 }}
               </span>
             </div>
-            <p v-if="lastImport" class="text-sm text-slate-400 mt-2">
+            <p v-if="lastImport" class="text-sm text-secondary mt-2">
               Last import: {{ lastImport }}
             </p>
           </div>
-          
-          <div v-if="importStatus === 'success'" class="bg-slate-700 p-4 rounded-lg">
+
+          <div v-if="importStatus === 'success'" class="bg-surface-alt p-4 rounded-lg">
             <div class="text-center">
-              <div class="text-lg text-white">{{ importResults.total }}</div>
-              <div class="text-xs text-slate-400">Total Records</div>
+              <div class="text-lg text-primary">{{ importResults.total }}</div>
+              <div class="text-xs text-secondary">Total Records</div>
             </div>
             <div class="flex justify-between mt-3">
               <div class="text-center px-3">
                 <div class="text-green-400">{{ importResults.success }}</div>
-                <div class="text-xs text-slate-400">Successful</div>
+                <div class="text-xs text-secondary">Successful</div>
               </div>
               <div class="text-center px-3">
                 <div class="text-red-400">{{ importResults.errors }}</div>
-                <div class="text-xs text-slate-400">Failed</div>
+                <div class="text-xs text-secondary">Failed</div>
               </div>
             </div>
           </div>
@@ -241,9 +241,9 @@ const showTemplateDialog = () => {
       </div>
       
       <!-- Import Guidelines -->
-      <div class="bg-slate-800 border border-slate-700 rounded-lg p-6 mb-4">
-        <h2 class="text-xl font-medium text-white mb-4">CSV Import Guidelines</h2>
-        <div class="flex flex-col gap-4 text-sm text-slate-300">
+      <div class="bg-surface border border-default rounded-lg p-6 mb-4">
+        <h2 class="text-xl font-medium text-primary mb-4">CSV Import Guidelines</h2>
+        <div class="flex flex-col gap-4 text-sm text-secondary">
           <div class="bg-blue-900/20 border border-blue-800/50 rounded-md p-4">
             <h3 class="font-medium text-blue-300 mb-2 flex items-center">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -278,22 +278,22 @@ const showTemplateDialog = () => {
       </div>
       
       <!-- Available templates -->
-      <div class="bg-slate-800 border border-slate-700 rounded-lg p-6">
-        <h2 class="text-xl font-medium text-white mb-4">Available Templates</h2>
-        <p class="text-slate-400 mb-4">
+      <div class="bg-surface border border-default rounded-lg p-6">
+        <h2 class="text-xl font-medium text-primary mb-4">Available Templates</h2>
+        <p class="text-secondary mb-4">
           Use these templates as a starting point for your CSV imports
         </p>
         
         <div class="flex flex-col gap-4">
-          <div v-for="template in sampleTemplates" :key="template.type" 
-               class="p-4 bg-slate-700 rounded-lg border border-slate-600">
+          <div v-for="template in sampleTemplates" :key="template.type"
+               class="p-4 bg-surface-alt rounded-lg border border-subtle">
             <div class="flex items-start md:items-center flex-col md:flex-row md:justify-between">
               <div class="flex-1 mb-3 md:mb-0">
-                <h3 class="text-white font-medium">{{ template.name }}</h3>
-                <p class="text-sm text-slate-400 mt-1">{{ template.description }}</p>
+                <h3 class="text-primary font-medium">{{ template.name }}</h3>
+                <p class="text-sm text-secondary mt-1">{{ template.description }}</p>
                 <div class="mt-2 flex flex-wrap gap-2">
-                  <span v-for="field in template.fields" :key="field" 
-                        class="px-2 py-1 bg-slate-600 text-xs rounded-md text-slate-300">
+                  <span v-for="field in template.fields" :key="field"
+                        class="px-2 py-1 bg-surface text-xs rounded-md text-secondary">
                     {{ field }}
                   </span>
                 </div>
@@ -324,12 +324,12 @@ const showTemplateDialog = () => {
     >
       <div class="flex flex-col gap-4">
         <div>
-          <label class="block text-sm font-medium text-slate-300 mb-1">
+          <label class="block text-sm font-medium text-secondary mb-1">
             Data Type
           </label>
           <select
             v-model="selectedFileType"
-            class="w-full rounded-md bg-slate-700 border-slate-600 text-white py-2 px-3 focus:border-blue-500 focus:ring focus:ring-blue-500 focus:ring-opacity-50"
+            class="w-full rounded-md bg-surface-alt border-subtle text-primary py-2 px-3 focus:border-blue-500 focus:ring focus:ring-blue-500 focus:ring-opacity-50"
           >
             <option value="users">Users</option>
             <option value="devices">Devices</option>
@@ -338,14 +338,14 @@ const showTemplateDialog = () => {
         </div>
         
         <div>
-          <label class="block text-sm font-medium text-slate-300 mb-1">
+          <label class="block text-sm font-medium text-secondary mb-1">
             CSV File
           </label>
-          <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed border-slate-600 rounded-md">
+          <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed border-subtle rounded-md">
             <div class="flex flex-col gap-1 text-center">
               <svg
                 v-if="!fileUploaded"
-                class="mx-auto h-12 w-12 text-slate-400"
+                class="mx-auto h-12 w-12 text-tertiary"
                 stroke="currentColor"
                 fill="none"
                 viewBox="0 0 48 48"
@@ -364,10 +364,10 @@ const showTemplateDialog = () => {
                 </svg>
                 <p class="text-sm mt-2">{{ uploadedFile?.name }}</p>
               </div>
-              <div v-else class="flex text-sm text-slate-400">
+              <div v-else class="flex text-sm text-tertiary">
                 <label
                   for="file-upload"
-                  class="relative cursor-pointer bg-slate-700 rounded-md font-medium text-blue-400 hover:text-blue-300 focus-within:outline-none"
+                  class="relative cursor-pointer bg-surface-alt rounded-md font-medium text-blue-400 hover:text-blue-300 focus-within:outline-none"
                 >
                   <span class="px-3 py-2 inline-block">Upload a file</span>
                   <input
@@ -381,7 +381,7 @@ const showTemplateDialog = () => {
                 </label>
                 <p class="pl-1 pt-2">or drag and drop</p>
               </div>
-              <p v-if="!fileUploaded" class="text-xs text-slate-400">
+              <p v-if="!fileUploaded" class="text-xs text-tertiary">
                 CSV files up to 10MB
               </p>
             </div>
@@ -391,7 +391,7 @@ const showTemplateDialog = () => {
         <div class="pt-4 flex justify-end gap-3">
           <button
             @click="showImportModal = false"
-            class="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors"
+            class="px-4 py-2 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors"
           >
             Cancel
           </button>
@@ -421,16 +421,16 @@ const showTemplateDialog = () => {
       @close="showTemplateModal = false"
     >
       <div class="flex flex-col gap-4">
-        <p class="text-slate-300 mb-4">
+        <p class="text-secondary mb-4">
           Download our CSV templates to ensure your data is formatted correctly for import.
         </p>
-        
+
         <div class="flex flex-col gap-3">
           <div v-for="template in sampleTemplates" :key="template.type"
-               class="p-3 bg-slate-700 rounded-lg flex justify-between items-center">
+               class="p-3 bg-surface-alt rounded-lg flex justify-between items-center">
             <div>
-              <h4 class="text-white font-medium">{{ template.name }}</h4>
-              <p class="text-xs text-slate-400">{{ template.fields.length }} fields</p>
+              <h4 class="text-primary font-medium">{{ template.name }}</h4>
+              <p class="text-xs text-secondary">{{ template.fields.length }} fields</p>
             </div>
             <button 
               @click="downloadTemplate(template.type)"
@@ -447,7 +447,7 @@ const showTemplateDialog = () => {
         <div class="pt-4 flex justify-end">
           <button
             @click="showTemplateModal = false"
-            class="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors"
+            class="px-4 py-2 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors"
           >
             Close
           </button>

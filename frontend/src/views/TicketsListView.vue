@@ -236,7 +236,7 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
 <template>
   <div class="flex flex-col h-full overflow-hidden">
     <!-- Search and filter bar -->
-    <div class="sticky top-0 z-20 bg-slate-800 border-b border-slate-700 shadow-md">
+    <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2 flex-wrap">
         <DebouncedSearchInput
           v-model="listManager.searchQuery.value"
@@ -253,7 +253,7 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
             <select
               :value="filter.value"
               @change="e => listManager.handleFilterUpdate(filter.name, (e.target as HTMLSelectElement).value)"
-              class="bg-slate-700 border border-slate-600 text-white text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 block w-full py-1 px-2"
+              class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-brand-blue focus:border-brand-blue block w-full py-1 px-2"
             >
               <option
                 v-for="option in filter.options"
@@ -267,13 +267,13 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
 
           <button
             @click="listManager.resetFilters"
-            class="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:ring-2 focus:outline-none focus:ring-blue-800"
+            class="px-2 py-1 text-xs font-medium text-primary bg-brand-blue rounded-md hover:bg-brand-blue/80 focus:ring-2 focus:outline-none focus:ring-brand-blue/50"
           >
             Reset
           </button>
         </template>
 
-        <div class="text-xs text-slate-400 ml-auto">
+        <div class="text-xs text-tertiary ml-auto">
           {{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}
         </div>
       </div>
@@ -361,21 +361,21 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
               v-for="ticket in listManager.items.value"
               :key="ticket.id"
               @click="listManager.navigateToItem(ticket)"
-              class="bg-slate-800 rounded-lg p-3 hover:bg-slate-700/50 transition-colors cursor-pointer"
+              class="bg-surface-alt rounded-lg p-3 hover:bg-surface-hover transition-colors cursor-pointer"
             >
               <div class="flex items-start gap-3">
                 <div class="flex-grow-0">
                   <input
                     type="checkbox"
-                    class="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500"
+                    class="w-4 h-4 rounded border-default bg-surface-alt text-brand-blue focus:ring-brand-blue"
                     :checked="listManager.selectedItems.value.includes(ticket.id.toString())"
                     @click.stop="(event) => listManager.toggleSelection(event, ticket.id.toString())"
                   />
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center justify-between">
-                    <div class="font-medium truncate text-slate-200">{{ ticket.title }}</div>
-                    <div class="text-xs text-slate-400 ml-2">#{{ ticket.id }}</div>
+                    <div class="font-medium truncate text-primary">{{ ticket.title }}</div>
+                    <div class="text-xs text-tertiary ml-2">#{{ ticket.id }}</div>
                   </div>
                   <div class="mt-2 flex flex-wrap gap-2 text-xs">
                     <StatusBadge type="status" :value="ticket.status" :short="true" :compact="true" />
@@ -390,22 +390,22 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
                         :userUuid="ticket.requester_user?.uuid"
                         size="xs" 
                       />
-                      <span v-else class="text-slate-500">No requester</span>
-                      <span class="text-slate-400">Requester</span>
+                      <span v-else class="text-tertiary">No requester</span>
+                      <span class="text-secondary">Requester</span>
                     </div>
                     <div class="flex items-center gap-1">
-                      <UserAvatar 
-                        v-if="ticket.assignee_user || ticket.assignee" 
-                        :name="ticket.assignee_user?.name || ticket.assignee" 
-                        :avatarUrl="ticket.assignee_user?.avatar_thumb" 
+                      <UserAvatar
+                        v-if="ticket.assignee_user || ticket.assignee"
+                        :name="ticket.assignee_user?.name || ticket.assignee"
+                        :avatarUrl="ticket.assignee_user?.avatar_thumb"
                         :userUuid="ticket.assignee_user?.uuid"
-                        size="xs" 
+                        size="xs"
                       />
-                      <span v-else class="text-slate-500">Unassigned</span>
-                      <span class="text-slate-400">Assignee</span>
+                      <span v-else class="text-tertiary">Unassigned</span>
+                      <span class="text-secondary">Assignee</span>
                     </div>
                   </div>
-                  <div class="mt-2 text-xs text-slate-400">
+                  <div class="mt-2 text-xs text-secondary">
                     Created: {{ listManager.formatDate(ticket.created) }}
                   </div>
                 </div>

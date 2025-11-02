@@ -54,7 +54,7 @@ const formattedDate = (dateString?: string): string => {
 
 const drawWaveform = () => {
   if (!waveformCanvasRef.value || !audioData.value) return;
-  
+
   const canvas = waveformCanvasRef.value;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -63,9 +63,9 @@ const drawWaveform = () => {
   const height = canvas.height;
   const step = Math.ceil(audioData.value.length / width);
   const amp = height * 0.9;
-  
-  // Solid background color
-  ctx.fillStyle = '#1e293b';
+
+  // Solid background color using semantic variable
+  ctx.fillStyle = 'var(--bg-surface)';
   ctx.fillRect(0, 0, width, height);
 
   const waveGradient = ctx.createLinearGradient(0, 0, 0, height);
@@ -421,21 +421,21 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 bg-slate-800 rounded-lg w-full">
+  <div class="flex flex-col gap-2 bg-surface-alt rounded-lg w-full">
     <!-- Audio player -->
-    <audio 
-      ref="audioRef" 
-      :src="props.src" 
+    <audio
+      ref="audioRef"
+      :src="props.src"
       preload="auto"
-      class="hidden" 
+      class="hidden"
     />
-    
+
     <div class="flex items-center gap-3">
       <button
         type="button"
         @click="togglePlayPause"
         :disabled="isLoading || !!error"
-        class="w-8 h-8 flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+        class="w-8 h-8 flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-surface-hover disabled:cursor-not-allowed transition-colors"
       >
         <template v-if="isLoading">
           <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -457,16 +457,16 @@ onUnmounted(() => {
           </svg>
         </template>
       </button>
-      
+
       <div class="flex-1 flex items-center gap-2">
-        <span class="text-sm text-slate-300 min-w-[40px]">{{ formattedCurrentTime }}</span>
+        <span class="text-sm text-secondary min-w-[40px]">{{ formattedCurrentTime }}</span>
         <div
           ref="progressBarRef"
           @mousedown="handleMouseDown"
-          class="flex-1 h-8 bg-slate-900 rounded cursor-pointer overflow-hidden relative select-none"
+          class="flex-1 h-8 bg-surface rounded cursor-pointer overflow-hidden relative select-none"
         >
           <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center">
-            <span class="text-sm text-slate-400">Loading...</span>
+            <span class="text-sm text-tertiary">Loading...</span>
           </div>
           <div v-else-if="error" class="absolute inset-0 flex items-center justify-center">
             <span class="text-sm text-red-400">{{ error }}</span>
@@ -479,7 +479,7 @@ onUnmounted(() => {
             height="32"
           ></canvas>
         </div>
-        <span class="text-sm text-slate-400 min-w-[40px]">{{ formattedDuration }}</span>
+        <span class="text-sm text-tertiary min-w-[40px]">{{ formattedDuration }}</span>
       </div>
     </div>
   </div>
@@ -489,7 +489,7 @@ onUnmounted(() => {
 .progress-bar {
   position: relative;
   height: 32px;
-  background: #1e293b;
+  background: var(--bg-surface);
   border-radius: 0.375rem;
   overflow: hidden;
 }

@@ -236,7 +236,7 @@ const isRouteActive = (path: string, exact = false) => {
     <!-- Sidebar - Flex item in document flow, hidden on mobile -->
     <nav
         ref="navbarRef"
-        class="h-screen bg-slate-800 border-r border-black flex flex-col flex-shrink-0 print:hidden transition-all duration-300 ease-in-out overflow-hidden"
+        class="h-screen bg-surface border-r border-default flex flex-col flex-shrink-0 print:hidden transition-all duration-300 ease-in-out overflow-hidden"
         :class="[isCollapsed ? 'w-16' : 'w-64', isMobile ? 'hidden' : '']"
     >
         <!-- Logo - swaps between full logo and icon based on collapsed state -->
@@ -261,11 +261,11 @@ const isRouteActive = (path: string, exact = false) => {
                     v-for="link in navLinks"
                     :key="link.to"
                     :to="link.to"
-                    class="rounded-md transition-colors duration-200 text-white flex items-center gap-3 relative overflow-hidden"
+                    class="rounded-md transition-colors duration-200 flex items-center gap-3 relative overflow-hidden"
                     :class="[
                         isRouteActive(link.to, link.exact)
-                            ? 'bg-slate-700/80 text-white font-medium'
-                            : 'text-slate-300 hover:bg-slate-700/50 hover:text-white',
+                            ? 'bg-surface-alt/80 text-primary font-medium'
+                            : 'text-secondary hover:bg-surface-hover hover:text-primary',
                         isCollapsed
                             ? 'px-2 py-1.5 justify-center'
                             : 'px-3 py-2',
@@ -302,7 +302,7 @@ const isRouteActive = (path: string, exact = false) => {
         </div>
 
         <!-- Separator -->
-        <div class="border-t border-slate-700/50 my-1"></div>
+        <div class="border-t border-default/50 my-1"></div>
 
         <!-- Spacer: Always present to push toggle button to bottom -->
         <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -330,21 +330,21 @@ const isRouteActive = (path: string, exact = false) => {
                         class="flex items-center justify-between py-1.5 px-3 cursor-pointer transition-colors duration-200 group"
                         :class="
                             isTicketsCollapsed
-                                ? 'hover:bg-slate-700/30'
-                                : 'bg-slate-700/20'
+                                ? 'hover:bg-surface-hover'
+                                : 'bg-surface-hover/40'
                         "
                         @click="toggleTickets"
                     >
                         <h3
-                            class="text-xs font-medium text-slate-300 uppercase tracking-wider flex items-center gap-1"
+                            class="text-xs font-medium text-secondary uppercase tracking-wider flex items-center gap-1"
                         >
                             <span
-                                class="w-2 h-2 bg-[#2C80FF] rounded-full"
+                                class="w-2 h-2 bg-brand-blue rounded-full"
                             ></span>
                             Recent Tickets
                         </h3>
                         <button
-                            class="text-slate-400 group-hover:text-white transition-colors duration-200 bg-slate-700/30 rounded p-0.5"
+                            class="text-tertiary group-hover:text-primary transition-colors duration-200 bg-surface-hover rounded p-0.5"
                             :title="
                                 isTicketsCollapsed
                                     ? 'Expand section'
@@ -373,7 +373,7 @@ const isRouteActive = (path: string, exact = false) => {
                     </div>
 
                     <div
-                        class="overflow-y-auto bg-slate-800/60"
+                        class="overflow-y-auto bg-surface/60"
                         :class="
                             isTicketsCollapsed
                                 ? 'opacity-0 h-0'
@@ -408,21 +408,21 @@ const isRouteActive = (path: string, exact = false) => {
                         class="flex items-center justify-between py-1.5 px-3 cursor-pointer transition-colors duration-200 group"
                         :class="
                             isDocsCollapsed
-                                ? 'hover:bg-slate-700/30'
-                                : 'bg-slate-700/20'
+                                ? 'hover:bg-surface-hover'
+                                : 'bg-surface-hover/40'
                         "
                         @click="toggleDocs"
                     >
                         <h3
-                            class="text-xs font-medium text-slate-300 uppercase tracking-wider flex items-center gap-1"
+                            class="text-xs font-medium text-secondary uppercase tracking-wider flex items-center gap-1"
                         >
                             <span
-                                class="w-2 h-2 bg-[#8B5CF6] rounded-full"
+                                class="w-2 h-2 bg-brand-purple rounded-full"
                             ></span>
                             Documentation
                         </h3>
                         <button
-                            class="text-slate-400 group-hover:text-white transition-colors duration-200 bg-slate-700/30 rounded p-0.5"
+                            class="text-tertiary group-hover:text-primary transition-colors duration-200 bg-surface-hover rounded p-0.5"
                             :title="
                                 isDocsCollapsed
                                     ? 'Expand section'
@@ -451,7 +451,7 @@ const isRouteActive = (path: string, exact = false) => {
                     </div>
 
                     <div
-                        class="overflow-y-auto flex-1 bg-slate-800/60"
+                        class="overflow-y-auto flex-1 bg-surface/60"
                         :class="
                             isDocsCollapsed ? 'opacity-0 h-0' : 'opacity-100'
                         "
@@ -466,10 +466,10 @@ const isRouteActive = (path: string, exact = false) => {
         </div>
 
         <!-- Toggle button at the bottom of sidebar (hidden on mobile) -->
-        <div class="flex-shrink-0 border-t border-slate-700" v-if="!isMobile">
+        <div class="flex-shrink-0 border-t border-default" v-if="!isMobile">
             <button
                 @click="toggleNav"
-                class="w-full h-12 px-2 text-slate-300 hover:text-white hover:bg-slate-700/70 rounded-md transition-colors group flex items-center"
+                class="w-full h-12 px-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors group flex items-center"
                 :class="isCollapsed ? 'justify-center' : 'justify-between'"
                 aria-label="Toggle sidebar"
             >
@@ -477,7 +477,7 @@ const isRouteActive = (path: string, exact = false) => {
                 <div class="flex items-center">
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        class="h-4 w-4 group-hover:text-[#FDBD10] transition-colors"
+                        class="h-4 w-4 group-hover:text-brand-gold transition-colors"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -507,7 +507,7 @@ const isRouteActive = (path: string, exact = false) => {
                 <!-- Keyboard shortcut (only shown when expanded) -->
                 <kbd
                     v-if="!isCollapsed"
-                    class="hidden md:inline-flex text-[10px] px-1.5 py-0.5 bg-slate-700 rounded text-slate-400 items-center"
+                    class="hidden md:inline-flex text-[10px] px-1.5 py-0.5 bg-surface-alt rounded text-tertiary items-center"
                 >
                     ⌘ K
                 </kbd>
@@ -517,7 +517,7 @@ const isRouteActive = (path: string, exact = false) => {
 
     <!-- Mobile Bottom Navigation (only on mobile) -->
     <nav
-        class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 z-20 sm:hidden print:hidden"
+        class="fixed bottom-0 left-0 right-0 bg-surface-alt border-t border-default z-20 sm:hidden print:hidden"
         v-if="isMobile"
     >
         <div class="flex justify-around items-center h-12">
@@ -527,7 +527,7 @@ const isRouteActive = (path: string, exact = false) => {
                 :to="link.to"
                 class="flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px]"
                 :class="
-                    isRouteActive(link.to, link.exact) ? '' : 'text-slate-300'
+                    isRouteActive(link.to, link.exact) ? '' : 'text-secondary'
                 "
                 :style="
                     isRouteActive(link.to, link.exact)
@@ -582,13 +582,13 @@ const isRouteActive = (path: string, exact = false) => {
     height: 4px;
     margin: 0;
     cursor: ns-resize;
-    background-color: rgba(51, 65, 85, 0.25);
-    border-top: 1px solid rgba(71, 85, 105, 0.3);
-    border-bottom: 1px solid rgba(71, 85, 105, 0.3);
+    background-color: var(--color-border-subtle);
+    border-top: 1px solid var(--color-border-default);
+    border-bottom: 1px solid var(--color-border-default);
 }
 
 .resizer-handle:hover {
-    background-color: rgba(51, 65, 85, 0.4);
+    background-color: var(--color-border-default);
 }
 
 .resizer-handle:active,

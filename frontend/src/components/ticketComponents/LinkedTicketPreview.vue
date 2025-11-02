@@ -28,17 +28,17 @@ const isSameAsCurrentTicket = computed(() => {
 
 // Computed property to get status colors for the ticket badge
 const ticketBadgeColors = computed(() => {
-  if (!linkedTicket.value) return 'bg-slate-600/80 text-slate-200 border-slate-500/50';
-  
+  if (!linkedTicket.value) return 'bg-slate-600/20 text-slate-700 dark:text-slate-300 border-slate-500/30';
+
   switch (linkedTicket.value.status) {
     case 'open':
-      return 'bg-yellow-500/20 text-yellow-200 border-yellow-500/30';
+      return 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30';
     case 'in-progress':
-      return 'bg-blue-500/20 text-blue-200 border-blue-500/30';
+      return 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30';
     case 'closed':
-      return 'bg-green-500/20 text-green-200 border-green-500/30';
+      return 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30';
     default:
-      return 'bg-slate-600/80 text-slate-200 border-slate-500/50';
+      return 'bg-slate-600/20 text-slate-700 dark:text-slate-300 border-slate-500/30';
   }
 });
 
@@ -115,14 +115,14 @@ const formattedDate = (dateString: string) => {
 </script>
 
 <template>
-  <div 
-    v-if="linkedTicket && !isSameAsCurrentTicket" 
-    class="bg-slate-800 rounded-xl border border-slate-700/50 overflow-hidden hover:border-slate-600/50 transition-colors"
+  <div
+    v-if="linkedTicket && !isSameAsCurrentTicket"
+    class="bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors"
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
   >
     <!-- Header with status and actions -->
-    <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50 flex items-center">
+    <div class="px-4 py-3 bg-surface-alt border-b border-default flex items-center">
       <div class="flex items-center gap-3 min-w-0 flex-1">
         <!-- Ticket Number Badge -->
         <div class="flex-shrink-0">
@@ -133,7 +133,7 @@ const formattedDate = (dateString: string) => {
         
         <!-- Title - extends to full width when buttons not shown -->
         <div class="min-w-0 flex-1">
-          <h3 class="text-white font-medium truncate text-sm">
+          <h3 class="text-primary font-medium truncate text-sm">
             {{ linkedTicket.title }}
           </h3>
         </div>
@@ -147,7 +147,7 @@ const formattedDate = (dateString: string) => {
         <button
           @click="viewTicket"
           :disabled="isNavigating"
-          class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-600 rounded-md transition-colors disabled:opacity-50"
+          class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors disabled:opacity-50"
           title="View ticket"
         >
           <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -162,7 +162,7 @@ const formattedDate = (dateString: string) => {
         <button
           @click="emit('unlink')"
           :disabled="isNavigating"
-          class="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-900/20 rounded-md transition-colors disabled:opacity-50"
+          class="p-1.5 text-tertiary hover:text-red-400 hover:bg-red-900/20 rounded-md transition-colors disabled:opacity-50"
           title="Unlink ticket"
         >
           <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -182,41 +182,41 @@ const formattedDate = (dateString: string) => {
         <!-- Details grid -->
         <div class="grid grid-cols-2 gap-3 text-sm">
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-slate-400 uppercase tracking-wide">Priority</span>
+            <span class="text-xs text-tertiary uppercase tracking-wide">Priority</span>
             <StatusBadge type="priority" :value="linkedTicket.priority" short />
           </div>
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-slate-400 uppercase tracking-wide">Created</span>
-            <span class="text-slate-200">{{
+            <span class="text-xs text-tertiary uppercase tracking-wide">Created</span>
+            <span class="text-secondary">{{
               formattedDate(linkedTicket.created)
             }}</span>
           </div>
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-slate-400 uppercase tracking-wide">Assignee</span>
+            <span class="text-xs text-tertiary uppercase tracking-wide">Assignee</span>
             <div class="flex items-center gap-2">
-              <UserAvatar 
-                v-if="linkedTicket.assignee_user || linkedTicket.assignee" 
-                :name="linkedTicket.assignee_user?.name || linkedTicket.assignee" 
+              <UserAvatar
+                v-if="linkedTicket.assignee_user || linkedTicket.assignee"
+                :name="linkedTicket.assignee_user?.name || linkedTicket.assignee"
                 :avatarUrl="linkedTicket.assignee_user?.avatar_thumb"
                 :userUuid="linkedTicket.assignee_user?.uuid"
-                size="xs" 
+                size="xs"
                 :showName="true"
               />
-              <span v-else class="text-slate-200">Unassigned</span>
+              <span v-else class="text-secondary">Unassigned</span>
             </div>
           </div>
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-slate-400 uppercase tracking-wide">Requester</span>
+            <span class="text-xs text-tertiary uppercase tracking-wide">Requester</span>
             <div class="flex items-center gap-2">
-              <UserAvatar 
-                v-if="linkedTicket.requester_user || linkedTicket.requester" 
-                :name="linkedTicket.requester_user?.name || linkedTicket.requester" 
+              <UserAvatar
+                v-if="linkedTicket.requester_user || linkedTicket.requester"
+                :name="linkedTicket.requester_user?.name || linkedTicket.requester"
                 :avatarUrl="linkedTicket.requester_user?.avatar_thumb"
                 :userUuid="linkedTicket.requester_user?.uuid"
-                size="xs" 
+                size="xs"
                 :showName="true"
               />
-              <span v-else class="text-slate-200">None</span>
+              <span v-else class="text-secondary">None</span>
             </div>
           </div>
         </div>

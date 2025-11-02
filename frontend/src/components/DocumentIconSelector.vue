@@ -54,14 +54,14 @@ const isCurrentIconSvg = computed(() => {
 <template>
   <div class="relative">
     <!-- Current icon display -->
-    <button 
+    <button
       @click="toggleModal"
-      class="flex items-center justify-center hover:bg-slate-700 rounded-lg p-1.5 transition-colors focus:outline-none"
+      class="flex items-center justify-center hover:bg-surface-hover rounded-lg p-1.5 transition-colors focus:outline-none"
       :class="[sizeClasses[size]]"
       aria-label="Select document icon"
     >
       <span v-if="!isCurrentIconSvg" class="select-none">{{ currentIcon }}</span>
-      <span v-else v-html="currentIcon" :class="[sizeClasses[size]]" class="text-white"></span>
+      <span v-else v-html="currentIcon" :class="[sizeClasses[size]]" class="text-primary"></span>
     </button>
 
     <!-- Icon modal -->

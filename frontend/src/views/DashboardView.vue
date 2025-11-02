@@ -108,10 +108,10 @@ onMounted(() => {
     <div class="flex flex-col gap-4 p-6">
       <!-- Greeting Card -->
       <div class="mb-2">
-        <h2 class="text-3xl font-medium text-white">
+        <h2 class="text-3xl font-medium text-primary">
           {{ formattedGreeting }}
         </h2>
-        <p class="text-slate-400 mt-2">
+        <p class="text-secondary mt-2">
           Welcome to your Nosdesk dashboard
         </p>
       </div>
@@ -124,28 +124,28 @@ onMounted(() => {
       <!-- Condensed Stats Row -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
         <!-- Total Tickets -->
-        <div class="bg-slate-800 rounded-lg border border-slate-700/50 hover:border-slate-600/50 transition-colors p-4">
-          <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wide">Total</h3>
-          <p class="text-xl font-semibold text-white mt-1">{{ ticketStats.total }}</p>
-        </div>
+        <router-link to="/tickets" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
+          <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">Total</h3>
+          <p class="text-xl font-semibold text-primary mt-1 group-hover:text-blue-400 transition-colors">{{ ticketStats.total }}</p>
+        </router-link>
 
         <!-- Open Tickets -->
-        <div class="bg-slate-800 rounded-lg border border-slate-700/50 hover:border-slate-600/50 transition-colors p-4">
-          <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wide">Open</h3>
-          <p class="text-xl font-semibold text-green-500 mt-1">{{ ticketStats.open }}</p>
-        </div>
+        <router-link to="/tickets?status=open" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
+          <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">Open</h3>
+          <p class="text-xl font-semibold text-status-success mt-1 group-hover:text-blue-400 transition-colors">{{ ticketStats.open }}</p>
+        </router-link>
 
         <!-- In Progress -->
-        <div class="bg-slate-800 rounded-lg border border-slate-700/50 hover:border-slate-600/50 transition-colors p-4">
-          <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wide">Progress</h3>
-          <p class="text-xl font-semibold text-blue-500 mt-1">{{ ticketStats.inProgress }}</p>
-        </div>
+        <router-link to="/tickets?status=in-progress" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
+          <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">In Progress</h3>
+          <p class="text-xl font-semibold text-brand-blue mt-1 group-hover:text-blue-400 transition-colors">{{ ticketStats.inProgress }}</p>
+        </router-link>
 
         <!-- Closed -->
-        <div class="bg-slate-800 rounded-lg border border-slate-700/50 hover:border-slate-600/50 transition-colors p-4">
-          <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wide">Closed</h3>
-          <p class="text-xl font-semibold text-slate-400 mt-1">{{ ticketStats.closed }}</p>
-        </div>
+        <router-link to="/tickets?status=closed" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
+          <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">Closed</h3>
+          <p class="text-xl font-semibold text-tertiary mt-1 group-hover:text-blue-400 transition-colors">{{ ticketStats.closed }}</p>
+        </router-link>
       </div>
 
       <!-- Assigned Tickets - Full Width -->

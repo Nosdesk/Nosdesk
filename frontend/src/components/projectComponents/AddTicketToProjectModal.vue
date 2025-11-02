@@ -131,14 +131,14 @@ const createAndAddTicket = async () => {
         <button
           @click="isCreatingTicket = false"
           class="flex-1 py-2 text-center text-sm"
-          :class="!isCreatingTicket ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 border-b border-slate-700'"
+          :class="!isCreatingTicket ? 'text-blue-400 border-b-2 border-blue-400' : 'text-tertiary border-b border-default'"
         >
           Existing Tickets
         </button>
         <button
           @click="isCreatingTicket = true"
           class="flex-1 py-2 text-center text-sm"
-          :class="isCreatingTicket ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 border-b border-slate-700'"
+          :class="isCreatingTicket ? 'text-blue-400 border-b-2 border-blue-400' : 'text-tertiary border-b border-default'"
         >
           Create New Ticket
         </button>
@@ -147,12 +147,12 @@ const createAndAddTicket = async () => {
       <!-- Create New Ticket Form -->
       <div v-if="isCreatingTicket" class="flex flex-col gap-4">
         <div>
-          <label for="ticketTitle" class="block text-sm text-slate-400 mb-1">Ticket Title</label>
+          <label for="ticketTitle" class="block text-sm text-tertiary mb-1">Ticket Title</label>
           <input
             id="ticketTitle"
             v-model="newTicketTitle"
             type="text"
-            class="w-full p-2 rounded-lg border-gray-600 bg-slate-700 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
+            class="w-full p-2 rounded-lg border-default bg-surface text-primary placeholder-tertiary focus:border-blue-500 focus:ring-blue-500"
             placeholder="Enter ticket title..."
           >
         </div>
@@ -169,32 +169,32 @@ const createAndAddTicket = async () => {
       <div v-else class="flex flex-col gap-4">
         <!-- Search -->
         <div>
-          <input type="text" 
+          <input type="text"
             v-model="searchQuery"
-            class="w-full p-2 rounded-lg border-gray-600 bg-slate-700 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
+            class="w-full p-2 rounded-lg border-default bg-surface text-primary placeholder-tertiary focus:border-blue-500 focus:ring-blue-500"
             placeholder="Search tickets by ID or title..."
           >
         </div>
 
         <!-- Tickets list -->
         <div class="max-h-96 overflow-y-auto">
-          <div v-if="filteredTickets.length === 0" class="text-center py-4 text-gray-400">
+          <div v-if="filteredTickets.length === 0" class="text-center py-4 text-tertiary">
             No tickets found
           </div>
           <div v-else class="flex flex-col gap-1">
             <div v-for="ticket in filteredTickets" :key="ticket.id"
-              class="group px-2 py-1.5 rounded-lg transition-colors duration-200 hover:bg-slate-700 relative cursor-pointer flex items-center justify-between"
+              class="group px-2 py-1.5 rounded-lg transition-colors duration-200 hover:bg-surface-hover relative cursor-pointer flex items-center justify-between"
               @click="addTicketToProject(ticket.id)">
               <!-- Left side content -->
               <div class="flex items-center gap-3 flex-1 min-w-0">
-                <StatusBadge 
-                  type="status" 
+                <StatusBadge
+                  type="status"
                   :value="ticket.status"
                   custom-classes="w-2.5 h-2.5 rounded-full"
                 />
-                <span class="text-sm text-gray-400">#{{ ticket.id }}</span>
-                <span 
-                  class="text-sm text-white truncate relative"
+                <span class="text-sm text-tertiary">#{{ ticket.id }}</span>
+                <span
+                  class="text-sm text-primary truncate relative"
                   :title="ticket.title"
                 >
                   {{ ticket.title }}
@@ -203,12 +203,12 @@ const createAndAddTicket = async () => {
 
               <!-- Right side content -->
               <div class="flex items-center gap-4">
-                <button 
+                <button
                   @click="viewTicket(ticket.id, $event)"
-                  class="text-gray-400 hover:text-white text-sm opacity-0 group-hover:opacity-100 transition-all">
+                  class="text-tertiary hover:text-primary text-sm opacity-0 group-hover:opacity-100 transition-all">
                   View
                 </button>
-                <button 
+                <button
                   class="text-blue-400 hover:text-blue-300 text-sm">
                   Add
                 </button>
@@ -222,7 +222,7 @@ const createAndAddTicket = async () => {
     <!-- Footer -->
     <div class="mt-6 flex justify-end">
       <button type="button"
-        class="px-4 py-2 text-sm text-slate-300 hover:text-slate-100"
+        class="px-4 py-2 text-sm text-secondary hover:text-primary"
         @click="emit('close')">
         Cancel
       </button>

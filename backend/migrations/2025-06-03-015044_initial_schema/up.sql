@@ -49,6 +49,7 @@ CREATE TABLE users (
     avatar_url VARCHAR(2048), -- Increased for longer URLs (S3, Azure blob, etc.)
     banner_url VARCHAR(2048),
     avatar_thumb VARCHAR(2048),
+    theme VARCHAR(50) DEFAULT 'system', -- User color scheme preference (system/light/dark)
     microsoft_uuid UUID, -- Legacy field for Microsoft integration
     mfa_secret VARCHAR(255), -- Base32 encoded TOTP secret (encrypted)
     mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,

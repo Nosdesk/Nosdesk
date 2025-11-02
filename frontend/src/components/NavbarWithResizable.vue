@@ -165,9 +165,9 @@ const isRouteActive = (path: string, exact = false) => {
 
 <template>
   <!-- Desktop Sidebar - Hidden on small screens -->
-  <nav 
+  <nav
     ref="navbarRef"
-    class="h-screen bg-slate-800 border-r border-black flex flex-col flex-shrink-0 print:hidden transition-all duration-300 ease-in-out overflow-hidden lg:fixed lg:left-0 lg:top-0 lg:z-20 lg:flex"
+    class="h-screen bg-surface border-r border-default flex flex-col flex-shrink-0 print:hidden transition-all duration-300 ease-in-out overflow-hidden lg:fixed lg:left-0 lg:top-0 lg:z-20 lg:flex"
     :class="[isCollapsed ? 'lg:w-16' : 'lg:w-64', isSmallScreen ? 'hidden' : '']"
   >
     <div class="flex flex-col p-2 flex-shrink-0 gap-1">
@@ -197,15 +197,15 @@ const isRouteActive = (path: string, exact = false) => {
       </RouterLink>
 
       <div class="flex flex-col gap-1 mb-2">
-        <RouterLink 
-          v-for="link in navLinks" 
+        <RouterLink
+          v-for="link in navLinks"
           :key="link.to"
-          :to="link.to" 
-          class="rounded-md transition-colors duration-200 text-white flex items-center gap-3 relative overflow-hidden"
+          :to="link.to"
+          class="rounded-md transition-colors duration-200 flex items-center gap-3 relative overflow-hidden"
           :class="[
-            isRouteActive(link.to, link.exact) 
-              ? 'bg-slate-700/80 text-white font-medium' 
-              : 'text-slate-300 hover:bg-slate-700/50 hover:text-white',
+            isRouteActive(link.to, link.exact)
+              ? 'bg-surface-alt/80 text-primary font-medium'
+              : 'text-secondary hover:bg-surface-hover hover:text-primary',
             isCollapsed ? 'px-2 py-1.5 justify-center' : 'px-3 py-2'
           ]"
           :title="isCollapsed ? link.text : ''"
@@ -224,7 +224,7 @@ const isRouteActive = (path: string, exact = false) => {
       </div>
 
       <!-- Separator -->
-      <div class="border-t border-slate-700/50 my-1"></div>
+      <div class="border-t border-default/50 my-1"></div>
     </div>
 
     <!-- Only show sections when navbar is expanded -->
@@ -247,17 +247,17 @@ const isRouteActive = (path: string, exact = false) => {
             :class="[isTicketsCollapsed ? 'max-h-8' : '']"
           >
             <!-- Tickets header -->
-            <div 
+            <div
               class="flex items-center justify-between py-1.5 px-3 cursor-pointer transition-colors duration-200 group"
-              :class="isTicketsCollapsed ? 'hover:bg-slate-700/30' : 'bg-slate-700/20'"
+              :class="isTicketsCollapsed ? 'hover:bg-surface-hover' : 'bg-surface-hover/40'"
               @click="toggleTickets"
             >
-              <h3 class="text-xs font-medium text-slate-300 uppercase tracking-wider flex items-center gap-1">
-                <span class="w-2 h-2 bg-blue-400 rounded-full"></span>
+              <h3 class="text-xs font-medium text-secondary uppercase tracking-wider flex items-center gap-1">
+                <span class="w-2 h-2 bg-brand-blue rounded-full"></span>
                 Recent Tickets
               </h3>
-              <button 
-                class="text-slate-400 group-hover:text-white transition-colors duration-200 bg-slate-700/30 rounded p-0.5"
+              <button
+                class="text-tertiary group-hover:text-primary transition-colors duration-200 bg-surface-hover rounded p-0.5"
                 :title="isTicketsCollapsed ? 'Expand section' : 'Collapse section'"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -272,9 +272,9 @@ const isRouteActive = (path: string, exact = false) => {
             </div>
             
             <!-- Tickets content -->
-            <div 
-              class="overflow-y-auto bg-slate-800/60 flex-1"
-              :class="isTicketsCollapsed ? 'opacity-0 h-0' : 'opacity-100'" 
+            <div
+              class="overflow-y-auto bg-surface/60 flex-1"
+              :class="isTicketsCollapsed ? 'opacity-0 h-0' : 'opacity-100'"
             >
               <RecentTickets v-if="!isTicketsCollapsed" />
             </div>
@@ -290,17 +290,17 @@ const isRouteActive = (path: string, exact = false) => {
         <template #after-content>
           <div class="h-full flex flex-col">
             <!-- Docs header -->
-            <div 
+            <div
               class="flex items-center justify-between py-1.5 px-3 cursor-pointer transition-colors duration-200 group"
-              :class="isDocsCollapsed ? 'hover:bg-slate-700/30' : 'bg-slate-700/20'"
+              :class="isDocsCollapsed ? 'hover:bg-surface-hover' : 'bg-surface-hover/40'"
               @click="toggleDocs"
             >
-              <h3 class="text-xs font-medium text-slate-300 uppercase tracking-wider flex items-center gap-1">
-                <span class="w-2 h-2 bg-emerald-400 rounded-full"></span>
+              <h3 class="text-xs font-medium text-secondary uppercase tracking-wider flex items-center gap-1">
+                <span class="w-2 h-2 bg-brand-purple rounded-full"></span>
                 Documentation
               </h3>
-              <button 
-                class="text-slate-400 group-hover:text-white transition-colors duration-200 bg-slate-700/30 rounded p-0.5"
+              <button
+                class="text-tertiary group-hover:text-primary transition-colors duration-200 bg-surface-hover rounded p-0.5"
                 :title="isDocsCollapsed ? 'Expand section' : 'Collapse section'"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -315,8 +315,8 @@ const isRouteActive = (path: string, exact = false) => {
             </div>
             
             <!-- Docs content -->
-            <div 
-              class="overflow-y-auto flex-1 bg-slate-800/60"
+            <div
+              class="overflow-y-auto flex-1 bg-surface/60"
               :class="isDocsCollapsed ? 'opacity-0 h-0' : 'opacity-100'"
             >
               <DocumentationNav v-if="!isDocsCollapsed" @search="handleDocSearch" />
@@ -327,22 +327,22 @@ const isRouteActive = (path: string, exact = false) => {
     </div>
     
     <!-- Toggle button at the bottom of sidebar -->
-    <div class="mt-auto border-t border-slate-700 p-2">
-      <button 
-        @click="toggleNav" 
-        class="w-full p-2 text-slate-300 hover:text-white hover:bg-slate-700/70 rounded-md transition-colors group flex"
+    <div class="mt-auto border-t border-default p-2">
+      <button
+        @click="toggleNav"
+        class="w-full p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors group flex"
         :class="isCollapsed ? 'justify-center' : 'justify-between'"
         aria-label="Toggle sidebar"
       >
         <div class="flex items-center">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 group-hover:text-[#FDBD10] transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 group-hover:text-brand-gold transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path v-if="isCollapsed" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
             <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
           </svg>
           <span v-if="!isCollapsed" class="ml-2 text-xs">Collapse Sidebar</span>
         </div>
-        
-        <kbd v-if="!isCollapsed" class="hidden md:inline-flex text-[10px] px-1.5 py-0.5 bg-slate-700 rounded text-slate-400 items-center">
+
+        <kbd v-if="!isCollapsed" class="hidden md:inline-flex text-[10px] px-1.5 py-0.5 bg-surface-alt rounded text-tertiary items-center">
           ⌘ K
         </kbd>
       </button>
@@ -350,14 +350,14 @@ const isRouteActive = (path: string, exact = false) => {
   </nav>
 
   <!-- Mobile Bottom Navigation -->
-  <nav class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 z-20 lg:hidden print:hidden" v-if="isSmallScreen">
+  <nav class="fixed bottom-0 left-0 right-0 bg-surface-alt border-t border-default z-20 lg:hidden print:hidden" v-if="isSmallScreen">
     <div class="flex justify-around items-center h-14">
-      <RouterLink 
-        v-for="link in navLinks" 
+      <RouterLink
+        v-for="link in navLinks"
         :key="link.to"
-        :to="link.to" 
-        class="flex flex-col items-center justify-center px-2 py-1 rounded-lg transition-colors duration-200 hover:bg-slate-700/50 flex-1 relative"
-        :class="isRouteActive(link.to, link.exact) ? 'text-[#FDBD10]' : 'text-slate-300'"
+        :to="link.to"
+        class="flex flex-col items-center justify-center px-2 py-1 rounded-lg transition-colors duration-200 hover:bg-surface-hover flex-1 relative"
+        :class="isRouteActive(link.to, link.exact) ? 'text-brand-gold' : 'text-secondary'"
       >
         <div 
           v-if="isRouteActive(link.to, link.exact)"
@@ -374,7 +374,7 @@ const isRouteActive = (path: string, exact = false) => {
   <!-- Show semi-transparent overlay on small screens when nav is expanded -->
   <div
     v-if="isSmallScreen && !isCollapsed"
-    class="fixed inset-0 bg-black bg-opacity-50 z-10 lg:hidden"
+    class="fixed inset-0 bg-black/50 z-10 lg:hidden"
     @click="toggleNav"
   ></div>
 </template> 

@@ -2,7 +2,7 @@
   <div class="relative flex-grow min-w-[150px]">
     <div class="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none">
       <svg
-        class="w-3.5 h-3.5 text-gray-400"
+        class="w-3.5 h-3.5 text-tertiary"
         aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         fill="none"
@@ -22,7 +22,7 @@
       type="text"
       v-model="localValue"
       @input="handleInput"
-      class="block w-full py-1 pl-8 pr-2 text-sm border rounded-md bg-slate-700 border-slate-600 placeholder-gray-400 text-white focus:ring-blue-500 focus:border-blue-500"
+      class="block w-full py-1 pl-8 pr-2 text-sm border rounded-md bg-surface border-default placeholder-tertiary text-primary focus:ring-blue-500 focus:border-blue-500"
       :placeholder="placeholder"
     />
   </div>

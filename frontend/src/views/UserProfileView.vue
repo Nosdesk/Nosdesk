@@ -369,15 +369,15 @@ onMounted(() => {
                 <!-- Creation Mode Header -->
                 <div
                     v-if="isCreationMode"
-                    class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors"
+                    class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
                 >
                     <div
-                        class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50"
+                        class="px-4 py-3 bg-surface-alt border-b border-default"
                     >
-                        <h1 class="text-lg font-medium text-white">
+                        <h1 class="text-lg font-medium text-primary">
                             Create New User
                         </h1>
-                        <p class="text-slate-400 text-sm mt-1">
+                        <p class="text-secondary text-sm mt-1">
                             Enter user details below
                         </p>
                     </div>
@@ -386,7 +386,7 @@ onMounted(() => {
                 <!-- Error Display -->
                 <div
                     v-if="error"
-                    class="bg-red-900/30 border border-red-700 rounded-lg p-4 text-red-200 text-sm"
+                    class="bg-status-error/30 border border-status-error rounded-lg p-4 text-status-error text-sm"
                 >
                     {{ error }}
                 </div>
@@ -398,12 +398,12 @@ onMounted(() => {
                 >
                     <!-- Basic Information -->
                     <div
-                        class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors"
+                        class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
                     >
                         <div
-                            class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50"
+                            class="px-4 py-3 bg-surface-alt border-b border-default"
                         >
-                            <h2 class="text-lg font-medium text-white">
+                            <h2 class="text-lg font-medium text-primary">
                                 Basic Information
                             </h2>
                         </div>
@@ -412,18 +412,18 @@ onMounted(() => {
                                 <!-- Name -->
                                 <div class="flex flex-col gap-1.5">
                                     <h3
-                                        class="text-xs font-medium text-slate-400 uppercase tracking-wide"
+                                        class="text-xs font-medium text-secondary uppercase tracking-wide"
                                     >
                                         Name *
                                     </h3>
                                     <div
-                                        class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors"
+                                        class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors"
                                     >
                                         <input
                                             v-model="editValues.name"
                                             type="text"
                                             placeholder="Enter user name"
-                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
                                         />
                                     </div>
                                 </div>
@@ -431,18 +431,18 @@ onMounted(() => {
                                 <!-- Email -->
                                 <div class="flex flex-col gap-1.5">
                                     <h3
-                                        class="text-xs font-medium text-slate-400 uppercase tracking-wide"
+                                        class="text-xs font-medium text-secondary uppercase tracking-wide"
                                     >
                                         Email *
                                     </h3>
                                     <div
-                                        class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors"
+                                        class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors"
                                     >
                                         <input
                                             v-model="editValues.email"
                                             type="email"
                                             placeholder="Enter email address"
-                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
                                         />
                                     </div>
                                 </div>
@@ -450,22 +450,22 @@ onMounted(() => {
                                 <!-- Role -->
                                 <div class="flex flex-col gap-1.5">
                                     <h3
-                                        class="text-xs font-medium text-slate-400 uppercase tracking-wide"
+                                        class="text-xs font-medium text-secondary uppercase tracking-wide"
                                     >
                                         Role
                                     </h3>
                                     <div
-                                        class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors"
+                                        class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors"
                                     >
                                         <select
                                             v-model="editValues.role"
-                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
                                         >
                                             <option
                                                 v-for="option in roleOptions"
                                                 :key="option.value"
                                                 :value="option.value"
-                                                class="bg-slate-700"
+                                                class="bg-surface-alt"
                                             >
                                                 {{ option.label }}
                                             </option>
@@ -478,12 +478,12 @@ onMounted(() => {
 
                     <!-- Additional Details -->
                     <div
-                        class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors"
+                        class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
                     >
                         <div
-                            class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50"
+                            class="px-4 py-3 bg-surface-alt border-b border-default"
                         >
-                            <h2 class="text-lg font-medium text-white">
+                            <h2 class="text-lg font-medium text-primary">
                                 Additional Details
                             </h2>
                         </div>
@@ -492,18 +492,18 @@ onMounted(() => {
                                 <!-- Pronouns -->
                                 <div class="flex flex-col gap-1.5">
                                     <h3
-                                        class="text-xs font-medium text-slate-400 uppercase tracking-wide"
+                                        class="text-xs font-medium text-secondary uppercase tracking-wide"
                                     >
                                         Pronouns
                                     </h3>
                                     <div
-                                        class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors"
+                                        class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors"
                                     >
                                         <input
                                             v-model="editValues.pronouns"
                                             type="text"
                                             placeholder="e.g., he/him, she/her, they/them"
-                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
                                         />
                                     </div>
                                 </div>
@@ -516,7 +516,7 @@ onMounted(() => {
                         <button
                             @click="router.push('/users')"
                             :disabled="isSaving"
-                            class="px-6 py-2.5 bg-slate-600 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 transition-colors text-sm font-medium"
+                            class="px-6 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover disabled:opacity-50 transition-colors text-sm font-medium"
                         >
                             Cancel
                         </button>
@@ -527,7 +527,7 @@ onMounted(() => {
                                 !editValues.name ||
                                 !editValues.email
                             "
-                            class="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
+                            class="px-6 py-2.5 bg-status-success text-white rounded-lg hover:bg-status-success/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
                         >
                             <svg
                                 v-if="isSaving"
@@ -577,19 +577,19 @@ onMounted(() => {
 
                         <!-- Devices Section -->
                         <div
-                            class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors"
+                            class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
                         >
                             <div
-                                class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50"
+                                class="px-4 py-3 bg-surface-alt border-b border-default"
                             >
-                                <h2 class="text-lg font-medium text-white">
+                                <h2 class="text-lg font-medium text-primary">
                                     Devices
                                 </h2>
                             </div>
                             <div class="p-3">
                                 <div
                                     v-if="devices.length === 0"
-                                    class="text-slate-400 text-sm"
+                                    class="text-secondary text-sm"
                                 >
                                     No devices
                                 </div>
@@ -598,19 +598,19 @@ onMounted(() => {
                                         v-for="device in devices"
                                         :key="device.id"
                                         :to="`/devices/${device.id}`"
-                                        class="block bg-slate-700/50 p-3 rounded-lg hover:bg-slate-700 transition-colors"
+                                        class="block bg-surface-alt p-3 rounded-lg hover:bg-surface-hover transition-colors"
                                     >
                                         <div
                                             class="flex items-start justify-between"
                                         >
                                             <div class="flex-1">
                                                 <h3
-                                                    class="font-medium text-white"
+                                                    class="font-medium text-primary"
                                                 >
                                                     {{ device.name }}
                                                 </h3>
                                                 <p
-                                                    class="text-sm text-slate-400"
+                                                    class="text-sm text-secondary"
                                                 >
                                                     {{
                                                         device.manufacturer ||
@@ -619,7 +619,7 @@ onMounted(() => {
                                                     {{ device.model }}
                                                 </p>
                                                 <p
-                                                    class="text-xs text-slate-500"
+                                                    class="text-xs text-tertiary"
                                                 >
                                                     Last updated
                                                     {{
@@ -633,16 +633,16 @@ onMounted(() => {
                                                 <span
                                                     class="text-xs px-2 py-1 rounded-full"
                                                     :class="{
-                                                        'text-green-400 bg-green-900/20':
+                                                        'text-status-success bg-status-success/20':
                                                             device.warranty_status ===
                                                             'Active',
-                                                        'text-yellow-400 bg-yellow-900/20':
+                                                        'text-status-warning bg-status-warning/20':
                                                             device.warranty_status ===
                                                             'Warning',
-                                                        'text-red-400 bg-red-900/20':
+                                                        'text-status-error bg-status-error/20':
                                                             device.warranty_status ===
                                                             'Expired',
-                                                        'text-gray-400 bg-gray-900/20':
+                                                        'text-secondary bg-surface-alt':
                                                             device.warranty_status ===
                                                             'Unknown',
                                                     }"
@@ -661,12 +661,12 @@ onMounted(() => {
                     <div class="flex flex-col gap-4 xl:w-1/2 xl:min-w-0">
                         <!-- Assigned Tickets -->
                         <div
-                            class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors"
+                            class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
                         >
                             <div
-                                class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50 flex justify-between items-center"
+                                class="px-4 py-3 bg-surface-alt border-b border-default flex justify-between items-center"
                             >
-                                <h2 class="text-lg font-medium text-white">
+                                <h2 class="text-lg font-medium text-primary">
                                     {{ assignedTickets.length }} Assigned
                                     Tickets
                                 </h2>
@@ -680,7 +680,7 @@ onMounted(() => {
                             <div class="p-3">
                                 <div
                                     v-if="assignedTickets.length === 0"
-                                    class="text-slate-400 text-sm"
+                                    class="text-secondary text-sm"
                                 >
                                     No assigned tickets
                                 </div>
@@ -692,19 +692,19 @@ onMounted(() => {
                                         )"
                                         :key="ticket.id"
                                         :to="`/tickets/${ticket.id}`"
-                                        class="block bg-slate-700/50 p-3 rounded-lg hover:bg-slate-700 transition-colors"
+                                        class="block bg-surface-alt p-3 rounded-lg hover:bg-surface-hover transition-colors"
                                     >
                                         <div
                                             class="flex items-center justify-between"
                                         >
                                             <div>
                                                 <h3
-                                                    class="font-medium text-white"
+                                                    class="font-medium text-primary"
                                                 >
                                                     {{ ticket.title }}
                                                 </h3>
                                                 <p
-                                                    class="text-sm text-slate-400"
+                                                    class="text-sm text-secondary"
                                                 >
                                                     {{
                                                         formatDate(
@@ -730,12 +730,12 @@ onMounted(() => {
 
                         <!-- Requested Tickets -->
                         <div
-                            class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors"
+                            class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
                         >
                             <div
-                                class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50 flex justify-between items-center"
+                                class="px-4 py-3 bg-surface-alt border-b border-default flex justify-between items-center"
                             >
-                                <h2 class="text-lg font-medium text-white">
+                                <h2 class="text-lg font-medium text-primary">
                                     {{ requestedTickets.length }} Requested
                                     Tickets
                                 </h2>
@@ -749,7 +749,7 @@ onMounted(() => {
                             <div class="p-3">
                                 <div
                                     v-if="requestedTickets.length === 0"
-                                    class="text-slate-400 text-sm"
+                                    class="text-secondary text-sm"
                                 >
                                     No requested tickets
                                 </div>
@@ -761,19 +761,19 @@ onMounted(() => {
                                         )"
                                         :key="ticket.id"
                                         :to="`/tickets/${ticket.id}`"
-                                        class="block bg-slate-700/50 p-3 rounded-lg hover:bg-slate-700 transition-colors"
+                                        class="block bg-surface-alt p-3 rounded-lg hover:bg-surface-hover transition-colors"
                                     >
                                         <div
                                             class="flex items-center justify-between"
                                         >
                                             <div>
                                                 <h3
-                                                    class="font-medium text-white"
+                                                    class="font-medium text-primary"
                                                 >
                                                     {{ ticket.title }}
                                                 </h3>
                                                 <p
-                                                    class="text-sm text-slate-400"
+                                                    class="text-sm text-secondary"
                                                 >
                                                     {{
                                                         formatDate(
@@ -806,11 +806,11 @@ onMounted(() => {
             class="flex justify-center items-center min-h-[200px]"
         >
             <div
-                class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"
+                class="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-blue"
             ></div>
         </div>
 
-        <div v-else class="p-6 text-center text-slate-400">User not found</div>
+        <div v-else class="p-6 text-center text-secondary">User not found</div>
     </div>
 </template>
 

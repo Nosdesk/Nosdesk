@@ -268,10 +268,10 @@ onUnmounted(() => {
         <!-- Placeholder when no user selected -->
         <div
           v-else
-          class="w-6 h-6 rounded-full bg-slate-700/30 border border-slate-600/30 flex items-center justify-center transition-all duration-200"
-          :class="{ 'border-slate-500/50': isDropdownOpen }"
+          class="w-6 h-6 rounded-full bg-surface border border-subtle flex items-center justify-center transition-all duration-200"
+          :class="{ 'border-default': isDropdownOpen }"
         >
-          <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-3 h-3 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
           </svg>
         </div>
@@ -286,7 +286,7 @@ onUnmounted(() => {
           @input="handleInput"
           @blur="handleBlur"
           :placeholder="placeholder || 'Select user...'"
-          class="w-full bg-transparent text-slate-200 placeholder-slate-400 focus:outline-none text-sm transition-all duration-200 leading-tight"
+          class="w-full bg-transparent text-secondary placeholder-tertiary focus:outline-none text-sm transition-all duration-200 leading-tight"
         />
       </div>
       
@@ -296,7 +296,7 @@ onUnmounted(() => {
         <button
           v-if="modelValue"
           @click.stop="clearSelection"
-          class="p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-600/30 rounded transition-all duration-200 group"
+          class="p-1 text-tertiary hover:text-secondary hover:bg-surface-hover rounded transition-all duration-200 group"
           type="button"
           title="Clear selection"
         >
@@ -307,11 +307,11 @@ onUnmounted(() => {
         
         <!-- Search/Loading indicator -->
         <div class="flex items-center justify-center w-5 h-5">
-          <div v-if="isSearching" class="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-          <svg v-else-if="isDropdownOpen" class="w-3 h-3 text-slate-400 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div v-if="isSearching" class="w-3 h-3 border-2 border-tertiary border-t-transparent rounded-full animate-spin"></div>
+          <svg v-else-if="isDropdownOpen" class="w-3 h-3 text-tertiary transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
           </svg>
-          <svg v-else class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg v-else class="w-3 h-3 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
@@ -322,7 +322,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="isDropdownOpen && searchResults.length > 0 && containerRef"
-        class="user-autocomplete-dropdown fixed bg-slate-800 rounded-lg shadow-xl border border-slate-700/50 min-w-max backdrop-blur-sm z-[9999] overflow-hidden"
+        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-[9999] overflow-hidden"
         :style="dropdownPosition"
       >
         <div class="py-1 max-h-56 overflow-y-auto">
@@ -330,21 +330,21 @@ onUnmounted(() => {
             v-for="user in searchResults.slice(0, 8)"
             :key="user.id"
             @click="selectUser(user)"
-            class="w-full px-2.5 py-1.5 text-left flex items-center gap-2.5 hover:bg-slate-700/50 transition-all duration-150 group"
+            class="w-full px-2.5 py-1.5 text-left flex items-center gap-2.5 hover:bg-surface-hover transition-all duration-150 group"
             :class="{
-              'bg-slate-700/30': modelValue === user.id
+              'bg-surface': modelValue === user.id
             }"
           >
-            <UserAvatar 
+            <UserAvatar
               :name="user.id"
               :userName="user.name"
-              :showName="false" 
+              :showName="false"
               size="sm"
             />
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium text-slate-200 truncate">{{ user.name }}</div>
+              <div class="text-sm font-medium text-secondary truncate">{{ user.name }}</div>
               <div class="flex items-center gap-2">
-                <div class="text-xs text-slate-400 truncate">{{ user.email }}</div>
+                <div class="text-xs text-tertiary truncate">{{ user.email }}</div>
                 <div v-if="user.role && props.type === 'assignee'" class="flex-shrink-0">
                   <span class="px-1.5 py-0.5 text-xs font-medium rounded-md"
                     :class="{
@@ -373,39 +373,39 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="isDropdownOpen && isSearching && containerRef"
-        class="user-autocomplete-dropdown fixed bg-slate-800 rounded-lg shadow-xl border border-slate-700/50 min-w-max backdrop-blur-sm z-[9999]"
+        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-[9999]"
         :style="dropdownPosition"
       >
-        <div class="p-3 flex items-center justify-center gap-2 text-slate-400">
-          <div class="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+        <div class="p-3 flex items-center justify-center gap-2 text-tertiary">
+          <div class="w-4 h-4 border-2 border-tertiary border-t-transparent rounded-full animate-spin"></div>
           <span class="text-sm">Searching...</span>
         </div>
       </div>
     </Teleport>
-    
+
     <!-- No users found message -->
     <Teleport to="body">
       <div
         v-if="isDropdownOpen && !isSearching && searchResults.length === 0 && inputValue && inputValue.length >= 2 && containerRef"
-        class="user-autocomplete-dropdown fixed bg-slate-800 rounded-lg shadow-xl border border-slate-700/50 min-w-max backdrop-blur-sm z-[9999]"
+        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-[9999]"
         :style="dropdownPosition"
       >
-        <div class="p-3 text-center text-slate-400">
+        <div class="p-3 text-center text-tertiary">
           <div class="text-sm">
             {{ props.type === 'assignee' ? 'No technicians or administrators found' : 'No users found' }}
           </div>
         </div>
       </div>
     </Teleport>
-    
+
     <!-- Search prompt -->
     <Teleport to="body">
       <div
         v-if="isDropdownOpen && !isSearching && inputValue && inputValue.length < 2 && !modelValue && containerRef"
-        class="user-autocomplete-dropdown fixed bg-slate-800 rounded-lg shadow-xl border border-slate-700/50 min-w-max backdrop-blur-sm z-[9999]"
+        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-[9999]"
         :style="dropdownPosition"
       >
-        <div class="p-3 text-center text-slate-400">
+        <div class="p-3 text-center text-tertiary">
           <div class="text-sm">Type to search</div>
         </div>
       </div>

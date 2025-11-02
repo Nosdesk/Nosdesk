@@ -58,15 +58,15 @@ onMounted(async () => {
 
 <style scoped>
 .prose-content {
-  color: #cbd5e1; /* text-slate-300 */
+  color: var(--text-secondary);
   max-width: none;
 }
 
-.prose-content :deep(h1), 
-.prose-content :deep(h2), 
-.prose-content :deep(h3), 
+.prose-content :deep(h1),
+.prose-content :deep(h2),
+.prose-content :deep(h3),
 .prose-content :deep(h4) {
-  color: white;
+  color: var(--text-primary);
   font-weight: 500;
   margin-top: 2rem;
   margin-bottom: 1rem;
@@ -89,23 +89,24 @@ onMounted(async () => {
 }
 
 .prose-content :deep(a) {
-  color: #60a5fa; /* text-blue-400 */
+  color: var(--brand-blue);
   text-decoration: none;
 }
 
 .prose-content :deep(a:hover) {
-  color: #93c5fd; /* text-blue-300 */
+  color: var(--brand-blue);
+  opacity: 0.8;
 }
 
 .prose-content :deep(code) {
-  background-color: #334155; /* bg-slate-700 */
+  background-color: var(--bg-surface);
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
   font-size: 0.875rem;
 }
 
 .prose-content :deep(pre) {
-  background-color: #1e293b; /* bg-slate-800 */
+  background-color: var(--bg-surface-alt);
   border-radius: 0.5rem;
   padding: 1rem;
   margin-top: 1rem;
@@ -129,7 +130,7 @@ onMounted(async () => {
 }
 
 .prose-content :deep(blockquote) {
-  border-left: 4px solid #475569; /* border-slate-600 */
+  border-left: 4px solid var(--border-default);
   padding-left: 1rem;
   margin-top: 1rem;
   margin-bottom: 1rem;
@@ -149,13 +150,13 @@ onMounted(async () => {
 }
 
 .prose-content :deep(table th) {
-  background-color: #334155; /* bg-slate-700 */
+  background-color: var(--bg-surface);
   padding: 0.5rem;
   text-align: left;
 }
 
 .prose-content :deep(table td) {
-  border-top: 1px solid #334155; /* border-slate-700 */
+  border-top: 1px solid var(--border-default);
   padding: 0.5rem;
 }
 </style> 

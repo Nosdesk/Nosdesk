@@ -26,8 +26,8 @@ const props = withDefaults(defineProps<Props>(), {
       :show-name="false"
     />
     <div class="min-w-0">
-      <div class="font-medium truncate text-slate-200">{{ userName }}</div>
-      <div v-if="email" class="text-xs text-slate-400 truncate">{{ email }}</div>
+      <div class="font-medium truncate text-primary">{{ userName }}</div>
+      <div v-if="email" class="text-xs text-tertiary truncate">{{ email }}</div>
     </div>
   </div>
 </template> 

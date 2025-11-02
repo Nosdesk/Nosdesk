@@ -110,10 +110,10 @@ watch(() => props.userUuid, () => {
 </script>
 
 <template>
-  <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+  <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
     <!-- Header -->
-    <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50 flex items-center justify-between">
-      <h2 class="text-lg font-medium text-white">Email Addresses</h2>
+    <div class="px-4 py-3 bg-surface-alt border-b border-default flex items-center justify-between">
+      <h2 class="text-lg font-medium text-primary">Email Addresses</h2>
       <button
         v-if="canEdit && !showAddForm"
         @click="showAddForm = true"
@@ -129,14 +129,14 @@ watch(() => props.userUuid, () => {
     <!-- Content -->
     <div class="p-4">
       <!-- Add Email Form -->
-      <div v-if="showAddForm && canEdit" class="mb-4 p-4 bg-slate-700/30 rounded-lg border border-slate-600/30">
-        <h3 class="text-sm font-medium text-white mb-3">Add New Email Address</h3>
+      <div v-if="showAddForm && canEdit" class="mb-4 p-4 bg-surface-alt rounded-lg border border-subtle">
+        <h3 class="text-sm font-medium text-primary mb-3">Add New Email Address</h3>
         <div class="flex flex-col sm:flex-row gap-3">
           <input
             v-model="newEmailAddress"
             type="email"
             placeholder="email@example.com"
-            class="flex-1 px-4 py-2.5 bg-slate-700/50 rounded-lg border border-slate-600/30 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-blue-500 focus:outline-none"
             @keyup.enter="addEmail"
           />
           <div class="flex gap-2">
@@ -149,7 +149,7 @@ watch(() => props.userUuid, () => {
             </button>
             <button
               @click="cancelAdd"
-              class="px-4 py-2.5 bg-slate-600 text-white rounded-lg hover:bg-slate-500 transition-colors"
+              class="px-4 py-2.5 bg-surface-hover text-primary rounded-lg hover:bg-surface transition-colors"
             >
               Cancel
             </button>
@@ -163,7 +163,7 @@ watch(() => props.userUuid, () => {
       </div>
 
       <!-- Empty state -->
-      <div v-else-if="userEmails.length === 0" class="text-slate-400 text-sm py-4">
+      <div v-else-if="userEmails.length === 0" class="text-tertiary text-sm py-4">
         No email addresses found
       </div>
 
@@ -172,14 +172,14 @@ watch(() => props.userUuid, () => {
         <div
           v-for="email in userEmails"
           :key="email.id"
-          class="bg-slate-700/50 p-4 rounded-lg hover:bg-slate-700/70 transition-colors"
+          class="bg-surface-alt p-4 rounded-lg hover:bg-surface-hover/70 transition-colors"
         >
           <div class="flex items-start justify-between gap-4">
             <!-- Email info -->
             <div class="flex-1 min-w-0">
               <!-- Email address with badges -->
               <div class="flex items-center gap-2 flex-wrap mb-2">
-                <span class="font-medium text-white truncate">
+                <span class="font-medium text-primary truncate">
                   {{ email.email }}
                 </span>
                 <span
@@ -192,11 +192,11 @@ watch(() => props.userUuid, () => {
 
               <!-- Metadata -->
               <div class="flex items-center gap-2 text-sm">
-                <span class="text-slate-400 capitalize">
+                <span class="text-tertiary capitalize">
                   {{ email.email_type || 'personal' }}
                 </span>
-                <span v-if="email.source" class="text-slate-600">•</span>
-                <span v-if="email.source" class="text-xs text-slate-500 capitalize">
+                <span v-if="email.source" class="text-border-default">•</span>
+                <span v-if="email.source" class="text-xs text-tertiary capitalize">
                   {{ email.source }}
                 </span>
               </div>
@@ -217,7 +217,7 @@ watch(() => props.userUuid, () => {
           </div>
 
           <!-- Edit actions (only when canEdit is true) -->
-          <div v-if="canEdit && email.id !== 0" class="mt-3 pt-3 border-t border-slate-600/30 flex flex-wrap gap-2">
+          <div v-if="canEdit && email.id !== 0" class="mt-3 pt-3 border-t border-subtle flex flex-wrap gap-2">
             <button
               v-if="!email.is_primary"
               @click="setAsPrimary(email.id, email.email)"
@@ -234,8 +234,8 @@ watch(() => props.userUuid, () => {
             </button>
           </div>
           <!-- Note for primary email -->
-          <div v-if="canEdit && email.id === 0 && email.is_primary" class="mt-3 pt-3 border-t border-slate-600/30">
-            <span class="text-xs text-slate-500">
+          <div v-if="canEdit && email.id === 0 && email.is_primary" class="mt-3 pt-3 border-t border-subtle">
+            <span class="text-xs text-tertiary">
               This is your account's primary email. Manage it in your profile settings.
             </span>
           </div>

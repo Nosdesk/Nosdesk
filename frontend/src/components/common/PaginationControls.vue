@@ -144,14 +144,14 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
 </script>
 
 <template>
-  <div class="flex-shrink-0 bg-slate-800 border-t border-slate-700">
+  <div class="flex-shrink-0 bg-surface border-t border-default">
     <!-- Mobile Layout -->
     <div v-if="isMobile" class="flex flex-col gap-3 p-3">
       <!-- Top row: Page info and navigation -->
       <div class="flex items-center justify-between">
         <!-- Page info with input -->
         <div class="flex items-center gap-2">
-          <span class="text-sm text-gray-400">Page</span>
+          <span class="text-sm text-secondary">Page</span>
           <div class="flex items-center gap-1">
             <input
               v-model="pageInputValue"
@@ -161,38 +161,38 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
               type="number"
               :min="1"
               :max="totalPagesDisplay"
-              class="w-16 px-2 py-1 text-sm bg-slate-700 border border-slate-600 text-white rounded focus:ring-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
+              class="w-16 px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
               ref="pageInput"
             />
-            <span class="text-sm text-gray-400">of {{ totalPagesDisplay }}</span>
+            <span class="text-sm text-secondary">of {{ totalPagesDisplay }}</span>
           </div>
         </div>
         
         <!-- Navigation buttons -->
         <div v-if="hasMultiplePages" class="flex items-center gap-1">
-          <button 
+          <button
             @click="changePage(currentPageDisplay - 1)"
             :disabled="currentPageDisplay <= 1"
             :class="[
               'p-2 rounded-md text-sm transition-colors',
-              currentPageDisplay <= 1 
-                ? 'bg-slate-700 text-gray-500 cursor-not-allowed' 
-                : 'bg-slate-700 text-white hover:bg-slate-600'
+              currentPageDisplay <= 1
+                ? 'bg-surface-alt text-tertiary cursor-not-allowed'
+                : 'bg-surface-alt text-primary hover:bg-surface-hover'
             ]"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          
-          <button 
+
+          <button
             @click="changePage(currentPageDisplay + 1)"
             :disabled="currentPageDisplay >= totalPagesDisplay"
             :class="[
               'p-2 rounded-md text-sm transition-colors',
-              currentPageDisplay >= totalPagesDisplay 
-                ? 'bg-slate-700 text-gray-500 cursor-not-allowed' 
-                : 'bg-slate-700 text-white hover:bg-slate-600'
+              currentPageDisplay >= totalPagesDisplay
+                ? 'bg-surface-alt text-tertiary cursor-not-allowed'
+                : 'bg-surface-alt text-primary hover:bg-surface-hover'
             ]"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -204,15 +204,15 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
       
       <!-- Bottom row: Page size and import -->
       <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2 text-sm text-gray-400">
-          <select 
-            :value="pageSize" 
+        <div class="flex items-center gap-2 text-sm text-secondary">
+          <select
+            :value="pageSize"
             @change="changePageSize"
-            class="bg-slate-700 border border-slate-600 text-white text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 py-1 px-2"
+            class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 py-1 px-2"
           >
-            <option 
-              v-for="size in (pageSizeOptions || defaultPageSizeOptions)" 
-              :key="size" 
+            <option
+              v-for="size in (pageSizeOptions || defaultPageSizeOptions)"
+              :key="size"
               :value="size"
             >
               {{ size }}
@@ -220,11 +220,11 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
           </select>
           <span>per page</span>
         </div>
-        
+
         <button
           v-if="showImport"
           @click="emit('import')"
-          class="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:ring-2 focus:outline-none focus:ring-blue-800 flex items-center gap-1 transition-colors"
+          class="px-3 py-1 text-xs font-medium text-primary bg-blue-600 rounded-md hover:bg-blue-700 focus:ring-2 focus:outline-none focus:ring-blue-800 flex items-center gap-1 transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" />
@@ -237,16 +237,16 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
     <!-- Desktop Layout -->
     <div v-else class="flex items-center justify-between p-3">
       <!-- Left: Page size selector -->
-      <div class="flex items-center gap-2 text-sm text-gray-400 min-w-0 flex-shrink-0">
+      <div class="flex items-center gap-2 text-sm text-secondary min-w-0 flex-shrink-0">
         <span>Show</span>
-        <select 
-          :value="pageSize" 
+        <select
+          :value="pageSize"
           @change="changePageSize"
-          class="bg-slate-700 border border-slate-600 text-white text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 py-1 px-2"
+          class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 py-1 px-2"
         >
-          <option 
-            v-for="size in (pageSizeOptions || defaultPageSizeOptions)" 
-            :key="size" 
+          <option
+            v-for="size in (pageSizeOptions || defaultPageSizeOptions)"
+            :key="size"
             :value="size"
           >
             {{ size }}
@@ -254,58 +254,58 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
         </select>
         <span>per page</span>
       </div>
-      
+
       <!-- Center: Page navigation (fixed width container) -->
       <div v-if="hasMultiplePages" class="flex items-center gap-4 min-w-0 flex-1 justify-center">
         <!-- Previous page button -->
-        <button 
+        <button
           @click="changePage(currentPageDisplay - 1)"
           :disabled="currentPageDisplay <= 1"
           :class="[
             'p-2 rounded-md text-sm transition-colors flex-shrink-0',
-            currentPageDisplay <= 1 
-              ? 'bg-slate-700 text-gray-500 cursor-not-allowed' 
-              : 'bg-slate-700 text-white hover:bg-slate-600'
+            currentPageDisplay <= 1
+              ? 'bg-surface-alt text-tertiary cursor-not-allowed'
+              : 'bg-surface-alt text-primary hover:bg-surface-hover'
           ]"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        
+
         <!-- Page numbers container with FIXED width to prevent layout shifts -->
         <div class="flex items-center gap-1 w-96 justify-center">
           <template v-for="page in pageNumbers" :key="page">
-            <button 
+            <button
               v-if="typeof page === 'number'"
               @click="changePage(page)"
               :class="[
                 'py-1 text-sm rounded-md transition-colors flex-shrink-0 w-10 text-center',
                 page === currentPageDisplay
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-slate-700 text-white hover:bg-slate-600'
+                  ? 'bg-blue-600 text-primary'
+                  : 'bg-surface-alt text-primary hover:bg-surface-hover'
               ]"
             >
               {{ page }}
             </button>
-            <span 
+            <span
               v-else
-              class="py-1 text-sm text-gray-400 flex-shrink-0 w-10 text-center"
+              class="py-1 text-sm text-secondary flex-shrink-0 w-10 text-center"
             >
               ...
             </span>
           </template>
         </div>
-        
+
         <!-- Next page button -->
-        <button 
+        <button
           @click="changePage(currentPageDisplay + 1)"
           :disabled="currentPageDisplay >= totalPagesDisplay"
           :class="[
             'p-2 rounded-md text-sm transition-colors flex-shrink-0',
-            currentPageDisplay >= totalPagesDisplay 
-              ? 'bg-slate-700 text-gray-500 cursor-not-allowed' 
-              : 'bg-slate-700 text-white hover:bg-slate-600'
+            currentPageDisplay >= totalPagesDisplay
+              ? 'bg-surface-alt text-tertiary cursor-not-allowed'
+              : 'bg-surface-alt text-primary hover:bg-surface-hover'
           ]"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -313,11 +313,11 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
           </svg>
         </button>
       </div>
-      
+
       <!-- Right: Page info and Import button -->
       <div class="flex items-center gap-3 min-w-0 flex-shrink-0">
         <!-- Page info with direct input -->
-        <div class="flex items-center gap-2 text-sm text-gray-400">
+        <div class="flex items-center gap-2 text-sm text-secondary">
           <span>Page</span>
           <div class="flex items-center gap-1">
             <input
@@ -328,18 +328,18 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
               type="number"
               :min="1"
               :max="totalPagesDisplay"
-              class="px-2 py-1 text-sm bg-slate-700 border border-slate-600 text-white rounded focus:ring-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
+              class="px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
               ref="pageInput"
             />
             <span>of {{ totalPagesDisplay }}</span>
           </div>
         </div>
-        
+
         <!-- Import button -->
         <button
           v-if="showImport"
           @click="emit('import')"
-          class="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:ring-2 focus:outline-none focus:ring-blue-800 flex items-center gap-1 transition-colors"
+          class="px-3 py-1 text-xs font-medium text-primary bg-blue-600 rounded-md hover:bg-blue-700 focus:ring-2 focus:outline-none focus:ring-blue-800 flex items-center gap-1 transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" />

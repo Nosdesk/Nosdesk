@@ -435,12 +435,12 @@ defineExpose({
 </style>
 
 <template>
-  <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
-    <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
-      <h2 class="text-lg font-medium text-white">
+  <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
+    <div class="px-4 py-3 bg-surface-alt border-b border-default">
+      <h2 class="text-lg font-medium text-primary">
         {{ isInSuccessState ? 'Setup Complete!' : 'Two-Factor Authentication' }}
       </h2>
-      <p class="text-sm text-slate-400 mt-1">
+      <p class="text-sm text-tertiary mt-1">
         {{ isInSuccessState ? 'Your account is now protected with 2FA' : 'Add an extra layer of security to your account' }}
       </p>
     </div>
@@ -448,7 +448,7 @@ defineExpose({
     <div class="p-6">
       <div class="flex flex-col gap-4">
         <!-- MFA Toggle / Status (hidden in login setup mode) -->
-        <div v-if="!props.isLoginSetup" class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors p-4">
+        <div v-if="!props.isLoginSetup" class="bg-surface-alt rounded-lg border border-subtle hover:border-strong transition-colors p-4">
           <ToggleSwitch
             :modelValue="mfa.mfaEnabled.value"
             :disabled="mfa.loading.value"
@@ -459,9 +459,9 @@ defineExpose({
         </div>
 
         <!-- Setup Steps (hidden in login setup mode) -->
-        <div v-if="mfa.showSetupSteps.value && !props.isLoginSetup" class="bg-slate-700/30 rounded-lg border border-slate-600/20 p-4">
-          <h3 class="text-sm font-medium text-white mb-4">How to set up 2FA:</h3>
-          <ol class="flex flex-col gap-3 text-sm text-slate-300">
+        <div v-if="mfa.showSetupSteps.value && !props.isLoginSetup" class="bg-surface-alt rounded-lg border border-default/20 p-4">
+          <h3 class="text-sm font-medium text-primary mb-4">How to set up 2FA:</h3>
+          <ol class="flex flex-col gap-3 text-sm text-secondary">
             <li v-for="(step, index) in setupSteps" :key="index" class="flex items-start gap-3">
               <span class="bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5 flex-shrink-0">{{ index + 1 }}</span>
               <span>{{ step }}</span>
@@ -526,36 +526,36 @@ defineExpose({
           <!-- Verification Components -->
           <div class="flex flex-col gap-6">
             <!-- Manual Secret Entry Option -->
-            <div class="bg-slate-800/50 rounded-lg border border-slate-600/20 p-4">
+            <div class="bg-surface/50 rounded-lg border border-default/20 p-4">
               <button
                 @click="showSecret = !showSecret"
-                class="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+                class="flex items-center gap-2 text-sm text-tertiary hover:text-primary transition-colors"
               >
-                <svg 
-                  xmlns="http://www.w3.org/2000/svg" 
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
                   class="h-4 w-4 transition-transform"
                   :class="{ 'rotate-90': showSecret }"
-                  fill="none" 
-                  viewBox="0 0 24 24" 
+                  fill="none"
+                  viewBox="0 0 24 24"
                   stroke="currentColor"
                 >
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                 </svg>
                 Can't scan? Enter the code manually
               </button>
-              
+
               <div v-if="showSecret" class="mt-4 flex flex-col gap-3">
-                <p class="text-sm text-slate-400">Enter this secret key in your authenticator app:</p>
-                <div class="bg-slate-700/50 rounded-lg p-3 border border-slate-600/30">
+                <p class="text-sm text-tertiary">Enter this secret key in your authenticator app:</p>
+                <div class="bg-surface-alt rounded-lg p-3 border border-subtle">
                   <div class="flex items-center justify-between gap-3">
                     <code class="text-sm font-mono text-green-400 select-all flex-1 break-all">{{ formatSecret(mfa.mfaSecret.value) }}</code>
                     <button
                       @click="copySecret"
                       :disabled="secretCopied"
                       class="px-3 py-1 text-xs rounded transition-all duration-200 flex-shrink-0"
-                      :class="secretCopied 
-                        ? 'bg-green-600 text-white cursor-default' 
-                        : 'bg-slate-600 text-white hover:bg-slate-500 cursor-pointer'"
+                      :class="secretCopied
+                        ? 'bg-green-600 text-white cursor-default'
+                        : 'bg-surface-hover text-primary hover:bg-surface cursor-pointer'"
                       :title="secretCopied ? 'Copied to clipboard!' : 'Copy to clipboard'"
                     >
                       {{ secretCopied ? 'Copied!' : 'Copy' }}
@@ -568,17 +568,17 @@ defineExpose({
             <!-- Verification Input Section -->
             <div class="flex flex-col gap-4">
               <div>
-                <h4 class="text-sm font-medium text-white mb-2">Enter Verification Code</h4>
-                <p class="text-sm text-slate-400">Enter the 6-digit code from your authenticator app:</p>
+                <h4 class="text-sm font-medium text-primary mb-2">Enter Verification Code</h4>
+                <p class="text-sm text-tertiary">Enter the 6-digit code from your authenticator app:</p>
               </div>
 
               <div class="flex flex-col sm:flex-row gap-3">
-                <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors flex-1">
+                <div class="bg-surface-alt rounded-lg border border-subtle hover:border-strong transition-colors flex-1">
                   <input
                     v-model="verificationCode"
                     type="text"
                     maxlength="6"
-                    class="w-full px-4 py-3 bg-transparent text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-center tracking-widest text-lg sm:text-base"
+                    class="w-full px-4 py-3 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-center tracking-widest text-lg sm:text-base"
                     placeholder="000000"
                     @paste="handleVerificationPaste"
                   />
@@ -586,7 +586,7 @@ defineExpose({
                 <button
                   @click="verifyMFA"
                   :disabled="verificationCode.length !== 6 || mfa.verifying.value"
-                  class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-600 flex items-center justify-center transition-colors min-h-[52px] active:scale-[0.98]"
+                  class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-surface-hover flex items-center justify-center transition-colors min-h-[52px] active:scale-[0.98]"
                 >
                   <span v-if="mfa.verifying.value" class="animate-spin h-4 w-4 mr-2">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -597,10 +597,10 @@ defineExpose({
                   {{ mfa.verifying.value ? 'Verifying...' : 'Verify' }}
                 </button>
               </div>
-              
+
               <button
                 @click="cancelMFASetup"
-                class="self-start text-sm text-slate-400 hover:text-white transition-colors min-h-[44px] px-2"
+                class="self-start text-sm text-tertiary hover:text-primary transition-colors min-h-[44px] px-2"
               >
                 Cancel setup
               </button>
@@ -633,8 +633,8 @@ defineExpose({
                   </svg>
                 </div>
                 <div class="text-center">
-                  <h3 class="text-lg font-medium text-white mb-2">Verifying Code</h3>
-                  <p class="text-sm text-slate-400">Please wait while we verify your authenticator code...</p>
+                  <h3 class="text-lg font-medium text-primary mb-2">Verifying Code</h3>
+                  <p class="text-sm text-tertiary">Please wait while we verify your authenticator code...</p>
                 </div>
               </div>
             </div>
@@ -649,7 +649,7 @@ defineExpose({
             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div class="min-w-0 flex-1">
                 <h4 class="text-sm font-medium text-amber-400 mb-2">Backup Codes</h4>
-                <p class="text-sm text-slate-300">Save these backup codes in a secure location. You can use them to access your account if you lose your authenticator device:</p>
+                <p class="text-sm text-secondary">Save these backup codes in a secure location. You can use them to access your account if you lose your authenticator device:</p>
               </div>
               <button
                 @click="downloadBackupCodes"
@@ -662,9 +662,9 @@ defineExpose({
                 Download
               </button>
             </div>
-            <div class="bg-slate-700/50 rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm text-white">
+            <div class="bg-surface-alt rounded-lg p-3 sm:p-4 font-mono text-xs sm:text-sm text-primary">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div v-for="code in mfa.backupCodes.value" :key="code" class="text-center p-2 bg-slate-800/50 rounded break-all">{{ code }}</div>
+                <div v-for="code in mfa.backupCodes.value" :key="code" class="text-center p-2 bg-surface/50 rounded break-all">{{ code }}</div>
               </div>
             </div>
             <p class="text-xs text-amber-400 flex items-center gap-2">
@@ -687,7 +687,7 @@ defineExpose({
               </div>
               <div>
                 <h3 class="text-lg font-medium text-green-400">Two-Factor Authentication Enabled!</h3>
-                <p class="text-sm text-slate-300">Your account is now protected with 2FA. You'll need to enter a code from your authenticator app when signing in.</p>
+                <p class="text-sm text-secondary">Your account is now protected with 2FA. You'll need to enter a code from your authenticator app when signing in.</p>
               </div>
             </div>
             
@@ -712,7 +712,7 @@ defineExpose({
               </svg>
               <h3 class="text-sm font-medium text-green-400">2FA is enabled</h3>
             </div>
-            <p class="text-sm text-slate-300">Your account is protected with two-factor authentication. You'll need to enter a code from your authenticator app when signing in.</p>
+            <p class="text-sm text-secondary">Your account is protected with two-factor authentication. You'll need to enter a code from your authenticator app when signing in.</p>
           </div>
         </div>
       </div>

@@ -153,7 +153,7 @@ onUnmounted(() => {
 <template>
   <div
     ref="progressBarRef"
-    class="w-full h-1.5 bg-slate-600/50 rounded-full cursor-pointer relative group"
+    class="w-full h-1.5 bg-surface-hover rounded-full cursor-pointer relative group"
     @mousedown.stop="handleMouseDown"
     @touchstart.stop="handleTouchStart"
   >

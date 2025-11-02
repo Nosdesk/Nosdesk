@@ -61,25 +61,25 @@ const getStatusClass = (status: string) => {
 </script>
 
 <template>
-  <div v-if="isLoading" class="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
+  <div v-if="isLoading" class="bg-surface rounded-xl border border-default p-4">
     <div class="animate-pulse flex flex-col gap-3">
-      <div class="h-6 bg-slate-700 rounded w-1/2"></div>
-      <div class="h-4 bg-slate-700 rounded w-3/4"></div>
-      <div class="h-4 bg-slate-700 rounded w-1/3"></div>
+      <div class="h-6 bg-surface-alt rounded w-1/2"></div>
+      <div class="h-4 bg-surface-alt rounded w-3/4"></div>
+      <div class="h-4 bg-surface-alt rounded w-1/3"></div>
     </div>
   </div>
 
-  <div v-else-if="project" class="bg-slate-800 rounded-xl border border-slate-700/50 overflow-hidden hover:border-slate-600/50 transition-colors">
+  <div v-else-if="project" class="bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors">
     <!-- Header -->
-    <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
+    <div class="px-4 py-3 bg-surface-alt border-b border-default">
       <div class="flex items-center justify-between">
-        <h3 class="text-lg font-medium text-white">{{ project.name }}</h3>
+        <h3 class="text-lg font-medium text-primary">{{ project.name }}</h3>
         
         <!-- Action buttons -->
         <div class="flex items-center gap-1">
           <button
             @click="emit('view')"
-            class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-600 rounded-md transition-colors"
+            class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
             title="View project"
           >
             <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -89,7 +89,7 @@ const getStatusClass = (status: string) => {
           </button>
           <button
             @click="emit('remove')"
-            class="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-900/20 rounded-md transition-colors"
+            class="p-1.5 text-tertiary hover:text-red-400 hover:bg-red-900/20 rounded-md transition-colors"
             title="Remove from project"
           >
             <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -105,19 +105,19 @@ const getStatusClass = (status: string) => {
       <div class="flex flex-col gap-3">
         <!-- Description -->
         <div v-if="project.description" class="flex flex-col gap-1">
-          <span class="text-xs text-slate-400 uppercase tracking-wide">Description</span>
-          <p class="text-sm text-slate-200">{{ project.description }}</p>
+          <span class="text-xs text-tertiary uppercase tracking-wide">Description</span>
+          <p class="text-sm text-secondary">{{ project.description }}</p>
         </div>
-        
+
         <!-- Project metadata -->
         <div class="grid grid-cols-3 gap-3 text-sm">
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-slate-400 uppercase tracking-wide">Project ID</span>
-            <span class="text-slate-200 font-mono text-xs">#{{ projectId }}</span>
+            <span class="text-xs text-tertiary uppercase tracking-wide">Project ID</span>
+            <span class="text-secondary font-mono text-xs">#{{ projectId }}</span>
           </div>
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-slate-400 uppercase tracking-wide">Status</span>
-            <span 
+            <span class="text-xs text-tertiary uppercase tracking-wide">Status</span>
+            <span
               :class="getStatusClass(project.status)"
               class="text-xs px-2 py-1 rounded-md border w-fit"
             >
@@ -125,8 +125,8 @@ const getStatusClass = (status: string) => {
             </span>
           </div>
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-slate-400 uppercase tracking-wide">Tickets</span>
-            <span class="text-slate-200 text-xs">{{ ticketCount }}</span>
+            <span class="text-xs text-tertiary uppercase tracking-wide">Tickets</span>
+            <span class="text-secondary text-xs">{{ ticketCount }}</span>
           </div>
         </div>
       </div>

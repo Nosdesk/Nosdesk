@@ -49,7 +49,7 @@ const handleBack = () => {
 <template>
   <button
     @click="handleBack"
-    class="text-slate-400 hover:text-white text-sm flex items-center gap-1 group"
+    class="text-secondary hover:text-primary text-sm flex items-center gap-1 group"
   >
     <span class="text-xs group-hover:-translate-x-0.5 transition-transform">←</span>
     {{ label || 'Go back' }}

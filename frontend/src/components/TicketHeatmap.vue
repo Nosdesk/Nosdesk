@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { getTickets } from "@/services/ticketService";
 import type { Ticket } from "@/services/ticketService";
 import HeatmapTooltip from "@/components/HeatmapTooltip.vue";
+import { useThemeStore } from "@/stores/theme";
 
 interface Props {
     ticketStatus?: "open" | "in-progress" | "closed";
@@ -20,6 +21,7 @@ interface DayData {
 }
 
 const router = useRouter();
+const themeStore = useThemeStore();
 const heatmapData = ref<DayData[]>([]);
 const isLoading = ref(true);
 const error = ref<string | null>(null);
@@ -104,13 +106,25 @@ const fetchTicketData = async () => {
     }
 };
 
-// Get color based on activity count using site theme
+// Get color based on activity count and theme
 const getColor = (count: number) => {
-    if (count === 0) return "#334155"; // slate-700 - No activity
-    if (count <= 1) return "#475569"; // slate-600 - Very low
-    if (count <= 2) return "#0F7947"; // Green - Low activity
-    if (count <= 3) return "#08A14C"; // Green - Medium activity
-    return "#00C950"; // Green - High activity
+    const isDark = themeStore.isDarkMode;
+
+    if (isDark) {
+        // Dark mode - darker greens with good contrast
+        if (count === 0) return "#334155"; // slate-700 - No activity (slightly lighter than bg)
+        if (count <= 1) return "#14532d"; // green-950 - Very low
+        if (count <= 2) return "#166534"; // green-800 - Low activity
+        if (count <= 3) return "#15803d"; // green-700 - Medium activity
+        return "#16a34a"; // green-600 - High activity
+    } else {
+        // Light mode - lighter greens with good contrast
+        if (count === 0) return "#f3f4f6"; // gray-100 - No activity (subtle)
+        if (count <= 1) return "#dcfce7"; // green-100 - Very low
+        if (count <= 2) return "#86efac"; // green-300 - Low activity
+        if (count <= 3) return "#4ade80"; // green-400 - Medium activity
+        return "#22c55e"; // green-500 - High activity
+    }
 };
 
 // Format date for tooltip
@@ -224,10 +238,10 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="bg-slate-800 rounded-lg p-6 w-full">
+    <div class="bg-surface rounded-lg p-6 w-full">
         <!-- Header -->
         <div class="flex justify-between items-center mb-4">
-            <h3 class="text-slate-400 text-sm font-medium">
+            <h3 class="text-secondary text-sm font-medium">
                 {{
                     props.ticketStatus === "closed"
                         ? "Closed Tickets"
@@ -237,7 +251,7 @@ onMounted(() => {
             </h3>
             <button
                 @click="fetchTicketData"
-                class="text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+                class="text-xs text-secondary hover:text-primary transition-colors disabled:opacity-50"
                 :disabled="isLoading"
             >
                 <span v-if="isLoading">Loading...</span>
@@ -253,7 +267,7 @@ onMounted(() => {
         <!-- Loading State -->
         <div
             v-else-if="isLoading"
-            class="flex justify-center items-center h-32 text-slate-400"
+            class="flex justify-center items-center h-32 text-secondary"
         >
             <div class="flex flex-col items-center gap-2">
                 <svg
@@ -287,7 +301,7 @@ onMounted(() => {
                 <div class="flex gap-1.5 w-full">
                     <!-- Days of week labels -->
                     <div
-                        class="flex flex-col gap-0.5 text-[10px] text-slate-400/80 justify-around flex-shrink-0"
+                        class="flex flex-col gap-0.5 text-[10px] text-secondary justify-around flex-shrink-0"
                     >
                         <span class="h-2.5 flex items-center">Sun</span>
                         <span class="h-2.5 flex items-center">Mon</span>
@@ -319,9 +333,9 @@ onMounted(() => {
                                 >
                                     <div class="p-[1px]">
                                         <div
-                                            class="w-full h-2.5 rounded-[1px] transition-transform duration-75 hover:scale-110 hover:z-10 border border-slate-700/50"
+                                            class="w-full h-2.5 rounded-[1px] transition-transform duration-75 hover:scale-110 hover:z-10 border border-subtle"
                                             :class="{
-                                                'cursor-pointer hover:border-slate-600':
+                                                'cursor-pointer hover:border-default':
                                                     day.count > 0,
                                                 'cursor-default': day.count === 0,
                                             }"
@@ -341,21 +355,21 @@ onMounted(() => {
 
                 <!-- Legend and info -->
                 <div class="flex justify-between items-center">
-                    <div class="text-[10px] text-slate-400/80">
+                    <div class="text-[10px] text-secondary">
                         {{ heatmapData.filter((d) => d.count > 0).length }} days
                         with activity
                     </div>
 
                     <!-- Legend -->
                     <div
-                        class="flex items-center gap-2 text-[10px] text-slate-400/80"
+                        class="flex items-center gap-2 text-[10px] text-secondary"
                     >
                         <span>Less</span>
                         <div class="flex gap-0.5">
                             <div
                                 v-for="i in 6"
                                 :key="i"
-                                class="w-2.5 h-2.5 rounded-[1px] border border-slate-700/50"
+                                class="w-2.5 h-2.5 rounded-[1px] border border-subtle"
                                 :style="{
                                     backgroundColor: getColor(i - 1),
                                 }"

@@ -412,10 +412,10 @@ onMounted(() => {
                 </div>
               </div>
               
-              <p class="text-slate-400 mt-1">
+              <p class="text-secondary mt-1">
                 {{ isCreationMode ? 'Enter device details below' : `${device?.manufacturer || 'Unknown Manufacturer'} ${device?.model}` }}
               </p>
-              <p v-if="!isCreationMode" class="text-sm text-slate-500 mt-2">
+              <p v-if="!isCreationMode" class="text-sm text-tertiary mt-2">
                 Last updated {{ device?.updated_at ? formatDate(device.updated_at) : 'unknown' }}
               </p>
             </div>
@@ -425,17 +425,17 @@ onMounted(() => {
         </div>
 
         <!-- Error Display -->
-        <div v-if="error" class="bg-red-900/30 border border-red-700 rounded-lg p-4 text-red-200 text-sm">
+        <div v-if="error" class="bg-status-error/30 border border-status-error rounded-lg p-4 text-status-error text-sm">
           {{ error }}
         </div>
 
         <!-- Device Creation Form -->
         <div v-if="isCreationMode" class="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <!-- Basic Information -->
-          <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+          <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
             <!-- Header -->
-            <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
-              <h2 class="text-lg font-medium text-white">Basic Information</h2>
+            <div class="px-4 py-3 bg-surface-alt border-b border-default">
+              <h2 class="text-lg font-medium text-primary">Basic Information</h2>
             </div>
             
             <!-- Content -->
@@ -443,39 +443,39 @@ onMounted(() => {
               <div class="flex flex-col gap-4">
                 <!-- Device Name -->
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Device Name *</h3>
-                  <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Device Name *</h3>
+                  <div class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors">
                     <input
                       v-model="editValues.name"
                       type="text"
                       placeholder="Enter device name"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
                     />
                   </div>
                 </div>
 
                 <!-- Manufacturer -->
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Manufacturer</h3>
-                  <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Manufacturer</h3>
+                  <div class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors">
                     <input
                       v-model="editValues.manufacturer"
                       type="text"
                       placeholder="e.g., Dell, HP, Apple"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
                     />
                   </div>
                 </div>
 
                 <!-- Model -->
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Model</h3>
-                  <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Model</h3>
+                  <div class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors">
                     <input
                       v-model="editValues.model"
                       type="text"
                       placeholder="Enter device model"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
                     />
                   </div>
                 </div>
@@ -484,10 +484,10 @@ onMounted(() => {
           </div>
 
           <!-- System Details -->
-          <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+          <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
             <!-- Header -->
-            <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
-              <h2 class="text-lg font-medium text-white">System Details</h2>
+            <div class="px-4 py-3 bg-surface-alt border-b border-default">
+              <h2 class="text-lg font-medium text-primary">System Details</h2>
             </div>
             
             <!-- Content -->
@@ -495,41 +495,41 @@ onMounted(() => {
               <div class="flex flex-col gap-4">
                 <!-- Hostname -->
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Hostname</h3>
-                  <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Hostname</h3>
+                  <div class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors">
                     <input
                       v-model="editValues.hostname"
                       type="text"
                       placeholder="Enter hostname (optional)"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
                     />
                   </div>
                 </div>
 
                 <!-- Serial Number -->
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Serial Number</h3>
-                  <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Serial Number</h3>
+                  <div class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors">
                     <input
                       v-model="editValues.serial_number"
                       type="text"
                       placeholder="Enter serial number (optional)"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
                     />
                   </div>
                 </div>
 
                 <!-- Warranty Status -->
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Warranty Status</h3>
-                  <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Warranty Status</h3>
+                  <div class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors">
                     <select
                       v-model="editValues.warranty_status"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
                     >
-                      <option value="Active" class="bg-slate-700">Active</option>
-                      <option value="Expired" class="bg-slate-700">Expired</option>
-                      <option value="Unknown" class="bg-slate-700">Unknown</option>
+                      <option value="Active" class="bg-surface-alt">Active</option>
+                      <option value="Expired" class="bg-surface-alt">Expired</option>
+                      <option value="Unknown" class="bg-surface-alt">Unknown</option>
                     </select>
                   </div>
                 </div>
@@ -542,10 +542,10 @@ onMounted(() => {
         <div v-else-if="device" class="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <!-- System Information -->
           <div class="xl:col-span-1">
-            <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+            <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
               <!-- Header -->
-              <div class="px-4 py-3 bg-slate-700/30 rounded-t-xl border-b border-slate-700/50">
-                <h2 class="text-lg font-medium text-white">System Information</h2>
+              <div class="px-4 py-3 bg-surface-alt rounded-t-xl border-b border-default">
+                <h2 class="text-lg font-medium text-primary">System Information</h2>
               </div>
               
               <!-- Content -->
@@ -554,45 +554,45 @@ onMounted(() => {
                   <!-- Basic Info -->
                   <div class="grid grid-cols-1 gap-3">
                     <div class="flex flex-col gap-1.5">
-                      <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Hostname</h3>
-                      <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 p-3">
-                        <span class="text-white font-mono text-sm">{{ device.hostname }}</span>
+                      <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Hostname</h3>
+                      <div class="bg-surface-alt rounded-lg border border-default p-3">
+                        <span class="text-primary font-mono text-sm">{{ device.hostname }}</span>
                       </div>
                     </div>
-                    
+
                     <div class="flex flex-col gap-1.5">
-                      <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Serial Number</h3>
-                      <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 p-3">
-                        <span class="text-white font-mono text-sm">{{ device.serial_number }}</span>
+                      <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Serial Number</h3>
+                      <div class="bg-surface-alt rounded-lg border border-default p-3">
+                        <span class="text-primary font-mono text-sm">{{ device.serial_number }}</span>
                       </div>
                     </div>
                   </div>
-                  
+
                   <!-- Hardware Info -->
-                  <div class="pt-2 border-t border-slate-700/50">
+                  <div class="pt-2 border-t border-default">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div class="flex flex-col gap-1">
-                        <span class="text-xs text-slate-400 uppercase tracking-wide">Manufacturer</span>
-                        <span class="text-slate-200 text-sm">{{ device.manufacturer || 'Unknown' }}</span>
+                        <span class="text-xs text-secondary uppercase tracking-wide">Manufacturer</span>
+                        <span class="text-primary text-sm">{{ device.manufacturer || 'Unknown' }}</span>
                       </div>
-                      
+
                       <div class="flex flex-col gap-1">
-                        <span class="text-xs text-slate-400 uppercase tracking-wide">Model</span>
-                        <span class="text-slate-200 text-sm">{{ device.model }}</span>
+                        <span class="text-xs text-secondary uppercase tracking-wide">Model</span>
+                        <span class="text-primary text-sm">{{ device.model }}</span>
                       </div>
                     </div>
                   </div>
-                  
+
                   <!-- Warranty Status -->
-                  <div class="pt-2 border-t border-slate-700/50">
+                  <div class="pt-2 border-t border-default">
                     <div class="flex flex-col gap-2">
-                      <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Warranty Status</h3>
+                      <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Warranty Status</h3>
                       <div class="inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium w-fit"
                            :class="{
-                             'bg-green-900/30 text-green-400 border border-green-700/30': device.warranty_status === 'Active',
-                             'bg-yellow-900/30 text-yellow-400 border border-yellow-700/30': device.warranty_status === 'Warning',
-                             'bg-red-900/30 text-red-400 border border-red-700/30': device.warranty_status === 'Expired',
-                             'bg-gray-900/30 text-gray-400 border border-gray-700/30': device.warranty_status === 'Unknown'
+                             'bg-status-success/30 text-status-success border border-status-success/30': device.warranty_status === 'Active',
+                             'bg-status-warning/30 text-status-warning border border-status-warning/30': device.warranty_status === 'Warning',
+                             'bg-status-error/30 text-status-error border border-status-error/30': device.warranty_status === 'Expired',
+                             'bg-surface-alt text-secondary border border-default': device.warranty_status === 'Unknown'
                            }">
                         {{ device.warranty_status }}
                       </div>
@@ -605,10 +605,10 @@ onMounted(() => {
 
           <!-- Microsoft Entra/Intune Information -->
           <div class="xl:col-span-1">
-            <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+            <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
               <!-- Header -->
-              <div class="px-4 py-3 bg-slate-700/30 rounded-t-xl border-b border-slate-700/50">
-                <h2 class="text-lg font-medium text-white">Microsoft Entra/Intune</h2>
+              <div class="px-4 py-3 bg-surface-alt rounded-t-xl border-b border-default">
+                <h2 class="text-lg font-medium text-primary">Microsoft Entra/Intune</h2>
               </div>
               
               <!-- Content -->
@@ -618,50 +618,50 @@ onMounted(() => {
               <div class="flex flex-col gap-6">
                 <!-- Intune Device ID -->
                 <div v-if="device.intune_device_id" class="flex flex-col gap-2">
-                  <h3 class="text-sm font-medium text-slate-300 uppercase tracking-wide">Intune Device ID</h3>
-                  <div class="bg-slate-700/50 rounded-lg p-3 border border-slate-600/30">
-                    <span class="text-white font-mono text-sm break-all">{{ device.intune_device_id }}</span>
+                  <h3 class="text-sm font-medium text-primary uppercase tracking-wide">Intune Device ID</h3>
+                  <div class="bg-surface-alt rounded-lg p-3 border border-default">
+                    <span class="text-primary font-mono text-sm break-all">{{ device.intune_device_id }}</span>
                   </div>
                 </div>
-                
+
                 <!-- Entra Device ID -->
                 <div v-if="device.entra_device_id" class="flex flex-col gap-2">
-                  <h3 class="text-sm font-medium text-slate-300 uppercase tracking-wide">Entra Device ID</h3>
-                  <div class="bg-slate-700/50 rounded-lg p-3 border border-slate-600/30">
-                    <span class="text-white font-mono text-sm break-all">{{ device.entra_device_id }}</span>
+                  <h3 class="text-sm font-medium text-primary uppercase tracking-wide">Entra Device ID</h3>
+                  <div class="bg-surface-alt rounded-lg p-3 border border-default">
+                    <span class="text-primary font-mono text-sm break-all">{{ device.entra_device_id }}</span>
                   </div>
                 </div>
-                
+
                 <!-- Timestamps -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div class="flex flex-col gap-1">
-                    <h4 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Created</h4>
-                    <p class="text-slate-200 text-sm">{{ formatDate(device.created_at) }}</p>
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Created</h4>
+                    <p class="text-primary text-sm">{{ formatDate(device.created_at) }}</p>
                   </div>
                   <div class="flex flex-col gap-1">
-                    <h4 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Last Updated</h4>
-                    <p class="text-slate-200 text-sm">{{ formatDate(device.updated_at) }}</p>
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Updated</h4>
+                    <p class="text-primary text-sm">{{ formatDate(device.updated_at) }}</p>
                   </div>
                 </div>
-                
+
                 <!-- Action Buttons -->
-                <div class="flex flex-col gap-4 pt-4 border-t border-slate-700">
-                  <h3 class="text-sm font-medium text-slate-300 uppercase tracking-wide mb-4">Quick Actions</h3>
+                <div class="flex flex-col gap-4 pt-4 border-t border-default">
+                  <h3 class="text-sm font-medium text-primary uppercase tracking-wide mb-4">Quick Actions</h3>
                   <div class="flex flex-col sm:flex-row gap-3">
-                    <button 
+                    <button
                       v-if="device.intune_device_id"
                       @click="openInIntune"
-                      class="flex items-center justify-center gap-3 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm font-medium"
+                      class="flex items-center justify-center gap-3 px-4 py-3 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors duration-200 text-sm font-medium"
                     >
                       <IntuneIcon size="18" class="text-white flex-shrink-0" />
                       <span>Open in Intune</span>
                     </button>
-                    
-                    <button 
+
+                    <button
                       v-if="device.entra_device_id"
                       @click="openInEntra"
                       :disabled="loadingObjectId"
-                      class="flex items-center justify-center gap-3 px-4 py-3 bg-slate-600 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm font-medium"
+                      class="flex items-center justify-center gap-3 px-4 py-3 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm font-medium"
                     >
                       <EntraIcon v-if="!loadingObjectId" size="18" class="text-white flex-shrink-0" />
                       <svg v-else class="w-4 h-4 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
@@ -673,8 +673,8 @@ onMounted(() => {
                   </div>
                   
                   <!-- Error Message -->
-                  <div v-if="objectIdError" class="mt-3 p-3 bg-red-900/20 border border-red-700/30 rounded-lg">
-                    <p class="text-red-400 text-sm flex items-center gap-2">
+                  <div v-if="objectIdError" class="mt-3 p-3 bg-status-error/20 border border-status-error/30 rounded-lg">
+                    <p class="text-status-error text-sm flex items-center gap-2">
                       <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
                       </svg>
@@ -685,12 +685,12 @@ onMounted(() => {
                 
                 <!-- No Management Message -->
                 <div v-if="!device.intune_device_id && !device.entra_device_id" class="text-center py-8">
-                  <div class="inline-flex items-center justify-center w-12 h-12 bg-slate-700 rounded-full mb-4">
-                    <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full mb-4">
+                    <svg class="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                     </svg>
                   </div>
-                  <p class="text-slate-400 text-sm">This device is not managed by Microsoft Intune</p>
+                  <p class="text-secondary text-sm">This device is not managed by Microsoft Intune</p>
                 </div>
               </div>
               </div>
@@ -702,7 +702,7 @@ onMounted(() => {
             <div class="flex flex-col">
               <!-- Primary User Heading -->
               <div class="mb-4">
-                <h2 class="text-lg font-medium text-white">Primary User</h2>
+                <h2 class="text-lg font-medium text-primary">Primary User</h2>
               </div>
 
               <!-- User Profile Card (Compact Variant) -->
@@ -718,23 +718,23 @@ onMounted(() => {
                 >
                   <!-- User UUID -->
                   <div class="flex flex-col gap-2">
-                    <h4 class="text-xs font-medium text-slate-400 uppercase tracking-wide">User UUID</h4>
-                    <div class="bg-slate-700/50 rounded-lg p-3 border border-slate-600/30">
-                      <span class="text-white font-mono text-sm break-all">{{ device.primary_user.uuid }}</span>
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">User UUID</h4>
+                    <div class="bg-surface-alt rounded-lg p-3 border border-default">
+                      <span class="text-primary font-mono text-sm break-all">{{ device.primary_user.uuid }}</span>
                     </div>
                   </div>
                 </UserProfileCard>
               </div>
 
               <!-- No User Assigned -->
-              <div v-else class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+              <div v-else class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
                 <div class="text-center py-8 px-6">
-                  <div class="inline-flex items-center justify-center w-12 h-12 bg-slate-700 rounded-full mb-4">
-                    <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full mb-4">
+                    <svg class="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
                     </svg>
                   </div>
-                  <p class="text-slate-400 text-sm">No user assigned to this device</p>
+                  <p class="text-secondary text-sm">No user assigned to this device</p>
                 </div>
               </div>
             </div>
@@ -747,14 +747,14 @@ onMounted(() => {
             <button
               @click="router.push('/devices')"
               :disabled="isSaving"
-              class="px-6 py-2.5 bg-slate-600 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 transition-colors text-sm font-medium"
+              class="px-6 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover disabled:opacity-50 transition-colors text-sm font-medium"
             >
               Cancel
             </button>
             <button
               @click="saveDevice"
               :disabled="isSaving || !editValues.hostname"
-              class="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
+              class="px-6 py-2.5 bg-status-success text-white rounded-lg hover:bg-status-success/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
             >
               <svg v-if="isSaving" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -769,10 +769,10 @@ onMounted(() => {
     </div>
 
     <div v-else-if="loading" class="flex justify-center items-center min-h-[200px]">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-blue"></div>
     </div>
 
-    <div v-else class="p-6 text-center text-slate-400">
+    <div v-else class="p-6 text-center text-secondary">
       Device not found
     </div>
   </div>

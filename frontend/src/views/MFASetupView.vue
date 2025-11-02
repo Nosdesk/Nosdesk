@@ -1,11 +1,11 @@
 <template>
-  <div class="min-h-screen w-full flex items-center justify-center bg-slate-900">
+  <div class="min-h-screen w-full flex items-center justify-center bg-app">
     <div class="flex flex-col gap-6 w-full max-w-4xl p-8 py-12">
       <!-- Header -->
       <div class="flex flex-col gap-2 items-center">
         <img :src="logo" alt="Nosdesk Logo" class="px-4 max-w-md" />
-        <h1 class="text-2xl font-bold text-white mt-4">Complete Your Account Setup</h1>
-        <p class="text-slate-400 text-center">
+        <h1 class="text-2xl font-bold text-primary mt-4">Complete Your Account Setup</h1>
+        <p class="text-secondary text-center">
           Your account type requires multi-factor authentication for security
         </p>
       </div>
@@ -23,11 +23,11 @@
 
 
       <!-- MFA Settings Component - Loaded Immediately -->
-      <div class="bg-slate-800 rounded-xl border border-slate-700/50">
-        <MFASettings 
+      <div class="bg-surface rounded-xl border border-subtle">
+        <MFASettings
           ref="mfaSettingsRef"
           :is-login-setup="true"
-          @success="handleMfaSetupSuccess" 
+          @success="handleMfaSetupSuccess"
           @error="handleMfaSetupError"
         />
       </div>
@@ -36,15 +36,15 @@
       <div class="flex justify-between items-center">
         <button
           @click="goBackToLogin"
-          class="flex items-center gap-2 px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+          class="flex items-center gap-2 px-4 py-2 text-sm text-tertiary hover:text-primary transition-colors"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
           </svg>
           Back to Login
         </button>
-        
-        <div class="text-xs text-slate-500">
+
+        <div class="text-xs text-tertiary">
           Step 1 of 1: Setup Multi-Factor Authentication
         </div>
       </div>

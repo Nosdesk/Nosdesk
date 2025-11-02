@@ -719,23 +719,23 @@ watchEffect(() => {
 <template>
   <div class="pdf-viewer relative w-full focus:outline-none" tabindex="0">
     <!-- PDF loading indicator -->
-    <div 
-      v-if="isLoading" 
-      class="absolute inset-0 bg-slate-900/70 flex items-center justify-center z-20"
+    <div
+      v-if="isLoading"
+      class="absolute inset-0 bg-surface/70 flex items-center justify-center z-20"
     >
       <div class="flex flex-col items-center gap-3">
         <svg class="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
-        <span class="text-sm text-slate-300">Loading PDF...</span>
+        <span class="text-sm text-secondary">Loading PDF...</span>
       </div>
     </div>
-    
+
     <!-- PDF Canvas - contained in a better sized div with overflow handling -->
-    <div 
+    <div
       ref="pdfContainer"
-      class="pdf-container w-full h-full max-h-[calc(100vh-180px)] mx-auto overflow-auto bg-slate-900 p-1 rounded"
+      class="pdf-container w-full h-full max-h-[calc(100vh-180px)] mx-auto overflow-auto bg-surface p-1 rounded"
     >
       <div class="pdf-canvas-wrapper">
         <!-- Multiple canvas layers for smooth transitions -->
@@ -753,20 +753,20 @@ watchEffect(() => {
     </div>
     
     <!-- PDF Controls -->
-    <div class="mt-4 flex flex-wrap items-center justify-between w-full bg-slate-800 rounded p-2 gap-2">
+    <div class="mt-4 flex flex-wrap items-center justify-between w-full bg-surface-alt rounded p-2 gap-2">
       <!-- Page Navigation -->
       <div class="flex items-center gap-2">
-        <button 
-          @click="navigatePdf('prev')" 
+        <button
+          @click="navigatePdf('prev')"
           :disabled="pdfPage <= 1 || pageRendering"
-          class="p-1.5 bg-slate-700 rounded text-slate-300 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="p-1.5 bg-surface-hover rounded text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
           title="Previous Page (Left Arrow)"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        
+
         <!-- Page input field -->
         <div class="flex items-center gap-1">
           <input
@@ -774,19 +774,19 @@ watchEffect(() => {
             type="text"
             inputmode="numeric"
             pattern="[0-9]*"
-            class="w-12 bg-slate-700 text-center text-white text-sm rounded p-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            class="w-12 bg-surface-hover text-center text-primary text-sm rounded p-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
             @keydown="handlePageInputKeyDown"
             @blur="goToPage"
             title="Enter page number"
             :disabled="pageRendering"
           />
-          <span class="text-sm text-slate-300 whitespace-nowrap">/ {{ pdfTotalPages }}</span>
+          <span class="text-sm text-secondary whitespace-nowrap">/ {{ pdfTotalPages }}</span>
         </div>
-        
-        <button 
-          @click="navigatePdf('next')" 
+
+        <button
+          @click="navigatePdf('next')"
           :disabled="pdfPage >= pdfTotalPages || pageRendering"
-          class="p-1.5 bg-slate-700 rounded text-slate-300 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="p-1.5 bg-surface-hover rounded text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
           title="Next Page (Right Arrow)"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -794,44 +794,44 @@ watchEffect(() => {
           </svg>
         </button>
       </div>
-      
+
       <!-- Zoom Controls -->
       <div class="flex items-center gap-2">
-        <button 
-          @click="changeScale(-0.1)" 
-          class="p-1.5 bg-slate-700 rounded text-slate-300 hover:bg-slate-600"
+        <button
+          @click="changeScale(-0.1)"
+          class="p-1.5 bg-surface-hover rounded text-secondary hover:bg-surface-hover"
           title="Zoom Out (-)"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
           </svg>
         </button>
-        <span class="text-sm text-slate-300">{{ Math.round(pdfScale * 100) }}%</span>
-        <button 
-          @click="changeScale(0.1)" 
-          class="p-1.5 bg-slate-700 rounded text-slate-300 hover:bg-slate-600"
+        <span class="text-sm text-secondary">{{ Math.round(pdfScale * 100) }}%</span>
+        <button
+          @click="changeScale(0.1)"
+          class="p-1.5 bg-surface-hover rounded text-secondary hover:bg-surface-hover"
           title="Zoom In (+)"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
         </button>
-        
+
         <!-- Toggle button based on view mode -->
-        <button 
+        <button
           v-if="isFullscreenView"
-          @click="resetView" 
-          class="p-1.5 bg-slate-700 rounded text-slate-300 hover:bg-slate-600 ml-1"
+          @click="resetView"
+          class="p-1.5 bg-surface-hover rounded text-secondary hover:bg-surface-hover ml-1"
           title="Reset View (R)"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M12 3v18" />
           </svg>
         </button>
-        <button 
+        <button
           v-else
-          @click="openFullscreen" 
-          class="p-1.5 bg-slate-700 rounded text-slate-300 hover:bg-slate-600 ml-1"
+          @click="openFullscreen"
+          class="p-1.5 bg-surface-hover rounded text-secondary hover:bg-surface-hover ml-1"
           title="Fullscreen View (F)"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -840,9 +840,9 @@ watchEffect(() => {
         </button>
       </div>
     </div>
-    
+
     <!-- Keyboard shortcuts help -->
-    <div class="text-xs text-slate-400 mt-2 text-center">
+    <div class="text-xs text-tertiary mt-2 text-center">
       <p v-if="isFullscreenView">Keyboard: ←/→ arrows to navigate • +/- to zoom • R to reset view</p>
       <p v-else>Keyboard: ←/→ arrows to navigate • +/- to zoom • F for fullscreen</p>
     </div>

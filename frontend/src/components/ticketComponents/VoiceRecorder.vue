@@ -210,17 +210,17 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col items-center gap-4 p-3 bg-slate-800 rounded-lg">
+  <div class="flex flex-col items-center gap-4 p-3 bg-surface-alt rounded-lg">
     <div class="flex items-center gap-2 w-full">
       <span class="animate-pulse text-red-500">●</span>
-      <span class="text-slate-200">{{ formatTime(recordingTime) }}</span>
+      <span class="text-primary">{{ formatTime(recordingTime) }}</span>
     </div>
-    <canvas ref="canvasRef" class="w-full h-16 rounded-lg bg-slate-900" width="400" height="64"></canvas>
+    <canvas ref="canvasRef" class="w-full h-16 rounded-lg bg-surface" width="400" height="64"></canvas>
     <div class="flex items-center gap-2 ml-auto">
       <button
         type="button"
         @click="cancelRecording"
-        class="px-3 py-1.5 text-slate-300 hover:text-white transition-colors"
+        class="px-3 py-1.5 text-secondary hover:text-primary transition-colors"
       >
         Cancel
       </button>
@@ -238,7 +238,7 @@ onUnmounted(() => {
 <style scoped>
 canvas {
   border-radius: 0.5rem;
-  background: #1e293b;
+  background: var(--bg-surface);
   width: 100%;
   height: 64px;
 }

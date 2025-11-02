@@ -233,13 +233,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen w-full flex items-center justify-center bg-slate-900">
+  <div class="min-h-screen w-full flex items-center justify-center bg-app">
     <div class="flex flex-col gap-6 w-full max-w-lg p-8">
       <!-- Logo/Brand -->
       <div class="flex flex-col gap-2 items-center">
         <img :src="logo" alt="Nosdesk Logo" class="px-4" />
-        <h1 class="text-2xl font-bold text-white mt-4">Welcome to Nosdesk</h1>
-        <p class="text-slate-400 text-center">
+        <h1 class="text-2xl font-bold text-primary mt-4">Welcome to Nosdesk</h1>
+        <p class="text-secondary text-center">
           Let's get started by creating your administrator account
         </p>
       </div>
@@ -267,7 +267,7 @@ onUnmounted(() => {
       <!-- Setup Form -->
       <form v-if="isSetupStep" @submit.prevent="handleSetup" class="flex flex-col gap-4">
         <div>
-          <label for="admin-name" class="block text-sm font-medium text-slate-300">Administrator Name</label>
+          <label for="admin-name" class="block text-sm font-medium text-secondary">Administrator Name</label>
           <input
             id="admin-name"
             v-model="adminData.name"
@@ -275,13 +275,13 @@ onUnmounted(() => {
             required
             autocomplete="name"
             :disabled="isLoading"
-            class="mt-1 block w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 transition-colors"
+            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 transition-colors"
             placeholder="Enter your full name"
           />
         </div>
 
         <div>
-          <label for="admin-email" class="block text-sm font-medium text-slate-300">Email Address</label>
+          <label for="admin-email" class="block text-sm font-medium text-secondary">Email Address</label>
           <input
             id="admin-email"
             v-model="adminData.email"
@@ -289,13 +289,13 @@ onUnmounted(() => {
             required
             autocomplete="email"
             :disabled="isLoading"
-            class="mt-1 block w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 transition-colors"
+            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 transition-colors"
             placeholder="Enter your email address"
           />
         </div>
 
         <div>
-          <label for="admin-password" class="block text-sm font-medium text-slate-300">Password</label>
+          <label for="admin-password" class="block text-sm font-medium text-secondary">Password</label>
           <input
             id="admin-password"
             v-model="adminData.password"
@@ -303,13 +303,13 @@ onUnmounted(() => {
             required
             autocomplete="new-password"
             :disabled="isLoading"
-            class="mt-1 block w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 transition-colors"
+            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 transition-colors"
             placeholder="Choose a secure password (8+ characters)"
           />
         </div>
 
         <div>
-          <label for="confirm-password" class="block text-sm font-medium text-slate-300">Confirm Password</label>
+          <label for="confirm-password" class="block text-sm font-medium text-secondary">Confirm Password</label>
           <input
             id="confirm-password"
             v-model="confirmPassword"
@@ -317,7 +317,7 @@ onUnmounted(() => {
             required
             autocomplete="new-password"
             :disabled="isLoading"
-            class="mt-1 block w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 transition-colors"
+            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 transition-colors"
             placeholder="Confirm your password"
           />
         </div>
@@ -349,8 +349,8 @@ onUnmounted(() => {
           </svg>
         </div>
         <div class="flex flex-col gap-2">
-          <h3 class="text-lg font-semibold text-white">Setting up your account</h3>
-          <p class="text-slate-400">This will only take a moment...</p>
+          <h3 class="text-lg font-semibold text-primary">Setting up your account</h3>
+          <p class="text-secondary">This will only take a moment...</p>
         </div>
       </div>
 
@@ -362,21 +362,21 @@ onUnmounted(() => {
           </svg>
         </div>
         <div class="flex flex-col gap-2">
-          <h3 class="text-lg font-semibold text-white">Welcome to Nosdesk!</h3>
-          <p class="text-slate-400">Your administrator account has been created successfully.</p>
+          <h3 class="text-lg font-semibold text-primary">Welcome to Nosdesk!</h3>
+          <p class="text-secondary">Your administrator account has been created successfully.</p>
         </div>
       </div>
 
       <!-- Security Notice -->
-      <div class="bg-slate-800 border border-slate-700 rounded-lg p-4 text-sm text-slate-300">
+      <div class="bg-surface border border-default rounded-lg p-4 text-sm text-secondary">
         <div class="flex items-start gap-3">
           <svg class="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 0h12a2 2 0 002-2v-9a2 2 0 00-2-2H6a2 2 0 00-2 2v9a2 2 0 002 2zm10-12V6a4 4 0 00-8 0v3h8z"></path>
           </svg>
           <div>
-            <h4 class="font-medium text-white mb-1">Security Notice</h4>
-            <p class="text-xs text-slate-400">
-              This will create the first administrator account for your Nosdesk installation. 
+            <h4 class="font-medium text-primary mb-1">Security Notice</h4>
+            <p class="text-xs text-tertiary">
+              This will create the first administrator account for your Nosdesk installation.
               Choose a strong password as this account will have full system access.
             </p>
           </div>

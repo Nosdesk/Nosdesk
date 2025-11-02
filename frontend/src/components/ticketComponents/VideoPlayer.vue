@@ -227,7 +227,7 @@ onUnmounted(() => {
 
 <template>
   <div
-    class="relative bg-slate-900 rounded-lg overflow-hidden group min-w-[300px]"
+    class="relative bg-surface rounded-lg overflow-hidden group min-w-[300px]"
     @mousemove.passive="showControlsTemporarily"
     @mouseleave="showControls = false"
   >
@@ -242,7 +242,7 @@ onUnmounted(() => {
 
     <!-- Video Controls -->
     <div
-      class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 transition-opacity duration-300 flex flex-col gap-1"
+      class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-surface/80 to-transparent p-4 transition-opacity duration-300 flex flex-col gap-1"
       :class="[showControls || !isPlaying ? 'opacity-100' : 'opacity-0']"
     >
       <!-- Progress Bar Container -->
@@ -261,7 +261,7 @@ onUnmounted(() => {
           <!-- Play/Pause Button -->
           <button
             @click="togglePlay"
-            class="text-white hover:text-blue-500 transition-colors"
+            class="text-primary hover:text-blue-500 transition-colors"
             type="button"
           >
             <svg v-if="!isPlaying" class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
@@ -274,9 +274,9 @@ onUnmounted(() => {
 
           <!-- Volume Control -->
           <div class="flex items-center gap-2">
-            <button 
-              @click="toggleMute" 
-              class="text-white hover:text-blue-500 transition-colors"
+            <button
+              @click="toggleMute"
+              class="text-primary hover:text-blue-500 transition-colors"
               type="button"
             >
               <!-- Muted icon -->
@@ -304,7 +304,7 @@ onUnmounted(() => {
           </div>
 
           <!-- Time Display -->
-          <div class="text-white text-sm">
+          <div class="text-primary text-sm">
             {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
           </div>
         </div>
@@ -312,7 +312,7 @@ onUnmounted(() => {
         <!-- Fullscreen Button -->
         <button
           @click="toggleFullscreen"
-          class="text-white hover:text-blue-500 transition-colors"
+          class="text-primary hover:text-blue-500 transition-colors"
           type="button"
         >
           <svg v-if="!isFullscreen" class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">

@@ -116,40 +116,40 @@ defineExpose({
   <div class="flex flex-col h-full">
     <div class="flex flex-col gap-4 p-6">
       <!-- Error message -->
-      <div v-if="error" class="bg-red-900/30 border border-red-700/30 text-red-400 px-4 py-3 rounded-lg">
+      <div v-if="error" class="bg-status-error/30 border border-status-error/30 text-status-error px-4 py-3 rounded-lg">
         {{ error }}
       </div>
 
       <!-- Loading State -->
       <div v-if="isLoading" class="flex justify-center items-center py-8">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-blue"></div>
       </div>
 
       <!-- Empty State -->
-      <div v-else-if="projects.length === 0" class="bg-slate-800 rounded-xl border border-slate-700/50 p-8 text-center">
-        <p class="text-slate-400">No projects found. Create your first project to get started.</p>
+      <div v-else-if="projects.length === 0" class="bg-surface rounded-xl border border-default p-8 text-center">
+        <p class="text-secondary">No projects found. Create your first project to get started.</p>
       </div>
 
       <!-- Projects Grid -->
       <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div
           v-for="project in projects"
-          @click="openProject(project.id)" 
+          @click="openProject(project.id)"
           :key="project.id"
-          class="bg-slate-800 rounded-xl border border-slate-700/50 overflow-hidden hover:border-slate-600/50 transition-colors cursor-pointer"
+          class="bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors cursor-pointer"
         >
           <!-- Project Header -->
-          <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
+          <div class="px-4 py-3 bg-surface-alt border-b border-default">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3 min-w-0 flex-1">
-                <div class="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0"></div>
-                <h3 class="font-medium text-white truncate">{{ project.name }}</h3>
-                <div 
+                <div class="w-2 h-2 bg-brand-blue rounded-full flex-shrink-0"></div>
+                <h3 class="font-medium text-primary truncate">{{ project.name }}</h3>
+                <div
                   class="px-2 py-1 rounded-md text-xs font-medium border flex-shrink-0"
                   :class="{
-                    'bg-green-900/30 text-green-400 border-green-700/30': project.status === 'active',
-                    'bg-blue-900/30 text-blue-400 border-blue-700/30': project.status === 'completed',
-                    'bg-slate-900/30 text-slate-400 border-slate-700/30': project.status === 'archived'
+                    'bg-status-success/30 text-status-success border-status-success/30': project.status === 'active',
+                    'bg-brand-blue/30 text-brand-blue border-brand-blue/30': project.status === 'completed',
+                    'bg-surface/30 text-tertiary border-default': project.status === 'archived'
                   }"
                 >
                   {{ project.status }}
@@ -158,18 +158,18 @@ defineExpose({
               
               <!-- Action buttons -->
               <div class="flex items-center gap-1 ml-2">
-                <button 
-                  @click="(e) => openEditModal(e, project)" 
-                  class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-600 rounded-md transition-colors"
+                <button
+                  @click="(e) => openEditModal(e, project)"
+                  class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
                   title="Edit project"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                   </svg>
                 </button>
-                <button 
-                  @click="(e) => removeProject(e, project.id)" 
-                  class="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-900/20 rounded-md transition-colors"
+                <button
+                  @click="(e) => removeProject(e, project.id)"
+                  class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors"
                   title="Delete project"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -183,11 +183,11 @@ defineExpose({
           <!-- Project Content -->
           <div class="p-4">
             <div class="flex flex-col gap-3">
-              <p class="text-slate-400 text-sm line-clamp-2">{{ project.description }}</p>
-              
+              <p class="text-secondary text-sm line-clamp-2">{{ project.description }}</p>
+
               <!-- Project Stats -->
-              <div class="pt-2 border-t border-slate-700/50">
-                <div class="flex items-center gap-2 text-sm text-slate-400">
+              <div class="pt-2 border-t border-subtle">
+                <div class="flex items-center gap-2 text-sm text-secondary">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>

@@ -16,6 +16,15 @@ import { EditorState, Selection } from "prosemirror-state";
 import { schema } from "@/components/editor/schema";
 import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "./UserAvatar.vue";
+import LinkTooltip from "./editor/LinkTooltip.vue";
+import {
+    createLinkTooltipPlugin,
+    showLinkTooltip,
+    hideLinkTooltip,
+    applyLink,
+    removeLink,
+    type LinkTooltipState,
+} from "./editor/linkTooltipPlugin";
 import {
     ySyncPlugin,
     yCursorPlugin,
@@ -84,7 +93,6 @@ const connectedUsers = ref<{ id: string; user: any }[]>([]);
 const isInitialized = ref(false);
 let reinitializeTimeout: ReturnType<typeof setTimeout> | null = null;
 
-
 // Custom dropdown state for toolbar
 const typeMenuRef = ref<HTMLElement | null>(null);
 const typeButtonRef = ref<HTMLElement | null>(null);
@@ -96,6 +104,17 @@ const moreButtonRef = ref<HTMLElement | null>(null);
 const showTypeMenu = ref(false);
 const showInsertMenu = ref(false);
 const showMoreMenu = ref(false);
+
+// Link tooltip state
+const linkTooltipState = ref<LinkTooltipState>({
+    visible: false,
+    url: "",
+    x: 0,
+    y: 0,
+    isEditing: false,
+    from: 0,
+    to: 0,
+});
 
 // Global variables - mirroring the demo approach exactly
 let ydoc: Y.Doc | null = null;
@@ -352,12 +371,18 @@ const initEditor = async () => {
                     ySyncPlugin(yXmlFragment, { mapping }),
                     yCursorPlugin(provider.awareness),
                     yUndoPlugin(),
+                    createLinkTooltipPlugin({
+                        onStateChange: (state) => {
+                            linkTooltipState.value = state;
+                        },
+                    }),
                     keymap({
                         "Mod-z": undo,
                         "Mod-y": redo,
                         "Mod-Shift-z": redo,
                         "Mod-b": toggleMark(schema.marks.strong),
                         "Mod-i": toggleMark(schema.marks.em),
+                        "Mod-k": showLinkTooltip(true), // Cmd+K to add/edit link
                         "Mod-Alt-c": setBlockType(schema.nodes.code_block),
                         // Exit code block with triple backticks
                         "```": (state, dispatch) => {
@@ -672,9 +697,12 @@ const updateConnectedUsers = () => {
 const focusEditor = () => {
     if (editorView) {
         editorView.focus();
-        console.log('Editor focused, doc content:', editorView.state.doc.textContent);
-        console.log('Editor DOM:', editorView.dom.innerHTML);
-        console.log('Has focus?', document.activeElement === editorView.dom);
+        console.log(
+            "Editor focused, doc content:",
+            editorView.state.doc.textContent,
+        );
+        console.log("Editor DOM:", editorView.dom.innerHTML);
+        console.log("Has focus?", document.activeElement === editorView.dom);
     }
 };
 
@@ -735,7 +763,9 @@ const handleKeydown = (event: KeyboardEvent) => {
 // This leads to timeout->reconnect->timeout cycles. Clean disconnect is better.
 const handleVisibilityChange = () => {
     if (document.hidden && provider?.wsconnected) {
-        log.info("Tab backgrounded - disconnecting WebSocket to save resources");
+        log.info(
+            "Tab backgrounded - disconnecting WebSocket to save resources",
+        );
         provider.disconnect();
     } else if (!document.hidden && provider && !provider.wsconnected) {
         log.info("Tab foregrounded - reconnecting WebSocket");
@@ -839,28 +869,33 @@ const toggleOrderedList = () => {
     );
 };
 
+// Link tooltip handlers
+const handleLinkApply = (url: string) => {
+    if (!editorView) return;
+    applyLink(url)(editorView.state, editorView.dispatch);
+    editorView.focus();
+};
+
+const handleLinkRemove = () => {
+    if (!editorView) return;
+    removeLink()(editorView.state, editorView.dispatch);
+    editorView.focus();
+};
+
+const handleLinkClose = () => {
+    if (!editorView) return;
+    hideLinkTooltip()(editorView.state, editorView.dispatch);
+    editorView.focus();
+};
+
+const handleLinkOpen = (url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+};
+
+// Show link tooltip (for toolbar button)
 const insertLink = () => {
     if (!editorView) return;
-    const { state, dispatch } = editorView;
-    const url = prompt("Enter URL for the link:", "https://");
-    if (url) {
-        const { from, to } = state.selection;
-        const tr = state.tr;
-        if (from === to) {
-            const text = prompt("Enter link text:", "Link");
-            if (text) {
-                tr.insertText(text, from, from);
-                tr.addMark(
-                    from,
-                    from + text.length,
-                    schema.marks.link.create({ href: url }),
-                );
-            }
-        } else {
-            tr.addMark(from, to, schema.marks.link.create({ href: url }));
-        }
-        dispatch(tr);
-    }
+    showLinkTooltip(true)(editorView.state, editorView.dispatch);
 };
 
 const undoEdit = () => {
@@ -1557,6 +1592,19 @@ onBeforeUnmount(() => {
             @click="focusEditor"
             class="editor-container"
         ></div>
+
+        <!-- Link Tooltip -->
+        <LinkTooltip
+            :visible="linkTooltipState.visible"
+            :url="linkTooltipState.url"
+            :x="linkTooltipState.x"
+            :y="linkTooltipState.y"
+            :is-editing="linkTooltipState.isEditing"
+            @apply="handleLinkApply"
+            @remove="handleLinkRemove"
+            @close="handleLinkClose"
+            @open-link="handleLinkOpen"
+        />
     </div>
 </template>
 
@@ -1566,7 +1614,7 @@ onBeforeUnmount(() => {
     flex-direction: column;
     border-radius: 0 0 0.75rem 0.75rem;
     overflow: hidden;
-    background-color: #1c283d; /* bg-slate-800 */
+    background-color: var(--color-surface);
     height: 100%;
     width: 100%;
     position: relative;
@@ -1575,8 +1623,8 @@ onBeforeUnmount(() => {
 .toolbar {
     display: flex;
     padding: 0.5rem;
-    background-color: rgb(51 65 85 / 0.3); /* bg-slate-700/30 */
-    border-bottom: 1px solid rgb(51 65 85 / 0.5); /* border-slate-700/50 */
+    background-color: var(--color-surface);
+    border-bottom: 1px solid var(--color-default);
     flex-wrap: wrap;
     gap: 0.25rem;
     align-items: center;
@@ -1587,18 +1635,18 @@ onBeforeUnmount(() => {
     align-items: center;
     justify-content: center;
     padding: 0.25rem 0.5rem;
-    background-color: rgb(51 65 85 / 0.5); /* bg-slate-700/50 */
+    background-color: var(--color-surface);
     border: none;
     border-radius: 0.375rem; /* rounded-md */
-    color: rgb(148 163 184); /* text-slate-400 */
+    color: var(--color-secondary);
     cursor: pointer;
     font-size: 0.875rem;
     transition: all 0.2s;
 }
 
 .toolbar-button:hover {
-    background-color: rgb(51 65 85); /* bg-slate-700 */
-    color: rgb(248 250 252); /* text-white */
+    background-color: var(--color-surface-hover);
+    color: var(--color-primary);
 }
 
 .toolbar-button.active {
@@ -1608,7 +1656,7 @@ onBeforeUnmount(() => {
 .toolbar-divider {
     width: 1px;
     height: 1.5rem;
-    background-color: rgb(148 163 184); /* bg-slate-400 */
+    background-color: var(--color-default);
     margin: 0 0.5rem;
 }
 
@@ -1618,8 +1666,8 @@ onBeforeUnmount(() => {
     left: 0;
     margin-top: 0.25rem;
     width: 12rem;
-    background-color: rgb(30 41 59); /* bg-slate-800 */
-    border: 1px solid rgb(51 65 85 / 0.5); /* border-slate-700/50 */
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-default);
     border-radius: 0.5rem; /* rounded-lg */
     box-shadow:
         0 10px 15px -3px rgba(0, 0, 0, 0.1),
@@ -1634,7 +1682,7 @@ onBeforeUnmount(() => {
     padding: 0.5rem 1rem;
     text-align: left;
     font-size: 0.875rem;
-    color: rgb(226 232 240); /* text-slate-200 */
+    color: var(--color-primary);
     background-color: transparent;
     border: none;
     cursor: pointer;
@@ -1642,8 +1690,8 @@ onBeforeUnmount(() => {
 }
 
 .dropdown-item:hover {
-    background-color: rgb(51 65 85 / 0.5); /* bg-slate-700/50 */
-    color: rgb(248 250 252); /* text-white */
+    background-color: var(--color-surface-hover);
+    color: var(--color-primary);
 }
 
 .connection-status {
@@ -1661,9 +1709,9 @@ onBeforeUnmount(() => {
 
 .editor-container {
     position: relative;
-    background-color: #1c283d; /* bg-slate-800 */
-    border-radius: 0.5rem;
-    color: rgb(248 250 252); /* text-slate-50 */
+    background-color: var(--color-surface);
+    border-radius: 0 0 0.5rem 0.5rem;
+    color: var(--color-primary);
     font-family:
         ui-sans-serif,
         system-ui,
@@ -1695,7 +1743,7 @@ onBeforeUnmount(() => {
 
 /* Force cursor visibility in Chrome for empty contenteditable */
 .ProseMirror:empty:before {
-    content: '';
+    content: "";
     display: inline-block;
     width: 0;
 }
@@ -1719,7 +1767,6 @@ onBeforeUnmount(() => {
 .ProseMirror h6:first-child {
     margin-top: 0;
 }
-
 
 /* Ensures the content doesn't overflow the container */
 .editor-wrapper {
@@ -1763,7 +1810,7 @@ onBeforeUnmount(() => {
     font-weight: 700;
     margin-top: 1rem;
     margin-bottom: 1rem;
-    border-bottom: 1px solid rgb(51 65 85); /* border-slate-700 */
+    border-bottom: 1px solid var(--color-default);
     padding-bottom: 0.5rem;
     line-height: 1.2;
 }
@@ -1787,15 +1834,20 @@ onBeforeUnmount(() => {
 .ProseMirror blockquote {
     border-left: 4px solid rgb(59 130 246); /* border-blue-500 */
     padding-left: 1rem;
+    padding-right: 1rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
     margin-left: 0;
     margin-right: 0;
-    color: rgb(148 163 184); /* text-slate-400 */
+    color: var(--color-secondary);
     margin-top: 1rem;
     margin-bottom: 1rem;
+    background-color: var(--color-surface);
+    border-radius: 0.375rem;
 }
 
 .ProseMirror pre {
-    background-color: rgb(15 23 42); /* bg-slate-900 */
+    background-color: var(--color-app);
     padding: 0.75rem;
     border-radius: 0.5rem; /* rounded-lg */
     overflow-x: auto;
@@ -1804,7 +1856,7 @@ onBeforeUnmount(() => {
         "Liberation Mono", "Courier New", monospace;
     margin-top: 1rem;
     margin-bottom: 1rem;
-    border: 1px solid rgb(51 65 85 / 0.3); /* border-slate-700/30 */
+    border: 1px solid var(--color-subtle);
     position: relative;
 }
 
@@ -1879,13 +1931,13 @@ onBeforeUnmount(() => {
 }
 
 .ProseMirror code {
-    background-color: rgb(51 65 85 / 0.5); /* bg-slate-700/50 */
+    background-color: var(--color-surface);
     padding: 0.125rem 0.375rem;
     border-radius: 0.25rem;
     font-family:
         ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
         "Liberation Mono", "Courier New", monospace;
-    color: rgb(226 232 240); /* text-slate-200 */
+    color: var(--color-primary);
 }
 
 .ProseMirror ul,
@@ -1903,7 +1955,7 @@ onBeforeUnmount(() => {
 /* Enhanced list styles */
 .ProseMirror ul {
     list-style-type: disc;
-    color: rgb(226 232 240); /* text-slate-200 */
+    color: var(--color-primary);
 }
 
 .ProseMirror ul ul {
@@ -1916,7 +1968,7 @@ onBeforeUnmount(() => {
 
 .ProseMirror ol {
     list-style-type: decimal;
-    color: rgb(226 232 240); /* text-slate-200 */
+    color: var(--color-primary);
 }
 
 .ProseMirror ol ol {
@@ -1942,12 +1994,12 @@ onBeforeUnmount(() => {
 
 .ProseMirror strong {
     font-weight: 700;
-    color: rgb(226 232 240); /* text-slate-200 */
+    color: var(--color-primary);
 }
 
 .ProseMirror em {
     font-style: italic;
-    color: rgb(226 232 240); /* text-slate-200 */
+    color: var(--color-primary);
 }
 
 .ProseMirror .yRemoteSelection {
@@ -1970,7 +2022,6 @@ onBeforeUnmount(() => {
     width: 2px;
     pointer-events: none;
 }
-
 
 /* Flex spacer */
 .flex-grow {
@@ -2011,5 +2062,4 @@ onBeforeUnmount(() => {
     text-overflow: ellipsis;
     z-index: 10;
 }
-
 </style>

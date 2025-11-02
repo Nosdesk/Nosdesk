@@ -108,13 +108,13 @@ const handleContentChange = async (newValue: string) => {
 </script>
 
 <template>
-  <div class="bg-slate-800 rounded-xl border border-slate-700/50 flex flex-col w-full h-auto hover:border-slate-600/50 transition-colors">
+  <div class="bg-surface rounded-xl border border-default flex flex-col w-full h-auto hover:border-strong transition-colors overflow-hidden">
     <!-- Header -->
-    <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50 flex justify-between items-center rounded-t-xl">
-      <h2 class="text-lg font-medium text-white">Ticket Notes</h2>
+    <div class="px-4 py-3 bg-surface-alt border-b border-default flex justify-between items-center">
+      <h2 class="text-lg font-medium text-primary">Ticket Notes</h2>
       <button
         @click="handleExpand"
-        class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-600 rounded-md transition-colors"
+        class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
         title="Open full editor"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

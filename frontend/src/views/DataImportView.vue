@@ -68,8 +68,8 @@ const getStatusBadge = (status: string) => {
     
     <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-white">Data Import</h1>
-        <p class="text-slate-400 mt-2">
+        <h1 class="text-2xl font-bold text-primary">Data Import</h1>
+        <p class="text-secondary mt-2">
           Import and synchronize data from external sources into your system
         </p>
       </div>
@@ -81,8 +81,8 @@ const getStatusBadge = (status: string) => {
           :key="index"
           @click="navigateToOption(item.route, item.status)"
           :class="[
-            'bg-slate-800 border border-slate-700 rounded-lg p-5 transition duration-150 ease-in-out',
-            item.status === 'available' ? 'hover:bg-slate-750 cursor-pointer' : 'opacity-80'
+            'bg-surface border border-default rounded-lg p-5 transition duration-150 ease-in-out',
+            item.status === 'available' ? 'hover:bg-surface-hover cursor-pointer' : 'opacity-80'
           ]"
         >
           <div class="flex items-start gap-2">
@@ -108,7 +108,7 @@ const getStatusBadge = (status: string) => {
             </div>
             <div class="flex-1">
               <div class="flex items-center justify-between">
-                <h3 class="text-white font-medium">{{ item.title }}</h3>
+                <h3 class="text-primary font-medium">{{ item.title }}</h3>
                 <span 
                   :class="[
                     'ml-2 px-2 py-0.5 text-xs rounded-full border inline-block',
@@ -118,16 +118,16 @@ const getStatusBadge = (status: string) => {
                   {{ getStatusBadge(item.status).text }}
                 </span>
               </div>
-              <p class="mt-1 text-sm text-slate-400">{{ item.description }}</p>
+              <p class="mt-1 text-sm text-secondary">{{ item.description }}</p>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Import Guidelines -->
-      <div class="flex flex-col gap-2 bg-slate-800 border border-slate-700 rounded-lg p-6 mb-8">
-        <h2 class="text-xl font-medium text-white mb-4">Import Guidelines</h2>
-        <div class="flex flex-col gap-4 text-sm text-slate-300">
+      <div class="flex flex-col gap-2 bg-surface border border-default rounded-lg p-6 mb-8">
+        <h2 class="text-xl font-medium text-primary mb-4">Import Guidelines</h2>
+        <div class="flex flex-col gap-4 text-sm text-secondary">
           <div class="bg-blue-900/20 border border-blue-800/50 rounded-md p-4">
             <h3 class="font-medium text-blue-300 mb-2 flex items-center gap-1">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">

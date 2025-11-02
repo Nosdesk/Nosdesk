@@ -115,62 +115,62 @@ const handleClose = () => {
     <div class="w-full">
       <!-- Search input -->
       <div class="mb-4">
-        <input 
+        <input
           v-model="searchQuery"
           type="text"
           placeholder="Search icons..."
-          class="w-full px-3 py-2 bg-slate-700 text-white rounded-md placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          class="w-full px-3 py-2 bg-surface text-primary rounded-md placeholder-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-blue"
         />
       </div>
 
       <!-- Tabs -->
-      <div class="flex border-b border-slate-700 mb-4">
-        <button 
-          @click="activeTab = 'document'" 
+      <div class="flex border-b border-default mb-4">
+        <button
+          @click="activeTab = 'document'"
           class="px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'document' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-slate-300'"
+          :class="activeTab === 'document' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary hover:text-secondary'"
         >
           Documents
         </button>
-        <button 
-          @click="activeTab = 'ui'" 
+        <button
+          @click="activeTab = 'ui'"
           class="px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'ui' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-slate-300'"
+          :class="activeTab === 'ui' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary hover:text-secondary'"
         >
           UI
         </button>
-        <button 
-          @click="activeTab = 'status'" 
+        <button
+          @click="activeTab = 'status'"
           class="px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'status' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-slate-300'"
+          :class="activeTab === 'status' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary hover:text-secondary'"
         >
           Status
         </button>
-        <button 
-          @click="activeTab = 'people'" 
+        <button
+          @click="activeTab = 'people'"
           class="px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'people' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-slate-300'"
+          :class="activeTab === 'people' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary hover:text-secondary'"
         >
           People
         </button>
-        <button 
-          @click="activeTab = 'svg'" 
+        <button
+          @click="activeTab = 'svg'"
           class="px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'svg' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400 hover:text-slate-300'"
+          :class="activeTab === 'svg' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary hover:text-secondary'"
         >
           SVG
         </button>
       </div>
 
       <!-- Current selection -->
-      <div class="mb-4 p-3 bg-slate-700 rounded-lg">
+      <div class="mb-4 p-3 bg-surface rounded-lg">
         <div class="flex items-center gap-3">
-          <div class="flex items-center justify-center w-12 h-12 bg-slate-800 rounded-md">
+          <div class="flex items-center justify-center w-12 h-12 bg-surface-alt rounded-md">
             <span v-if="!isSelectedIconSvg" class="text-3xl select-none">{{ selectedIcon }}</span>
-            <span v-else v-html="selectedIcon" class="w-8 h-8 text-white"></span>
+            <span v-else v-html="selectedIcon" class="w-8 h-8 text-primary"></span>
           </div>
           <div>
-            <p class="text-sm text-slate-300">Current Selection</p>
+            <p class="text-sm text-secondary">Current Selection</p>
           </div>
         </div>
       </div>
@@ -181,8 +181,8 @@ const handleClose = () => {
           v-for="emoji in filteredEmojis"
           :key="emoji"
           @click="selectEmoji(emoji)"
-          class="flex items-center justify-center p-2 hover:bg-slate-700 rounded-md transition-colors"
-          :class="{ 'bg-slate-700 ring-2 ring-blue-500': selectedIcon === emoji }"
+          class="flex items-center justify-center p-2 hover:bg-surface-hover rounded-md transition-colors"
+          :class="{ 'bg-surface ring-2 ring-brand-blue': selectedIcon === emoji }"
         >
           <span class="text-xl select-none">{{ emoji }}</span>
         </button>
@@ -194,24 +194,24 @@ const handleClose = () => {
           v-for="icon in filteredSvgIcons"
           :key="icon.id"
           @click="selectSvgIcon(icon.svg)"
-          class="flex items-center justify-center p-2 hover:bg-slate-700 rounded-md transition-colors"
-          :class="{ 'bg-slate-700 ring-2 ring-blue-500': selectedIcon === icon.svg }"
+          class="flex items-center justify-center p-2 hover:bg-surface-hover rounded-md transition-colors"
+          :class="{ 'bg-surface ring-2 ring-brand-blue': selectedIcon === icon.svg }"
         >
-          <span v-html="icon.svg" class="w-6 h-6 text-white"></span>
+          <span v-html="icon.svg" class="w-6 h-6 text-primary"></span>
         </button>
       </div>
 
       <!-- Footer with buttons -->
       <div class="mt-6 flex justify-end gap-2">
-        <button 
-          @click="handleClose" 
-          class="px-4 py-2 bg-slate-700 text-white rounded-md hover:bg-slate-600 transition-colors"
+        <button
+          @click="handleClose"
+          class="px-4 py-2 bg-surface text-primary rounded-md hover:bg-surface-hover transition-colors"
         >
           Cancel
         </button>
-        <button 
-          @click="emit('update:icon', selectedIcon); emit('close');" 
-          class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+        <button
+          @click="emit('update:icon', selectedIcon); emit('close');"
+          class="px-4 py-2 bg-brand-blue text-primary rounded-md hover:opacity-90 transition-colors"
         >
           Select
         </button>

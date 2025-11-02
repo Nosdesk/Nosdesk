@@ -859,7 +859,7 @@ const debugMeta = computed(() => ({
 
 <template>
   <div
-    class="min-h-screen w-full flex items-center justify-center bg-slate-900 p-4 select-none"
+    class="min-h-screen w-full flex items-center justify-center bg-app p-4 select-none"
   >
     <div class="flex flex-col text-center">
       <svg ref="svg" class="error-svg" :width="svgWidth" :height="svgHeight">
@@ -1003,18 +1003,18 @@ const debugMeta = computed(() => ({
         </text>
       </svg>
       <div class="flex flex-col gap-4">
-        <div class="text-2xl text-slate-300">
+        <div class="text-2xl text-secondary">
           {{ errorMessage }}
         </div>
 
-        <p class="mt-2 text-slate-400">
+        <p class="mt-2 text-tertiary">
           The page you're looking for doesn't exist or you may not have access to it.
         </p>
 
         <div class="mt-8 flex gap-4 justify-center">
           <button
             @click="goBack"
-            class="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors"
+            class="px-4 py-2 text-sm font-medium text-secondary hover:text-primary transition-colors"
           >
             &larr; Go back
           </button>
@@ -1029,7 +1029,7 @@ const debugMeta = computed(() => ({
     </div>
   </div>
   <!-- Debug Panel -->
-  <div v-if="showDebug" class="fixed top-4 right-4 bg-slate-800/90 text-sm text-slate-200 p-4 rounded-lg max-h-[90vh] overflow-auto flex flex-col gap-3 z-50 shadow-lg">
+  <div v-if="showDebug" class="fixed top-4 right-4 bg-surface/90 text-sm text-secondary p-4 rounded-lg max-h-[90vh] overflow-auto flex flex-col gap-3 z-50 shadow-lg">
     <h3 class="font-semibold mb-2">Debug Controls (press 'd' to toggle)</h3>
     
     <!-- Master Toggle -->

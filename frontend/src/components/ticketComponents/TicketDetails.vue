@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import UserAutocomplete from "@/components/ticketComponents/UserSelection.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
 import ContentEditable from "@/components/ticketComponents/ContentEditable.vue";
+import SectionCard from "@/components/common/SectionCard.vue";
 
 interface UserInfo {
   uuid: string;
@@ -56,19 +57,15 @@ const handleTitleUpdate = (newTitle: string) => {
 
 <template>
   <div class="w-full">
-    <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
-      <!-- Header -->
-      <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
-        <h2 class="text-lg font-medium text-white">Ticket Details</h2>
-      </div>
-      
-      <!-- Content -->
-      <div class="p-3">
+    <SectionCard>
+      <template #title>Ticket Details</template>
+
+      <template #default>
         <div class="flex flex-col gap-3">
           <!-- Title Section -->
           <div class="flex flex-col gap-1.5">
-            <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Title</h3>
-            <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+            <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Title</h3>
+            <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
               <ContentEditable
                 :modelValue="ticket.title || ''"
                 @update:modelValue="handleTitleUpdate"
@@ -80,8 +77,8 @@ const handleTitleUpdate = (newTitle: string) => {
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <!-- Requester -->
             <div class="flex flex-col gap-1.5">
-              <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Requester</h3>
-              <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+              <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Requester</h3>
+              <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
                 <UserAutocomplete
                   :modelValue="selectedRequester"
                   @update:modelValue="emit('update:requester', $event)"
@@ -95,8 +92,8 @@ const handleTitleUpdate = (newTitle: string) => {
 
             <!-- Assignee -->
             <div class="flex flex-col gap-1.5">
-              <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Assignee</h3>
-              <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+              <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Assignee</h3>
+              <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
                 <UserAutocomplete
                   :modelValue="selectedAssignee"
                   @update:modelValue="emit('update:assignee', $event)"
@@ -113,8 +110,8 @@ const handleTitleUpdate = (newTitle: string) => {
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <!-- Status -->
             <div class="flex flex-col gap-1.5">
-              <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Status</h3>
-              <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+              <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Status</h3>
+              <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
                 <CustomDropdown
                   :value="selectedStatus"
                   :options="statusOptions"
@@ -127,8 +124,8 @@ const handleTitleUpdate = (newTitle: string) => {
 
             <!-- Priority -->
             <div class="flex flex-col gap-1.5">
-              <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wide">Priority</h3>
-              <div class="bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+              <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Priority</h3>
+              <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
                 <CustomDropdown
                   :value="selectedPriority"
                   :options="priorityOptions"
@@ -141,23 +138,23 @@ const handleTitleUpdate = (newTitle: string) => {
           </div>
 
           <!-- Timestamps Section -->
-          <div class="pt-2 border-t border-slate-700/50">
+          <div class="pt-2 border-t border-default">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <!-- Created Date -->
               <div class="flex flex-col gap-1">
-                <span class="text-xs text-slate-400 uppercase tracking-wide font-medium">Created</span>
-                <span class="text-slate-200 text-sm font-medium">{{ createdDate }}</span>
+                <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Created</span>
+                <span class="text-secondary text-sm font-medium">{{ createdDate }}</span>
               </div>
 
               <!-- Modified Date -->
               <div class="flex flex-col gap-1">
-                <span class="text-xs text-slate-400 uppercase tracking-wide font-medium">Last Modified</span>
-                <span class="text-slate-200 text-sm font-medium">{{ modifiedDate }}</span>
+                <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Last Modified</span>
+                <span class="text-secondary text-sm font-medium">{{ modifiedDate }}</span>
               </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </template>
+    </SectionCard>
   </div>
 </template>

@@ -27,11 +27,6 @@ const listManager = useListManagement<UIUser>({
   defaultSortField: 'name',
   defaultSortDirection: 'asc',
   fetchFunction: async (params) => {
-    // Check if we have cached data for this exact query
-    const cacheKey = `users_${JSON.stringify(params)}`;
-    
-    console.log(`🔍 Fetching users with params:`, params);
-    
     const response = await dataStore.getPaginatedUsers({
       page: params.page,
       pageSize: params.pageSize,
@@ -40,15 +35,13 @@ const listManager = useListManagement<UIUser>({
       search: params.search,
       role: params.role !== 'all' ? params.role : undefined
     });
-    
-    console.log(`📊 Received ${response.data.length} users (${response.total} total)`);
-    
+
     // Transform backend users to UI users with additional properties
     const transformedData = response.data.map(user => ({
       ...user,
       department: "IT Support", // Default department (could be added to backend later)
     }));
-    
+
     return {
       data: transformedData,
       total: response.total,
@@ -101,7 +94,7 @@ defineExpose({
 <template>
   <div class="flex flex-col h-full overflow-hidden">
     <!-- Search and filter bar -->
-    <div class="sticky top-0 z-20 bg-slate-800 border-b border-slate-700 shadow-md">
+    <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2 flex-wrap">
         <DebouncedSearchInput
           v-model="listManager.searchQuery.value"
@@ -110,15 +103,15 @@ defineExpose({
 
         <!-- Filters -->
         <template v-if="filterOptions.length > 0">
-          <div 
-            v-for="filter in filterOptions" 
+          <div
+            v-for="filter in filterOptions"
             :key="filter.name"
             :class="[filter.width || 'w-[120px]']"
           >
             <select
               :value="filter.value"
               @change="e => listManager.handleFilterUpdate(filter.name, (e.target as HTMLSelectElement).value)"
-              class="bg-slate-700 border border-slate-600 text-white text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 block w-full py-1 px-2"
+              class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-brand-blue focus:border-brand-blue block w-full py-1 px-2"
             >
               <option
                 v-for="option in filter.options"
@@ -132,18 +125,15 @@ defineExpose({
 
           <button
             @click="listManager.resetFilters"
-            class="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:ring-2 focus:outline-none focus:ring-blue-800"
+            class="px-2 py-1 text-xs font-medium text-white bg-brand-blue rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-brand-blue"
           >
             Reset
           </button>
         </template>
 
-        <!-- Results count and cache stats -->
-        <div class="text-xs text-slate-400 flex items-center gap-4 ml-auto">
+        <!-- Results count -->
+        <div class="text-xs text-secondary flex items-center gap-4 ml-auto">
           <span>{{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}</span>
-          <span v-if="dataStore.getCacheStats.individualUsers > 0" class="text-blue-400">
-            📦 {{ dataStore.getCacheStats.individualUsers }} cached
-          </span>
         </div>
       </div>
     </div>
@@ -212,7 +202,7 @@ defineExpose({
               v-for="user in listManager.items.value"
               :key="user.uuid"
               @click="listManager.navigateToItem(user)"
-              class="bg-slate-800 rounded-lg p-3 hover:bg-slate-700/50 transition-colors cursor-pointer"
+              class="bg-surface rounded-lg p-3 hover:bg-surface-hover transition-colors cursor-pointer"
             >
               <div class="flex items-start gap-3">
                 <div class="flex-1 min-w-0">
@@ -225,15 +215,15 @@ defineExpose({
                       :show-name="false"
                     />
                     <div class="flex-1 min-w-0">
-                      <div class="font-medium truncate text-slate-200">{{ user.name }}</div>
-                      <div class="text-xs text-slate-400 truncate">{{ user.email }}</div>
+                      <div class="font-medium truncate text-primary">{{ user.name }}</div>
+                      <div class="text-xs text-tertiary truncate">{{ user.email }}</div>
                     </div>
                   </div>
                   <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                    <span class="bg-slate-700 px-2 py-1 rounded text-slate-200">
+                    <span class="bg-surface-alt px-2 py-1 rounded text-primary">
                       {{ user.role }}
                     </span>
-                    <span class="bg-slate-700/50 px-2 py-1 rounded text-slate-300">
+                    <span class="bg-surface-alt/50 px-2 py-1 rounded text-secondary">
                       {{ user.department || 'N/A' }}
                     </span>
                   </div>
@@ -270,21 +260,21 @@ defineExpose({
 
 .overflow-y-auto::-webkit-scrollbar-track,
 .overflow-x-auto::-webkit-scrollbar-track {
-  background: #0f172a; /* slate-900 */
+  background: var(--color-bg-app);
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb,
 .overflow-x-auto::-webkit-scrollbar-thumb {
-  background: #475569; /* slate-600 */
+  background: var(--color-border-default);
   border-radius: 4px;
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb:hover,
 .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-  background: #64748b; /* slate-500 */
+  background: var(--color-border-strong);
 }
 
 .overflow-x-auto::-webkit-scrollbar-corner {
-  background: #0f172a; /* slate-900 */
+  background: var(--color-bg-app);
 }
 </style>

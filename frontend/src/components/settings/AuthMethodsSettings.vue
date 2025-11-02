@@ -196,26 +196,26 @@ const getAuthMethodIcon = (type: string) => {
 <template>
   <div class="flex flex-col gap-6">
     <!-- Authentication Methods -->
-    <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
-      <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
-        <h2 class="text-lg font-medium text-white">Authentication Methods</h2>
-        <p class="text-sm text-slate-400 mt-1">Manage how you sign in to your account</p>
+    <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
+      <div class="px-4 py-3 bg-surface-alt border-b border-default">
+        <h2 class="text-lg font-medium text-primary">Authentication Methods</h2>
+        <p class="text-sm text-tertiary mt-1">Manage how you sign in to your account</p>
       </div>
       
       <div class="p-6 flex flex-col gap-4">
         <!-- Existing Auth Methods -->
         <div class="flex flex-col gap-3">
-          <h3 class="text-sm font-medium text-white">Connected Accounts</h3>
+          <h3 class="text-sm font-medium text-primary">Connected Accounts</h3>
           <div class="flex flex-col gap-2">
-            <div v-for="method in authMethods" :key="method.id" class="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
+            <div v-for="method in authMethods" :key="method.id" class="flex items-center justify-between p-3 bg-surface-alt rounded-lg">
               <div class="flex items-center gap-3">
                 <span class="text-xl">{{ getAuthMethodIcon(method.type) }}</span>
                 <div>
-                  <div class="text-sm font-medium text-white">
+                  <div class="text-sm font-medium text-primary">
                     {{ method.identifier }}
                     <span v-if="method.isPrimary" class="ml-2 px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs">Primary</span>
                   </div>
-                  <div class="text-xs text-slate-400">
+                  <div class="text-xs text-tertiary">
                     Added {{ formatDate(method.createdAt) }}
                   </div>
                 </div>
@@ -234,17 +234,17 @@ const getAuthMethodIcon = (type: string) => {
 
         <!-- Add Auth Methods -->
         <div class="flex flex-col gap-3">
-          <h3 class="text-sm font-medium text-white">Add Authentication Method</h3>
+          <h3 class="text-sm font-medium text-primary">Add Authentication Method</h3>
           <div class="flex flex-col gap-3">
             <button
               @click="addAuthMethod('microsoft')"
               :disabled="loading || hasMicrosoftConnection"
-              class="flex items-center gap-3 p-3 bg-slate-700/30 hover:bg-slate-700/50 rounded-lg border border-slate-600/30 hover:border-slate-500/50 transition-colors disabled:opacity-50 max-w-sm"
+              class="flex items-center gap-3 p-3 bg-surface-alt hover:bg-surface-alt rounded-lg border border-subtle hover:border-strong transition-colors disabled:opacity-50 max-w-sm"
             >
               <span class="text-xl">🔷</span>
               <div class="flex flex-col items-start">
-                <span class="text-sm font-medium text-white">Microsoft</span>
-                <span class="text-xs text-slate-400">
+                <span class="text-sm font-medium text-primary">Microsoft</span>
+                <span class="text-xs text-tertiary">
                   {{ hasMicrosoftConnection ? 'Already connected' : 'Azure AD / Entra ID' }}
                 </span>
               </div>
@@ -255,17 +255,17 @@ const getAuthMethodIcon = (type: string) => {
     </div>
 
     <!-- Active Sessions -->
-    <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
-      <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
-        <h2 class="text-lg font-medium text-white">Active Sessions</h2>
-        <p class="text-sm text-slate-400 mt-1">Manage your active login sessions</p>
+    <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
+      <div class="px-4 py-3 bg-surface-alt border-b border-default">
+        <h2 class="text-lg font-medium text-primary">Active Sessions</h2>
+        <p class="text-sm text-tertiary mt-1">Manage your active login sessions</p>
       </div>
       
       <div class="p-6 flex flex-col gap-4">
         <!-- Sessions List -->
         <div class="flex flex-col gap-3">
           <div class="flex items-center justify-between">
-            <h3 class="text-sm font-medium text-white">Current Sessions</h3>
+            <h3 class="text-sm font-medium text-primary">Current Sessions</h3>
             <button
               @click="revokeAllSessions"
               :disabled="loading || activeSessions.length <= 1"
@@ -274,21 +274,21 @@ const getAuthMethodIcon = (type: string) => {
               Revoke All Others
             </button>
           </div>
-          
+
           <div class="flex flex-col gap-2">
-            <div v-for="session in activeSessions" :key="session.id" class="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
+            <div v-for="session in activeSessions" :key="session.id" class="flex items-center justify-between p-3 bg-surface-alt rounded-lg">
               <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-slate-600 rounded-lg flex items-center justify-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
                 </div>
                 <div>
-                  <div class="text-sm font-medium text-white">
+                  <div class="text-sm font-medium text-primary">
                     {{ session.device_name || session.user_agent || 'Unknown Device' }}
                     <span v-if="session.is_current" class="ml-2 px-2 py-1 bg-green-600/20 text-green-400 rounded text-xs">Current</span>
                   </div>
-                  <div class="text-xs text-slate-400">
+                  <div class="text-xs text-tertiary">
                     {{ session.location || session.ip_address || 'Unknown location' }} • Last active {{ formatDate(session.last_active) }}
                   </div>
                 </div>

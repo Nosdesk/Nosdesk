@@ -32,7 +32,7 @@ const sizeClasses = computed(() => {
 <template>
   <div v-if="id" class="flex items-center">
     <span
-      class="text-slate-400 font-medium flex items-center select-none"
+      class="text-secondary font-medium flex items-center select-none"
       :class="sizeClasses"
     >
       {{ displayText }}

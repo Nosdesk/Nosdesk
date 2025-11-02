@@ -69,8 +69,8 @@ const pageItemClasses = computed(() => {
   const isActive = route.path === `/documentation/${props.page.id}` || 
                   (typeof props.page.slug === 'string' && route.path === `/documentation/${props.page.slug}`)
   
-  classes['text-slate-300'] = !isActive
-  classes['text-white bg-slate-700'] = isActive
+  classes['text-secondary'] = !isActive
+  classes['text-primary bg-surface'] = isActive
   
   return classes
 })
@@ -163,7 +163,7 @@ const hasChildren = computed(() => {
   <li class="flex flex-col gap-0.5 relative nav-item">
     <!-- Main Page Item -->
     <div
-      class="flex gap-1 text-xs font-medium px-2 py-1 hover:text-white hover:bg-slate-700/70 rounded transition-colors items-center relative"
+      class="flex gap-1 text-xs font-medium px-2 py-1 hover:text-primary hover:bg-surface-hover rounded transition-colors items-center relative"
       :class="pageItemClasses"
       @click.stop="handlePageClick(page.id)"
       draggable="true"
@@ -175,9 +175,9 @@ const hasChildren = computed(() => {
     >
       
       <!-- Expand/Collapse Arrow (only if has children) -->
-      <span 
-        v-if="hasChildren" 
-        class="text-slate-400 transition-transform duration-200 cursor-pointer flex-shrink-0 flex items-center justify-center hover:text-white" 
+      <span
+        v-if="hasChildren"
+        class="text-tertiary transition-transform duration-200 cursor-pointer flex-shrink-0 flex items-center justify-center hover:text-primary"
         :class="{ 'rotate-90': docNavStore.expandedPages[page.id] }"
         @click.stop="handleToggleExpand(page.id, $event)"
         aria-label="Toggle children"
@@ -190,7 +190,7 @@ const hasChildren = computed(() => {
       <!-- Page Icon and Title -->
       <div class="flex items-center flex-grow max-w-full gap-1" :class="{ 'ml-2.5': !hasChildren }">
         <!-- Page Icon -->
-        <span class="mr-1 flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center text-slate-400">
+        <span class="mr-1 flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center text-tertiary">
           <span v-if="page.icon && !isIconSvg(page.icon)" class="text-xs">{{ page.icon }}</span>
           <span v-else-if="page.icon && isIconSvg(page.icon)" v-html="page.icon" class="w-3.5 h-3.5"></span>
           <span v-else class="text-xs">📄</span>
@@ -202,7 +202,7 @@ const hasChildren = computed(() => {
       
       <!-- Drag handle indicator that shows on hover -->
       <div class="opacity-0 group-hover:opacity-50 transition-opacity duration-200 ml-auto">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16" />
         </svg>
       </div>
@@ -210,9 +210,9 @@ const hasChildren = computed(() => {
     
     <!-- Child Pages (only shown when expanded) -->
     <div v-if="docNavStore.expandedPages[page.id] && hasChildren" class="pl-1.5">
-      <ul class="flex flex-col gap-0.5 border-l border-slate-700 pl-1 relative">
+      <ul class="flex flex-col gap-0.5 border-l border-default pl-1 relative">
         <!-- Show a subtle expanding line animation when first expanded -->
-        <div class="absolute left-0 top-0 bottom-0 w-px bg-slate-600 expand-line"></div>
+        <div class="absolute left-0 top-0 bottom-0 w-px bg-border-subtle expand-line"></div>
         
         <DocumentationNavItem
           v-for="child in page.children"

@@ -7,32 +7,165 @@
   margin: 0;
 }
 
-:root {
-  --background-color: #f3f4f6;
-  --card-background: #f9fafb;
-  --text-primary: #1f2937;
-  --text-secondary: #4b5563;
-  --shadow-inset-dark: rgba(0, 0, 0, 0.1);
-  --shadow-inset-light: rgba(255, 255, 255, 0.7);
-  --shadow-outer-dark: rgba(0, 0, 0, 0.1);
-  --shadow-outer-light: rgba(255, 255, 255, 0.7);
+/* ============================================
+   TAILWIND V4 THEME - Register colors for auto-generation
+   ============================================ */
+@theme {
+  /* Light theme colors (default) */
+  --color-app: #f3f4f6;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f3f4f6;
+  --color-surface-hover: #f3f4f6;
+
+  --color-default: #e5e7eb;
+  --color-subtle: #f3f4f6;
+  --color-strong: #d1d5db;
+
+  --color-primary: #1f2937;
+  --color-secondary: #4b5563;
+  --color-tertiary: #6b7280;
+
+  --color-brand-gold: #FDBD10;
+  --color-brand-blue: #2C80FF;
+  --color-brand-green: #00C951;
+  --color-brand-pink: #FF66B3;
+  --color-brand-purple: #8B5CF6;
+  --color-brand-gray: #99A1AF;
+
+  --color-status-success: #00C951;
+  --color-status-error: #EF4444;
+  --color-status-warning: #F59E0B;
+  --color-status-info: #3B82F6;
 }
 
-/* src/assets/main.css */
+/* ============================================
+   THEME VARIABLES - Light/Dark switching
+   ============================================ */
+@layer theme {
+  :root {
+    /* Background layers */
+    --color-app: #f3f4f6;
+    --color-surface: #ffffff;
+    --color-surface-alt: #f3f4f6;
+    --color-surface-hover: #f3f4f6;
+
+    /* Borders */
+    --color-default: #e5e7eb;
+    --color-subtle: #f3f4f6;
+    --color-strong: #d1d5db;
+
+    /* Text colors */
+    --color-primary: #1f2937;
+    --color-secondary: #4b5563;
+    --color-tertiary: #6b7280;
+
+    /* Status colors */
+    --color-status-success: #00C951;
+    --color-status-error: #EF4444;
+    --color-status-warning: #F59E0B;
+    --color-status-info: #3B82F6;
+
+    /* Legacy support */
+    --color-bg-app: var(--color-app);
+    --color-bg-surface: var(--color-surface);
+    --color-bg-surface-alt: var(--color-surface-alt);
+    --color-bg-surface-hover: var(--color-surface-hover);
+    --color-border-default: var(--color-default);
+    --color-border-subtle: var(--color-subtle);
+    --color-border-strong: var(--color-strong);
+    --color-text-primary: var(--color-primary);
+    --color-text-secondary: var(--color-secondary);
+    --color-text-tertiary: var(--color-tertiary);
+    --background-color: var(--color-app);
+    --card-background: var(--color-surface);
+    --text-primary: var(--color-primary);
+    --text-secondary: var(--color-secondary);
+
+    /* Shadows */
+    --shadow-inset-dark: rgba(0, 0, 0, 0.1);
+    --shadow-inset-light: rgba(255, 255, 255, 0.7);
+    --shadow-outer-dark: rgba(0, 0, 0, 0.1);
+    --shadow-outer-light: rgba(255, 255, 255, 0.7);
+  }
+
+  /* Dark theme overrides */
+  .dark {
+    /* Background layers */
+    --color-app: #0f172a;
+    --color-surface: #1e293b;
+    --color-surface-alt: #334155;
+    --color-surface-hover: rgba(51, 65, 85, 0.5);
+
+    /* Borders - subtle in dark mode */
+    --color-default: #334155;       /* slate-700 - subtle but visible */
+    --color-subtle: #293548;        /* between slate-800 and slate-700 */
+    --color-strong: #475569;        /* slate-600 - more prominent */
+
+    /* Text colors */
+    --color-primary: #f9fafb;
+    --color-secondary: #cbd5e1;
+    --color-tertiary: #94a3b8;
+
+    /* Shadows */
+    --shadow-inset-dark: rgba(0, 0, 0, 0.3);
+    --shadow-inset-light: rgba(255, 255, 255, 0.1);
+    --shadow-outer-dark: rgba(0, 0, 0, 0.3);
+    --shadow-outer-light: rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Smooth transitions between themes */
 :root,
-[data-theme] {
-  transition: all 0.3s ease-in-out;
+.dark {
+  transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
 }
 
-[data-theme="dark"] {
-  --background-color: #1f2937;
-  --card-background: #374151;
-  --text-primary: #f9fafb;
-  --text-secondary: #d1d5db;
-  --shadow-inset-dark: rgba(0, 0, 0, 0.3);
-  --shadow-inset-light: rgba(255, 255, 255, 0.1);
-  --shadow-outer-dark: rgba(0, 0, 0, 0.3);
-  --shadow-outer-light: rgba(255, 255, 255, 0.1);
+/* ============================================
+   CUSTOM UTILITIES - Tailwind v4
+   Define custom utility classes using @layer
+   ============================================ */
+@layer utilities {
+  /* Background color utilities */
+  .bg-app { background-color: var(--color-app); }
+  .bg-surface { background-color: var(--color-surface); }
+  .bg-surface-alt { background-color: var(--color-surface-alt); }
+  .bg-surface-hover { background-color: var(--color-surface-hover); }
+
+  /* Border color utilities */
+  .border-default { border-color: var(--color-default); }
+  .border-subtle { border-color: var(--color-subtle); }
+  .border-strong { border-color: var(--color-strong); }
+
+  /* Text color utilities */
+  .text-primary { color: var(--color-primary); }
+  .text-secondary { color: var(--color-secondary); }
+  .text-tertiary { color: var(--color-tertiary); }
+
+  /* Brand color utilities */
+  .bg-brand-blue { background-color: var(--color-brand-blue); }
+  .text-brand-blue { color: var(--color-brand-blue); }
+  .bg-brand-gold { background-color: var(--color-brand-gold); }
+  .text-brand-gold { color: var(--color-brand-gold); }
+  .bg-brand-green { background-color: var(--color-brand-green); }
+  .text-brand-green { color: var(--color-brand-green); }
+
+  /* Status color utilities */
+  .bg-status-success { background-color: var(--color-status-success); }
+  .text-status-success { color: var(--color-status-success); }
+  .bg-status-error { background-color: var(--color-status-error); }
+  .text-status-error { color: var(--color-status-error); }
+  .bg-status-warning { background-color: var(--color-status-warning); }
+  .text-status-warning { color: var(--color-status-warning); }
+  .bg-status-info { background-color: var(--color-status-info); }
+  .text-status-info { color: var(--color-status-info); }
+
+  /* Scrollbar hide utility */
+  .scrollbar-hide {
+    scrollbar-width: none; /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none; /* Safari and Chrome */
+  }
 }
 
 body {

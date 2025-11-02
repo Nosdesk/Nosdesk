@@ -45,39 +45,39 @@ const statusOptions = [
   <form @submit.prevent="handleSubmit" class="flex flex-col gap-6">
     <!-- Project Name -->
     <div class="flex flex-col gap-2">
-      <label for="name" class="text-sm font-medium text-slate-300">Project Name</label>
+      <label for="name" class="text-sm font-medium text-secondary">Project Name</label>
       <input
         id="name"
         v-model="formData.name"
         type="text"
         required
         :disabled="disabled"
-        class="px-3 py-2 bg-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+        class="px-3 py-2 bg-surface rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
         placeholder="Enter project name"
       />
     </div>
 
     <!-- Project Description -->
     <div class="flex flex-col gap-2">
-      <label for="description" class="text-sm font-medium text-slate-300">Description (optional)</label>
+      <label for="description" class="text-sm font-medium text-secondary">Description (optional)</label>
       <textarea
         id="description"
         v-model="formData.description"
         rows="3"
         :disabled="disabled"
-        class="px-3 py-2 bg-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:opacity-50"
+        class="px-3 py-2 bg-surface rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:opacity-50"
         placeholder="Enter project description (optional)"
       ></textarea>
     </div>
 
     <!-- Project Status (only show in edit mode) -->
     <div v-if="mode === 'edit'" class="flex flex-col gap-2">
-      <label for="status" class="text-sm font-medium text-slate-300">Status</label>
+      <label for="status" class="text-sm font-medium text-secondary">Status</label>
       <select
         id="status"
         v-model="formData.status"
         :disabled="disabled"
-        class="px-3 py-2 bg-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+        class="px-3 py-2 bg-surface rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
       >
         <option
           v-for="option in statusOptions"
@@ -95,7 +95,7 @@ const statusOptions = [
         type="button"
         @click="emit('cancel')"
         :disabled="disabled"
-        class="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors disabled:opacity-50"
+        class="px-4 py-2 text-sm font-medium text-secondary hover:text-primary transition-colors disabled:opacity-50"
       >
         Cancel
       </button>

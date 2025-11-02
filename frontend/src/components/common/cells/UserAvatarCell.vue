@@ -19,16 +19,16 @@ const props = withDefaults(defineProps<Props>(), {
 
 <template>
   <div v-if="userId" class="flex items-center gap-2">
-    <UserAvatar 
-      :name="userId" 
+    <UserAvatar
+      :name="userId"
       :user-name="userName"
       :avatarUrl="avatar"
-      :size="size" 
+      :size="size"
       :clickable="false"
       :show-name="showName"
     />
   </div>
-  <span v-else class="text-xs text-slate-500">
+  <span v-else class="text-xs text-tertiary">
     {{ emptyText }}
   </span>
 </template> 

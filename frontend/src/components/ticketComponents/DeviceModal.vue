@@ -41,65 +41,65 @@ const handleSubmit = () => {
     <form @submit.prevent="handleSubmit" class="flex flex-col gap-4">
       <!-- Name -->
       <div class="flex flex-col gap-1">
-        <label for="name" class="text-sm text-slate-400">Name</label>
+        <label for="name" class="text-sm text-tertiary">Name</label>
         <input
           id="name"
           v-model="device.name"
           type="text"
           required
-          class="bg-slate-700 text-slate-200 rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
+          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
           placeholder="Enter device name"
         />
       </div>
 
       <!-- Hostname -->
       <div class="flex flex-col gap-1">
-        <label for="hostname" class="text-sm text-slate-400">Hostname</label>
+        <label for="hostname" class="text-sm text-tertiary">Hostname</label>
         <input
           id="hostname"
           v-model="device.hostname"
           type="text"
           required
-          class="bg-slate-700 text-slate-200 rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
+          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
           placeholder="Enter hostname"
         />
       </div>
 
       <!-- Serial Number -->
       <div class="flex flex-col gap-1">
-        <label for="serial_number" class="text-sm text-slate-400">Serial Number</label>
+        <label for="serial_number" class="text-sm text-tertiary">Serial Number</label>
         <input
           id="serial_number"
           v-model="device.serial_number"
           type="text"
           required
-          class="bg-slate-700 text-slate-200 rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
+          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
           placeholder="Enter serial number"
         />
       </div>
 
       <!-- Model -->
       <div class="flex flex-col gap-1">
-        <label for="model" class="text-sm text-slate-400">Model</label>
+        <label for="model" class="text-sm text-tertiary">Model</label>
         <input
           id="model"
           v-model="device.model"
           type="text"
           required
-          class="bg-slate-700 text-slate-200 rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
+          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
           placeholder="Enter model"
         />
       </div>
 
       <!-- Warranty Status -->
       <div class="flex flex-col gap-1">
-        <label for="warranty_status" class="text-sm text-slate-400">Warranty Status</label>
+        <label for="warranty_status" class="text-sm text-tertiary">Warranty Status</label>
         <input
           id="warranty_status"
           v-model="device.warranty_status"
           type="text"
           required
-          class="bg-slate-700 text-slate-200 rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
+          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
           placeholder="Enter warranty status"
         />
       </div>
@@ -109,7 +109,7 @@ const handleSubmit = () => {
         <button
           type="button"
           @click="emit('close')"
-          class="px-4 py-2 text-sm text-slate-300 hover:text-slate-100"
+          class="px-4 py-2 text-sm text-secondary hover:text-primary"
         >
           Cancel
         </button>

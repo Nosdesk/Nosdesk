@@ -30,7 +30,7 @@ const formatDate = (dateString: string) => {
 </script>
 
 <template>
-  <div class="bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
+  <div class="bg-surface-alt rounded-lg hover:bg-surface-hover transition-colors">
     <div class="flex items-start justify-between">
       <RouterLink
         :to="`/documentation/${id}`"
@@ -38,28 +38,28 @@ const formatDate = (dateString: string) => {
       >
         <div>
           <h3 :class="[
-            'font-medium text-white',
+            'font-medium text-primary',
             showFullTitle ? 'text-lg' : ''
           ]">{{ title }}</h3>
-          <p class="text-sm text-slate-400 mt-1">{{ description }}</p>
-          <div class="flex items-center gap-4 mt-2 text-xs text-slate-500">
+          <p class="text-sm text-tertiary mt-1">{{ description }}</p>
+          <div class="flex items-center gap-4 mt-2 text-xs text-tertiary">
             <span>{{ author }}</span>
             <span>Updated {{ formatDate(lastUpdated) }}</span>
           </div>
         </div>
       </RouterLink>
-      
+
       <div v-if="showStatus || showEditButton" class="flex items-center gap-2">
-        <StatusBadge 
+        <StatusBadge
           v-if="showStatus"
-          type="status" 
+          type="status"
           :value="status === 'published' ? 'open' : 'in-progress'"
         />
-        
+
         <RouterLink
           v-if="showEditButton"
           :to="`/documentation/${id}`"
-          class="ml-2 p-1.5 text-slate-400 hover:text-white hover:bg-slate-600 rounded transition-colors"
+          class="ml-2 p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
           title="Edit Article"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

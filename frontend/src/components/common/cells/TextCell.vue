@@ -11,9 +11,9 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const colorClasses = {
-  primary: 'text-slate-200',
-  secondary: 'text-slate-300', 
-  muted: 'text-slate-400'
+  primary: 'text-primary',
+  secondary: 'text-secondary',
+  muted: 'text-tertiary'
 }
 
 const fontWeightClasses = {

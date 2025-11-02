@@ -3,19 +3,19 @@
     <transition name="modal">
       <div
         v-if="isOpen"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
         @click.self="close"
       >
         <div
-          class="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl max-w-md w-full overflow-hidden"
+          class="relative bg-surface rounded-xl border border-default shadow-2xl max-w-md w-full overflow-hidden z-10"
           @click.stop
         >
           <!-- Header -->
-          <div class="px-6 py-4 bg-slate-700/30 border-b border-slate-700/50 flex items-center justify-between">
-            <h2 class="text-lg font-semibold text-white">Reset Your Password</h2>
+          <div class="px-6 py-4 bg-surface-alt border-b border-subtle flex items-center justify-between">
+            <h2 class="text-lg font-semibold text-primary">Reset Your Password</h2>
             <button
               @click="close"
-              class="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-700/50"
+              class="text-tertiary hover:text-primary transition-colors p-1 rounded-lg hover:bg-surface-hover"
               aria-label="Close modal"
             >
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -34,13 +34,13 @@
                 </svg>
               </div>
               <div>
-                <h3 class="text-lg font-medium text-white mb-2">Check Your Email</h3>
-                <p class="text-sm text-slate-400">
+                <h3 class="text-lg font-medium text-primary mb-2">Check Your Email</h3>
+                <p class="text-sm text-secondary">
                   If an account with that email exists, we've sent a password reset link to
-                  <span class="text-white font-medium">{{ email }}</span>
+                  <span class="text-primary font-medium">{{ email }}</span>
                 </p>
               </div>
-              <div class="bg-blue-600/10 border border-blue-600/20 rounded-lg p-4 text-sm text-slate-300">
+              <div class="bg-blue-600/10 border border-blue-600/20 rounded-lg p-4 text-sm text-secondary">
                 <p class="mb-2"><strong class="text-blue-400">Important:</strong></p>
                 <ul class="space-y-1 text-xs">
                   <li>• The link will expire in <strong>1 hour</strong></li>
@@ -58,7 +58,7 @@
 
             <!-- Form State -->
             <form v-else @submit.prevent="handleSubmit" class="flex flex-col gap-4">
-              <p class="text-sm text-slate-400">
+              <p class="text-sm text-secondary">
                 Enter your email address and we'll send you a link to reset your password.
               </p>
 
@@ -72,7 +72,7 @@
 
               <!-- Email Input -->
               <div>
-                <label for="reset-email" class="block text-sm font-medium text-slate-300 mb-2">
+                <label for="reset-email" class="block text-sm font-medium text-secondary mb-2">
                   Email Address
                 </label>
                 <input
@@ -82,7 +82,7 @@
                   required
                   autocomplete="email"
                   placeholder="you@example.com"
-                  class="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
                   :disabled="loading"
                 />
               </div>
@@ -92,7 +92,7 @@
                 <button
                   type="button"
                   @click="close"
-                  class="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors font-medium"
+                  class="flex-1 px-4 py-2 bg-surface-alt hover:bg-surface-hover text-primary rounded-lg transition-colors font-medium"
                   :disabled="loading"
                 >
                   Cancel

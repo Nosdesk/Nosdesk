@@ -70,7 +70,7 @@ onMounted(() => {
     @input="handleInput"
     @paste="handlePaste"
     @keydown="handleKeydown"
-    class="w-full min-h-[1.75rem] px-2 py-1 text-sm text-white rounded outline-none transition-all whitespace-pre-wrap break-words"
+    class="w-full min-h-[1.75rem] px-2 py-1 text-sm text-primary rounded outline-none transition-all whitespace-pre-wrap break-words"
     spellcheck="true"
   />
 </template>
@@ -78,12 +78,13 @@ onMounted(() => {
 <style scoped>
 /* Focus styling */
 [contenteditable]:focus {
-  background-color: rgb(51 65 85 / 0.3); /* bg-slate-700/30 */
+  background-color: var(--bg-surface-hover);
 }
 
 /* Hover styling */
 [contenteditable]:hover {
-  background-color: rgb(51 65 85 / 0.2); /* bg-slate-700/20 */
+  background-color: var(--bg-surface-hover);
+  opacity: 0.7;
 }
 
 /* Remove the ugly focus ring and use a subtle glow instead */

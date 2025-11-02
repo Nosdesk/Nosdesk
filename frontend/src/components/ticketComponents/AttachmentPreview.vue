@@ -268,7 +268,7 @@ const generatePdfThumbnail = async (url: string) => {
   <div :class="[
     'flex flex-col gap-2',
     attachmentType === 'audio' ? 'w-full' : '',
-    attachmentType === 'video' ? 'bg-slate-800 rounded-lg p-3 w-full' : '',
+    attachmentType === 'video' ? 'bg-surface-alt rounded-lg p-3 w-full' : '',
     attachmentType === 'image' ? 'max-w-[250px]' : '',
     attachmentType === 'pdf' ? 'max-w-[250px]' : ''
   ]">
@@ -278,14 +278,14 @@ const generatePdfThumbnail = async (url: string) => {
         <div class="flex items-center gap-2">
           <template v-if="attachmentType === 'audio'">
             <div class="flex flex-col">
-              <span class="text-sm text-slate-200">{{ attachment.name }}</span>
+              <span class="text-sm text-primary">{{ attachment.name }}</span>
             </div>
           </template>
           <template v-if="attachmentType === 'video'">
-            <svg class="w-5 h-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+            <svg class="w-5 h-5 text-tertiary" viewBox="0 0 20 20" fill="currentColor">
               <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
             </svg>
-            <span class="text-sm text-slate-300">{{ attachment.name }}</span>
+            <span class="text-sm text-secondary">{{ attachment.name }}</span>
           </template>
         </div>
         <div class="flex items-center gap-2">
@@ -294,7 +294,7 @@ const generatePdfThumbnail = async (url: string) => {
             :href="authenticatedUrl"
             target="_blank"
             :download="attachment.name"
-            class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+            class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
             title="Download attachment"
             @click.stop
           >
@@ -307,7 +307,7 @@ const generatePdfThumbnail = async (url: string) => {
             v-if="showDelete"
             type="button"
             @click.stop="emit('delete')"
-            class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+            class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
             :title="'Delete ' + attachmentType"
           >
             <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -320,7 +320,7 @@ const generatePdfThumbnail = async (url: string) => {
 
     <!-- Content -->
     <template v-if="attachmentType === 'audio'">
-      <div class="bg-slate-800 rounded-lg p-3 w-full">
+      <div class="bg-surface-alt rounded-lg p-3 w-full">
         <AudioPlayer :src="authenticatedUrl" />
       </div>
     </template>
@@ -334,12 +334,12 @@ const generatePdfThumbnail = async (url: string) => {
     </template>
     <template v-else-if="attachmentType === 'image'">
       <!-- Image container -->
-      <div class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-slate-800">
+      <div class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-surface-alt">
         <button
           v-if="showDelete"
           type="button"
           @click.stop="emit('delete')"
-          class="absolute top-2 right-2 z-30 p-1.5 bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+          class="absolute top-2 right-2 z-30 p-1.5 bg-surface-alt/80 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
           title="Delete image"
         >
           <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -350,13 +350,13 @@ const generatePdfThumbnail = async (url: string) => {
         <!-- Fallback for unsupported formats -->
         <div
           v-if="needsConversion(attachment.name)"
-          class="w-full h-full flex items-center justify-center bg-slate-800 p-4"
+          class="w-full h-full flex items-center justify-center bg-surface-alt p-4"
         >
           <div class="flex flex-col items-center text-center gap-2">
-            <svg class="w-12 h-12 mx-auto text-slate-500 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <svg class="w-12 h-12 mx-auto text-tertiary mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            <p class="text-sm text-slate-300">This image format is not supported by your browser</p>
+            <p class="text-sm text-secondary">This image format is not supported by your browser</p>
           </div>
         </div>
         <!-- Regular image display -->
@@ -372,26 +372,26 @@ const generatePdfThumbnail = async (url: string) => {
 
         <!-- Preview hover overlay -->
         <div
-          class="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer z-25"
+          class="absolute inset-0 bg-surface/30 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer z-25"
           @click.stop="openImagePreview(authenticatedUrl)"
         >
-          <svg class="w-8 h-8 text-white" viewBox="0 0 20 20" fill="currentColor">
+          <svg class="w-8 h-8 text-primary" viewBox="0 0 20 20" fill="currentColor">
             <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
             <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
           </svg>
-          
+
           <!-- Animation indicator for GIF and APNG -->
-          <div 
-            v-if="isAnimatedImage(attachment.name)" 
+          <div
+            v-if="isAnimatedImage(attachment.name)"
             class="absolute top-2 left-2 bg-indigo-700/80 px-2 py-1 rounded text-xs text-white font-medium animate-pulse"
           >
             ANIMATED
           </div>
         </div>
-        <div 
-          class="absolute top-0 left-0 p-2 bg-gradient-to-b from-slate-900/80 to-transparent w-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-25"
+        <div
+          class="absolute top-0 left-0 p-2 bg-gradient-to-b from-surface/80 to-transparent w-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-25"
         >
-          <span class="text-sm text-white font-medium truncate block">{{ getDisplayName(attachment.name) }}</span>
+          <span class="text-sm text-primary font-medium truncate block">{{ getDisplayName(attachment.name) }}</span>
         </div>
         <!-- Download button for images -->
         <div
@@ -401,7 +401,7 @@ const generatePdfThumbnail = async (url: string) => {
             :href="authenticatedUrl"
             target="_blank"
             :download="attachment.name"
-            class="flex items-center gap-1 p-2 bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+            class="flex items-center gap-1 p-2 bg-surface-alt/80 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
             title="Download image"
             @click.stop
           >
@@ -413,13 +413,13 @@ const generatePdfThumbnail = async (url: string) => {
       </div>
     </template>
     <template v-else-if="attachmentType === 'pdf'">
-      <div class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-slate-800">
+      <div class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-surface-alt">
         <!-- Delete button -->
         <button
           v-if="showDelete"
           type="button"
           @click.stop="emit('delete')"
-          class="absolute top-2 right-2 z-30 p-1.5 bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+          class="absolute top-2 right-2 z-30 p-1.5 bg-surface-alt/80 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
           title="Delete PDF"
         >
           <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -428,51 +428,51 @@ const generatePdfThumbnail = async (url: string) => {
         </button>
         
         <!-- PDF Loading state -->
-        <div 
+        <div
           v-if="isPdfThumbnailLoading"
-          class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 z-20"
+          class="absolute inset-0 flex flex-col items-center justify-center bg-surface/90 z-20"
         >
           <svg class="animate-spin h-8 w-8 text-red-500 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-          <span class="text-sm text-white font-medium">Loading PDF</span>
+          <span class="text-sm text-primary font-medium">Loading PDF</span>
         </div>
-        
+
         <!-- PDF Thumbnail Display -->
         <div v-if="pdfThumbnailSrc" class="w-full h-full flex items-center justify-center">
-          <img 
-            :src="pdfThumbnailSrc" 
+          <img
+            :src="pdfThumbnailSrc"
             :alt="attachment.name"
             class="w-full h-full object-contain"
           />
         </div>
-        
+
         <!-- Fallback PDF icon when no thumbnail -->
-        <div v-else-if="!isPdfThumbnailLoading" class="w-full h-full flex items-center justify-center bg-slate-700">
+        <div v-else-if="!isPdfThumbnailLoading" class="w-full h-full flex items-center justify-center bg-surface-hover">
           <svg class="w-16 h-16 text-red-400" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
           </svg>
         </div>
-        
+
         <!-- PDF overlay with icon -->
-        <div 
-          class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-slate-900/90 to-transparent"
+        <div
+          class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-surface/90 to-transparent"
         >
           <div class="flex items-center gap-2">
             <svg class="w-5 h-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
             </svg>
-            <span class="text-sm text-white font-medium truncate">{{ getDisplayName(attachment.name) }}</span>
+            <span class="text-sm text-primary font-medium truncate">{{ getDisplayName(attachment.name) }}</span>
           </div>
         </div>
 
         <!-- Preview hover overlay -->
         <div
-          class="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer z-25"
+          class="absolute inset-0 bg-surface/30 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-pointer z-25"
           @click.stop="openImagePreview(authenticatedUrl)"
         >
-          <svg class="w-12 h-12 text-white" viewBox="0 0 20 20" fill="currentColor">
+          <svg class="w-12 h-12 text-primary" viewBox="0 0 20 20" fill="currentColor">
             <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
             <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
           </svg>
@@ -515,7 +515,7 @@ const generatePdfThumbnail = async (url: string) => {
       <button
         type="button"
         @click.stop="emit('delete')"
-        class="px-3 py-1.5 text-slate-300 hover:text-white transition-colors"
+        class="px-3 py-1.5 text-secondary hover:text-primary transition-colors"
       >
         Cancel
       </button>
@@ -575,10 +575,10 @@ const generatePdfThumbnail = async (url: string) => {
           </div>
         </transition>
         
-        <div v-if="!isPdfFile(attachment.name)" class="mt-4 text-center text-sm text-slate-300">
+        <div v-if="!isPdfFile(attachment.name)" class="mt-4 text-center text-sm text-secondary">
           {{ getDisplayName(attachment.name) }}
         </div>
-        
+
         <!-- Show download buttons only for non-PDF files since PDFViewer has its own -->
         <div v-if="!isPdfFile(attachment.name)" class="mt-4 flex gap-3">
           <!-- For animated images, add a special title -->
@@ -601,7 +601,7 @@ const generatePdfThumbnail = async (url: string) => {
             :href="previewImageSrc"
             target="_blank"
             :download="attachment.name"
-            class="px-4 py-2 bg-slate-800 text-white text-sm rounded hover:bg-slate-700 transition-colors flex items-center gap-2"
+            class="px-4 py-2 bg-surface-alt text-primary text-sm rounded hover:bg-surface-hover transition-colors flex items-center gap-2"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>

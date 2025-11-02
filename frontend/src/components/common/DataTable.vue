@@ -86,29 +86,29 @@ const getColumnVisibility = (column: Column) => {
       <!-- Sticky Header Row -->
       <div class="contents sticky top-0 z-10">
         <!-- Checkbox Header -->
-        <div class="px-4 py-3 flex items-center font-semibold text-slate-200 bg-slate-800 border-b-1 border-slate-700 sticky top-0 z-10">
+        <div class="px-4 py-3 flex items-center font-semibold text-primary bg-surface border-b-1 border-default sticky top-0 z-10">
           <input
             type="checkbox"
-            class="w-4 h-4 rounded border-slate-700 bg-slate-800 text-blue-600 focus:ring-blue-500"
+            class="w-4 h-4 rounded border-default bg-surface text-blue-600 focus:ring-blue-500"
             :checked="allSelected && data.length > 0"
             @click="emit('toggle-all', $event)"
           />
         </div>
-        
+
         <!-- Column Headers -->
         <div
           v-for="column in columns"
           :key="column.field"
           :class="[
-            'px-2 py-3 flex items-center font-semibold text-slate-200 bg-slate-800 border-b-1 border-slate-700 sticky top-0 z-10',
+            'px-2 py-3 flex items-center font-semibold text-primary bg-surface border-b-1 border-default sticky top-0 z-10',
             getColumnVisibility(column),
-            column.sortable ? 'cursor-pointer hover:bg-slate-600' : ''
+            column.sortable ? 'cursor-pointer hover:bg-surface-hover' : ''
           ]"
           @click="toggleSort(column.field)"
         >
           <div class="flex items-center gap-1">
             {{ column.label }}
-            <span v-if="column.sortable && sortField === column.field" class="text-slate-200">
+            <span v-if="column.sortable && sortField === column.field" class="text-primary">
               {{ sortDirection === 'asc' ? '↑' : '↓' }}
             </span>
           </div>
@@ -119,34 +119,34 @@ const getColumnVisibility = (column: Column) => {
       <template v-for="(item, index) in data" :key="item[itemIdField]">
         <div class="contents group cursor-pointer" @click="emit('row-click', item)">
           <!-- Checkbox Cell -->
-          <div class="px-4 py-3 flex items-center bg-slate-900 group-hover:bg-slate-800 transition-colors border-b border-slate-800">
+          <div class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover transition-colors border-b border-default">
             <input
               type="checkbox"
-              class="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500"
+              class="w-4 h-4 rounded border-default bg-surface text-blue-600 focus:ring-blue-500"
               :checked="selectedItems.includes(item[itemIdField].toString())"
               @click.stop="emit('toggle-selection', $event, item[itemIdField].toString())"
             />
           </div>
-          
+
           <!-- Data Cells -->
           <div
             v-for="column in columns"
             :key="column.field"
             :class="[
-              'px-2 py-3 flex items-center bg-slate-900 group-hover:bg-slate-800 transition-colors text-sm border-b border-slate-800 min-w-0',
+              'px-2 py-3 flex items-center bg-app group-hover:bg-surface-hover transition-colors text-sm border-b border-default min-w-0',
               getColumnVisibility(column)
             ]"
           >
             <!-- Slot for custom cell content -->
-            <slot 
-              :name="`cell-${column.field}`" 
-              :item="item" 
+            <slot
+              :name="`cell-${column.field}`"
+              :item="item"
               :value="item[column.field]"
               :index="index"
               :column="column"
             >
               <!-- Default cell content -->
-              <span class="truncate text-slate-200">
+              <span class="truncate text-primary">
                 {{ item[column.field] }}
               </span>
             </slot>
@@ -167,21 +167,21 @@ const getColumnVisibility = (column: Column) => {
 
 .overflow-y-auto::-webkit-scrollbar-track,
 .overflow-x-auto::-webkit-scrollbar-track {
-  background: #0f172a; /* slate-900 */
+  background: var(--color-bg-app);
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb,
 .overflow-x-auto::-webkit-scrollbar-thumb {
-  background: #475569; /* slate-600 */
+  background: var(--color-border-default);
   border-radius: 4px;
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb:hover,
 .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-  background: #64748b; /* slate-500 */
+  background: var(--color-border-strong);
 }
 
 .overflow-x-auto::-webkit-scrollbar-corner {
-  background: #0f172a; /* slate-900 */
+  background: var(--color-bg-app);
 }
 </style> 

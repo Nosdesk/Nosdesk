@@ -409,7 +409,7 @@ const getRoleBadgeClass = (role: string) => {
             return "bg-blue-600/20 text-blue-400";
         case "user":
         default:
-            return "bg-slate-600/20 text-slate-400";
+            return "bg-surface-hover/20 text-secondary";
     }
 };
 
@@ -437,7 +437,7 @@ const getRoleDisplayName = (role: string) => {
 
 <template>
     <div
-        class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors overflow-hidden"
+        class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
     >
         <!-- Cover/Banner Image -->
         <div
@@ -453,7 +453,7 @@ const getRoleDisplayName = (role: string) => {
             <!-- Banner upload button (only when editable) -->
             <button
                 v-if="isEditable"
-                class="absolute bottom-2 right-2 bg-slate-800/50 hover:bg-slate-800/80 text-white rounded-full w-11 h-11 flex items-center justify-center transition-colors"
+                class="absolute bottom-2 right-2 bg-surface/50 hover:bg-surface/80 text-white rounded-full w-11 h-11 flex items-center justify-center transition-colors"
                 @click="handleBannerClick"
             >
                 <svg
@@ -494,7 +494,7 @@ const getRoleDisplayName = (role: string) => {
             <RouterLink
                 v-if="enableAvatarNavigation && !isEditable && displayUser?.uuid"
                 :to="`/users/${displayUser.uuid}`"
-                class="block rounded-full overflow-hidden border-4 border-slate-800 shadow-lg hover:ring-2 hover:ring-blue-500 transition-all"
+                class="block rounded-full overflow-hidden border-4 border-surface shadow-lg hover:ring-2 hover:ring-blue-500 transition-all"
                 :class="[
                     avatarSize,
                     showBanner ? `absolute ${avatarOffset} left-4 sm:left-6` : 'mx-auto mt-4'
@@ -512,7 +512,7 @@ const getRoleDisplayName = (role: string) => {
             <!-- Non-clickable avatar for edit mode or when navigation is disabled -->
             <div
                 v-else
-                class="rounded-full overflow-hidden border-4 border-slate-800 shadow-lg"
+                class="rounded-full overflow-hidden border-4 border-surface shadow-lg"
                 :class="[
                     avatarSize,
                     showBanner ? `absolute ${avatarOffset} left-4 sm:left-6` : 'mx-auto mt-4',
@@ -609,7 +609,7 @@ const getRoleDisplayName = (role: string) => {
                         <!-- Pronouns -->
                         <div class="flex flex-col gap-1.5">
                             <h3
-                                class="text-xs font-medium text-slate-400 uppercase tracking-wide"
+                                class="text-xs font-medium text-tertiary uppercase tracking-wide"
                             >
                                 Pronouns
                             </h3>
@@ -617,7 +617,7 @@ const getRoleDisplayName = (role: string) => {
                                 <input
                                     v-model="formData.pronouns"
                                     type="text"
-                                    class="flex-1 px-4 py-2.5 bg-slate-700/50 rounded-lg border border-slate-600/30 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                    class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-blue-500 focus:outline-none"
                                     placeholder="Add pronouns (e.g., he/him, she/her, they/them)"
                                 />
                                 <button
@@ -638,7 +638,7 @@ const getRoleDisplayName = (role: string) => {
                 <!-- Mobile: Stacked layout -->
                 <div class="flex flex-col gap-3 sm:hidden" :class="showBanner ? contentPadding : 'pt-4'">
                     <!-- Name on top -->
-                    <h2 class="text-2xl font-semibold text-white">
+                    <h2 class="text-2xl font-semibold text-primary">
                         {{ displayUser?.name || "Unknown User" }}
                     </h2>
                     <!-- Badge and pronouns below -->
@@ -655,13 +655,13 @@ const getRoleDisplayName = (role: string) => {
                         </div>
                         <span
                             v-if="showPronouns && displayUser?.pronouns"
-                            class="text-sm text-slate-400"
+                            class="text-sm text-tertiary"
                         >
                             {{ displayUser.pronouns }}
                         </span>
                     </div>
                     <!-- Email (if provided via slot or showEmail prop) -->
-                    <p v-if="showEmail && displayUser?.email" class="text-slate-300 text-lg">
+                    <p v-if="showEmail && displayUser?.email" class="text-secondary text-lg">
                         {{ displayUser.email }}
                     </p>
                 </div>
@@ -674,18 +674,18 @@ const getRoleDisplayName = (role: string) => {
                     <!-- Left: Name and pronouns -->
                     <div class="flex flex-col gap-2 flex-1 min-w-0">
                         <div class="flex items-baseline gap-3">
-                            <h2 class="text-2xl font-semibold text-white">
+                            <h2 class="text-2xl font-semibold text-primary">
                                 {{ displayUser?.name || "Unknown User" }}
                             </h2>
                             <span
                                 v-if="showPronouns && displayUser?.pronouns"
-                                class="text-sm text-slate-400"
+                                class="text-sm text-tertiary"
                             >
                                 {{ displayUser.pronouns }}
                             </span>
                         </div>
                         <!-- Email (if provided) -->
-                        <p v-if="showEmail && displayUser?.email" class="text-slate-300 text-lg">
+                        <p v-if="showEmail && displayUser?.email" class="text-secondary text-lg">
                             {{ displayUser.email }}
                         </p>
                     </div>

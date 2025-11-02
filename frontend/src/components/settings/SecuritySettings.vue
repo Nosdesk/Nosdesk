@@ -58,10 +58,10 @@ const changePassword = async () => {
 </script>
 
 <template>
-  <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
-    <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
-      <h2 class="text-lg font-medium text-white">Security</h2>
-      <p class="text-sm text-slate-400 mt-1">Change your password and manage account security</p>
+  <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
+    <div class="px-4 py-3 bg-surface-alt border-b border-default">
+      <h2 class="text-lg font-medium text-primary">Security</h2>
+      <p class="text-sm text-tertiary mt-1">Change your password and manage account security</p>
     </div>
     
     <div class="p-6">
@@ -78,13 +78,13 @@ const changePassword = async () => {
         
         <!-- Current Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-slate-400 uppercase tracking-wide">Current Password</label>
-          <div class="bg-slate-700/50 rounded-lg border border-slate-600/30">
+          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">Current Password</label>
+          <div class="bg-surface-alt rounded-lg border border-subtle">
             <input
               v-model="currentPassword"
               type="password"
               autocomplete="current-password"
-              class="w-full px-4 py-2 bg-transparent text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
               placeholder="Enter your current password"
               required
             />
@@ -93,30 +93,30 @@ const changePassword = async () => {
 
         <!-- New Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-slate-400 uppercase tracking-wide">New Password</label>
-          <div class="bg-slate-700/50 rounded-lg border border-slate-600/30">
+          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">New Password</label>
+          <div class="bg-surface-alt rounded-lg border border-subtle">
             <input
               v-model="newPassword"
               type="password"
               autocomplete="new-password"
-              class="w-full px-4 py-2 bg-transparent text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
               placeholder="Enter your new password"
               minlength="8"
               required
             />
           </div>
-          <p class="text-xs text-slate-400">Password must be at least 8 characters long</p>
+          <p class="text-xs text-tertiary">Password must be at least 8 characters long</p>
         </div>
 
         <!-- Confirm New Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-slate-400 uppercase tracking-wide">Confirm New Password</label>
-          <div class="bg-slate-700/50 rounded-lg border border-slate-600/30">
+          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">Confirm New Password</label>
+          <div class="bg-surface-alt rounded-lg border border-subtle">
             <input
               v-model="confirmPassword"
               type="password"
               autocomplete="new-password"
-              class="w-full px-4 py-2 bg-transparent text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
               placeholder="Confirm your new password"
               required
             />
@@ -131,7 +131,7 @@ const changePassword = async () => {
           <button
             type="submit"
             :disabled="!isFormValid || loading"
-            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-600 flex items-center"
+            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-surface-hover flex items-center"
           >
             <span v-if="loading" class="animate-spin h-4 w-4 mr-2">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

@@ -115,10 +115,10 @@ const getPriorityClass = (priority: string) => {
           v-model="searchQuery"
           type="text"
           placeholder="Search tickets..."
-          class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          class="w-full px-4 py-2 bg-surface border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
         <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-tertiary" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
           </svg>
         </div>
@@ -136,30 +136,30 @@ const getPriorityClass = (priority: string) => {
 
       <!-- No tickets found -->
       <div v-else-if="filteredTickets.length === 0" class="text-center py-8">
-        <p class="text-slate-400">No tickets found. Try a different search or create a new ticket.</p>
+        <p class="text-tertiary">No tickets found. Try a different search or create a new ticket.</p>
       </div>
 
       <!-- Tickets list -->
       <div v-else class="max-h-96 overflow-y-auto">
-        <div class="bg-slate-800 rounded-lg overflow-hidden">
+        <div class="bg-surface-alt rounded-lg overflow-hidden">
           <table class="w-full">
             <thead>
-              <tr class="border-b border-slate-700">
-                <th class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">ID</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Title</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Status</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Priority</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Action</th>
+              <tr class="border-b border-default">
+                <th class="px-6 py-3 text-left text-xs font-medium text-tertiary uppercase tracking-wider">ID</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-tertiary uppercase tracking-wider">Title</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-tertiary uppercase tracking-wider">Status</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-tertiary uppercase tracking-wider">Priority</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-tertiary uppercase tracking-wider">Action</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-700">
-              <tr 
-                v-for="ticket in filteredTickets" 
+            <tbody class="divide-y divide-default">
+              <tr
+                v-for="ticket in filteredTickets"
                 :key="ticket.id"
-                class="hover:bg-slate-700 transition-colors"
+                class="hover:bg-surface-hover transition-colors"
               >
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-300">#{{ ticket.id }}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-white">{{ ticket.title }}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-secondary">#{{ ticket.id }}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-primary">{{ ticket.title }}</td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <span 
                     :class="getStatusClass(ticket.status)"

@@ -46,7 +46,7 @@ const handleConfirm = () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 bg-slate-800 rounded-lg p-3 w-full">
+  <div class="flex flex-col gap-2 bg-surface-alt rounded-lg p-3 w-full">
     <!-- Header with filename and controls -->
     <div class="flex items-center justify-between mb-2">
       <div class="flex items-center gap-2">
@@ -54,14 +54,14 @@ const handleConfirm = () => {
           <path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clip-rule="evenodd" />
         </svg>
         <div class="flex flex-col">
-          <span class="text-sm text-slate-200">{{ voiceNoteName }}</span>
-          <span class="text-xs text-slate-400">{{ timestamp }}</span>
+          <span class="text-sm text-primary">{{ voiceNoteName }}</span>
+          <span class="text-xs text-tertiary">{{ timestamp }}</span>
         </div>
       </div>
       <button
         type="button"
         @click="emit('cancel')"
-        class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+        class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
         title="Delete audio"
       >
         <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -81,7 +81,7 @@ const handleConfirm = () => {
         <button
           type="button"
           @click="emit('reRecord')"
-          class="px-3 py-1.5 text-slate-300 hover:text-white transition-colors"
+          class="px-3 py-1.5 text-secondary hover:text-primary transition-colors"
         >
           Re-record
         </button>
@@ -105,7 +105,7 @@ const handleConfirm = () => {
       <button
         type="button"
         @click="emit('cancel')"
-        class="px-3 py-1.5 text-slate-300 hover:text-white transition-colors"
+        class="px-3 py-1.5 text-secondary hover:text-primary transition-colors"
       >
         Cancel
       </button>

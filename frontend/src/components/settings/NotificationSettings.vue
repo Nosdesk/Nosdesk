@@ -36,10 +36,10 @@ const handleDesktopNotificationToggle = () => {
 </script>
 
 <template>
-  <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
-    <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
-      <h2 class="text-lg font-medium text-white">Notifications</h2>
-      <p class="text-sm text-slate-400 mt-1">Configure how you'd like to be notified about updates</p>
+  <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
+    <div class="px-4 py-3 bg-surface-alt border-b border-default">
+      <h2 class="text-lg font-medium text-primary">Notifications</h2>
+      <p class="text-sm text-tertiary mt-1">Configure how you'd like to be notified about updates</p>
     </div>
     
     <div class="p-6 flex flex-col gap-3">

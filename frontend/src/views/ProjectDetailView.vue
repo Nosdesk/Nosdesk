@@ -255,7 +255,7 @@ watch(() => route.query.view, (newValue) => {
       <BackButton fallbackRoute="/projects" label="Back to Projects" />
 
       <!-- Error message -->
-      <div v-if="error" class="bg-red-500/20 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg mb-4">
+      <div v-if="error" class="bg-status-error/20 border border-status-error/50 text-red-200 px-4 py-3 rounded-lg mb-4">
         {{ error }}
       </div>
 
@@ -269,8 +269,8 @@ watch(() => route.query.view, (newValue) => {
         <!-- Project header -->
         <div class="flex justify-between items-start">
           <div>
-            <h1 class="text-2xl font-semibold text-white">{{ project.name }}</h1>
-            <p class="text-slate-400 mt-2">{{ project.description }}</p>
+            <h1 class="text-2xl font-semibold text-primary">{{ project.name }}</h1>
+            <p class="text-secondary mt-2">{{ project.description }}</p>
           </div>
           <div class="flex items-center gap-2">
             <span 
@@ -279,18 +279,18 @@ watch(() => route.query.view, (newValue) => {
             >
               {{ project.status }}
             </span>
-            <button 
+            <button
               @click="showEditModal = true"
-              class="p-2 text-slate-400 hover:text-white transition-colors"
+              class="p-2 text-secondary hover:text-primary transition-colors"
               title="Edit project"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                 <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
               </svg>
             </button>
-            <button 
+            <button
               @click="handleDeleteProject"
-              class="p-2 text-slate-400 hover:text-red-400 transition-colors"
+              class="p-2 text-secondary hover:text-status-error transition-colors"
               title="Delete project"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -301,19 +301,19 @@ watch(() => route.query.view, (newValue) => {
         </div>
 
         <!-- Project view tabs -->
-        <div class="border-b border-slate-700">
+        <div class="border-b border-default">
           <div class="flex gap-4">
-            <button 
+            <button
               @click="setActiveTab('kanban')"
               class="py-2 px-4 border-b-2 font-medium text-sm"
-              :class="activeTab === 'kanban' ? 'border-blue-500 text-blue-500' : 'border-transparent text-slate-400 hover:text-slate-300'"
+              :class="activeTab === 'kanban' ? 'border-brand-blue text-brand-blue' : 'border-transparent text-secondary hover:text-primary'"
             >
               Kanban Board
             </button>
-            <button 
+            <button
               @click="setActiveTab('list')"
               class="py-2 px-4 border-b-2 font-medium text-sm"
-              :class="activeTab === 'list' ? 'border-blue-500 text-blue-500' : 'border-transparent text-slate-400 hover:text-slate-300'"
+              :class="activeTab === 'list' ? 'border-brand-blue text-brand-blue' : 'border-transparent text-secondary hover:text-primary'"
             >
               List View
             </button>
@@ -353,7 +353,7 @@ watch(() => route.query.view, (newValue) => {
             </button>
           </div>
           
-          <div v-if="isTicketsLoading" class="text-center py-8 text-slate-400">
+          <div v-if="isTicketsLoading" class="text-center py-8 text-secondary">
             <div class="inline-flex items-center gap-3">
               <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -363,14 +363,14 @@ watch(() => route.query.view, (newValue) => {
             </div>
           </div>
           
-          <div v-else-if="tickets.length === 0" class="text-center py-12 text-slate-400">
+          <div v-else-if="tickets.length === 0" class="text-center py-12 text-secondary">
             <div class="inline-flex flex-col items-center gap-4">
-              <svg class="w-16 h-16 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-16 h-16 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
               <div class="text-center">
-                <p class="text-lg font-medium text-slate-300">No tickets in this project</p>
-                <p class="text-sm text-slate-500 mt-1">Add tickets to get started with project management</p>
+                <p class="text-lg font-medium text-primary">No tickets in this project</p>
+                <p class="text-sm text-tertiary mt-1">Add tickets to get started with project management</p>
               </div>
               <button 
                 @click="showAddTicketModal = true"
@@ -381,10 +381,10 @@ watch(() => route.query.view, (newValue) => {
             </div>
           </div>
           
-          <div v-else class="bg-slate-800 rounded-lg border border-slate-700/50 overflow-hidden">
+          <div v-else class="bg-surface rounded-lg border border-default overflow-hidden">
             <!-- Table header -->
-            <div class="bg-slate-700/50 px-4 py-3 border-b border-slate-600/50 sticky top-0 z-10">
-              <div class="grid grid-cols-12 gap-3 text-xs font-medium text-slate-300 uppercase tracking-wide">
+            <div class="bg-surface-alt px-4 py-3 border-b border-default sticky top-0 z-10">
+              <div class="grid grid-cols-12 gap-3 text-xs font-medium text-primary uppercase tracking-wide">
                 <div class="col-span-1">ID</div>
                 <div class="col-span-3">Title</div>
                 <div class="col-span-1">Status</div>
@@ -396,17 +396,17 @@ watch(() => route.query.view, (newValue) => {
             </div>
             
             <!-- Ticket rows -->
-            <div class="divide-y divide-slate-700/30">
-              <div 
-                v-for="ticket in tickets" 
+            <div class="divide-y divide-subtle">
+              <div
+                v-for="ticket in tickets"
                 :key="ticket.id"
-                class="group relative hover:bg-slate-700/30 transition-colors duration-150"
+                class="group relative hover:bg-surface-hover transition-colors duration-150"
               >
                 <div class="px-4 py-3">
                   <div class="grid grid-cols-12 gap-3 items-center">
                     <!-- Ticket ID -->
                     <div class="col-span-1 min-w-0">
-                      <span class="text-sm font-mono text-slate-300">#{{ ticket.id }}</span>
+                      <span class="text-sm font-mono text-secondary">#{{ ticket.id }}</span>
                     </div>
 
                     <!-- Title -->
@@ -415,8 +415,8 @@ watch(() => route.query.view, (newValue) => {
                         @click="goToTicket(ticket.id)"
                         class="cursor-pointer hover:underline"
                       >
-                        <div class="font-medium text-white truncate text-sm">{{ ticket.title }}</div>
-                        <div v-if="ticket.description" class="text-xs text-slate-400 truncate mt-1">{{ ticket.description }}</div>
+                        <div class="font-medium text-primary truncate text-sm">{{ ticket.title }}</div>
+                        <div v-if="ticket.description" class="text-xs text-secondary truncate mt-1">{{ ticket.description }}</div>
                       </div>
                     </div>
 
@@ -449,8 +449,8 @@ watch(() => route.query.view, (newValue) => {
                           :clickable="false"
                         />
                       </div>
-                      <div v-else class="flex items-center gap-2 text-slate-500">
-                        <div class="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center">
+                      <div v-else class="flex items-center gap-2 text-tertiary">
+                        <div class="w-6 h-6 rounded-full bg-surface-alt flex items-center justify-center">
                           <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                             <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
                           </svg>
@@ -461,7 +461,7 @@ watch(() => route.query.view, (newValue) => {
 
                     <!-- Updated -->
                     <div class="col-span-1 min-w-0">
-                      <span class="text-xs text-slate-400">
+                      <span class="text-xs text-secondary">
                         {{ getTicketUpdatedDate(ticket) }}
                       </span>
                     </div>
@@ -493,8 +493,8 @@ watch(() => route.query.view, (newValue) => {
             </div>
             
             <!-- Footer -->
-            <div class="p-3 text-center border-t border-slate-700/30 bg-slate-700/20">
-              <span class="text-xs text-slate-500">
+            <div class="p-3 text-center border-t border-subtle bg-surface-alt">
+              <span class="text-xs text-tertiary">
                 {{ tickets.length }} ticket{{ tickets.length !== 1 ? 's' : '' }} in this project
               </span>
             </div>

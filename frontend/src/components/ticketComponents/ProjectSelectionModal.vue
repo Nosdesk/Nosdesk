@@ -158,7 +158,7 @@ const formatDate = (dateString: string): string => {
           v-model="searchQuery"
           type="text"
           placeholder="Search projects by name or description..."
-          class="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-600 bg-slate-700 text-white placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-colors"
+          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-colors"
         />
         <div v-if="isLoading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
           <svg class="w-5 h-5 animate-spin text-slate-400" fill="none" viewBox="0 0 24 24">
@@ -169,7 +169,7 @@ const formatDate = (dateString: string): string => {
       </div>
 
       <!-- Loading state (initial load) -->
-      <div v-if="isLoading && projects.length === 0" class="text-center py-8 text-slate-400">
+      <div v-if="isLoading && projects.length === 0" class="text-center py-8 text-tertiary">
         <div class="inline-flex items-center gap-3">
           <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -198,26 +198,26 @@ const formatDate = (dateString: string): string => {
       </div>
 
       <!-- No results -->
-      <div v-else-if="!isLoading && filteredProjects.length === 0 && searchQuery" class="text-center py-8 text-slate-400">
+      <div v-else-if="!isLoading && filteredProjects.length === 0 && searchQuery" class="text-center py-8 text-tertiary">
         <div class="inline-flex flex-col items-center gap-3">
           <svg class="w-12 h-12 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
           <div class="text-center">
-            <p class="text-lg font-medium text-slate-300">No projects found</p>
+            <p class="text-lg font-medium text-secondary">No projects found</p>
             <p class="text-sm">Try adjusting your search criteria</p>
           </div>
         </div>
       </div>
 
       <!-- No projects available -->
-      <div v-else-if="!isLoading && filteredProjects.length === 0 && !searchQuery" class="text-center py-8 text-slate-400">
+      <div v-else-if="!isLoading && filteredProjects.length === 0 && !searchQuery" class="text-center py-8 text-tertiary">
         <div class="inline-flex flex-col items-center gap-3">
           <svg class="w-12 h-12 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
           <div class="text-center">
-            <p class="text-lg font-medium text-slate-300">No projects available</p>
+            <p class="text-lg font-medium text-secondary">No projects available</p>
             <p class="text-sm">Create a project to get started</p>
           </div>
         </div>
@@ -229,10 +229,10 @@ const formatDate = (dateString: string): string => {
         ref="scrollContainer"
         class="max-h-[500px] overflow-y-auto"
       >
-        <div class="bg-slate-800 rounded-lg border border-slate-700/50 overflow-hidden">
+        <div class="bg-surface-alt rounded-lg border border-default overflow-hidden">
           <!-- Table header -->
-          <div class="bg-slate-700/50 px-4 py-3 border-b border-slate-600/50 sticky top-0 z-10">
-            <div class="grid grid-cols-12 gap-3 text-xs font-medium text-slate-300 uppercase tracking-wide">
+          <div class="bg-surface px-4 py-3 border-b border-default sticky top-0 z-10">
+            <div class="grid grid-cols-12 gap-3 text-xs font-medium text-secondary uppercase tracking-wide">
               <div class="col-span-4">Project Name</div>
               <div class="col-span-4">Description</div>
               <div class="col-span-2">Status</div>
@@ -242,11 +242,11 @@ const formatDate = (dateString: string): string => {
           </div>
           
           <!-- Project rows -->
-          <div class="divide-y divide-slate-700/30">
-            <div 
+          <div class="divide-y divide-subtle">
+            <div
               v-for="project in filteredProjects"
               :key="project.id"
-              class="group relative hover:bg-slate-700/30 transition-colors duration-150 cursor-pointer"
+              class="group relative hover:bg-surface-hover transition-colors duration-150 cursor-pointer"
               :class="{ 'bg-blue-900/20 border-l-4 border-blue-500': existingProjectIds?.includes(project.id) }"
               @click="selectProject(project)"
             >
@@ -262,7 +262,7 @@ const formatDate = (dateString: string): string => {
                   <!-- Project Name -->
                   <div class="col-span-4 min-w-0">
                     <div class="flex flex-col gap-1">
-                      <div class="font-medium text-white truncate text-sm" :title="project.name">
+                      <div class="font-medium text-primary truncate text-sm" :title="project.name">
                         {{ project.name }}
                       </div>
                     </div>
@@ -270,10 +270,10 @@ const formatDate = (dateString: string): string => {
 
                   <!-- Description -->
                   <div class="col-span-4 min-w-0">
-                    <div v-if="project.description" class="text-sm text-slate-300 truncate" :title="project.description">
+                    <div v-if="project.description" class="text-sm text-secondary truncate" :title="project.description">
                       {{ project.description }}
                     </div>
-                    <div v-else class="text-sm text-slate-500 italic">
+                    <div v-else class="text-sm text-tertiary italic">
                       No description
                     </div>
                   </div>
@@ -290,7 +290,7 @@ const formatDate = (dateString: string): string => {
 
                   <!-- Ticket Count -->
                   <div class="col-span-1 min-w-0">
-                    <span class="text-sm text-slate-300 font-mono">{{ project.ticketCount }}</span>
+                    <span class="text-sm text-secondary font-mono">{{ project.ticketCount }}</span>
                   </div>
 
                   <!-- Action Button -->
@@ -303,7 +303,7 @@ const formatDate = (dateString: string): string => {
                     </button>
                     <span
                       v-else
-                      class="text-slate-500 text-xs font-medium px-2 py-1"
+                      class="text-tertiary text-xs font-medium px-2 py-1"
                     >
                       Added
                     </span>
@@ -317,8 +317,8 @@ const formatDate = (dateString: string): string => {
     </div>
 
     <!-- Footer -->
-    <div class="mt-6 flex justify-between items-center pt-4 border-t border-slate-700">
-      <div class="flex items-center gap-2 text-sm text-slate-400">
+    <div class="mt-6 flex justify-between items-center pt-4 border-t border-default">
+      <div class="flex items-center gap-2 text-sm text-tertiary">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
         </svg>
@@ -326,10 +326,10 @@ const formatDate = (dateString: string): string => {
           {{ filteredProjects.length }} project{{ filteredProjects.length !== 1 ? 's' : '' }} available
         </span>
       </div>
-      
-      <button 
+
+      <button
         type="button"
-        class="px-4 py-2 text-sm text-slate-300 hover:text-slate-100 hover:bg-slate-700 rounded-md transition-colors"
+        class="px-4 py-2 text-sm text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
         @click="emit('close')"
       >
         Cancel

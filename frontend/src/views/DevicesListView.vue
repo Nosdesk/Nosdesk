@@ -150,7 +150,7 @@ defineExpose({
 <template>
   <div class="flex flex-col h-full overflow-hidden">
     <!-- Search and filter bar -->
-    <div class="sticky top-0 z-20 bg-slate-800 border-b border-slate-700 shadow-md">
+    <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2 flex-wrap">
         <DebouncedSearchInput
           v-model="listManager.searchQuery.value"
@@ -167,7 +167,7 @@ defineExpose({
             <select
               :value="filter.value"
               @change="e => listManager.handleFilterUpdate(filter.name, (e.target as HTMLSelectElement).value)"
-              class="bg-slate-700 border border-slate-600 text-white text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 block w-full py-1 px-2"
+              class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-brand-blue focus:border-brand-blue block w-full py-1 px-2"
             >
               <option
                 v-for="option in filter.options"
@@ -181,13 +181,13 @@ defineExpose({
 
           <button
             @click="listManager.resetFilters"
-            class="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:ring-2 focus:outline-none focus:ring-blue-800"
+            class="px-2 py-1 text-xs font-medium text-primary bg-brand-blue rounded-md hover:bg-brand-blue/80 focus:ring-2 focus:outline-none focus:ring-brand-blue/50"
           >
             Reset
           </button>
         </template>
 
-        <div class="text-xs text-slate-400 ml-auto">
+        <div class="text-xs text-secondary ml-auto">
           {{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}
         </div>
       </div>
@@ -256,7 +256,7 @@ defineExpose({
                 :avatar="item.primary_user.avatar_thumb || item.primary_user.avatar_url"
                 :show-name="true" 
               />
-              <span v-else class="text-xs text-slate-500">Unassigned</span>
+              <span v-else class="text-xs text-tertiary">Unassigned</span>
             </template>
             
             <template #cell-warranty_status="{ value }">
@@ -272,39 +272,39 @@ defineExpose({
               v-for="device in listManager.items.value"
               :key="device.id"
               @click="listManager.navigateToItem(device)"
-              class="bg-slate-800 rounded-lg p-3 hover:bg-slate-700/50 transition-colors cursor-pointer"
+              class="bg-surface rounded-lg p-3 hover:bg-surface-hover transition-colors cursor-pointer"
             >
               <div class="flex items-center gap-3">
                 <div class="flex-grow-0">
                   <input
                     type="checkbox"
-                    class="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500"
+                    class="w-4 h-4 rounded border-default bg-surface-alt text-brand-blue focus:ring-brand-blue"
                     :checked="listManager.selectedItems.value.includes(device.id.toString())"
                     @click.stop="(event) => listManager.toggleSelection(event, device.id.toString())"
                   />
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center justify-between mb-2">
-                    <div class="font-medium truncate text-slate-200">{{ device.name }}</div>
-                    <div class="text-xs text-slate-400 ml-2">#{{ device.id }}</div>
+                    <div class="font-medium truncate text-primary">{{ device.name }}</div>
+                    <div class="text-xs text-secondary ml-2">#{{ device.id }}</div>
                   </div>
                   <div class="flex flex-wrap gap-1 mb-2">
-                    <span class="bg-slate-700/50 px-2 py-1 rounded text-xs text-slate-300">
+                    <span class="bg-surface-alt px-2 py-1 rounded text-xs text-primary">
                       {{ device.manufacturer || 'Unknown' }}
                     </span>
-                    <span class="bg-slate-700/50 px-2 py-1 rounded text-xs text-slate-300">
+                    <span class="bg-surface-alt px-2 py-1 rounded text-xs text-primary">
                       {{ device.model }}
                     </span>
-                    <span class="bg-slate-700/50 px-2 py-1 rounded text-xs text-slate-300 font-mono">
+                    <span class="bg-surface-alt px-2 py-1 rounded text-xs text-primary font-mono">
                       SN: {{ device.serial_number }}
                     </span>
                     <span 
                       class="px-2 py-1 rounded text-xs"
                       :class="{
-                        'bg-green-900/30 text-green-400': device.warranty_status === 'Active',
-                        'bg-yellow-900/30 text-yellow-400': device.warranty_status === 'Warning',
-                        'bg-red-900/30 text-red-400': device.warranty_status === 'Expired',
-                        'bg-slate-700 text-slate-400': device.warranty_status === 'Unknown'
+                        'bg-status-success/30 text-status-success': device.warranty_status === 'Active',
+                        'bg-status-warning/30 text-status-warning': device.warranty_status === 'Warning',
+                        'bg-status-error/30 text-status-error': device.warranty_status === 'Expired',
+                        'bg-surface-alt text-secondary': device.warranty_status === 'Unknown'
                       }"
                     >
                       {{ device.warranty_status }}
@@ -312,17 +312,17 @@ defineExpose({
                   </div>
                   <div class="flex items-center justify-between text-xs">
                     <div v-if="device.primary_user" class="flex items-center gap-2">
-                      <span class="text-slate-400">Assigned to:</span>
-                      <UserAvatar 
-                        :name="device.primary_user.uuid" 
+                      <span class="text-secondary">Assigned to:</span>
+                      <UserAvatar
+                        :name="device.primary_user.uuid"
                         :user-name="device.primary_user.name"
                         :avatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
-                        :show-name="true" 
-                        size="xs" 
+                        :show-name="true"
+                        size="xs"
                       />
                     </div>
-                    <div v-else class="text-slate-500">Unassigned</div>
-                    <div class="text-slate-400">
+                    <div v-else class="text-tertiary">Unassigned</div>
+                    <div class="text-secondary">
                       {{ device.updated_at ? formatDate(device.updated_at) : 'Never' }}
                     </div>
                   </div>
@@ -360,21 +360,21 @@ defineExpose({
 
 .overflow-y-auto::-webkit-scrollbar-track,
 .overflow-x-auto::-webkit-scrollbar-track {
-  background: #0f172a; /* slate-900 */
+  background: var(--bg-app);
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb,
 .overflow-x-auto::-webkit-scrollbar-thumb {
-  background: #475569; /* slate-600 */
+  background: var(--border-default);
   border-radius: 4px;
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb:hover,
 .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-  background: #64748b; /* slate-500 */
+  background: var(--border-strong);
 }
 
 .overflow-x-auto::-webkit-scrollbar-corner {
-  background: #0f172a; /* slate-900 */
+  background: var(--bg-app);
 }
 </style> 

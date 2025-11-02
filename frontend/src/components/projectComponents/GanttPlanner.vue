@@ -471,71 +471,71 @@ const hideTooltip = () => {
     
     <div v-else class="flex-1 flex flex-col gap-2">
       <!-- Controls -->
-      <div class="flex items-center justify-between mb-2 bg-slate-800 p-2 rounded-lg">
+      <div class="flex items-center justify-between mb-2 bg-surface-alt p-2 rounded-lg">
         <div class="flex items-center gap-2">
           <button 
             @click="setTimeScale('day')" 
             class="px-2 py-0.5 text-xs rounded-md transition-colors"
-            :class="timeScale === 'day' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'"
+            :class="timeScale === 'day' ? 'bg-blue-600 text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
           >
             Day
           </button>
           <button 
             @click="setTimeScale('week')" 
             class="px-2 py-0.5 text-xs rounded-md transition-colors"
-            :class="timeScale === 'week' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'"
+            :class="timeScale === 'week' ? 'bg-blue-600 text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
           >
             Week
           </button>
           <button 
             @click="setTimeScale('month')" 
             class="px-2 py-0.5 text-xs rounded-md transition-colors"
-            :class="timeScale === 'month' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'"
+            :class="timeScale === 'month' ? 'bg-blue-600 text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
           >
             Month
           </button>
         </div>
         
         <div class="flex items-center gap-2">
-          <button 
-            @click="moveRangeLeft" 
-            class="p-1 bg-slate-700 text-slate-300 rounded-md hover:bg-slate-600 transition-colors"
+          <button
+            @click="moveRangeLeft"
+            class="p-1 bg-surface text-secondary rounded-md hover:bg-surface-hover transition-colors"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
           
-          <button 
-            @click="resetView" 
-            class="px-1.5 py-0.5 bg-slate-700 text-slate-300 rounded-md hover:bg-slate-600 transition-colors text-xs"
+          <button
+            @click="resetView"
+            class="px-1.5 py-0.5 bg-surface text-secondary rounded-md hover:bg-surface-hover transition-colors text-xs"
           >
             Today
           </button>
           
-          <button 
-            @click="moveRangeRight" 
-            class="p-1 bg-slate-700 text-slate-300 rounded-md hover:bg-slate-600 transition-colors"
+          <button
+            @click="moveRangeRight"
+            class="p-1 bg-surface text-secondary rounded-md hover:bg-surface-hover transition-colors"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
             </svg>
           </button>
           
-          <div class="h-4 border-r border-slate-600 mx-1"></div>
+          <div class="h-4 border-r border-default mx-1"></div>
           
-          <button 
-            @click="zoomIn" 
-            class="p-1 bg-slate-700 text-slate-300 rounded-md hover:bg-slate-600 transition-colors"
+          <button
+            @click="zoomIn"
+            class="p-1 bg-surface text-secondary rounded-md hover:bg-surface-hover transition-colors"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
             </svg>
           </button>
           
-          <button 
-            @click="zoomOut" 
-            class="p-1 bg-slate-700 text-slate-300 rounded-md hover:bg-slate-600 transition-colors"
+          <button
+            @click="zoomOut"
+            class="p-1 bg-surface text-secondary rounded-md hover:bg-surface-hover transition-colors"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" />
@@ -543,15 +543,15 @@ const hideTooltip = () => {
           </button>
         </div>
         
-        <div class="text-xs text-slate-400">
+        <div class="text-xs text-tertiary">
           {{ formatDate(startDate) }} - {{ formatDate(endDate) }}
         </div>
       </div>
       
       <!-- Gantt Chart -->
-      <div class="flex-1 overflow-x-auto bg-slate-800 rounded-lg p-2">
+      <div class="flex-1 overflow-x-auto bg-surface-alt rounded-lg p-2">
         <div v-if="ganttTickets.length === 0" class="flex justify-center items-center h-full">
-          <div class="text-slate-400">No tickets available for Gantt view</div>
+          <div class="text-tertiary">No tickets available for Gantt view</div>
         </div>
         
         <div v-else class="gantt-chart" :class="{ dragging: isDragging }" :style="{ '--timeline-units': timeUnits.length }">
@@ -560,10 +560,10 @@ const hideTooltip = () => {
             <!-- Left side header (ticket info) -->
             <div class="gantt-header-left">
               <div class="gantt-header-item flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-slate-400 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-tertiary mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                 </svg>
-                <span class="text-xs font-medium text-slate-300">Ticket Details</span>
+                <span class="text-xs font-medium text-secondary">Ticket Details</span>
               </div>
             </div>
             
@@ -608,8 +608,8 @@ const hideTooltip = () => {
               <div class="gantt-row-left">
                 <!-- First row: Ticket title with ID -->
                 <div class="flex items-center gap-2 w-full overflow-hidden">
-                  <span class="shrink-0 text-xs text-slate-400 font-mono">#{{ ticket.id }}</span>
-                  <span class="ticket-title font-medium truncate text-sm text-slate-100">{{ ticket.title }}</span>
+                  <span class="shrink-0 text-xs text-tertiary font-mono">#{{ ticket.id }}</span>
+                  <span class="ticket-title font-medium truncate text-sm text-primary">{{ ticket.title }}</span>
                 </div>
                 
                 <!-- Second row: Status badges and assignee -->
@@ -640,16 +640,16 @@ const hideTooltip = () => {
                   
                   <!-- Assignee avatar -->
                   <div class="ml-auto" @click.stop>
-                    <UserAvatar 
-                      v-if="ticket.assignee && ticket.assignee !== 'Unassigned'" 
-                      :name="ticket.assignee" 
+                    <UserAvatar
+                      v-if="ticket.assignee && ticket.assignee !== 'Unassigned'"
+                      :name="ticket.assignee"
                       :avatarUrl="ticket.assignee_avatar"
-                      size="xs" 
+                      size="xs"
                       :show-name="false"
                       :clickable="false"
                     />
-                    <div v-else class="w-5 h-5 rounded-full bg-slate-600 flex items-center justify-center">
-                      <svg class="w-3 h-3 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
+                    <div v-else class="w-5 h-5 rounded-full bg-surface-hover flex items-center justify-center">
+                      <svg class="w-3 h-3 text-tertiary" fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
                       </svg>
                     </div>
@@ -724,17 +724,17 @@ const hideTooltip = () => {
     
     <!-- Tooltip -->
     <Teleport to="body">
-      <div 
+      <div
         v-if="hoveredTask"
-        class="fixed z-50 bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 pointer-events-none"
+        class="fixed z-50 bg-surface-alt border border-default rounded-lg shadow-xl p-3 pointer-events-none"
         :style="{
           left: `${tooltipPosition.x + 10}px`,
           top: `${tooltipPosition.y - 60}px`
         }"
       >
         <div class="text-sm flex flex-col gap-1">
-          <div class="font-medium text-white">{{ hoveredTask.title }}</div>
-          <div class="text-xs text-slate-400">
+          <div class="font-medium text-primary">{{ hoveredTask.title }}</div>
+          <div class="text-xs text-tertiary">
             <div>Start: {{ formatDate(hoveredTask.start) }}</div>
             <div>End: {{ formatDate(hoveredTask.end) }}</div>
             <div>Duration: {{ Math.ceil((hoveredTask.end - hoveredTask.start) / (1000 * 60 * 60 * 24)) }} days</div>
@@ -757,20 +757,20 @@ const hideTooltip = () => {
 
 .gantt-header {
   display: flex;
-  border-bottom: 1px solid #334155; /* slate-700 */
+  border-bottom: 1px solid var(--border-default);
   height: 36px;
 }
 
 .gantt-header-left {
   width: 240px;
   min-width: 240px;
-  border-right: 1px solid #334155; /* slate-700 */
+  border-right: 1px solid var(--border-default);
   padding: 0 12px;
   display: flex;
   align-items: center;
   position: sticky;
   left: 0;
-  background-color: #1e293b; /* slate-800 */
+  background-color: var(--bg-surface-alt);
   z-index: 10;
 }
 
@@ -787,8 +787,8 @@ const hideTooltip = () => {
   padding: 8px 4px;
   text-align: center;
   font-size: 11px;
-  color: #94a3b8; /* slate-400 */
-  border-right: 1px solid #334155; /* slate-700 */
+  color: var(--text-tertiary);
+  border-right: 1px solid var(--border-default);
   position: relative;
 }
 
@@ -799,13 +799,13 @@ const hideTooltip = () => {
 .gantt-row {
   display: flex;
   height: 52px; /* Slightly increased from 48px to accommodate two rows */
-  border-bottom: 1px solid #334155; /* slate-700 */
+  border-bottom: 1px solid var(--border-default);
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .gantt-row:hover {
-  background-color: #334155; /* slate-700 */
+  background-color: var(--bg-surface-hover);
 }
 
 .gantt-row-left {
@@ -815,7 +815,7 @@ const hideTooltip = () => {
   flex-direction: column;
   justify-content: center;
   padding: 4px 12px;
-  border-right: 1px solid #334155; /* slate-700 */
+  border-right: 1px solid var(--border-default);
   position: sticky;
   left: 0;
   z-index: 5;
@@ -823,11 +823,11 @@ const hideTooltip = () => {
 }
 
 .gantt-row:hover .gantt-row-left {
-  background-color: #334155; /* slate-700 */
+  background-color: var(--bg-surface-hover);
 }
 
 .gantt-row-title {
-  color: #e2e8f0; /* slate-200 */
+  color: var(--text-primary);
   font-size: 13px;
   line-height: 1.2;
 }
@@ -919,22 +919,22 @@ const hideTooltip = () => {
 .gantt-row-unit {
   flex: 1;
   min-width: 80px;
-  border-right: 1px solid rgba(71, 85, 105, 0.1); /* Very subtle grid lines */
+  border-right: 1px solid var(--border-subtle);
   height: 100%;
 }
 
 /* Add alternating row colors for better readability */
 .gantt-row:nth-child(even) {
-  background-color: rgba(51, 65, 85, 0.15);
+  background-color: var(--bg-surface);
 }
 
 .gantt-row:nth-child(even) .gantt-row-left {
-  background-color: rgba(30, 41, 59, 0.95);
+  background-color: var(--bg-surface);
 }
 
 .gantt-row:nth-child(even):hover,
 .gantt-row:nth-child(even):hover .gantt-row-left {
-  background-color: #334155; /* slate-700 */
+  background-color: var(--bg-surface-hover);
 }
 
 /* Prevent text selection during drag */

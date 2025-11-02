@@ -344,26 +344,26 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
         <div
           v-for="column in columns"
           :key="column.id"
-          class="w-80 flex flex-col bg-slate-800 rounded-xl border border-slate-700/50 h-full overflow-hidden"
+          class="w-80 flex flex-col bg-surface-alt rounded-xl border border-default h-full overflow-hidden"
           :class="{
             'ring-2 ring-blue-500/50': dragState.dragOverColumn === column.id && dragState.isDragging
           }"
         >
           <!-- Column Header -->
-          <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50 sticky top-0" style="z-index: 1;">
+          <div class="px-4 py-3 bg-surface border-b border-default sticky top-0" style="z-index: 1;">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3">
-                <div 
+                <div
                   class="w-2 h-2 rounded-full flex-shrink-0"
                   :class="{
                     'bg-yellow-500': column.id === 'open',
-                    'bg-blue-500': column.id === 'in-progress', 
+                    'bg-blue-500': column.id === 'in-progress',
                     'bg-green-500': column.id === 'closed'
                   }"
                 ></div>
-                <h3 class="font-medium text-white">{{ column.title }}</h3>
+                <h3 class="font-medium text-primary">{{ column.title }}</h3>
               </div>
-              <span class="text-xs text-slate-400 bg-slate-600/50 px-2 py-1 rounded-md">{{ column.tickets.length }}</span>
+              <span class="text-xs text-tertiary bg-surface-hover px-2 py-1 rounded-md">{{ column.tickets.length }}</span>
             </div>
           </div>
 
@@ -384,7 +384,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
               v-for="(ticket, index) in column.tickets"
               :key="ticket.id"
               :data-ticket-id="ticket.id"
-              class="relative bg-slate-700/50 rounded-lg border border-slate-600/30 p-3 cursor-move hover:border-slate-500/50 hover:bg-slate-700/70 transition-all duration-200 group"
+              class="relative bg-surface rounded-lg border border-subtle p-3 cursor-move hover:border-default hover:bg-surface-hover transition-all duration-200 group"
               :class="{
                 'opacity-50 scale-95': dragState.draggedTicket?.ticketId === ticket.id,
               }"
@@ -401,7 +401,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
               
               <div class="flex flex-col gap-3">
                 <!-- Ticket Title -->
-                <h4 class="text-sm font-medium text-white group-hover:text-blue-300 transition-colors line-clamp-2">
+                <h4 class="text-sm font-medium text-primary group-hover:text-blue-300 transition-colors line-clamp-2">
                   {{ ticket.title }}
                 </h4>
                 
@@ -418,7 +418,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
                       :clickable="false"
                       class="text-xs"
                     />
-                    <span v-else class="text-xs text-slate-400">Unassigned</span>
+                    <span v-else class="text-xs text-tertiary">Unassigned</span>
                   </div>
                   
                   <!-- Priority Badge -->
@@ -445,7 +445,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
             <!-- Empty state indicator -->
             <div
               v-if="column.tickets.length === 0"
-              class="flex-1 flex items-center justify-center text-slate-500 text-sm border-2 border-dashed border-slate-600/30 rounded-lg py-8"
+              class="flex-1 flex items-center justify-center text-tertiary text-sm border-2 border-dashed border-subtle rounded-lg py-8"
               :class="{
                 'border-blue-500/50 bg-blue-500/5': dragState.dragOverColumn === column.id && dragState.isDragging
               }"
@@ -456,7 +456,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
             <!-- Add Ticket Button -->
             <button
               @click="createTicket(column.id)"
-              class="w-full mt-4 p-3 bg-slate-700/30 border border-slate-600/30 rounded-lg text-sm text-slate-400 hover:text-blue-400 hover:bg-blue-600/10 hover:border-blue-600/30 transition-all duration-200 flex items-center justify-center gap-2"
+              class="w-full mt-4 p-3 bg-surface border border-subtle rounded-lg text-sm text-tertiary hover:text-blue-400 hover:bg-blue-600/10 hover:border-blue-600/30 transition-all duration-200 flex items-center justify-center gap-2"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -498,21 +498,17 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
 }
 
 .overflow-x-auto::-webkit-scrollbar-track {
-  background: rgb(30 41 59); /* slate-800 */
+  background: var(--bg-surface-alt);
   border-radius: 6px;
 }
 
 .overflow-x-auto::-webkit-scrollbar-thumb {
-  background: rgb(51 65 85); /* slate-700 */
+  background: var(--bg-surface);
   border-radius: 6px;
 }
 
 .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-  background: rgb(71 85 105); /* slate-600 */
-}
-
-.overflow-x-auto {
-  scrollbar-color: rgb(51 65 85) rgb(30 41 59); /* thumb and track colors */
+  background: var(--bg-surface-hover);
 }
 
 /* Ensure kanban content stays below main header */

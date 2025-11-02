@@ -388,13 +388,13 @@ const cancelDelete = () => {
       <!-- Page Header -->
       <div class="mb-2 sm:mb-6">
         <div v-if="loadingTargetUser" class="flex items-center gap-3">
-          <div class="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-          <h1 class="text-xl sm:text-2xl font-bold text-white">Loading User Settings...</h1>
+          <div class="animate-spin h-5 w-5 border-2 border-brand-blue border-t-transparent rounded-full"></div>
+          <h1 class="text-xl sm:text-2xl font-bold text-primary">Loading User Settings...</h1>
         </div>
         <div v-else-if="isManagingOtherUser && targetUser">
           <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-2">
-            <div class="w-8 h-8 bg-purple-600/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div class="w-8 h-8 bg-brand-purple/20 rounded-full flex items-center justify-center flex-shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-brand-purple" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -410,23 +410,23 @@ const cancelDelete = () => {
               </svg>
             </div>
             <div class="min-w-0 flex-1">
-              <h1 class="text-xl sm:text-2xl font-bold text-white">Managing User Settings</h1>
-              <p class="text-sm sm:text-base text-slate-400 truncate">
-                Managing settings for <span class="text-blue-400 font-medium">{{ targetUser.name }}</span> ({{ targetUser.email }})
+              <h1 class="text-xl sm:text-2xl font-bold text-primary">Managing User Settings</h1>
+              <p class="text-sm sm:text-base text-secondary truncate">
+                Managing settings for <span class="text-brand-blue font-medium">{{ targetUser.name }}</span> ({{ targetUser.email }})
               </p>
             </div>
           </div>
         </div>
         <div v-else>
-          <h1 class="text-xl sm:text-2xl font-bold text-white">Settings</h1>
-          <p class="text-sm sm:text-base text-slate-400 mt-1 sm:mt-2">
+          <h1 class="text-xl sm:text-2xl font-bold text-primary">Settings</h1>
+          <p class="text-sm sm:text-base text-secondary mt-1 sm:mt-2">
             Manage your profile, preferences, and security settings
           </p>
         </div>
       </div>
 
       <!-- Error messages only -->
-      <div v-if="error" class="p-3 sm:p-4 bg-red-900/50 text-red-400 rounded-lg text-sm sm:text-base border border-red-700/50">
+      <div v-if="error" class="p-3 sm:p-4 bg-status-error/50 text-status-error rounded-lg text-sm sm:text-base border border-status-error/50">
         {{ error }}
       </div>
 
@@ -440,8 +440,8 @@ const cancelDelete = () => {
             class="relative flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all whitespace-nowrap flex-shrink-0 min-h-[44px]"
             :class="[
               activeTab === tab.id
-                ? 'bg-slate-700 border border-slate-600 text-white font-medium'
-                : 'bg-slate-800 border border-slate-700/50 text-slate-300 hover:bg-slate-700/50 hover:text-white active:scale-95'
+                ? 'bg-surface-alt border border-default text-primary font-medium'
+                : 'bg-surface border border-subtle text-secondary hover:bg-surface-hover hover:text-primary active:scale-95'
             ]"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
@@ -463,20 +463,20 @@ const cancelDelete = () => {
       <div class="flex flex-col lg:flex-row gap-4 lg:gap-6">
         <!-- Desktop Sidebar Navigation -->
         <aside class="hidden lg:block lg:w-64 flex-shrink-0">
-          <div class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors sticky top-4">
-            <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50">
-              <h2 class="text-lg font-medium text-white">Settings</h2>
+          <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden sticky top-4">
+            <div class="px-4 py-3 bg-surface-alt border-b border-default">
+              <h2 class="text-lg font-medium text-primary">Settings</h2>
             </div>
             <nav class="p-2 flex flex-col gap-1">
             <button
               v-for="tab in settingsTabs"
               :key="tab.id"
               @click="activeTab = tab.id"
-              class="rounded-lg transition-colors duration-200 text-white flex items-center gap-3 relative overflow-hidden px-3 py-2.5"
+              class="rounded-lg transition-colors duration-200 text-primary flex items-center gap-3 relative overflow-hidden px-3 py-2.5"
               :class="[
                 activeTab === tab.id
-                    ? 'bg-slate-700/50 border border-slate-600/30 text-white font-medium'
-                    : 'text-slate-300 hover:bg-slate-700/30 hover:text-white border border-transparent'
+                    ? 'bg-surface-hover border border-default text-primary font-medium'
+                    : 'text-secondary hover:bg-surface-hover hover:text-primary border border-transparent'
               ]"
             >
               <!-- Active indicator bar -->
@@ -515,28 +515,28 @@ const cancelDelete = () => {
             />
 
             <!-- Admin Role Management Card -->
-            <div v-if="isManagingOtherUser && authStore.isAdmin && targetUser" class="bg-slate-800 rounded-xl border border-slate-700/50 hover:border-slate-600/50 transition-colors">
-              <div class="px-4 py-3 bg-slate-700/30 border-b border-slate-700/50 flex flex-wrap items-center gap-2">
-                <div class="w-6 h-6 bg-red-600/20 rounded-full flex items-center justify-center flex-shrink-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div v-if="isManagingOtherUser && authStore.isAdmin && targetUser" class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
+              <div class="px-4 py-3 bg-surface-alt border-b border-default flex flex-wrap items-center gap-2">
+                <div class="w-6 h-6 bg-status-error/20 rounded-full flex items-center justify-center flex-shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-status-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
                 </div>
-                <h2 class="text-base sm:text-lg font-medium text-white">Role Management</h2>
-                <span class="text-xs px-2 py-1 bg-red-900/30 text-red-300 rounded-full sm:ml-auto">Admin Only</span>
+                <h2 class="text-base sm:text-lg font-medium text-primary">Role Management</h2>
+                <span class="text-xs px-2 py-1 bg-status-error/30 text-status-error rounded-full sm:ml-auto">Admin Only</span>
               </div>
               <div class="p-4 sm:p-6">
                 <div class="flex flex-col gap-4">
                   <div class="flex flex-col gap-3">
                     <div class="flex-1">
-                      <h3 class="text-sm font-medium text-white mb-1">User Role</h3>
-                      <p class="text-xs text-slate-400 mb-3">
+                      <h3 class="text-sm font-medium text-primary mb-1">User Role</h3>
+                      <p class="text-xs text-secondary mb-3">
                         Control what {{ targetUser.name }} can access and manage in the system.
                       </p>
 
                       <div class="flex flex-wrap items-center gap-3">
                         <div class="flex items-center gap-2">
-                          <span class="text-sm text-slate-300">Current:</span>
+                          <span class="text-sm text-secondary">Current:</span>
                           <span
                             class="px-2 py-1 rounded text-xs font-medium"
                             :class="getRoleColorClass(targetUser.role)"
@@ -545,8 +545,8 @@ const cancelDelete = () => {
                           </span>
                         </div>
 
-                        <div v-if="updatingRole" class="flex items-center gap-2 text-blue-400">
-                          <div class="animate-spin h-3 w-3 border border-blue-400 border-t-transparent rounded-full"></div>
+                        <div v-if="updatingRole" class="flex items-center gap-2 text-brand-blue">
+                          <div class="animate-spin h-3 w-3 border border-brand-blue border-t-transparent rounded-full"></div>
                           <span class="text-xs">Updating...</span>
                         </div>
                       </div>
@@ -562,8 +562,8 @@ const cancelDelete = () => {
                       class="p-3 sm:p-4 rounded-lg border transition-all text-left min-h-[80px] active:scale-[0.98]"
                       :class="[
                         targetUser.role === role.value
-                          ? 'border-blue-500/50 bg-blue-900/20'
-                          : 'border-slate-600 hover:border-slate-500 bg-slate-700/30 hover:bg-slate-700/50',
+                          ? 'border-brand-blue/50 bg-brand-blue/20'
+                          : 'border-default hover:border-strong bg-surface-alt hover:bg-surface-hover',
                         updatingRole ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
                       ]"
                     >
@@ -572,11 +572,11 @@ const cancelDelete = () => {
                           class="w-3 h-3 rounded-full flex-shrink-0"
                           :style="{ backgroundColor: role.color }"
                         ></div>
-                        <span class="font-medium text-white text-sm">{{ role.label }}</span>
+                        <span class="font-medium text-primary text-sm">{{ role.label }}</span>
                         <svg
                           v-if="targetUser.role === role.value"
                           xmlns="http://www.w3.org/2000/svg"
-                          class="h-4 w-4 text-blue-400 ml-auto flex-shrink-0"
+                          class="h-4 w-4 text-brand-blue ml-auto flex-shrink-0"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
@@ -584,18 +584,18 @@ const cancelDelete = () => {
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                         </svg>
                       </div>
-                      <p class="text-xs text-slate-400 leading-relaxed">{{ role.description }}</p>
+                      <p class="text-xs text-secondary leading-relaxed">{{ role.description }}</p>
                     </button>
                   </div>
 
-                  <div class="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-3">
+                  <div class="bg-status-warning/20 border border-status-warning/50 rounded-lg p-3">
                     <div class="flex gap-2 sm:gap-3">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-5 sm:w-5 text-yellow-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-5 sm:w-5 text-status-warning flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                       </svg>
                       <div class="min-w-0 flex-1">
-                        <p class="text-xs font-medium text-yellow-300 mb-1">Role Change Warning</p>
-                        <p class="text-xs text-yellow-200 leading-relaxed">
+                        <p class="text-xs font-medium text-status-warning mb-1">Role Change Warning</p>
+                        <p class="text-xs text-status-warning/80 leading-relaxed">
                           Changing a user's role will immediately affect their access permissions.
                           The user will need to log out and back in for changes to take full effect.
                         </p>
@@ -644,24 +644,24 @@ const cancelDelete = () => {
             />
 
             <!-- Delete Account Section -->
-            <div class="bg-slate-800 rounded-xl border border-red-700/50 hover:border-red-600/50 transition-colors">
-              <div class="px-4 py-3 bg-red-900/20 border-b border-red-700/50">
+            <div class="bg-surface rounded-xl border border-status-error hover:border-status-error transition-colors overflow-hidden">
+              <div class="px-4 py-3 bg-status-error/10 border-b border-status-error">
                 <div class="flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-status-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                   </svg>
-                  <h2 class="text-lg font-medium text-red-400">Danger Zone</h2>
+                  <h2 class="text-lg font-medium text-status-error">Danger Zone</h2>
                 </div>
-                <p class="text-sm text-red-300 mt-1">Irreversible and destructive actions</p>
+                <p class="text-sm text-status-error/80 mt-1">Irreversible and destructive actions</p>
               </div>
 
               <div class="p-6">
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div class="flex-1">
-                    <h3 class="text-base font-medium text-white mb-1">
+                    <h3 class="text-base font-medium text-primary mb-1">
                       {{ isAdminMode ? 'Delete User Account' : 'Delete Account' }}
                     </h3>
-                    <p class="text-sm text-slate-400">
+                    <p class="text-sm text-secondary">
                       {{ isAdminMode
                         ? `Permanently delete ${currentUser?.name}'s account and all associated data.`
                         : 'Permanently delete your account and all associated data.'
@@ -671,7 +671,7 @@ const cancelDelete = () => {
                   </div>
                   <button
                     @click="showDeleteModal = true"
-                    class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors flex items-center gap-2 whitespace-nowrap"
+                    class="px-4 py-2 bg-status-error text-primary rounded-lg hover:bg-status-error/80 focus:outline-none focus:ring-2 focus:ring-status-error transition-colors flex items-center gap-2 whitespace-nowrap"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -693,20 +693,20 @@ const cancelDelete = () => {
       @close="cancelDelete"
     >
       <div class="flex flex-col gap-4">
-        <div class="bg-red-900/20 border border-red-700/50 rounded-lg p-4">
+        <div class="bg-status-error/20 border border-status-error/50 rounded-lg p-4">
           <div class="flex gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-status-error flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
             <div>
-              <p class="font-medium text-red-300 mb-2">This action is permanent and cannot be undone!</p>
-              <p class="text-sm text-red-200">
+              <p class="font-medium text-status-error mb-2">This action is permanent and cannot be undone!</p>
+              <p class="text-sm text-status-error/80">
                 {{ isAdminMode
                   ? `Deleting ${currentUser?.name}'s account will permanently remove:`
                   : 'Deleting your account will permanently remove:'
                 }}
               </p>
-              <ul class="list-disc list-inside text-sm text-red-200 mt-2 space-y-1">
+              <ul class="list-disc list-inside text-sm text-status-error/80 mt-2 space-y-1">
                 <li>Profile information and settings</li>
                 <li>All tickets created or assigned to this user</li>
                 <li>Comments and activity history</li>
@@ -717,14 +717,14 @@ const cancelDelete = () => {
         </div>
 
         <div class="flex flex-col gap-2">
-          <label class="text-sm font-medium text-slate-300">
+          <label class="text-sm font-medium text-secondary">
             {{ isAdminMode ? 'Enter your admin password to confirm:' : 'Enter your password to confirm:' }}
           </label>
           <input
             v-model="deletePassword"
             type="password"
             autocomplete="current-password"
-            class="w-full px-4 py-2 bg-slate-700 text-white rounded-lg border border-slate-600 focus:ring-2 focus:ring-red-500 focus:outline-none"
+            class="w-full px-4 py-2 bg-surface-alt text-primary rounded-lg border border-default focus:ring-2 focus:ring-status-error focus:outline-none"
             placeholder="Password"
             @keyup.enter="deleteAccount"
           />
@@ -734,14 +734,14 @@ const cancelDelete = () => {
           <button
             @click="cancelDelete"
             :disabled="isDeleting"
-            class="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500 transition-colors disabled:opacity-50"
+            class="px-4 py-2 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             @click="deleteAccount"
             :disabled="!deletePassword || isDeleting"
-            class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            class="px-4 py-2 bg-status-error text-primary rounded-lg hover:bg-status-error/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <span v-if="isDeleting" class="animate-spin h-4 w-4">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

@@ -381,6 +381,8 @@ diesel::table! {
         banner_url -> Nullable<Varchar>,
         #[max_length = 2048]
         avatar_thumb -> Nullable<Varchar>,
+        #[max_length = 50]
+        theme -> Nullable<Varchar>,
         microsoft_uuid -> Nullable<Uuid>,
         #[max_length = 255]
         mfa_secret -> Nullable<Varchar>,

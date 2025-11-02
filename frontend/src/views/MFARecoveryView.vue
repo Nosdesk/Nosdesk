@@ -1,8 +1,8 @@
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-slate-900 p-4">
+  <div class="min-h-screen flex items-center justify-center bg-app p-4">
     <div class="max-w-md w-full">
       <!-- Loading State -->
-      <div v-if="loading" class="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl p-8">
+      <div v-if="loading" class="bg-surface rounded-xl border border-default shadow-2xl p-8">
         <div class="flex flex-col items-center gap-4">
           <svg
             class="w-12 h-12 animate-spin text-blue-500"
@@ -12,16 +12,16 @@
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-          <p class="text-slate-300">Validating recovery link...</p>
+          <p class="text-secondary">Validating recovery link...</p>
         </div>
       </div>
 
       <!-- Success State - MFA Management -->
-      <div v-else-if="recoveryToken" class="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl overflow-hidden">
+      <div v-else-if="recoveryToken" class="bg-surface rounded-xl border border-default shadow-2xl overflow-hidden">
         <!-- Header -->
-        <div class="px-6 py-4 bg-slate-700/30 border-b border-slate-700/50">
-          <h1 class="text-xl font-semibold text-white">MFA Account Recovery</h1>
-          <p class="text-sm text-slate-400 mt-1">Manage your multi-factor authentication settings</p>
+        <div class="px-6 py-4 bg-surface-alt border-b border-subtle">
+          <h1 class="text-xl font-semibold text-primary">MFA Account Recovery</h1>
+          <p class="text-sm text-secondary mt-1">Manage your multi-factor authentication settings</p>
         </div>
 
         <!-- Content -->
@@ -32,7 +32,7 @@
               <svg class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
               </svg>
-              <div class="text-sm text-slate-300">
+              <div class="text-sm text-secondary">
                 <p class="font-medium text-amber-400 mb-1">Limited Recovery Session</p>
                 <p>This session will expire in {{ formatTime(timeRemaining) }}. You can only manage your MFA settings during this session.</p>
               </div>
@@ -40,21 +40,21 @@
           </div>
 
           <!-- User Info -->
-          <div v-if="user" class="bg-slate-700/30 rounded-lg p-4">
+          <div v-if="user" class="bg-surface-alt rounded-lg p-4">
             <div class="flex items-center gap-3">
               <div class="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center text-white font-medium text-lg">
                 {{ user.name.charAt(0).toUpperCase() }}
               </div>
               <div>
-                <p class="text-white font-medium">{{ user.name }}</p>
-                <p class="text-sm text-slate-400">{{ user.email }}</p>
+                <p class="text-primary font-medium">{{ user.name }}</p>
+                <p class="text-sm text-secondary">{{ user.email }}</p>
               </div>
             </div>
           </div>
 
           <!-- MFA Actions -->
           <div class="space-y-3">
-            <h2 class="text-sm font-medium text-slate-300">Available Actions</h2>
+            <h2 class="text-sm font-medium text-secondary">Available Actions</h2>
 
             <!-- Disable MFA -->
             <button
@@ -68,7 +68,7 @@
                 </svg>
                 <div>
                   <p class="font-medium">Disable MFA</p>
-                  <p class="text-xs text-slate-500">Remove two-factor authentication from your account</p>
+                  <p class="text-xs text-tertiary">Remove two-factor authentication from your account</p>
                 </div>
               </div>
               <svg class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -77,24 +77,24 @@
             </button>
 
             <!-- Setup New MFA (Future Enhancement) -->
-            <div class="w-full px-4 py-3 bg-slate-700/30 border border-slate-600 text-slate-500 rounded-lg text-left flex items-center justify-between opacity-60 cursor-not-allowed">
+            <div class="w-full px-4 py-3 bg-surface-alt border border-default text-tertiary rounded-lg text-left flex items-center justify-between opacity-60 cursor-not-allowed">
               <div class="flex items-center gap-3">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
                 </svg>
                 <div>
                   <p class="font-medium">Setup New Authenticator</p>
-                  <p class="text-xs text-slate-600">Coming soon - disable MFA first, then set up a new one after logging in</p>
+                  <p class="text-xs text-tertiary">Coming soon - disable MFA first, then set up a new one after logging in</p>
                 </div>
               </div>
             </div>
           </div>
 
           <!-- Back to Login -->
-          <div class="pt-4 border-t border-slate-700">
+          <div class="pt-4 border-t border-default">
             <button
               @click="backToLogin"
-              class="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors font-medium"
+              class="w-full px-4 py-2 bg-surface-alt hover:bg-surface-hover text-primary rounded-lg transition-colors font-medium"
             >
               Back to Login
             </button>
@@ -103,7 +103,7 @@
       </div>
 
       <!-- Error State -->
-      <div v-else-if="error" class="bg-slate-800 rounded-xl border border-red-700 shadow-2xl p-8">
+      <div v-else-if="error" class="bg-surface rounded-xl border border-red-700 shadow-2xl p-8">
         <div class="flex flex-col items-center gap-4 text-center">
           <div class="bg-red-600/20 rounded-full p-3">
             <svg class="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -111,8 +111,8 @@
             </svg>
           </div>
           <div>
-            <h2 class="text-lg font-medium text-white mb-2">Recovery Link Invalid</h2>
-            <p class="text-sm text-slate-400">{{ error }}</p>
+            <h2 class="text-lg font-medium text-primary mb-2">Recovery Link Invalid</h2>
+            <p class="text-sm text-secondary">{{ error }}</p>
           </div>
           <button
             @click="backToLogin"
@@ -129,11 +129,11 @@
       <transition name="modal">
         <div
           v-if="showDisableConfirm"
-          class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
           @click.self="showDisableConfirm = false"
         >
           <div
-            class="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl max-w-md w-full overflow-hidden"
+            class="relative bg-surface rounded-xl border border-default shadow-2xl max-w-md w-full overflow-hidden z-10"
             @click.stop
           >
             <!-- Header -->
@@ -141,17 +141,17 @@
               <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
               </svg>
-              <h2 class="text-lg font-semibold text-white">Disable Multi-Factor Authentication</h2>
+              <h2 class="text-lg font-semibold text-primary">Disable Multi-Factor Authentication</h2>
             </div>
 
             <!-- Content -->
             <div class="p-6 space-y-4">
-              <p class="text-slate-300">
+              <p class="text-secondary">
                 Are you sure you want to disable MFA? This will make your account less secure.
               </p>
 
               <div class="bg-amber-600/10 border border-amber-600/20 rounded-lg p-4">
-                <p class="text-sm text-slate-300">
+                <p class="text-sm text-secondary">
                   <strong class="text-amber-400">Important:</strong> After disabling MFA, you can set up a new authenticator by logging in and going to your security settings.
                 </p>
               </div>
@@ -169,7 +169,7 @@
                 <button
                   type="button"
                   @click="showDisableConfirm = false"
-                  class="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors font-medium"
+                  class="flex-1 px-4 py-2 bg-surface-alt hover:bg-surface-hover text-primary rounded-lg transition-colors font-medium"
                   :disabled="disabling"
                 >
                   Cancel

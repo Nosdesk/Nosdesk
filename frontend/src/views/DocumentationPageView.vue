@@ -787,9 +787,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="bg-slate-900 flex flex-col h-full">
+  <div class="bg-app flex flex-col h-full">
     <!-- Back button and metadata bar with subtle gradient background -->
-    <div class="bg-gradient-to-r from-slate-900 to-slate-800 border-b border-slate-700 w-full">
+    <div class="bg-gradient-to-r from-bg-app to-bg-surface border-b border-default w-full">
       <!-- Using grid for 3-column layout with fr units for responsive design -->
       <div class="grid grid-cols-[1fr_2fr_1fr] w-full items-center px-6 py-3">
         <!-- Left column: Back button -->
@@ -805,18 +805,18 @@ onUnmounted(() => {
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
-            <input 
+            <input
               v-model="searchQuery"
               type="text"
               placeholder="Search documentation..."
-              class="w-full pl-10 pr-4 py-2 bg-slate-800/80 text-white rounded-full placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 border border-slate-700 shadow-lg shadow-blue-900/5 transition-all duration-200 hover:border-blue-600/50 focus:border-blue-500"
+              class="w-full pl-10 pr-4 py-2 bg-surface/80 text-primary rounded-full placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue border border-default shadow-lg transition-all duration-200 hover:border-brand-blue/50 focus:border-brand-blue"
               @input="handleSearch(searchQuery)"
               @focus="searchDropdownVisible = searchQuery.length > 0"
             />
             <div v-if="searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
-              <button 
-                @click="searchQuery = ''; searchDropdownVisible = false" 
-                class="text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-700/50 transition-colors"
+              <button
+                @click="searchQuery = ''; searchDropdownVisible = false"
+                class="text-secondary hover:text-primary p-1 rounded-full hover:bg-surface-hover transition-colors"
                 aria-label="Clear search"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -827,19 +827,18 @@ onUnmounted(() => {
           </div>
           
           <!-- Search Results as a dropdown -->
-          <div v-if="searchQuery && searchDropdownVisible" 
-               class="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 bg-slate-800/90 border border-slate-700 rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto w-full max-w-3xl backdrop-blur-sm"
-               style="backdrop-filter: blur(8px);">
-            <div class="p-3 border-b border-slate-700 flex justify-between items-center">
-              <h2 class="text-sm font-medium text-white flex items-center gap-2">
+          <div v-if="searchQuery && searchDropdownVisible"
+               class="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 bg-surface border border-default rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto w-full max-w-3xl">
+            <div class="p-3 border-b border-default flex justify-between items-center">
+              <h2 class="text-sm font-medium text-primary flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
                 Search Results
               </h2>
-              <button 
-                @click="searchDropdownVisible = false" 
-                class="text-slate-400 hover:text-white rounded-full p-1 hover:bg-slate-700/50"
+              <button
+                @click="searchDropdownVisible = false"
+                class="text-secondary hover:text-primary rounded-full p-1 hover:bg-surface-hover"
                 aria-label="Close search results"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -849,35 +848,35 @@ onUnmounted(() => {
             </div>
             
             <!-- No results message -->
-            <div v-if="filteredPages.length === 0" class="p-6 text-center text-slate-400 text-sm">
+            <div v-if="filteredPages.length === 0" class="p-6 text-center text-secondary text-sm">
               <div class="flex flex-col items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-slate-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-tertiary mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p>No pages found for "<span class="text-white">{{ searchQuery }}</span>"</p>
-                <span class="text-xs text-slate-500 mt-1">Try a different search term</span>
+                <p>No pages found for "<span class="text-primary">{{ searchQuery }}</span>"</p>
+                <span class="text-xs text-tertiary mt-1">Try a different search term</span>
               </div>
             </div>
-            
+
             <!-- Results list -->
-            <div v-else class="divide-y divide-slate-700">
-              <div v-for="item in filteredPages" :key="item.id" 
-                   class="hover:bg-slate-700 transition-colors">
+            <div v-else class="divide-y divide-subtle">
+              <div v-for="item in filteredPages" :key="item.id"
+                   class="hover:bg-surface-hover transition-colors">
                 <RouterLink 
                   :to="item.path ? `/documentation/${item.path}` : `/documentation/${item.id}`" 
                   class="flex items-start gap-3 p-4"
                   @click="searchDropdownVisible = false"
                 >
-                  <div class="text-xl flex-shrink-0 bg-slate-700/50 p-1.5 rounded text-center" style="min-width: 2rem">
+                  <div class="text-xl flex-shrink-0 bg-surface-alt p-1.5 rounded text-center" style="min-width: 2rem">
                     {{ item.icon || '📄' }}
                   </div>
                   <div class="flex-1">
-                    <h3 class="text-white font-medium">{{ item.title }}</h3>
-                    <p v-if="item.description" class="text-slate-400 text-xs mt-1 line-clamp-2">
+                    <h3 class="text-primary font-medium">{{ item.title }}</h3>
+                    <p v-if="item.description" class="text-secondary text-xs mt-1 line-clamp-2">
                       {{ item.description }}
                     </p>
                     <div class="flex items-center gap-2 mt-2">
-                      <span class="text-xs text-blue-400 bg-blue-900/20 px-2 py-0.5 rounded">
+                      <span class="text-xs text-brand-blue bg-brand-blue/20 px-2 py-0.5 rounded">
                         {{ item.isPage ? 'Page' : 'Topic' }}
                       </span>
                     </div>
@@ -890,10 +889,10 @@ onUnmounted(() => {
         <div v-else></div> <!-- Empty placeholder when search isn't shown -->
         
         <!-- Right column: Metadata -->
-        <div v-if="article || page" class="text-xs text-slate-400 flex justify-end items-center gap-4">
+        <div v-if="article || page" class="text-xs text-secondary flex justify-end items-center gap-4">
           <span class="hidden sm:inline">{{ article?.author || page?.author || 'System' }}</span>
           <span>Updated {{ formatDate(article?.lastUpdated || page?.lastUpdated || new Date().toISOString()) }}</span>
-          <span v-if="isSaving" class="text-blue-400 flex items-center gap-1">
+          <span v-if="isSaving" class="text-brand-blue flex items-center gap-1">
             <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -914,7 +913,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Main content area with a single scrollbar for the entire page -->
-    <div class="flex flex-col flex-1 items-center overflow-auto bg-gradient-to-b from-slate-900 to-slate-950">
+    <div class="flex flex-col flex-1 items-center overflow-auto bg-gradient-to-b from-bg-app to-bg-surface">
       <!-- Search Results - Removed from main content area -->
 
       <!-- Index Page View -->
@@ -922,17 +921,17 @@ onUnmounted(() => {
         <!-- Documentation header and controls -->
         <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
           <div class="flex flex-col gap-2">
-            <h1 class="text-3xl font-bold text-white flex items-center gap-3">
-              <span class="text-blue-400 text-4xl">📚</span>
+            <h1 class="text-3xl font-bold text-primary flex items-center gap-3">
+              <span class="text-brand-blue text-4xl">📚</span>
               Documentation
             </h1>
-            <p class="text-slate-300 text-base max-w-2xl">
+            <p class="text-primary text-base max-w-2xl">
               Browse and manage your documentation pages. Click on a page to view or edit it.
             </p>
           </div>
-          <button 
+          <button
             @click="createNewPage"
-            class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg flex items-center gap-2 text-sm font-medium shadow-lg transition-all duration-200 ease-in-out transform hover:scale-105"
+            class="bg-brand-blue hover:bg-brand-blue/80 text-white px-6 py-2.5 rounded-lg flex items-center gap-2 text-sm font-medium shadow-lg transition-all duration-200 ease-in-out transform hover:scale-105"
             :disabled="isSaving"
           >
             <span v-if="isSaving" class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></span>
@@ -943,32 +942,32 @@ onUnmounted(() => {
 
         <!-- Recent Pages Section -->
         <div class="flex flex-col gap-4">
-          <div class="flex items-center gap-2 pb-2 border-b border-slate-700">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+          <div class="flex items-center gap-2 pb-2 border-b border-default">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-brand-blue" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
             </svg>
-            <h2 class="text-lg font-medium text-white">Recent Pages</h2>
+            <h2 class="text-lg font-medium text-primary">Recent Pages</h2>
           </div>
 
           <!-- List of pages -->
           <div class="flex flex-col gap-2">
-            <RouterLink 
-              v-for="page in sortedPages" 
+            <RouterLink
+              v-for="page in sortedPages"
               :key="page.id"
               :to="`/documentation/${page.id}`"
-              class="bg-slate-800 rounded-lg overflow-hidden border border-slate-700/50 transition-all duration-200 hover:border-blue-500/30 hover:shadow-blue-900/20 hover:-translate-y-0.5 group focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              class="bg-surface rounded-lg overflow-hidden border border-default transition-all duration-200 hover:border-brand-blue/30 hover:-translate-y-0.5 group focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
             >
               <div class="p-4">
                 <div class="flex items-center gap-3">
                   <div class="text-2xl flex-shrink-0">{{ page.icon || '📄' }}</div>
                   <div class="flex-1 min-w-0">
-                    <h3 class="text-white font-medium group-hover:text-blue-400 transition-colors">
+                    <h3 class="text-primary font-medium group-hover:text-brand-blue transition-colors">
                       {{ page.title }}
                     </h3>
-                    <p v-if="page.description" class="text-slate-400 text-sm mt-1 line-clamp-2">
+                    <p v-if="page.description" class="text-secondary text-sm mt-1 line-clamp-2">
                       {{ page.description }}
                     </p>
-                    <div class="flex items-center gap-3 mt-2 text-xs text-slate-500">
+                    <div class="flex items-center gap-3 mt-2 text-xs text-tertiary">
                       <span>{{ formatDate(page.lastUpdated || new Date().toISOString()) }}</span>
                       <span>·</span>
                       <span>{{ page.author || 'System' }}</span>
@@ -981,16 +980,16 @@ onUnmounted(() => {
         </div>
 
         <!-- Empty state for no pages -->
-        <div v-if="pages.length === 0" class="text-center p-10 bg-slate-800/70 rounded-xl shadow-lg border border-slate-700/50 mt-4">
+        <div v-if="pages.length === 0" class="text-center p-10 bg-surface rounded-xl shadow-lg border border-default mt-4">
           <div class="flex flex-col items-center gap-4">
             <div class="text-5xl mb-4">📝</div>
-            <h3 class="text-xl font-semibold text-white mb-2">No documentation yet</h3>
-            <p class="text-slate-400 mb-6 max-w-md mx-auto">
+            <h3 class="text-xl font-semibold text-primary mb-2">No documentation yet</h3>
+            <p class="text-secondary mb-6 max-w-md mx-auto">
               Create your first documentation page to start building a knowledge base.
             </p>
-            <button 
+            <button
               @click="createNewPage"
-              class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg"
+              class="bg-brand-blue hover:bg-brand-blue/80 text-white px-6 py-3 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg"
             >
               <span class="text-lg">+</span>
               Create your first page
@@ -1017,30 +1016,30 @@ onUnmounted(() => {
         class="flex justify-center items-center h-full"
       >
         <div class="flex flex-col items-center gap-4">
-          <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-          <div class="text-blue-400 animate-pulse">Loading content...</div>
+          <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-blue"></div>
+          <div class="text-brand-blue animate-pulse">Loading content...</div>
         </div>
       </div>
 
       <!-- Create from ticket form -->
-      <div v-else-if="isCreateFromTicket" class="max-w-4xl mx-auto w-full p-6 bg-slate-800/70 rounded-lg shadow-lg mt-8 border border-slate-700/50 animate-fadeIn">
-        <h1 class="text-2xl font-bold text-white mb-6">Create Documentation from Ticket</h1>
-        
+      <div v-else-if="isCreateFromTicket" class="max-w-4xl mx-auto w-full p-6 bg-surface rounded-lg shadow-lg mt-8 border border-default animate-fadeIn">
+        <h1 class="text-2xl font-bold text-primary mb-6">Create Documentation from Ticket</h1>
+
         <div class="mb-6">
-          <label for="ticketId" class="block text-sm font-medium text-slate-300 mb-2">Ticket ID</label>
-          <input 
-            type="number" 
-            id="ticketId" 
-            v-model="selectedTicketId" 
-            class="w-full px-4 py-2 bg-slate-700 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 border border-slate-600"
+          <label for="ticketId" class="block text-sm font-medium text-primary mb-2">Ticket ID</label>
+          <input
+            type="number"
+            id="ticketId"
+            v-model="selectedTicketId"
+            class="w-full px-4 py-2 bg-surface-alt text-primary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue border border-default"
             placeholder="Enter ticket ID"
           />
         </div>
-        
+
         <div class="flex justify-end">
-          <button 
-            @click="createFromTicket" 
-            class="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transform transition-all duration-200 hover:scale-105 shadow-lg flex items-center gap-2"
+          <button
+            @click="createFromTicket"
+            class="px-6 py-3 bg-brand-blue text-white rounded-md hover:bg-brand-blue/80 focus:outline-none focus:ring-2 focus:ring-brand-blue transform transition-all duration-200 hover:scale-105 shadow-lg flex items-center gap-2"
             :disabled="!selectedTicketId"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -1052,13 +1051,13 @@ onUnmounted(() => {
       </div>
 
       <!-- Not Found State -->
-      <div v-else class="p-8 text-center text-slate-400 flex flex-col items-center gap-4 animate-fadeIn">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-slate-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div v-else class="p-8 text-center text-secondary flex flex-col items-center gap-4 animate-fadeIn">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-tertiary mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <h2 class="text-xl font-semibold text-white">Document not found</h2>
-        <p class="text-slate-400 max-w-md">The document you're looking for doesn't exist or has been moved.</p>
-        <RouterLink to="/documentation" class="mt-4 text-blue-400 hover:text-blue-300">
+        <h2 class="text-xl font-semibold text-primary">Document not found</h2>
+        <p class="text-secondary max-w-md">The document you're looking for doesn't exist or has been moved.</p>
+        <RouterLink to="/documentation" class="mt-4 text-brand-blue hover:text-brand-blue/80">
           Go to Documentation Home
         </RouterLink>
       </div>
@@ -1067,7 +1066,7 @@ onUnmounted(() => {
     <!-- Success message toast -->
     <div
       v-if="showSuccessMessage"
-      class="fixed bottom-4 right-4 bg-green-600 text-white px-4 py-2 rounded-md shadow-lg flex items-center gap-2 animate-fadeIn"
+      class="fixed bottom-4 right-4 bg-status-success text-white px-4 py-2 rounded-md shadow-lg flex items-center gap-2 animate-fadeIn"
     >
       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />

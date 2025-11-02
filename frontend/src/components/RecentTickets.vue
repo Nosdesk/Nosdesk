@@ -48,7 +48,7 @@ const formatDate = (dateString: string | undefined) => {
                 path: `/tickets/${ticket.id}`,
                 query: { fromRecent: 'true' }
               }"
-              class="group block px-2 py-1 rounded-md hover:bg-slate-700/70 relative transition-all duration-200 border border-transparent hover:shadow-sm"
+              class="group block px-2 py-1 rounded-md hover:bg-surface-hover relative transition-all duration-200 border border-transparent hover:shadow-sm"
             >
               <!-- Compact layout with status badge, ID, and title in a single row -->
               <div class="flex items-center w-full gap-1">
@@ -60,10 +60,10 @@ const formatDate = (dateString: string | undefined) => {
                 />
 
                 <!-- Ticket ID -->
-                <span class="text-xs font-mono text-slate-400 whitespace-nowrap mr-2">{{ ticket.id }}</span>
+                <span class="text-xs font-mono text-secondary whitespace-nowrap mr-2">{{ ticket.id }}</span>
 
                 <!-- Ticket Title -->
-                <span class="text-xs text-white truncate block min-w-0 flex-1">
+                <span class="text-xs text-primary truncate block min-w-0 flex-1">
                   {{ ticket.title }}
                 </span>
               </div>
@@ -72,9 +72,9 @@ const formatDate = (dateString: string | undefined) => {
         </div>
 
         <!-- Empty state - More compact -->
-        <div 
-          v-if="recentTicketsStore.recentTickets.length === 0" 
-          class="px-2 py-1.5 text-xs text-slate-400 bg-slate-800/40 text-center"
+        <div
+          v-if="recentTicketsStore.recentTickets.length === 0"
+          class="px-2 py-1.5 text-xs text-secondary bg-surface text-center"
         >
           No recent tickets
         </div>

@@ -355,10 +355,10 @@ const formatLastUpdated = (dateString: string): string => {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
-        <input 
-          type="text" 
+        <input
+          type="text"
           v-model="searchQuery"
-          class="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-600 bg-slate-700 text-white placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-colors"
+          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-colors"
           placeholder="Search devices by name, hostname, serial number, manufacturer, or user..."
         >
         <div v-if="loading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
@@ -370,20 +370,20 @@ const formatLastUpdated = (dateString: string): string => {
       </div>
 
       <!-- Search hint -->
-      <div v-if="!searchQuery && !loading && devices.length === 0" class="text-center py-12 text-slate-400">
+      <div v-if="!searchQuery && !loading && devices.length === 0" class="text-center py-12 text-tertiary">
         <div class="inline-flex flex-col items-center gap-3">
           <svg class="w-12 h-12 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <div class="text-center">
-            <p class="text-lg font-medium text-slate-300">Search for devices</p>
+            <p class="text-lg font-medium text-secondary">Search for devices</p>
             <p class="text-sm">Start typing to find devices by name, serial number, or user</p>
           </div>
         </div>
       </div>
 
       <!-- Loading state (initial load) -->
-      <div v-else-if="loading && devices.length === 0" class="text-center py-8 text-slate-400">
+      <div v-else-if="loading && devices.length === 0" class="text-center py-8 text-tertiary">
         <div class="inline-flex items-center gap-3">
           <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -412,13 +412,13 @@ const formatLastUpdated = (dateString: string): string => {
       </div>
 
       <!-- No results -->
-      <div v-else-if="!loading && allDevicesForDisplay.length === 0 && searchQuery" class="text-center py-8 text-slate-400">
+      <div v-else-if="!loading && allDevicesForDisplay.length === 0 && searchQuery" class="text-center py-8 text-tertiary">
         <div class="inline-flex flex-col items-center gap-3">
           <svg class="w-12 h-12 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
           <div class="text-center">
-            <p class="text-lg font-medium text-slate-300">No devices found</p>
+            <p class="text-lg font-medium text-secondary">No devices found</p>
             <p class="text-sm">Try adjusting your search criteria</p>
           </div>
         </div>
@@ -431,10 +431,10 @@ const formatLastUpdated = (dateString: string): string => {
         @scroll="handleScroll"
         class="max-h-[500px] overflow-y-auto"
       >
-        <div class="bg-slate-800 rounded-lg border border-slate-700/50 overflow-hidden">
+        <div class="bg-surface-alt rounded-lg border border-default overflow-hidden">
           <!-- Table header -->
-          <div class="bg-slate-700/50 px-4 py-3 border-b border-slate-600/50 sticky top-0 z-10">
-            <div class="grid grid-cols-12 gap-3 text-xs font-medium text-slate-300 uppercase tracking-wide">
+          <div class="bg-surface px-4 py-3 border-b border-default sticky top-0 z-10">
+            <div class="grid grid-cols-12 gap-3 text-xs font-medium text-secondary uppercase tracking-wide">
               <div class="col-span-3">Device</div>
               <div class="col-span-2">Type & Status</div>
               <div class="col-span-2">Serial Number</div>
@@ -445,11 +445,11 @@ const formatLastUpdated = (dateString: string): string => {
           </div>
           
           <!-- Device rows -->
-          <div class="divide-y divide-slate-700/30">
-            <div 
-              v-for="device in allDevicesForDisplay" 
+          <div class="divide-y divide-subtle">
+            <div
+              v-for="device in allDevicesForDisplay"
               :key="device.id"
-              class="group relative hover:bg-slate-700/30 transition-colors duration-150 cursor-pointer"
+              class="group relative hover:bg-surface-hover transition-colors duration-150 cursor-pointer"
               :class="{ 'bg-blue-900/20 border-l-4 border-blue-500': device.isRequesterDevice }"
               @click="selectDevice(device)"
             >
@@ -465,9 +465,9 @@ const formatLastUpdated = (dateString: string): string => {
                   <!-- Device Name & Info -->
                   <div class="col-span-3 min-w-0">
                     <div class="flex flex-col gap-1">
-                      <div class="font-medium text-white truncate text-sm">{{ device.name }}</div>
-                      <div class="text-xs text-slate-400 truncate">{{ device.hostname }}</div>
-                      <div class="text-xs text-slate-500 truncate">{{ device.manufacturer || 'Unknown' }} {{ device.model }}</div>
+                      <div class="font-medium text-primary truncate text-sm">{{ device.name }}</div>
+                      <div class="text-xs text-tertiary truncate">{{ device.hostname }}</div>
+                      <div class="text-xs text-tertiary truncate">{{ device.manufacturer || 'Unknown' }} {{ device.model }}</div>
                     </div>
                   </div>
 
@@ -494,7 +494,7 @@ const formatLastUpdated = (dateString: string): string => {
 
                   <!-- Serial Number -->
                   <div class="col-span-2 min-w-0">
-                    <span class="text-sm text-slate-300 font-mono truncate block">{{ device.serial_number }}</span>
+                    <span class="text-sm text-secondary font-mono truncate block">{{ device.serial_number }}</span>
                   </div>
 
                   <!-- Primary User -->
@@ -502,11 +502,11 @@ const formatLastUpdated = (dateString: string): string => {
                     <div v-if="device.primary_user" class="flex items-center gap-2">
                       <UserAvatar :name="device.primary_user.uuid" size="sm" :show-name="false" />
                       <div class="flex-1 min-w-0">
-                        <div class="text-sm font-medium text-slate-200 truncate">{{ device.primary_user.name }}</div>
-                        <div class="text-xs text-slate-400 truncate">{{ device.primary_user.email }}</div>
+                        <div class="text-sm font-medium text-secondary truncate">{{ device.primary_user.name }}</div>
+                        <div class="text-xs text-tertiary truncate">{{ device.primary_user.email }}</div>
                       </div>
                     </div>
-                    <div v-else class="flex items-center gap-2 text-slate-500">
+                    <div v-else class="flex items-center gap-2 text-tertiary">
                       <div class="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center">
                         <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                           <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
@@ -518,7 +518,7 @@ const formatLastUpdated = (dateString: string): string => {
 
                   <!-- Last Updated -->
                   <div class="col-span-1 min-w-0">
-                    <span class="text-xs text-slate-400">{{ formatLastUpdated(device.updated_at) }}</span>
+                    <span class="text-xs text-tertiary">{{ formatLastUpdated(device.updated_at) }}</span>
                   </div>
 
                   <!-- Action Button -->
@@ -533,8 +533,8 @@ const formatLastUpdated = (dateString: string): string => {
           </div>
           
           <!-- Load more indicator -->
-          <div v-if="loadingMore" class="p-4 text-center border-t border-slate-700/30">
-            <div class="inline-flex items-center gap-3 text-slate-400">
+          <div v-if="loadingMore" class="p-4 text-center border-t border-default">
+            <div class="inline-flex items-center gap-3 text-tertiary">
               <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -544,16 +544,16 @@ const formatLastUpdated = (dateString: string): string => {
           </div>
           
           <!-- End of results indicator -->
-          <div v-else-if="!hasMore && allDevicesForDisplay.length > 0" class="p-3 text-center border-t border-slate-700/30">
-            <span class="text-xs text-slate-500">End of results</span>
+          <div v-else-if="!hasMore && allDevicesForDisplay.length > 0" class="p-3 text-center border-t border-default">
+            <span class="text-xs text-tertiary">End of results</span>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Footer -->
-    <div class="mt-6 flex justify-between items-center pt-4 border-t border-slate-700">
-      <button 
+    <div class="mt-6 flex justify-between items-center pt-4 border-t border-default">
+      <button
         type="button"
         class="flex items-center gap-2 px-4 py-2 text-sm text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 rounded-md transition-colors"
         @click="$router.push('/devices/new')"
@@ -563,14 +563,14 @@ const formatLastUpdated = (dateString: string): string => {
         </svg>
         Create New Device
       </button>
-      
+
       <div class="flex items-center gap-3">
-        <span class="text-sm text-slate-400">
+        <span class="text-sm text-tertiary">
           {{ totalDevicesCount }} device{{ totalDevicesCount !== 1 ? 's' : '' }}
         </span>
-        <button 
+        <button
           type="button"
-          class="px-4 py-2 text-sm text-slate-300 hover:text-slate-100 hover:bg-slate-700 rounded-md transition-colors"
+          class="px-4 py-2 text-sm text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
           @click="emit('close')"
         >
           Cancel

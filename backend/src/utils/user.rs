@@ -70,6 +70,7 @@ impl NewUserBuilder {
             avatar_url: self.avatar_url,
             banner_url: self.banner_url,
             avatar_thumb: self.avatar_thumb,
+            theme: None, // Default to system theme (handled by database default)
             microsoft_uuid: self.microsoft_uuid,
             mfa_secret: None,
             mfa_enabled: false,
@@ -90,6 +91,7 @@ impl NewUserBuilder {
             avatar_url: self.avatar_url,
             banner_url: self.banner_url,
             avatar_thumb: self.avatar_thumb,
+            theme: None, // Default to system theme (handled by database default)
             microsoft_uuid: self.microsoft_uuid,
             mfa_secret: None,
             mfa_enabled: false,

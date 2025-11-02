@@ -10,7 +10,7 @@ const props = withDefaults(defineProps<Props>(), {
 </script>
 
 <template>
-  <span class="text-slate-300 text-sm">
+  <span class="text-secondary text-sm">
     {{ prefix }}{{ id }}
   </span>
 </template> 

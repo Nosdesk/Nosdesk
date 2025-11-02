@@ -36,7 +36,7 @@ const safeIcon = computed(() => {
     <div
       class="flex-shrink-0 text-center"
       :class="[
-        level === 0 ? 'text-2xl text-blue-400' : 'text-base text-slate-400',
+        level === 0 ? 'text-2xl text-brand-blue' : 'text-base text-tertiary',
       ]"
     >
       {{ safeIcon }}
@@ -47,14 +47,14 @@ const safeIcon = computed(() => {
       <div class="flex items-center gap-2">
         <span
           :class="[
-            'transition-colors group-hover:text-blue-400',
-            level === 0 ? 'text-white font-semibold text-xl' : 'text-slate-300',
+            'transition-colors group-hover:text-brand-blue',
+            level === 0 ? 'text-primary font-semibold text-xl' : 'text-secondary',
           ]"
         >
           {{ safeTitle }}
         </span>
       </div>
-      <div v-if="safeDescription" class="text-slate-400 text-xs mt-1">
+      <div v-if="safeDescription" class="text-tertiary text-xs mt-1">
         {{ safeDescription }}
       </div>
     </div>

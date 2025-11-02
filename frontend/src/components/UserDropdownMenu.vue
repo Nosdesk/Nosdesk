@@ -100,13 +100,13 @@ const handleLogout = () => {
   <div
     v-if="showMenu"
     ref="dropdownRef"
-    class="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-1 z-50"
+    class="absolute right-0 mt-2 w-48 bg-surface border border-default rounded-lg shadow-lg py-1 z-50"
     role="menu"
     tabindex="-1"
   >
     <!-- User Info -->
     <div
-      class="px-4 py-3 border-b border-slate-700 hover:bg-slate-700 cursor-pointer flex items-center gap-3 min-w-0"
+      class="px-4 py-3 border-b border-default hover:bg-surface-hover cursor-pointer flex items-center gap-3 min-w-0"
       @click="handleUserProfileClick"
     >
       <UserAvatar
@@ -118,8 +118,8 @@ const handleLogout = () => {
         class="flex-shrink-0"
       />
       <div class="min-w-0 flex-1">
-        <div class="text-sm font-medium text-white truncate">{{ user.name }}</div>
-        <div class="text-xs text-blue-400 mt-1">View Profile</div>
+        <div class="text-sm font-medium text-primary truncate">{{ user.name }}</div>
+        <div class="text-xs text-brand-blue mt-1">View Profile</div>
       </div>
     </div>
 
@@ -127,7 +127,7 @@ const handleLogout = () => {
     <div class="py-1">
       <button
         @click="handleProfileSettingsClick"
-        class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 focus:bg-slate-700 focus:outline-none"
+        class="w-full text-left px-4 py-2 text-sm text-secondary hover:bg-surface-hover focus:bg-surface-hover focus:outline-none"
         role="menuitem"
       >
         <div class="flex items-center gap-1">
@@ -141,7 +141,7 @@ const handleLogout = () => {
       <button
         v-if="authStore.user?.role === 'admin'"
         @click="handleAdminClick"
-        class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 focus:bg-slate-700 focus:outline-none"
+        class="w-full text-left px-4 py-2 text-sm text-secondary hover:bg-surface-hover focus:bg-surface-hover focus:outline-none"
         role="menuitem"
       >
         <div class="flex items-center gap-1">
@@ -152,12 +152,12 @@ const handleLogout = () => {
           Administration
         </div>
       </button>
-      
-      <div v-if="authStore.user?.role === 'admin'" class="border-t border-slate-600 my-1"></div>
-      
+
+      <div v-if="authStore.user?.role === 'admin'" class="border-t border-default my-1"></div>
+
       <button
         @click="handleLogout"
-        class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-slate-700 focus:bg-slate-700 focus:outline-none"
+        class="w-full text-left px-4 py-2 text-sm text-error hover:bg-surface-hover focus:bg-surface-hover focus:outline-none"
         role="menuitem"
       >
         Sign Out

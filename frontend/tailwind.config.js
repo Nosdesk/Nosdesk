@@ -1,26 +1,11 @@
-/** @type {import('@tailwindcss/postcss').Config} */
+/** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'selector', // Tailwind v4 uses 'selector' for .dark class
   content: [
     "./index.html",
     "./src/**/*.{vue,js,ts,jsx,tsx}",
   ],
-  theme: {
-    extend: {},
-  },
   plugins: [
     require('@tailwindcss/typography'),
-    // Custom plugin for hiding scrollbars
-    function({ addUtilities }) {
-      addUtilities({
-        '.scrollbar-hide': {
-          /* Firefox */
-          'scrollbar-width': 'none',
-          /* Safari and Chrome */
-          '&::-webkit-scrollbar': {
-            display: 'none'
-          }
-        }
-      })
-    }
   ],
 } 

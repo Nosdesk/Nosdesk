@@ -327,22 +327,22 @@ defineExpose({
   height: 4px;
   width: 100%;
   cursor: ns-resize;
-  background-color: rgba(51, 65, 85, 0.25);
-  border-top: 1px solid rgba(71, 85, 105, 0.3);
-  border-bottom: 1px solid rgba(71, 85, 105, 0.3);
+  background-color: var(--border-subtle);
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .vertical-resizer {
   width: 4px;
   height: 100%;
   cursor: ew-resize;
-  background-color: rgba(51, 65, 85, 0.25);
-  border-left: 1px solid rgba(71, 85, 105, 0.3);
-  border-right: 1px solid rgba(71, 85, 105, 0.3);
+  background-color: var(--border-subtle);
+  border-left: 1px solid var(--border-default);
+  border-right: 1px solid var(--border-default);
 }
 
 .resizer-handle:hover {
-  background-color: rgba(51, 65, 85, 0.4);
+  background-color: var(--border-default);
 }
 
 .resizer-handle.active {
