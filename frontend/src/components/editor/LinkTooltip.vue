@@ -111,9 +111,19 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 // Click outside handler
 const handleClickOutside = (event: MouseEvent) => {
-  if (props.visible && tooltipRef.value && !tooltipRef.value.contains(event.target as Node)) {
-    handleClose();
-  }
+  if (!props.visible || !tooltipRef.value) return;
+
+  const target = event.target as Node;
+
+  // Don't close if clicking inside the tooltip
+  if (tooltipRef.value.contains(target)) return;
+
+  // Don't close if clicking inside the ProseMirror editor
+  const proseMirrorEditor = document.querySelector('.ProseMirror');
+  if (proseMirrorEditor && proseMirrorEditor.contains(target)) return;
+
+  // Close for all other clicks
+  handleClose();
 };
 
 onMounted(() => {

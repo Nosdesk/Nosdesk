@@ -895,7 +895,7 @@ const handleLinkOpen = (url: string) => {
 // Show link tooltip (for toolbar button)
 const insertLink = () => {
     if (!editorView) return;
-    showLinkTooltip(true)(editorView.state, editorView.dispatch);
+    showLinkTooltip(true)(editorView.state, editorView.dispatch, editorView);
 };
 
 const undoEdit = () => {

@@ -71,7 +71,7 @@ export function createLinkTooltipPlugin(callbacks: {
           to: 0,
         };
       },
-      apply(tr, oldState, newState): LinkTooltipState {
+      apply(tr, oldState): LinkTooltipState {
         // Get meta command from transaction
         const meta = tr.getMeta(linkTooltipPluginKey);
 
@@ -90,61 +90,52 @@ export function createLinkTooltipPlugin(callbacks: {
           };
         }
 
-        // Auto-detect when cursor is in a link
-        if (tr.selectionSet && !meta) {
-          const { mark, from, to } = getLinkMarkAtSelection(newState);
-
-          if (mark && from !== oldState.from) {
-            // Cursor is in a link - return state but don't show yet
-            // The view update will handle showing
-            return {
-              visible: false,
-              url: mark.attrs.href || "",
-              x: 0,
-              y: 0,
-              isEditing: false,
-              from,
-              to,
-            };
-          }
-
-          if (!mark && oldState.visible) {
-            // Cursor moved out of link
-            return {
-              ...oldState,
-              visible: false,
-            };
-          }
-        }
-
         return oldState;
       },
     },
     view(editorView: EditorView) {
       return {
         update(view: EditorView, prevState: EditorState) {
-          const state = linkTooltipPluginKey.getState(view.state);
+          // Get plugin state
+          const pluginState = linkTooltipPluginKey.getState(view.state);
 
-          if (state) {
-            // Calculate position if we have a link
-            if (state.url && !state.visible) {
-              const { from, to } = state;
-              const start = view.coordsAtPos(from);
-              const end = view.coordsAtPos(to);
+          // If tooltip is explicitly shown via command, just pass through
+          if (pluginState?.visible) {
+            callbacks.onStateChange(pluginState);
+            return;
+          }
 
-              // Position tooltip below the link
-              const x = (start.left + end.left) / 2;
-              const y = end.bottom + 8;
+          // Check if cursor is in a link
+          const { mark, from, to } = getLinkMarkAtSelection(view.state);
 
-              callbacks.onStateChange({
-                ...state,
-                x,
-                y,
-                visible: true,
-              });
-            } else {
-              callbacks.onStateChange(state);
-            }
+          if (mark) {
+            // Cursor is in a link - show tooltip
+            const start = view.coordsAtPos(from);
+            const end = view.coordsAtPos(to);
+
+            const x = (start.left + end.left) / 2;
+            const y = end.bottom + 8;
+
+            callbacks.onStateChange({
+              visible: true,
+              url: mark.attrs.href || "",
+              x,
+              y,
+              isEditing: false,
+              from,
+              to,
+            });
+          } else {
+            // No link - hide tooltip
+            callbacks.onStateChange({
+              visible: false,
+              url: "",
+              x: 0,
+              y: 0,
+              isEditing: false,
+              from: 0,
+              to: 0,
+            });
           }
         },
         destroy() {
