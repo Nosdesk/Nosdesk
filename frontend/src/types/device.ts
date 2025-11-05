@@ -11,6 +11,8 @@ export interface Device {
   entra_device_id?: string | null;
   created_at: string;
   updated_at: string;
+  last_sync_time?: string | null;
+  is_editable: boolean;
   // Computed/joined fields from API
   primary_user?: {
     uuid: string;

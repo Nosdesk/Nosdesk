@@ -2,9 +2,11 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import BackButton from '@/components/common/BackButton.vue';
+import DeleteButton from '@/components/common/DeleteButton.vue';
 import InlineEdit from '@/components/common/InlineEdit.vue';
-import UserProfileCard from '@/components/settings/UserProfileCard.vue';
-import { getDeviceById, updateDevice, createDevice } from '@/services/deviceService';
+import SectionCard from '@/components/common/SectionCard.vue';
+import UserSelectionModal from '@/components/UserSelectionModal.vue';
+import { getDeviceById, updateDevice, createDevice, deleteDevice, unmanageDevice } from '@/services/deviceService';
 import MicrosoftGraphService from '@/services/MicrosoftGraphService';
 import { IntuneIcon, EntraIcon } from '@/components/icons';
 import type { Device, DeviceFormData } from '@/types/device';
@@ -18,6 +20,8 @@ const error = ref<string | null>(null);
 const loadingObjectId = ref(false);
 const entraObjectId = ref<string | null>(null);
 const objectIdError = ref<string | null>(null);
+const showUserSelectionModal = ref(false);
+const showAdditionalDetails = ref(false);
 
 // Creation and editing state
 const isCreationMode = ref(false);
@@ -358,6 +362,60 @@ const cancelEdit = (field: keyof typeof editValues.value) => {
   }
 };
 
+// Handle user selection from modal
+const handleUserSelection = async (user: { uuid: string; name: string; email: string; role: string }) => {
+  if (!device.value) return;
+
+  try {
+    isSaving.value = true;
+    const updatedDevice = await updateDevice(device.value.id, {
+      primary_user_uuid: user.uuid || null
+    });
+
+    // Update the device data with the new user information
+    device.value = { ...device.value, ...updatedDevice };
+  } catch (error) {
+    console.error('Error updating device user:', error);
+    // You could add user-facing error handling here
+  } finally {
+    isSaving.value = false;
+  }
+};
+
+// Handle delete device (called after DeleteButton confirmation)
+const handleDeleteDevice = async () => {
+  if (!device.value) return;
+
+  try {
+    await deleteDevice(device.value.id);
+    // Navigate back to devices list after successful deletion
+    router.push('/devices');
+  } catch (error) {
+    console.error('Error deleting device:', error);
+    alert('Failed to delete device. Please try again.');
+  }
+};
+
+// Handle unmanage device
+const handleUnmanageDevice = async () => {
+  if (!device.value) return;
+
+  const confirmed = confirm(`Are you sure you want to unmanage "${device.value.hostname || device.value.name}" from Microsoft Intune/Entra? This will allow manual editing but the device will no longer sync with Microsoft.`);
+  if (!confirmed) return;
+
+  try {
+    isSaving.value = true;
+    const updatedDevice = await unmanageDevice(device.value.id);
+    // Update the device data
+    device.value = updatedDevice;
+  } catch (error) {
+    console.error('Error unmanaging device:', error);
+    alert('Failed to unmanage device. Please try again.');
+  } finally {
+    isSaving.value = false;
+  }
+};
+
 // Watch device and emit device object updates
 watch(device, (newDevice) => {
   // Pass the actual reactive device object reference
@@ -373,56 +431,40 @@ onMounted(() => {
   <div class="flex-1">
     <div v-if="device || isCreationMode" class="flex flex-col">
       <!-- Navigation and actions bar -->
-      <div class="pt-4 px-6 flex justify-between items-center">
-        <BackButton 
-          v-if="fromTicket" 
-          :fallbackRoute="`/tickets/${fromTicket}`" 
-          :label="`Back to Ticket #${fromTicket}`" 
-        />
-        <BackButton 
-          v-else 
-          fallbackRoute="/devices" 
-          label="Back to Devices" 
-        />
-      </div>
-      
-      <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
-        <!-- Device Header -->
-        <div class="bg-slate-800 rounded-2xl p-6">
-          <div class="flex items-start justify-between">
-            <div class="flex-1">
-              <!-- Device Hostname - Inline Editing -->
-              <InlineEdit
-                v-if="!isCreationMode"
-                v-model="editValues.hostname"
-                :placeholder="device?.hostname || 'Enter hostname...'"
-                text-size="2xl"
-                :can-edit="true"
-                @update:modelValue="() => saveField('hostname')"
-              />
-              <div v-else class="flex items-center gap-3 group">
-                <div class="flex-1 relative">
-                  <input
-                    id="hostname-input"
-                    v-model="editValues.hostname"
-                    type="text"
-                    class="w-full text-2xl font-semibold text-white px-1 py-0.5 rounded-lg hover:bg-slate-700/50 focus:bg-slate-700 focus:outline-none transition-all duration-150 border-2 border-transparent focus:border-blue-500/50 bg-slate-700/50"
-                    placeholder="Enter hostname..."
-                  />
-                </div>
-              </div>
-              
-              <p class="text-secondary mt-1">
-                {{ isCreationMode ? 'Enter device details below' : `${device?.manufacturer || 'Unknown Manufacturer'} ${device?.model}` }}
-              </p>
-              <p v-if="!isCreationMode" class="text-sm text-tertiary mt-2">
-                Last updated {{ device?.updated_at ? formatDate(device.updated_at) : 'unknown' }}
-              </p>
-            </div>
-            
-            
+      <div v-if="!isCreationMode" class="pt-4 px-6 flex justify-between items-center">
+        <div class="flex items-center gap-4">
+          <BackButton
+            v-if="fromTicket"
+            :fallbackRoute="`/tickets/${fromTicket}`"
+            :label="`Back to Ticket #${fromTicket}`"
+          />
+          <BackButton
+            v-else
+            fallbackRoute="/devices"
+            label="Go back"
+          />
+
+          <!-- Read-only indicator for Microsoft Graph synced devices -->
+          <div v-if="device && !device.is_editable" class="flex items-center gap-2 text-sm">
+            <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+            <span class="text-secondary">Read-only</span>
           </div>
         </div>
+
+        <DeleteButton
+          v-if="device?.is_editable"
+          fallbackRoute="/devices"
+          itemName="Device"
+          @delete="handleDeleteDevice"
+        />
+      </div>
+
+      <!-- Creation Mode Header -->
+      <div v-else class="pt-4 px-6 flex items-center">
+        <BackButton fallbackRoute="/devices" label="Go back" />
+      </div>
+
+      <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
 
         <!-- Error Display -->
         <div v-if="error" class="bg-status-error/30 border border-status-error rounded-lg p-4 text-status-error text-sm">
@@ -430,7 +472,7 @@ onMounted(() => {
         </div>
 
         <!-- Device Creation Form -->
-        <div v-if="isCreationMode" class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div v-if="isCreationMode" class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <!-- Basic Information -->
           <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
             <!-- Header -->
@@ -539,9 +581,10 @@ onMounted(() => {
         </div>
 
         <!-- Existing Device Details -->
-        <div v-else-if="device" class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <!-- System Information -->
-          <div class="xl:col-span-1">
+        <div v-else-if="device" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
+          <!-- Left Column Wrapper (System Info + Primary User in 2-col layout) -->
+          <div class="flex flex-col gap-6">
+            <!-- System Information -->
             <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
               <!-- Header -->
               <div class="px-4 py-3 bg-surface-alt rounded-t-xl border-b border-default">
@@ -551,34 +594,54 @@ onMounted(() => {
               <!-- Content -->
               <div class="p-4">
                 <div class="flex flex-col gap-4">
-                  <!-- Basic Info -->
-                  <div class="grid grid-cols-1 gap-3">
-                    <div class="flex flex-col gap-1.5">
-                      <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Hostname</h3>
-                      <div class="bg-surface-alt rounded-lg border border-default p-3">
-                        <span class="text-primary font-mono text-sm">{{ device.hostname }}</span>
-                      </div>
-                    </div>
+                  <!-- Hostname -->
+                  <div class="flex flex-col gap-1.5">
+                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Hostname</h3>
+                    <InlineEdit
+                      v-model="editValues.hostname"
+                      :placeholder="device.hostname || 'Enter hostname...'"
+                      text-size="sm"
+                      :can-edit="device.is_editable"
+                      @update:modelValue="() => saveField('hostname')"
+                    />
+                  </div>
 
-                    <div class="flex flex-col gap-1.5">
-                      <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Serial Number</h3>
-                      <div class="bg-surface-alt rounded-lg border border-default p-3">
-                        <span class="text-primary font-mono text-sm">{{ device.serial_number }}</span>
-                      </div>
-                    </div>
+                  <!-- Serial Number -->
+                  <div class="flex flex-col gap-1.5">
+                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Serial Number</h3>
+                    <InlineEdit
+                      v-model="editValues.serial_number"
+                      :placeholder="device.serial_number || 'Enter serial number...'"
+                      text-size="sm"
+                      :can-edit="device.is_editable"
+                      :monospace="true"
+                      @update:modelValue="() => saveField('serial_number')"
+                    />
                   </div>
 
                   <!-- Hardware Info -->
                   <div class="pt-2 border-t border-default">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div class="flex flex-col gap-1">
+                      <div class="flex flex-col gap-1.5">
                         <span class="text-xs text-secondary uppercase tracking-wide">Manufacturer</span>
-                        <span class="text-primary text-sm">{{ device.manufacturer || 'Unknown' }}</span>
+                        <InlineEdit
+                          v-model="editValues.manufacturer"
+                          :placeholder="device.manufacturer || 'Enter manufacturer...'"
+                          text-size="sm"
+                          :can-edit="device.is_editable"
+                          @update:modelValue="() => saveField('manufacturer')"
+                        />
                       </div>
 
-                      <div class="flex flex-col gap-1">
+                      <div class="flex flex-col gap-1.5">
                         <span class="text-xs text-secondary uppercase tracking-wide">Model</span>
-                        <span class="text-primary text-sm">{{ device.model }}</span>
+                        <InlineEdit
+                          v-model="editValues.model"
+                          :placeholder="device.model || 'Enter model...'"
+                          text-size="sm"
+                          :can-edit="device.is_editable"
+                          @update:modelValue="() => saveField('model')"
+                        />
                       </div>
                     </div>
                   </div>
@@ -587,7 +650,22 @@ onMounted(() => {
                   <div class="pt-2 border-t border-default">
                     <div class="flex flex-col gap-2">
                       <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Warranty Status</h3>
-                      <div class="inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium w-fit"
+
+                      <!-- Editable warranty status -->
+                      <div v-if="device.is_editable" class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors">
+                        <select
+                          v-model="editValues.warranty_status"
+                          @change="() => saveField('warranty_status')"
+                          class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-brand-blue/50 text-sm"
+                        >
+                          <option value="Active" class="bg-surface-alt">Active</option>
+                          <option value="Expired" class="bg-surface-alt">Expired</option>
+                          <option value="Unknown" class="bg-surface-alt">Unknown</option>
+                        </select>
+                      </div>
+
+                      <!-- Read-only warranty status badge -->
+                      <div v-else class="inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium w-fit"
                            :class="{
                              'bg-status-success/30 text-status-success border border-status-success/30': device.warranty_status === 'Active',
                              'bg-status-warning/30 text-status-warning border border-status-warning/30': device.warranty_status === 'Warning',
@@ -601,57 +679,182 @@ onMounted(() => {
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- Microsoft Entra/Intune Information -->
-          <div class="xl:col-span-1">
-            <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
-              <!-- Header -->
-              <div class="px-4 py-3 bg-surface-alt rounded-t-xl border-b border-default">
-                <h2 class="text-lg font-medium text-primary">Microsoft Entra/Intune</h2>
-              </div>
-              
-              <!-- Content -->
-              <div class="p-4">
-              
-              <!-- Device IDs Section -->
-              <div class="flex flex-col gap-6">
-                <!-- Intune Device ID -->
-                <div v-if="device.intune_device_id" class="flex flex-col gap-2">
-                  <h3 class="text-sm font-medium text-primary uppercase tracking-wide">Intune Device ID</h3>
-                  <div class="bg-surface-alt rounded-lg p-3 border border-default">
-                    <span class="text-primary font-mono text-sm break-all">{{ device.intune_device_id }}</span>
+            <!-- Primary User Information (shown in left column on 2-col, hidden on 3-col) -->
+            <div class="xl:hidden">
+              <SectionCard content-padding="p-4">
+                <template #title>Primary User</template>
+
+                <div v-if="device.primary_user" class="flex flex-col gap-4">
+                  <!-- User Profile Section -->
+                  <div class="flex items-start gap-4">
+                    <!-- Avatar -->
+                    <router-link
+                      :to="`/users/${device.primary_user.uuid}`"
+                      class="flex-shrink-0 group"
+                    >
+                      <div class="relative">
+                        <img
+                          v-if="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                          :src="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                          :alt="device.primary_user.name"
+                          class="w-16 h-16 rounded-full object-cover ring-2 ring-surface-alt group-hover:ring-brand-blue transition-all"
+                        />
+                        <div
+                          v-else
+                          class="w-16 h-16 rounded-full bg-surface-alt flex items-center justify-center ring-2 ring-surface-alt group-hover:ring-brand-blue transition-all"
+                        >
+                          <span class="text-2xl font-semibold text-secondary">
+                            {{ device.primary_user.name.charAt(0).toUpperCase() }}
+                          </span>
+                        </div>
+                      </div>
+                    </router-link>
+
+                    <!-- User Details -->
+                    <div class="flex-1 min-w-0">
+                      <router-link
+                        :to="`/users/${device.primary_user.uuid}`"
+                        class="text-lg font-semibold text-primary hover:text-brand-blue transition-colors block truncate"
+                      >
+                        {{ device.primary_user.name }}
+                      </router-link>
+                      <p class="text-sm text-secondary truncate mt-1">{{ device.primary_user.email }}</p>
+                      <div class="mt-2">
+                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium"
+                              :class="{
+                                'bg-purple-500/20 text-purple-400 border border-purple-500/30': device.primary_user.role === 'admin',
+                                'bg-blue-500/20 text-blue-400 border border-blue-500/30': device.primary_user.role === 'technician',
+                                'bg-slate-500/20 text-slate-400 border border-slate-500/30': device.primary_user.role === 'user'
+                              }">
+                          {{ device.primary_user.role.charAt(0).toUpperCase() + device.primary_user.role.slice(1) }}
+                        </span>
+                      </div>
+                    </div>
                   </div>
+
+                  <!-- Change User Button (only for editable devices) -->
+                  <button
+                    v-if="device.is_editable"
+                    @click="showUserSelectionModal = true"
+                    class="w-full mt-4 px-4 py-2.5 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                    Change User
+                  </button>
                 </div>
 
-                <!-- Entra Device ID -->
-                <div v-if="device.entra_device_id" class="flex flex-col gap-2">
-                  <h3 class="text-sm font-medium text-primary uppercase tracking-wide">Entra Device ID</h3>
+                <!-- No User Assigned -->
+                <div v-else class="flex flex-col items-center py-8 gap-4">
+                  <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full">
+                    <svg class="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                    </svg>
+                  </div>
+                  <p class="text-secondary text-sm">No user assigned to this device</p>
+
+                  <!-- Assign User Button (only for editable devices) -->
+                  <button
+                    v-if="device.is_editable"
+                    @click="showUserSelectionModal = true"
+                    class="px-4 py-2.5 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors text-sm font-medium flex items-center gap-2"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Assign User
+                  </button>
+                </div>
+              </SectionCard>
+            </div>
+          </div>
+
+          <!-- Device Management Information -->
+          <div>
+            <!-- Manual Device Information (for non-synced devices) -->
+            <SectionCard v-if="device.is_editable" content-padding="p-4">
+              <template #title>Device Information</template>
+
+              <div class="flex flex-col gap-4">
+                <!-- Device ID -->
+                <div class="flex flex-col gap-2">
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Device ID</h3>
                   <div class="bg-surface-alt rounded-lg p-3 border border-default">
-                    <span class="text-primary font-mono text-sm break-all">{{ device.entra_device_id }}</span>
+                    <span class="text-primary font-mono text-sm">{{ device.id }}</span>
                   </div>
                 </div>
 
                 <!-- Timestamps -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div class="flex flex-col gap-1">
+                  <div class="flex flex-col gap-1.5">
                     <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Created</h4>
                     <p class="text-primary text-sm">{{ formatDate(device.created_at) }}</p>
                   </div>
-                  <div class="flex flex-col gap-1">
+                  <div class="flex flex-col gap-1.5">
                     <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Updated</h4>
                     <p class="text-primary text-sm">{{ formatDate(device.updated_at) }}</p>
+                  </div>
+                </div>
+
+                <!-- Management Type -->
+                <div class="pt-4 border-t border-default">
+                  <div class="flex items-center gap-2 text-sm">
+                    <svg class="w-5 h-5 text-secondary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <div>
+                      <p class="font-medium text-primary">Manually Managed</p>
+                      <p class="text-xs text-tertiary mt-0.5">This device was created and is managed manually in Nosdesk</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </SectionCard>
+
+            <!-- Microsoft Entra/Intune Information (for synced devices) -->
+            <div v-else class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
+              <!-- Header -->
+              <div class="px-4 py-3 bg-surface-alt rounded-t-xl border-b border-default">
+                <h2 class="text-lg font-medium text-primary">Microsoft Entra/Intune</h2>
+              </div>
+
+              <!-- Content -->
+              <div class="p-4">
+
+              <div class="flex flex-col gap-6">
+                <!-- Timestamps -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div class="flex flex-col gap-1.5">
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Created</h4>
+                    <p class="text-primary text-sm">{{ formatDate(device.created_at) }}</p>
+                  </div>
+                  <div class="flex flex-col gap-1.5">
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Updated</h4>
+                    <p class="text-primary text-sm">{{ formatDate(device.updated_at) }}</p>
+                  </div>
+                </div>
+
+                <!-- Last Sync Time -->
+                <div v-if="device.last_sync_time" class="flex flex-col gap-2 pt-4 border-t border-default">
+                  <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Synchronized</h4>
+                  <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-brand-blue flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <p class="text-primary text-sm">{{ formatDate(device.last_sync_time) }}</p>
                   </div>
                 </div>
 
                 <!-- Action Buttons -->
                 <div class="flex flex-col gap-4 pt-4 border-t border-default">
                   <h3 class="text-sm font-medium text-primary uppercase tracking-wide mb-4">Quick Actions</h3>
-                  <div class="flex flex-col sm:flex-row gap-3">
+                  <div class="flex flex-wrap gap-3">
                     <button
                       v-if="device.intune_device_id"
                       @click="openInIntune"
-                      class="flex items-center justify-center gap-3 px-4 py-3 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors duration-200 text-sm font-medium"
+                      class="flex-1 min-w-[200px] flex items-center justify-center gap-3 px-4 py-3 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors duration-200 text-sm font-medium"
                     >
                       <IntuneIcon size="18" class="text-white flex-shrink-0" />
                       <span>Open in Intune</span>
@@ -661,7 +864,7 @@ onMounted(() => {
                       v-if="device.entra_device_id"
                       @click="openInEntra"
                       :disabled="loadingObjectId"
-                      class="flex items-center justify-center gap-3 px-4 py-3 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm font-medium"
+                      class="flex-1 min-w-[200px] flex items-center justify-center gap-3 px-4 py-3 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm font-medium"
                     >
                       <EntraIcon v-if="!loadingObjectId" size="18" class="text-white flex-shrink-0" />
                       <svg v-else class="w-4 h-4 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
@@ -671,7 +874,7 @@ onMounted(() => {
                       <span>{{ loadingObjectId ? 'Loading...' : 'Open in Entra Admin Center' }}</span>
                     </button>
                   </div>
-                  
+
                   <!-- Error Message -->
                   <div v-if="objectIdError" class="mt-3 p-3 bg-status-error/20 border border-status-error/30 rounded-lg">
                     <p class="text-status-error text-sm flex items-center gap-2">
@@ -680,6 +883,71 @@ onMounted(() => {
                       </svg>
                       {{ objectIdError }}
                     </p>
+                  </div>
+
+                  <!-- Unmanage Button -->
+                  <div class="pt-4 border-t border-default">
+                    <button
+                      @click="handleUnmanageDevice"
+                      :disabled="isSaving"
+                      class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-status-warning/20 text-status-warning rounded-lg hover:bg-status-warning/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                      title="Remove from Microsoft Intune/Entra management"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                      </svg>
+                      {{ isSaving ? 'Processing...' : 'Unmanage from Intune/Entra' }}
+                    </button>
+                    <p class="text-xs text-tertiary mt-2 text-center">This will convert the device to manual management</p>
+                  </div>
+
+                  <!-- Additional Details Dropdown -->
+                  <div class="pt-4 border-t border-default">
+                    <button
+                      @click="showAdditionalDetails = !showAdditionalDetails"
+                      class="w-full flex items-center justify-between px-4 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors text-sm font-medium"
+                    >
+                      <span>Additional Details</span>
+                      <svg
+                        class="w-4 h-4 transition-transform duration-200"
+                        :class="{ 'rotate-180': showAdditionalDetails }"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+
+                    <!-- Dropdown Content -->
+                    <div
+                      v-show="showAdditionalDetails"
+                      class="mt-3 space-y-4 p-4 bg-surface-alt rounded-lg border border-default"
+                    >
+                      <!-- Intune Device ID -->
+                      <div v-if="device.intune_device_id" class="flex flex-col gap-2">
+                        <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Intune Device ID</h4>
+                        <div class="bg-surface rounded-lg p-3 border border-default">
+                          <span class="text-primary font-mono text-xs break-all">{{ device.intune_device_id }}</span>
+                        </div>
+                      </div>
+
+                      <!-- Entra Device ID -->
+                      <div v-if="device.entra_device_id" class="flex flex-col gap-2">
+                        <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Entra Device ID</h4>
+                        <div class="bg-surface rounded-lg p-3 border border-default">
+                          <span class="text-primary font-mono text-xs break-all">{{ device.entra_device_id }}</span>
+                        </div>
+                      </div>
+
+                      <!-- Device ID -->
+                      <div class="flex flex-col gap-2">
+                        <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Device ID</h4>
+                        <div class="bg-surface rounded-lg p-3 border border-default">
+                          <span class="text-primary font-mono text-xs break-all">{{ device.id }}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 
@@ -697,47 +965,94 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- User Account Information -->
-          <div class="xl:col-span-1">
-            <div class="flex flex-col">
-              <!-- Primary User Heading -->
-              <div class="mb-4">
-                <h2 class="text-lg font-medium text-primary">Primary User</h2>
-              </div>
+          <!-- Primary User Information (shown as 3rd column on xl) -->
+          <div class="hidden xl:block">
+            <SectionCard content-padding="p-4">
+              <template #title>Primary User</template>
 
-              <!-- User Profile Card (Compact Variant) -->
-              <div v-if="device.primary_user">
-                <UserProfileCard
-                  :user="device.primary_user"
-                  variant="compact"
-                  :show-banner="true"
-                  :show-pronouns="false"
-                  :show-email="true"
-                  :can-edit="false"
-                  :enable-avatar-navigation="true"
-                >
-                  <!-- User UUID -->
-                  <div class="flex flex-col gap-2">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">User UUID</h4>
-                    <div class="bg-surface-alt rounded-lg p-3 border border-default">
-                      <span class="text-primary font-mono text-sm break-all">{{ device.primary_user.uuid }}</span>
+              <div v-if="device.primary_user" class="flex flex-col gap-4">
+                <!-- User Profile Section -->
+                <div class="flex items-start gap-4">
+                  <!-- Avatar -->
+                  <router-link
+                    :to="`/users/${device.primary_user.uuid}`"
+                    class="flex-shrink-0 group"
+                  >
+                    <div class="relative">
+                      <img
+                        v-if="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                        :src="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                        :alt="device.primary_user.name"
+                        class="w-16 h-16 rounded-full object-cover ring-2 ring-surface-alt group-hover:ring-brand-blue transition-all"
+                      />
+                      <div
+                        v-else
+                        class="w-16 h-16 rounded-full bg-surface-alt flex items-center justify-center ring-2 ring-surface-alt group-hover:ring-brand-blue transition-all"
+                      >
+                        <span class="text-2xl font-semibold text-secondary">
+                          {{ device.primary_user.name.charAt(0).toUpperCase() }}
+                        </span>
+                      </div>
+                    </div>
+                  </router-link>
+
+                  <!-- User Details -->
+                  <div class="flex-1 min-w-0">
+                    <router-link
+                      :to="`/users/${device.primary_user.uuid}`"
+                      class="text-lg font-semibold text-primary hover:text-brand-blue transition-colors block truncate"
+                    >
+                      {{ device.primary_user.name }}
+                    </router-link>
+                    <p class="text-sm text-secondary truncate mt-1">{{ device.primary_user.email }}</p>
+                    <div class="mt-2">
+                      <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium"
+                            :class="{
+                              'bg-purple-500/20 text-purple-400 border border-purple-500/30': device.primary_user.role === 'admin',
+                              'bg-blue-500/20 text-blue-400 border border-blue-500/30': device.primary_user.role === 'technician',
+                              'bg-slate-500/20 text-slate-400 border border-slate-500/30': device.primary_user.role === 'user'
+                            }">
+                        {{ device.primary_user.role.charAt(0).toUpperCase() + device.primary_user.role.slice(1) }}
+                      </span>
                     </div>
                   </div>
-                </UserProfileCard>
+                </div>
+
+                <!-- Change User Button (only for editable devices) -->
+                <button
+                  v-if="device.is_editable"
+                  @click="showUserSelectionModal = true"
+                  class="w-full mt-4 px-4 py-2.5 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                  </svg>
+                  Change User
+                </button>
               </div>
 
               <!-- No User Assigned -->
-              <div v-else class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
-                <div class="text-center py-8 px-6">
-                  <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full mb-4">
-                    <svg class="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
-                    </svg>
-                  </div>
-                  <p class="text-secondary text-sm">No user assigned to this device</p>
+              <div v-else class="flex flex-col items-center py-8 gap-4">
+                <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full">
+                  <svg class="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                  </svg>
                 </div>
+                <p class="text-secondary text-sm">No user assigned to this device</p>
+
+                <!-- Assign User Button (only for editable devices) -->
+                <button
+                  v-if="device.is_editable"
+                  @click="showUserSelectionModal = true"
+                  class="px-4 py-2.5 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors text-sm font-medium flex items-center gap-2"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                  </svg>
+                  Assign User
+                </button>
               </div>
-            </div>
+            </SectionCard>
           </div>
         </div>
         
@@ -775,6 +1090,14 @@ onMounted(() => {
     <div v-else class="p-6 text-center text-secondary">
       Device not found
     </div>
+
+    <!-- User Selection Modal -->
+    <UserSelectionModal
+      :show="showUserSelectionModal"
+      :currentUserId="device?.primary_user_uuid ?? null"
+      @close="showUserSelectionModal = false"
+      @select-user="handleUserSelection"
+    />
   </div>
 </template>
 

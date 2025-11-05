@@ -657,6 +657,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/devices/{id}", web::get().to(handlers::get_device_by_id))
                     .route("/devices/{id}", web::put().to(handlers::update_device))
                     .route("/devices/{id}", web::delete().to(handlers::delete_device))
+                    .route("/devices/{id}/unmanage", web::post().to(handlers::unmanage_device))
                     .route("/users/{uuid}/devices", web::get().to(handlers::get_user_devices))
                     
                     // ===== DOCUMENTATION SYSTEM =====

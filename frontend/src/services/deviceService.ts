@@ -69,6 +69,8 @@ const transformDeviceResponse = (backendDevice: any): Device => {
     entra_device_id: backendDevice.entra_device_id,
     created_at: backendDevice.created_at,
     updated_at: backendDevice.updated_at,
+    last_sync_time: backendDevice.last_sync_time,
+    is_editable: backendDevice.is_editable ?? true,
     primary_user: backendDevice.primary_user,
     // Legacy fields for backward compatibility
     type: backendDevice.manufacturer || determineDeviceType(backendDevice.model),
@@ -226,6 +228,21 @@ export const deleteDevice = async (id: number): Promise<void> => {
     await apiClient.delete(`/devices/${id}`);
   } catch (error) {
     console.error(`Error deleting device with ID ${id}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Unmanage a device (remove Intune/Entra IDs to make it editable)
+ * @param id - The ID of the device to unmanage
+ * @returns Promise<Device> - The updated device
+ */
+export const unmanageDevice = async (id: number): Promise<Device> => {
+  try {
+    const response = await apiClient.post(`/devices/${id}/unmanage`);
+    return transformDeviceResponse(response.data);
+  } catch (error) {
+    console.error(`Error unmanaging device with ID ${id}:`, error);
     throw error;
   }
 };

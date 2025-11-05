@@ -53,7 +53,9 @@ pub struct DeviceResponse {
     pub entra_device_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub last_sync_time: Option<String>,
     pub primary_user: Option<UserInfo>,
+    pub is_editable: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -68,6 +70,10 @@ pub struct UserInfo {
 
 impl DeviceResponse {
     pub fn from_device_and_user(device: Device, user: Option<User>, conn: &mut crate::db::DbConnection) -> Self {
+        // Device is editable only if it's NOT synced from Microsoft Graph
+        // (i.e., it has neither intune_device_id nor entra_device_id)
+        let is_editable = device.intune_device_id.is_none() && device.entra_device_id.is_none();
+
         Self {
             id: device.id,
             name: device.name,
@@ -77,10 +83,12 @@ impl DeviceResponse {
             warranty_status: device.warranty_status.unwrap_or_default(),
             manufacturer: device.manufacturer,
             primary_user_uuid: device.primary_user_uuid.map(|uuid| utils::uuid_to_string(&uuid)),
-            intune_device_id: device.intune_device_id,
-            entra_device_id: device.entra_device_id,
+            intune_device_id: device.intune_device_id.clone(),
+            entra_device_id: device.entra_device_id.clone(),
             created_at: device.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             updated_at: device.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            last_sync_time: device.last_sync_time.map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            is_editable,
             primary_user: user.map(|u| {
                 let name = u.name.clone();
                 let role = match u.role {
@@ -293,7 +301,30 @@ pub async fn update_device(
         Some(claims) => claims.clone(),
         None => return HttpResponse::Unauthorized().json("Authentication required"),
     };
-    
+
+    // Check if device is editable (not synced from Microsoft Graph)
+    let existing_device = match repository::get_device_by_id(&mut conn, device_id) {
+        Ok(device) => device,
+        Err(e) => {
+            return match e {
+                Error::NotFound => HttpResponse::NotFound().json(format!("Device {} not found", device_id)),
+                _ => {
+                    eprintln!("Database error getting device {}: {:?}", device_id, e);
+                    HttpResponse::InternalServerError().json(format!("Failed to get device {}", device_id))
+                }
+            }
+        }
+    };
+
+    // Prevent editing devices synced from Microsoft Graph
+    let is_synced = existing_device.intune_device_id.is_some() || existing_device.entra_device_id.is_some();
+    if is_synced {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Cannot edit device synced from Microsoft Graph",
+            "message": "This device is managed by Microsoft Intune/Entra and cannot be edited manually. Changes must be made in Microsoft Entra Admin Center or Intune."
+        }));
+    }
+
     let update_data = device_update.into_inner();
     
     // Convert to JSON before the move for SSE broadcasting
@@ -362,6 +393,88 @@ pub async fn delete_device(
         Err(e) => {
             eprintln!("Database error deleting device {}: {:?}", device_id, e);
             HttpResponse::InternalServerError().json(format!("Failed to delete device {}", device_id))
+        }
+    }
+}
+
+/// Unmanage a device (remove Intune/Entra IDs to make it editable)
+pub async fn unmanage_device(
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+    req: HttpRequest,
+) -> impl Responder {
+    let device_id = path.into_inner();
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Extract claims from cookie auth middleware
+    let _user_info = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    };
+
+    // Check if device exists
+    let existing_device = match repository::get_device_by_id(&mut conn, device_id) {
+        Ok(device) => device,
+        Err(e) => {
+            return match e {
+                Error::NotFound => HttpResponse::NotFound().json(format!("Device {} not found", device_id)),
+                _ => {
+                    eprintln!("Database error getting device {}: {:?}", device_id, e);
+                    HttpResponse::InternalServerError().json(format!("Failed to get device {}", device_id))
+                }
+            }
+        }
+    };
+
+    // Check if device is synced from Microsoft Graph
+    let is_synced = existing_device.intune_device_id.is_some() || existing_device.entra_device_id.is_some();
+    if !is_synced {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Device is not managed by Microsoft Graph",
+            "message": "This device is already manually managed and doesn't need to be unmanaged."
+        }));
+    }
+
+    // Remove Microsoft Graph IDs to make device editable by setting them to empty strings
+    // Note: Empty strings will be stored in DB, but device will become editable (is_editable checks for None, not empty)
+    let update_data = crate::models::DeviceUpdate {
+        name: None,
+        hostname: None,
+        device_type: None,
+        serial_number: None,
+        manufacturer: None,
+        model: None,
+        warranty_status: None,
+        location: None,
+        notes: None,
+        primary_user_uuid: None,
+        azure_device_id: None,
+        intune_device_id: Some(String::new()),
+        entra_device_id: Some(String::new()),
+        compliance_state: None,
+        last_sync_time: None,
+        operating_system: None,
+        os_version: None,
+        is_managed: None,
+        enrollment_date: None,
+        updated_at: None,
+    };
+
+    match repository::update_device(&mut conn, device_id, update_data) {
+        Ok(device) => {
+            // Get user data if device has a primary user
+            let user = device.primary_user_uuid.as_ref()
+                .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
+
+            let device_response = DeviceResponse::from_device_and_user(device, user, &mut conn);
+            HttpResponse::Ok().json(device_response)
+        },
+        Err(e) => {
+            eprintln!("Database error unmanaging device {}: {:?}", device_id, e);
+            HttpResponse::InternalServerError().json(format!("Failed to unmanage device {}", device_id))
         }
     }
 }

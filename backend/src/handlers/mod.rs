@@ -40,7 +40,7 @@ pub use projects::*;
 pub use devices::{
     get_all_devices, get_paginated_devices, get_paginated_devices_excluding,
     create_device, get_device_by_id, update_device, delete_device,
-    get_user_devices
+    get_user_devices, unmanage_device
 };
 pub use documentation::*;
 pub use auth_providers::*;
