@@ -5,7 +5,10 @@ import apiClient from '@/services/apiConfig';
 /**
  * Composable for managing ticket comments
  */
-export function useTicketComments(ticket: Ref<any>, refreshTicket: () => Promise<void>) {
+export function useTicketComments(
+  ticket: Ref<any>,
+  refreshTicket: () => Promise<void>,
+) {
 
   // Add comment
   async function addComment(data: { content: string; user_uuid: string; files: File[] }): Promise<void> {
@@ -19,6 +22,27 @@ export function useTicketComments(ticket: Ref<any>, refreshTicket: () => Promise
     // Set placeholder content if only files
     if (!data.content.trim() && data.files?.length > 0) {
       data.content = 'Attachment added';
+    }
+
+    // Generate a temporary negative ID for optimistic update
+    const tempId = -Date.now();
+
+    // Optimistically add to UI immediately with temp ID
+    const optimisticComment = {
+      id: tempId,
+      content: data.content,
+      user_uuid: data.user_uuid,
+      createdAt: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      ticket_id: ticket.value.id,
+      attachments: [],
+      user: null,
+    };
+
+    if (ticket.value.commentsAndAttachments) {
+      ticket.value.commentsAndAttachments.unshift(optimisticComment);
+    } else {
+      ticket.value.commentsAndAttachments = [optimisticComment];
     }
 
     try {
@@ -41,30 +65,36 @@ export function useTicketComments(ticket: Ref<any>, refreshTicket: () => Promise
         }));
       }
 
-      // Create comment
+      // Create comment on server
       const newComment = await ticketService.addCommentToTicket(
         ticket.value.id,
         data.content,
         attachments,
       );
 
-      // Optimistically add to local state - use unshift to preserve array reference
+      // Replace the optimistic comment with the real one
       if (ticket.value.commentsAndAttachments) {
-        const optimisticComment = {
-          id: newComment.id,
-          content: newComment.content,
-          user_uuid: newComment.user_uuid,
-          createdAt: newComment.created_at,
-          created_at: newComment.created_at,
-          ticket_id: newComment.ticket_id,
-          attachments: newComment.attachments || [],
-          user: newComment.user,
-        };
-
-        ticket.value.commentsAndAttachments.unshift(optimisticComment);
+        const index = ticket.value.commentsAndAttachments.findIndex(
+          (c: any) => c.id === tempId
+        );
+        if (index !== -1) {
+          ticket.value.commentsAndAttachments.splice(index, 1);
+        }
       }
+
+      // SSE will add the real comment, so we don't need to add it here
+      // The duplicate check in SSE handler will prevent duplicates
     } catch (error) {
       console.error('Error adding comment:', error);
+      // Remove optimistic comment on error
+      if (ticket.value.commentsAndAttachments) {
+        const index = ticket.value.commentsAndAttachments.findIndex(
+          (c: any) => c.id === tempId
+        );
+        if (index !== -1) {
+          ticket.value.commentsAndAttachments.splice(index, 1);
+        }
+      }
       await refreshTicket();
     }
   }

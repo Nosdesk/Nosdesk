@@ -192,14 +192,19 @@ pub async fn serve_temp_file(
 
 // Helper function to extract token from request
 fn extract_token_from_request(req: &actix_web::HttpRequest) -> Result<String, actix_web::Error> {
-    // First try query parameter ?token=...
+    // First try httpOnly cookie (standard auth method)
+    if let Some(cookie) = req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE) {
+        return Ok(cookie.value().to_string());
+    }
+
+    // Fallback to query parameter ?token=... (for legacy support or direct links)
     if let Some(token) = req.query_string().split('&')
         .find(|param| param.starts_with("token="))
         .and_then(|param| param.split('=').nth(1)) {
         return Ok(token.to_string());
     }
-    
-    // Then try Authorization header
+
+    // Finally try Authorization header
     if let Some(auth_header) = req.headers().get("Authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
             if let Some(token) = auth_str.strip_prefix("Bearer ") {
@@ -207,7 +212,7 @@ fn extract_token_from_request(req: &actix_web::HttpRequest) -> Result<String, ac
             }
         }
     }
-    
+
     Err(actix_web::error::ErrorUnauthorized("No authentication token provided"))
 }
 

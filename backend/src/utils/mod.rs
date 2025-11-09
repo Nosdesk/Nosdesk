@@ -11,6 +11,7 @@ pub mod csrf;
 pub mod cookies;
 pub mod file_validation;
 pub mod rate_limit;
+pub mod redis_yjs_cache;
 
 use uuid::Uuid;
 use crate::models::{UserRole, UserInfo};

@@ -203,9 +203,29 @@ CREATE TABLE article_contents (
     id SERIAL PRIMARY KEY,
     content TEXT NOT NULL,
     ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+    current_revision_number INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES users(uuid) ON DELETE SET NULL
+    created_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_by UUID REFERENCES users(uuid) ON DELETE SET NULL
 );
+
+-- Article content revisions for version history
+-- Simplified schema: state_vector + full_update (removed redundant snapshot field)
+CREATE TABLE article_content_revisions (
+    id SERIAL PRIMARY KEY,
+    article_content_id INTEGER NOT NULL REFERENCES article_contents(id) ON DELETE CASCADE,
+    revision_number INTEGER NOT NULL,
+    yjs_state_vector BYTEA NOT NULL,        -- State vector at revision time
+    yjs_document_content BYTEA NOT NULL,    -- Full Yjs update (V1 encoded)
+    contributed_by UUID[] NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    word_count INTEGER DEFAULT 0,
+    UNIQUE(article_content_id, revision_number)
+);
+
+CREATE INDEX idx_article_content_revisions_article_id ON article_content_revisions(article_content_id);
+CREATE INDEX idx_article_content_revisions_contributors ON article_content_revisions USING GIN(contributed_by);
 
 -- Documentation pages - Notion-like with Yrs collaborative editing
 CREATE TABLE documentation_pages (

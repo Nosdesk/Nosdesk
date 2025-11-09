@@ -17,6 +17,7 @@ DROP TABLE IF EXISTS linked_tickets;
 DROP TABLE IF EXISTS documentation_revisions;
 DROP TABLE IF EXISTS documentation_pages;
 
+DROP TABLE IF EXISTS article_content_revisions;
 DROP TABLE IF EXISTS article_contents;
 DROP TABLE IF EXISTS attachments;
 DROP TABLE IF EXISTS comments;

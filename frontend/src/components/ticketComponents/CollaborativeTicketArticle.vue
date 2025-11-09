@@ -1,10 +1,10 @@
 <!-- CollaborativeTicketArticle.vue -->
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue';
-import { API_BASE_URL } from '@/config';
-import axios from 'axios';
+import RevisionHistory from '@/components/editor/RevisionHistory.vue';
+import apiClient from '@/services/apiConfig';
 
 // Define props
 interface Props {
@@ -26,48 +26,20 @@ const emit = defineEmits<{
 // Use binary content for Yjs document
 const content = ref('');
 const router = useRouter();
-const isLoading = ref(false);
-const isBinaryUpdate = ref(true);
+const isLoading = ref(false); // Editor syncs via WebSocket, no need to wait for HTTP load
 
-// Load initial content from backend
-onMounted(async () => {
-  isLoading.value = true;
+// Revision history state
+const showRevisionHistory = ref(false);
+const editorRef = ref<InstanceType<typeof CollaborativeEditor> | null>(null);
+
+// No need to load content via HTTP - the CollaborativeEditor handles everything via WebSocket
+// The editor will sync with the backend's in-memory Yjs document automatically
+onMounted(() => {
+  // Just mark as loaded immediately - editor handles content sync via WebSocket
+  isLoading.value = false;
+  emit('initialization-complete');
   if (import.meta.env.DEV) {
-    console.log('Attempting to load content for ticket', props.ticketId, 'from URL:', `${API_BASE_URL}/collaboration/article/ticket-${props.ticketId}`);
-  }
-  try {
-    const response = await axios.get(`${API_BASE_URL}/collaboration/article/ticket-${props.ticketId}`);
-    if (import.meta.env.DEV) {
-      console.log('Response received:', response);
-    }
-    if (response.data.content) {
-      content.value = response.data.content;
-      if (import.meta.env.DEV) {
-        console.log('Loaded initial content for ticket', props.ticketId, 'Content length:', content.value.length);
-      }
-    } else {
-      if (import.meta.env.DEV) {
-        console.log('No initial content found for ticket', props.ticketId);
-      }
-      content.value = '';
-    }
-  } catch (error: any) {
-    console.error('Error loading initial content for ticket', props.ticketId, ':', error);
-    if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response data:', error.response.data);
-    } else if (error.request) {
-      console.error('No response received:', error.request);
-    } else {
-      console.error('Error setting up request:', error.message);
-    }
-    content.value = '';
-  } finally {
-    isLoading.value = false;
-    emit('initialization-complete');
-    if (import.meta.env.DEV) {
-      console.log('Initialization complete for ticket', props.ticketId);
-    }
+    console.log('CollaborativeTicketArticle mounted for ticket', props.ticketId, '- editor will sync via WebSocket');
   }
 });
 
@@ -79,31 +51,51 @@ const handleExpand = () => {
   });
 };
 
-// Save content to backend on update
-const handleContentChange = async (newValue: string) => {
+// No need to save via HTTP POST - backend automatically saves via WebSocket sync protocol
+// Just update local state for any watchers
+const handleContentChange = (newValue: string) => {
   content.value = newValue;
-  if (import.meta.env.DEV) {
-    console.log('Attempting to save content for ticket', props.ticketId, 'Content length:', newValue.length);
+};
+
+// Revision history handlers
+const handleSelectRevision = async (revisionNumber: number | null) => {
+  if (!editorRef.value) {
+    console.error('Editor ref not available');
+    return;
   }
+
+  if (revisionNumber === null) {
+    // Exit revision view and return to live document
+    editorRef.value.exitRevisionView();
+    return;
+  }
+
   try {
-    const response = await axios.post(`${API_BASE_URL}/collaboration/sync`, {
-      doc_id: `ticket-${props.ticketId}`,
-      content: newValue
-    });
-    if (import.meta.env.DEV) {
-      console.log('Content saved successfully for ticket', props.ticketId, 'Response:', response.data);
-    }
-  } catch (error: any) {
-    console.error('Error saving content for ticket', props.ticketId, ':', error);
-    if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response data:', error.response.data);
-    } else if (error.request) {
-      console.error('No response received:', error.request);
-    } else {
-      console.error('Error setting up request:', error.message);
-    }
+    // Fetch the specific revision snapshot from the API
+    const response = await apiClient.get(
+      `/collaboration/tickets/${props.ticketId}/revisions/${revisionNumber}`
+    );
+
+    const revisionData = response.data;
+
+    // Display the revision in the editor (read-only mode)
+    editorRef.value.viewSnapshot(revisionData);
+    console.log('Revision data received:', revisionData);
+  } catch (error) {
+    console.error('Failed to fetch revision:', error);
   }
+};
+
+const handleCloseRevisionHistory = () => {
+  showRevisionHistory.value = false;
+  // Also exit revision view if we're currently viewing one
+  if (editorRef.value && editorRef.value.isViewingRevision) {
+    editorRef.value.exitRevisionView();
+  }
+};
+
+const toggleRevisionHistory = () => {
+  showRevisionHistory.value = !showRevisionHistory.value;
 };
 </script>
 
@@ -112,24 +104,38 @@ const handleContentChange = async (newValue: string) => {
     <!-- Header -->
     <div class="px-4 py-3 bg-surface-alt border-b border-default flex justify-between items-center">
       <h2 class="text-lg font-medium text-primary">Ticket Notes</h2>
-      <button
-        @click="handleExpand"
-        class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-        title="Open full editor"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-          <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H6.414l2.293 2.293a1 1 0 11-1.414 1.414L5 6.414V8a1 1 0 01-2 0V4zm9 1a1 1 0 010-2h4a1 1 0 011 1v4a1 1 0 01-2 0V6.414l-2.293 2.293a1 1 0 11-1.414-1.414L13.586 5H12zm-9 7a1 1 0 012 0v1.586l2.293-2.293a1 1 0 111.414 1.414L6.414 15H8a1 1 0 010 2H4a1 1 0 01-1-1v-4zm13-1a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 010-2h1.586l-2.293-2.293a1 1 0 111.414-1.414L15 13.586V12a1 1 0 011-1z" clip-rule="evenodd" />
-        </svg>
-      </button>
+      <div class="flex items-center gap-2">
+        <!-- Revision History Toggle -->
+        <button
+          @click="toggleRevisionHistory"
+          class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+          :class="{ 'bg-surface-alt text-primary': showRevisionHistory }"
+          title="Revision history"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+          </svg>
+        </button>
+
+        <!-- Open Full Editor -->
+        <button
+          @click="handleExpand"
+          class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+          title="Open full editor"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H6.414l2.293 2.293a1 1 0 11-1.414 1.414L5 6.414V8a1 1 0 01-2 0V4zm9 1a1 1 0 010-2h4a1 1 0 011 1v4a1 1 0 01-2 0V6.414l-2.293 2.293a1 1 0 11-1.414-1.414L13.586 5H12zm-9 7a1 1 0 012 0v1.586l2.293-2.293a1 1 0 111.414 1.414L6.414 15H8a1 1 0 010 2H4a1 1 0 01-1-1v-4zm13-1a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 010-2h1.586l-2.293-2.293a1 1 0 111.414-1.414L15 13.586V12a1 1 0 011-1z" clip-rule="evenodd" />
+          </svg>
+        </button>
+      </div>
     </div>
     
     <!-- Content -->
-    <div class="flex-grow flex w-full">
-      <div v-if="isLoading" class="flex flex-grow justify-center items-center">
-        <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-      <div v-else class="flex-grow flex w-full">
+    <div class="flex-grow flex w-full relative">
+      <!-- Editor Container - always rendered, syncs content via WebSocket -->
+      <div class="flex-grow flex w-full">
         <CollaborativeEditor
+          ref="editorRef"
           v-model="content"
           :doc-id="`ticket-${ticketId}`"
           :is-binary-update="true"
@@ -137,6 +143,15 @@ const handleContentChange = async (newValue: string) => {
           class="flex-grow w-full"
         />
       </div>
+
+      <!-- Revision History Sidebar -->
+      <RevisionHistory
+        v-if="showRevisionHistory"
+        :ticket-id="ticketId"
+        @close="handleCloseRevisionHistory"
+        @select-revision="handleSelectRevision"
+        @restored="() => console.log('Revision restored')"
+      />
     </div>
   </div>
 </template>

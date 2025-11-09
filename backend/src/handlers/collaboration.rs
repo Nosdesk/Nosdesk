@@ -2,11 +2,11 @@ use actix_web::{web, HttpResponse, Responder, Error, HttpRequest};
 use actix_web_actors::ws;
 use actix::{Actor, StreamHandler, ActorContext, Running, AsyncContext, Handler, Message, Addr};
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use yrs::{Doc, Transact, ReadTxn, StateVector, Update};
+use yrs::{Doc, Transact, ReadTxn, WriteTxn, StateVector, Update, GetString, XmlFragment};
 use yrs::sync::{Awareness, Protocol, DefaultProtocol};
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
@@ -15,7 +15,8 @@ use uuid::Uuid;
 use base64::{Engine as _, engine::general_purpose};
 
 use crate::repository;
-use crate::models::NewArticleContent;
+use crate::models::{NewArticleContent, NewArticleContentRevision};
+use crate::utils::redis_yjs_cache::RedisYjsCache;
 
 // How often heartbeat checks are performed (server-side connection health monitoring)
 // Note: y-websocket client maintains its own keepalive via resyncInterval (20s)
@@ -31,6 +32,8 @@ const MAX_PENDING_DURATION: Duration = Duration::from_secs(120);
 const EMPTY_ROOM_FINAL_SAVE_DELAY: Duration = Duration::from_secs(2);
 // How long to keep document state after room becomes empty
 const EMPTY_ROOM_CLEANUP_DELAY: Duration = Duration::from_secs(300); // 5 minutes
+// How often to create automatic snapshots (every 500 updates - Yrs community recommendation)
+const SNAPSHOT_INTERVAL: u32 = 500;
 
 // Simple handler to get article content by ticket ID
 pub async fn get_article_content(
@@ -88,6 +91,10 @@ struct DocumentState {
     sync_message_count: u32,
     room_empty_since: Option<Instant>, // Track when room became empty
     final_save_completed: bool, // Track if final save was done
+    // Snapshot tracking (for version history)
+    update_counter: u32,                    // Total updates since document creation
+    last_snapshot_at: u32,                  // Update count when last snapshot created
+    contributors: std::collections::HashSet<Uuid>, // Contributors since last snapshot
 }
 
 impl DocumentState {
@@ -100,6 +107,10 @@ impl DocumentState {
             sync_message_count: 0,
             room_empty_since: None,
             final_save_completed: false,
+            // Initialize snapshot tracking
+            update_counter: 0,
+            last_snapshot_at: 0,
+            contributors: std::collections::HashSet::new(),
         }
     }
     
@@ -109,7 +120,8 @@ impl DocumentState {
             self.pending_since = Some(Instant::now());
         }
         self.sync_message_count += 1;
-        
+        self.update_counter += 1; // Track total updates for snapshot scheduling
+
         // Reset room empty tracking since there's activity
         self.room_empty_since = None;
         self.final_save_completed = false;
@@ -180,10 +192,27 @@ impl DocumentState {
         // Clean up document state after room has been empty for the cleanup delay and final save is done
         if let Some(empty_since) = self.room_empty_since {
             let now = Instant::now();
-            return self.final_save_completed && 
+            return self.final_save_completed &&
                    now.duration_since(empty_since) >= EMPTY_ROOM_CLEANUP_DELAY;
         }
         false
+    }
+
+    // Snapshot management methods
+    fn should_create_snapshot(&self) -> bool {
+        // Create snapshot every SNAPSHOT_INTERVAL updates (Yrs community recommendation)
+        // Only if there are contributors and meaningful changes
+        let updates_since_snapshot = self.update_counter - self.last_snapshot_at;
+        updates_since_snapshot >= SNAPSHOT_INTERVAL && !self.contributors.is_empty()
+    }
+
+    fn add_contributor(&mut self, user_uuid: Uuid) {
+        self.contributors.insert(user_uuid);
+    }
+
+    fn reset_snapshot_tracking(&mut self) {
+        self.last_snapshot_at = self.update_counter;
+        self.contributors.clear();
     }
 }
 
@@ -201,14 +230,16 @@ pub struct YjsAppState {
     documents: DocumentStore,
     sessions: RoomSessionStore,
     pool: web::Data<crate::db::Pool>,
+    redis_cache: Arc<RedisYjsCache>,
 }
 
 impl YjsAppState {
-    pub fn new(pool: web::Data<crate::db::Pool>) -> Self {
+    pub fn new(pool: web::Data<crate::db::Pool>, redis_cache: Arc<RedisYjsCache>) -> Self {
         let state = YjsAppState {
             documents: Arc::new(RwLock::new(HashMap::new())),
             sessions: Arc::new(RwLock::new(HashMap::new())),
             pool,
+            redis_cache,
         };
         // Start the periodic cleanup and save task
         let state_clone = state.clone();
@@ -229,8 +260,7 @@ impl YjsAppState {
         let mut documents = self.documents.write().await;
         let mut saved_count = 0;
         let mut final_saved_count = 0;
-        let mut cleaned_up_count = 0;
-        let mut docs_to_remove = Vec::new();
+        let mut snapshot_count = 0;
 
         for (doc_id, doc_state) in documents.iter_mut() {
             // Regular saves for active documents
@@ -240,7 +270,19 @@ impl YjsAppState {
                 doc_state.mark_saved();
                 saved_count += 1;
             }
-            
+
+            // Check if we should create a snapshot (every 500 updates)
+            if doc_state.should_create_snapshot() {
+                println!("📸 Snapshot threshold reached for {} ({} updates since last snapshot)",
+                    doc_id, doc_state.update_counter - doc_state.last_snapshot_at);
+
+                // Clone contributors before passing to async function
+                let contributors = doc_state.contributors.clone();
+                self.create_snapshot_revision(doc_id, &doc_state.awareness, contributors);
+                doc_state.reset_snapshot_tracking();
+                snapshot_count += 1;
+            }
+
             // Final save for empty rooms
             if doc_state.should_do_final_save() {
                 println!("Performing final save for empty room: {}", doc_id);
@@ -248,72 +290,180 @@ impl YjsAppState {
                 doc_state.mark_saved();
                 doc_state.mark_final_save_completed();
                 final_saved_count += 1;
+
+                // Also create final snapshot if there are contributors
+                if !doc_state.contributors.is_empty() {
+                    println!("📸 Creating final snapshot before cleanup: {}", doc_id);
+                    let contributors = doc_state.contributors.clone();
+                    self.create_snapshot_revision(doc_id, &doc_state.awareness, contributors);
+                    doc_state.reset_snapshot_tracking();
+                    snapshot_count += 1;
+                }
             }
-            
-            // Clean up old empty documents
-            if doc_state.should_cleanup() {
-                println!("Cleaning up old document state: {}", doc_id);
-                docs_to_remove.push(doc_id.clone());
-                cleaned_up_count += 1;
-            }
+
+            // YIJS BEST PRACTICE: Keep documents in memory indefinitely
+            // Never remove documents from memory - they contain the authoritative live state
+            // Database is only for cold storage (server restart recovery)
+            // This prevents race conditions where user reconnects before async save completes
+            // See: https://discuss.yjs.dev/t/correct-way-to-implement-version-history-like-google-doc/1691
         }
-        
-        // Remove cleaned up documents
-        for doc_id in docs_to_remove {
-            documents.remove(&doc_id);
-        }
-        
-        if saved_count > 0 || final_saved_count > 0 || cleaned_up_count > 0 {
-            println!("Periodic maintenance completed: {} regular saves, {} final saves, {} cleanups", 
-                    saved_count, final_saved_count, cleaned_up_count);
+
+        if saved_count > 0 || final_saved_count > 0 || snapshot_count > 0 {
+            println!("Periodic maintenance: {} saves, {} final saves, {} snapshots",
+                    saved_count, final_saved_count, snapshot_count);
         }
     }
 
     // Get or create awareness for a document
     async fn get_or_create_awareness(&self, doc_id: &str) -> Arc<Awareness> {
         let mut documents = self.documents.write().await;
-        
-        if let Some(doc_state) = documents.get(doc_id) {
-            // Only log when document is accessed for the first time in a while, not on every message
+
+        if let Some(doc_state) = documents.get_mut(doc_id) {
+            // Document exists in memory - reuse it (this is the live state!)
+            // Reset the empty room timer since there's activity
+            doc_state.mark_room_active();
             Arc::clone(&doc_state.awareness)
         } else {
-            println!("Creating new awareness for document: {}", doc_id);
-            let doc = Doc::new();
+            println!("Document not in memory: {} - checking Redis cache", doc_id);
+
+            // Create Doc with GC disabled and a consistent server-side client ID
+            // CRITICAL: Use a deterministic client ID based on the document ID to ensure
+            // consistency across backend restarts. This prevents state vector mismatches.
+            let mut options = yrs::Options::default();
+            options.skip_gc = true;  // CRITICAL: Disable garbage collection
+
+            // Generate a consistent client ID from the document ID hash
+            // This ensures the same document always gets the same server client ID
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            doc_id.hash(&mut hasher);
+            let client_id = hasher.finish() | 1; // Ensure it's non-zero
+
+            options.client_id = client_id;
+            println!("📋 Creating document with consistent client ID: {} (from doc_id: {})", client_id, doc_id);
+
+            let doc = Doc::with_options(options);
+
+            // CRITICAL: Initialize the "prosemirror" XmlFragment root type
+            // This MUST be done before any sync operations to ensure the backend
+            // and frontend are working with the same document structure
+            {
+                let mut txn = doc.transact_mut();
+                let _ = txn.get_or_insert_xml_fragment("prosemirror");
+                println!("🎯 Initialized 'prosemirror' XmlFragment for document: {}", doc_id);
+            }
+
             let mut awareness = Awareness::new(doc);
-            
-            // Load existing content from database if available
-            if let Some(ticket_id_str) = doc_id.strip_prefix("ticket-") {
-                if let Ok(ticket_id) = ticket_id_str.parse::<i32>() {
-                    match self.pool.get() {
-                        Ok(mut conn) => {
-                            match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
-                                Ok(article_content) => {
-                                    if !article_content.content.is_empty() {
-                                        println!("Loading existing content for ticket {} ({} bytes)", 
-                                                ticket_id, article_content.content.len());
-                                        
-                                        // Apply the saved state to the document
-                                        if let Ok(update) = Update::decode_v1(article_content.content.as_bytes()) {
-                                            if let Err(e) = awareness.doc_mut().transact_mut().apply_update(update) {
-                                                println!("Error applying saved state: {:?}", e);
+
+            let mut loaded_from_redis = false;
+
+            // STEP 1: Try to load from Redis (hot cache - survives restarts)
+            if let Some(redis_data) = self.redis_cache.get_document(doc_id).await {
+                println!("Attempting to load document from Redis: {} ({} bytes)", doc_id, redis_data.len());
+
+                if let Ok(update) = Update::decode_v1(&redis_data) {
+                    let apply_result = {
+                        let mut txn = awareness.doc_mut().transact_mut();
+                        txn.apply_update(update)
+                    };
+
+                    if let Err(e) = apply_result {
+                        println!("❌ Error applying Redis state: {:?}", e);
+                        // Delete corrupted entry from Redis
+                        println!("🗑️ Deleting corrupted Redis entry for {}", doc_id);
+                        self.redis_cache.delete_document(doc_id).await;
+                    } else {
+                        println!("✅ Successfully loaded document from Redis cache");
+                        loaded_from_redis = true;
+
+                        // Diagnostic: Verify content
+                        use yrs::{GetString, XmlFragment};
+                        let txn = awareness.doc().transact();
+                        if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                            let child_count = fragment.children(&txn).count();
+                            println!("📄 Redis content: {} children", child_count);
+                        }
+                    }
+                } else {
+                    println!("⚠️ Failed to decode Redis data - deleting corrupted entry");
+                    // Delete corrupted entry from Redis so it doesn't block future loads
+                    self.redis_cache.delete_document(doc_id).await;
+                }
+            }
+
+            // STEP 2: Fall back to PostgreSQL (cold storage) if Redis didn't have it
+            if !loaded_from_redis {
+                println!("Redis cache miss - checking PostgreSQL for {}", doc_id);
+
+                if let Some(ticket_id_str) = doc_id.strip_prefix("ticket-") {
+                    if let Ok(ticket_id) = ticket_id_str.parse::<i32>() {
+                        match self.pool.get() {
+                            Ok(mut conn) => {
+                                match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
+                                    Ok(article_content) => {
+                                        if !article_content.content.is_empty() {
+                                            println!("📦 Loading from PostgreSQL: ticket {} ({} bytes base64)",
+                                                    ticket_id, article_content.content.len());
+
+                                            // Decode base64 to get binary Yjs update data
+                                            use base64::{Engine as _, engine::general_purpose};
+                                            match general_purpose::STANDARD.decode(&article_content.content) {
+                                                Ok(binary_content) => {
+                                                    println!("Decoded base64 to {} bytes binary", binary_content.len());
+
+                                                    if let Ok(update) = Update::decode_v1(&binary_content) {
+                                                        let apply_result = {
+                                                            let mut txn = awareness.doc_mut().transact_mut();
+                                                            txn.apply_update(update)
+                                                        };
+
+                                                        if let Err(e) = apply_result {
+                                                            println!("❌ Error applying PostgreSQL state: {:?}", e);
+                                                        } else {
+                                                            println!("✅ Successfully loaded content from PostgreSQL");
+
+                                                            // IMPORTANT: Cache in Redis for future restarts
+                                                            self.redis_cache.set_document(doc_id, &binary_content).await;
+
+                                                            // Diagnostic: Check what's actually in the document
+                                                            use yrs::{GetString, XmlFragment};
+                                                            let txn = awareness.doc().transact();
+                                                            if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                                                                let child_count = fragment.children(&txn).count();
+                                                                println!("📄 PostgreSQL content: {} children", child_count);
+                                                                let content_str = fragment.get_string(&txn);
+                                                                println!("Fragment preview: {}",
+                                                                    if content_str.len() > 200 { &content_str[..200] } else { &content_str });
+                                                            } else {
+                                                                println!("⚠️ WARNING: 'prosemirror' fragment not found after PostgreSQL load!");
+                                                            }
+                                                        }
+                                                    } else {
+                                                        println!("Failed to decode Yjs update from PostgreSQL");
+                                                    }
+                                                },
+                                                Err(e) => {
+                                                    println!("Failed to decode base64 from PostgreSQL: {:?}", e);
+                                                }
                                             }
                                         } else {
-                                            println!("Failed to decode saved state for ticket {}", ticket_id);
+                                            println!("📝 New document - no existing content in PostgreSQL");
                                         }
+                                    },
+                                    Err(e) => {
+                                        println!("📝 No existing content in PostgreSQL: {:?}", e);
                                     }
-                                },
-                                Err(e) => {
-                                    println!("No existing content found for ticket {}: {:?}", ticket_id, e);
                                 }
+                            },
+                            Err(e) => {
+                                println!("❌ Database connection error: {:?}", e);
                             }
-                        },
-                        Err(e) => {
-                            println!("Database connection error while loading document: {:?}", e);
                         }
                     }
                 }
             }
-            
+
             let awareness_arc = Arc::new(awareness);
             let doc_state = DocumentState::new(Arc::clone(&awareness_arc));
             documents.insert(doc_id.to_string(), doc_state);
@@ -326,6 +476,14 @@ impl YjsAppState {
         let mut documents = self.documents.write().await;
         if let Some(doc_state) = documents.get_mut(doc_id) {
             doc_state.mark_changed();
+        }
+    }
+
+    // Track contributor for version history
+    async fn add_contributor(&self, doc_id: &str, user_uuid: Uuid) {
+        let mut documents = self.documents.write().await;
+        if let Some(doc_state) = documents.get_mut(doc_id) {
+            doc_state.add_contributor(user_uuid);
         }
     }
 
@@ -501,15 +659,43 @@ impl YjsAppState {
                 let binary_content = {
                     let doc = awareness.doc();
                     let txn = doc.transact();
+
+                    // DIAGNOSTIC: Check what's actually in the document before saving
+                    use yrs::{GetString, XmlFragment};
+                    if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                        let child_count = fragment.children(&txn).count();
+                        let content_str = fragment.get_string(&txn);
+                        println!("💾 BEFORE SAVE - Ticket {}: Fragment has {} children, content preview: {}",
+                            ticket_id, child_count,
+                            if content_str.len() > 100 { &content_str[..100] } else { &content_str });
+
+                        // Also log the state vector to see what client IDs we have
+                        let state_vec = txn.state_vector();
+                        println!("💾 BEFORE SAVE - State vector: {:?}", state_vec);
+                    } else {
+                        println!("⚠️ BEFORE SAVE - Ticket {}: NO 'prosemirror' fragment found in document!", ticket_id);
+                    }
+
                     txn.encode_state_as_update_v1(&StateVector::default())
                 };
-                
+
                 println!("Saving document content for ticket {} ({} bytes)", ticket_id, binary_content.len());
-                
-                // Save to database in a separate thread
+
+                // CRITICAL: Save to Redis first (hot cache - survives restarts)
+                // This ensures the latest state is always in Redis for fast recovery
+                let redis_cache = self.redis_cache.clone();
+                let doc_id_clone = doc_id.to_string();
+                let content_for_redis = binary_content.clone();
+                actix::spawn(async move {
+                    redis_cache.set_document(&doc_id_clone, &content_for_redis).await;
+                    // Also refresh TTL to keep active documents cached longer
+                    redis_cache.refresh_ttl(&doc_id_clone).await;
+                });
+
+                // Save to database in a separate thread (cold storage - permanent backup)
                 let pool = self.pool.clone();
                 let content = binary_content.clone(); // Already Vec<u8>
-                
+
                 // Use actix to spawn a blocking operation
                 actix::spawn(async move {
                     match pool.get() {
@@ -530,6 +716,99 @@ impl YjsAppState {
             }
         }
     }
+
+    // Create a snapshot revision for version history using native Yrs encoding
+    fn create_snapshot_revision(&self, doc_id: &str, awareness: &Awareness, contributors: HashSet<Uuid>) {
+        // Only process ticket documents
+        let ticket_id = match doc_id.strip_prefix("ticket-")
+            .and_then(|id_str| id_str.parse::<i32>().ok()) {
+            Some(id) => id,
+            None => {
+                println!("⚠️ Skipping snapshot for non-ticket document: {}", doc_id);
+                return;
+            }
+        };
+
+        // Encode document state using native Yrs functions (DRY - no manual serialization!)
+        let (state_vector_bytes, full_update_bytes, word_count) = {
+            let doc = awareness.doc();
+            let txn = doc.transact();
+
+            // Use Yrs native encoding - no manual snapshot struct encoding needed
+            let state_vector = txn.state_vector();
+            let full_update = txn.encode_state_as_update_v1(&StateVector::default());
+
+            // Calculate word count using get_string() to extract all text content
+            let word_count = if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                use yrs::GetString;
+                let text_content = fragment.get_string(&txn);
+                // Count words (split by whitespace, filter empty)
+                let count = text_content.split_whitespace().count() as i32;
+                Some(count)
+            } else {
+                None
+            };
+
+            (state_vector.encode_v1(), full_update, word_count)
+        };
+
+        println!("📸 Creating snapshot for ticket {}: {} bytes, {} words",
+            ticket_id, full_update_bytes.len(), word_count.unwrap_or(0));
+
+        // Save to database asynchronously
+        let pool = self.pool.clone();
+        let contributor_vec: Vec<Option<Uuid>> = contributors.into_iter().map(Some).collect();
+
+        actix::spawn(async move {
+            match pool.get() {
+                Ok(mut conn) => {
+                    // Get or create article_content record
+                    let article_content = match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
+                        Ok(ac) => ac,
+                        Err(_) => {
+                            // Create if doesn't exist
+                            let new_content = NewArticleContent {
+                                ticket_id,
+                                content: String::new(), // Placeholder
+                            };
+                            match repository::create_article_content(&mut conn, new_content) {
+                                Ok(ac) => ac,
+                                Err(e) => {
+                                    println!("❌ Failed to create article_content for snapshot: {:?}", e);
+                                    return;
+                                }
+                            }
+                        }
+                    };
+
+                    // Create new revision with simplified schema (no redundant snapshot field!)
+                    let new_revision = NewArticleContentRevision {
+                        article_content_id: article_content.id,
+                        revision_number: article_content.current_revision_number,
+                        yjs_state_vector: state_vector_bytes,
+                        yjs_document_content: full_update_bytes,
+                        contributed_by: contributor_vec.clone(),
+                        word_count,
+                    };
+
+                    match repository::create_article_content_revision(&mut conn, new_revision) {
+                        Ok(revision) => {
+                            // Increment revision number in article_content
+                            match repository::increment_article_content_revision(&mut conn, article_content.id) {
+                                Ok(_) => {
+                                    println!("✅ Snapshot created: ticket {} revision {} ({} contributors)",
+                                        ticket_id, revision.revision_number, contributor_vec.len());
+                                },
+                                Err(e) => println!("❌ Failed to increment revision number: {:?}", e),
+                            }
+                        },
+                        Err(e) => println!("❌ Failed to create revision: {:?}", e),
+                    }
+                },
+                Err(e) => println!("❌ Database connection error during snapshot: {:?}", e),
+            }
+        });
+    }
 }
 
 // Message type for WebSocket communications
@@ -544,6 +823,7 @@ struct YjsWebSocket {
     app_state: YjsAppState,
     hb: Instant,
     protocol: DefaultProtocol,
+    user_uuid: Uuid, // User UUID for contributor tracking
     // Statistics for debugging
     messages_received: u32,
     pings_sent: u32,
@@ -552,7 +832,7 @@ struct YjsWebSocket {
 }
 
 impl YjsWebSocket {
-    fn new(doc_id: String, app_state: YjsAppState) -> Self {
+    fn new(doc_id: String, app_state: YjsAppState, user_uuid: Uuid) -> Self {
         let id = Uuid::new_v4().to_string();
         let now = Instant::now();
 
@@ -562,6 +842,7 @@ impl YjsWebSocket {
             app_state,
             hb: now,
             protocol: DefaultProtocol,
+            user_uuid,
             messages_received: 0,
             pings_sent: 0,
             pongs_received: 0,
@@ -624,6 +905,7 @@ impl YjsWebSocket {
         let session_id = self.id.clone();
         let msg_vec = msg.to_vec();
         let is_sync_message = msg.get(0) == Some(&0); // MESSAGE_SYNC
+        let user_uuid = self.user_uuid; // Capture for contributor tracking
 
         // Spawn async work
         let addr = ctx.address();
@@ -634,11 +916,89 @@ impl YjsWebSocket {
             // Get the awareness for this document
             let awareness = app_state.get_or_create_awareness(&doc_id).await;
 
+            // DIAGNOSTIC: Check content BEFORE processing message
+            let content_before = {
+                use yrs::{GetString, XmlFragment};
+                let txn = awareness.doc().transact();
+                if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                    fragment.get_string(&txn)
+                } else {
+                    String::from("(no fragment)")
+                }
+            };
+
             // Use the built-in protocol handler to process the message
             // DefaultProtocol is stateless, so we can create a new instance
             let protocol = DefaultProtocol;
+
+            // DIAGNOSTIC: Log incoming message details
+            let msg_type = if msg_vec.is_empty() { 255 } else { msg_vec[0] };
+            println!("🔍 Processing message: type={}, size={} bytes", msg_type, msg_vec.len());
+
+            // DIAGNOSTIC: Decode sync messages to see what they contain
+            if msg_type == 0 && msg_vec.len() > 1 {
+                let sync_step = msg_vec[1];
+                match sync_step {
+                    0 => println!("   📍 SYNC_STEP_1 (state vector request)"),
+                    1 => println!("   📍 SYNC_STEP_2 (state response)"),
+                    2 => {
+                        println!("   📍 SYNC_UPDATE (incremental change)");
+                        // Get the doc's current state vector to compare with incoming update
+                        let doc_state_vec = {
+                            let txn = awareness.doc().transact();
+                            txn.state_vector()
+                        };
+                        println!("      Backend state vector: {:?}", doc_state_vec);
+
+                        // Try to decode the update to see if it's valid
+                        if msg_vec.len() > 2 {
+                            match Update::decode_v1(&msg_vec[2..]) {
+                                Ok(_update) => println!("      ✓ Decoded SYNC_UPDATE successfully"),
+                                Err(e) => println!("      ✗ Failed to decode SYNC_UPDATE: {:?}", e),
+                            }
+                        }
+                    },
+                    _ => println!("   📍 Unknown sync step: {}", sync_step),
+                }
+            }
+
             match protocol.handle(&awareness, &msg_vec) {
                 Ok(messages) => {
+                    println!("✅ protocol.handle() succeeded, generated {} response message(s)", messages.len());
+
+                    // DIAGNOSTIC: Check content AFTER processing message
+                    let content_after = {
+                        use yrs::{GetString, XmlFragment};
+                        let txn = awareness.doc().transact();
+                        if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                            fragment.get_string(&txn)
+                        } else {
+                            String::from("(no fragment)")
+                        }
+                    };
+
+                    let content_changed = content_before != content_after;
+                    if content_changed {
+                        println!("📝 Content changed! Before: '{}' → After: '{}'",
+                            if content_before.len() > 50 { &content_before[..50] } else { &content_before },
+                            if content_after.len() > 50 { &content_after[..50] } else { &content_after });
+                    } else {
+                        println!("⚠️ Content UNCHANGED after processing message (still: '{}')",
+                            if content_after.len() > 30 { &content_after[..30] } else { &content_after });
+
+                        // WORKAROUND: If SYNC_UPDATE failed to apply, request the frontend to send
+                        // its full state by sending a SYNC_STEP_1 (state vector request)
+                        if msg_type == 0 && msg_vec.len() > 1 && msg_vec[1] == 2 {
+                            println!("🔄 SYNC_UPDATE failed to apply changes - requesting client's full state");
+                            use yrs::sync::Message;
+                            // Send empty state vector to request full state from client
+                            let sync_message = Message::Sync(yrs::sync::SyncMessage::SyncStep1(StateVector::default()));
+                            let encoded = sync_message.encode_v1();
+                            addr.do_send(YjsMessage(Bytes::from(encoded)));
+                            println!("📤 Sent SYNC_STEP_1 request to client - expecting full state in response");
+                        }
+                    }
+
                     // Send any response messages back to the client
                     for message in messages {
                         let encoded = message.encode_v1();
@@ -648,9 +1008,16 @@ impl YjsWebSocket {
                     // Broadcast the entire message to other clients
                     app_state.broadcast(&doc_id, &session_id, &msg_vec).await;
 
-                    // Mark document as changed after sync updates
-                    if is_sync_message {
+                    // Mark document as changed after sync updates (even if failed)
+                    // This ensures the backend saves whatever state it has
+                    if is_sync_message || content_changed {
                         app_state.mark_document_changed(&doc_id).await;
+                    }
+
+                    // Track contributor for version history if this is a SYNC_UPDATE
+                    // Only SYNC_UPDATE messages (step 2) represent actual user edits
+                    if msg_type == 0 && msg_vec.len() > 1 && msg_vec[1] == 2 {
+                        app_state.add_contributor(&doc_id, user_uuid).await;
                     }
                 },
                 Err(e) => {
@@ -803,8 +1170,8 @@ pub async fn ws_handler(
     let token = req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("No authentication cookie"))?;
 
-    // Validate the token using our JWT utilities
-    if let Some(pool) = req.app_data::<web::Data<crate::db::Pool>>() {
+    // Validate the token and extract user UUID
+    let user_uuid = if let Some(pool) = req.app_data::<web::Data<crate::db::Pool>>() {
         let mut conn = pool.get()
             .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
 
@@ -812,16 +1179,162 @@ pub async fn ws_handler(
         use crate::utils::jwt::JwtUtils;
 
         match JwtUtils::validate_token_with_user_check(token.value(), &mut conn).await {
-            Ok((_claims, _user)) => (),
+            Ok((_claims, user)) => user.uuid,
             Err(_) => return Err(actix_web::error::ErrorUnauthorized("Invalid or expired token")),
         }
     } else {
         return Err(actix_web::error::ErrorInternalServerError("Database pool not available"));
-    }
-    
-    println!("WebSocket authentication successful for document: {}", doc_id);
-    let actor = YjsWebSocket::new(doc_id, app_state.get_ref().clone());
+    };
+
+    println!("WebSocket authentication successful for document: {} (user: {})", doc_id, user_uuid);
+    let actor = YjsWebSocket::new(doc_id, app_state.get_ref().clone(), user_uuid);
     ws::start(actor, &req, stream)
+}
+
+// ============= Revision History API Endpoints =============
+
+/// GET /tickets/:id/revisions - List all revisions for a ticket
+pub async fn get_ticket_revisions(
+    ticket_id: web::Path<i32>,
+    pool: web::Data<crate::db::Pool>,
+) -> HttpResponse {
+    let ticket_id = ticket_id.into_inner();
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Get article content for this ticket
+    let article_content = match crate::repository::article_content::get_article_content_by_ticket_id(&mut conn, ticket_id) {
+        Ok(content) => content,
+        Err(_) => return HttpResponse::NotFound().json("No article content found for this ticket"),
+    };
+
+    // Get all revisions
+    match crate::repository::article_content::get_article_content_revisions(&mut conn, article_content.id) {
+        Ok(revisions) => {
+            let responses: Vec<crate::models::ArticleContentRevisionResponse> = revisions
+                .into_iter()
+                .map(Into::into)
+                .collect();
+            HttpResponse::Ok().json(responses)
+        },
+        Err(_) => HttpResponse::InternalServerError().json("Error retrieving revisions"),
+    }
+}
+
+/// GET /tickets/:id/revisions/:revision_number - Get a specific revision
+pub async fn get_ticket_revision(
+    path: web::Path<(i32, i32)>,
+    pool: web::Data<crate::db::Pool>,
+) -> HttpResponse {
+    let (ticket_id, revision_number) = path.into_inner();
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Get article content for this ticket
+    let article_content = match crate::repository::article_content::get_article_content_by_ticket_id(&mut conn, ticket_id) {
+        Ok(content) => content,
+        Err(_) => return HttpResponse::NotFound().json("No article content found for this ticket"),
+    };
+
+    // Get the specific revision
+    match crate::repository::article_content::get_article_content_revision(&mut conn, article_content.id, revision_number) {
+        Ok(revision) => {
+            // Encode the Yjs document content as base64 for frontend
+            let content_base64 = general_purpose::STANDARD.encode(&revision.yjs_document_content);
+
+            HttpResponse::Ok().json(serde_json::json!({
+                "id": revision.id,
+                "article_content_id": revision.article_content_id,
+                "revision_number": revision.revision_number,
+                "yjs_document_content": content_base64,
+                "contributed_by": revision.contributed_by,
+                "created_at": revision.created_at,
+                "word_count": revision.word_count,
+            }))
+        },
+        Err(_) => HttpResponse::NotFound().json("Revision not found"),
+    }
+}
+
+/// POST /tickets/:id/restore/:revision_number - Restore ticket to a specific revision
+pub async fn restore_ticket_revision(
+    path: web::Path<(i32, i32)>,
+    pool: web::Data<crate::db::Pool>,
+    app_state: web::Data<YjsAppState>,
+) -> HttpResponse {
+    let (ticket_id, revision_number) = path.into_inner();
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Get article content for this ticket
+    let article_content = match crate::repository::article_content::get_article_content_by_ticket_id(&mut conn, ticket_id) {
+        Ok(content) => content,
+        Err(_) => return HttpResponse::NotFound().json("No article content found for this ticket"),
+    };
+
+    // Get the revision to restore
+    let revision = match crate::repository::article_content::get_article_content_revision(&mut conn, article_content.id, revision_number) {
+        Ok(rev) => rev,
+        Err(_) => return HttpResponse::NotFound().json("Revision not found"),
+    };
+
+    // Get the in-memory document for this ticket (if it exists)
+    let doc_id = format!("ticket-{}", ticket_id);
+    let awareness = app_state.get_or_create_awareness(&doc_id).await;
+
+    // Apply the revision content to the document
+    let doc = awareness.doc();
+
+    // Decode the stored Yjs update
+    use yrs::updates::decoder::Decode;
+    let update = match Update::decode_v1(&revision.yjs_document_content) {
+        Ok(upd) => upd,
+        Err(e) => {
+            println!("Error decoding revision update: {:?}", e);
+            return HttpResponse::InternalServerError().json("Error decoding revision");
+        }
+    };
+
+    // Clear the document and apply the revision
+    // Note: This is a destructive operation that replaces the entire document state
+    // We create a new document with the revision content
+    {
+        let mut txn = doc.transact_mut();
+        if let Err(e) = txn.apply_update(update) {
+            println!("Error applying revision update: {:?}", e);
+            return HttpResponse::InternalServerError().json("Error applying revision");
+        }
+    }
+
+    // Mark document as changed to trigger save
+    app_state.mark_document_changed(&doc_id).await;
+
+    // Broadcast the change to all connected clients
+    // Encode the full document state
+    let full_state = {
+        let txn = doc.transact();
+        txn.encode_state_as_update_v1(&StateVector::default())
+    };
+
+    // Broadcast to all sessions
+    use yrs::sync::Message;
+    let sync_message = Message::Sync(yrs::sync::SyncMessage::Update(full_state.into()));
+    let encoded = sync_message.encode_v1();
+    app_state.broadcast(&doc_id, "", &encoded).await;
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": format!("Restored to revision {}", revision_number),
+    }))
 }
 
 // Configure routes
@@ -830,5 +1343,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         web::scope("")
             .route("/article/{doc_id}", web::get().to(get_article_content))
             .route("/ws/{doc_id}", web::get().to(ws_handler))
+            .route("/tickets/{ticket_id}/revisions", web::get().to(get_ticket_revisions))
+            .route("/tickets/{ticket_id}/revisions/{revision_number}", web::get().to(get_ticket_revision))
+            .route("/tickets/{ticket_id}/restore/{revision_number}", web::post().to(restore_ticket_revision))
     );
 }

@@ -267,7 +267,7 @@ defineExpose({
 </script>
 
 <template>
-  <div 
+  <div
     ref="elementRef"
     class="flex items-center"
     :class="[
@@ -282,6 +282,7 @@ defineExpose({
       v-if="effectiveAvatarUrl && !imageFailed"
       :src="effectiveAvatarUrl"
       :alt="displayName"
+      :title="displayName"
       :class="[
         sizeClasses.base,
         sizeClasses.responsive,
@@ -302,6 +303,7 @@ defineExpose({
       ]"
       class="rounded-full flex items-center justify-center flex-shrink-0 font-medium text-white"
       :style="{ backgroundColor: getBackgroundColor(displayName) }"
+      :title="displayName"
     >
       {{ getInitials(displayName) }}
     </div>

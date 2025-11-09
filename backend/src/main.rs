@@ -18,6 +18,8 @@ use std::time::Duration;
 use tracing::{info, warn, error, debug};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use utils::storage::{get_storage_config, create_storage};
+use utils::redis_yjs_cache::create_redis_cache;
+use std::sync::Arc;
 
 async fn health_check() -> impl Responder {
     HttpResponse::Ok().body("Helpdesk API is running!")
@@ -409,8 +411,30 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // Initialize Redis cache for Yjs documents (survives backend restarts)
+    // Use the same Redis URL as rate limiting, but fall back to localhost if using memory://
+    let yjs_redis_url = if redis_url.starts_with("redis://") {
+        redis_url.clone()
+    } else {
+        warn!("⚠️  Using in-memory rate limiting - Yjs cache will use localhost Redis");
+        env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string())
+    };
+
+    let redis_cache = match create_redis_cache(&yjs_redis_url) {
+        Ok(cache) => {
+            info!("✅ Redis cache initialized for Yjs documents at {}", yjs_redis_url);
+            cache
+        },
+        Err(e) => {
+            error!("❌ Failed to initialize Redis cache for Yjs: {:?}", e);
+            error!("⚠️  CRITICAL: Yjs documents will NOT persist across server restarts!");
+            error!("⚠️  Please ensure Redis is running and REDIS_URL is configured correctly.");
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Redis initialization failed: {:?}", e)));
+        }
+    };
+
     // Initialize WebSocket app state for collaborative editing
-    let yjs_app_state = web::Data::new(handlers::collaboration::YjsAppState::new(web::Data::new(pool.clone())));
+    let yjs_app_state = web::Data::new(handlers::collaboration::YjsAppState::new(web::Data::new(pool.clone()), redis_cache));
 
     // Initialize SSE state for real-time ticket updates
     let sse_state = web::Data::new(handlers::sse::SseState::new());

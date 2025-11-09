@@ -58,7 +58,7 @@ reqwest = { version = "0.11", features = ["json"] } # HTTP client for OAuth requ
 urlencoding = "2.1.3"       # URL encoding/decoding
 querystring = "1.1.0"       # Query string parsing
 
-# Add yrs for Yjs/CRDT support in Rust
+# Add yrs for Yjs/CRDT support in Rust - v0.23 (working version)
 yrs = { version = "0.23", features = ["sync"] }
 lib0 = "0.16.10"
 bytes = "1.5.0"
@@ -66,7 +66,7 @@ bytes = "1.5.0"
 # Add base64 for encoding/decoding binary data
 base64 = "0.21.7"
 
-# Add fastrand dependency 
+# Add fastrand dependency
 fastrand = "2.0.0"
 
 # Add mime crate

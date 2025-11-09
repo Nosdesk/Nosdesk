@@ -6,6 +6,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
 import MFARecoveryModal from "@/components/auth/MFARecoveryModal.vue";
+import authService from "@/services/authService";
 import logo from "@/assets/logo.svg";
 
 const router = useRouter();
@@ -25,16 +26,29 @@ const showMFARecoveryModal = ref(false);
 const mfaToken = ref("");
 
 // Check for success message and email prefill from URL query params (e.g., from onboarding)
-onMounted(() => {
+onMounted(async () => {
+  // Check if onboarding is required before showing login
+  try {
+    const setupStatus = await authService.checkSetupStatus();
+    if (setupStatus.requires_setup) {
+      console.log('No users found, redirecting to onboarding...');
+      router.replace({ name: 'onboarding' });
+      return;
+    }
+  } catch (error) {
+    console.error('Failed to check setup status:', error);
+    // Continue to show login page if check fails
+  }
+
   if (route.query.message) {
     successMessage.value = route.query.message as string;
   }
-  
+
   // Prefill email if provided (e.g., from onboarding flow)
   if (route.query.email && typeof route.query.email === 'string') {
     email.value = route.query.email;
   }
-  
+
   // Clean up the URL by removing the query parameters
   if (route.query.message || route.query.email) {
     router.replace({ name: "login" });

@@ -42,12 +42,28 @@ diesel::table! {
 }
 
 diesel::table! {
+    article_content_revisions (id) {
+        id -> Int4,
+        article_content_id -> Int4,
+        revision_number -> Int4,
+        yjs_state_vector -> Bytea,
+        yjs_document_content -> Bytea,
+        contributed_by -> Array<Nullable<Uuid>>,
+        created_at -> Timestamptz,
+        word_count -> Nullable<Int4>,
+    }
+}
+
+diesel::table! {
     article_contents (id) {
         id -> Int4,
         content -> Text,
         ticket_id -> Nullable<Int4>,
+        current_revision_number -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+        updated_at -> Timestamptz,
+        updated_by -> Nullable<Uuid>,
     }
 }
 
@@ -393,8 +409,8 @@ diesel::table! {
 }
 
 diesel::joinable!(active_sessions -> users (user_uuid));
+diesel::joinable!(article_content_revisions -> article_contents (article_content_id));
 diesel::joinable!(article_contents -> tickets (ticket_id));
-diesel::joinable!(article_contents -> users (created_by));
 diesel::joinable!(attachments -> comments (comment_id));
 diesel::joinable!(attachments -> users (uploaded_by));
 diesel::joinable!(comments -> tickets (ticket_id));
@@ -419,6 +435,7 @@ diesel::joinable!(user_ticket_views -> users (user_uuid));
 
 diesel::allow_tables_to_appear_in_same_query!(
     active_sessions,
+    article_content_revisions,
     article_contents,
     attachments,
     comments,

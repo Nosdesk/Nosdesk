@@ -212,11 +212,11 @@ watch(
                 />
             </div>
 
-            <div class="flex flex-col gap-3 px-6 py-3 mx-auto w-full max-w-8xl">
-                <!-- Grid Container -->
-                <div class="grid-container">
+            <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
+                <!-- Grid Container with named areas -->
+                <div class="ticket-grid gap-6 items-start">
                     <!-- Details Sidebar -->
-                    <div class="details-area flex flex-col gap-4">
+                    <div class="ticket-details flex flex-col gap-6">
                         <TicketDetails
                             :ticket="ticket"
                             :created-date="formattedCreatedDate"
@@ -393,15 +393,16 @@ watch(
                     </div>
 
                     <!-- Article -->
-                    <div class="article-area rounded-xl">
+                    <div class="ticket-article rounded-xl">
                         <CollaborativeTicketArticle
+                            :key="`article-${ticket.id}`"
                             :initial-content="ticket.article_content || ''"
                             :ticket-id="ticket.id"
                         />
                     </div>
 
                     <!-- Comments -->
-                    <div class="comments-area rounded-xl">
+                    <div class="ticket-comments rounded-xl">
                         <CommentsAndAttachments
                             :comments="comments"
                             :current-user="
@@ -456,49 +457,47 @@ watch(
 </template>
 
 <style scoped>
-.grid-container {
+/* Mobile: Single column, details → article → comments */
+.ticket-grid {
     display: grid;
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto 1fr;
-    grid-template-areas: "details" "article" "comments";
-    gap: 1rem;
-    min-height: calc(100vh - 140px);
+    grid-template-areas:
+        "details"
+        "article"
+        "comments";
+}
 
-    @media (min-width: 1280px) {
-        grid-template-columns: minmax(400px, 1fr) minmax(0, 2fr);
-        grid-template-rows: auto 1fr;
+.ticket-details {
+    grid-area: details;
+    min-width: 0; /* Prevent overflow */
+}
+
+.ticket-article {
+    grid-area: article;
+    min-width: 0; /* Prevent overflow */
+}
+
+.ticket-comments {
+    grid-area: comments;
+    min-width: 0; /* Prevent overflow */
+}
+
+/* Tablet (md): 2 columns, (details + comments) | article */
+/* Using minmax to give details more space while preventing overflow */
+@media (min-width: 1024px) {
+    .ticket-grid {
+        grid-template-columns: minmax(400px, 1.5fr) minmax(0, 1fr);
         grid-template-areas:
             "details article"
             "comments article";
     }
+}
 
-    @media (min-width: 1860px) {
-        grid-template-columns: minmax(400px, 1fr) minmax(0, 2fr) minmax(
-                400px,
-                1fr
-            );
-        grid-template-rows: 1fr;
-        grid-template-areas: "details article comments";
+/* Desktop (xl): 3 columns, details | article | comments */
+@media (min-width: 1536px) {
+    .ticket-grid {
+        grid-template-columns: minmax(350px, 1fr) minmax(0, 1.5fr) minmax(350px, 1fr);
+        grid-template-areas:
+            "details article comments";
     }
-}
-
-.details-area {
-    grid-area: details;
-    max-height: 100%;
-    overflow-y: auto;
-}
-
-.article-area {
-    grid-area: article;
-    display: flex;
-    flex-direction: column;
-    overflow: visible;
-    min-height: fit-content;
-}
-
-.comments-area {
-    grid-area: comments;
-    max-height: 100%;
-    overflow-y: auto;
 }
 </style>

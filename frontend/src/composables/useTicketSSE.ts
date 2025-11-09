@@ -117,12 +117,13 @@ export function useTicketSSE(
     const commentData = eventData.comment;
     if (!commentData) return;
 
-    // Check for duplicates
+    // Check for duplicates (will catch optimistic updates)
     if (
       ticket.value.commentsAndAttachments?.find(
         (c: any) => c.id === commentData.id,
       )
     ) {
+      console.log('[SSE] Skipping duplicate comment', commentData.id);
       return;
     }
 

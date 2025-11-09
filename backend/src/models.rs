@@ -298,8 +298,11 @@ pub struct ArticleContent {
     pub id: i32,
     pub content: String,
     pub ticket_id: Option<i32>,
+    pub current_revision_number: i32,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    pub updated_at: NaiveDateTime,
+    pub updated_by: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
@@ -307,6 +310,56 @@ pub struct ArticleContent {
 pub struct NewArticleContent {
     pub content: String,
     pub ticket_id: i32,
+}
+
+// Article Content Revision models for version history
+// Simplified: removed redundant yjs_document_snapshot field (DRY principle)
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::article_content_revisions)]
+#[diesel(belongs_to(ArticleContent))]
+pub struct ArticleContentRevision {
+    pub id: i32,
+    pub article_content_id: i32,
+    pub revision_number: i32,
+    pub yjs_state_vector: Vec<u8>,
+    pub yjs_document_content: Vec<u8>,
+    pub contributed_by: Vec<Option<Uuid>>,
+    pub created_at: NaiveDateTime,
+    pub word_count: Option<i32>,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::article_content_revisions)]
+pub struct NewArticleContentRevision {
+    pub article_content_id: i32,
+    pub revision_number: i32,
+    pub yjs_state_vector: Vec<u8>,
+    pub yjs_document_content: Vec<u8>,
+    pub contributed_by: Vec<Option<Uuid>>,
+    pub word_count: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ArticleContentRevisionResponse {
+    pub id: i32,
+    pub article_content_id: i32,
+    pub revision_number: i32,
+    pub contributed_by: Vec<Option<Uuid>>,
+    pub created_at: NaiveDateTime,
+    pub word_count: Option<i32>,
+}
+
+impl From<ArticleContentRevision> for ArticleContentRevisionResponse {
+    fn from(revision: ArticleContentRevision) -> Self {
+        ArticleContentRevisionResponse {
+            id: revision.id,
+            article_content_id: revision.article_content_id,
+            revision_number: revision.revision_number,
+            contributed_by: revision.contributed_by,
+            created_at: revision.created_at,
+            word_count: revision.word_count,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

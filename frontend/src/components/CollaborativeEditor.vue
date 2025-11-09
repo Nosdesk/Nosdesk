@@ -17,6 +17,7 @@ import { schema } from "@/components/editor/schema";
 import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "./UserAvatar.vue";
 import LinkTooltip from "./editor/LinkTooltip.vue";
+import RevisionHistory from "./editor/RevisionHistory.vue";
 import {
     createLinkTooltipPlugin,
     showLinkTooltip,
@@ -27,6 +28,7 @@ import {
 } from "./editor/linkTooltipPlugin";
 import {
     ySyncPlugin,
+    ySyncPluginKey,
     yCursorPlugin,
     yUndoPlugin,
     undo,
@@ -93,6 +95,25 @@ const connectedUsers = ref<{ id: string; user: any }[]>([]);
 const isInitialized = ref(false);
 let reinitializeTimeout: ReturnType<typeof setTimeout> | null = null;
 
+// Revision viewing state
+const isViewingRevision = ref(false);
+const currentRevisionNumber = ref<number | null>(null);
+const showRevisionHistory = ref(false);
+
+// Extract ticket ID from docId (format: "ticket-123")
+const ticketId = computed(() => {
+    console.log('[CollaborativeEditor] docId:', props.docId);
+    const match = props.docId.match(/ticket-(\d+)/);
+    const id = match ? parseInt(match[1], 10) : 0;
+    console.log('[CollaborativeEditor] Extracted ticketId:', id);
+    return id;
+});
+
+// Toggle revision history sidebar
+const toggleRevisionHistory = () => {
+    showRevisionHistory.value = !showRevisionHistory.value;
+};
+
 // Custom dropdown state for toolbar
 const typeMenuRef = ref<HTMLElement | null>(null);
 const typeButtonRef = ref<HTMLElement | null>(null);
@@ -121,6 +142,43 @@ let ydoc: Y.Doc | null = null;
 let provider: WebsocketProvider | null = null;
 let yXmlFragment: Y.XmlFragment | null = null;
 let editorView: EditorView | null = null;
+let permanentUserData: SafePermanentUserData | null = null;
+
+// Create a wrapper around PermanentUserData that provides fallback for missing users
+class SafePermanentUserData {
+    private pud: Y.PermanentUserData;
+
+    constructor(doc: Y.Doc) {
+        this.pud = new Y.PermanentUserData(doc);
+    }
+
+    setUserMapping(doc: Y.Doc, clientId: number, userId: string) {
+        this.pud.setUserMapping(doc, clientId, userId);
+    }
+
+    getUserByClientId(clientId: number) {
+        const user = this.pud.getUserByClientId(clientId);
+        // If user not found, return a default anonymous user instead of null
+        if (user === null || user === undefined) {
+            return `User-${clientId}`;
+        }
+        return user;
+    }
+
+    getUserByDeletedId(id: any) {
+        const user = this.pud.getUserByDeletedId(id);
+        // If user not found, return a default anonymous user instead of null
+        if (user === null || user === undefined) {
+            return 'Unknown User';
+        }
+        return user;
+    }
+
+    // Expose dss property that y-prosemirror uses
+    get dss() {
+        return this.pud.dss;
+    }
+}
 
 // Enhanced logging
 const log = {
@@ -298,6 +356,11 @@ const initEditor = async () => {
 
         // 1. Create new Yjs document
         ydoc = new Y.Doc();
+        ydoc.gc = false;  // Disable garbage collection to preserve all document history
+
+        // 1.5. Create SafePermanentUserData to track user contributions across snapshots
+        // This wrapper provides fallback values for missing users instead of returning null
+        permanentUserData = new SafePermanentUserData(ydoc);
 
         // 2. Create the websocket provider
         // Note: y-websocket automatically appends `/${docId}` to the URL we provide
@@ -344,10 +407,18 @@ const initEditor = async () => {
             },
         });
 
+        // 3.5. Map the Yjs client ID to the user UUID for snapshot tracking
+        if (permanentUserData && authStore.user?.uuid) {
+            permanentUserData.setUserMapping(ydoc, ydoc.clientID, authStore.user.uuid);
+            log.info(`Mapped client ID ${ydoc.clientID} to user ${authStore.user.uuid}`);
+        }
+
         // 4. Get the XML fragment and initialize ProseMirror document
         yXmlFragment = ydoc.getXmlFragment("prosemirror");
 
         // Initialize ProseMirror with the Yjs binding
+        // IMPORTANT: This must be done BEFORE connecting the WebSocket provider
+        // so that the ySyncPlugin is attached and can process incoming updates
         const { doc, mapping } = initProseMirrorDoc(yXmlFragment, schema);
 
         // Verify the document was initialized correctly
@@ -368,8 +439,35 @@ const initEditor = async () => {
                 doc: doc,
                 schema,
                 plugins: [
-                    ySyncPlugin(yXmlFragment, { mapping }),
-                    yCursorPlugin(provider.awareness),
+                    ySyncPlugin(yXmlFragment, {
+                        mapping,
+                        // Use the PermanentUserData instance we populated with user mappings
+                        // This allows snapshot rendering to lookup users by client ID
+                        permanentUserData: permanentUserData
+                    }),
+                    yCursorPlugin(provider.awareness, {
+                        // Custom cursor builder that handles missing users gracefully
+                        cursorBuilder: (user: any) => {
+                            if (!user) return null;
+                            const cursor = document.createElement('span');
+                            cursor.classList.add('ProseMirror-yjs-cursor');
+                            cursor.setAttribute('style', `border-color: ${user.color || '#808080'}`);
+                            const userLabel = document.createElement('div');
+                            userLabel.setAttribute('style', `background-color: ${user.color || '#808080'}`);
+                            userLabel.textContent = user.name || 'Anonymous';
+                            cursor.appendChild(userLabel);
+                            return cursor;
+                        },
+                        // Handle missing users gracefully (e.g., when viewing snapshots)
+                        getClientColor: (clientId: number) => {
+                            const user = provider.awareness.getStates().get(clientId);
+                            if (user && user.user) {
+                                return user.user.color || '#808080';
+                            }
+                            // Return a default color for missing/historical users
+                            return '#808080';
+                        }
+                    }),
                     yUndoPlugin(),
                     createLinkTooltipPlugin({
                         onStateChange: (state) => {
@@ -506,14 +604,203 @@ const initEditor = async () => {
             }
         });
 
+        // Monitor initial sync completion
+        provider.on("synced", (isSynced: boolean) => {
+            log.info("🔄 WebSocket sync state changed:", {
+                isSynced,
+                yXmlFragmentLength: yXmlFragment?.length || 0,
+                editorContent: editorView?.state.doc.textContent || "(empty)",
+                editorContentLength: editorView?.state.doc.textContent.length || 0,
+            });
+
+            if (isSynced && yXmlFragment && editorView) {
+                const pmText = editorView.state.doc.textContent;
+                log.info("✅ Initial sync complete - Content check:", {
+                    yXmlLength: yXmlFragment.length,
+                    pmContentLength: pmText.length,
+                    pmTextPreview: pmText.substring(0, 100),
+                });
+            }
+        });
+
+        // Monitor raw WebSocket messages to debug why content isn't loading
+        if (provider.ws) {
+            const originalOnMessage = provider.ws.onmessage;
+            const originalSend = provider.ws.send.bind(provider.ws);
+
+            // Log outgoing messages
+            provider.ws.send = (data: string | ArrayBufferLike | Blob | ArrayBufferView) => {
+                if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+                    const dataView = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array((data as ArrayBufferView).buffer);
+                    const messageType = dataView.length > 0 ? dataView[0] : null;
+
+                    let typeLabel = 'UNKNOWN';
+                    if (messageType === 0) typeLabel = 'MESSAGE_SYNC';
+                    else if (messageType === 1) typeLabel = 'MESSAGE_AWARENESS';
+
+                    log.info("📤 Sending WebSocket message:", {
+                        size: `${dataView.length} bytes`,
+                        messageType: typeLabel,
+                        firstByte: messageType !== null ? `0x${messageType.toString(16).padStart(2, '0')}` : 'null',
+                    });
+
+                    // For SYNC messages, log sync step
+                    if (messageType === 0 && dataView.length > 1) {
+                        const syncStep = dataView[1];
+                        const stepLabel = syncStep === 0 ? 'SYNC_STEP_1 (state vector)' : syncStep === 1 ? 'SYNC_STEP_2' : 'SYNC_UPDATE';
+                        log.info(`   Sync step: ${stepLabel} (0x${syncStep.toString(16).padStart(2, '0')})`);
+                    }
+                }
+                return originalSend(data);
+            };
+
+            provider.ws.onmessage = (event) => {
+                if (event.data instanceof ArrayBuffer || event.data instanceof Blob) {
+                    const size = event.data instanceof ArrayBuffer ? event.data.byteLength : event.data.size;
+
+                    // DIAGNOSTIC: Decode and inspect message structure
+                    if (event.data instanceof ArrayBuffer) {
+                        const dataView = new Uint8Array(event.data);
+                        const messageType = dataView.length > 0 ? dataView[0] : null;
+
+                        // Get first 20 bytes in hex format (matching backend logging)
+                        const previewLen = Math.min(dataView.length, 20);
+                        const preview = Array.from(dataView.slice(0, previewLen))
+                            .map(b => b.toString(16).padStart(2, '0'))
+                            .join(' ');
+
+                        // Decode message type
+                        let typeLabel = 'UNKNOWN';
+                        if (messageType === 0) typeLabel = 'MESSAGE_SYNC (0x00)';
+                        else if (messageType === 1) typeLabel = 'MESSAGE_AWARENESS (0x01)';
+                        else if (messageType === 2) typeLabel = 'MESSAGE_AUTH (0x02)';
+
+                        log.info("📨 Raw WebSocket binary message received:", {
+                            size: `${size} bytes`,
+                            messageType: typeLabel,
+                            firstByte: messageType !== null ? `0x${messageType.toString(16).padStart(2, '0')}` : 'null',
+                            first20Bytes: preview,
+                        });
+
+                        // DIAGNOSTIC: For SYNC_STEP_2 messages, try to manually decode and apply
+                        if (messageType === 0 && dataView.length > 1 && dataView[1] === 1) {
+                            log.info("🔍 DIAGNOSTIC: Detected SYNC_STEP_2 message, attempting manual decode");
+                            try {
+                                // Skip the first byte (message type) and decode the rest
+                                // lib0 uses varints, so we need to decode the sync step and then the update
+                                let offset = 1; // Skip MESSAGE_SYNC byte
+
+                                // Read sync step (should be 1 for SYNC_STEP_2)
+                                const syncStep = dataView[offset];
+                                offset++;
+                                log.info(`   Sync step: ${syncStep}`);
+
+                                // Read varint-encoded length
+                                let length = 0;
+                                let shift = 0;
+                                let byte;
+                                do {
+                                    byte = dataView[offset++];
+                                    length |= (byte & 0x7F) << shift;
+                                    shift += 7;
+                                } while (byte & 0x80);
+                                log.info(`   Update length (decoded from varint): ${length} bytes`);
+
+                                // Extract the update bytes
+                                const updateBytes = dataView.slice(offset, offset + length);
+                                log.info(`   Extracted update bytes: ${updateBytes.length} bytes`);
+                                log.info(`   First 20 bytes of update: ${Array.from(updateBytes.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+
+                                // Try to apply the update directly to our Yjs document
+                                log.info("   Attempting to apply update directly to Yjs document...");
+                                const beforeLength = yXmlFragment ? yXmlFragment.length : -1;
+
+                                // Use Yjs applyUpdate
+                                import('yjs').then(Y => {
+                                    try {
+                                        Y.applyUpdate(ydoc, updateBytes);
+                                        const afterLength = yXmlFragment ? yXmlFragment.length : -1;
+                                        log.info(`   ✅ Manual apply succeeded! yXmlFragment length: ${beforeLength} -> ${afterLength}`);
+
+                                        // DIAGNOSTIC: Inspect what's actually in the document
+                                        log.info("   🔍 Inspecting Yjs document structure:");
+                                        const docKeys = Array.from(ydoc.share.keys());
+                                        log.info(`   📋 Top-level keys in document: ${JSON.stringify(docKeys)}`);
+
+                                        // Check each key and its type
+                                        docKeys.forEach(key => {
+                                            const item = ydoc.get(key);
+                                            const typeName = item?.constructor?.name || 'unknown';
+                                            if (item && typeof item === 'object' && 'length' in item) {
+                                                log.info(`   📌 "${key}": ${typeName}, length = ${(item as any).length}`);
+                                            } else {
+                                                log.info(`   📌 "${key}": ${typeName}`);
+                                            }
+                                        });
+
+                                        // Specifically check the "prosemirror" key
+                                        const pmFragment = ydoc.get('prosemirror');
+                                        if (pmFragment) {
+                                            log.info(`   ✅ Found "prosemirror" key: type=${pmFragment.constructor.name}`);
+                                            if ('length' in pmFragment) {
+                                                log.info(`      Length: ${(pmFragment as any).length}`);
+                                            }
+                                            if ('toJSON' in pmFragment) {
+                                                try {
+                                                    const json = (pmFragment as any).toJSON();
+                                                    log.info(`      JSON: ${JSON.stringify(json).substring(0, 200)}`);
+                                                } catch (e) {
+                                                    log.warn(`      Could not serialize to JSON: ${e}`);
+                                                }
+                                            }
+                                        } else {
+                                            log.warn(`   ⚠️ No "prosemirror" key found in document!`);
+                                        }
+
+                                        if (afterLength > 0 && editorView) {
+                                            log.info(`   📝 Content after manual apply: "${editorView.state.doc.textContent}"`);
+                                        }
+                                    } catch (applyError) {
+                                        log.error("   ❌ Manual apply failed:", applyError);
+                                    }
+                                });
+                            } catch (e) {
+                                log.error("🔍 DIAGNOSTIC: Manual decode failed:", e);
+                            }
+                        }
+                    } else {
+                        log.info("📨 Raw WebSocket binary message received:", {
+                            size: `${size} bytes`,
+                            type: event.data.constructor.name,
+                        });
+                    }
+                }
+                if (originalOnMessage) {
+                    originalOnMessage.call(provider.ws, event);
+                }
+            };
+        }
+
         // Track sync protocol errors which can cause disconnections
-        // Remove the frequent document update logging
-        // ydoc.on("updateV2", (update: Uint8Array) => {
-        //   log.debug("Document update:", {
-        //     updateSize: update.length,
-        //     timestamp: new Date().toISOString(),
-        //   });
-        // });
+        // Monitor document updates to verify content is syncing
+        ydoc.on("updateV2", (update: Uint8Array) => {
+            log.debug("📨 Yjs document update received:", {
+                updateSize: update.length,
+                yXmlFragmentLength: yXmlFragment?.length || 0,
+                editorContent: editorView?.state.doc.textContent || "(empty)",
+                timestamp: new Date().toISOString(),
+            });
+
+            // If content exists in Yjs but not in editor, log a warning
+            if (yXmlFragment && yXmlFragment.length > 0 && editorView) {
+                const pmContent = editorView.state.doc.textContent;
+                if (!pmContent || pmContent.length === 0) {
+                    log.warn("⚠️ Content exists in Yjs but not visible in ProseMirror editor!");
+                    log.warn("yXmlFragment length:", yXmlFragment.length);
+                    log.warn("ProseMirror content:", pmContent);
+                }
+            }
+        });
 
         // Add retry logic monitoring - simplified
         let reconnectAttempts = 0;
@@ -1221,6 +1508,144 @@ onBeforeUnmount(() => {
     // Remove visibility change listener
     document.removeEventListener("visibilitychange", handleVisibilityChange);
 });
+
+// Store original state when viewing revisions
+let originalYXmlFragment: Y.XmlFragment | null = null;
+let originalEditorState: EditorState | null = null;
+
+// Revision viewing methods
+function viewSnapshot(snapshotData: { snapshot: string; prevSnapshot: string; revision_number: number; yjs_document_content: string }) {
+    if (!editorView || !ydoc || !yXmlFragment) {
+        log.error("Cannot view snapshot: editor not initialized");
+        return;
+    }
+
+    try {
+        log.info(`Viewing revision ${snapshotData.revision_number}`);
+
+        // Store the original state so we can restore it later
+        if (!isViewingRevision.value) {
+            originalYXmlFragment = yXmlFragment;
+            originalEditorState = editorView.state;
+        }
+
+        // Decode the full document content for this revision
+        log.info(`Base64 yjs_document_content length: ${snapshotData.yjs_document_content.length}`);
+        const documentBytes = Uint8Array.from(atob(snapshotData.yjs_document_content), c => c.charCodeAt(0));
+        log.info(`Decoded bytes length: ${documentBytes.length}`);
+        log.info(`First 20 bytes: ${Array.from(documentBytes.slice(0, 20))}`);
+
+        // Create a temporary Yjs document for viewing this revision
+        // Disable GC to ensure all historical data is preserved
+        const tempDoc = new Y.Doc({ gc: false });
+
+        // Apply the revision's content to the temporary document FIRST
+        log.info(`Applying update to temp doc...`);
+        try {
+            Y.applyUpdate(tempDoc, documentBytes);
+            log.info(`Update applied successfully.`);
+        } catch (err) {
+            log.error(`Error applying update:`, err);
+            throw err;
+        }
+
+        // NOW get the fragment after the update has been applied
+        const tempFragment = tempDoc.getXmlFragment("prosemirror");
+        log.info(`Got fragment after update. Children: ${tempFragment.length}`);
+
+        // Debug: Log the Yjs fragment content
+        log.info(`Temp doc state after applying update: ${tempDoc.store.clients.size} clients`);
+        log.info(`Temp fragment children: ${tempFragment.length}`);
+        log.info(`Temp fragment content: ${tempFragment.toString()}`);
+
+        // Create a read-only ProseMirror state from this revision
+        const { doc } = initProseMirrorDoc(tempFragment, schema);
+
+        // Debug: Log the ProseMirror doc content
+        log.info(`ProseMirror doc from revision: ${doc.textContent}`);
+
+        // Create a read-only state with the revision content
+        const readOnlyState = EditorState.create({
+            doc,
+            schema,
+            plugins: [
+                // Minimal plugins for read-only viewing
+                keymap(baseKeymap),
+                dropCursor(),
+            ],
+        });
+
+        // Update the editor view to show this read-only state
+        editorView.updateState(readOnlyState);
+
+        // Mark as viewing revision
+        isViewingRevision.value = true;
+        currentRevisionNumber.value = snapshotData.revision_number;
+
+        log.info(`Successfully loaded revision ${snapshotData.revision_number} (read-only view)`);
+    } catch (error) {
+        log.error("Failed to view snapshot:", error);
+        // If viewing fails, make sure to clear the viewing state
+        isViewingRevision.value = false;
+        currentRevisionNumber.value = null;
+        throw error;
+    }
+}
+
+function exitRevisionView() {
+    if (!editorView || !originalEditorState || !originalYXmlFragment) {
+        log.error("Cannot exit revision view: no original state stored");
+        return;
+    }
+
+    try {
+        log.info("Exiting revision view, returning to live document");
+
+        // Restore the original editor state (connected to live Yjs doc)
+        editorView.updateState(originalEditorState);
+
+        // Clear stored state
+        originalYXmlFragment = null;
+        originalEditorState = null;
+
+        // Mark as no longer viewing revision
+        isViewingRevision.value = false;
+        currentRevisionNumber.value = null;
+
+        log.info("Successfully returned to live editing");
+    } catch (error) {
+        log.error("Failed to exit revision view:", error);
+        throw error;
+    }
+}
+
+// Handle revision selection from RevisionHistory component
+const handleRevisionSelect = (revisionNumber: number | null) => {
+    if (revisionNumber === null) {
+        // User exited revision view
+        log.info("Exiting revision view");
+        // TODO: Reload current document state
+    } else {
+        // User selected a revision to view
+        log.info(`User selected revision ${revisionNumber}`);
+        // TODO: Load and display the revision (read-only mode)
+    }
+};
+
+// Handle revision restoration
+const handleRevisionRestored = (revisionNumber: number) => {
+    log.info(`Revision ${revisionNumber} restored successfully`);
+    showRevisionHistory.value = false;
+    // The backend broadcast will update all clients automatically
+};
+
+// Expose methods and state for parent components
+defineExpose({
+    viewSnapshot,
+    exitRevisionView,
+    isViewingRevision,
+    currentRevisionNumber
+});
 </script>
 
 <template>
@@ -1539,6 +1964,29 @@ onBeforeUnmount(() => {
                 </svg>
             </button>
 
+            <!-- Revision History Button -->
+            <button
+                @click="toggleRevisionHistory"
+                class="toolbar-button"
+                :class="{ 'toolbar-button-active': showRevisionHistory }"
+                title="Revision History"
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+            </button>
+
             <!-- Spacer to push connection controls to right -->
             <div class="flex-grow"></div>
 
@@ -1605,6 +2053,17 @@ onBeforeUnmount(() => {
             @close="handleLinkClose"
             @open-link="handleLinkOpen"
         />
+
+        <!-- Revision History Sidebar -->
+        <transition name="slide-left">
+            <RevisionHistory
+                v-if="showRevisionHistory"
+                :ticket-id="ticketId"
+                @close="showRevisionHistory = false"
+                @select-revision="handleRevisionSelect"
+                @restored="handleRevisionRestored"
+            />
+        </transition>
     </div>
 </template>
 
@@ -2061,5 +2520,38 @@ onBeforeUnmount(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     z-index: 10;
+}
+
+/* Revision History Sidebar */
+.collaborative-editor {
+    position: relative;
+}
+
+.revision-history-sidebar {
+    position: fixed;
+    right: 0;
+    top: 0;
+    height: 100vh;
+    z-index: 1000;
+    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Slide-left transition */
+.slide-left-enter-active,
+.slide-left-leave-active {
+    transition: transform 0.3s ease;
+}
+
+.slide-left-enter-from {
+    transform: translateX(100%);
+}
+
+.slide-left-leave-to {
+    transform: translateX(100%);
+}
+
+/* Toolbar button active state */
+.toolbar-button-active {
+    background-color: var(--color-surface-alt);
 }
 </style>

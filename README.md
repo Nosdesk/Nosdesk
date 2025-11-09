@@ -2,7 +2,9 @@
 
 A modern helpdesk and IT management system built with Rust and Vue.js, designed for efficient ticket management and IT operations.
 
-> This project is still in active development. The software is provided as-is with absolutely no warranty. Use at your own risk!
+> [!CAUTION]
+> This project is in active development, do not use it until it is stable and production ready. I am moving fast and breaking things!
+> This software is provided as-is with absolutely no warranty. Use at your own risk!
 
 ## ✨ Key Features
 
