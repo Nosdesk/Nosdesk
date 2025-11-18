@@ -35,46 +35,103 @@ const EMPTY_ROOM_CLEANUP_DELAY: Duration = Duration::from_secs(300); // 5 minute
 // How often to create automatic snapshots (every 500 updates - Yrs community recommendation)
 const SNAPSHOT_INTERVAL: u32 = 500;
 
-// Simple handler to get article content by ticket ID
+// Document type enum to distinguish between tickets and documentation
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DocumentType {
+    Ticket(i32),
+    Documentation(i32),
+}
+
+impl DocumentType {
+    // Parse doc_id format: "ticket-123" or "doc-456"
+    fn from_doc_id(doc_id: &str) -> Option<Self> {
+        if let Some(id_str) = doc_id.strip_prefix("ticket-") {
+            id_str.parse::<i32>().ok().map(DocumentType::Ticket)
+        } else if let Some(id_str) = doc_id.strip_prefix("doc-") {
+            id_str.parse::<i32>().ok().map(DocumentType::Documentation)
+        } else {
+            None
+        }
+    }
+
+    fn to_string(&self) -> String {
+        match self {
+            DocumentType::Ticket(id) => format!("ticket-{}", id),
+            DocumentType::Documentation(id) => format!("doc-{}", id),
+        }
+    }
+}
+
+// Simple handler to get article content by ticket ID or documentation page ID
 pub async fn get_article_content(
     pool: web::Data<crate::db::Pool>,
     doc_id: web::Path<String>,
 ) -> impl Responder {
     let doc_id = doc_id.into_inner();
     let clean_doc_id = doc_id.replace("/", "_");
-    
-    // Extract ticket ID from doc_id (format: "ticket-123")
-    let ticket_id = match clean_doc_id.strip_prefix("ticket-").and_then(|id| id.parse::<i32>().ok()) {
-        Some(id) => id,
+
+    // Parse document type and ID
+    let doc_type = match DocumentType::from_doc_id(&clean_doc_id) {
+        Some(dt) => dt,
         None => {
-            println!("Invalid ticket ID format: {}", clean_doc_id);
-            return HttpResponse::BadRequest().json("Invalid ticket ID format");
+            println!("Invalid document ID format: {}", clean_doc_id);
+            return HttpResponse::BadRequest().json("Invalid document ID format (expected 'ticket-N' or 'doc-N')");
         }
     };
-    
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
-    
-    match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
-        Ok(article_content) => {
-            println!("Retrieved article content for ticket {}", ticket_id);
-            
-            // Encode binary content as base64
-            let content_base64 = general_purpose::STANDARD.encode(&article_content.content);
-            
-            HttpResponse::Ok().json(json!({
-                "content": content_base64,
-                "ticket_id": ticket_id
-            }))
+
+    match doc_type {
+        DocumentType::Ticket(ticket_id) => {
+            match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
+                Ok(article_content) => {
+                    println!("Retrieved article content for ticket {}", ticket_id);
+
+                    // Encode binary content as base64
+                    let content_base64 = general_purpose::STANDARD.encode(&article_content.content);
+
+                    HttpResponse::Ok().json(json!({
+                        "content": content_base64,
+                        "ticket_id": ticket_id
+                    }))
+                },
+                Err(e) => {
+                    println!("No article content found for ticket {}: {}", ticket_id, e);
+                    HttpResponse::Ok().json(json!({
+                        "content": "",
+                        "ticket_id": ticket_id
+                    }))
+                }
+            }
         },
-        Err(e) => {
-            println!("No article content found for ticket {}: {}", ticket_id, e);
-            HttpResponse::Ok().json(json!({
-                "content": "",
-                "ticket_id": ticket_id
-            }))
+        DocumentType::Documentation(doc_id) => {
+            match repository::get_documentation_page(doc_id, &mut conn) {
+                Ok(doc_page) => {
+                    println!("Retrieved documentation page {}", doc_id);
+
+                    // If yjs_document exists, encode as base64, otherwise return empty
+                    let content_base64 = if let Some(yjs_doc) = doc_page.yjs_document {
+                        general_purpose::STANDARD.encode(&yjs_doc)
+                    } else {
+                        String::new()
+                    };
+
+                    HttpResponse::Ok().json(json!({
+                        "content": content_base64,
+                        "doc_id": doc_id
+                    }))
+                },
+                Err(e) => {
+                    println!("No documentation page found with ID {}: {}", doc_id, e);
+                    HttpResponse::Ok().json(json!({
+                        "content": "",
+                        "doc_id": doc_id
+                    }))
+                }
+            }
         }
     }
 }
@@ -396,69 +453,101 @@ impl YjsAppState {
             if !loaded_from_redis {
                 println!("Redis cache miss - checking PostgreSQL for {}", doc_id);
 
-                if let Some(ticket_id_str) = doc_id.strip_prefix("ticket-") {
-                    if let Ok(ticket_id) = ticket_id_str.parse::<i32>() {
-                        match self.pool.get() {
-                            Ok(mut conn) => {
-                                match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
-                                    Ok(article_content) => {
-                                        if !article_content.content.is_empty() {
+                // Parse document type
+                if let Some(doc_type) = DocumentType::from_doc_id(doc_id) {
+                    match self.pool.get() {
+                        Ok(mut conn) => {
+                            let binary_content_opt: Option<Vec<u8>> = match doc_type {
+                                DocumentType::Ticket(ticket_id) => {
+                                    match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
+                                        Ok(article_content) if !article_content.content.is_empty() => {
                                             println!("📦 Loading from PostgreSQL: ticket {} ({} bytes base64)",
                                                     ticket_id, article_content.content.len());
 
                                             // Decode base64 to get binary Yjs update data
                                             use base64::{Engine as _, engine::general_purpose};
                                             match general_purpose::STANDARD.decode(&article_content.content) {
-                                                Ok(binary_content) => {
-                                                    println!("Decoded base64 to {} bytes binary", binary_content.len());
-
-                                                    if let Ok(update) = Update::decode_v1(&binary_content) {
-                                                        let apply_result = {
-                                                            let mut txn = awareness.doc_mut().transact_mut();
-                                                            txn.apply_update(update)
-                                                        };
-
-                                                        if let Err(e) = apply_result {
-                                                            println!("❌ Error applying PostgreSQL state: {:?}", e);
-                                                        } else {
-                                                            println!("✅ Successfully loaded content from PostgreSQL");
-
-                                                            // IMPORTANT: Cache in Redis for future restarts
-                                                            self.redis_cache.set_document(doc_id, &binary_content).await;
-
-                                                            // Diagnostic: Check what's actually in the document
-                                                            use yrs::{GetString, XmlFragment};
-                                                            let txn = awareness.doc().transact();
-                                                            if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                                                                let child_count = fragment.children(&txn).count();
-                                                                println!("📄 PostgreSQL content: {} children", child_count);
-                                                                let content_str = fragment.get_string(&txn);
-                                                                println!("Fragment preview: {}",
-                                                                    if content_str.len() > 200 { &content_str[..200] } else { &content_str });
-                                                            } else {
-                                                                println!("⚠️ WARNING: 'prosemirror' fragment not found after PostgreSQL load!");
-                                                            }
-                                                        }
-                                                    } else {
-                                                        println!("Failed to decode Yjs update from PostgreSQL");
-                                                    }
+                                                Ok(binary) => {
+                                                    println!("Decoded base64 to {} bytes binary", binary.len());
+                                                    Some(binary)
                                                 },
                                                 Err(e) => {
                                                     println!("Failed to decode base64 from PostgreSQL: {:?}", e);
+                                                    None
                                                 }
                                             }
-                                        } else {
-                                            println!("📝 New document - no existing content in PostgreSQL");
+                                        },
+                                        Ok(_) => {
+                                            println!("📝 New ticket - no existing content in PostgreSQL");
+                                            None
+                                        },
+                                        Err(e) => {
+                                            println!("📝 No existing ticket content in PostgreSQL: {:?}", e);
+                                            None
                                         }
-                                    },
-                                    Err(e) => {
-                                        println!("📝 No existing content in PostgreSQL: {:?}", e);
+                                    }
+                                },
+                                DocumentType::Documentation(doc_page_id) => {
+                                    match repository::get_documentation_page(doc_page_id, &mut conn) {
+                                        Ok(doc_page) => {
+                                            if let Some(yjs_doc) = doc_page.yjs_document {
+                                                if !yjs_doc.is_empty() {
+                                                    println!("📦 Loading from PostgreSQL: doc page {} ({} bytes binary)",
+                                                            doc_page_id, yjs_doc.len());
+                                                    Some(yjs_doc)
+                                                } else {
+                                                    println!("📝 New documentation page - no existing Yjs content");
+                                                    None
+                                                }
+                                            } else {
+                                                println!("📝 New documentation page - no existing Yjs content");
+                                                None
+                                            }
+                                        },
+                                        Err(e) => {
+                                            println!("📝 No existing documentation page in PostgreSQL: {:?}", e);
+                                            None
+                                        }
                                     }
                                 }
-                            },
-                            Err(e) => {
-                                println!("❌ Database connection error: {:?}", e);
+                            };
+
+                            // If we got binary content, apply it to the document
+                            if let Some(binary_content) = binary_content_opt {
+                                if let Ok(update) = Update::decode_v1(&binary_content) {
+                                    let apply_result = {
+                                        let mut txn = awareness.doc_mut().transact_mut();
+                                        txn.apply_update(update)
+                                    };
+
+                                    if let Err(e) = apply_result {
+                                        println!("❌ Error applying PostgreSQL state: {:?}", e);
+                                    } else {
+                                        println!("✅ Successfully loaded content from PostgreSQL");
+
+                                        // IMPORTANT: Cache in Redis for future restarts
+                                        self.redis_cache.set_document(doc_id, &binary_content).await;
+
+                                        // Diagnostic: Check what's actually in the document
+                                        use yrs::{GetString, XmlFragment};
+                                        let txn = awareness.doc().transact();
+                                        if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                                            let child_count = fragment.children(&txn).count();
+                                            println!("📄 PostgreSQL content: {} children", child_count);
+                                            let content_str = fragment.get_string(&txn);
+                                            println!("Fragment preview: {}",
+                                                if content_str.len() > 200 { &content_str[..200] } else { &content_str });
+                                        } else {
+                                            println!("⚠️ WARNING: 'prosemirror' fragment not found after PostgreSQL load!");
+                                        }
+                                    }
+                                } else {
+                                    println!("Failed to decode Yjs update from PostgreSQL");
+                                }
                             }
+                        },
+                        Err(e) => {
+                            println!("❌ Database connection error: {:?}", e);
                         }
                     }
                 }
@@ -652,50 +741,58 @@ impl YjsAppState {
 
     // Save document state to the database from awareness
     fn save_document_internal(&self, doc_id: &str, awareness: &Awareness) {
-        // Check if it's a ticket document
-        if let Some(ticket_id_str) = doc_id.strip_prefix("ticket-") {
-            if let Ok(ticket_id) = ticket_id_str.parse::<i32>() {
-                // Get binary content from the document
-                let binary_content = {
-                    let doc = awareness.doc();
-                    let txn = doc.transact();
+        // Parse document type
+        let doc_type = match DocumentType::from_doc_id(doc_id) {
+            Some(dt) => dt,
+            None => {
+                println!("⚠️ Cannot save - invalid document ID format: {}", doc_id);
+                return;
+            }
+        };
 
-                    // DIAGNOSTIC: Check what's actually in the document before saving
-                    use yrs::{GetString, XmlFragment};
-                    if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                        let child_count = fragment.children(&txn).count();
-                        let content_str = fragment.get_string(&txn);
-                        println!("💾 BEFORE SAVE - Ticket {}: Fragment has {} children, content preview: {}",
-                            ticket_id, child_count,
-                            if content_str.len() > 100 { &content_str[..100] } else { &content_str });
+        // Get binary content from the document
+        let binary_content = {
+            let doc = awareness.doc();
+            let txn = doc.transact();
 
-                        // Also log the state vector to see what client IDs we have
-                        let state_vec = txn.state_vector();
-                        println!("💾 BEFORE SAVE - State vector: {:?}", state_vec);
-                    } else {
-                        println!("⚠️ BEFORE SAVE - Ticket {}: NO 'prosemirror' fragment found in document!", ticket_id);
-                    }
+            // DIAGNOSTIC: Check what's actually in the document before saving
+            use yrs::{GetString, XmlFragment};
+            if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                let child_count = fragment.children(&txn).count();
+                let content_str = fragment.get_string(&txn);
+                println!("💾 BEFORE SAVE - {}: Fragment has {} children, content preview: {}",
+                    doc_id, child_count,
+                    if content_str.len() > 100 { &content_str[..100] } else { &content_str });
 
-                    txn.encode_state_as_update_v1(&StateVector::default())
-                };
+                // Also log the state vector to see what client IDs we have
+                let state_vec = txn.state_vector();
+                println!("💾 BEFORE SAVE - State vector: {:?}", state_vec);
+            } else {
+                println!("⚠️ BEFORE SAVE - {}: NO 'prosemirror' fragment found in document!", doc_id);
+            }
 
-                println!("Saving document content for ticket {} ({} bytes)", ticket_id, binary_content.len());
+            txn.encode_state_as_update_v1(&StateVector::default())
+        };
 
-                // CRITICAL: Save to Redis first (hot cache - survives restarts)
-                // This ensures the latest state is always in Redis for fast recovery
-                let redis_cache = self.redis_cache.clone();
-                let doc_id_clone = doc_id.to_string();
-                let content_for_redis = binary_content.clone();
-                actix::spawn(async move {
-                    redis_cache.set_document(&doc_id_clone, &content_for_redis).await;
-                    // Also refresh TTL to keep active documents cached longer
-                    redis_cache.refresh_ttl(&doc_id_clone).await;
-                });
+        println!("Saving document content for {} ({} bytes)", doc_id, binary_content.len());
 
-                // Save to database in a separate thread (cold storage - permanent backup)
-                let pool = self.pool.clone();
-                let content = binary_content.clone(); // Already Vec<u8>
+        // CRITICAL: Save to Redis first (hot cache - survives restarts)
+        // This ensures the latest state is always in Redis for fast recovery
+        let redis_cache = self.redis_cache.clone();
+        let doc_id_clone = doc_id.to_string();
+        let content_for_redis = binary_content.clone();
+        actix::spawn(async move {
+            redis_cache.set_document(&doc_id_clone, &content_for_redis).await;
+            // Also refresh TTL to keep active documents cached longer
+            redis_cache.refresh_ttl(&doc_id_clone).await;
+        });
 
+        // Save to database in a separate thread (cold storage - permanent backup)
+        let pool = self.pool.clone();
+        let content = binary_content.clone(); // Already Vec<u8>
+
+        match doc_type {
+            DocumentType::Ticket(ticket_id) => {
                 // Use actix to spawn a blocking operation
                 actix::spawn(async move {
                     match pool.get() {
@@ -704,13 +801,28 @@ impl YjsAppState {
                                 ticket_id,
                                 content: general_purpose::STANDARD.encode(&content), // Convert binary to base64 string for storage
                             };
-                            
+
                             match repository::update_article_content(&mut conn, ticket_id, new_content) {
-                                Ok(_) => println!("Successfully saved document for ticket {}", ticket_id),
-                                Err(e) => println!("Failed to save document for ticket {}: {:?}", ticket_id, e),
+                                Ok(_) => println!("✅ Successfully saved document for ticket {}", ticket_id),
+                                Err(e) => println!("❌ Failed to save document for ticket {}: {:?}", ticket_id, e),
                             }
                         },
-                        Err(e) => println!("Database connection error when saving document: {:?}", e),
+                        Err(e) => println!("❌ Database connection error when saving document: {:?}", e),
+                    }
+                });
+            },
+            DocumentType::Documentation(doc_page_id) => {
+                // Save documentation page Yjs state
+                actix::spawn(async move {
+                    match pool.get() {
+                        Ok(mut conn) => {
+                            // Update only the Yjs-related fields
+                            match repository::update_documentation_yjs_state(&mut conn, doc_page_id, content) {
+                                Ok(_) => println!("✅ Successfully saved Yjs state for documentation page {}", doc_page_id),
+                                Err(e) => println!("❌ Failed to save Yjs state for documentation page {}: {:?}", doc_page_id, e),
+                            }
+                        },
+                        Err(e) => println!("❌ Database connection error when saving documentation: {:?}", e),
                     }
                 });
             }
@@ -719,18 +831,17 @@ impl YjsAppState {
 
     // Create a snapshot revision for version history using native Yrs encoding
     fn create_snapshot_revision(&self, doc_id: &str, awareness: &Awareness, contributors: HashSet<Uuid>) {
-        // Only process ticket documents
-        let ticket_id = match doc_id.strip_prefix("ticket-")
-            .and_then(|id_str| id_str.parse::<i32>().ok()) {
-            Some(id) => id,
+        // Parse document type
+        let doc_type = match DocumentType::from_doc_id(doc_id) {
+            Some(dt) => dt,
             None => {
-                println!("⚠️ Skipping snapshot for non-ticket document: {}", doc_id);
+                println!("⚠️ Skipping snapshot - invalid document ID format: {}", doc_id);
                 return;
             }
         };
 
         // Encode document state using native Yrs functions (DRY - no manual serialization!)
-        let (state_vector_bytes, full_update_bytes, word_count) = {
+        let (state_vector_bytes, full_update_bytes) = {
             let doc = awareness.doc();
             let txn = doc.transact();
 
@@ -738,76 +849,85 @@ impl YjsAppState {
             let state_vector = txn.state_vector();
             let full_update = txn.encode_state_as_update_v1(&StateVector::default());
 
-            // Calculate word count using get_string() to extract all text content
-            let word_count = if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                use yrs::GetString;
-                let text_content = fragment.get_string(&txn);
-                // Count words (split by whitespace, filter empty)
-                let count = text_content.split_whitespace().count() as i32;
-                Some(count)
-            } else {
-                None
-            };
-
-            (state_vector.encode_v1(), full_update, word_count)
+            (state_vector.encode_v1(), full_update)
         };
 
-        println!("📸 Creating snapshot for ticket {}: {} bytes, {} words",
-            ticket_id, full_update_bytes.len(), word_count.unwrap_or(0));
+        println!("📸 Creating snapshot for {}: {} bytes",
+            doc_id, full_update_bytes.len());
 
         // Save to database asynchronously
         let pool = self.pool.clone();
         let contributor_vec: Vec<Option<Uuid>> = contributors.into_iter().map(Some).collect();
 
-        actix::spawn(async move {
-            match pool.get() {
-                Ok(mut conn) => {
-                    // Get or create article_content record
-                    let article_content = match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
-                        Ok(ac) => ac,
-                        Err(_) => {
-                            // Create if doesn't exist
-                            let new_content = NewArticleContent {
-                                ticket_id,
-                                content: String::new(), // Placeholder
-                            };
-                            match repository::create_article_content(&mut conn, new_content) {
+        match doc_type {
+            DocumentType::Ticket(ticket_id) => {
+                actix::spawn(async move {
+                    match pool.get() {
+                        Ok(mut conn) => {
+                            // Get or create article_content record
+                            let article_content = match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
                                 Ok(ac) => ac,
-                                Err(e) => {
-                                    println!("❌ Failed to create article_content for snapshot: {:?}", e);
-                                    return;
+                                Err(_) => {
+                                    // Create if doesn't exist
+                                    let new_content = NewArticleContent {
+                                        ticket_id,
+                                        content: String::new(), // Placeholder
+                                    };
+                                    match repository::create_article_content(&mut conn, new_content) {
+                                        Ok(ac) => ac,
+                                        Err(e) => {
+                                            println!("❌ Failed to create article_content for snapshot: {:?}", e);
+                                            return;
+                                        }
+                                    }
                                 }
-                            }
-                        }
-                    };
+                            };
 
-                    // Create new revision with simplified schema (no redundant snapshot field!)
-                    let new_revision = NewArticleContentRevision {
-                        article_content_id: article_content.id,
-                        revision_number: article_content.current_revision_number,
-                        yjs_state_vector: state_vector_bytes,
-                        yjs_document_content: full_update_bytes,
-                        contributed_by: contributor_vec.clone(),
-                        word_count,
-                    };
+                            // Create new revision with simplified schema (no redundant snapshot field!)
+                            let new_revision = NewArticleContentRevision {
+                                article_content_id: article_content.id,
+                                revision_number: article_content.current_revision_number,
+                                yjs_state_vector: state_vector_bytes,
+                                yjs_document_content: full_update_bytes,
+                                contributed_by: contributor_vec.clone(),
+                            };
 
-                    match repository::create_article_content_revision(&mut conn, new_revision) {
-                        Ok(revision) => {
-                            // Increment revision number in article_content
-                            match repository::increment_article_content_revision(&mut conn, article_content.id) {
-                                Ok(_) => {
-                                    println!("✅ Snapshot created: ticket {} revision {} ({} contributors)",
-                                        ticket_id, revision.revision_number, contributor_vec.len());
+                            match repository::create_article_content_revision(&mut conn, new_revision) {
+                                Ok(revision) => {
+                                    // Increment revision number in article_content
+                                    match repository::increment_article_content_revision(&mut conn, article_content.id) {
+                                        Ok(_) => {
+                                            println!("✅ Snapshot created: ticket {} revision {} ({} contributors)",
+                                                ticket_id, revision.revision_number, contributor_vec.len());
+                                        },
+                                        Err(e) => println!("❌ Failed to increment revision number: {:?}", e),
+                                    }
                                 },
-                                Err(e) => println!("❌ Failed to increment revision number: {:?}", e),
+                                Err(e) => println!("❌ Failed to create revision: {:?}", e),
                             }
                         },
-                        Err(e) => println!("❌ Failed to create revision: {:?}", e),
+                        Err(e) => println!("❌ Database connection error during snapshot: {:?}", e),
                     }
-                },
-                Err(e) => println!("❌ Database connection error during snapshot: {:?}", e),
+                });
+            },
+            DocumentType::Documentation(doc_page_id) => {
+                actix::spawn(async move {
+                    match pool.get() {
+                        Ok(mut conn) => {
+                            // Create documentation revision snapshot
+                            match repository::create_documentation_revision(&mut conn, doc_page_id, state_vector_bytes, full_update_bytes, contributor_vec.clone()) {
+                                Ok(revision_number) => {
+                                    println!("✅ Snapshot created: documentation page {} revision {} ({} contributors)",
+                                        doc_page_id, revision_number, contributor_vec.len());
+                                },
+                                Err(e) => println!("❌ Failed to create documentation revision: {:?}", e),
+                            }
+                        },
+                        Err(e) => println!("❌ Database connection error during snapshot: {:?}", e),
+                    }
+                });
             }
-        });
+        }
     }
 }
 
@@ -1255,7 +1375,6 @@ pub async fn get_ticket_revision(
                 "yjs_document_content": content_base64,
                 "contributed_by": revision.contributed_by,
                 "created_at": revision.created_at,
-                "word_count": revision.word_count,
             }))
         },
         Err(_) => HttpResponse::NotFound().json("Revision not found"),
@@ -1337,6 +1456,128 @@ pub async fn restore_ticket_revision(
     }))
 }
 
+// ============= Documentation Revision History API Endpoints =============
+
+/// GET /docs/:id/revisions - List all revisions for a documentation page
+pub async fn get_doc_revisions(
+    doc_id: web::Path<i32>,
+    pool: web::Data<crate::db::Pool>,
+) -> HttpResponse {
+    let doc_id = doc_id.into_inner();
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Get all revisions
+    match crate::repository::documentation::get_documentation_revisions(&mut conn, doc_id) {
+        Ok(revisions) => {
+            HttpResponse::Ok().json(revisions)
+        },
+        Err(_) => HttpResponse::InternalServerError().json("Error retrieving revisions"),
+    }
+}
+
+/// GET /docs/:id/revisions/:revision_number - Get a specific revision
+pub async fn get_doc_revision(
+    path: web::Path<(i32, i32)>,
+    pool: web::Data<crate::db::Pool>,
+) -> HttpResponse {
+    let (doc_id, revision_number) = path.into_inner();
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Get the specific revision
+    match crate::repository::documentation::get_documentation_revision(&mut conn, doc_id, revision_number) {
+        Ok(revision) => {
+            // Encode the Yjs document snapshot as base64 for frontend
+            let content_base64 = general_purpose::STANDARD.encode(&revision.yjs_document_snapshot);
+
+            HttpResponse::Ok().json(serde_json::json!({
+                "id": revision.id,
+                "page_id": revision.page_id,
+                "revision_number": revision.revision_number,
+                "title": revision.title,
+                "yjs_document_content": content_base64,
+                "created_by": revision.created_by,
+                "created_at": revision.created_at,
+                "change_summary": revision.change_summary,
+            }))
+        },
+        Err(_) => HttpResponse::NotFound().json("Revision not found"),
+    }
+}
+
+/// POST /docs/:id/restore/:revision_number - Restore documentation page to a specific revision
+pub async fn restore_doc_revision(
+    path: web::Path<(i32, i32)>,
+    pool: web::Data<crate::db::Pool>,
+    app_state: web::Data<YjsAppState>,
+) -> HttpResponse {
+    let (doc_id, revision_number) = path.into_inner();
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Get the revision to restore
+    let revision = match crate::repository::documentation::get_documentation_revision(&mut conn, doc_id, revision_number) {
+        Ok(rev) => rev,
+        Err(_) => return HttpResponse::NotFound().json("Revision not found"),
+    };
+
+    // Get the in-memory document for this documentation page
+    let doc_id_str = format!("doc-{}", doc_id);
+    let awareness = app_state.get_or_create_awareness(&doc_id_str).await;
+
+    // Apply the revision content to the document
+    let doc = awareness.doc();
+
+    // Decode the stored Yjs update
+    use yrs::updates::decoder::Decode;
+    let update = match Update::decode_v1(&revision.yjs_document_snapshot) {
+        Ok(upd) => upd,
+        Err(e) => {
+            println!("Error decoding revision update: {:?}", e);
+            return HttpResponse::InternalServerError().json("Error decoding revision");
+        }
+    };
+
+    // Clear the document and apply the revision
+    {
+        let mut txn = doc.transact_mut();
+        if let Err(e) = txn.apply_update(update) {
+            println!("Error applying revision update: {:?}", e);
+            return HttpResponse::InternalServerError().json("Error applying revision");
+        }
+    }
+
+    // Mark document as changed to trigger save
+    app_state.mark_document_changed(&doc_id_str).await;
+
+    // Broadcast the change to all connected clients
+    let full_state = {
+        let txn = doc.transact();
+        txn.encode_state_as_update_v1(&StateVector::default())
+    };
+
+    // Broadcast to all sessions
+    use yrs::sync::Message;
+    let sync_message = Message::Sync(yrs::sync::SyncMessage::Update(full_state.into()));
+    let encoded = sync_message.encode_v1();
+    app_state.broadcast(&doc_id_str, "", &encoded).await;
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": format!("Restored to revision {}", revision_number),
+    }))
+}
+
 // Configure routes
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -1346,5 +1587,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/tickets/{ticket_id}/revisions", web::get().to(get_ticket_revisions))
             .route("/tickets/{ticket_id}/revisions/{revision_number}", web::get().to(get_ticket_revision))
             .route("/tickets/{ticket_id}/restore/{revision_number}", web::post().to(restore_ticket_revision))
+            .route("/docs/{doc_id}/revisions", web::get().to(get_doc_revisions))
+            .route("/docs/{doc_id}/revisions/{revision_number}", web::get().to(get_doc_revision))
+            .route("/docs/{doc_id}/restore/{revision_number}", web::post().to(restore_doc_revision))
     );
 }

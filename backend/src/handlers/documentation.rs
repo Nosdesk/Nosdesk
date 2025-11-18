@@ -3,10 +3,52 @@ use chrono::Utc;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::db::Pool;
-use crate::models::{NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus};
+use crate::db::{Pool, DbConnection};
+use crate::models::{NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus, DocumentationPage, DocumentationPageResponse, UserInfo};
 use crate::repository;
 use crate::utils;
+
+// Helper function to convert DocumentationPage to DocumentationPageResponse with user info
+fn to_page_response(
+    page: DocumentationPage,
+    conn: &mut DbConnection,
+) -> Result<DocumentationPageResponse, String> {
+    // Fetch user info for created_by
+    let created_by_user = repository::get_user_by_uuid(&page.created_by, conn)
+        .map_err(|_| "Failed to fetch created_by user")?;
+
+    // Fetch user info for last_edited_by
+    let last_edited_by_user = repository::get_user_by_uuid(&page.last_edited_by, conn)
+        .map_err(|_| "Failed to fetch last_edited_by user")?;
+
+    Ok(DocumentationPageResponse {
+        id: page.id,
+        uuid: page.uuid,
+        title: page.title,
+        slug: page.slug,
+        icon: page.icon,
+        cover_image: page.cover_image,
+        status: page.status,
+        created_at: page.created_at,
+        updated_at: page.updated_at,
+        created_by: UserInfo {
+            uuid: created_by_user.uuid,
+            name: created_by_user.name,
+        },
+        last_edited_by: UserInfo {
+            uuid: last_edited_by_user.uuid,
+            name: last_edited_by_user.name,
+        },
+        parent_id: page.parent_id,
+        ticket_id: page.ticket_id,
+        display_order: page.display_order,
+        is_public: page.is_public,
+        is_template: page.is_template,
+        archived_at: page.archived_at,
+        has_unsaved_changes: page.has_unsaved_changes,
+        children: None,
+    })
+}
 
 // Get all documentation pages
 pub async fn get_documentation_pages(
@@ -35,7 +77,12 @@ pub async fn get_documentation_page(
     };
 
     match repository::get_documentation_page(page_id, &mut conn) {
-        Ok(page) => HttpResponse::Ok().json(page),
+        Ok(page) => {
+            match to_page_response(page, &mut conn) {
+                Ok(response) => HttpResponse::Ok().json(response),
+                Err(err) => HttpResponse::InternalServerError().json(err),
+            }
+        },
         Err(_) => HttpResponse::NotFound().json("Page not found"),
     }
 }
@@ -52,7 +99,12 @@ pub async fn get_documentation_page_by_slug(
     };
 
     match repository::get_documentation_page_by_slug(&page_slug, &mut conn) {
-        Ok(page) => HttpResponse::Ok().json(page),
+        Ok(page) => {
+            match to_page_response(page, &mut conn) {
+                Ok(response) => HttpResponse::Ok().json(response),
+                Err(err) => HttpResponse::InternalServerError().json(err),
+            }
+        },
         Err(_) => HttpResponse::NotFound().json("Page not found"),
     }
 }
@@ -91,9 +143,33 @@ pub async fn create_documentation_page(
     }
 
     match repository::create_documentation_page(new_page, &mut conn) {
-        Ok(created_page) => HttpResponse::Created().json(created_page),
+        Ok(created_page) => {
+            match to_page_response(created_page, &mut conn) {
+                Ok(response) => HttpResponse::Created().json(response),
+                Err(err) => HttpResponse::InternalServerError().json(err),
+            }
+        },
         Err(_) => HttpResponse::InternalServerError().json("Failed to create page"),
     }
+}
+
+// DTO for updating documentation pages (partial update)
+#[derive(Debug, Deserialize)]
+pub struct UpdateDocumentationPageRequest {
+    pub title: Option<String>,
+    pub slug: Option<String>,
+    pub icon: Option<String>,
+    pub cover_image: Option<String>,
+    pub status: Option<DocumentationStatus>,
+    pub parent_id: Option<Option<i32>>,
+    pub ticket_id: Option<Option<i32>>,
+    pub display_order: Option<i32>,
+    pub is_public: Option<bool>,
+    pub is_template: Option<bool>,
+    pub content: Option<Vec<u8>>,
+    pub description: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 // Update an existing documentation page
@@ -101,7 +177,7 @@ pub async fn update_documentation_page(
     req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<i32>,
-    page: web::Json<NewDocumentationPage>,
+    page: web::Json<UpdateDocumentationPageRequest>,
 ) -> impl Responder {
     let page_id = path.into_inner();
     let mut conn = match pool.get() {
@@ -125,26 +201,24 @@ pub async fn update_documentation_page(
             };
             
             // Create update struct with the fields from the request
-            let new_page = page.into_inner();
+            let update_req = page.into_inner();
             let page_update = crate::models::DocumentationPageUpdate {
-                title: Some(new_page.title),
-                slug: new_page.slug,
-                icon: new_page.icon,
-                cover_image: new_page.cover_image,
-                status: Some(new_page.status),
+                title: update_req.title,
+                slug: update_req.slug,
+                icon: update_req.icon,
+                cover_image: update_req.cover_image,
+                status: update_req.status,
                 last_edited_by: Some(user_uuid),
-                parent_id: Some(new_page.parent_id),
-                ticket_id: Some(new_page.ticket_id),
-                display_order: new_page.display_order,
-                is_public: Some(new_page.is_public),
-                is_template: Some(new_page.is_template),
+                parent_id: update_req.parent_id,
+                ticket_id: update_req.ticket_id,
+                display_order: update_req.display_order,
+                is_public: update_req.is_public,
+                is_template: update_req.is_template,
                 archived_at: None,
-                yjs_state_vector: new_page.yjs_state_vector,
-                yjs_document: new_page.yjs_document,
-                yjs_client_id: new_page.yjs_client_id,
-                estimated_reading_time: new_page.estimated_reading_time,
-                word_count: new_page.word_count,
-                has_unsaved_changes: Some(new_page.has_unsaved_changes),
+                yjs_state_vector: None,
+                yjs_document: None,
+                yjs_client_id: None,
+                has_unsaved_changes: None,
                 updated_at: Some(chrono::Utc::now().naive_utc()),
             };
 
@@ -152,7 +226,10 @@ pub async fn update_documentation_page(
             match repository::update_documentation_page(&mut conn, page_id, &page_update) {
                 Ok(updated_page) => {
                     println!("Documentation page updated: {}", updated_page.id);
-                    HttpResponse::Ok().json(updated_page)
+                    match to_page_response(updated_page, &mut conn) {
+                        Ok(response) => HttpResponse::Ok().json(response),
+                        Err(err) => HttpResponse::InternalServerError().json(err),
+                    }
                 },
                 Err(e) => {
                     println!("Error updating documentation page: {:?}", e);
@@ -487,8 +564,6 @@ pub async fn create_documentation_page_from_ticket(
         yjs_state_vector: None,
         yjs_document: None,
         yjs_client_id: None,
-        estimated_reading_time: None,
-        word_count: None,
         has_unsaved_changes: false,
     };
 

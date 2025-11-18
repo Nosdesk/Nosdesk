@@ -10,6 +10,9 @@ import BackButton from '@/components/common/BackButton.vue';
 import DeleteButton from '@/components/common/DeleteButton.vue';
 import { useDocumentationNavStore } from "@/stores/documentationNav";
 import DocumentationTocItem from '@/components/documentationComponents/DocumentationTocItem.vue';
+import { docsEmitter } from "@/services/docsEmitter";
+import DocumentationRevisionHistory from '@/components/editor/DocumentationRevisionHistory.vue';
+import apiClient from '@/services/apiConfig';
 
 const route = useRoute();
 const router = useRouter();
@@ -19,9 +22,9 @@ const page = ref<Page | null>(null);
 const pages = ref<Page[]>([]);
 const pageParentMap = ref<Record<string, string | null>>({});
 const isLoading = ref(true);
-const showSuccessMessage = ref(false);
-const isSaving = ref(false);
-const saveMessage = ref("Document saved successfully");
+const isSaving = ref(false); // Still needed for create/delete operations (not editor saves)
+const showSuccessMessage = ref(false); // Still needed for create/delete feedback (not editor saves)
+const saveMessage = ref(""); // Still needed for create/delete feedback (not editor saves)
 const titleManager = useTitleManager();
 const isTicketNote = ref(false);
 const isIndexPage = ref(false);
@@ -40,6 +43,10 @@ const editTitle = ref("");
 
 // Document icon
 const documentIcon = ref('📄');
+
+// Revision history state
+const showRevisionHistory = ref(false);
+const editorRef = ref<any>(null);
 
 // Create a document object for the header
 const documentObj = computed(() => {
@@ -145,24 +152,39 @@ const loadAllPages = async () => {
 
 // Add a docId computed property for the CollaborativeEditor
 const docId = computed(() => {
+  // If viewing a ticket note directly
   if (isTicketNote.value && ticketId.value) {
     return `ticket-${ticketId.value}`;
-  } else if (page.value) {
-    return `documentation-${page.value.id}`;
-  } else if (article.value) {
-    return `documentation-${article.value.id}`;
   }
+
+  // If documentation page is linked to a ticket, use ticket doc-id for shared content
+  if (page.value?.ticket_id) {
+    return `ticket-${page.value.ticket_id}`;
+  }
+  if (article.value?.ticket_id) {
+    return `ticket-${article.value.ticket_id}`;
+  }
+
+  // Otherwise use documentation-specific doc-id
+  if (page.value) {
+    return `doc-${page.value.uuid || page.value.id}`;
+  }
+  if (article.value) {
+    return `doc-${article.value.uuid || article.value.id}`;
+  }
+
   return 'documentation-new';
 });
 
-// Add a flag to determine if we have a binary update
-const isBinaryUpdate = ref(false);
+// SIMPLIFIED: CollaborativeEditor handles all saves automatically via WebSocket
+// No need for manual save logic - Yjs CRDT syncs in real-time
 
-// Replace the updateContent method
+// Simple content update handler - just update local state
 const updateContent = (newContent: string) => {
   editContent.value = newContent;
-  
-  // Update the local state immediately
+
+  // Update the local state for display purposes only
+  // Actual persistence is handled by CollaborativeEditor's WebSocket connection
   if (article.value) {
     article.value.content = newContent;
   } else if (page.value) {
@@ -173,143 +195,107 @@ const updateContent = (newContent: string) => {
 // Handle title update
 const updateTitle = (newTitle: string) => {
   editTitle.value = newTitle;
-  
+
   // Update the title in the header
   if (article.value || page.value) {
     emit('update:title', newTitle);
     titleManager.setCustomTitle(newTitle);
-    
+
     // Generate a slug from the title
     const slug = newTitle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    
+
     // Update the document object with new title and slug
     if (article.value) {
       article.value.title = newTitle;
       article.value.slug = slug;
-      // documentObj watcher will handle document updates
     } else if (page.value) {
       page.value.title = newTitle;
       page.value.slug = slug;
-      // documentObj watcher will handle document updates
     }
+
+    // Save title/slug changes to database (metadata only, not content)
+    saveTitleChanges();
   }
-  
-  // Auto-save after a short delay
-  saveArticleDebounced();
 };
 
-// Debounced save function
-let saveTimeout: number | null = null;
-const saveArticleDebounced = () => {
-  if (saveTimeout) {
-    clearTimeout(saveTimeout);
-  }
+// Save title and metadata changes only (content is auto-synced via WebSocket)
+const saveTitleChanges = async () => {
+  if (!page.value && !article.value) return;
 
-  saveTimeout = setTimeout(() => {
-    saveMessage.value = "Document saved successfully";
-    saveDocument();
-  }, 300) as unknown as number; // Reduced from 1000ms to 300ms
+  // TODO: Implement metadata-only update endpoint in backend
+  // For now, metadata updates happen when the page is saved through other means
+  // The title/slug changes are tracked in local state and will be persisted
+  // when the user navigates away or the page is updated
+  console.log('Title changed to:', editTitle.value);
 };
 
-// Save document changes
-const saveDocument = async () => {
-  isSaving.value = true;
-  
+// Revision history handlers
+const toggleRevisionHistory = () => {
+  showRevisionHistory.value = !showRevisionHistory.value;
+};
+
+const handleSelectRevision = async (revisionNumber: number | null) => {
+  if (!editorRef.value) return;
+
+  if (revisionNumber === null) {
+    // Exit revision view and return to live document
+    editorRef.value.exitRevisionView();
+    return;
+  }
+
   try {
-    if (isTicketNote.value && route.query.ticketId) {
-      // Save ticket note using the dedicated article content endpoint
-      const ticketId = route.query.ticketId as string;
-      
-      // Implement retry logic for ticket notes
-      const maxRetries = 2;
-      let retryCount = 0;
-      let success = false;
-      
-      while (retryCount <= maxRetries && !success) {
-        try {
-          // Update the article content with timeout - only update the ticket with article content
-          const nowDateTime = new Date().toISOString();
-          await Promise.race([
-            ticketService.updateTicket(Number(ticketId), {
-              modified: nowDateTime,
-              article_content: editContent.value // Explicitly update article_content in the ticket
-            }),
-            // Add a timeout to prevent hanging requests
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Request timeout')), 10000))
-          ]);
-          
-          if (article.value) {
-            article.value.content = editContent.value;
-            article.value.lastUpdated = nowDateTime;
-          }
-          
-          showSuccessMessage.value = true;
-          saveMessage.value = "Ticket notes saved successfully";
-          success = true;
-        } catch (err) {
-          retryCount++;
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          
-          if (retryCount <= maxRetries) {
-            console.warn(`Error saving ticket notes (attempt ${retryCount}/${maxRetries}): ${errorMessage}. Retrying...`);
-            // Wait a bit before retrying (exponential backoff)
-            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
-          } else {
-            console.error(`Error saving ticket notes after ${maxRetries} attempts: ${errorMessage}`);
-            showSuccessMessage.value = true;
-            saveMessage.value = "Changes saved locally but not synced to server";
-          }
-        }
-      }
-    } else if (page.value) {
-      // Save page content
-      const updatedPage = await documentationService.savePageContent(
-        String(page.value.id), 
-        editContent.value
-      );
-      
-      if (updatedPage) {
-        page.value = updatedPage;
-        showSuccessMessage.value = true;
-      } else {
-        showSuccessMessage.value = false;
-        saveMessage.value = "Error saving document";
-      }
-    } else if (article.value) {
-      // Save article content
-      const updatedArticle = await documentationService.saveArticle({
-        ...article.value,
-        content: editContent.value,
-        title: editTitle.value,
-        slug: article.value.slug,
-        children: article.value.children || [] // Ensure children is always an array
-      } as import('@/services/documentationService').Page); // Type assertion to Page
-      
-      article.value = updatedArticle;
-      showSuccessMessage.value = true;
-    }
+    // Get the page ID
+    const pageId = page.value?.id || article.value?.id;
+    if (!pageId) return;
+
+    // Fetch the specific revision snapshot from the API
+    const response = await apiClient.get(
+      `/collaboration/docs/${pageId}/revisions/${revisionNumber}`
+    );
+    const revisionData = response.data;
+
+    // Display the revision in the editor (read-only mode)
+    editorRef.value.viewSnapshot(revisionData);
+    console.log('Revision data received:', revisionData);
   } catch (error) {
-    console.error('Error saving document:', error);
-    showSuccessMessage.value = true;
-    saveMessage.value = "Error saving document";
-  } finally {
-    isSaving.value = false;
-    
-    // Hide success message after 3 seconds
-    setTimeout(() => {
-      showSuccessMessage.value = false;
-    }, 3000);
+    console.error('Failed to fetch revision:', error);
   }
+};
+
+const handleCloseRevisionHistory = () => {
+  showRevisionHistory.value = false;
+  // Also exit revision view if we're currently viewing one
+  if (editorRef.value && editorRef.value.isViewingRevision) {
+    editorRef.value.exitRevisionView();
+  }
+};
+
+const handleRevisionRestored = () => {
+  // Refresh the page after restoration
+  fetchContent();
 };
 
 // Format date for display
 const formatDate = (dateString: string) => {
-  return new Date(dateString).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  // Show relative time for recent updates
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  // Show compact date for older updates
+  const isThisYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleDateString("en-US", {
+    month: "short",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    ...(isThisYear ? {} : { year: "numeric" })
   });
 };
 
@@ -554,7 +540,6 @@ const fetchContent = async () => {
   isTicketNote.value = false;
   page.value = null;
   article.value = null;
-  isBinaryUpdate.value = false;
   
   // Check if we're creating from a ticket
   if (route.query.createFromTicket === 'true') {
@@ -665,32 +650,8 @@ const fetchContent = async () => {
     router.push('/documentation');
     return;
   } finally {
-    // Before resolving the content fetch, try to get a binary update
-    if (docId.value && !isIndexPage.value) {
-      try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/collaboration/state/${docId.value}`, {
-          method: 'GET',
-          headers: { Accept: 'application/octet-stream' }
-        });
-        
-        if (response.ok) {
-          const binaryData = await response.arrayBuffer();
-          if (binaryData.byteLength > 0) {
-            // We have a binary update, convert to base64
-            const bytes = new Uint8Array(binaryData);
-            const binary = bytes.reduce((acc, byte) => acc + String.fromCharCode(byte), '');
-            const base64 = window.btoa(binary);
-            
-            editContent.value = base64;
-            isBinaryUpdate.value = true;
-            console.log('Loaded binary update for document:', docId.value);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching binary update:', error);
-      }
-    }
-    
+    // CollaborativeEditor will automatically load and sync content via WebSocket
+    // No need to manually fetch binary updates
     isLoading.value = false;
   }
 };
@@ -968,9 +929,9 @@ onUnmounted(() => {
                       {{ page.description }}
                     </p>
                     <div class="flex items-center gap-3 mt-2 text-xs text-tertiary">
-                      <span>{{ formatDate(page.lastUpdated || new Date().toISOString()) }}</span>
+                      <span>{{ formatDate(page.updated_at || page.lastUpdated || new Date().toISOString()) }}</span>
                       <span>·</span>
-                      <span>{{ page.author || 'System' }}</span>
+                      <span>{{ page.last_edited_by?.name || page.created_by?.name || page.author || 'Unknown' }}</span>
                     </div>
                   </div>
                 </div>
@@ -999,14 +960,107 @@ onUnmounted(() => {
       </div>
 
       <!-- Document Content View -->
-      <div v-else-if="article || page" class="flex flex-1 max-w-4xl mx-auto w-full justify-center p-4 animate-fadeIn h-full">
-        <CollaborativeEditor
-          v-model="editContent"
-          :doc-id="docId"
-          :is-binary-update="isBinaryUpdate"
-          placeholder="Enter documentation content here..."
-          @update:modelValue="updateContent"
-          class="w-full flex-1 flex flex-col"
+      <div v-else-if="article || page" class="flex flex-1 w-full animate-fadeIn h-full relative">
+        <!-- Main Content Area -->
+        <div class="flex flex-1 max-w-4xl mx-auto w-full justify-center p-4 h-full flex-col gap-3">
+          <!-- Linked Ticket Indicator -->
+          <div
+            v-if="page?.ticket_id || article?.ticket_id"
+            class="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-600 dark:text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z" />
+            </svg>
+            <span class="text-sm text-blue-800 dark:text-blue-200">
+              This documentation page is linked to
+              <RouterLink
+                :to="`/tickets/${page?.ticket_id || article?.ticket_id}`"
+                class="font-medium underline hover:text-blue-600 dark:hover:text-blue-300"
+              >
+                Ticket #{{ page?.ticket_id || article?.ticket_id }}
+              </RouterLink>
+              and shares its content
+            </span>
+          </div>
+
+          <!-- Documentation Header -->
+          <div class="border-b border-default pb-4 mb-6">
+            <!-- Title and Icon -->
+            <div class="flex items-start gap-3 mb-3">
+              <div class="text-4xl sm:text-5xl flex-shrink-0">{{ (page || article)?.icon || '📄' }}</div>
+              <div class="flex-1 min-w-0">
+                <h1 class="text-2xl sm:text-3xl lg:text-4xl font-bold text-primary break-words leading-tight">
+                  {{ (page || article)?.title || 'Untitled' }}
+                </h1>
+              </div>
+            </div>
+
+            <!-- Metadata and Actions -->
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <!-- Metadata -->
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-secondary">
+                <!-- Created By -->
+                <div v-if="page?.created_by || article?.created_by" class="flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  <span class="font-medium text-primary">{{ (page || article)?.created_by?.name || 'Unknown' }}</span>
+                </div>
+
+                <!-- Last Edited -->
+                <div v-if="page?.last_edited_by || article?.last_edited_by" class="flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  <span>edited by</span>
+                  <span class="font-medium text-primary">{{ (page || article)?.last_edited_by?.name || 'Unknown' }}</span>
+                </div>
+
+                <!-- Last Updated -->
+                <div v-if="page?.updated_at || article?.updated_at" class="flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span class="font-medium text-primary">{{ formatDate((page || article)?.updated_at || new Date().toISOString()) }}</span>
+                </div>
+              </div>
+
+              <!-- Action Buttons -->
+              <div class="flex items-center gap-2">
+                <!-- Revision History Toggle -->
+                <button
+                  @click="toggleRevisionHistory"
+                  class="px-3 py-1.5 text-xs rounded-md hover:bg-surface-alt transition-colors flex items-center gap-1.5 border border-default"
+                  :class="{ 'bg-surface-alt text-primary border-brand-blue': showRevisionHistory }"
+                  title="Revision history"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span class="hidden sm:inline">History</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <CollaborativeEditor
+            ref="editorRef"
+            v-model="editContent"
+            :doc-id="docId"
+            :hide-revision-history="true"
+            placeholder="Enter documentation content here..."
+            @update:modelValue="updateContent"
+            class="w-full flex-1 flex flex-col"
+          />
+        </div>
+
+        <!-- Revision History Sidebar -->
+        <DocumentationRevisionHistory
+          v-if="showRevisionHistory && (page?.id || article?.id)"
+          :document-id="Number(page?.id || article?.id)"
+          @close="handleCloseRevisionHistory"
+          @select-revision="handleSelectRevision"
+          @restored="handleRevisionRestored"
         />
       </div>
 

@@ -1,24 +1,33 @@
-import axios from 'axios';
+import apiClient from './apiConfig';
 
-// Define the API base URL
-// Use the proxy configured in vite.config.ts
-const API_URL = '/api';
+// Note: apiClient already has baseURL set to '/api', so we don't need to prefix routes
+
+// User info interface
+export interface UserInfo {
+  uuid: string;
+  name: string;
+}
 
 // Define the Page interface
 export interface Page {
   id: string | number;
+  uuid?: string;
   slug: string;
   title: string;
   description: string | null;
   content: string;
   parent_id: string | number | null;
-  author: string;
+  author: string; // Deprecated - use created_by.name instead
   status: string;
   icon: string | null;
   children: Page[];
   lastUpdated?: string;
   ticket_id?: string | null;
   display_order?: number;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: UserInfo;
+  last_edited_by?: UserInfo;
 }
 
 // Define the PageChild interface (used for navigation)
@@ -103,10 +112,11 @@ export const convertToPage = (data: any): Page => {
     }
     
     const cleanParentId = data.parent_id !== undefined ? data.parent_id : null;
-    const cleanAuthor = typeof data.author === 'string' ? data.author : 'System Admin';
+    // For backwards compatibility, fallback to created_by.name if author doesn't exist
+    const cleanAuthor = typeof data.author === 'string' ? data.author : (data.created_by?.name || 'System');
     const cleanStatus = typeof data.status === 'string' ? data.status : 'published';
     const cleanIcon = typeof data.icon === 'string' ? data.icon : '📄';
-    
+
     // Process children array with extra validation
     let cleanChildren: Page[] = [];
     if (Array.isArray(data.children)) {
@@ -114,9 +124,10 @@ export const convertToPage = (data: any): Page => {
         .filter((child: any) => child && typeof child === 'object') // Filter out non-objects
         .map((child: any) => convertToPage(child));               // Convert each valid child
     }
-    
+
     return {
       id: cleanId,
+      uuid: data.uuid,
       slug: cleanSlug,
       title: cleanTitle,
       description: cleanDescription,
@@ -128,6 +139,10 @@ export const convertToPage = (data: any): Page => {
       children: cleanChildren,
       lastUpdated: data.updated_at || new Date().toISOString(),
       ticket_id: data.ticket_id || null,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+      created_by: data.created_by,
+      last_edited_by: data.last_edited_by,
       display_order: typeof data.display_order === 'number' ? data.display_order : 0
     };
   } catch (error) {
@@ -201,7 +216,7 @@ export const convertToArticle = (data: any): Article => {
 export const getPages = async (): Promise<Page[]> => {
   try {
     // Fetch all pages
-    const response = await axios.get(`${API_URL}/documentation/pages`);
+    const response = await apiClient.get(`/documentation/pages`);
     console.log('Raw API response for pages:', response.data);
     
     // Validate that the response is an array
@@ -309,7 +324,7 @@ export const getPages = async (): Promise<Page[]> => {
 export const getAllArticles = async (): Promise<Article[]> => {
   try {
     // Fetch all documentation pages
-    const response = await axios.get(`${API_URL}/documentation/pages`);
+    const response = await apiClient.get(`/documentation/pages`);
     
     // Convert backend pages to frontend Articles (without content)
     return response.data.map((page: BackendDocumentationPage) => {
@@ -331,10 +346,10 @@ export const getArticleById = async (id: string | number): Promise<Article | nul
     
     // If it's a numeric ID, use the direct ID endpoint
     if (!isNaN(Number(id))) {
-      response = await axios.get(`${API_URL}/documentation/pages/${id}`);
+      response = await apiClient.get(`/documentation/pages/${id}`);
     } else {
       // Otherwise use the slug endpoint
-      response = await axios.get(`${API_URL}/documentation/pages/slug/${id}`);
+      response = await apiClient.get(`/documentation/pages/slug/${id}`);
     }
     
     // Convert backend page to frontend Article
@@ -351,7 +366,7 @@ export const getArticleById = async (id: string | number): Promise<Article | nul
 export const getPageById = async (id: string): Promise<Page | null> => {
   try {
     // Fetch the page with its children
-    const response = await axios.get(`${API_URL}/documentation/pages/slug/${id}/with-children`);
+    const response = await apiClient.get(`/documentation/pages/slug/${id}/with-children`);
     
     // Convert backend page to frontend Page
     return convertToPage(response.data);
@@ -376,7 +391,7 @@ export const getPageByPath = async (path: string): Promise<Page | null> => {
     if (!isNaN(Number(path))) {
       try {
         console.log(`Fetching page with numeric ID: ${path}`);
-        const response = await axios.get(`${API_URL}/documentation/pages/${path}`);
+        const response = await apiClient.get(`/documentation/pages/${path}`);
         return convertToPage(response.data);
       } catch (idError) {
         console.error(`Error fetching page with ID ${path}:`, idError);
@@ -387,7 +402,7 @@ export const getPageByPath = async (path: string): Promise<Page | null> => {
     else {
       try {
         console.log(`Fetching page with slug: ${path}`);
-        const response = await axios.get(`${API_URL}/documentation/pages/slug/${path}`);
+        const response = await apiClient.get(`/documentation/pages/slug/${path}`);
         return convertToPage(response.data);
       } catch (slugError) {
         console.error(`Error fetching page with slug ${path}:`, slugError);
@@ -405,7 +420,7 @@ export const getPageByPath = async (path: string): Promise<Page | null> => {
  */
 export const getAllPages = async (): Promise<Page[]> => {
   try {
-    const response = await axios.get(`${API_URL}/documentation/pages`);
+    const response = await apiClient.get(`/documentation/pages`);
     const allPages = response.data;
     
     // Map for organizing children by parent ID
@@ -468,13 +483,13 @@ export const searchArticles = async (query: string): Promise<Article[]> => {
   try {
     // Try to use the backend search endpoint
     try {
-      const response = await axios.get(`${API_URL}/documentation/search?q=${encodeURIComponent(query)}`);
+      const response = await apiClient.get(`/documentation/search?q=${encodeURIComponent(query)}`);
       return response.data.map((item: any) => convertToArticle(item));
     } catch (error) {
       console.error('Backend search failed, falling back to client-side search:', error);
       
       // Fallback to client-side search
-      const allArticlesResponse = await axios.get(`${API_URL}/documentation/pages`);
+      const allArticlesResponse = await apiClient.get(`/documentation/pages`);
       const allArticles = allArticlesResponse.data.map((item: any) => convertToArticle(item));
       
       // Filter articles by title and description
@@ -493,7 +508,12 @@ export const searchArticles = async (query: string): Promise<Article[]> => {
 /**
  * Save an article (update an existing article)
  */
+/**
+ * @deprecated This method is deprecated. Content is now automatically synced via WebSocket collaboration.
+ * Only use this for initial creation or metadata updates. For content edits, use CollaborativeEditor.
+ */
 export const saveArticle = async (article: Page): Promise<Page | null> => {
+  console.warn('saveArticle is deprecated - content should be synced via WebSocket collaboration');
   try {
     // Determine if article ID is numeric or a slug
     let numericId: number;
@@ -505,7 +525,7 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
     } else {
       // If it's a slug, we need to fetch the numeric ID first
       try {
-        const response = await axios.get(`${API_URL}/documentation/pages/slug/${article.id}`);
+        const response = await apiClient.get(`/documentation/pages/slug/${article.id}`);
         numericId = response.data.id;
       } catch (error) {
         console.error(`Error fetching article with slug ${article.id}:`, error);
@@ -514,7 +534,7 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
     }
     
     // Fetch the current article to get its created_at and updated_at fields
-    const currentArticleResponse = await axios.get(`${API_URL}/documentation/pages/${numericId}`);
+    const currentArticleResponse = await apiClient.get(`/documentation/pages/${numericId}`);
     const currentArticle = currentArticleResponse.data;
     
     // Convert status string to enum value expected by backend
@@ -548,10 +568,10 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
     console.log('Saving article with payload:', JSON.stringify(payload));
     
     // Update the article
-    const response = await axios.put(`${API_URL}/documentation/pages/${numericId}`, payload);
+    const response = await apiClient.put(`/documentation/pages/${numericId}`, payload);
     
     // Fetch the updated article
-    const updatedArticleResponse = await axios.get(`${API_URL}/documentation/pages/${numericId}`);
+    const updatedArticleResponse = await apiClient.get(`/documentation/pages/${numericId}`);
     
     // Convert backend article to frontend Page
     return convertToPage(updatedArticleResponse.data);
@@ -580,52 +600,45 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
   try {
     // Generate a slug from the title if not provided
     const slug = article.slug || article.title?.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || `page-${Date.now()}`;
-    
+
     // Convert status string to enum value expected by backend
     let statusValue;
     if (typeof article.status === 'string') {
       statusValue = article.status.toLowerCase();
     } else {
-      // Default to published
-      statusValue = 'published';
+      // Default to draft
+      statusValue = 'draft';
     }
-    
-    // Generate timestamps in the format expected by the backend (YYYY-MM-DDTHH:MM:SS)
-    // Use ISO format but truncate to seconds for NaiveDateTime compatibility
-    const now = new Date().toISOString().split('.')[0];
-    
-    // Convert content string to base64 (to be sent as binary)
-    const contentString = article.content || '';
-    const contentBytes = Array.from(new TextEncoder().encode(contentString));
-    
-    // Prepare the payload with all required fields as expected by the backend
+
+    // Generate a UUID for the new page
+    const uuid = crypto.randomUUID();
+
+    // Prepare the payload matching NewDocumentationPage backend struct
     const payload = {
-      slug: slug,
+      uuid: uuid,
       title: article.title || 'Untitled',
-      description: article.description || '',
-      content: contentBytes, // Send as array of bytes
-      status: statusValue,
+      slug: slug,
       icon: article.icon || '📄',
+      cover_image: null,
+      status: statusValue,
+      created_by: uuid, // Will be overridden by backend with actual user UUID
+      last_edited_by: uuid, // Will be overridden by backend with actual user UUID
       parent_id: article.parent_id !== undefined ? article.parent_id : null,
-      display_order: article.display_order !== undefined ? article.display_order : 0,
       ticket_id: article.ticket_id || null,
-      created_at: now,
-      updated_at: now
+      display_order: article.display_order !== undefined ? article.display_order : 0,
+      is_public: false,
+      is_template: false,
+      yjs_state_vector: null,
+      yjs_document: null,
+      yjs_client_id: null,
+      has_unsaved_changes: false
     };
-    
+
     // Print payload as a formatted string for debugging
     console.log('Creating article with payload:', JSON.stringify(payload, null, 2));
-    
-    // Create the article with explicit JSON content type
-    const response = await axios({
-      method: 'POST',
-      url: `${API_URL}/documentation/pages`,
-      data: payload,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
-    });
+
+    // Create the article
+    const response = await apiClient.post(`/documentation/pages`, payload);
     
     console.log('Article created successfully:', response.data);
     
@@ -637,7 +650,7 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
     
     try {
       // Fetch the created article using the correct endpoint
-      const createdArticleResponse = await axios.get(`${API_URL}/documentation/pages/${response.data.id}`);
+      const createdArticleResponse = await apiClient.get(`/documentation/pages/${response.data.id}`);
       
       // Convert backend article to frontend Page
       return convertToPage(createdArticleResponse.data);
@@ -671,16 +684,21 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
 /**
  * Save the content of a page
  */
+/**
+ * @deprecated This method is deprecated. Content is now automatically synced via WebSocket collaboration.
+ * Use CollaborativeEditor for content edits - it handles all sync automatically.
+ */
 export const savePageContent = async (pageId: string, content: string): Promise<Page | null> => {
+  console.warn('savePageContent is deprecated - content should be synced via WebSocket collaboration');
   try {
     let page;
     
     // Fetch the page first to get all its data
     if (!isNaN(Number(pageId))) {
-      const pageResponse = await axios.get(`${API_URL}/documentation/pages/${pageId}`);
+      const pageResponse = await apiClient.get(`/documentation/pages/${pageId}`);
       page = pageResponse.data;
     } else {
-      const pageResponse = await axios.get(`${API_URL}/documentation/pages/slug/${pageId}`);
+      const pageResponse = await apiClient.get(`/documentation/pages/slug/${pageId}`);
       page = pageResponse.data;
     }
     
@@ -719,10 +737,10 @@ export const savePageContent = async (pageId: string, content: string): Promise<
       console.log('Sending update payload:', JSON.stringify(payload));
       
       // Update the page using the standard update endpoint
-      const response = await axios.put(`${API_URL}/documentation/pages/${page.id}`, payload);
+      const response = await apiClient.put(`/documentation/pages/${page.id}`, payload);
       
       // Get the updated page
-      const updatedPageResponse = await axios.get(`${API_URL}/documentation/pages/${page.id}`);
+      const updatedPageResponse = await apiClient.get(`/documentation/pages/${page.id}`);
       
       // Convert backend page to frontend Page
       return convertToPage(updatedPageResponse.data);
@@ -754,7 +772,7 @@ export const savePageContent = async (pageId: string, content: string): Promise<
 export const getPagesByParentId = async (parentId: string): Promise<Page[]> => {
   try {
     // Fetch pages by parent ID
-    const response = await axios.get(`${API_URL}/documentation/pages/parent/${parentId}`);
+    const response = await apiClient.get(`/documentation/pages/parent/${parentId}`);
     
     // Convert backend pages to frontend Pages
     return response.data.map(convertToPage);
@@ -770,7 +788,7 @@ export const getPagesByParentId = async (parentId: string): Promise<Page[]> => {
 export const getPageWithChildrenByParentId = async (pageId: string): Promise<Page | null> => {
   try {
     // Fetch the page with its children
-    const response = await axios.get(`${API_URL}/documentation/pages/${pageId}/with-children-by-parent`);
+    const response = await apiClient.get(`/documentation/pages/${pageId}/with-children-by-parent`);
     
     // Convert backend page to frontend Page
     return convertToPage(response.data);
@@ -788,7 +806,7 @@ export const getPageWithChildrenByParentId = async (pageId: string): Promise<Pag
 export const updateParent = async (pageId: string, newParentId: string | number | null): Promise<Page | null> => {
   try {
     // Get the current page data
-    const pageResponse = await axios.get(`${API_URL}/documentation/pages/${pageId}`);
+    const pageResponse = await apiClient.get(`/documentation/pages/${pageId}`);
     const page = pageResponse.data;
     
     // Create a copy of the page to modify
@@ -830,7 +848,7 @@ export const updateParent = async (pageId: string, newParentId: string | number 
  */
 export const reorderPages = async (parentId: string | number | null, pageOrders: { page_id: number, display_order: number }[]): Promise<boolean> => {
   try {
-    await axios.post(`${API_URL}/documentation/pages/reorder`, {
+    await apiClient.post(`/documentation/pages/reorder`, {
       parent_id: parentId !== null ? Number(parentId) : null,
       page_orders: pageOrders,
     });
@@ -846,7 +864,7 @@ export const reorderPages = async (parentId: string | number | null, pageOrders:
  */
 export const movePage = async (pageId: string | number, newParentId: string | number | null, displayOrder: number): Promise<Page | null> => {
   try {
-    const response = await axios.post(`${API_URL}/documentation/pages/move`, {
+    const response = await apiClient.post(`/documentation/pages/move`, {
       page_id: Number(pageId),
       new_parent_id: newParentId !== null ? Number(newParentId) : null,
       display_order: displayOrder,
@@ -863,7 +881,7 @@ export const movePage = async (pageId: string | number, newParentId: string | nu
  */
 export const getOrderedPagesByParentId = async (parentId: string | number): Promise<Page[]> => {
   try {
-    const response = await axios.get(`${API_URL}/documentation/pages/ordered/parent/${parentId}`);
+    const response = await apiClient.get(`/documentation/pages/ordered/parent/${parentId}`);
     return response.data.map(convertToPage);
   } catch (error) {
     console.error(`Error fetching ordered pages for parent ${parentId}:`, error);
@@ -876,7 +894,7 @@ export const getOrderedPagesByParentId = async (parentId: string | number): Prom
  */
 export const getOrderedTopLevelPages = async (): Promise<Page[]> => {
   try {
-    const response = await axios.get(`${API_URL}/documentation/pages/ordered/top-level`);
+    const response = await apiClient.get(`/documentation/pages/ordered/top-level`);
     return response.data.map(convertToPage);
   } catch (error) {
     console.error('Error fetching ordered top-level pages:', error);
@@ -889,7 +907,7 @@ export const getOrderedTopLevelPages = async (): Promise<Page[]> => {
  */
 export const getPageWithOrderedChildren = async (pageId: string | number): Promise<Page | null> => {
   try {
-    const response = await axios.get(`${API_URL}/documentation/pages/${pageId}/with-ordered-children`);
+    const response = await apiClient.get(`/documentation/pages/${pageId}/with-ordered-children`);
     return convertToPage(response.data);
   } catch (error) {
     console.error(`Error fetching page with ordered children for ${pageId}:`, error);
@@ -911,7 +929,7 @@ export const deleteArticle = async (pageId: string | number): Promise<boolean> =
     } else {
       // If it's a slug, we need to fetch the numeric ID first
       try {
-        const response = await axios.get(`${API_URL}/documentation/pages/slug/${pageId}`);
+        const response = await apiClient.get(`/documentation/pages/slug/${pageId}`);
         numericId = response.data.id;
       } catch (error) {
         console.error(`Error fetching page with slug ${pageId}:`, error);
@@ -920,10 +938,30 @@ export const deleteArticle = async (pageId: string | number): Promise<boolean> =
     }
     
     // Delete the page
-    await axios.delete(`${API_URL}/documentation/pages/${numericId}`);
+    await apiClient.delete(`/documentation/pages/${numericId}`);
     return true;
   } catch (error) {
     console.error(`Error deleting documentation page ${pageId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Update only page metadata (title, slug, etc.) without touching content
+ * Content is automatically synced via WebSocket collaboration
+ */
+export const updatePageMetadata = async (
+  pageId: string,
+  metadata: { title?: string; slug?: string; icon?: string }
+): Promise<boolean> => {
+  try {
+    const response = await apiClient.put(
+      `/documentation/pages/${pageId}/metadata`,
+      metadata
+    );
+    return response.status === 200;
+  } catch (error) {
+    console.error(`Error updating page metadata for ${pageId}:`, error);
     return false;
   }
 };
@@ -946,5 +984,6 @@ export default {
   movePage,
   getOrderedPagesByParentId,
   getOrderedTopLevelPages,
-  getPageWithOrderedChildren
+  getPageWithOrderedChildren,
+  updatePageMetadata
 }; 

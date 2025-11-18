@@ -97,6 +97,25 @@ const handleCloseRevisionHistory = () => {
 const toggleRevisionHistory = () => {
   showRevisionHistory.value = !showRevisionHistory.value;
 };
+
+// Handle convert to documentation
+const handleConvertToDocumentation = async () => {
+  try {
+    // Call backend endpoint to create documentation page from ticket
+    const response = await apiClient.post(`/tickets/${props.ticketId}/documentation/create`, {
+      title: `Documentation: Ticket #${props.ticketId}`,
+      icon: '📋',
+      parent_id: null
+    });
+
+    if (response.data && response.data.id) {
+      // Navigate to the new documentation page
+      router.push(`/documentation/${response.data.id}`);
+    }
+  } catch (error) {
+    console.error('Failed to convert to documentation:', error);
+  }
+};
 </script>
 
 <template>
@@ -114,6 +133,17 @@ const toggleRevisionHistory = () => {
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+          </svg>
+        </button>
+
+        <!-- Convert to Documentation -->
+        <button
+          @click="handleConvertToDocumentation"
+          class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+          title="Convert to documentation page"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z" />
           </svg>
         </button>
 

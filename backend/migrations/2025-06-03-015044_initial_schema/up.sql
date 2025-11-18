@@ -220,7 +220,6 @@ CREATE TABLE article_content_revisions (
     yjs_document_content BYTEA NOT NULL,    -- Full Yjs update (V1 encoded)
     contributed_by UUID[] NOT NULL DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    word_count INTEGER DEFAULT 0,
     UNIQUE(article_content_id, revision_number)
 );
 
@@ -255,16 +254,8 @@ CREATE TABLE documentation_pages (
     yjs_client_id BIGINT, -- Last client ID that updated this document
 
     -- Metadata
-    estimated_reading_time INTEGER DEFAULT 0, -- in minutes
-    word_count INTEGER DEFAULT 0,
     has_unsaved_changes BOOLEAN NOT NULL DEFAULT FALSE
 );
-
--- Ensure reading time and word count are positive
-ALTER TABLE documentation_pages ADD CONSTRAINT positive_reading_time
-    CHECK (estimated_reading_time IS NULL OR estimated_reading_time > 0);
-ALTER TABLE documentation_pages ADD CONSTRAINT positive_word_count
-    CHECK (word_count IS NULL OR word_count >= 0);
 
 -- Optional: Simple revision history (major versions only)
 CREATE TABLE documentation_revisions (
@@ -277,7 +268,6 @@ CREATE TABLE documentation_revisions (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     created_by UUID NOT NULL REFERENCES users(uuid) ON DELETE RESTRICT,
     change_summary TEXT, -- Optional summary of changes
-    word_count INTEGER DEFAULT 0,
 
     UNIQUE(page_id, revision_number)
 );

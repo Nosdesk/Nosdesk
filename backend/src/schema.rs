@@ -50,7 +50,6 @@ diesel::table! {
         yjs_document_content -> Bytea,
         contributed_by -> Array<Nullable<Uuid>>,
         created_at -> Timestamptz,
-        word_count -> Nullable<Int4>,
     }
 }
 
@@ -169,8 +168,6 @@ diesel::table! {
         yjs_state_vector -> Nullable<Bytea>,
         yjs_document -> Nullable<Bytea>,
         yjs_client_id -> Nullable<Int8>,
-        estimated_reading_time -> Nullable<Int4>,
-        word_count -> Nullable<Int4>,
         has_unsaved_changes -> Bool,
     }
 }
@@ -187,7 +184,6 @@ diesel::table! {
         created_at -> Timestamptz,
         created_by -> Uuid,
         change_summary -> Nullable<Text>,
-        word_count -> Nullable<Int4>,
     }
 }
 

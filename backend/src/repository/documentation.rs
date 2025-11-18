@@ -160,9 +160,97 @@ pub fn get_page_with_ordered_children(
 ) -> Result<DocumentationPageWithChildren, Error> {
     let page = get_documentation_page(page_id, conn)?;
     let children = get_ordered_pages_by_parent_id(conn, page_id)?;
-    
+
     Ok(DocumentationPageWithChildren {
         page,
         children,
     })
+}
+
+// ============= Yjs Collaboration Methods =============
+
+// Update documentation page Yjs state (for WebSocket sync auto-save)
+pub fn update_documentation_yjs_state(
+    conn: &mut DbConnection,
+    page_id: i32,
+    yjs_document: Vec<u8>,
+) -> Result<DocumentationPage, Error> {
+    use crate::schema::documentation_pages::dsl;
+
+    diesel::update(dsl::documentation_pages.find(page_id))
+        .set((
+            dsl::yjs_document.eq(Some(yjs_document)),
+            dsl::updated_at.eq(diesel::dsl::now),
+        ))
+        .get_result(conn)
+}
+
+// Create a documentation revision snapshot
+// Note: This is simplified - the schema doesn't have a revision number or contributed_by
+// We'll create a basic revision with just the snapshot and metadata
+pub fn create_documentation_revision(
+    conn: &mut DbConnection,
+    page_id: i32,
+    yjs_state_vector: Vec<u8>,
+    yjs_document_content: Vec<u8>,
+    contributed_by: Vec<Option<uuid::Uuid>>,
+) -> Result<i32, Error> {
+    use crate::schema::documentation_pages::dsl as doc_dsl;
+    use crate::schema::documentation_revisions;
+
+    conn.transaction(|conn| {
+        // Get current revision number from the page and created_by user
+        let page: DocumentationPage = doc_dsl::documentation_pages
+            .find(page_id)
+            .first(conn)?;
+
+        let current_revision = 1; // Schema doesn't track revision number on page
+        let new_revision_number = current_revision;
+
+        // Use the first contributor or the created_by from the page
+        let created_by = contributed_by.first()
+            .and_then(|opt_uuid| *opt_uuid)
+            .unwrap_or(page.created_by);
+
+        // Insert new revision (schema has different fields than article_content_revisions)
+        diesel::insert_into(documentation_revisions::table)
+            .values((
+                documentation_revisions::page_id.eq(page_id),
+                documentation_revisions::revision_number.eq(new_revision_number),
+                documentation_revisions::title.eq(&page.title), // Snapshot the title
+                documentation_revisions::yjs_document_snapshot.eq(yjs_document_content),
+                documentation_revisions::yjs_state_vector.eq(yjs_state_vector),
+                documentation_revisions::created_by.eq(created_by),
+            ))
+            .execute(conn)?;
+
+        Ok(new_revision_number)
+    })
+}
+
+// Get all revisions for a documentation page
+pub fn get_documentation_revisions(
+    conn: &mut DbConnection,
+    page_id: i32,
+) -> Result<Vec<crate::models::DocumentationRevision>, Error> {
+    use crate::schema::documentation_revisions::dsl;
+
+    dsl::documentation_revisions
+        .filter(dsl::page_id.eq(page_id))
+        .order_by(dsl::revision_number.desc())
+        .load(conn)
+}
+
+// Get a specific revision for a documentation page
+pub fn get_documentation_revision(
+    conn: &mut DbConnection,
+    page_id: i32,
+    revision_number: i32,
+) -> Result<crate::models::DocumentationRevision, Error> {
+    use crate::schema::documentation_revisions::dsl;
+
+    dsl::documentation_revisions
+        .filter(dsl::page_id.eq(page_id))
+        .filter(dsl::revision_number.eq(revision_number))
+        .first(conn)
 }

@@ -70,9 +70,12 @@ import {
 // Props
 interface Props {
     docId: string;
+    hideRevisionHistory?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+    hideRevisionHistory: false
+});
 
 // Get auth store for user info
 const authStore = useAuthStore();
@@ -1966,6 +1969,7 @@ defineExpose({
 
             <!-- Revision History Button -->
             <button
+                v-if="!hideRevisionHistory"
                 @click="toggleRevisionHistory"
                 class="toolbar-button"
                 :class="{ 'toolbar-button-active': showRevisionHistory }"

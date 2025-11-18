@@ -325,7 +325,6 @@ pub struct ArticleContentRevision {
     pub yjs_document_content: Vec<u8>,
     pub contributed_by: Vec<Option<Uuid>>,
     pub created_at: NaiveDateTime,
-    pub word_count: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -336,7 +335,6 @@ pub struct NewArticleContentRevision {
     pub yjs_state_vector: Vec<u8>,
     pub yjs_document_content: Vec<u8>,
     pub contributed_by: Vec<Option<Uuid>>,
-    pub word_count: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -346,7 +344,6 @@ pub struct ArticleContentRevisionResponse {
     pub revision_number: i32,
     pub contributed_by: Vec<Option<Uuid>>,
     pub created_at: NaiveDateTime,
-    pub word_count: Option<i32>,
 }
 
 impl From<ArticleContentRevision> for ArticleContentRevisionResponse {
@@ -357,7 +354,6 @@ impl From<ArticleContentRevision> for ArticleContentRevisionResponse {
             revision_number: revision.revision_number,
             contributed_by: revision.contributed_by,
             created_at: revision.created_at,
-            word_count: revision.word_count,
         }
     }
 }
@@ -501,8 +497,6 @@ pub struct DocumentationPage {
     pub yjs_state_vector: Option<Vec<u8>>,
     pub yjs_document: Option<Vec<u8>>,
     pub yjs_client_id: Option<i64>,
-    pub estimated_reading_time: Option<i32>,
-    pub word_count: Option<i32>,
     pub has_unsaved_changes: bool,
 }
 
@@ -1196,8 +1190,6 @@ pub struct NewDocumentationPage {
     pub yjs_state_vector: Option<Vec<u8>>,
     pub yjs_document: Option<Vec<u8>>,
     pub yjs_client_id: Option<i64>,
-    pub estimated_reading_time: Option<i32>,
-    pub word_count: Option<i32>,
     pub has_unsaved_changes: bool,
 }
 
@@ -1219,8 +1211,6 @@ pub struct DocumentationPageUpdate {
     pub yjs_state_vector: Option<Vec<u8>>,
     pub yjs_document: Option<Vec<u8>>,
     pub yjs_client_id: Option<i64>,
-    pub estimated_reading_time: Option<i32>,
-    pub word_count: Option<i32>,
     pub has_unsaved_changes: Option<bool>,
     pub updated_at: Option<chrono::NaiveDateTime>,
 }
@@ -1237,7 +1227,6 @@ pub struct DocumentationRevision {
     pub created_at: chrono::NaiveDateTime,
     pub created_by: Uuid,
     pub change_summary: Option<String>,
-    pub word_count: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -1250,7 +1239,6 @@ pub struct NewDocumentationRevision {
     pub yjs_state_vector: Vec<u8>,
     pub created_by: Uuid,
     pub change_summary: Option<String>,
-    pub word_count: Option<i32>,
 }
 
 // Response models for API
@@ -1273,8 +1261,6 @@ pub struct DocumentationPageResponse {
     pub is_public: bool,
     pub is_template: bool,
     pub archived_at: Option<chrono::NaiveDateTime>,
-    pub estimated_reading_time: Option<i32>,
-    pub word_count: Option<i32>,
     pub has_unsaved_changes: bool,
     pub children: Option<Vec<DocumentationPageResponse>>,
 }
