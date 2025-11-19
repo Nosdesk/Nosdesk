@@ -598,9 +598,6 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
  */
 export const createArticle = async (article: Partial<Page>): Promise<Page | null> => {
   try {
-    // Generate a slug from the title if not provided
-    const slug = article.slug || article.title?.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || `page-${Date.now()}`;
-
     // Convert status string to enum value expected by backend
     let statusValue;
     if (typeof article.status === 'string') {
@@ -610,20 +607,13 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
       statusValue = 'draft';
     }
 
-    // Generate a UUID for the new page using our utility with fallbacks
-    const { uuid: generateUuid } = await import('@/utils/uuid');
-    const uuid = generateUuid();
-
     // Prepare the payload matching NewDocumentationPage backend struct
+    // NOTE: Backend generates UUID, slug, and sets created_by/last_edited_by from auth context
     const payload = {
-      uuid: uuid,
       title: article.title || 'Untitled',
-      slug: slug,
       icon: article.icon || '📄',
       cover_image: null,
       status: statusValue,
-      created_by: uuid, // Will be overridden by backend with actual user UUID
-      last_edited_by: uuid, // Will be overridden by backend with actual user UUID
       parent_id: article.parent_id !== undefined ? article.parent_id : null,
       ticket_id: article.ticket_id || null,
       display_order: article.display_order !== undefined ? article.display_order : 0,

@@ -82,37 +82,27 @@ class AuthService {
 
   /**
    * Check if the system requires initial setup
-   * Security: Prevents multiple simultaneous checks and includes rate limiting
+   * UX ONLY: Caching and deduplication for better user experience
+   * NOTE: Backend enforces actual rate limiting for security
    */
   async checkSetupStatus(): Promise<OnboardingStatus> {
-    // Security: Check if we have cached data that's still valid
+    // UX ONLY: Check if we have cached data that's still valid
     const now = Date.now();
-    if (this.setupStatusCache.data && 
+    if (this.setupStatusCache.data &&
         (now - this.setupStatusCache.timestamp) < this.setupStatusCache.ttl) {
       return this.setupStatusCache.data;
     }
 
-    // Security: Prevent multiple simultaneous setup checks
+    // UX ONLY: Prevent multiple simultaneous setup checks (request deduplication)
     if (this.setupCheckInProgress && this.setupCheckPromise) {
       console.log('🔄 AuthService: Setup check already in progress, waiting...');
       return this.setupCheckPromise;
     }
 
-    // Security: Rate limiting - prevent excessive calls
-    const timeSinceLastCheck = now - this.setupStatusCache.timestamp;
-    if (timeSinceLastCheck < 1000) { // Minimum 1 second between checks
-      console.warn('⚠️  AuthService: Rate limiting setup status checks');
-      if (this.setupStatusCache.data) {
-        return this.setupStatusCache.data;
-      }
-      // Wait for the minimum interval
-      await new Promise(resolve => setTimeout(resolve, 1000 - timeSinceLastCheck));
-    }
-
     // Set up the promise for this check
     this.setupCheckInProgress = true;
     this.setupCheckPromise = this._performSetupStatusCheck();
-    
+
     try {
       const result = await this.setupCheckPromise;
       return result;
@@ -124,32 +114,32 @@ class AuthService {
 
   /**
    * Private method to perform the actual setup status check
-   * Security: Separated to prevent race conditions
+   * UX ONLY: Separated to prevent race conditions in concurrent requests
    */
   private async _performSetupStatusCheck(): Promise<OnboardingStatus> {
     try {
       const response = await apiClient.get(`/auth/setup/status`, {
-        timeout: 10000, // 10 second timeout for security
+        timeout: 10000,
       });
-      
-      // Security: Validate response data
+
+      // Validate response data
       if (!response.data || typeof response.data.requires_setup !== 'boolean') {
         console.error('Invalid setup status response format');
         throw new Error('Invalid setup status response format');
       }
-      
-      // Cache the response
+
+      // Cache the response (UX ONLY - for performance)
       this.setupStatusCache.data = response.data;
       this.setupStatusCache.timestamp = Date.now();
-      
+
       console.log('🔄 AuthService: Setup status checked:', response.data);
       return response.data;
     } catch (error: any) {
       console.error('Error checking setup status:', error);
-      
-      // Security: If it's a network error or server error, assume setup is required
+
+      // UX ONLY: If it's a network error or server error, assume setup is required
       // This ensures new users can still access onboarding even if there are temporary issues
-      if (error.code === 'NETWORK_ERROR' || error.code === 'ERR_NETWORK' || 
+      if (error.code === 'NETWORK_ERROR' || error.code === 'ERR_NETWORK' ||
           (error.response && error.response.status >= 500)) {
         console.warn('Network/server error, assuming setup required for safety');
         return {
@@ -157,7 +147,7 @@ class AuthService {
           user_count: 0
         };
       }
-      
+
       throw error;
     }
   }
@@ -211,13 +201,6 @@ class AuthService {
       console.error('Error logging out:', error);
       throw error;
     }
-  }
-
-  /**
-   * Check if user is authenticated (by checking for CSRF token cookie)
-   */
-  isAuthenticated(): boolean {
-    return !!document.cookie.match(/csrf_token=([^;]+)/);
   }
 
   /**

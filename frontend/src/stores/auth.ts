@@ -11,7 +11,9 @@ import { useThemeStore } from './theme';
 axios.defaults.baseURL = '';
 axios.defaults.withCredentials = true; // Enable sending httpOnly cookies with all requests
 
-// Helper function to check if CSRF token cookie exists (indicates authentication)
+// UX ONLY: Helper function to check if CSRF token cookie exists
+// NOTE: This is for UX optimization only (preventing unnecessary API calls)
+// Authentication state is always determined by backend responses
 function hasCsrfToken(): boolean {
   return !!document.cookie.match(/csrf_token=([^;]+)/);
 }
@@ -41,21 +43,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // Computed properties
-  // Consider authenticated if we have a CSRF token OR if we have user data loaded
+  // UX ONLY: Consider authenticated if we have a CSRF token OR if we have user data loaded
   // The user data check handles the timing gap where cookies are being set but not yet in document.cookie
+  // NOTE: Actual authentication is always verified by backend on every request
   const isAuthenticated = computed(() => hasCsrfToken() || !!user.value);
   const isAdmin = computed(() => user.value?.role === 'admin');
   const isTechnician = computed(() => user.value?.role === 'technician' || user.value?.role === 'admin');
   const isMicrosoftAuth = computed(() => authProvider.value === 'microsoft');
-
-  // Helper to detect token type
-  function detectTokenType(tokenStr: string): string {
-    // Microsoft Entra tokens typically have distinctive characteristics
-    if (tokenStr.length > 500 && tokenStr.includes('eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1')) {
-      return 'microsoft';
-    }
-    return 'local';
-  }
 
   // Fetch current user data from the backend
   async function fetchUserData() {
