@@ -1,57 +1,63 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { formatDate, formatRelativeTime, formatSmartDate } from '@/utils/dateUtils'
+import { useDateStore } from '@/stores/dateStore'
+
 interface Props {
-  value: string | Date
-  format?: 'short' | 'long' | 'relative'
+  value: string | Date | null | undefined
+  format?: 'short' | 'long' | 'relative' | 'smart'
   emptyText?: string
+  showTimezone?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   format: 'short',
-  emptyText: 'Never'
+  emptyText: 'Never',
+  showTimezone: false
 })
 
-const formatDate = (dateValue: string | Date, format: string) => {
-  try {
-    const date = new Date(dateValue)
-    if (isNaN(date.getTime())) {
-      return props.emptyText
-    }
+const dateStore = useDateStore()
 
-    if (format === 'short') {
-      return date.toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      })
-    }
-    
-    if (format === 'long') {
-      return date.toLocaleString()
-    }
-    
-    if (format === 'relative') {
-      const now = new Date()
-      const diffInMs = now.getTime() - date.getTime()
-      const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24))
-      
-      if (diffInDays === 0) return 'Today'
-      if (diffInDays === 1) return 'Yesterday'
-      if (diffInDays < 7) return `${diffInDays} days ago`
-      if (diffInDays < 30) return `${Math.floor(diffInDays / 7)} weeks ago`
-      if (diffInDays < 365) return `${Math.floor(diffInDays / 30)} months ago`
-      return `${Math.floor(diffInDays / 365)} years ago`
-    }
-    
-    return date.toLocaleDateString()
-  } catch (error) {
-    console.error('Error formatting date:', error)
-    return props.emptyText
+const formattedDate = computed(() => {
+  if (!props.value) return props.emptyText
+
+  switch (props.format) {
+    case 'relative':
+      return formatRelativeTime(props.value)
+    case 'smart':
+      return formatSmartDate(props.value)
+    case 'long':
+      return formatDate(props.value, 'MMMM d, yyyy h:mm a', dateStore.effectiveTimezone)
+    case 'short':
+    default:
+      return formatDate(props.value, undefined, dateStore.effectiveTimezone)
   }
-}
+})
+
+const timezoneAbbr = computed(() => {
+  if (!props.showTimezone || !props.value) return ''
+
+  try {
+    const date = new Date(props.value)
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: dateStore.effectiveTimezone,
+      timeZoneName: 'short'
+    })
+
+    const parts = formatter.formatToParts(date)
+    const tzPart = parts.find(p => p.type === 'timeZoneName')
+    return tzPart?.value || ''
+  } catch {
+    return ''
+  }
+})
 </script>
 
 <template>
   <span class="text-secondary text-sm">
-    {{ formatDate(value, format) }}
+    {{ formattedDate }}
+    <span v-if="showTimezone && timezoneAbbr" class="text-xs opacity-60 ml-1">
+      {{ timezoneAbbr }}
+    </span>
   </span>
 </template> 

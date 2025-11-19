@@ -13,8 +13,10 @@
     "type-check": "vue-tsc --build"
   },
   "dependencies": {
+    "@date-fns/tz": "^1.4.1",
     "@types/qrcode": "^1.5.5",
     "axios": "^1.6.2",
+    "date-fns": "^4.1.0",
     "heic2any": "^0.0.4",
     "highlight.js": "^11.9.0",
     "marked": "^9.1.5",

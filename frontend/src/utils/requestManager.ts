@@ -1,82 +1,67 @@
-// Global request manager for handling API request cancellation
-import { ref, onUnmounted } from 'vue'
-import userService from '@/services/userService'
-import { cancelAllRequests as cancelDeviceRequests } from '@/services/deviceService'
-import { cancelAllRequests as cancelTicketRequests } from '@/services/ticketService'
-import { useImagePreloader } from '@/utils/imagePreloader'
+/**
+ * Request Manager
+ *
+ * Centralized request cancellation management using AbortController.
+ * Allows services to cancel pending requests when new requests are made
+ * or when components unmount.
+ *
+ * This replaces the duplicated RequestManager class in:
+ * - ticketService.ts
+ * - deviceService.ts
+ * - userService.ts
+ */
 
-// Global abort controller for page-level cancellation
-const globalAbortController = ref<AbortController | null>(null)
+export class RequestManager {
+  private activeRequests = new Map<string, AbortController>();
 
-export const useRequestManager = () => {
-  const { clearQueue } = useImagePreloader()
+  /**
+   * Create a new request with automatic cancellation of previous requests
+   * @param key - Unique identifier for the request
+   * @returns AbortController for the request
+   */
+  createRequest(key: string): AbortController {
+    // Cancel any existing request with the same key
+    this.cancelRequest(key);
 
-  // Create a new page-level abort controller
-  const createPageController = (): AbortController => {
-    // Cancel any existing page controller
-    if (globalAbortController.value) {
-      globalAbortController.value.abort()
-    }
+    // Create new abort controller
+    const controller = new AbortController();
+    this.activeRequests.set(key, controller);
 
-    // Create new controller
-    const controller = new AbortController()
-    globalAbortController.value = controller
-
-    return controller
+    return controller;
   }
 
-  // Cancel all requests for the current page
-  const cancelPageRequests = (): void => {
-    if (globalAbortController.value) {
-      globalAbortController.value.abort()
-      globalAbortController.value = null
+  /**
+   * Cancel a specific request by key
+   * @param key - Request identifier
+   */
+  cancelRequest(key: string): void {
+    const controller = this.activeRequests.get(key);
+    if (controller) {
+      controller.abort();
+      this.activeRequests.delete(key);
     }
-
-    // Cancel service-specific requests
-    userService.cancelAllRequests()
-    cancelDeviceRequests()
-    cancelTicketRequests()
-
-    // Clear image preloader queue
-    clearQueue()
   }
 
-  // Auto-cleanup on component unmount
-  onUnmounted(() => {
-    cancelPageRequests()
-  })
+  /**
+   * Cancel all active requests
+   */
+  cancelAllRequests(): void {
+    this.activeRequests.forEach(controller => controller.abort());
+    this.activeRequests.clear();
+  }
 
-  return {
-    createPageController,
-    cancelPageRequests,
-    globalAbortController: globalAbortController.value
+  /**
+   * Get the number of active requests
+   */
+  get activeRequestCount(): number {
+    return this.activeRequests.size;
+  }
+
+  /**
+   * Check if a request is active
+   * @param key - Request identifier
+   */
+  hasActiveRequest(key: string): boolean {
+    return this.activeRequests.has(key);
   }
 }
-
-// Utility for creating request-specific abort controllers
-export const createRequestController = (requestKey: string): AbortController => {
-  const controller = new AbortController()
-  
-  // Link to global controller if it exists
-  if (globalAbortController.value) {
-    globalAbortController.value.signal.addEventListener('abort', () => {
-      controller.abort()
-    })
-  }
-
-  return controller
-}
-
-// Hook for handling navigation-based cancellation
-export const useNavigationCancellation = () => {
-  const { cancelPageRequests } = useRequestManager()
-
-  // Call this when navigating away from a page
-  const handleNavigation = () => {
-    cancelPageRequests()
-  }
-
-  return {
-    handleNavigation
-  }
-} 
