@@ -30,7 +30,7 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 
 // Search debouncing
-let searchTimeout: number | null = null;
+let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 const searchDebounceMs = 300;
 
 // Scroll container reference

@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-// @ts-ignore
-import { useThemeStore } from '@/stores/theme';
-// @ts-ignore
+import { useThemeStore, type Theme } from '@/stores/theme';
 import { useAuthStore } from '@/stores/auth';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 
@@ -21,7 +19,7 @@ const emit = defineEmits<{
 }>();
 
 // Local reactive state
-const selectedTheme = ref(themeStore.currentTheme);
+const selectedTheme = ref<Theme>(themeStore.currentTheme);
 const compactView = ref(false);
 const isUpdating = ref(false);
 

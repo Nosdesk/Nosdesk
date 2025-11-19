@@ -35,7 +35,7 @@ const totalDevices = ref(0);
 const pageSize = 20; // Load devices in chunks of 20
 
 // Search debouncing
-let searchTimeout: number | null = null;
+let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 const searchDebounceMs = 300;
 
 // Scroll container reference

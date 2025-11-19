@@ -51,7 +51,7 @@ const emit = defineEmits<Emits>()
 // Local state - completely isolated from parent
 const localValue = ref(props.modelValue)
 const inputRef = ref<HTMLInputElement>()
-let timeoutId: number | null = null
+let timeoutId: ReturnType<typeof setTimeout> | null = null
 
 // Watch for external changes (like reset button)
 watch(() => props.modelValue, (newValue) => {

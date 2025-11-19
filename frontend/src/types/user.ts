@@ -14,6 +14,7 @@ export interface User {
   avatar_url?: string | null;
   banner_url?: string | null;
   avatar_thumb?: string | null;
+  theme?: 'system' | 'light' | 'dark' | null;
   created_at: string;
   updated_at: string;
 }

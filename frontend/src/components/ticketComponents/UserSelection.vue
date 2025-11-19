@@ -27,7 +27,7 @@ const isSearching = ref(false);
 const containerRef = ref<HTMLElement | null>(null);
 
 // Debounce timer for search
-let searchTimeout: number | null = null;
+let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // Initialize input value when modelValue or currentUser changes
 watch(() => [props.modelValue, props.currentUser] as const, async ([newValue, currentUserProp]) => {

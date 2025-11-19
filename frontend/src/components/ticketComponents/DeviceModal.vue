@@ -24,7 +24,10 @@ const createEmptyDevice = (): Device => ({
   hostname: '',
   serial_number: '',
   model: '',
-  warranty_status: ''
+  warranty_status: '',
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  is_editable: true
 });
 
 const device = ref<Device>(createEmptyDevice());

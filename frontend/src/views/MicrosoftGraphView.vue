@@ -31,7 +31,7 @@ const syncResults = ref<SyncResult | null>(null);
 // Progress tracking state (ActiveSync from backend)
 const syncProgress = ref<ActiveSync | null>(null);
 const currentSessionId = ref<string | null>(null);
-const progressPollingInterval = ref<number | null>(null);
+const progressPollingInterval = ref<ReturnType<typeof setInterval> | null>(null);
 const isSyncing = ref(false);
 
 // Active syncs management
