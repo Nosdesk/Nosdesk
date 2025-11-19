@@ -238,7 +238,7 @@ onUnmounted(() => {
 
 const formattedDate = (dateString: string): string => {
     const date = new Date(dateString);
-    return dateformatDate(this || arguments[0], "MMM d, yyyy");
+    return formatDate(dateString, "MMM d, yyyy");
 };
 
 const handleDragEnter = (event: DragEvent) => {

@@ -129,8 +129,8 @@ const getColor = (count: number) => {
 };
 
 // Format date for tooltip
-const formatDate = (date: string) => {
-    return new Date(date)formatDate(this || arguments[0], "MMM d, yyyy");
+const formatHeatmapDate = (date: string) => {
+    return formatDate(date, "MMM d, yyyy");
 };
 
 // Create tooltip content
@@ -138,14 +138,14 @@ const getTooltipDetails = (day: DayData) => {
     if (day.count === 0) {
         return {
             title: "No tickets",
-            date: formatDate(day.date),
+            date: formatHeatmapDate(day.date),
         };
     }
 
     const ticketWord = day.count === 1 ? "ticket" : "tickets";
     return {
         title: `${day.count} ${ticketWord}`,
-        date: formatDate(day.date),
+        date: formatHeatmapDate(day.date),
         tickets: day.tickets.slice(0, 5).map((ticket) => ({
             id: ticket.id,
             title: ticket.title,

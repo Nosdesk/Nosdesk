@@ -213,7 +213,7 @@ const formatDate = (dateString: string) => {
         } else if (diffDays < 30) {
             return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
         } else {
-            return dateformatDate(this || arguments[0], "MMM d, yyyy");
+            return formatDate(dateString, "MMM d, yyyy");
         }
     } catch (e) {
         return dateString;

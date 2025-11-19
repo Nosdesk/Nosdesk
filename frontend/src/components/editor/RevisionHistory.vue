@@ -60,7 +60,7 @@
           <div class="flex items-center gap-2">
             <span class="text-xs font-mono text-tertiary">v{{ revision.revision_number }}</span>
             <span class="text-xs text-tertiary">•</span>
-            <span class="text-xs text-secondary">{{ formatDate(revision.created_at) }}</span>
+            <span class="text-xs text-secondary">{{ formatRelativeDate(revision.created_at) }}</span>
           </div>
           <svg
             v-if="selectedRevision?.id === revision.id"
@@ -281,7 +281,7 @@ async function executeRestore() {
 }
 
 // Format date for display
-function formatDate(dateString: string): string {
+function formatRelativeDate(dateString: string): string {
   const date = new Date(dateString)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
@@ -294,8 +294,7 @@ function formatDate(dateString: string): string {
   if (diffHours < 24) return `${diffHours}h ago`
   if (diffDays < 7) return `${diffDays}d ago`
 
-  return dateformatDate(this || arguments[0], "MMM d, yyyy") !== now.getFullYear() ? 'numeric' : undefined,
-  })
+  return formatDate(dateString, "MMM d, yyyy")
 }
 
 // Watch for ticketId changes

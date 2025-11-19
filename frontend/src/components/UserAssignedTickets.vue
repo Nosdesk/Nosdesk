@@ -76,10 +76,7 @@ const formatRelativeTime = (dateString: string) => {
             const weeks = Math.floor(days / 7);
             return `${weeks}w ago`;
         } else {
-            return dateformatDate(this || arguments[0], "MMM d, yyyy") !== now.getFullYear()
-                        ? "numeric"
-                        : undefined,
-            });
+            return formatDate(dateString, "MMM d, yyyy");
         }
     }
 };

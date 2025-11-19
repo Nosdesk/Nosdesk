@@ -80,7 +80,7 @@
           <div class="flex items-center gap-2">
             <span class="text-xs font-mono text-tertiary">v{{ revision.revision_number }}</span>
             <span class="text-xs text-tertiary">•</span>
-            <span class="text-xs text-secondary">{{ formatDate(revision.created_at) }}</span>
+            <span class="text-xs text-secondary">{{ formatRelativeDate(revision.created_at) }}</span>
           </div>
           <svg
             v-if="selectedRevision?.id === revision.id"
@@ -172,7 +172,7 @@ onMounted(async () => {
 })
 
 // Format date for display
-const formatDate = (dateString: string) => {
+const formatRelativeDate = (dateString: string) => {
   const date = new Date(dateString)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
@@ -185,8 +185,7 @@ const formatDate = (dateString: string) => {
   if (diffHours < 24) return `${diffHours}h ago`
   if (diffDays < 7) return `${diffDays}d ago`
 
-  return dateformatDate(this || arguments[0], "MMM d, yyyy") !== now.getFullYear() ? 'numeric' : undefined
-  })
+  return formatDate(dateString, "MMM d, yyyy")
 }
 
 // Select a revision to view

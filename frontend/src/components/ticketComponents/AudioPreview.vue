@@ -28,7 +28,7 @@ const urlCreator = window.URL || window.webkitURL;
 // Generate a more user-friendly name for the voice note
 const voiceNoteName = computed(() => {
   const now = new Date();
-  const formattedDate = nowformatDate(this || arguments[0], "MMM d, yyyy");
+  const formattedDate = formatDate(dateString, "MMM d, yyyy");
   return `Voice Note ${formattedDate}`;
 });
 

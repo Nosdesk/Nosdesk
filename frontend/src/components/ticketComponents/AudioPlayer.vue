@@ -44,7 +44,7 @@ const formattedDuration = computed(() => {
 const formattedDate = (dateString?: string): string => {
   if (!dateString) return "";
   const date = new Date(dateString);
-  return dateformatDate(this || arguments[0], "MMM d, yyyy");
+  return formatDate(dateString, "MMM d, yyyy");
 };
 
 const drawWaveform = () => {

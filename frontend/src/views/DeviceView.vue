@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDate, formatDateTime } from '@/utils/dateUtils';
+import { formatDate as formatDateUtil, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import BackButton from '@/components/common/BackButton.vue';
@@ -158,7 +158,7 @@ const formatDate = (dateString: string) => {
       const hours = Math.floor(diffMinutes / 60);
       return `${hours} hour${hours === 1 ? '' : 's'} ago`;
     } else {
-      return dateformatDate(this || arguments[0], "MMM d, yyyy");
+      return formatDateUtil(dateString, "MMM d, yyyy");
     }
   } catch (e) {
     return dateString;
