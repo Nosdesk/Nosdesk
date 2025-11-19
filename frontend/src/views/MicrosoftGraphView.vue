@@ -28,8 +28,8 @@ const graphApiResults = ref<GraphApiTestResult | null>(null);
 const permissionTestResults = ref<PermissionTestResult | null>(null);
 const syncResults = ref<SyncResult | null>(null);
 
-// Progress tracking state
-const syncProgress = ref<SyncProgress | null>(null);
+// Progress tracking state (ActiveSync from backend)
+const syncProgress = ref<ActiveSync | null>(null);
 const currentSessionId = ref<string | null>(null);
 const progressPollingInterval = ref<number | null>(null);
 const isSyncing = ref(false);

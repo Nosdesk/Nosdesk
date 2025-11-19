@@ -2,7 +2,7 @@
 
 export type SyncEntityType = 'users' | 'devices' | 'groups' | 'profile_photos';
 
-export type SyncStatus = 'starting' | 'running' | 'completed' | 'error' | 'cancelled' | 'completed_with_errors';
+export type SyncStatus = 'starting' | 'running' | 'completed' | 'error' | 'cancelled' | 'cancelling' | 'completed_with_errors';
 
 export interface GraphConfiguration {
   clientId: string;
@@ -27,63 +27,48 @@ export interface ConnectionStatus {
   message?: string;
 }
 
+// Backend actual response structure
 export interface SyncProgress {
-  session_id: string;
-  status: SyncStatus;
-  entity_type?: SyncEntityType;
-  total?: number;
-  processed?: number;
-  created?: number;
-  updated?: number;
-  failed?: number;
-  errors?: string[];
-  started_at?: string;
-  completed_at?: string;
-  message?: string;
+  entity: string; // Backend uses "entity" not "entity_type"
+  processed: number; // Backend uses "processed" not "current"
+  total: number;
+  status: string; // Backend uses string, not enum
+  errors: string[]; // Backend always includes this
 }
 
+// Backend SyncProgressState structure (from get_active_syncs endpoint)
 export interface ActiveSync {
   session_id: string;
-  entity_type: SyncEntityType;
-  status: SyncStatus;
+  entity: string; // Backend uses "entity" not "entity_type"
+  current: number; // Backend uses "current" not "processed"
+  total: number;
+  status: string; // Backend uses string
+  message: string;
   started_at: string;
-  progress?: {
-    total: number;
-    processed: number;
-  };
+  updated_at: string;
+  sync_type: string;
 }
 
+// Backend SyncResult structure
 export interface SyncResult {
   success: boolean;
   message: string;
-  session_id?: string;
-  results?: {
-    [key in SyncEntityType]?: {
-      total: number;
-      created: number;
-      updated: number;
-      failed: number;
-      errors?: string[];
-    };
-  };
+  results: SyncProgress[]; // Backend returns array of SyncProgress
+  total_processed: number;
+  total_errors: number;
 }
 
+// Backend response for get_last_sync endpoint
 export interface LastSyncDetails {
   session_id: string;
-  entities: SyncEntityType[];
-  status: SyncStatus;
+  entity: string; // Backend uses entity (singular)
+  current: number;
+  total: number;
+  status: string;
+  message: string;
   started_at: string;
-  completed_at?: string;
-  duration?: number;
-  results?: {
-    [key in SyncEntityType]?: {
-      total: number;
-      created: number;
-      updated: number;
-      failed: number;
-    };
-  };
-  errors?: string[];
+  updated_at: string;
+  sync_type: string;
 }
 
 export interface GraphApiTestResult {
