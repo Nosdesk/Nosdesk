@@ -5,6 +5,7 @@ import { useRecentTicketsStore } from '@/stores/recentTickets'
 import StatusBadge from '@/components/StatusBadge.vue'
 import QuickTooltip from '@/components/QuickTooltip.vue'
 import { onMounted } from 'vue'
+import { formatDateTime } from '@/utils/dateUtils'
 
 const recentTicketsStore = useRecentTicketsStore()
 
@@ -12,18 +13,6 @@ const recentTicketsStore = useRecentTicketsStore()
 onMounted(async () => {
   await recentTicketsStore.fetchRecentTickets()
 })
-
-const formatDate = (dateString: string | undefined) => {
-  if (!dateString) return ''
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
 </script>
 
 <template>
@@ -39,7 +28,7 @@ const formatDate = (dateString: string | undefined) => {
               status: ticket.status,
               requester: ticket.requester,
               assignee: ticket.assignee,
-              created: formatDate(ticket.created_at)
+              created: formatDateTime(ticket.created_at)
             }"
             :fullWidth="true"
           >

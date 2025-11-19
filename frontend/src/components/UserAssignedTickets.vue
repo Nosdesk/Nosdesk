@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
@@ -75,11 +76,7 @@ const formatRelativeTime = (dateString: string) => {
             const weeks = Math.floor(days / 7);
             return `${weeks}w ago`;
         } else {
-            return date.toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year:
-                    date.getFullYear() !== now.getFullYear()
+            return dateformatDate(this || arguments[0], "MMM d, yyyy") !== now.getFullYear()
                         ? "numeric"
                         : undefined,
             });

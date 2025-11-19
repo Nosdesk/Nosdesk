@@ -1,5 +1,6 @@
 # views/components/ticketComponents/LinkedTicketModal.vue
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, watch, computed, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions';
@@ -216,7 +217,7 @@ const formatDate = (dateString: string): string => {
     } else if (diffDays < 7) {
       return `${diffDays}d ago`;
     } else {
-      return date.toLocaleDateString();
+      return formatDate(date);
     }
   } catch (e) {
     return 'Unknown';

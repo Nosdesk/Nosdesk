@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import apiClient from "@/services/apiConfig";
@@ -121,7 +122,7 @@ const fetchConnectionStatus = async () => {
     connectionStatus.value = response.data.status;
 
     if (response.data.last_sync) {
-      lastSync.value = new Date(response.data.last_sync).toLocaleString();
+      lastSync.value = formatDateTime(response.data.last_sync);
     }
 
     // Load connection details
@@ -980,7 +981,7 @@ onMounted(async () => {
             <div class="bg-surface-alt rounded-lg p-4">
               <div class="text-secondary text-sm">Started</div>
               <div class="text-primary font-medium">{{ formatTimeAgo(lastSyncDetails.started_at) }}</div>
-              <div class="text-tertiary text-xs">{{ new Date(lastSyncDetails.started_at).toLocaleString() }}</div>
+              <div class="text-tertiary text-xs">{{ formatDateTime(lastSyncDetails.started_at) }}</div>
             </div>
 
                          <div class="bg-surface-alt rounded-lg p-4">

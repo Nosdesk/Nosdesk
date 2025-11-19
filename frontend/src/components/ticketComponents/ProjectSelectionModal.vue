@@ -1,5 +1,6 @@
 <!-- ProjectSelectionModal.vue -->
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import Modal from '@/components/Modal.vue'
 import type { Project } from '@/types/project'
@@ -131,7 +132,7 @@ const formatDate = (dateString: string): string => {
     } else if (diffDays < 7) {
       return `${diffDays}d ago`;
     } else {
-      return date.toLocaleDateString();
+      return dateformatDate(arguments[0] || this, 'MMM d, yyyy');
     }
   } catch (e) {
     return 'Unknown';

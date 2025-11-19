@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import BackButton from '@/components/common/BackButton.vue';
@@ -157,13 +158,7 @@ const formatDate = (dateString: string) => {
       const hours = Math.floor(diffMinutes / 60);
       return `${hours} hour${hours === 1 ? '' : 's'} ago`;
     } else {
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      return dateformatDate(this || arguments[0], "MMM d, yyyy");
     }
   } catch (e) {
     return dateString;

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import { getTickets } from "@/services/ticketService";
@@ -129,12 +130,7 @@ const getColor = (count: number) => {
 
 // Format date for tooltip
 const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString("en-US", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-    });
+    return new Date(date)formatDate(this || arguments[0], "MMM d, yyyy");
 };
 
 // Create tooltip content

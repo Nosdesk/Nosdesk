@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { logger } from '@/utils/logger';
 import { ref, computed, onMounted } from 'vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import { useAuthStore } from '@/stores/auth';
@@ -119,7 +120,7 @@ const waitForContext = async (): Promise<any> => {
             }
           }
         } catch (error) {
-          console.error('Failed to load MFA setup context:', error);
+          logger.error('Failed to load MFA setup context:', error);
           reject(new Error('Invalid MFA setup context'));
         }
       } else {
@@ -142,7 +143,7 @@ onMounted(async () => {
     try {
       await setupMFAData();
     } catch (error) {
-      console.error('Failed to initialize MFA setup:', error);
+      logger.error('Failed to initialize MFA setup:', error);
       emit('error', 'Failed to initialize MFA setup');
     }
   } else {
@@ -161,7 +162,7 @@ const toggleMFA = async (newValue: boolean) => {
 };
 
 const startMFASetup = async () => {
-  console.log('🔐 startMFASetup called, isLoginSetup:', props.isLoginSetup, 'qrCodeUrl exists:', !!mfa.qrCodeUrl.value);
+  logger.debug('🔐 startMFASetup called, isLoginSetup:', props.isLoginSetup, 'qrCodeUrl exists:', !!mfa.qrCodeUrl.value);
 
   if (props.isLoginSetup) {
     if (!mfa.qrCodeUrl.value) {
@@ -175,7 +176,7 @@ const startMFASetup = async () => {
 };
 
 const verifyMFA = async () => {
-  console.log('🔐 verifyMFA called, isLoginSetup:', props.isLoginSetup);
+  logger.debug('🔐 verifyMFA called, isLoginSetup:', props.isLoginSetup);
 
   if (verificationCode.value.length !== 6) {
     emit('error', 'Please enter a valid 6-digit code');
@@ -204,7 +205,7 @@ const verifyMFA = async () => {
       }
     }
   } catch (err) {
-    console.error('🔐 MFA verification error:', err);
+    logger.error('🔐 MFA verification error:', err);
     emit('error', err instanceof Error ? err.message : 'Invalid verification code. Please try again.');
   }
 };
@@ -304,7 +305,7 @@ const copySecret = async () => {
       secretCopied.value = false;
     }, 2000);
   } catch (err) {
-    console.error('Failed to copy secret:', err);
+    logger.error('Failed to copy secret:', err);
     emit('error', 'Failed to copy to clipboard');
   }
 };
@@ -322,7 +323,7 @@ Each code can only be used once to access your account if you lose your authenti
 Backup Codes:
 ${mfa.backupCodes.value.map((code, index) => `${index + 1}. ${code}`).join('\n')}
 
-Generated on: ${new Date().toLocaleString()}
+Generated on: ${new Date().toISOString()}
 Account: ${authStore.user?.email || 'Unknown'}
 
 Security Notice:
@@ -343,7 +344,7 @@ Security Notice:
     URL.revokeObjectURL(url);
     emit('success', 'Backup codes downloaded successfully');
   } catch (err) {
-    console.error('Failed to download backup codes:', err);
+    logger.error('Failed to download backup codes:', err);
     emit('error', 'Failed to download backup codes');
   }
 };

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, watch, computed, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import CollaborativeEditor from "@/components/CollaborativeEditor.vue";
@@ -292,10 +293,7 @@ const formatDate = (dateString: string) => {
 
   // Show compact date for older updates
   const isThisYear = date.getFullYear() === now.getFullYear();
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    ...(isThisYear ? {} : { year: "numeric" })
+  return dateformatDate(this || arguments[0], "MMM d, yyyy")
   });
 };
 

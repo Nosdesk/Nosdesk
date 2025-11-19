@@ -1,5 +1,6 @@
 <!-- AudioPreview.vue -->
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import UserAvatar from "@/components/UserAvatar.vue";
 import AudioPlayer from "@/components/ticketComponents/AudioPlayer.vue";
 import { computed } from 'vue';
@@ -27,12 +28,7 @@ const urlCreator = window.URL || window.webkitURL;
 // Generate a more user-friendly name for the voice note
 const voiceNoteName = computed(() => {
   const now = new Date();
-  const formattedDate = now.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  const formattedDate = nowformatDate(this || arguments[0], "MMM d, yyyy");
   return `Voice Note ${formattedDate}`;
 });
 

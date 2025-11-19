@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
@@ -91,7 +92,7 @@ const startImport = async () => {
         success: response.data.success_count || 0,
         errors: response.data.error_count || 0
       };
-      lastImport.value = new Date().toLocaleString();
+      lastImport.value = formatDateTime();
       successMessage.value = 'Import completed successfully';
       
       // Close the modal

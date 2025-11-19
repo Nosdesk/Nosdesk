@@ -1,5 +1,6 @@
 <!-- GanttPlanner.vue -->
 <script setup lang="ts">
+import { formatDate as formatDateUtil, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { projectService } from '@/services/projectService'
@@ -165,14 +166,11 @@ watch(() => props.tickets, () => {
 
 // Date formatting helpers
 const formatDate = (date: Date) => {
-  return date.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric'
-  })
+  return formatDateUtil(date, 'MMM d')
 }
 
 const formatHeaderDate = (date: Date) => {
-  const month = date.toLocaleDateString('en-US', { month: 'short' })
+  const month = formatDateUtil(date, 'MMM')
   const day = date.getDate()
   return `${month} ${day}`
 }

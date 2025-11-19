@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, onBeforeUnmount, computed } from "vue";
 import { useRouter } from "vue-router";
 import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
@@ -106,11 +107,7 @@ onBeforeUnmount(() => {
 
 const formattedDate = (dateString: string) => {
   const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return dateformatDate(this || arguments[0], "MMM d, yyyy");
 };
 </script>
 

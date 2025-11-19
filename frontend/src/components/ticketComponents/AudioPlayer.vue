@@ -1,5 +1,6 @@
 <!-- AudioPlayer.vue -->
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import UserAvatar from "@/components/UserAvatar.vue";
 
@@ -43,13 +44,7 @@ const formattedDuration = computed(() => {
 const formattedDate = (dateString?: string): string => {
   if (!dateString) return "";
   const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return dateformatDate(this || arguments[0], "MMM d, yyyy");
 };
 
 const drawWaveform = () => {

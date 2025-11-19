@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import StatusBadge from '@/components/StatusBadge.vue'
+import { formatDate } from '@/utils/dateUtils'
 
 interface Props {
   id: string;
@@ -19,14 +20,6 @@ const props = withDefaults(defineProps<Props>(), {
   showEditButton: true,
   showStatus: true
 })
-
-const formatDate = (dateString: string) => {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  })
-}
 </script>
 
 <template>
@@ -44,7 +37,7 @@ const formatDate = (dateString: string) => {
           <p class="text-sm text-tertiary mt-1">{{ description }}</p>
           <div class="flex items-center gap-4 mt-2 text-xs text-tertiary">
             <span>{{ author }}</span>
-            <span>Updated {{ formatDate(lastUpdated) }}</span>
+            <span>Updated {{ formatDate(lastUpdated, 'MMMM d, yyyy') }}</span>
           </div>
         </div>
       </RouterLink>

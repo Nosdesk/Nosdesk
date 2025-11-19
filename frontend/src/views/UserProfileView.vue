@@ -213,11 +213,7 @@ const formatDate = (dateString: string) => {
         } else if (diffDays < 30) {
             return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
         } else {
-            return date.toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-            });
+            return dateformatDate(this || arguments[0], "MMM d, yyyy");
         }
     } catch (e) {
         return dateString;

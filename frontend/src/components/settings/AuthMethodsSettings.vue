@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import authService from '@/services/authService';
+import { formatDate } from '@/utils/dateUtils';
+import { logger } from '@/utils/logger';
 
 interface AuthMethod {
   id: string;
@@ -75,7 +77,7 @@ const loadAuthMethods = async () => {
 
     authMethods.value = methods;
   } catch (error) {
-    console.error('Failed to load auth methods:', error);
+    logger.error('Failed to load auth methods', { error });
     // Don't show error for this as it might just mean no identities are connected
   } finally {
     loading.value = false;
@@ -86,11 +88,10 @@ const loadActiveSessions = async () => {
   try {
     loading.value = true;
     const sessions = await authService.getSessions();
-    console.log('📋 Loaded sessions:', sessions);
-    console.log('📋 Sessions count:', sessions?.length || 0);
+    logger.debug('Loaded active sessions', { count: sessions?.length || 0 });
     activeSessions.value = sessions;
   } catch (error) {
-    console.error('Failed to load active sessions:', error);
+    logger.error('Failed to load active sessions', { error });
     emit('error', 'Failed to load active sessions');
   } finally {
     loading.value = false;
@@ -116,7 +117,7 @@ const addAuthMethod = async (type: 'microsoft') => {
     await loadAuthMethods();
   } catch (err) {
     emit('error', `Failed to link ${type} account`);
-    console.error(`Error linking ${type} account:`, err);
+    logger.error('Failed to link account', { error: err, type });
   } finally {
     loading.value = false;
   }
@@ -137,7 +138,7 @@ const removeAuthMethod = async (methodId: string, methodType: string) => {
     // Extract error message from backend response
     const errorMessage = err.response?.data?.message || 'Failed to remove authentication method';
     emit('error', errorMessage);
-    console.error('Error removing auth method:', err);
+    logger.error('Failed to remove auth method', { error: err, methodId, methodType });
   } finally {
     loading.value = false;
   }
@@ -153,7 +154,7 @@ const revokeSession = async (sessionId: number) => {
     emit('success', 'Session revoked successfully');
   } catch (err) {
     emit('error', 'Failed to revoke session');
-    console.error('Error revoking session:', err);
+    logger.error('Failed to revoke session', { error: err, sessionId });
   } finally {
     loading.value = false;
   }
@@ -168,21 +169,13 @@ const revokeAllSessions = async () => {
     emit('success', 'All other sessions revoked successfully');
   } catch (err) {
     emit('error', 'Failed to revoke sessions');
-    console.error('Error revoking all sessions:', err);
+    logger.error('Failed to revoke all sessions', { error: err });
   } finally {
     loading.value = false;
   }
 };
 
 // Utility functions
-const formatDate = (dateString: string) => {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  });
-};
-
 const getAuthMethodIcon = (type: string) => {
   switch (type) {
     case 'microsoft':
@@ -216,7 +209,7 @@ const getAuthMethodIcon = (type: string) => {
                     <span v-if="method.isPrimary" class="ml-2 px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs">Primary</span>
                   </div>
                   <div class="text-xs text-tertiary">
-                    Added {{ formatDate(method.createdAt) }}
+                    Added {{ formatDate(method.createdAt, 'MMM d, yyyy') }}
                   </div>
                 </div>
               </div>
@@ -289,7 +282,7 @@ const getAuthMethodIcon = (type: string) => {
                     <span v-if="session.is_current" class="ml-2 px-2 py-1 bg-green-600/20 text-green-400 rounded text-xs">Current</span>
                   </div>
                   <div class="text-xs text-tertiary">
-                    {{ session.location || session.ip_address || 'Unknown location' }} • Last active {{ formatDate(session.last_active) }}
+                    {{ session.location || session.ip_address || 'Unknown location' }} • Last active {{ formatDate(session.last_active, 'MMM d, yyyy') }}
                   </div>
                 </div>
               </div>

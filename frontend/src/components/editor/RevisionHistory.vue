@@ -172,6 +172,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, watch, computed } from 'vue'
 import { useVersionHistory } from '@/composables/useVersionHistory'
 import type { ArticleRevision } from '@/services/versionHistoryService'
@@ -293,10 +294,7 @@ function formatDate(dateString: string): string {
   if (diffHours < 24) return `${diffHours}h ago`
   if (diffDays < 7) return `${diffDays}d ago`
 
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+  return dateformatDate(this || arguments[0], "MMM d, yyyy") !== now.getFullYear() ? 'numeric' : undefined,
   })
 }
 
