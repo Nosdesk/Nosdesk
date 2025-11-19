@@ -1,13 +1,11 @@
 import { logger } from '@/utils/logger';
 import apiClient from './apiConfig';
+import type { UserInfo } from '@/types/user';
 
 // Note: apiClient already has baseURL set to '/api', so we don't need to prefix routes
 
-// User info interface
-export interface UserInfo {
-  uuid: string;
-  name: string;
-}
+// Re-export for backwards compatibility
+export type { UserInfo };
 
 // Define the Page interface
 export interface Page {

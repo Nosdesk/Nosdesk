@@ -1,71 +1,19 @@
 import apiClient from './apiConfig';
-import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions';
 import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
+import type { Ticket, Comment, Attachment, Device, Project } from '@/types/ticket';
+import type { UserInfo } from '@/types/user';
+import type { PaginatedResponse } from '@/types/pagination';
+import type { CommentWithAttachments } from '@/types/comment';
 
 // Request cancellation manager instance
 const requestManager = new RequestManager();
 
-// Define interfaces for our data models
-export interface Device {
-  id: number;
-  name: string;
-  hostname: string;
-  serial_number: string;
-  model: string;
-  warranty_status: string;
-  ticket_id?: number | null;
-}
+// Re-export types for backwards compatibility
+export type { Ticket, Comment, Attachment, Device, Project, UserInfo, CommentWithAttachments };
 
-export interface Comment {
-  id: number;
-  content: string;
-  user_uuid: string;
-  created_at: string;
-  ticket_id: number;
-  attachments?: Attachment[];
-  user?: UserInfo;
-}
-
-export interface Attachment {
-  id: number;
-  url: string;
-  name: string;
-  comment_id: number;
-}
-
-export interface Project {
-  id: number;
-  name: string;
-  description?: string | null;
-  status: 'active' | 'completed' | 'archived';
-  created_at: string;
-  updated_at: string;
-  ticket_count?: number;
-}
-
-export interface Ticket {
-  id: number;
-  title: string;
-  status: TicketStatus;
-  priority: TicketPriority;
-  created: string;
-  modified: string;
-  assignee: string;
-  requester: string;
-  requester_user?: UserInfo | null;  // Complete requester data
-  assignee_user?: UserInfo | null;   // Complete assignee data
-  closed_at?: string;
-  devices?: Device[];
-  comments?: Comment[];
-  article_content?: string;
-  linkedTickets?: number[];
-  linked_tickets?: number[];
-  projects?: Project[];
-}
-
-// Pagination interface
-export interface PaginationParams {
+// Extended pagination params for tickets
+export interface TicketPaginationParams {
   page: number;
   pageSize: number;
   sortField?: string;
@@ -78,35 +26,12 @@ export interface PaginationParams {
   createdAfter?: string;
   createdBefore?: string;
   createdOn?: string;
-    modifiedAfter?: string;
-  modifiedBefore?: string; 
+  modifiedAfter?: string;
+  modifiedBefore?: string;
   modifiedOn?: string;
   closedAfter?: string;
   closedBefore?: string;
   closedOn?: string;
-}
-
-// Paginated response interface
-export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
-
-// User info interface for comments
-export interface UserInfo {
-  uuid: string;
-  name: string;
-  avatar_thumb?: string | null; // Avatar thumbnail for comment users
-}
-
-// Add CommentWithAttachments interface
-export interface CommentWithAttachments {
-  comment: Comment;
-  attachments: Attachment[];
-  user?: UserInfo;
 }
 
 // API functions for tickets
@@ -121,7 +46,7 @@ export const getTickets = async (): Promise<Ticket[]> => {
 };
 
 // Get paginated tickets
-export const getPaginatedTickets = async (params: PaginationParams, requestKey: string = 'paginated-tickets'): Promise<PaginatedResponse<Ticket>> => {
+export const getPaginatedTickets = async (params: TicketPaginationParams, requestKey: string = 'paginated-tickets'): Promise<PaginatedResponse<Ticket>> => {
   try {
     // Create cancellable request
     const controller = requestManager.createRequest(requestKey);

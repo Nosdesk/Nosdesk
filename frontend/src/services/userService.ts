@@ -3,22 +3,10 @@ import { API_URL } from './apiConfig';
 import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
 import type { PaginationParams, PaginatedResponse } from '@/types/pagination';
+import type { User } from '@/types/user';
 
-// User interface matching the backend model
-export interface User {
-  id: number;
-  uuid: string;
-  name: string;
-  email: string;
-  role: string;
-  pronouns?: string | null;
-  avatar_url?: string | null;
-  banner_url?: string | null;
-  avatar_thumb?: string | null;
-  theme?: 'system' | 'light' | 'dark' | null;
-  created_at: string;
-  updated_at: string;
-}
+// Re-export for backwards compatibility
+export type { User };
 
 // Extended pagination params for users
 export interface UserPaginationParams extends PaginationParams {

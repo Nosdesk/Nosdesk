@@ -2,18 +2,7 @@ import { defineStore } from 'pinia'
 import { logger } from '@/utils/logger';
 import { ref } from 'vue'
 import ticketService from '@/services/ticketService'
-
-interface Ticket {
-  id: number;
-  title: string;
-  status: 'open' | 'in-progress' | 'closed';
-  requester?: string;
-  assignee?: string;
-  created_at?: string;
-  updated_at?: string;
-  last_viewed_at?: string;
-  view_count?: number;
-}
+import type { Ticket } from '@/types/ticket'
 
 export const useRecentTicketsStore = defineStore('recentTickets', () => {
   const recentTickets = ref<Ticket[]>([])

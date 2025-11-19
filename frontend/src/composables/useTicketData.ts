@@ -4,57 +4,13 @@ import { useRecentTicketsStore } from "@/stores/recentTickets";
 import { useTitleManager } from "@/composables/useTitleManager";
 import ticketService from "@/services/ticketService";
 import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
+import type { UserInfo } from '@/types/user';
+import type { Ticket, Device } from '@/types/ticket';
+import type { CommentWithAttachments, Attachment } from '@/types/comment';
 
-// Interfaces
-interface UserInfo {
-  uuid: string;
-  name: string;
-}
-
-interface UIAttachment {
-  url: string;
-  name: string;
-  id: number;
-  comment_id: number;
-}
-
-interface CommentWithAttachments {
-  id: number;
-  content: string;
-  user_uuid: string;
-  createdAt: string;
-  created_at: string;
-  ticket_id: number;
-  attachments?: UIAttachment[];
-  user?: UserInfo;
-}
-
-interface TicketDevice {
-  id: number;
-  name: string;
-  hostname: string;
-  serial_number: string;
-  model: string;
-  manufacturer?: string;
-  warranty_status: string;
-}
-
-interface LocalTicket {
-  id: number;
-  title: string;
-  status: TicketStatus;
-  priority: TicketPriority;
-  requester: string;
-  assignee: string | null;
-  created: string;
-  modified: string;
-  article_content: string | null;
-  requester_user?: UserInfo;
-  assignee_user?: UserInfo;
+// Local type extending the canonical Ticket type with UI-specific fields
+interface LocalTicket extends Ticket {
   commentsAndAttachments?: CommentWithAttachments[];
-  projects?: string[];  // Array of project IDs, supporting many-to-many relationship
-  devices?: TicketDevice[];
-  linkedTickets?: number[];
 }
 
 /**
@@ -126,7 +82,7 @@ export function useTicketData() {
   }
 
   // Transform devices from API format
-  function transformDevices(apiDevices: any[]): TicketDevice[] {
+  function transformDevices(apiDevices: any[]): Device[] {
     return apiDevices.map((device) => ({
       id: device.id,
       name: device.name,
