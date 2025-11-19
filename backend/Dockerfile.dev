@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install useful development tools
 RUN cargo install diesel_cli --no-default-features --features postgres
-RUN cargo install cargo-watch
+RUN cargo install cargo-watch --locked
 
 WORKDIR /app
 

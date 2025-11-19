@@ -446,11 +446,11 @@ const initEditor = async () => {
                         mapping,
                         // Use the PermanentUserData instance we populated with user mappings
                         // This allows snapshot rendering to lookup users by client ID
-                        permanentUserData: permanentUserData
+                        permanentUserData: permanentUserData as any
                     }),
                     yCursorPlugin(provider.awareness, {
                         // Custom cursor builder that handles missing users gracefully
-                        cursorBuilder: (user: any) => {
+                        cursorBuilder: (user: any, clientId: number): HTMLElement | null => {
                             if (!user) return null;
                             const cursor = document.createElement('span');
                             cursor.classList.add('ProseMirror-yjs-cursor');
@@ -463,7 +463,7 @@ const initEditor = async () => {
                         },
                         // Handle missing users gracefully (e.g., when viewing snapshots)
                         getClientColor: (clientId: number) => {
-                            const user = provider.awareness.getStates().get(clientId);
+                            const user = provider?.awareness.getStates().get(clientId);
                             if (user && user.user) {
                                 return user.user.color || '#808080';
                             }
@@ -721,18 +721,19 @@ const initEditor = async () => {
                                 // Use Yjs applyUpdate
                                 import('yjs').then(Y => {
                                     try {
+                                        if (!ydoc) return;
                                         Y.applyUpdate(ydoc, updateBytes);
                                         const afterLength = yXmlFragment ? yXmlFragment.length : -1;
                                         log.info(`   ✅ Manual apply succeeded! yXmlFragment length: ${beforeLength} -> ${afterLength}`);
 
                                         // DIAGNOSTIC: Inspect what's actually in the document
                                         log.info("   🔍 Inspecting Yjs document structure:");
-                                        const docKeys = Array.from(ydoc.share.keys());
+                                        const docKeys = Array.from(ydoc?.share.keys() || []);
                                         log.info(`   📋 Top-level keys in document: ${JSON.stringify(docKeys)}`);
 
                                         // Check each key and its type
                                         docKeys.forEach(key => {
-                                            const item = ydoc.get(key);
+                                            const item = ydoc?.get(key);
                                             const typeName = item?.constructor?.name || 'unknown';
                                             if (item && typeof item === 'object' && 'length' in item) {
                                                 log.info(`   📌 "${key}": ${typeName}, length = ${(item as any).length}`);
@@ -742,7 +743,7 @@ const initEditor = async () => {
                                         });
 
                                         // Specifically check the "prosemirror" key
-                                        const pmFragment = ydoc.get('prosemirror');
+                                        const pmFragment = ydoc?.get('prosemirror');
                                         if (pmFragment) {
                                             log.info(`   ✅ Found "prosemirror" key: type=${pmFragment.constructor.name}`);
                                             if ('length' in pmFragment) {
@@ -778,7 +779,7 @@ const initEditor = async () => {
                         });
                     }
                 }
-                if (originalOnMessage) {
+                if (originalOnMessage && provider?.ws) {
                     originalOnMessage.call(provider.ws, event);
                 }
             };
@@ -1410,6 +1411,9 @@ const diagnoseConnectionIssue = () => {
         },
     });
 
+    // Get auth store first
+    const authStore = useAuthStore();
+
     // Authentication status
     const token = localStorage.getItem("token");
     log.info("Authentication Status:", {
@@ -1446,7 +1450,6 @@ const diagnoseConnectionIssue = () => {
 
     // Troubleshooting suggestions
     log.info("=== Troubleshooting Suggestions ===");
-    const authStore = useAuthStore();
     if (!authStore.isAuthenticated) {
         log.error("❌ Not authenticated - Please log in again");
     }

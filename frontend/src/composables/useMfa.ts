@@ -1,11 +1,11 @@
 import { ref, computed } from 'vue';
 import authService, {
-  MFASetupData,
-  MFAStatusResponse,
-  MFAVerifyRequest,
-  MFAEnableRequest,
-  MFALoginSetupRequest,
-  MFALoginEnableRequest
+  type MFASetupData,
+  type MFAStatusResponse,
+  type MFAVerifyRequest,
+  type MFAEnableRequest,
+  type MFALoginSetupRequest,
+  type MFALoginEnableRequest
 } from '@/services/authService';
 
 /**

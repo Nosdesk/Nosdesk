@@ -37,41 +37,49 @@ A modern helpdesk and IT management system built with Rust and Vue.js, designed 
 
 ## 🚀 Quick Start
 
-### Docker Development (Recommended)
-Run the full stack in Docker, with the backend serving the frontend and all dependencies:
+### Building from Scratch
 
-#### **Development with Hot Reloading**
-For live code and frontend hot reloading:
+**Prerequisites:** Docker and Docker Compose
+
+```bash
+# 1. Clone and navigate
+git clone https://github.com/yourusername/Nosdesk.git
+cd Nosdesk
+
+# 2. Review docker.env (contains all configuration)
+# Update JWT_SECRET, MFA_ENCRYPTION_KEY, and passwords for production
+
+# 3. Build and start development environment
+docker compose --profile dev up --build
+```
+
+Access the app at [http://localhost:8080](http://localhost:8080)
+
+### Docker Profiles
+
+**Development** (`--profile dev`):
 ```bash
 docker compose --profile dev up --build
 ```
-- `backend-dev`: Rust backend with live code reload
-- `frontend-watch`: Vue dev server with hot reload
-- Access the app at [http://localhost:8080](http://localhost:8080)
+- **postgres**: PostgreSQL 16 database with persistent storage
+- **redis**: Redis 7 for caching and real-time features
+- **backend-dev**: Rust API with hot reload and auto-migrations
+- **frontend-watch**: Vue.js dev server with HMR
 
-#### **Production Environment**
-For production-like deployment:
+**Production** (`--profile prod`):
 ```bash
 docker compose --profile prod up --build
 ```
-- The Rust backend serves the Vue.js frontend and API endpoints
-- All services (Postgres, Redis, backend) are started automatically
+- Optimized builds, backend serves pre-built frontend
 
----
+### Configuration
 
-## 🐳 Docker Compose Services
-
-- **postgres**: PostgreSQL database with persistent storage
-- **redis**: Redis cache for real-time features and rate limiting
-- **backend**: Rust API server (production, serves built frontend)
-- **backend-dev**: Rust API server (development, with live reload and auto-migrations)
-- **frontend-watch**: Vue.js dev server for hot reloading
-
----
-
-## 📋 Prerequisites
-
-- [Docker](https://www.docker.com/) and Docker Compose
+All environment variables are in `docker.env`:
+- **Security**: JWT_SECRET, MFA_ENCRYPTION_KEY
+- **Database**: PostgreSQL connection (default: `helpdesk` db)
+- **Redis**: Cache and session storage
+- **Microsoft**: Optional Entra ID/Intune integration
+- **SMTP**: Email notifications
 
 ## 🏗️ Technology Stack
 
