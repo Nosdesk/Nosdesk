@@ -1,4 +1,5 @@
 import apiClient from './apiConfig';
+import { logger } from '@/utils/logger';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -95,7 +96,7 @@ class AuthService {
 
     // UX ONLY: Prevent multiple simultaneous setup checks (request deduplication)
     if (this.setupCheckInProgress && this.setupCheckPromise) {
-      console.log('🔄 AuthService: Setup check already in progress, waiting...');
+      logger.debug('Setup check already in progress, waiting');
       return this.setupCheckPromise;
     }
 
@@ -124,7 +125,7 @@ class AuthService {
 
       // Validate response data
       if (!response.data || typeof response.data.requires_setup !== 'boolean') {
-        console.error('Invalid setup status response format');
+        logger.error('Invalid setup status response format');
         throw new Error('Invalid setup status response format');
       }
 
@@ -132,16 +133,16 @@ class AuthService {
       this.setupStatusCache.data = response.data;
       this.setupStatusCache.timestamp = Date.now();
 
-      console.log('🔄 AuthService: Setup status checked:', response.data);
+      logger.debug('Setup status checked', { requiresSetup: response.data.requires_setup, userCount: response.data.user_count });
       return response.data;
     } catch (error: any) {
-      console.error('Error checking setup status:', error);
+      logger.error('Failed to check setup status', { error });
 
       // UX ONLY: If it's a network error or server error, assume setup is required
       // This ensures new users can still access onboarding even if there are temporary issues
       if (error.code === 'NETWORK_ERROR' || error.code === 'ERR_NETWORK' ||
           (error.response && error.response.status >= 500)) {
-        console.warn('Network/server error, assuming setup required for safety');
+        logger.warn('Network/server error, assuming setup required for safety');
         return {
           requires_setup: true,
           user_count: 0
@@ -160,7 +161,7 @@ class AuthService {
       const response = await apiClient.post('/auth/setup/admin', adminData);
       return response.data;
     } catch (error) {
-      console.error('Error setting up initial admin:', error);
+      logger.error('Failed to setup initial admin', { error, email: adminData.email });
       throw error;
     }
   }
@@ -173,7 +174,7 @@ class AuthService {
       const response = await apiClient.post('/auth/login', credentials);
       return response.data;
     } catch (error) {
-      console.error('Login error:', error);
+      logger.error('Login failed', { error, email: credentials.email });
       throw error;
     }
   }
@@ -186,7 +187,7 @@ class AuthService {
       const response = await apiClient.get('/auth/me');
       return response.data;
     } catch (error) {
-      console.error('Error getting current user:', error);
+      logger.error('Failed to get current user', { error });
       throw error;
     }
   }
@@ -198,7 +199,7 @@ class AuthService {
     try {
       await apiClient.post('/auth/logout');
     } catch (error) {
-      console.error('Error logging out:', error);
+      logger.error('Logout failed', { error });
       throw error;
     }
   }
@@ -209,7 +210,7 @@ class AuthService {
   clearSetupStatusCache(): void {
     this.setupStatusCache.data = null;
     this.setupStatusCache.timestamp = 0;
-    console.log('🔄 AuthService: Setup status cache cleared');
+    logger.debug('Setup status cache cleared');
   }
 
   /**
@@ -222,7 +223,7 @@ class AuthService {
         new_password: newPassword
       });
     } catch (error) {
-      console.error('Error changing password:', error);
+      logger.error('Failed to change password', { error });
       throw error;
     }
   }
@@ -235,7 +236,7 @@ class AuthService {
       const response = await apiClient.get('/auth/sessions');
       return response.data.sessions;
     } catch (error) {
-      console.error('Error getting sessions:', error);
+      logger.error('Failed to get sessions', { error });
       throw error;
     }
   }
@@ -247,7 +248,7 @@ class AuthService {
     try {
       await apiClient.delete(`/auth/sessions/${sessionId}`);
     } catch (error) {
-      console.error('Error revoking session:', error);
+      logger.error('Failed to revoke session', { error, sessionId });
       throw error;
     }
   }
@@ -259,7 +260,7 @@ class AuthService {
     try {
       await apiClient.delete('/auth/sessions/others');
     } catch (error) {
-      console.error('Error revoking all other sessions:', error);
+      logger.error('Failed to revoke all other sessions', { error });
       throw error;
     }
   }
@@ -274,7 +275,7 @@ class AuthService {
       const response = await apiClient.post('/auth/mfa-setup-login', request);
       return response.data;
     } catch (error) {
-      console.error('Error setting up MFA for login:', error);
+      logger.error('Failed to setup MFA for login', { error, email: request.email });
       throw error;
     }
   }
@@ -287,7 +288,7 @@ class AuthService {
       const response = await apiClient.post('/auth/mfa-enable-login', request);
       return response.data;
     } catch (error) {
-      console.error('Error enabling MFA for login:', error);
+      logger.error('Failed to enable MFA for login', { error, email: request.email });
       throw error;
     }
   }
@@ -300,7 +301,7 @@ class AuthService {
       const response = await apiClient.post('/auth/mfa/setup');
       return response.data;
     } catch (error) {
-      console.error('Error setting up MFA:', error);
+      logger.error('Failed to setup MFA', { error });
       throw error;
     }
   }
@@ -313,7 +314,7 @@ class AuthService {
       const response = await apiClient.post('/auth/mfa/verify', request);
       return response.data;
     } catch (error) {
-      console.error('Error verifying MFA:', error);
+      logger.error('Failed to verify MFA', { error });
       throw error;
     }
   }
@@ -326,7 +327,7 @@ class AuthService {
       const response = await apiClient.post('/auth/mfa/enable', request);
       return response.data;
     } catch (error) {
-      console.error('Error enabling MFA:', error);
+      logger.error('Failed to enable MFA', { error });
       throw error;
     }
   }
@@ -339,7 +340,7 @@ class AuthService {
       const response = await apiClient.post('/auth/mfa/disable', { password });
       return response.data;
     } catch (error) {
-      console.error('Error disabling MFA:', error);
+      logger.error('Failed to disable MFA', { error });
       throw error;
     }
   }
@@ -352,7 +353,7 @@ class AuthService {
       const response = await apiClient.get('/auth/mfa/status');
       return response.data;
     } catch (error) {
-      console.error('Error getting MFA status:', error);
+      logger.error('Failed to get MFA status', { error });
       throw error;
     }
   }
@@ -365,7 +366,7 @@ class AuthService {
       const response = await apiClient.post('/auth/mfa/regenerate-backup-codes', { password });
       return response.data;
     } catch (error) {
-      console.error('Error regenerating backup codes:', error);
+      logger.error('Failed to regenerate backup codes', { error });
       throw error;
     }
   }
@@ -383,7 +384,7 @@ class AuthService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error logging in with MFA:', error);
+      logger.error('Failed to login with MFA', { error, email, userUuid });
       throw error;
     }
   }
@@ -396,7 +397,7 @@ class AuthService {
       const response = await apiClient.get('/auth/providers');
       return response.data;
     } catch (error) {
-      console.error('Error getting auth providers:', error);
+      logger.error('Failed to get auth providers', { error });
       throw error;
     }
   }
@@ -411,7 +412,7 @@ class AuthService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error connecting OAuth provider:', error);
+      logger.error('Failed to connect OAuth provider', { error, providerType });
       throw error;
     }
   }
@@ -423,7 +424,7 @@ class AuthService {
     try {
       await apiClient.delete(`/auth/providers/${providerId}`);
     } catch (error) {
-      console.error('Error deleting auth provider:', error);
+      logger.error('Failed to delete auth provider', { error, providerId });
       throw error;
     }
   }
@@ -436,7 +437,7 @@ class AuthService {
       const response = await apiClient.get('/users/auth-identities');
       return response.data;
     } catch (error) {
-      console.error('Error getting user auth identities:', error);
+      logger.error('Failed to get user auth identities', { error });
       throw error;
     }
   }
@@ -448,7 +449,7 @@ class AuthService {
     try {
       await apiClient.delete(`/users/auth-identities/${identityId}`);
     } catch (error) {
-      console.error('Error deleting user auth identity:', error);
+      logger.error('Failed to delete user auth identity', { error, identityId });
       throw error;
     }
   }
@@ -461,7 +462,7 @@ class AuthService {
       const response = await apiClient.post('/auth/password-reset/request', { email });
       return response.data;
     } catch (error) {
-      console.error('Error requesting password reset:', error);
+      logger.error('Failed to request password reset', { error, email });
       throw error;
     }
   }
@@ -477,7 +478,7 @@ class AuthService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error completing password reset:', error);
+      logger.error('Failed to complete password reset', { error });
       throw error;
     }
   }
@@ -493,7 +494,7 @@ class AuthService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error requesting MFA reset:', error);
+      logger.error('Failed to request MFA reset', { error, email });
       throw error;
     }
   }
@@ -506,7 +507,7 @@ class AuthService {
       const response = await apiClient.post('/auth/mfa-reset/complete', { token });
       return response.data;
     } catch (error) {
-      console.error('Error completing MFA reset:', error);
+      logger.error('Failed to complete MFA reset', { error });
       throw error;
     }
   }
@@ -526,7 +527,7 @@ class AuthService {
       );
       return response.data;
     } catch (error) {
-      console.error('Error disabling MFA with token:', error);
+      logger.error('Failed to disable MFA with token', { error });
       throw error;
     }
   }

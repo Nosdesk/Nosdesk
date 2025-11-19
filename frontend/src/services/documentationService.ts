@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 import apiClient from './apiConfig';
 
 // Note: apiClient already has baseURL set to '/api', so we don't need to prefix routes
@@ -68,7 +69,7 @@ interface BackendDocumentationPage {
 export const convertToPage = (data: any): Page => {
   // Handle null or undefined data
   if (!data) {
-    console.warn('Attempting to convert null or undefined data to Page');
+    logger.warn('Attempting to convert null or undefined data to Page');
     return {
       id: 'invalid-page',
       slug: 'invalid-page',
@@ -103,7 +104,7 @@ export const convertToPage = (data: any): Page => {
           const bytes = new Uint8Array(data.content);
           cleanContent = new TextDecoder().decode(bytes);
         } catch (decodeError) {
-          console.warn('Error decoding binary content:', decodeError);
+          logger.warn('Error decoding binary content:', decodeError);
           cleanContent = '';
         }
       } else {
@@ -146,7 +147,7 @@ export const convertToPage = (data: any): Page => {
       display_order: typeof data.display_order === 'number' ? data.display_order : 0
     };
   } catch (error) {
-    console.error('Error converting backend page data:', error, data);
+    logger.error('Error converting backend page data:', error, data);
     return {
       id: `error-${Date.now()}`,
       slug: 'error-page',
@@ -167,7 +168,7 @@ export const convertToPage = (data: any): Page => {
 export const convertToArticle = (data: any): Article => {
   // Handle null or undefined data
   if (!data) {
-    console.warn('Attempting to convert null or undefined data to Article');
+    logger.warn('Attempting to convert null or undefined data to Article');
     return {
       id: 'invalid-article',
       slug: 'invalid-article',
@@ -193,7 +194,7 @@ export const convertToArticle = (data: any): Article => {
       children: basePage.children
     };
   } catch (error) {
-    console.error('Error converting backend page to article:', error, data);
+    logger.error('Error converting backend page to article:', error, data);
     return {
       id: `error-${Date.now()}`,
       slug: 'error-article',
@@ -217,11 +218,11 @@ export const getPages = async (): Promise<Page[]> => {
   try {
     // Fetch all pages
     const response = await apiClient.get(`/documentation/pages`);
-    console.log('Raw API response for pages:', response.data);
+    logger.debug('Raw API response for pages:', response.data);
     
     // Validate that the response is an array
     if (!Array.isArray(response.data)) {
-      console.error('API response is not an array:', response.data);
+      logger.error('API response is not an array:', response.data);
       return [];
     }
     
@@ -231,7 +232,7 @@ export const getPages = async (): Promise<Page[]> => {
     );
     
     if (validItems.length !== response.data.length) {
-      console.warn(`Filtered out ${response.data.length - validItems.length} invalid items from API response`);
+      logger.warn(`Filtered out ${response.data.length - validItems.length} invalid items from API response`);
     }
     
     // Convert all pages to our frontend format
@@ -255,7 +256,7 @@ export const getPages = async (): Promise<Page[]> => {
       const pageWithChildren = pagesMap.get(page.id);
       
       if (!pageWithChildren) {
-        console.warn(`Page with ID ${page.id} not found in pagesMap`);
+        logger.warn(`Page with ID ${page.id} not found in pagesMap`);
         return; // Skip this iteration
       }
       
@@ -267,13 +268,13 @@ export const getPages = async (): Promise<Page[]> => {
         const parentPage = pagesMap.get(page.parent_id);
         if (parentPage) {
           if (!parentPage.children) {
-            console.warn(`Parent page ${page.parent_id} has no children array`);
+            logger.warn(`Parent page ${page.parent_id} has no children array`);
             parentPage.children = []; // Create the children array if it doesn't exist
           }
           parentPage.children.push(pageWithChildren);
         } else {
           // If parent doesn't exist (orphaned child), add to top level
-          console.warn(`Page ${page.id} has parent_id ${page.parent_id} but parent not found, adding to top level`);
+          logger.warn(`Page ${page.id} has parent_id ${page.parent_id} but parent not found, adding to top level`);
           topLevelPages.push(pageWithChildren);
         }
       }
@@ -297,23 +298,23 @@ export const getPages = async (): Promise<Page[]> => {
     topLevelPages.forEach(sortChildrenRecursively);
     
     // Print out the pages hierarchy to help debug
-    console.log('Pages with proper hierarchy:');
+    logger.debug('Pages with proper hierarchy:');
     topLevelPages.forEach((page, index) => {
-      console.log(`Top level page ${index + 1}: ${page.title} (ID: ${page.id})`);
+      logger.debug(`Top level page ${index + 1}: ${page.title} (ID: ${page.id})`);
       if (page.children && page.children.length > 0) {
-        console.log(`  Has ${page.children.length} children`);
+        logger.debug(`  Has ${page.children.length} children`);
         page.children.forEach((child, childIndex) => {
-          console.log(`    Child ${childIndex + 1}: ${child.title} (ID: ${child.id})`);
+          logger.debug(`    Child ${childIndex + 1}: ${child.title} (ID: ${child.id})`);
         });
       } else {
-        console.log(`  No children`);
+        logger.debug(`  No children`);
       }
     });
     
-    console.log('Organized pages hierarchy:', JSON.stringify(topLevelPages, null, 2));
+    logger.debug('Organized pages hierarchy:', JSON.stringify(topLevelPages, null, 2));
     return topLevelPages;
   } catch (error) {
-    console.error('Error fetching documentation pages:', error);
+    logger.error('Error fetching documentation pages:', error);
     return [];
   }
 };
@@ -332,7 +333,7 @@ export const getAllArticles = async (): Promise<Article[]> => {
       return metadata;
     });
   } catch (error) {
-    console.error('Error fetching documentation pages:', error);
+    logger.error('Error fetching documentation pages:', error);
     return [];
   }
 };
@@ -355,7 +356,7 @@ export const getArticleById = async (id: string | number): Promise<Article | nul
     // Convert backend page to frontend Article
     return convertToArticle(response.data);
   } catch (error) {
-    console.error(`Error fetching documentation page with ID ${id}:`, error);
+    logger.error(`Error fetching documentation page with ID ${id}:`, error);
     return null;
   }
 };
@@ -371,7 +372,7 @@ export const getPageById = async (id: string): Promise<Page | null> => {
     // Convert backend page to frontend Page
     return convertToPage(response.data);
   } catch (error) {
-    console.error(`Error fetching documentation page with ID ${id}:`, error);
+    logger.error(`Error fetching documentation page with ID ${id}:`, error);
     return null;
   }
 };
@@ -383,34 +384,34 @@ export const getPageByPath = async (path: string): Promise<Page | null> => {
   try {
     // Handle empty path
     if (!path) {
-      console.error('Empty path provided to getPageByPath');
+      logger.error('Empty path provided to getPageByPath');
       return null;
     }
 
     // Check if the path is a numeric ID
     if (!isNaN(Number(path))) {
       try {
-        console.log(`Fetching page with numeric ID: ${path}`);
+        logger.debug(`Fetching page with numeric ID: ${path}`);
         const response = await apiClient.get(`/documentation/pages/${path}`);
         return convertToPage(response.data);
       } catch (idError) {
-        console.error(`Error fetching page with ID ${path}:`, idError);
+        logger.error(`Error fetching page with ID ${path}:`, idError);
         return null;
       }
     } 
     // Otherwise, treat it as a slug
     else {
       try {
-        console.log(`Fetching page with slug: ${path}`);
+        logger.debug(`Fetching page with slug: ${path}`);
         const response = await apiClient.get(`/documentation/pages/slug/${path}`);
         return convertToPage(response.data);
       } catch (slugError) {
-        console.error(`Error fetching page with slug ${path}:`, slugError);
+        logger.error(`Error fetching page with slug ${path}:`, slugError);
         return null;
       }
     }
   } catch (error) {
-    console.error(`Error in getPageByPath for ${path}:`, error);
+    logger.error(`Error in getPageByPath for ${path}:`, error);
     return null;
   }
 };
@@ -471,7 +472,7 @@ export const getAllPages = async (): Promise<Page[]> => {
     
     return topLevelPages;
   } catch (error) {
-    console.error('Error fetching all pages:', error);
+    logger.error('Error fetching all pages:', error);
     return [];
   }
 };
@@ -486,7 +487,7 @@ export const searchArticles = async (query: string): Promise<Article[]> => {
       const response = await apiClient.get(`/documentation/search?q=${encodeURIComponent(query)}`);
       return response.data.map((item: any) => convertToArticle(item));
     } catch (error) {
-      console.error('Backend search failed, falling back to client-side search:', error);
+      logger.error('Backend search failed, falling back to client-side search:', error);
       
       // Fallback to client-side search
       const allArticlesResponse = await apiClient.get(`/documentation/pages`);
@@ -500,7 +501,7 @@ export const searchArticles = async (query: string): Promise<Article[]> => {
       );
     }
   } catch (searchError) {
-    console.error('Error with fallback search:', searchError);
+    logger.error('Error with fallback search:', searchError);
     return [];
   }
 };
@@ -513,7 +514,7 @@ export const searchArticles = async (query: string): Promise<Article[]> => {
  * Only use this for initial creation or metadata updates. For content edits, use CollaborativeEditor.
  */
 export const saveArticle = async (article: Page): Promise<Page | null> => {
-  console.warn('saveArticle is deprecated - content should be synced via WebSocket collaboration');
+  logger.warn('saveArticle is deprecated - content should be synced via WebSocket collaboration');
   try {
     // Determine if article ID is numeric or a slug
     let numericId: number;
@@ -528,7 +529,7 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
         const response = await apiClient.get(`/documentation/pages/slug/${article.id}`);
         numericId = response.data.id;
       } catch (error) {
-        console.error(`Error fetching article with slug ${article.id}:`, error);
+        logger.error(`Error fetching article with slug ${article.id}:`, error);
         return null;
       }
     }
@@ -565,7 +566,7 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
     };
     
     // Log the payload as a JSON string to check for any issues
-    console.log('Saving article with payload:', JSON.stringify(payload));
+    logger.debug('Saving article with payload:', JSON.stringify(payload));
     
     // Update the article
     const response = await apiClient.put(`/documentation/pages/${numericId}`, payload);
@@ -576,16 +577,16 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
     // Convert backend article to frontend Page
     return convertToPage(updatedArticleResponse.data);
   } catch (error: any) {
-    console.error('Error saving article:', error);
+    logger.error('Error saving article:', error);
     
     // Try to log more detailed error information
     if (error.response) {
-      console.error('Update error response data:', error.response.data);
-      console.error('Update error response status:', error.response.status);
+      logger.error('Update error response data:', error.response.data);
+      logger.error('Update error response status:', error.response.status);
       
       // Try to log the request payload that caused the error
       if (error.config && error.config.data) {
-        console.error('Request payload that caused error:', error.config.data);
+        logger.error('Request payload that caused error:', error.config.data);
       }
     }
     
@@ -626,16 +627,16 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
     };
 
     // Print payload as a formatted string for debugging
-    console.log('Creating article with payload:', JSON.stringify(payload, null, 2));
+    logger.debug('Creating article with payload:', JSON.stringify(payload, null, 2));
 
     // Create the article
     const response = await apiClient.post(`/documentation/pages`, payload);
     
-    console.log('Article created successfully:', response.data);
+    logger.debug('Article created successfully:', response.data);
     
     // Check if the response contains the created article
     if (!response.data || !response.data.id) {
-      console.error('Invalid response data from creating article:', response.data);
+      logger.error('Invalid response data from creating article:', response.data);
       return null;
     }
     
@@ -646,27 +647,27 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
       // Convert backend article to frontend Page
       return convertToPage(createdArticleResponse.data);
     } catch (fetchError) {
-      console.warn('Error fetching the newly created article, returning original response:', fetchError);
+      logger.warn('Error fetching the newly created article, returning original response:', fetchError);
       // If fetching the new article fails, return the data from the creation response
       return convertToPage(response.data);
     }
   } catch (error: any) {
-    console.error('Error creating article:', error);
+    logger.error('Error creating article:', error);
     if (error.response) {
-      console.error('Response data:', error.response.data);
-      console.error('Response status:', error.response.status);
-      console.error('Response headers:', error.response.headers);
+      logger.error('Response data:', error.response.data);
+      logger.error('Response status:', error.response.status);
+      logger.error('Response headers:', error.response.headers);
       
       // Log more details about the request
       if (error.config) {
-        console.error('Request URL:', error.config.url);
-        console.error('Request method:', error.config.method);
-        console.error('Request data:', error.config.data);
+        logger.error('Request URL:', error.config.url);
+        logger.error('Request method:', error.config.method);
+        logger.error('Request data:', error.config.data);
       }
     } else if (error.request) {
-      console.error('Request made but no response received:', error.request);
+      logger.error('Request made but no response received:', error.request);
     } else {
-      console.error('Error setting up request:', error.message);
+      logger.error('Error setting up request:', error.message);
     }
     return null;
   }
@@ -680,7 +681,7 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
  * Use CollaborativeEditor for content edits - it handles all sync automatically.
  */
 export const savePageContent = async (pageId: string, content: string): Promise<Page | null> => {
-  console.warn('savePageContent is deprecated - content should be synced via WebSocket collaboration');
+  logger.warn('savePageContent is deprecated - content should be synced via WebSocket collaboration');
   try {
     let page;
     
@@ -693,7 +694,7 @@ export const savePageContent = async (pageId: string, content: string): Promise<
       page = pageResponse.data;
     }
     
-    console.log('Original page data:', page);
+    logger.debug('Original page data:', page);
     
     // Update the full page since there's no content-only endpoint
     try {
@@ -725,7 +726,7 @@ export const savePageContent = async (pageId: string, content: string): Promise<
       };
       
       // Log the payload as a JSON string to check for any issues
-      console.log('Sending update payload:', JSON.stringify(payload));
+      logger.debug('Sending update payload:', JSON.stringify(payload));
       
       // Update the page using the standard update endpoint
       const response = await apiClient.put(`/documentation/pages/${page.id}`, payload);
@@ -737,22 +738,22 @@ export const savePageContent = async (pageId: string, content: string): Promise<
       return convertToPage(updatedPageResponse.data);
     } catch (error: any) {
       if (error.response) {
-        console.error('Update error response data:', error.response.data);
-        console.error('Update error response status:', error.response.status);
+        logger.error('Update error response data:', error.response.data);
+        logger.error('Update error response status:', error.response.status);
         
         // Try to log the request payload that caused the error
         if (error.config && error.config.data) {
-          console.error('Request payload that caused error:', error.config.data);
+          logger.error('Request payload that caused error:', error.config.data);
         }
       } else if (error.request) {
-        console.error('Update error request:', error.request);
+        logger.error('Update error request:', error.request);
       } else {
-        console.error('Update error message:', error.message);
+        logger.error('Update error message:', error.message);
       }
       throw error;
     }
   } catch (error) {
-    console.error(`Error saving content for page ${pageId}:`, error);
+    logger.error(`Error saving content for page ${pageId}:`, error);
     return null;
   }
 };
@@ -768,7 +769,7 @@ export const getPagesByParentId = async (parentId: string): Promise<Page[]> => {
     // Convert backend pages to frontend Pages
     return response.data.map(convertToPage);
   } catch (error) {
-    console.error(`Error fetching pages with parent ID ${parentId}:`, error);
+    logger.error(`Error fetching pages with parent ID ${parentId}:`, error);
     return [];
   }
 };
@@ -784,7 +785,7 @@ export const getPageWithChildrenByParentId = async (pageId: string): Promise<Pag
     // Convert backend page to frontend Page
     return convertToPage(response.data);
   } catch (error) {
-    console.error(`Error fetching page with children for ID ${pageId}:`, error);
+    logger.error(`Error fetching page with children for ID ${pageId}:`, error);
     return null;
   }
 };
@@ -829,7 +830,7 @@ export const updateParent = async (pageId: string, newParentId: string | number 
     
     return updatedArticle;
   } catch (error) {
-    console.error(`Error updating parent for page ${pageId}:`, error);
+    logger.error(`Error updating parent for page ${pageId}:`, error);
     return null;
   }
 };
@@ -845,7 +846,7 @@ export const reorderPages = async (parentId: string | number | null, pageOrders:
     });
     return true;
   } catch (error) {
-    console.error('Error reordering pages:', error);
+    logger.error('Error reordering pages:', error);
     return false;
   }
 };
@@ -862,7 +863,7 @@ export const movePage = async (pageId: string | number, newParentId: string | nu
     });
     return convertToPage(response.data);
   } catch (error) {
-    console.error('Error moving page:', error);
+    logger.error('Error moving page:', error);
     return null;
   }
 };
@@ -875,7 +876,7 @@ export const getOrderedPagesByParentId = async (parentId: string | number): Prom
     const response = await apiClient.get(`/documentation/pages/ordered/parent/${parentId}`);
     return response.data.map(convertToPage);
   } catch (error) {
-    console.error(`Error fetching ordered pages for parent ${parentId}:`, error);
+    logger.error(`Error fetching ordered pages for parent ${parentId}:`, error);
     return [];
   }
 };
@@ -888,7 +889,7 @@ export const getOrderedTopLevelPages = async (): Promise<Page[]> => {
     const response = await apiClient.get(`/documentation/pages/ordered/top-level`);
     return response.data.map(convertToPage);
   } catch (error) {
-    console.error('Error fetching ordered top-level pages:', error);
+    logger.error('Error fetching ordered top-level pages:', error);
     return [];
   }
 };
@@ -901,7 +902,7 @@ export const getPageWithOrderedChildren = async (pageId: string | number): Promi
     const response = await apiClient.get(`/documentation/pages/${pageId}/with-ordered-children`);
     return convertToPage(response.data);
   } catch (error) {
-    console.error(`Error fetching page with ordered children for ${pageId}:`, error);
+    logger.error(`Error fetching page with ordered children for ${pageId}:`, error);
     return null;
   }
 };
@@ -923,7 +924,7 @@ export const deleteArticle = async (pageId: string | number): Promise<boolean> =
         const response = await apiClient.get(`/documentation/pages/slug/${pageId}`);
         numericId = response.data.id;
       } catch (error) {
-        console.error(`Error fetching page with slug ${pageId}:`, error);
+        logger.error(`Error fetching page with slug ${pageId}:`, error);
         return false;
       }
     }
@@ -932,7 +933,7 @@ export const deleteArticle = async (pageId: string | number): Promise<boolean> =
     await apiClient.delete(`/documentation/pages/${numericId}`);
     return true;
   } catch (error) {
-    console.error(`Error deleting documentation page ${pageId}:`, error);
+    logger.error(`Error deleting documentation page ${pageId}:`, error);
     return false;
   }
 };
@@ -952,7 +953,7 @@ export const updatePageMetadata = async (
     );
     return response.status === 200;
   } catch (error) {
-    console.error(`Error updating page metadata for ${pageId}:`, error);
+    logger.error(`Error updating page metadata for ${pageId}:`, error);
     return false;
   }
 };

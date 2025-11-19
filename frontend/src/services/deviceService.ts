@@ -1,56 +1,20 @@
 import apiClient from './apiConfig';
 import type { Device, DeviceFormData } from '@/types/device';
+import type { PaginationParams, PaginatedResponse } from '@/types/pagination';
+import { logger } from '@/utils/logger';
+import { RequestManager } from '@/utils/requestManager';
 
-// Request cancellation manager
-class RequestManager {
-  private activeRequests = new Map<string, AbortController>();
-
-  createRequest(key: string): AbortController {
-    // Cancel any existing request with the same key
-    this.cancelRequest(key);
-    
-    // Create new abort controller
-    const controller = new AbortController();
-    this.activeRequests.set(key, controller);
-    
-    return controller;
-  }
-
-  cancelRequest(key: string): void {
-    const controller = this.activeRequests.get(key);
-    if (controller) {
-      controller.abort();
-      this.activeRequests.delete(key);
-    }
-  }
-
-  cancelAllRequests(): void {
-    this.activeRequests.forEach(controller => controller.abort());
-    this.activeRequests.clear();
-  }
-}
-
+// Request cancellation manager instance
 const requestManager = new RequestManager();
 
-// Pagination interface
-export interface PaginationParams {
-  page: number;
-  pageSize: number;
-  sortField?: string;
-  sortDirection?: 'asc' | 'desc';
-  search?: string;
+// Extended pagination params for devices
+export interface DevicePaginationParams extends PaginationParams {
   type?: string;
   warranty?: string;
 }
 
-// Paginated response interface
-export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
+// Re-export for backwards compatibility
+export type { PaginatedResponse } from '@/types/pagination';
 
 /**
  * Transform backend device response to frontend Device interface
@@ -90,7 +54,7 @@ export const getDevices = async (): Promise<Device[]> => {
     const response = await apiClient.get(`/devices`);
     return response.data.map(transformDeviceResponse);
   } catch (error) {
-    console.error('Error fetching devices:', error);
+    logger.error('Failed to fetch devices', { error });
     throw error;
   }
 };
@@ -119,10 +83,10 @@ export const getPaginatedDevices = async (params: PaginationParams, requestKey: 
   } catch (error: any) {
     // Don't throw if request was cancelled
     if (error.name === 'AbortError' || error.name === 'CanceledError') {
-      console.log('Request cancelled:', requestKey);
+      logger.debug('Request cancelled', { requestKey });
       throw new Error('REQUEST_CANCELLED');
     }
-    console.error('Error fetching paginated devices:', error);
+    logger.error('Failed to fetch paginated devices', { error, params });
     throw error;
   }
 };
@@ -137,7 +101,7 @@ export const getDeviceById = async (id: number | string): Promise<Device> => {
     const response = await apiClient.get(`/devices/${id}`);
     return transformDeviceResponse(response.data);
   } catch (error) {
-    console.error(`Error fetching device with ID ${id}:`, error);
+    logger.error('Failed to fetch device by ID', { error, deviceId: id });
     throw error;
   }
 };
@@ -152,7 +116,7 @@ export const getDeviceByTicketId = async (ticketId: number): Promise<Device | nu
     const response = await apiClient.get(`/tickets/${ticketId}/device`);
     return transformDeviceResponse(response.data);
   } catch (error) {
-    console.error(`Error fetching device for ticket ID ${ticketId}:`, error);
+    logger.error('Failed to fetch device for ticket', { error, ticketId });
     return null;
   }
 };
@@ -167,7 +131,7 @@ export const getDevicesByUser = async (userUuid: string): Promise<Device[]> => {
     const response = await apiClient.get(`/users/${userUuid}/devices`);
     return response.data.map(transformDeviceResponse);
   } catch (error) {
-    console.error(`Error fetching devices for user ${userUuid}:`, error);
+    logger.error('Failed to fetch devices for user', { error, userUuid });
     throw error;
   }
 };
@@ -182,7 +146,7 @@ export const createDevice = async (deviceData: DeviceFormData): Promise<Device> 
     const response = await apiClient.post(`/devices`, deviceData);
     return transformDeviceResponse(response.data);
   } catch (error) {
-    console.error('Error creating device:', error);
+    logger.error('Failed to create device', { error, deviceData });
     throw error;
   }
 };
@@ -213,7 +177,7 @@ export const updateDevice = async (id: number, device: Partial<Device>): Promise
     const response = await apiClient.put(`/devices/${id}`, backendDevice);
     return transformDeviceResponse(response.data);
   } catch (error) {
-    console.error(`Error updating device with ID ${id}:`, error);
+    logger.error('Failed to update device', { error, deviceId: id });
     throw error;
   }
 };
@@ -227,7 +191,7 @@ export const deleteDevice = async (id: number): Promise<void> => {
   try {
     await apiClient.delete(`/devices/${id}`);
   } catch (error) {
-    console.error(`Error deleting device with ID ${id}:`, error);
+    logger.error('Failed to delete device', { error, deviceId: id });
     throw error;
   }
 };
@@ -242,7 +206,7 @@ export const unmanageDevice = async (id: number): Promise<Device> => {
     const response = await apiClient.post(`/devices/${id}/unmanage`);
     return transformDeviceResponse(response.data);
   } catch (error) {
-    console.error(`Error unmanaging device with ID ${id}:`, error);
+    logger.error('Failed to unmanage device', { error, deviceId: id });
     throw error;
   }
 };
@@ -318,7 +282,7 @@ export const getUserDevices = async (userUuid: string): Promise<Device[]> => {
     const response = await apiClient.get(`/users/${userUuid}/devices`);
     return response.data.map(transformDeviceResponse);
   } catch (error) {
-    console.error('Error fetching user devices:', error);
+    logger.error('Failed to fetch user devices', { error, userUuid });
     throw error;
   }
 };
@@ -348,7 +312,7 @@ export const getPaginatedDevicesExcluding = async (params: {
       totalPages: response.data.totalPages,
     };
   } catch (error) {
-    console.error('Error fetching paginated devices:', error);
+    logger.error('Failed to fetch paginated devices excluding IDs', { error, params });
     throw error;
   }
 }; 127

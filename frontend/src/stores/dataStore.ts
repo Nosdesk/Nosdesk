@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { logger } from '@/utils/logger';
 import { ref, computed } from 'vue'
 import userService from '@/services/userService'
 import type { User, PaginatedResponse, PaginationParams } from '@/services/userService'
@@ -176,10 +177,10 @@ export const useDataStore = defineStore('data', () => {
     // Create new background refresh promise
     const refreshPromise = (async () => {
       try {
-        console.log('Background refreshing users cache for:', cacheKey)
+        logger.debug('Background refreshing users cache for:', cacheKey)
         await fetchPaginatedUsersFromAPI(params, cacheKey)
       } catch (error) {
-        console.warn('Background refresh failed:', error)
+        logger.warn('Background refresh failed:', error)
       }
     })()
     
@@ -309,11 +310,11 @@ export const useDataStore = defineStore('data', () => {
     // Create new background refresh promise using the batching system
     const refreshPromise = (async () => {
       try {
-        console.log('Background refreshing user cache for:', uuid)
+        logger.debug('Background refreshing user cache for:', uuid)
         // Use the batching system instead of direct API call
         await getUserByUuid(uuid, true) // Force refresh through batching system
       } catch (error) {
-        console.warn('Background user refresh failed:', error)
+        logger.warn('Background user refresh failed:', error)
       }
     })()
     
@@ -352,7 +353,7 @@ export const useDataStore = defineStore('data', () => {
     
     // Ensure the URL starts with /uploads/ for proper routing
     if (baseUrl && !baseUrl.startsWith('/uploads/')) {
-      console.warn(`UserAvatar: Invalid avatar URL format for ${uuid}:`, baseUrl)
+      logger.warn(`UserAvatar: Invalid avatar URL format for ${uuid}:`, baseUrl)
       return null
     }
     
@@ -386,7 +387,7 @@ export const useDataStore = defineStore('data', () => {
   
   // IMPROVED: Invalidate and refresh user (clears cache AND fetches fresh data)
   const invalidateAndRefreshUser = async (uuid: string): Promise<User | null> => {
-    console.log(`🔄 Invalidating and refreshing user cache for: ${uuid}`)
+    logger.debug(`🔄 Invalidating and refreshing user cache for: ${uuid}`)
     
     // 1. Clear from cache
     invalidateUser(uuid)
@@ -394,17 +395,17 @@ export const useDataStore = defineStore('data', () => {
     // 2. Force fetch fresh data (this will update cache and trigger reactivity)
     try {
       const freshUser = await getUserByUuid(uuid, true) // forceRefresh = true
-      console.log(`✅ User ${uuid} refreshed successfully`)
+      logger.debug(`✅ User ${uuid} refreshed successfully`)
       return freshUser
     } catch (error) {
-      console.error(`❌ Failed to refresh user ${uuid}:`, error)
+      logger.error(`❌ Failed to refresh user ${uuid}:`, error)
       return null
     }
   }
   
   // IMPROVED: Invalidate and refresh multiple users
   const invalidateAndRefreshUsers = async (uuids: string[]): Promise<(User | null)[]> => {
-    console.log(`🔄 Invalidating and refreshing ${uuids.length} users`)
+    logger.debug(`🔄 Invalidating and refreshing ${uuids.length} users`)
     
     // 1. Clear all from cache
     uuids.forEach(uuid => invalidateUser(uuid))
@@ -412,10 +413,10 @@ export const useDataStore = defineStore('data', () => {
     // 2. Force fetch fresh data for all users (using Promise.all with individual calls)
     try {
       const freshUsers = await Promise.all(uuids.map(uuid => getUserByUuid(uuid, true)))
-      console.log(`✅ ${uuids.length} users refreshed successfully`)
+      logger.debug(`✅ ${uuids.length} users refreshed successfully`)
       return freshUsers
     } catch (error) {
-      console.error(`❌ Failed to refresh users:`, error)
+      logger.error(`❌ Failed to refresh users:`, error)
       return uuids.map(() => null)
     }
   }
@@ -458,7 +459,7 @@ export const useDataStore = defineStore('data', () => {
         cached.loading = false
         cached.error = error instanceof Error ? error.message : 'Refresh failed'
       }
-      console.error(`Failed to refresh user ${uuid}:`, error)
+      logger.error(`Failed to refresh user ${uuid}:`, error)
     }
     
     return cached?.data || null
@@ -551,7 +552,7 @@ export const useDataStore = defineStore('data', () => {
     
     // Only log batching in development mode
     if (import.meta.env.DEV) {
-      console.log(`🚀 Batching ${uncachedUuids.length} user requests:`, uncachedUuids)
+      logger.debug(`🚀 Batching ${uncachedUuids.length} user requests:`, uncachedUuids)
     }
     
     // Mark all as loading
@@ -601,7 +602,7 @@ export const useDataStore = defineStore('data', () => {
       })
       
     } catch (error) {
-      console.error('Batch user request failed:', error)
+      logger.error('Batch user request failed:', error)
       
       // Mark all as error
       uncachedUuids.forEach(uuid => {

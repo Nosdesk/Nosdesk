@@ -1,4 +1,5 @@
 import { ref, computed } from "vue";
+import { logger } from '@/utils/logger';
 import { useAuthStore } from "@/stores/auth";
 import apiClient from "./apiConfig";
 
@@ -104,7 +105,7 @@ class SSEService {
     const handleEvent = (event: MessageEvent) => {
       const eventType = event.type as SSEEventType;
 
-      console.log(
+      logger.debug(
         `%c[SSE] Raw event from EventSource: ${eventType}`,
         "color: #3b82f6; font-weight: bold",
         {
@@ -125,14 +126,14 @@ class SSEService {
 
       try {
         const data = JSON.parse(event.data);
-        console.log(
+        logger.debug(
           `%c[SSE] Parsed event data:`,
           "color: #8b5cf6; font-weight: bold",
           { eventType, parsedData: data }
         );
         this.emit(eventType, data);
       } catch (error) {
-        console.error(`SSE: Failed to parse ${eventType}:`, error);
+        logger.error(`SSE: Failed to parse ${eventType}:`, error);
       }
     };
 
@@ -166,7 +167,7 @@ class SSEService {
       this.isConnecting.value = false;
       this.lastError.value = null;
       this.reconnectAttempts = 0;
-      console.log(
+      logger.debug(
         "%c[SSE Connection] ✅ Connected successfully",
         "color: #22c55e; font-weight: bold; font-size: 14px",
         { timestamp: new Date().toISOString() }
@@ -190,7 +191,7 @@ class SSEService {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.scheduleReconnection();
     } else {
-      console.error("SSE: Max reconnection attempts reached");
+      logger.error("SSE: Max reconnection attempts reached");
     }
   }
 
@@ -226,7 +227,7 @@ class SSEService {
     try {
       await this.connect();
     } catch (error) {
-      console.error("SSE: Reconnection failed:", error);
+      logger.error("SSE: Reconnection failed:", error);
       if (this.reconnectAttempts < this.maxReconnectAttempts) {
         this.scheduleReconnection();
       }
@@ -268,7 +269,7 @@ class SSEService {
       this.setupConnectionHandlers();
       this.setupEventHandlers();
     } catch (error) {
-      console.error("SSE: Failed to connect:", error);
+      logger.error("SSE: Failed to connect:", error);
       this.isConnecting.value = false;
       this.lastError.value =
         error instanceof Error ? error.message : "Connection failed";
@@ -312,7 +313,7 @@ class SSEService {
   private emit(eventType: SSEEventType, data: any): void {
     const listeners = this.eventListeners.get(eventType);
 
-    console.log(
+    logger.debug(
       `%c[SSE] Event received: ${eventType}`,
       "color: #10b981; font-weight: bold",
       {
@@ -328,11 +329,11 @@ class SSEService {
         try {
           listener(data);
         } catch (error) {
-          console.error(`SSE: Error in ${eventType} listener:`, error);
+          logger.error(`SSE: Error in ${eventType} listener:`, error);
         }
       });
     } else {
-      console.warn(
+      logger.warn(
         `%c[SSE] No listeners for event: ${eventType}`,
         "color: #f59e0b; font-weight: bold"
       );

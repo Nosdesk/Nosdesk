@@ -1,4 +1,5 @@
 /**
+import { logger } from '@/utils/logger';
  * Documentation Event Emitter
  *
  * Provides real-time event broadcasting for documentation changes
@@ -53,7 +54,7 @@ class DocsEventEmitter {
         try {
           callback(data);
         } catch (error) {
-          console.error(`Error in docs event handler for ${event}:`, error);
+          logger.error(`Error in docs event handler for ${event}:`, error);
         }
       });
     }

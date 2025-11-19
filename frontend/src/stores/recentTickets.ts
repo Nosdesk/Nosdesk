@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { logger } from '@/utils/logger';
 import { ref } from 'vue'
 import ticketService from '@/services/ticketService'
 
@@ -29,11 +30,11 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
       recentTickets.value = tickets
 
       if (import.meta.env.DEV) {
-        console.log(`Fetched ${tickets.length} recent tickets from server`)
+        logger.debug(`Fetched ${tickets.length} recent tickets from server`)
       }
     } catch (err) {
       error.value = 'Failed to fetch recent tickets'
-      console.error('Error fetching recent tickets:', err)
+      logger.error('Error fetching recent tickets:', err)
     } finally {
       isLoading.value = false
     }
@@ -48,10 +49,10 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
       await fetchRecentTickets()
 
       if (import.meta.env.DEV) {
-        console.log(`Recorded view for ticket #${ticketId}`)
+        logger.debug(`Recorded view for ticket #${ticketId}`)
       }
     } catch (err) {
-      console.error(`Error recording view for ticket #${ticketId}:`, err)
+      logger.error(`Error recording view for ticket #${ticketId}:`, err)
     }
   }
 
@@ -67,7 +68,7 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
       })
 
       if (import.meta.env.DEV) {
-        console.log(`Updated ticket #${ticketId} in recent tickets cache`)
+        logger.debug(`Updated ticket #${ticketId} in recent tickets cache`)
       }
     }
   }

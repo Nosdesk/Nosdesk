@@ -1,4 +1,5 @@
 // Efficient user lookup service for UserAvatar components
+import { logger } from '@/utils/logger';
 // Now uses the global data store for better caching and deduplication
 import { ref } from 'vue'
 import { useDataStore } from '@/stores/dataStore'
@@ -18,7 +19,7 @@ export const useUserLookup = () => {
       return user
     } catch (err) {
       error.value = 'Failed to lookup user'
-      console.error('User lookup error:', err)
+      logger.error('User lookup error:', err)
       return null
     } finally {
       loading.value = false

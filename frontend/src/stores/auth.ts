@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { logger } from '@/utils/logger';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import apiClient from '@/services/apiConfig';
@@ -63,7 +64,7 @@ export const useAuthStore = defineStore('auth', () => {
     // Check cooldown period to prevent rapid retries after failures
     const now = Date.now();
     if (now - lastFetchAttempt < FETCH_COOLDOWN_MS) {
-      console.log('Fetch user data on cooldown, skipping request');
+      logger.debug('Fetch user data on cooldown, skipping request');
       return null;
     }
 
@@ -75,7 +76,7 @@ export const useAuthStore = defineStore('auth', () => {
         loading.value = true;
         // Only log in development or when explicitly requested
         if (import.meta.env.DEV) {
-          console.log('Fetching user data...');
+          logger.debug('Fetching user data...');
         }
 
         const response = await apiClient.get('/auth/me');
@@ -89,7 +90,7 @@ export const useAuthStore = defineStore('auth', () => {
         lastFetchAttempt = 0;
         return response.data;
       } catch (err: any) {
-        console.error('Error fetching user data:', err);
+        logger.error('Error fetching user data:', err);
 
         // Handle specific error cases
         if (err.response) {
@@ -97,12 +98,12 @@ export const useAuthStore = defineStore('auth', () => {
 
           if (status === 429) {
             // Rate limit error - don't logout, just show error
-            console.warn('Rate limit exceeded. Please wait before retrying.');
+            logger.warn('Rate limit exceeded. Please wait before retrying.');
             error.value = 'Too many requests. Please wait a moment.';
             throw err;
           } else if (status === 401 || status === 403) {
             // Unauthorized/Forbidden - logout and clear cookies
-            console.log('Logging out due to authentication error:', status);
+            logger.debug('Logging out due to authentication error:', status);
             logout();
           } else {
             // Other server errors - keep user logged in
@@ -165,7 +166,7 @@ export const useAuthStore = defineStore('auth', () => {
       return false;
 
     } catch (err: any) {
-      console.error('Login error:', err);
+      logger.error('Login error:', err);
       error.value = err.response?.data?.message || 'Login failed. Please check your credentials.';
       return false;
     } finally {
@@ -179,21 +180,21 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null;
 
     try {
-      console.log('🔐 MFA Login: Submitting MFA token...');
+      logger.debug('🔐 MFA Login: Submitting MFA token...');
       const response = await apiClient.post('/auth/mfa-login', {
         email,
         password,
         mfa_token: mfaToken.trim()
       });
 
-      console.log('🔐 MFA Login: Response received', {
+      logger.debug('🔐 MFA Login: Response received', {
         success: response.data.success,
         hasCsrfToken: !!response.data.csrf_token,
         hasUser: !!response.data.user
       });
 
       if (response.data.success && response.data.csrf_token) {
-        console.log('🔐 MFA Login: Setting auth data for user', response.data.user);
+        logger.debug('🔐 MFA Login: Setting auth data for user', response.data.user);
         setAuthData(response.data.user);
 
         // Show backup code warning if needed
@@ -204,24 +205,24 @@ export const useAuthStore = defineStore('auth', () => {
         mfaRequired.value = false;
         mfaUserUuid.value = '';
 
-        console.log('🔐 MFA Login: Auth data set, user state:', {
+        logger.debug('🔐 MFA Login: Auth data set, user state:', {
           hasUser: !!user.value,
           isAuthenticated: isAuthenticated.value,
           userName: user.value?.name
         });
 
-        console.log('🔐 MFA Login: Attempting redirect to /');
+        logger.debug('🔐 MFA Login: Attempting redirect to /');
         await router.push('/');
-        console.log('🔐 MFA Login: Redirect completed');
+        logger.debug('🔐 MFA Login: Redirect completed');
         return true;
       }
 
-      console.warn('🔐 MFA Login: Login not successful', response.data);
+      logger.warn('🔐 MFA Login: Login not successful', response.data);
       error.value = response.data.message || 'MFA verification failed';
       return false;
 
     } catch (err: any) {
-      console.error('🔐 MFA Login error:', err);
+      logger.error('🔐 MFA Login error:', err);
       error.value = err.response?.data?.message || 'MFA verification failed. Please try again.';
       return false;
     } finally {
@@ -254,7 +255,7 @@ export const useAuthStore = defineStore('auth', () => {
 
         return response.data;
       } catch (err: any) {
-        console.error('MFA setup error:', err);
+        logger.error('MFA setup error:', err);
         error.value = err.response?.data?.message || 'Failed to start MFA setup. Please try again.';
         return null;
       } finally {
@@ -288,7 +289,7 @@ export const useAuthStore = defineStore('auth', () => {
         return false;
         
       } catch (err: any) {
-        console.error('MFA enable login error:', err);
+        logger.error('MFA enable login error:', err);
         error.value = err.response?.data?.message || 'Failed to complete MFA setup. Please try again.';
         return false;
       } finally {
@@ -316,7 +317,7 @@ export const useAuthStore = defineStore('auth', () => {
       try {
         await fetchUserData();
       } catch (err) {
-        console.error('Failed to fetch user data after external auth:', err);
+        logger.error('Failed to fetch user data after external auth:', err);
         // Don't throw error here - authentication was successful
       }
     }
@@ -329,7 +330,7 @@ export const useAuthStore = defineStore('auth', () => {
       // Call backend logout endpoint to clear cookies
       await apiClient.post('/auth/logout');
     } catch (err) {
-      console.error('Logout request failed:', err);
+      logger.error('Logout request failed:', err);
       // Continue with frontend logout even if backend call fails
     }
 

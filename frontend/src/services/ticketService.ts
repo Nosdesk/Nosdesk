@@ -1,35 +1,9 @@
 import apiClient from './apiConfig';
 import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions';
+import { logger } from '@/utils/logger';
+import { RequestManager } from '@/utils/requestManager';
 
-// Request cancellation manager
-class RequestManager {
-  private activeRequests = new Map<string, AbortController>();
-
-  createRequest(key: string): AbortController {
-    // Cancel any existing request with the same key
-    this.cancelRequest(key);
-    
-    // Create new abort controller
-    const controller = new AbortController();
-    this.activeRequests.set(key, controller);
-    
-    return controller;
-  }
-
-  cancelRequest(key: string): void {
-    const controller = this.activeRequests.get(key);
-    if (controller) {
-      controller.abort();
-      this.activeRequests.delete(key);
-    }
-  }
-
-  cancelAllRequests(): void {
-    this.activeRequests.forEach(controller => controller.abort());
-    this.activeRequests.clear();
-  }
-}
-
+// Request cancellation manager instance
 const requestManager = new RequestManager();
 
 // Define interfaces for our data models
@@ -141,7 +115,7 @@ export const getTickets = async (): Promise<Ticket[]> => {
     const response = await apiClient.get('/tickets');
     return response.data;
   } catch (error) {
-    console.error('Error fetching tickets:', error);
+    logger.error('Failed to fetch tickets', { error });
     throw error;
   }
 };
@@ -164,10 +138,10 @@ export const getPaginatedTickets = async (params: PaginationParams, requestKey: 
   } catch (error: any) {
     // Don't throw if request was cancelled
     if (error.name === 'AbortError' || error.name === 'CanceledError') {
-      console.log('Request cancelled:', requestKey);
+      logger.debug('Request cancelled', { requestKey });
       throw new Error('REQUEST_CANCELLED');
     }
-    console.error('Error fetching paginated tickets:', error);
+    logger.error('Failed to fetch paginated tickets', { error, params });
     throw error;
   }
 };
@@ -177,7 +151,7 @@ export const getTicketById = async (id: number): Promise<Ticket> => {
     const response = await apiClient.get(`/tickets/${id}`);
     return response.data;
   } catch (error) {
-    console.error(`Error fetching ticket ${id}:`, error);
+    logger.error('Failed to fetch ticket', { error, ticketId: id });
     throw error;
   }
 };
@@ -188,7 +162,7 @@ export const createTicket = async (ticket: Omit<Ticket, 'id' | 'created' | 'modi
     const response = await apiClient.post(`/tickets`, ticket);
     return response.data;
   } catch (error) {
-    console.error('Error creating ticket:', error);
+    logger.error('Failed to create ticket', { error });
     throw error;
   }
 };
@@ -198,7 +172,7 @@ export const updateTicket = async (id: number, ticket: Partial<Ticket>): Promise
     const response = await apiClient.patch(`/tickets/${id}`, ticket);
     return response.data;
   } catch (error) {
-    console.error(`Error updating ticket ${id}:`, error);
+    logger.error('Failed to update ticket', { error, ticketId: id });
     throw error;
   }
 };
@@ -207,20 +181,19 @@ export const deleteTicket = async (id: number): Promise<void> => {
   try {
     await apiClient.delete(`/tickets/${id}`);
   } catch (error) {
-    console.error(`Error deleting ticket ${id}:`, error);
+    logger.error('Failed to delete ticket', { error, ticketId: id });
     throw error;
   }
 };
 
 export const createEmptyTicket = async (): Promise<Ticket> => {
-  console.log('createEmptyTicket called');
   try {
-    console.log('Sending POST request to create empty ticket');
+    logger.debug('Creating empty ticket');
     const response = await apiClient.post('/tickets/empty');
-    console.log('Empty ticket created successfully:', response.data);
+    logger.info('Empty ticket created', { ticketId: response.data.id });
     return response.data;
   } catch (error) {
-    console.error('Error creating empty ticket:', error);
+    logger.error('Failed to create empty ticket', { error });
     throw error;
   }
 };
@@ -230,7 +203,7 @@ export const linkTicket = async (ticketId: number, linkedTicketId: number): Prom
   try {
     await apiClient.post(`/tickets/${ticketId}/link/${linkedTicketId}`);
   } catch (error) {
-    console.error(`Error linking ticket ${ticketId} to ${linkedTicketId}:`, error);
+    logger.error('Failed to link tickets', { error, ticketId, linkedTicketId });
     throw error;
   }
 };
@@ -240,15 +213,15 @@ export const unlinkTicket = async (ticketId: number, linkedTicketId: number): Pr
   try {
     await apiClient.delete(`/tickets/${ticketId}/unlink/${linkedTicketId}`);
   } catch (error) {
-    console.error(`Error unlinking ticket ${ticketId} from ${linkedTicketId}:`, error);
+    logger.error('Failed to unlink tickets', { error, ticketId, linkedTicketId });
     throw error;
   }
 };
 
 // Add a comment to a ticket
 export const addCommentToTicket = async (
-  ticketId: number, 
-  content: string, 
+  ticketId: number,
+  content: string,
   attachments: { url: string; name: string }[] = []
 ): Promise<Comment> => {
   try {
@@ -259,7 +232,7 @@ export const addCommentToTicket = async (
     });
     return response.data;
   } catch (error) {
-    console.error(`Error adding comment to ticket ${ticketId}:`, error);
+    logger.error('Failed to add comment to ticket', { error, ticketId });
     throw error;
   }
 };
@@ -273,7 +246,7 @@ export const addAttachmentToComment = async (commentId: number, url: string, nam
     });
     return response.data;
   } catch (error) {
-    console.error(`Error adding attachment to comment ${commentId}:`, error);
+    logger.error('Failed to add attachment to comment', { error, commentId });
     throw error;
   }
 };
@@ -283,7 +256,7 @@ export const deleteComment = async (commentId: number): Promise<void> => {
   try {
     await apiClient.delete(`/comments/${commentId}`);
   } catch (error) {
-    console.error(`Error deleting comment ${commentId}:`, error);
+    logger.error('Failed to delete comment', { error, commentId });
     throw error;
   }
 };
@@ -293,7 +266,7 @@ export const deleteAttachment = async (attachmentId: number): Promise<void> => {
   try {
     await apiClient.delete(`/attachments/${attachmentId}`);
   } catch (error) {
-    console.error(`Error deleting attachment ${attachmentId}:`, error);
+    logger.error('Failed to delete attachment', { error, attachmentId });
     throw error;
   }
 };
@@ -304,7 +277,7 @@ export const getCommentsByTicketId = async (ticketId: number): Promise<CommentWi
     const response = await apiClient.get(`/tickets/${ticketId}/comments`);
     return response.data;
   } catch (error) {
-    console.error(`Error getting comments for ticket ${ticketId}:`, error);
+    logger.error('Failed to get comments for ticket', { error, ticketId });
     throw error;
   }
 };
@@ -314,7 +287,7 @@ export const addDeviceToTicket = async (ticketId: number, deviceId: number): Pro
   try {
     await apiClient.post(`/tickets/${ticketId}/devices/${deviceId}`);
   } catch (error) {
-    console.error(`Error adding device ${deviceId} to ticket ${ticketId}:`, error);
+    logger.error('Failed to add device to ticket', { error, ticketId, deviceId });
     throw error;
   }
 };
@@ -324,7 +297,7 @@ export const removeDeviceFromTicket = async (ticketId: number, deviceId: number)
   try {
     await apiClient.delete(`/tickets/${ticketId}/devices/${deviceId}`);
   } catch (error) {
-    console.error(`Error removing device ${deviceId} from ticket ${ticketId}:`, error);
+    logger.error('Failed to remove device from ticket', { error, ticketId, deviceId });
     throw error;
   }
 };

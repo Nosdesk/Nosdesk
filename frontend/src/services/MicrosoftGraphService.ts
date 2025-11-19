@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { logger } from '@/utils/logger';
 
 /**
  * Microsoft Graph Service
@@ -37,7 +38,7 @@ export default class MicrosoftGraphService {
       
       return response.data;
     } catch (error) {
-      console.error('Error calling Microsoft Graph API:', error);
+      logger.error('Error calling Microsoft Graph API:', error);
       throw error;
     }
   }
@@ -95,7 +96,7 @@ export default class MicrosoftGraphService {
       const response = await axios.get('/api/msgraph/users', { params: queryParams });
       return response.data;
     } catch (error) {
-      console.error('Error fetching Microsoft Graph users:', error);
+      logger.error('Error fetching Microsoft Graph users:', error);
       throw error;
     }
   }
@@ -123,7 +124,7 @@ export default class MicrosoftGraphService {
       const response = await axios.get('/api/msgraph/groups', { params: queryParams });
       return response.data;
     } catch (error) {
-      console.error('Error fetching Microsoft Graph groups:', error);
+      logger.error('Error fetching Microsoft Graph groups:', error);
       throw error;
     }
   }
@@ -151,7 +152,7 @@ export default class MicrosoftGraphService {
       const response = await axios.get('/api/msgraph/devices', { params: queryParams });
       return response.data;
     } catch (error) {
-      console.error('Error fetching Microsoft Graph devices:', error);
+      logger.error('Error fetching Microsoft Graph devices:', error);
       throw error;
     }
   }
@@ -173,7 +174,7 @@ export default class MicrosoftGraphService {
       const response = await axios.get('/api/msgraph/directory-objects', { params: queryParams });
       return response.data;
     } catch (error) {
-      console.error('Error fetching Microsoft Graph directory objects:', error);
+      logger.error('Error fetching Microsoft Graph directory objects:', error);
       throw error;
     }
   }
@@ -209,7 +210,7 @@ export default class MicrosoftGraphService {
       
       return this.callGraphApi(`/users/${userIdOrUpn}/photo`, 'GET', providerId);
     } catch (error) {
-      console.error('Error testing profile photo access:', error);
+      logger.error('Error testing profile photo access:', error);
       throw error;
     }
   }
@@ -270,7 +271,7 @@ export default class MicrosoftGraphService {
         data: { count: groupsResponse.data?.value?.length || 0, sample: groupsResponse.data?.value?.slice(0, 3), note: 'Verified via groups access (requires Directory.Read.All)' }
       };
     } catch (error: any) {
-      console.error('Directory.Read.All test error:', error);
+      logger.error('Directory.Read.All test error:', error);
       results['Directory.Read.All'] = { 
         status: 'error', 
         error: error.response?.data?.message || error.response?.data?.data?.error?.message || error.message, 
@@ -300,7 +301,7 @@ export default class MicrosoftGraphService {
         };
       }
     } catch (error: any) {
-      console.error('ProfilePhoto.Read.All test error:', error);
+      logger.error('ProfilePhoto.Read.All test error:', error);
       results['ProfilePhoto.Read.All'] = { 
         status: 'error', 
         error: error.response?.data?.message || error.response?.data?.data?.error?.message || error.message, 
@@ -322,7 +323,7 @@ export default class MicrosoftGraphService {
       const response = await axios.get(`/api/integrations/graph/entra-object-id/${azureAdDeviceId}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching Entra Object ID:', error);
+      logger.error('Error fetching Entra Object ID:', error);
       throw error;
     }
   }

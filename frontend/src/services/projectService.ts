@@ -1,4 +1,5 @@
 import apiClient from './apiConfig';
+import { logger } from '@/utils/logger';
 import type { Project } from '@/types/project';
 
 // Define the types for API responses
@@ -41,7 +42,7 @@ export const projectService = {
       const response = await apiClient.get<ProjectResponse[]>(`/projects`);
       return response.data.map(mapProjectResponse);
     } catch (error) {
-      console.error('Error fetching projects:', error);
+      logger.error('Error fetching projects:', error);
       throw error;
     }
   },
@@ -52,7 +53,7 @@ export const projectService = {
       const response = await apiClient.get<ProjectResponse>(`/projects/${id}`);
       return mapProjectResponse(response.data);
     } catch (error) {
-      console.error(`Error fetching project ${id}:`, error);
+      logger.error(`Error fetching project ${id}:`, error);
       throw error;
     }
   },
@@ -73,7 +74,7 @@ export const projectService = {
       const response = await apiClient.post<ProjectResponse>(`/projects`, request);
       return mapProjectResponse(response.data);
     } catch (error) {
-      console.error('Error creating project:', error);
+      logger.error('Error creating project:', error);
       throw error;
     }
   },
@@ -90,7 +91,7 @@ export const projectService = {
       const response = await apiClient.put<ProjectResponse>(`/projects/${id}`, request);
       return mapProjectResponse(response.data);
     } catch (error) {
-      console.error(`Error updating project ${id}:`, error);
+      logger.error(`Error updating project ${id}:`, error);
       throw error;
     }
   },
@@ -100,7 +101,7 @@ export const projectService = {
     try {
       await apiClient.delete(`/projects/${id}`);
     } catch (error) {
-      console.error(`Error deleting project ${id}:`, error);
+      logger.error(`Error deleting project ${id}:`, error);
       throw error;
     }
   },
@@ -111,7 +112,7 @@ export const projectService = {
       const response = await apiClient.get(`/projects/${id}/tickets`);
       return response.data;
     } catch (error) {
-      console.error(`Error fetching tickets for project ${id}:`, error);
+      logger.error(`Error fetching tickets for project ${id}:`, error);
       throw error;
     }
   },
@@ -121,7 +122,7 @@ export const projectService = {
     try {
       await apiClient.post(`/projects/${projectId}/tickets/${ticketId}`);
     } catch (error) {
-      console.error(`Error adding ticket ${ticketId} to project ${projectId}:`, error);
+      logger.error(`Error adding ticket ${ticketId} to project ${projectId}:`, error);
       throw error;
     }
   },
@@ -131,7 +132,7 @@ export const projectService = {
     try {
       await apiClient.delete(`/projects/${projectId}/tickets/${ticketId}`);
     } catch (error) {
-      console.error(`Error removing ticket ${ticketId} from project ${projectId}:`, error);
+      logger.error(`Error removing ticket ${ticketId} from project ${projectId}:`, error);
       throw error;
     }
   }

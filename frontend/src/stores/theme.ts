@@ -1,4 +1,5 @@
 // src/stores/theme.ts
+import { logger } from '@/utils/logger';
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import userService from '@/services/userService'
@@ -35,7 +36,7 @@ export const useThemeStore = defineStore('theme', () => {
   // Set theme directly (accepts 'system', 'light', or 'dark')
   function setTheme(theme: Theme): void {
     if (theme !== 'system' && theme !== 'light' && theme !== 'dark') {
-      console.warn('Invalid theme:', theme, '- must be system, light, or dark')
+      logger.warn('Invalid theme:', theme, '- must be system, light, or dark')
       return
     }
     currentTheme.value = theme
@@ -56,7 +57,7 @@ export const useThemeStore = defineStore('theme', () => {
   // Sync theme to backend
   async function syncThemeToBackend(userUuid: string): Promise<boolean> {
     if (!userUuid) {
-      console.warn('Cannot sync theme: no user UUID provided')
+      logger.warn('Cannot sync theme: no user UUID provided')
       return false
     }
 
@@ -67,10 +68,10 @@ export const useThemeStore = defineStore('theme', () => {
         theme: currentTheme.value
       })
 
-      console.log('✅ Theme synced to backend:', currentTheme.value)
+      logger.debug('✅ Theme synced to backend:', currentTheme.value)
       return true
     } catch (error) {
-      console.error('Failed to sync theme to backend:', error)
+      logger.error('Failed to sync theme to backend:', error)
       return false
     } finally {
       isSyncing.value = false
@@ -80,7 +81,7 @@ export const useThemeStore = defineStore('theme', () => {
   // Load theme from user profile
   function loadThemeFromUser(user: User | null): void {
     if (user && user.theme) {
-      console.log('📥 Loading theme from user profile:', user.theme)
+      logger.debug('📥 Loading theme from user profile:', user.theme)
       setTheme(user.theme as Theme)
     }
   }

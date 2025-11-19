@@ -1,4 +1,5 @@
 import heic2any from 'heic2any';
+import { logger } from '@/utils/logger';
 
 /**
  * Upload Service
@@ -26,7 +27,7 @@ class UploadService {
 
     try {
       const message = 'Converting HEIC image to WebP...';
-      console.log(message);
+      logger.debug(message);
       if (onProgress) onProgress(message);
 
       const convertedBlob = await heic2any({
@@ -45,12 +46,12 @@ class UploadService {
       );
 
       const successMessage = 'Image converted successfully';
-      console.log(successMessage);
+      logger.debug(successMessage);
       if (onProgress) onProgress(successMessage);
 
       return newFile;
     } catch (error) {
-      console.error('Error converting HEIC:', error);
+      logger.error('Error converting HEIC:', error);
       throw new Error('Failed to convert HEIC image. Please try a different image format.');
     }
   }

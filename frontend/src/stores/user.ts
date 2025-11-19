@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { logger } from '@/utils/logger';
 import { ref } from 'vue'
 
 interface User {

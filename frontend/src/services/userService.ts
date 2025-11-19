@@ -1,5 +1,8 @@
 import apiClient from './apiConfig';
 import { API_URL } from './apiConfig';
+import { logger } from '@/utils/logger';
+import { RequestManager } from '@/utils/requestManager';
+import type { PaginationParams, PaginatedResponse } from '@/types/pagination';
 
 // User interface matching the backend model
 export interface User {
@@ -17,24 +20,13 @@ export interface User {
   updated_at: string;
 }
 
-// Pagination interface
-export interface PaginationParams {
-  page: number;
-  pageSize: number;
-  sortField?: string;
-  sortDirection?: 'asc' | 'desc';
-  search?: string;
+// Extended pagination params for users
+export interface UserPaginationParams extends PaginationParams {
   role?: string;
 }
 
-// Paginated response interface
-export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
+// Re-export for backwards compatibility
+export type { PaginatedResponse } from '@/types/pagination';
 
 // Auth Identity interface
 export interface AuthIdentity {
@@ -58,35 +50,7 @@ export interface UserEmail {
   updated_at: string;
 }
 
-// Request cancellation manager
-class RequestManager {
-  private activeRequests = new Map<string, AbortController>();
-
-  createRequest(key: string): AbortController {
-    // Cancel any existing request with the same key
-    this.cancelRequest(key);
-    
-    // Create new abort controller
-    const controller = new AbortController();
-    this.activeRequests.set(key, controller);
-    
-    return controller;
-  }
-
-  cancelRequest(key: string): void {
-    const controller = this.activeRequests.get(key);
-    if (controller) {
-      controller.abort();
-      this.activeRequests.delete(key);
-    }
-  }
-
-  cancelAllRequests(): void {
-    this.activeRequests.forEach(controller => controller.abort());
-    this.activeRequests.clear();
-  }
-}
-
+// Request cancellation manager instance
 const requestManager = new RequestManager();
 
 // Service for user-related API calls
@@ -97,7 +61,7 @@ const userService = {
       const response = await apiClient.get('/users');
       return response.data || [];
     } catch (error) {
-      console.error('Error fetching all users:', error);
+      logger.error('Failed to fetch all users', { error });
       return [];
     }
   },
@@ -117,13 +81,13 @@ const userService = {
       });
       return response.data || [];
     } catch (error) {
-      console.error('Error fetching users batch:', error);
+      logger.error('Failed to fetch users batch', { error, uuidCount: uuids.length });
       return [];
     }
   },
 
   // Get paginated users with cancellation support
-  async getPaginatedUsers(params: PaginationParams, requestKey: string = 'paginated-users'): Promise<PaginatedResponse<User>> {
+  async getPaginatedUsers(params: UserPaginationParams, requestKey: string = 'paginated-users'): Promise<PaginatedResponse<User>> {
     try {
       // Create cancellable request
       const controller = requestManager.createRequest(requestKey);
@@ -140,10 +104,10 @@ const userService = {
     } catch (error: any) {
       // Don't throw if request was cancelled
       if (error.name === 'AbortError' || error.name === 'CanceledError') {
-        console.log('Request cancelled:', requestKey);
+        logger.debug('Request cancelled', { requestKey });
         throw new Error('REQUEST_CANCELLED');
       }
-      console.error('Error fetching paginated users:', error);
+      logger.error('Failed to fetch paginated users', { error, params });
       throw error;
     }
   },
@@ -154,7 +118,7 @@ const userService = {
       const response = await apiClient.get(`/users/${uuid}`);
       return response.data;
     } catch (error) {
-      console.error(`Error fetching user with UUID ${uuid}:`, error);
+      logger.error('Failed to fetch user by UUID', { error, uuid });
       return null;
     }
   },
@@ -165,7 +129,7 @@ const userService = {
       const response = await apiClient.get(`/users/${uuid}/emails`);
       return response.data.emails || [];
     } catch (error: any) {
-      console.error(`Error fetching emails for user with UUID ${uuid}:`, error);
+      logger.error('Failed to fetch user emails', { error, uuid });
       return [];
     }
   },
@@ -176,7 +140,7 @@ const userService = {
       const response = await apiClient.post(`/users/${uuid}/emails`, { email });
       return response.data.email || null;
     } catch (error: any) {
-      console.error(`Error adding email for user ${uuid}:`, error);
+      logger.error('Failed to add user email', { error, uuid, email });
       throw error;
     }
   },
@@ -187,7 +151,7 @@ const userService = {
       const response = await apiClient.put(`/users/${uuid}/emails/${emailId}`, updates);
       return response.data.email || null;
     } catch (error: any) {
-      console.error(`Error updating email ${emailId}:`, error);
+      logger.error('Failed to update user email', { error, uuid, emailId, updates });
       throw error;
     }
   },
@@ -197,7 +161,7 @@ const userService = {
     try {
       await apiClient.delete(`/users/${uuid}/emails/${emailId}`);
     } catch (error: any) {
-      console.error(`Error deleting email ${emailId}:`, error);
+      logger.error('Failed to delete user email', { error, uuid, emailId });
       throw error;
     }
   },
@@ -217,7 +181,7 @@ const userService = {
       const response = await apiClient.post(`/users`, payload);
       return response.data;
     } catch (error) {
-      console.error('Error creating user:', error);
+      logger.error('Failed to create user', { error, email: user.email });
       return null;
     }
   },
@@ -228,7 +192,7 @@ const userService = {
       const response = await apiClient.put(`/users/${uuid}`, userData);
       return response.data;
     } catch (error) {
-      console.error(`Error updating user with UUID ${uuid}:`, error);
+      logger.error('Failed to update user', { error, uuid });
       return null;
     }
   },
@@ -239,7 +203,7 @@ const userService = {
       await apiClient.delete(`/users/${uuid}`);
       return true;
     } catch (error) {
-      console.error(`Error deleting user with UUID ${uuid}:`, error);
+      logger.error('Failed to delete user', { error, uuid });
       return false;
     }
   },
@@ -256,25 +220,25 @@ const userService = {
           const userData = JSON.parse(userJson);
           userUuid = userData.uuid;
         } catch (e) {
-          console.error('Error parsing user data from localStorage:', e);
+          logger.error('Failed to parse user data from localStorage', { error: e });
         }
       }
-      
+
       // If we have the UUID, use the new UUID-based endpoint
-      const endpoint = userUuid ? 
-        `/users/${userUuid}/auth-identities` : 
+      const endpoint = userUuid ?
+        `/users/${userUuid}/auth-identities` :
         `/users/auth-identities`;
-        
-      console.log(`Using auth identities endpoint: ${endpoint}`);
+
+      logger.debug('Fetching auth identities', { endpoint });
       const response = await apiClient.get(endpoint);
-      
+
       // Validate response data
       if (!response.data || !Array.isArray(response.data)) {
-        console.error('Invalid auth identities response format:', response.data);
+        logger.error('Invalid auth identities response format', { data: response.data });
         return [];
       }
-      
-      console.log('Raw auth identities from API:', response.data);
+
+      logger.debug('Fetched auth identities from API', { count: response.data.length });
       
       // Process and validate each identity
       const validIdentities = response.data
@@ -344,7 +308,7 @@ const userService = {
                 }
               }
             } catch (e) {
-              console.warn('Failed to parse identity_data JSON:', e);
+              logger.warn('Failed to parse identity_data JSON', { error: e });
             }
           }
           
@@ -356,11 +320,11 @@ const userService = {
             created_at: item.created_at || new Date().toISOString()
           };
         });
-      
-      console.log('Processed auth identities:', validIdentities);
+
+      logger.debug('Processed auth identities', { count: validIdentities.length });
       return validIdentities;
     } catch (error) {
-      console.error('Error fetching user auth identities:', error);
+      logger.error('Failed to fetch user auth identities', { error });
       return [];
     }
   },
@@ -377,20 +341,20 @@ const userService = {
           const userData = JSON.parse(userJson);
           userUuid = userData.uuid;
         } catch (e) {
-          console.error('Error parsing user data from localStorage:', e);
+          logger.error('Failed to parse user data from localStorage', { error: e });
         }
       }
-      
+
       // If we have the UUID, use the new UUID-based endpoint
-      const endpoint = userUuid ? 
-        `/users/${userUuid}/auth-identities/${identityId}` : 
+      const endpoint = userUuid ?
+        `/users/${userUuid}/auth-identities/${identityId}` :
         `/users/auth-identities/${identityId}`;
-        
-      console.log(`Using delete auth identity endpoint: ${endpoint}`);
+
+      logger.debug('Deleting auth identity', { endpoint, identityId });
       await apiClient.delete(endpoint);
       return true;
     } catch (error) {
-      console.error(`Error deleting auth identity with ID ${identityId}:`, error);
+      logger.error('Failed to delete auth identity', { error, identityId });
       return false;
     }
   },
@@ -409,23 +373,23 @@ const userService = {
             const userResponse = await apiClient.get('/auth/me');
             if (userResponse.data && userResponse.data.uuid) {
               userUuid = userResponse.data.uuid;
-              console.log('Retrieved user UUID from /auth/me endpoint:', userUuid);
+              logger.debug('Retrieved user UUID from /auth/me endpoint', { userUuid });
 
               // Update localStorage with fresh user data
               localStorage.setItem('user', JSON.stringify(userResponse.data));
             }
           }
         } catch (e) {
-          console.error('Error fetching current user data:', e);
+          logger.error('Failed to fetch current user data', { error: e });
         }
       }
 
       if (!userUuid) {
-        console.error('No user UUID found for image upload');
+        logger.error('No user UUID found for image upload');
         return null;
       }
-      
-      console.log(`Using user UUID for ${type} upload:`, userUuid);
+
+      logger.debug('Uploading image for user', { userUuid, type });
       
       // Create form data
       const formData = new FormData();
@@ -437,25 +401,25 @@ const userService = {
           'Content-Type': 'multipart/form-data'
         }
       });
-      
-      console.log(`${type} upload response:`, response.data);
-      
+
+      logger.debug('Image upload response received', { type });
+
       // Return the URL
       if (response.data && response.data.url) {
-        console.log(`Upload successful, received URL: ${response.data.url}`);
+        logger.info('Image upload successful', { type, url: response.data.url });
         return response.data.url;
       } else if (response.data && response.data.user && type === 'avatar' && response.data.user.avatar_url) {
-        console.log(`Avatar upload successful, using avatar_url from response: ${response.data.user.avatar_url}`);
+        logger.info('Avatar upload successful', { url: response.data.user.avatar_url });
         return response.data.user.avatar_url;
       } else if (response.data && response.data.user && type === 'banner' && response.data.user.banner_url) {
-        console.log(`Banner upload successful, using banner_url from response: ${response.data.user.banner_url}`);
+        logger.info('Banner upload successful', { url: response.data.user.banner_url });
         return response.data.user.banner_url;
       }
-      
-      console.warn('Upload response did not contain a URL:', response.data);
+
+      logger.warn('Upload response did not contain a URL', { type, data: response.data });
       return null;
     } catch (error) {
-      console.error(`Error uploading ${type} image:`, error);
+      logger.error('Failed to upload image', { error, type });
       return null;
     }
   },
@@ -468,7 +432,7 @@ const userService = {
       const response = await apiClient.post('/auth/mfa/setup');
       return response.data;
     } catch (error) {
-      console.error('Error generating MFA setup:', error);
+      logger.error('Failed to generate MFA setup', { error });
       return null;
     }
   },
@@ -482,7 +446,7 @@ const userService = {
       });
       return response.data;
     } catch (error) {
-      console.error('Error verifying MFA setup:', error);
+      logger.error('Failed to verify MFA setup', { error });
       return null;
     }
   },
@@ -493,7 +457,7 @@ const userService = {
       await apiClient.post('/auth/mfa/enable', { token });
       return true;
     } catch (error) {
-      console.error('Error enabling MFA:', error);
+      logger.error('Failed to enable MFA', { error });
       return false;
     }
   },
@@ -504,7 +468,7 @@ const userService = {
       await apiClient.post('/auth/mfa/disable', { password });
       return true;
     } catch (error) {
-      console.error('Error disabling MFA:', error);
+      logger.error('Failed to disable MFA', { error });
       return false;
     }
   },
@@ -515,7 +479,7 @@ const userService = {
       const response = await apiClient.post('/auth/mfa/regenerate-backup-codes', { password });
       return response.data.backup_codes;
     } catch (error) {
-      console.error('Error regenerating backup codes:', error);
+      logger.error('Failed to regenerate backup codes', { error });
       return null;
     }
   },
@@ -526,7 +490,7 @@ const userService = {
       const response = await apiClient.get('/auth/mfa/status');
       return response.data;
     } catch (error) {
-      console.error('Error getting MFA status:', error);
+      logger.error('Failed to get MFA status', { error });
       return null;
     }
   },
@@ -549,7 +513,7 @@ const userService = {
       });
       return response.data;
     } catch (error: any) {
-      console.error('Error logging in with MFA:', error);
+      logger.error('Failed to login with MFA', { error, email });
       // Return error response data if available for better error handling
       if (error.response?.data) {
         return {
@@ -582,7 +546,7 @@ const userService = {
       const response = await apiClient.post('/users/cleanup-images');
       return response.data;
     } catch (error: any) {
-      console.error('Error cleaning up stale images:', error);
+      logger.error('Failed to cleanup stale images', { error });
       return {
         success: false,
         message: error.response?.data?.message || 'Failed to cleanup stale images'

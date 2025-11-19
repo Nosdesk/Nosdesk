@@ -1,4 +1,5 @@
 // Service for handling authenticated file access
+import { logger } from '@/utils/logger';
 import apiConfig from './apiConfig'
 
 // Generate an authenticated URL for a file
@@ -55,7 +56,7 @@ export const downloadAuthenticatedFile = async (filePath: string, filename?: str
     document.body.removeChild(link)
     window.URL.revokeObjectURL(url)
   } catch (error) {
-    console.error('Error downloading file:', error)
+    logger.error('Error downloading file:', error)
     throw error
   }
 }

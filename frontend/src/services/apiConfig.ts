@@ -1,15 +1,29 @@
 import axios from 'axios';
+import { logger } from '@/utils/logger';
+import { createErrorFromResponse } from '@/utils/errors';
+import { ErrorTracker } from '@/utils/errorTracking';
 
-// API Configuration with Conditional Logging
-// 
+// API Configuration with Structured Logging and Error Handling
+//
 // Logging behavior:
-// - Minimal logging by default (errors only)
-// - Verbose request/response logging enabled when localStorage['api-verbose-logging'] = 'true'
+// - Production: ERROR level only, structured logs sent to backend
+// - Development: DEBUG level, verbose logging when localStorage['api-verbose-logging'] = 'true'
 // - To enable verbose logging: localStorage.setItem('api-verbose-logging', 'true')
-// - To disable: localStorage.removeItem('api-verbose-logging')
 
 // Set API URL based on environment
 export const API_URL = import.meta.env.VITE_API_URL || '/api';
+
+// Correlation ID management for request tracing
+let currentCorrelationId: string | null = null;
+
+export function generateCorrelationId(): string {
+  return `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+export function setCorrelationId(id: string) {
+  currentCorrelationId = id;
+  logger.setCorrelationId(id);
+}
 
 // Create axios instance with default config
 const apiClient = axios.create({
@@ -26,12 +40,17 @@ function getCsrfToken(): string | null {
   return match ? match[1] : null;
 }
 
-// Add request interceptor for CSRF token
+// Add request interceptor for CSRF token and correlation ID
 apiClient.interceptors.request.use(
   (config) => {
+    // Generate correlation ID for request tracing
+    if (!currentCorrelationId) {
+      currentCorrelationId = generateCorrelationId();
+    }
+    config.headers['X-Correlation-ID'] = currentCorrelationId;
+
     // Add CSRF token to header for state-changing requests
     const csrfToken = getCsrfToken();
-
     if (csrfToken) {
       config.headers['X-CSRF-Token'] = csrfToken;
     }
@@ -42,28 +61,26 @@ apiClient.interceptors.request.use(
       config.headers['X-Auth-Provider'] = authProvider;
     }
 
-    // TEMPORARY: ALWAYS log CSRF token status for debugging (not just DEV mode)
-    console.log(`🔒 API Request to ${config.url}:`, {
-      method: config.method,
-      hasCsrfToken: !!csrfToken,
-      csrfToken: csrfToken ? csrfToken.substring(0, 10) + '...' : 'none',
-      headerValue: config.headers['X-CSRF-Token'] ? config.headers['X-CSRF-Token'].substring(0, 10) + '...' : 'missing',
-      cookieCount: document.cookie.split(';').filter(c => c.trim()).length,
-      withCredentials: config.withCredentials
-    });
-
-    // Only log requests in development mode and when verbose logging is enabled
-    if (import.meta.env.DEV && window.localStorage.getItem('api-verbose-logging') === 'true') {
-      console.log(`API Request to ${config.url}:`, {
+    // Verbose logging (development only)
+    if (import.meta.env.DEV && localStorage.getItem('api-verbose-logging') === 'true') {
+      logger.debug('API Request', {
         method: config.method,
+        url: config.url,
+        correlationId: currentCorrelationId,
         headers: config.headers,
-        data: config.data,
+        data: config.data
+      });
+    } else {
+      // Minimal production logging
+      logger.debug(`${config.method?.toUpperCase()} ${config.url}`, {
+        correlationId: currentCorrelationId
       });
     }
 
     return config;
   },
   (error) => {
+    logger.error('Request interceptor error', { error });
     return Promise.reject(error);
   }
 );
@@ -71,62 +88,89 @@ apiClient.interceptors.request.use(
 // Add response interceptor for error handling
 apiClient.interceptors.response.use(
   (response) => {
-    // Only log responses in development mode and when verbose logging is enabled
-    if (import.meta.env.DEV && window.localStorage.getItem('api-verbose-logging') === 'true') {
-      // Get the call stack to identify which component made the request
-      const stack = new Error().stack;
-      const caller = stack?.split('\n')[4]?.trim() || 'Unknown caller';
-      
-      console.log(`API Response from ${response.config.url}:`, { 
+    // Extract correlation ID from response
+    const correlationId = response.headers['x-correlation-id'];
+    if (correlationId) {
+      setCorrelationId(correlationId);
+    }
+
+    // Verbose logging (development only)
+    if (import.meta.env.DEV && localStorage.getItem('api-verbose-logging') === 'true') {
+      logger.debug('API Response', {
         status: response.status,
-        data: response.data,
-        caller: caller
+        url: response.config.url,
+        correlationId,
+        data: response.data
       });
     }
-    
+
+    // Reset correlation ID after successful request
+    currentCorrelationId = null;
+
     return response;
   },
   (error) => {
-    // Handle authentication errors
-    if (error.response && error.response.status === 401) {
-      // Prevent infinite redirect loop - only redirect once
-      if (!window.location.pathname.includes('/login') && !sessionStorage.getItem('redirecting-to-login')) {
-        console.warn('🔐 Session invalid - clearing cookies and redirecting to login');
+    const correlationId = error.response?.headers['x-correlation-id'] || currentCorrelationId;
 
-        // Set flag to prevent multiple redirects
+    // Create typed error
+    const appError = createErrorFromResponse(error);
+
+    // Log error with appropriate level
+    logger.error(`API Error: ${appError.message}`, {
+      correlationId,
+      endpoint: error.config?.url,
+      method: error.config?.method,
+      status: error.response?.status,
+      data: error.response?.data
+    });
+
+    // Handle authentication errors (401)
+    if (error.response?.status === 401) {
+      // Prevent infinite redirect loop
+      if (!window.location.pathname.includes('/login') && !sessionStorage.getItem('redirecting-to-login')) {
+        logger.warn('Session expired - redirecting to login', {
+          correlationId
+        });
+
         sessionStorage.setItem('redirecting-to-login', 'true');
 
-        // Clear ALL auth-related cookies immediately
-        document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Strict';
-        document.cookie = 'refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Strict';
-        document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Strict';
+        // Clear auth cookies
+        document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        document.cookie = 'refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
 
-        // Clear auth state
         localStorage.removeItem('authProvider');
 
-        // Redirect to login
         setTimeout(() => {
           sessionStorage.removeItem('redirecting-to-login');
           window.location.href = '/login';
         }, 100);
       }
-      // Return rejected promise without logging to console (expected behavior for expired tokens)
-      return Promise.reject(new Error('Authentication expired'));
-    }
-
-    // Log other errors in development
-    if (import.meta.env.DEV) {
-      console.error('API Error:', {
+      // Don't send 401 errors to error tracking (expected behavior)
+    } else if (error.response?.status === 403) {
+      // Permission error
+      logger.warn('Permission denied', {
+        endpoint: error.config?.url,
+        correlationId
+      });
+    } else if (error.response?.status >= 500) {
+      // Server error - track in production
+      ErrorTracker.captureException(appError, {
+        correlationId,
+        endpoint: error.config?.url
+      });
+    } else if (!error.response) {
+      // Network error
+      logger.error('Network error', {
         message: error.message,
-        config: error.config,
-        response: error.response ? {
-          status: error.response.status,
-          data: error.response.data
-        } : 'No response'
+        correlationId
       });
     }
 
-    return Promise.reject(error);
+    // Reset correlation ID
+    currentCorrelationId = null;
+
+    return Promise.reject(appError);
   }
 );
 
