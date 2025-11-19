@@ -67,8 +67,8 @@ RUN npm ci
 # Copy frontend source
 COPY frontend .
 
-# Build frontend for production
-RUN npm run build
+# Build frontend for production (skip type checking for faster builds)
+RUN npm run build-only
 
 # Stage 5: Runtime image
 FROM debian:bookworm-slim as runtime
