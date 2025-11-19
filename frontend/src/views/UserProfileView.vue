@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDate as formatDateUtil } from '@/utils/dateUtils';
 import { ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
@@ -213,7 +214,7 @@ const formatDate = (dateString: string) => {
         } else if (diffDays < 30) {
             return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
         } else {
-            return formatDate(dateString, "MMM d, yyyy");
+            return formatDateUtil(dateString, "MMM d, yyyy");
         }
     } catch (e) {
         return dateString;

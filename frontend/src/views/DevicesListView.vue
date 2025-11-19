@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDate, formatDateTime } from '@/utils/dateUtils';
+import { formatDate as formatDateUtil, formatDateTime } from '@/utils/dateUtils';
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseListView from '@/components/common/BaseListView.vue'
@@ -135,7 +135,7 @@ const formatDate = (dateString: string) => {
   try {
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return 'Unknown';
-    return dateformatDateTime(arguments[0] || this);
+    return formatDateTime(dateString);
   } catch (error) {
     console.error("Error formatting date:", error);
     return 'Unknown';
