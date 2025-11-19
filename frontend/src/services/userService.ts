@@ -205,28 +205,16 @@ const userService = {
   // Create a new user
   async createUser(user: { name: string; email: string; role: string; pronouns?: string }): Promise<User | null> {
     try {
-      // Generate a UUID for the new user
-      const userUuid = crypto.randomUUID();
-      
-      // Create a NewUser object that matches the backend expectations
-      const newUser = {
-        uuid: userUuid,
+      // Send minimal user data - backend generates UUID and sets all defaults
+      // This follows REST best practices and KISS principle
+      const payload = {
         name: user.name.trim(),
         email: user.email.trim().toLowerCase(),
-        role: user.role, // The backend will convert this to the enum
-        password_hash: [], // Empty array - backend will set default password
+        role: user.role,
         pronouns: user.pronouns || null,
-        avatar_url: null,
-        banner_url: null,
-        avatar_thumb: null,
-        microsoft_uuid: null,
-        mfa_secret: null,
-        mfa_enabled: false,
-        mfa_backup_codes: null,
-        passkey_credentials: null
       };
-      
-      const response = await apiClient.post(`/users`, newUser);
+
+      const response = await apiClient.post(`/users`, payload);
       return response.data;
     } catch (error) {
       console.error('Error creating user:', error);

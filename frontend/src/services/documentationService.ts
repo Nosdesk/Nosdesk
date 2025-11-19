@@ -610,8 +610,9 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
       statusValue = 'draft';
     }
 
-    // Generate a UUID for the new page
-    const uuid = crypto.randomUUID();
+    // Generate a UUID for the new page using our utility with fallbacks
+    const { uuid: generateUuid } = await import('@/utils/uuid');
+    const uuid = generateUuid();
 
     // Prepare the payload matching NewDocumentationPage backend struct
     const payload = {
