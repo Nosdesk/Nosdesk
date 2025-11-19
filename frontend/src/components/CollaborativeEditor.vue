@@ -450,14 +450,13 @@ const initEditor = async () => {
                     }),
                     yCursorPlugin(provider.awareness, {
                         // Custom cursor builder that handles missing users gracefully
-                        cursorBuilder: (user: any, clientId: number): HTMLElement | null => {
-                            if (!user) return null;
+                        cursorBuilder: (user: any, clientId: number): HTMLElement => {
                             const cursor = document.createElement('span');
                             cursor.classList.add('ProseMirror-yjs-cursor');
-                            cursor.setAttribute('style', `border-color: ${user.color || '#808080'}`);
+                            cursor.setAttribute('style', `border-color: ${user?.color || '#808080'}`);
                             const userLabel = document.createElement('div');
-                            userLabel.setAttribute('style', `background-color: ${user.color || '#808080'}`);
-                            userLabel.textContent = user.name || 'Anonymous';
+                            userLabel.setAttribute('style', `background-color: ${user?.color || '#808080'}`);
+                            userLabel.textContent = user?.name || 'Anonymous';
                             cursor.appendChild(userLabel);
                             return cursor;
                         },

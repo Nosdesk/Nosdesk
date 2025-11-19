@@ -653,7 +653,13 @@ export const useDataStore = defineStore('data', () => {
     
     // Direct batch API call (bypasses cache)
     getUsersBatchDirect: userService.getUsersBatch,
-    
+
+    // Synchronous getter for cached user (returns undefined if not in cache)
+    getCachedUserByUuid: (uuid: string): User | undefined => {
+      const cached = individualUsersCache.value.get(uuid)
+      return cached?.data
+    },
+
     // Stats
     getCacheStats
   }

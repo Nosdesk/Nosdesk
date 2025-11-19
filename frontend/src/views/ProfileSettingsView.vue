@@ -39,7 +39,7 @@ const currentUser = computed(() => targetUser.value || authStore.user);
 
 // Check if we're in admin user management mode
 const targetUserUuid = computed(() => {
-  return route.params.uuid as string || null;
+  return (route.params.uuid as string) || undefined;
 });
 
 const isAdminMode = computed(() => {

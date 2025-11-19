@@ -696,7 +696,7 @@ onMounted(() => {
                       <div class="relative">
                         <img
                           v-if="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
-                          :src="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                          :src="device.primary_user.avatar_thumb || device.primary_user.avatar_url || ''"
                           :alt="device.primary_user.name"
                           class="w-16 h-16 rounded-full object-cover ring-2 ring-surface-alt group-hover:ring-brand-blue transition-all"
                         />
@@ -981,7 +981,7 @@ onMounted(() => {
                     <div class="relative">
                       <img
                         v-if="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
-                        :src="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                        :src="device.primary_user.avatar_thumb || device.primary_user.avatar_url || ''"
                         :alt="device.primary_user.name"
                         class="w-16 h-16 rounded-full object-cover ring-2 ring-surface-alt group-hover:ring-brand-blue transition-all"
                       />

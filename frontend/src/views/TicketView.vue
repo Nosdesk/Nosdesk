@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/// <reference types="node" />
 import { computed, onMounted, watch, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";

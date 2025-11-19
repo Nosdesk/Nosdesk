@@ -221,9 +221,9 @@ watch(revisions, async (newRevisions) => {
   )
 }, { immediate: true })
 
-// Helper to get user name from UUID
+// Helper to get user name from UUID (from cache)
 const getUserName = (uuid: string): string | undefined => {
-  const user = dataStore.getUserByUuid(uuid)
+  const user = dataStore.getCachedUserByUuid(uuid)
   return user?.name
 }
 

@@ -1,6 +1,9 @@
 import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions'
 import type { Device } from './device'
 
+// Re-export Device type for convenience
+export type { Device }
+
 export interface Ticket {
   id: number;
   title: string;
@@ -8,11 +11,12 @@ export interface Ticket {
   priority: TicketPriority;
   created: string;
   modified: string;
-  assignee: string;
+  assignee: string | null;
   requester: string;
   devices?: Device[];
   linkedTickets: number[];
   project?: string;
+  projects?: any; // Backend may return projects array
   notesAndComments?: {
     id: number;
     content: string;
