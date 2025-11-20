@@ -2,7 +2,8 @@ import { defineStore } from 'pinia'
 import { logger } from '@/utils/logger';
 import { ref, computed } from 'vue'
 import userService from '@/services/userService'
-import type { User, PaginatedResponse, PaginationParams } from '@/services/userService'
+import type { User, PaginatedResponse } from '@/services/userService'
+import type { PaginationParams } from '@/types/pagination'
 
 // Cache configuration
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes

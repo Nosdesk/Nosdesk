@@ -1,10 +1,11 @@
 /**
-import { logger } from '@/utils/logger';
  * Documentation Event Emitter
  *
  * Provides real-time event broadcasting for documentation changes
  * Used to update sidebar navigation and other components when docs are created/updated/deleted
  */
+
+import { logger } from '@/utils/logger';
 
 type DocumentEvent = {
   id: number | string;

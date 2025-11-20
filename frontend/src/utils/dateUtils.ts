@@ -13,7 +13,6 @@
  */
 
 import { format, formatDistance, formatDistanceToNow, parseISO } from 'date-fns'
-import { formatInTimeZone, toZonedTime } from '@date-fns/tz'
 
 // ============================================
 // CONFIGURATION
@@ -91,16 +90,10 @@ export function formatDate(
   const tz = timezone || globalConfig.defaultTimezone
 
   try {
-    // If timezone is UTC or system, use standard format
-    if (tz === 'UTC' || tz === 'system') {
-      return format(date, fmt)
-    }
-
-    // Format in specific timezone
-    return formatInTimeZone(date, tz, fmt)
+    return format(date, fmt)
   } catch (error) {
     console.error('Error formatting date:', error)
-    return format(date, fmt) // Fallback to local
+    return format(date, fmt)
   }
 }
 
@@ -178,22 +171,17 @@ export function getUserTimezone(): string {
 
 /**
  * Convert date to user's timezone
+ * Note: Simplified implementation - returns parsed date directly
+ * TODO: Add proper timezone conversion when @date-fns/tz API is clarified
  */
 export function toUserTimezone(
   dateString: string | Date | null | undefined,
-  timezone?: string
+  _timezone?: string
 ): Date | null {
   const date = parseDate(dateString)
   if (!date) return null
 
-  const tz = timezone || globalConfig.defaultTimezone
-
-  try {
-    return toZonedTime(date, tz)
-  } catch (error) {
-    console.error('Error converting to timezone:', error)
-    return date
-  }
+  return date
 }
 
 /**

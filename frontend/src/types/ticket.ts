@@ -5,12 +5,12 @@
 
 import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions'
 import type { Device } from './device'
-import type { Comment } from './comment'
+import type { Comment, Attachment } from './comment'
 import type { Project } from './project'
 import type { UserInfo } from './user'
 
 // Re-export for convenience
-export type { Device, Comment, Project }
+export type { Device, Comment, Attachment, Project }
 
 export interface Ticket {
   id: number
