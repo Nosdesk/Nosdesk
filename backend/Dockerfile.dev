@@ -1,5 +1,6 @@
+# syntax=docker/dockerfile:1.4
 # Development Dockerfile for faster iteration
-FROM rust:1.87-slim as development
+FROM rust:1.88-slim as development
 
 # Install development dependencies
 RUN apt-get update && apt-get install -y \
@@ -11,34 +12,22 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install useful development tools
-RUN cargo install diesel_cli --no-default-features --features postgres
-RUN cargo install cargo-watch --locked
+# Install useful development tools with BuildKit cache mounts
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo install diesel_cli --no-default-features --features postgres && \
+    cargo install bacon --locked
 
 WORKDIR /app
 
-# Copy manifests and cache dependencies
+# Copy manifests only - actual source is mounted as volume
 COPY backend/Cargo.toml backend/Cargo.lock ./
 
-# Create dummy source files to cache dependencies
-RUN mkdir -p src/bin && \
-    echo "pub fn dummy() {}" > src/lib.rs && \
-    echo "fn main() {}" > src/main.rs && \
-    echo "fn main() {}" > src/bin/import_tickets.rs
+# Note: We don't pre-build here because target/ is mounted as a volume.
+# The first run will compile everything, subsequent runs use cached artifacts.
 
-# Build dependencies first (this layer will be cached)
-RUN cargo build
-
-# Remove dummy files
-RUN rm -rf src
-
-# Copy source code
-COPY backend/src ./src
-
-# Set up for live reloading with automatic migrations
-# Use --why flag to show which files triggered the rebuild
-# Force unbuffered output for Docker logs
+# Set up for live reloading with bacon (modern cargo-watch replacement)
+# Bacon provides better TUI and is actively maintained
 ENV RUST_BACKTRACE=1
 ENV RUST_LOG_STYLE=always
-# Explicitly ignore uploads and public directories to prevent reload loops
-CMD ["cargo", "watch", "--why", "--ignore", "uploads", "--ignore", "public", "-x", "run"] 
+# Use bacon in headless mode for Docker (no TUI, just logs)
+CMD ["bacon", "--headless", "run"] 

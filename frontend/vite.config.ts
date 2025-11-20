@@ -28,6 +28,14 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
+    // Docker-specific optimizations for file watching and HMR
+    watch: {
+      usePolling: true,  // Required for Docker on macOS/Windows
+      interval: 1000,    // Reduce CPU usage with 1s polling interval
+    },
+    hmr: {
+      clientPort: 5173,  // Match exposed Docker port for HMR websocket
+    },
     proxy: {
       "/api": {
         target: process.env.VITE_API_URL || "http://127.0.0.1:8080",

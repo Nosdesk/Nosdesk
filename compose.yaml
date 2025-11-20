@@ -78,12 +78,16 @@ services:
     stdin_open: true
     tty: true
     volumes:
-      - ./backend/src:/app/src
-      - ./backend/migrations:/app/migrations
-      - ./backend/Cargo.toml:/app/Cargo.toml
-      - ./backend/Cargo.lock:/app/Cargo.lock
-      - ./backend/public:/app/public  # Frontend build output
+      # Source code with :delegated for better macOS performance
+      - ./backend/src:/app/src:delegated
+      - ./backend/migrations:/app/migrations:delegated
+      - ./backend/Cargo.toml:/app/Cargo.toml:delegated
+      - ./backend/Cargo.lock:/app/Cargo.lock:delegated
+      # Build output with :cached (read-heavy from container perspective)
+      - ./backend/public:/app/public:cached
+      # Named volumes for caching
       - backend_cargo_cache:/usr/local/cargo/registry
+      - backend_target_cache:/app/target  # Cache compiled artifacts
       - backend_uploads:/app/uploads
     ports:
       - "8080:8080"
@@ -100,7 +104,12 @@ services:
       - RUST_BACKTRACE=1
       - CARGO_MESSAGE_FORMAT=short
       - CARGO_TERM_COLOR=always
-
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s  # Longer for dev due to compilation time
+      retries: 3
     profiles: ["dev"]
 
   # Frontend Build Service - Development (optional for live reloading)
@@ -125,6 +134,8 @@ volumes:
   frontend_node_modules:
     driver: local
   backend_cargo_cache:
+    driver: local
+  backend_target_cache:
     driver: local
 
 networks:
