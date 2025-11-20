@@ -56,23 +56,23 @@ class Logger {
     this.correlationId = id
   }
 
-  debug(message: string, context?: Record<string, any>) {
+  debug(message: string, context?: any) {
     this.log(LogLevel.DEBUG, message, context)
   }
 
-  info(message: string, context?: Record<string, any>) {
+  info(message: string, context?: any) {
     this.log(LogLevel.INFO, message, context)
   }
 
-  warn(message: string, context?: Record<string, any>) {
+  warn(message: string, context?: any) {
     this.log(LogLevel.WARN, message, context)
   }
 
-  error(message: string, context?: Record<string, any>) {
+  error(message: string, context?: any) {
     this.log(LogLevel.ERROR, message, context)
   }
 
-  fatal(message: string, context?: Record<string, any>) {
+  fatal(message: string, context?: any) {
     this.log(LogLevel.FATAL, message, context)
   }
 
