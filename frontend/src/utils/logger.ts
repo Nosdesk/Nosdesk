@@ -173,11 +173,23 @@ class Logger {
     this.buffer = []
 
     try {
+      // Get CSRF token from cookie
+      const csrfToken = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('csrf_token='))
+        ?.split('=')[1]
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      }
+
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken
+      }
+
       await fetch(this.config.remoteEndpoint!, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers,
         body: JSON.stringify({ logs }),
         credentials: 'include'
       })
