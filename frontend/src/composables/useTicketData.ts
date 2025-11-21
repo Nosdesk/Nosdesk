@@ -3,6 +3,7 @@ import { useRouter } from "vue-router";
 import { useRecentTicketsStore } from "@/stores/recentTickets";
 import { useTitleManager } from "@/composables/useTitleManager";
 import ticketService from "@/services/ticketService";
+import { formatDateTime, getCurrentUTCDateTime } from "@/utils/dateUtils";
 import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
 import type { UserInfo } from '@/types/user';
 import type { Ticket, Device } from '@/types/ticket';
@@ -30,31 +31,13 @@ export function useTicketData() {
 
   // Computed
   const formattedCreatedDate = computed(() =>
-    formatDate(ticket.value?.created),
+    formatDateTime(ticket.value?.created),
   );
   const formattedModifiedDate = computed(() =>
-    formatDate(ticket.value?.modified),
+    formatDateTime(ticket.value?.modified),
   );
   const comments = computed(() => ticket.value?.commentsAndAttachments || []);
   const devices = computed(() => ticket.value?.devices || []);
-
-  // Helper: Format date
-  function formatDate(dateString: string | undefined): string {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  // Helper: Get current UTC datetime
-  function getCurrentUTCDateTime(): string {
-    return new Date().toISOString();
-  }
 
   // Transform comments from API format
   function transformComments(apiComments: any[]): CommentWithAttachments[] {

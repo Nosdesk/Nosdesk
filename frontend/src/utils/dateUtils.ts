@@ -61,11 +61,21 @@ export function getDateConfig(): DateConfig {
 
 /**
  * Parse ISO date string from backend (always UTC)
+ * Backend sends NaiveDateTime without timezone, so we append Z to treat as UTC
  */
 export function parseDate(dateString: string | Date | null | undefined): Date | null {
   if (!dateString) return null
 
-  const date = typeof dateString === 'string' ? parseISO(dateString) : dateString
+  let date: Date
+  if (typeof dateString === 'string') {
+    // If no timezone indicator, treat as UTC by appending Z
+    const normalized = dateString.endsWith('Z') || dateString.includes('+') || dateString.includes('-', 10)
+      ? dateString
+      : dateString + 'Z'
+    date = parseISO(normalized)
+  } else {
+    date = dateString
+  }
 
   if (isNaN(date.getTime())) {
     console.error('Invalid date:', dateString)
@@ -104,7 +114,18 @@ export function formatDateTime(
   dateString: string | Date | null | undefined,
   timezone?: string
 ): string {
-  return formatDate(dateString, globalConfig.formats.dateTime, timezone)
+  const date = parseDate(dateString)
+  if (!date) return ''
+
+  // Use native toLocaleString for proper timezone conversion
+  return date.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+  })
 }
 
 /**
