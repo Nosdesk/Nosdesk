@@ -166,12 +166,12 @@ const docId = computed(() => {
     return `ticket-${article.value.ticket_id}`;
   }
 
-  // Otherwise use documentation-specific doc-id
+  // Otherwise use documentation-specific doc-id (must use numeric ID, not UUID)
   if (page.value) {
-    return `doc-${page.value.uuid || page.value.id}`;
+    return `doc-${page.value.id}`;
   }
   if (article.value) {
-    return `doc-${article.value.uuid || article.value.id}`;
+    return `doc-${article.value.id}`;
   }
 
   return 'documentation-new';

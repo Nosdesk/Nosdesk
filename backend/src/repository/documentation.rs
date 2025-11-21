@@ -204,8 +204,14 @@ pub fn create_documentation_revision(
             .find(page_id)
             .first(conn)?;
 
-        let current_revision = 1; // Schema doesn't track revision number on page
-        let new_revision_number = current_revision;
+        // Get the latest revision number for this page
+        let latest_revision: i32 = documentation_revisions::table
+            .filter(documentation_revisions::page_id.eq(page_id))
+            .select(diesel::dsl::max(documentation_revisions::revision_number))
+            .first::<Option<i32>>(conn)?
+            .unwrap_or(0);
+
+        let new_revision_number = latest_revision + 1;
 
         // Use the first contributor or the created_by from the page
         let created_by = contributed_by.first()
