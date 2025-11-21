@@ -127,16 +127,6 @@
       </div>
     </div>
 
-    <!-- Action Buttons Footer (when viewing a revision) -->
-    <div v-if="selectedRevision" class="revision-history-footer">
-      <button
-        @click="exitRevisionView"
-        class="w-full px-4 py-2 text-sm font-medium text-primary bg-surface-alt hover:bg-surface-hover border border-default rounded-lg transition-colors"
-      >
-        Exit Revision View
-      </button>
-    </div>
-
     <!-- Restore Confirmation Modal -->
     <div
       v-if="showRestoreConfirm"
@@ -247,12 +237,6 @@ async function selectRevision(revision: ArticleRevision) {
   emit('selectRevision', revision.revision_number)
 }
 
-// Exit revision view and return to current version
-function exitRevisionView() {
-  selectedRevision.value = null
-  emit('selectRevision', null)
-}
-
 // Show restore confirmation dialog
 function confirmRestore(revision: ArticleRevision) {
   revisionToRestore.value = revision.revision_number
@@ -352,12 +336,6 @@ onMounted(() => {
 .revision-item-selected {
   background-color: var(--color-surface-alt);
   border-left: 4px solid var(--color-primary);
-}
-
-.revision-history-footer {
-  padding: 1rem;
-  border-top: 1px solid var(--color-default);
-  background-color: var(--color-surface);
 }
 
 /* Error banner styling using theme variables */

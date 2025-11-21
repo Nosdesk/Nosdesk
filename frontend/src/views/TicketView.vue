@@ -113,20 +113,12 @@ const handleTitleUpdate = (newTitle: string) => {
     titleUpdateTimeout = setTimeout(async () => {
         if (ticket.value && lastSavedTitle !== newTitle) {
             try {
-                // Temporarily revert to trigger the save
-                const currentTitle = ticket.value.title;
-                ticket.value.title = lastSavedTitle || '';
-
-                // Now updateTitle will see the change
-                await updateTitle(newTitle);
+                // Call the API directly without reverting local state
+                await ticketService.update(ticket.value.id, { title: newTitle });
 
                 // Update our saved reference
                 lastSavedTitle = newTitle;
             } catch (error) {
-                // On error, restore the UI to what user typed
-                if (ticket.value) {
-                    ticket.value.title = newTitle;
-                }
                 console.error('Failed to save title:', error);
             }
         }
@@ -216,8 +208,10 @@ watch(
             <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
                 <!-- Grid Container with named areas -->
                 <div class="ticket-grid gap-6 items-start">
-                    <!-- Details Sidebar -->
-                    <div class="ticket-details flex flex-col gap-6">
+                    <!-- Left Column Wrapper (for 2-column tablet layout) -->
+                    <div class="ticket-left-column">
+                        <!-- Details Sidebar -->
+                        <div class="ticket-details flex flex-col gap-6">
                         <TicketDetails
                             :ticket="ticket"
                             :created-date="formattedCreatedDate"
@@ -391,6 +385,23 @@ watch(
                                 + Add to project
                             </a>
                         </div>
+                        </div>
+
+                        <!-- Comments -->
+                        <div class="ticket-comments rounded-xl">
+                            <CommentsAndAttachments
+                                :comments="comments"
+                                :current-user="
+                                    authStore.user?.uuid || 'Unknown User'
+                                "
+                                :recently-added-comment-ids="
+                                    recentlyAddedCommentIds
+                                "
+                                @add-comment="addComment"
+                                @delete-attachment="deleteAttachment"
+                                @delete-comment="deleteComment"
+                            />
+                        </div>
                     </div>
 
                     <!-- Article -->
@@ -399,22 +410,6 @@ watch(
                             :key="`article-${ticket.id}`"
                             :initial-content="ticket.article_content || ''"
                             :ticket-id="ticket.id"
-                        />
-                    </div>
-
-                    <!-- Comments -->
-                    <div class="ticket-comments rounded-xl">
-                        <CommentsAndAttachments
-                            :comments="comments"
-                            :current-user="
-                                authStore.user?.uuid || 'Unknown User'
-                            "
-                            :recently-added-comment-ids="
-                                recentlyAddedCommentIds
-                            "
-                            @add-comment="addComment"
-                            @delete-attachment="deleteAttachment"
-                            @delete-comment="deleteComment"
                         />
                     </div>
                 </div>
@@ -458,47 +453,64 @@ watch(
 </template>
 
 <style scoped>
-/* Mobile: Single column, details → article → comments */
+/* Mobile: Single column, wrapper dissolves so items stack naturally */
 .ticket-grid {
     display: grid;
-    grid-template-areas:
-        "details"
-        "article"
-        "comments";
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
 }
 
-.ticket-details {
-    grid-area: details;
-    min-width: 0; /* Prevent overflow */
+.ticket-left-column {
+    display: contents; /* Dissolve wrapper on mobile */
 }
 
-.ticket-article {
-    grid-area: article;
-    min-width: 0; /* Prevent overflow */
-}
-
+.ticket-details,
+.ticket-article,
 .ticket-comments {
-    grid-area: comments;
     min-width: 0; /* Prevent overflow */
 }
 
-/* Tablet (md): 2 columns, (details + comments) | article */
-/* Using minmax to give details more space while preventing overflow */
+/* Tablet (md): 2 columns, left column contains details + comments stacked */
 @media (min-width: 1024px) {
     .ticket-grid {
         grid-template-columns: minmax(400px, 1.5fr) minmax(0, 1fr);
-        grid-template-areas:
-            "details article"
-            "comments article";
+        align-items: start;
+    }
+
+    .ticket-left-column {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .ticket-article {
+        align-self: start;
     }
 }
 
-/* Desktop (xl): 3 columns, details | article | comments */
+/* Desktop (xl): 3 columns, wrapper dissolves again */
 @media (min-width: 1536px) {
     .ticket-grid {
         grid-template-columns: minmax(350px, 1fr) minmax(0, 1.5fr) minmax(350px, 1fr);
-        grid-template-areas:
-            "details article comments";
+    }
+
+    .ticket-left-column {
+        display: contents; /* Dissolve wrapper so details and comments become separate grid items */
+    }
+
+    .ticket-details {
+        grid-column: 1;
+        grid-row: 1;
+    }
+
+    .ticket-article {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .ticket-comments {
+        grid-column: 3;
+        grid-row: 1;
     }
 }
 </style>

@@ -169,6 +169,7 @@ const handleConvertToDocumentation = async () => {
           v-model="content"
           :doc-id="`ticket-${ticketId}`"
           :is-binary-update="true"
+          :hide-revision-history="true"
           @update:model-value="handleContentChange"
           class="flex-grow w-full"
         />

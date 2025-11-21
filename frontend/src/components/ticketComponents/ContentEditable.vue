@@ -18,9 +18,14 @@ const contentRef = ref<HTMLElement | null>(null);
 const lastValue = ref(props.modelValue);
 
 // Update content when modelValue changes externally (from SSE)
+// Only update if the element is not focused (user is not actively editing)
 watch(() => props.modelValue, (newValue) => {
   if (contentRef.value && newValue !== lastValue.value) {
-    contentRef.value.textContent = newValue;
+    // Don't update while user is actively editing - this would reset cursor
+    const isEditing = document.activeElement === contentRef.value;
+    if (!isEditing) {
+      contentRef.value.textContent = newValue;
+    }
     lastValue.value = newValue;
   }
 });
