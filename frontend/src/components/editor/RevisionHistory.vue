@@ -78,16 +78,17 @@
 
         <!-- Contributors -->
         <div v-if="revision.contributed_by && revision.contributed_by.length > 0" class="flex items-center gap-1 mb-1">
-          <!-- Single contributor: show name -->
+          <!-- Single contributor: show avatar (clickable) and name (not clickable) -->
           <div v-if="revision.contributed_by.length === 1" class="flex items-center gap-1">
             <span class="text-xs text-tertiary">By:</span>
             <UserAvatar
               :name="revision.contributed_by[0] || 'Unknown'"
               :user-name="getUserName(revision.contributed_by[0] || '')"
-              :show-name="true"
+              :show-name="false"
               size="xs"
               :clickable="true"
             />
+            <span class="text-xs text-secondary">{{ getUserName(revision.contributed_by[0] || '') || 'Unknown' }}</span>
           </div>
           <!-- Multiple contributors: show avatars only -->
           <div v-else class="flex items-center gap-1">
@@ -172,7 +173,7 @@
 </template>
 
 <script setup lang="ts">
-import { formatDate, formatDateTime } from '@/utils/dateUtils';
+import { formatDate, parseDate } from '@/utils/dateUtils';
 import { ref, onMounted, watch, computed } from 'vue'
 import { useVersionHistory } from '@/composables/useVersionHistory'
 import type { ArticleRevision } from '@/services/versionHistoryService'
@@ -282,7 +283,9 @@ async function executeRestore() {
 
 // Format date for display
 function formatRelativeDate(dateString: string): string {
-  const date = new Date(dateString)
+  const date = parseDate(dateString)
+  if (!date) return ''
+
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffMins = Math.floor(diffMs / 60000)

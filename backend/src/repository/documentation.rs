@@ -254,3 +254,16 @@ pub fn get_documentation_revision(
         .filter(dsl::revision_number.eq(revision_number))
         .first(conn)
 }
+
+// Get the latest revision for a documentation page
+pub fn get_latest_documentation_revision(
+    conn: &mut DbConnection,
+    page_id: i32,
+) -> Result<crate::models::DocumentationRevision, Error> {
+    use crate::schema::documentation_revisions::dsl;
+
+    dsl::documentation_revisions
+        .filter(dsl::page_id.eq(page_id))
+        .order_by(dsl::revision_number.desc())
+        .first(conn)
+}

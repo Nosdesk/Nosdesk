@@ -32,8 +32,6 @@ const MAX_PENDING_DURATION: Duration = Duration::from_secs(120);
 const EMPTY_ROOM_FINAL_SAVE_DELAY: Duration = Duration::from_secs(2);
 // How long to keep document state after room becomes empty
 const EMPTY_ROOM_CLEANUP_DELAY: Duration = Duration::from_secs(300); // 5 minutes
-// How often to create automatic snapshots (every 500 updates - Yrs community recommendation)
-const SNAPSHOT_INTERVAL: u32 = 500;
 
 // Document type enum to distinguish between tickets and documentation
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -151,7 +149,7 @@ struct DocumentState {
     // Snapshot tracking (for version history)
     update_counter: u32,                    // Total updates since document creation
     last_snapshot_at: u32,                  // Update count when last snapshot created
-    contributors: std::collections::HashSet<Uuid>, // Contributors since last snapshot
+    contributors: std::collections::HashSet<Uuid>, // Contributors since last snapshot (only added on actual content changes)
 }
 
 impl DocumentState {
@@ -178,6 +176,7 @@ impl DocumentState {
         }
         self.sync_message_count += 1;
         self.update_counter += 1; // Track total updates for snapshot scheduling
+        // Note: has_changes_since_last_revision is set separately only when content actually changes
 
         // Reset room empty tracking since there's activity
         self.room_empty_since = None;
@@ -257,10 +256,10 @@ impl DocumentState {
 
     // Snapshot management methods
     fn should_create_snapshot(&self) -> bool {
-        // Create snapshot every SNAPSHOT_INTERVAL updates (Yrs community recommendation)
-        // Only if there are contributors and meaningful changes
-        let updates_since_snapshot = self.update_counter - self.last_snapshot_at;
-        updates_since_snapshot >= SNAPSHOT_INTERVAL && !self.contributors.is_empty()
+        // Session-based revisions: snapshots are only created when editing sessions end
+        // (when room becomes empty), not based on update count thresholds.
+        // This provides more meaningful revision history based on actual editing sessions.
+        false
     }
 
     fn add_contributor(&mut self, user_uuid: Uuid) {
@@ -348,9 +347,9 @@ impl YjsAppState {
                 doc_state.mark_final_save_completed();
                 final_saved_count += 1;
 
-                // Also create final snapshot if there are contributors
+                // Create revision at end of editing session if there were content changes
                 if !doc_state.contributors.is_empty() {
-                    println!("📸 Creating final snapshot before cleanup: {}", doc_id);
+                    println!("📸 Creating session-end revision: {}", doc_id);
                     let contributors = doc_state.contributors.clone();
                     self.create_snapshot_revision(doc_id, &doc_state.awareness, contributors);
                     doc_state.reset_snapshot_tracking();
@@ -576,6 +575,7 @@ impl YjsAppState {
         }
     }
 
+
     // Register session
     async fn register_session(&self, doc_id: &str, session_id: &str, addr: Addr<YjsWebSocket>) {
         let mut sessions = self.sessions.write().await;
@@ -689,14 +689,28 @@ impl YjsAppState {
         }
     }
 
-    // Force save a document immediately, ignoring timing constraints
+    // Force save a document immediately and create revision if this is end of editing session
     async fn force_save_document(&self, doc_id: &str) {
-        let documents = self.documents.read().await;
-        if let Some(doc_state) = documents.get(doc_id) {
+        let mut documents = self.documents.write().await;
+        if let Some(doc_state) = documents.get_mut(doc_id) {
             println!("Force saving document {} on disconnect", doc_id);
             self.save_document_internal(doc_id, &doc_state.awareness);
-            // Note: We don't mark as saved here because the lock is read-only
-            // The next save cycle will update the saved timestamp
+            doc_state.mark_saved();
+
+            // Create revision at end of editing session if there were actual content changes
+            // Contributors are only added when content actually changes, so this is sufficient
+            if !doc_state.contributors.is_empty() {
+                println!("📸 Creating session-end revision for {} ({} contributors)",
+                    doc_id, doc_state.contributors.len());
+                let contributors = doc_state.contributors.clone();
+                self.create_snapshot_revision(doc_id, &doc_state.awareness, contributors);
+                doc_state.reset_snapshot_tracking();
+            } else {
+                println!("⏭️ Skipping revision for {} - no content changes in this session", doc_id);
+            }
+
+            // Mark final save completed so periodic task doesn't duplicate
+            doc_state.mark_final_save_completed();
         }
     }
 
@@ -840,12 +854,12 @@ impl YjsAppState {
             }
         };
 
-        // Encode document state using native Yrs functions (DRY - no manual serialization!)
+        // Encode document state using native Yrs functions
         let (state_vector_bytes, full_update_bytes) = {
             let doc = awareness.doc();
             let txn = doc.transact();
 
-            // Use Yrs native encoding - no manual snapshot struct encoding needed
+            // Use Yrs native encoding
             let state_vector = txn.state_vector();
             let full_update = txn.encode_state_as_update_v1(&StateVector::default());
 
@@ -883,6 +897,14 @@ impl YjsAppState {
                                 }
                             };
 
+                            // Check if content is the same as the last revision
+                            if let Ok(last_revision) = repository::get_latest_article_content_revision(&mut conn, article_content.id) {
+                                if last_revision.yjs_document_content == full_update_bytes {
+                                    println!("⏭️ Skipping revision - content unchanged from revision {}", last_revision.revision_number);
+                                    return;
+                                }
+                            }
+
                             // Create new revision with simplified schema (no redundant snapshot field!)
                             let new_revision = NewArticleContentRevision {
                                 article_content_id: article_content.id,
@@ -914,6 +936,14 @@ impl YjsAppState {
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
+                            // Check if content is the same as the last revision
+                            if let Ok(last_revision) = repository::get_latest_documentation_revision(&mut conn, doc_page_id) {
+                                if last_revision.yjs_document_snapshot == full_update_bytes {
+                                    println!("⏭️ Skipping revision - content unchanged from revision {}", last_revision.revision_number);
+                                    return;
+                                }
+                            }
+
                             // Create documentation revision snapshot
                             match repository::create_documentation_revision(&mut conn, doc_page_id, state_vector_bytes, full_update_bytes, contributor_vec.clone()) {
                                 Ok(revision_number) => {
@@ -1134,9 +1164,9 @@ impl YjsWebSocket {
                         app_state.mark_document_changed(&doc_id).await;
                     }
 
-                    // Track contributor for version history if this is a SYNC_UPDATE
-                    // Only SYNC_UPDATE messages (step 2) represent actual user edits
-                    if msg_type == 0 && msg_vec.len() > 1 && msg_vec[1] == 2 {
+                    // Track contributor only when content actually changed
+                    // This ensures revisions are only created for sessions with real edits
+                    if content_changed {
                         app_state.add_contributor(&doc_id, user_uuid).await;
                     }
                 },
