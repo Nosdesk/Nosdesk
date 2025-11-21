@@ -266,15 +266,15 @@ const findParentPages = (targetPath: string): string[] => {
 // Handle page click - navigate to page or toggle expansion
 const handlePageClick = (id: string | number) => {
   const stringId = String(id)
-  
-  // Find the page to get its slug
+
+  // Always use ID for routing - slugs can contain invalid characters
+  const pageRoute = `/documentation/${stringId}`
+
+  // Find the page to check if it has children
   const foundPage = findPageById(pages.value, id)
-  const pageSlug = foundPage?.slug || stringId
-  const pageRoute = `/documentation/${pageSlug}`
-  
+
   // If the page has children, handle expansion/collapse
-  const page = pages.value.find(p => String(p.id) === stringId)
-  if (page && page.children && page.children.length > 0) {
+  if (foundPage && foundPage.children && foundPage.children.length > 0) {
     // Check if we're already on the same route
     if (route.path === pageRoute) {
       // Only collapse if already on that page
@@ -284,13 +284,9 @@ const handlePageClick = (id: string | number) => {
       docNavStore.expandPage(stringId)
     }
   }
-  
-  // Navigate to the page
-  if (foundPage && foundPage.slug) {
-    router.push(pageRoute)
-  } else {
-    router.push(`/documentation/${stringId}`)
-  }
+
+  // Navigate to the page using ID
+  router.push(pageRoute)
 }
 
 // Handle toggle expansion only (no navigation)

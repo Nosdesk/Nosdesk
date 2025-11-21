@@ -826,26 +826,20 @@ onUnmounted(() => {
         </div>
         <div v-else></div> <!-- Empty placeholder when search isn't shown -->
         
-        <!-- Right column: Metadata -->
-        <div v-if="article || page" class="text-xs text-secondary flex justify-end items-center gap-4">
-          <span class="hidden sm:inline">{{ article?.author || page?.author || 'System' }}</span>
-          <span>Updated {{ formatDate(article?.lastUpdated || page?.lastUpdated || new Date().toISOString()) }}</span>
-          <span v-if="isSaving" class="text-brand-blue flex items-center gap-1">
+        <!-- Right column: Actions -->
+        <div class="flex justify-end items-center gap-3">
+          <span v-if="isSaving" class="text-brand-blue flex items-center gap-1 text-xs">
             <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
             Saving...
           </span>
-          <!-- Delete button for non-ticket notes -->
-          <DeleteButton 
-            v-if="!isTicketNote && !isIndexPage" 
+          <DeleteButton
+            v-if="(article || page) && !isTicketNote && !isIndexPage"
             :itemName="'documentation page'"
             @delete="handleDeletePage"
           />
-        </div>
-        <div v-else class="flex justify-end">
-          <!-- Empty div for consistent grid layout when no metadata -->
         </div>
       </div>
     </div>
@@ -936,15 +930,16 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Document Content View -->
-      <div v-else-if="article || page" class="flex flex-1 w-full animate-fadeIn h-full relative">
-        <!-- Main Content Area -->
-        <div class="flex flex-1 max-w-4xl mx-auto w-full justify-center p-4 h-full flex-col gap-3">
-          <!-- Linked Ticket Indicator -->
-          <div
-            v-if="page?.ticket_id || article?.ticket_id"
-            class="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg"
-          >
+      <!-- Document Content View - Full width container with centered content -->
+      <div v-else-if="article || page" class="w-full h-full flex animate-fadeIn relative">
+        <!-- Main Content Area - Centered -->
+        <div class="flex-1 flex justify-center overflow-auto">
+          <div class="w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
+            <!-- Linked Ticket Indicator -->
+            <div
+              v-if="page?.ticket_id || article?.ticket_id"
+              class="flex items-center gap-2 px-4 py-2.5 mb-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg"
+            >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-600 dark:text-blue-400" viewBox="0 0 20 20" fill="currentColor">
               <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z" />
             </svg>
@@ -960,46 +955,45 @@ onUnmounted(() => {
             </span>
           </div>
 
-          <!-- Documentation Header -->
-          <div class="border-b border-default pb-4 mb-6">
-            <!-- Title and Icon -->
-            <div class="flex items-start gap-3 mb-3">
-              <div class="text-4xl sm:text-5xl flex-shrink-0">{{ (page || article)?.icon || '📄' }}</div>
+          <!-- Documentation Header - Clean, modern styling -->
+          <div class="mb-6">
+            <!-- Icon and Title -->
+            <div class="flex items-start gap-3 mb-4">
+              <div class="text-2xl sm:text-3xl flex-shrink-0 select-none">{{ (page || article)?.icon || '📄' }}</div>
               <div class="flex-1 min-w-0">
-                <h1 class="text-2xl sm:text-3xl lg:text-4xl font-bold text-primary break-words leading-tight">
+                <h1
+                  contenteditable="true"
+                  @blur="updateTitle(($event.target as HTMLElement).textContent || '')"
+                  @keydown.enter.prevent="($event.target as HTMLElement).blur()"
+                  class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-brand-blue/30 rounded px-1 -mx-1"
+                >
                   {{ (page || article)?.title || 'Untitled' }}
                 </h1>
               </div>
             </div>
 
-            <!-- Metadata and Actions -->
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <!-- Metadata bar - Subtle, minimal -->
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 pb-2 border-t border-subtle">
               <!-- Metadata -->
-              <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-secondary">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-tertiary">
                 <!-- Created By -->
                 <div v-if="page?.created_by || article?.created_by" class="flex items-center gap-1.5">
-                  <svg class="w-3.5 h-3.5 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  <span class="font-medium text-primary">{{ (page || article)?.created_by?.name || 'Unknown' }}</span>
+                  <span class="text-secondary">{{ (page || article)?.created_by?.name || 'Unknown' }}</span>
                 </div>
 
-                <!-- Last Edited -->
-                <div v-if="page?.last_edited_by || article?.last_edited_by" class="flex items-center gap-1.5">
-                  <svg class="w-3.5 h-3.5 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                  <span>edited by</span>
-                  <span class="font-medium text-primary">{{ (page || article)?.last_edited_by?.name || 'Unknown' }}</span>
-                </div>
+                <!-- Separator -->
+                <span v-if="(page?.created_by || article?.created_by) && (page?.updated_at || article?.updated_at)" class="text-subtle">·</span>
 
                 <!-- Last Updated -->
                 <div v-if="page?.updated_at || article?.updated_at" class="flex items-center gap-1.5">
-                  <svg class="w-3.5 h-3.5 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span class="font-medium text-primary">{{ formatDate((page || article)?.updated_at || new Date().toISOString()) }}</span>
+                  <span>{{ formatDate((page || article)?.updated_at || new Date().toISOString()) }}</span>
                 </div>
+
+                <!-- Last Edited By -->
+                <template v-if="page?.last_edited_by || article?.last_edited_by">
+                  <span class="text-subtle">·</span>
+                  <span>Edited by {{ (page || article)?.last_edited_by?.name || 'Unknown' }}</span>
+                </template>
               </div>
 
               <!-- Action Buttons -->
@@ -1007,28 +1001,29 @@ onUnmounted(() => {
                 <!-- Revision History Toggle -->
                 <button
                   @click="toggleRevisionHistory"
-                  class="px-3 py-1.5 text-xs rounded-md hover:bg-surface-alt transition-colors flex items-center gap-1.5 border border-default"
-                  :class="{ 'bg-surface-alt text-primary border-brand-blue': showRevisionHistory }"
+                  class="px-3 py-1.5 text-xs rounded-md hover:bg-surface-hover transition-colors flex items-center gap-1.5 text-secondary hover:text-primary"
+                  :class="{ 'bg-surface-alt text-primary': showRevisionHistory }"
                   title="Revision history"
                 >
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  <span class="hidden sm:inline">History</span>
+                  <span>History</span>
                 </button>
               </div>
             </div>
           </div>
 
-          <CollaborativeEditor
-            ref="editorRef"
-            v-model="editContent"
-            :doc-id="docId"
-            :hide-revision-history="true"
-            placeholder="Enter documentation content here..."
-            @update:modelValue="updateContent"
-            class="w-full flex-1 flex flex-col"
-          />
+            <CollaborativeEditor
+              ref="editorRef"
+              v-model="editContent"
+              :doc-id="docId"
+              :hide-revision-history="true"
+              placeholder="Enter documentation content here..."
+              @update:modelValue="updateContent"
+              class="w-full flex-1 flex flex-col"
+            />
+          </div>
         </div>
 
         <!-- Revision History Sidebar -->
