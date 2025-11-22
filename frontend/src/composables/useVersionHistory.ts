@@ -1,41 +1,28 @@
 import { ref, computed } from 'vue';
 import type { Ref } from 'vue';
 import versionHistoryService from '@/services/versionHistoryService';
-import apiClient from '@/services/apiConfig';
 import type { ArticleRevision, ArticleRevisionDetail } from '@/services/versionHistoryService';
 
-export type ContentType = 'ticket' | 'documentation';
-
-export function useVersionHistory(
-  contentId: Ref<number> | number,
-  contentType: ContentType = 'ticket'
-) {
+export function useVersionHistory(ticketId: Ref<number> | number) {
   const revisions = ref<ArticleRevision[]>([]);
   const isLoading = ref(false);
   const error = ref<Error | null>(null);
   const isRestoring = ref(false);
   const restoreError = ref<Error | null>(null);
 
-  // Convert contentId to a ref if it's a plain number
-  const contentIdRef = typeof contentId === 'number' ? ref(contentId) : contentId;
+  // Convert ticketId to a ref if it's a plain number
+  const ticketIdRef = typeof ticketId === 'number' ? ref(ticketId) : ticketId;
 
   /**
-   * Load all revisions for the content
+   * Load all revisions for the ticket
    */
   const loadRevisions = async () => {
     isLoading.value = true;
     error.value = null;
 
     try {
-      console.log(`[useVersionHistory] Loading revisions for ${contentType}:`, contentIdRef.value);
-
-      if (contentType === 'ticket') {
-        revisions.value = await versionHistoryService.getRevisions(contentIdRef.value);
-      } else {
-        const response = await apiClient.get(`/collaboration/docs/${contentIdRef.value}/revisions`);
-        revisions.value = response.data;
-      }
-
+      console.log('[useVersionHistory] Loading revisions for ticket:', ticketIdRef.value);
+      revisions.value = await versionHistoryService.getRevisions(ticketIdRef.value);
       console.log('[useVersionHistory] Loaded revisions:', revisions.value);
     } catch (err) {
       error.value = err instanceof Error ? err : new Error('Failed to load revisions');
@@ -52,12 +39,7 @@ export function useVersionHistory(
    */
   const getRevisionDetail = async (revisionNumber: number): Promise<ArticleRevisionDetail | null> => {
     try {
-      if (contentType === 'ticket') {
-        return await versionHistoryService.getRevision(contentIdRef.value, revisionNumber);
-      } else {
-        const response = await apiClient.get(`/collaboration/docs/${contentIdRef.value}/revisions/${revisionNumber}`);
-        return response.data;
-      }
+      return await versionHistoryService.getRevision(ticketIdRef.value, revisionNumber);
     } catch (err) {
       console.error('Error fetching revision detail:', err);
       return null;
@@ -65,7 +47,7 @@ export function useVersionHistory(
   };
 
   /**
-   * Restore the content to a specific revision
+   * Restore the ticket to a specific revision
    * @param revisionNumber - The revision number to restore
    * @returns True if successful, false otherwise
    */
@@ -74,11 +56,7 @@ export function useVersionHistory(
     restoreError.value = null;
 
     try {
-      if (contentType === 'ticket') {
-        await versionHistoryService.restoreRevision(contentIdRef.value, revisionNumber);
-      } else {
-        await apiClient.post(`/collaboration/docs/${contentIdRef.value}/restore/${revisionNumber}`);
-      }
+      await versionHistoryService.restoreRevision(ticketIdRef.value, revisionNumber);
       // Reload revisions after restore
       await loadRevisions();
       return true;

@@ -76,7 +76,7 @@
           </svg>
         </div>
 
-        <!-- Contributors (tickets) or Creator (documentation) -->
+        <!-- Contributors -->
         <div v-if="revision.contributed_by && revision.contributed_by.length > 0" class="flex items-center gap-1 mb-1">
           <!-- Single contributor: show avatar (clickable) and name (not clickable) -->
           <div v-if="revision.contributed_by.length === 1" class="flex items-center gap-1">
@@ -108,18 +108,6 @@
               </span>
             </div>
           </div>
-        </div>
-        <!-- Documentation revisions use created_by instead -->
-        <div v-else-if="revision.created_by" class="flex items-center gap-1 mb-1">
-          <span class="text-xs text-tertiary">By:</span>
-          <UserAvatar
-            :name="revision.created_by"
-            :user-name="getUserName(revision.created_by)"
-            :show-name="false"
-            size="xs"
-            :clickable="true"
-          />
-          <span class="text-xs text-secondary">{{ getUserName(revision.created_by) || 'Unknown' }}</span>
         </div>
 
         <!-- Word Count -->
@@ -181,13 +169,17 @@ import { useVersionHistory } from '@/composables/useVersionHistory'
 import type { ArticleRevision } from '@/services/versionHistoryService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { useDataStore } from '@/stores/dataStore'
+import apiClient from '@/services/apiConfig'
 
 interface Props {
   ticketId?: number
   documentId?: number
+  type?: 'ticket' | 'documentation'
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  type: 'ticket'
+})
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -197,20 +189,105 @@ const emit = defineEmits<{
 
 const dataStore = useDataStore()
 
-// Determine content type and ID
-const contentType = computed(() => props.documentId ? 'documentation' : 'ticket')
-const contentId = computed(() => props.documentId || props.ticketId || 0)
+// Determine effective ID based on type
+const effectiveId = computed(() => {
+  if (props.type === 'documentation') {
+    return props.documentId
+  }
+  return props.ticketId
+})
 
-// Use the composable
-const {
-  revisions,
-  isLoading: loading,
-  error: apiError,
-  isRestoring,
-  restoreError,
-  loadRevisions,
-  restoreToRevision,
-} = useVersionHistory(contentId, contentType.value)
+// For tickets, use the composable
+const ticketHistory = props.type === 'ticket'
+  ? useVersionHistory(computed(() => props.ticketId || 0))
+  : null
+
+// For documentation, manage state locally
+const docRevisions = ref<ArticleRevision[]>([])
+const docLoading = ref(false)
+const docError = ref<string | null>(null)
+const docRestoring = ref(false)
+
+// Unified access to state
+const revisions = computed(() => {
+  if (props.type === 'documentation') {
+    return docRevisions.value
+  }
+  return ticketHistory?.revisions.value || []
+})
+
+const loading = computed(() => {
+  if (props.type === 'documentation') {
+    return docLoading.value
+  }
+  return ticketHistory?.isLoading.value || false
+})
+
+const isRestoring = computed(() => {
+  if (props.type === 'documentation') {
+    return docRestoring.value
+  }
+  return ticketHistory?.isRestoring.value || false
+})
+
+// Load documentation revisions
+async function loadDocumentationRevisions() {
+  if (!props.documentId) return
+
+  docLoading.value = true
+  docError.value = null
+
+  try {
+    const response = await apiClient.get(`/collaboration/docs/${props.documentId}/revisions`)
+    // Transform documentation revisions to match ticket revision format
+    // Documentation uses created_by (single), tickets use contributed_by (array)
+    docRevisions.value = response.data.map((rev: any) => ({
+      ...rev,
+      contributed_by: rev.created_by ? [rev.created_by] : []
+    }))
+  } catch (err: any) {
+    docError.value = err.message || 'Failed to load revisions'
+    console.error('Failed to load documentation revisions:', err)
+  } finally {
+    docLoading.value = false
+  }
+}
+
+// Restore documentation revision
+async function restoreDocumentationRevision(revisionNumber: number): Promise<boolean> {
+  if (!props.documentId) return false
+
+  docRestoring.value = true
+
+  try {
+    await apiClient.post(`/collaboration/docs/${props.documentId}/revisions/${revisionNumber}/restore`)
+    await loadDocumentationRevisions()
+    return true
+  } catch (err: any) {
+    docError.value = err.message || 'Failed to restore revision'
+    console.error('Failed to restore documentation revision:', err)
+    return false
+  } finally {
+    docRestoring.value = false
+  }
+}
+
+// Unified load function
+function loadRevisions() {
+  if (props.type === 'documentation') {
+    loadDocumentationRevisions()
+  } else {
+    ticketHistory?.loadRevisions()
+  }
+}
+
+// Unified restore function
+async function restoreToRevision(revisionNumber: number): Promise<boolean> {
+  if (props.type === 'documentation') {
+    return restoreDocumentationRevision(revisionNumber)
+  }
+  return ticketHistory?.restoreToRevision(revisionNumber) || false
+}
 
 // Pre-fetch user data when revisions load
 watch(revisions, async (newRevisions) => {
@@ -219,20 +296,19 @@ watch(revisions, async (newRevisions) => {
   // Collect all unique user UUIDs
   const userUuids = new Set<string>()
   newRevisions.forEach(revision => {
-    // Handle both ticket (contributed_by array) and documentation (created_by single) formats
-    if (revision.contributed_by) {
+    if (revision.contributed_by && Array.isArray(revision.contributed_by)) {
       revision.contributed_by.forEach(uuid => {
         if (uuid) userUuids.add(uuid)
       })
-    } else if (revision.created_by) {
-      userUuids.add(revision.created_by)
     }
   })
 
   // Pre-fetch user data for all contributors
-  await Promise.all(
-    Array.from(userUuids).map(uuid => dataStore.getUserByUuid(uuid))
-  )
+  if (userUuids.size > 0) {
+    await Promise.all(
+      Array.from(userUuids).map(uuid => dataStore.getUserByUuid(uuid))
+    )
+  }
 }, { immediate: true })
 
 // Helper to get user name from UUID (from cache)
@@ -248,8 +324,11 @@ const revisionToRestore = ref<number | null>(null)
 
 // Computed error message
 const error = computed(() => {
-  if (apiError.value) return apiError.value.message
-  if (restoreError.value) return restoreError.value.message
+  if (props.type === 'documentation') {
+    return docError.value
+  }
+  if (ticketHistory?.error.value) return ticketHistory.error.value.message
+  if (ticketHistory?.restoreError.value) return ticketHistory.restoreError.value.message
   return null
 })
 
@@ -306,9 +385,9 @@ function formatRelativeDate(dateString: string): string {
   return formatDate(dateString, "MMM d, yyyy")
 }
 
-// Watch for content ID changes
+// Watch for ID changes
 watch(
-  () => contentId.value,
+  () => effectiveId.value,
   () => {
     loadRevisions()
     selectedRevision.value = null
@@ -325,7 +404,6 @@ onMounted(() => {
 .revision-history-sidebar {
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
   width: 320px;
   background-color: var(--color-surface);
   border-left: 1px solid var(--color-default);
