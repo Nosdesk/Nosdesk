@@ -529,13 +529,23 @@ impl YjsAppState {
 
                                         // Diagnostic: Check what's actually in the document
                                         use yrs::{GetString, XmlFragment};
+                                        use std::panic;
                                         let txn = awareness.doc().transact();
                                         if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
                                             let child_count = fragment.children(&txn).count();
                                             println!("📄 PostgreSQL content: {} children", child_count);
-                                            let content_str = fragment.get_string(&txn);
-                                            let preview: String = content_str.chars().take(100).collect();
-                                            println!("Fragment preview: {}", preview);
+                                            // Wrap in catch_unwind to handle invalid char panics from yrs
+                                            match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                                                fragment.get_string(&txn)
+                                            })) {
+                                                Ok(content_str) => {
+                                                    let preview: String = content_str.chars().take(100).collect();
+                                                    println!("Fragment preview: {}", preview);
+                                                }
+                                                Err(_) => {
+                                                    println!("⚠️ Warning: Failed to get string from fragment (invalid char data)");
+                                                }
+                                            }
                                         } else {
                                             println!("⚠️ WARNING: 'prosemirror' fragment not found after PostgreSQL load!");
                                         }
@@ -771,12 +781,23 @@ impl YjsAppState {
 
             // DIAGNOSTIC: Check what's actually in the document before saving
             use yrs::{GetString, XmlFragment};
+            use std::panic;
             if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
                 let child_count = fragment.children(&txn).count();
-                let content_str = fragment.get_string(&txn);
-                let preview: String = content_str.chars().take(50).collect();
-                println!("💾 BEFORE SAVE - {}: Fragment has {} children, content preview: {}",
-                    doc_id, child_count, preview);
+                // Wrap in catch_unwind to handle invalid char panics from yrs
+                match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                    fragment.get_string(&txn)
+                })) {
+                    Ok(content_str) => {
+                        let preview: String = content_str.chars().take(50).collect();
+                        println!("💾 BEFORE SAVE - {}: Fragment has {} children, content preview: {}",
+                            doc_id, child_count, preview);
+                    }
+                    Err(_) => {
+                        println!("💾 BEFORE SAVE - {}: Fragment has {} children (content has invalid chars)",
+                            doc_id, child_count);
+                    }
+                }
 
                 // Also log the state vector to see what client IDs we have
                 let state_vec = txn.state_vector();
@@ -1067,11 +1088,22 @@ impl YjsWebSocket {
             let awareness = app_state.get_or_create_awareness(&doc_id).await;
 
             // DIAGNOSTIC: Check content BEFORE processing message
+            // Use catch_unwind to handle potential panics from corrupted document data
             let content_before = {
                 use yrs::{GetString, XmlFragment};
+                use std::panic;
                 let txn = awareness.doc().transact();
                 if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                    fragment.get_string(&txn)
+                    // Wrap in catch_unwind to handle invalid char panics from yrs
+                    match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                        fragment.get_string(&txn)
+                    })) {
+                        Ok(s) => s,
+                        Err(_) => {
+                            println!("⚠️ Warning: Failed to get string from fragment (invalid char data)");
+                            String::from("(corrupted)")
+                        }
+                    }
                 } else {
                     String::from("(no fragment)")
                 }
@@ -1117,11 +1149,21 @@ impl YjsWebSocket {
                     println!("✅ protocol.handle() succeeded, generated {} response message(s)", messages.len());
 
                     // DIAGNOSTIC: Check content AFTER processing message
+                    // Use catch_unwind to handle potential panics from corrupted document data
                     let content_after = {
                         use yrs::{GetString, XmlFragment};
+                        use std::panic;
                         let txn = awareness.doc().transact();
                         if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                            fragment.get_string(&txn)
+                            match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                                fragment.get_string(&txn)
+                            })) {
+                                Ok(s) => s,
+                                Err(_) => {
+                                    println!("⚠️ Warning: Failed to get string from fragment after update (invalid char data)");
+                                    String::from("(corrupted)")
+                                }
+                            }
                         } else {
                             String::from("(no fragment)")
                         }
