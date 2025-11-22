@@ -72,18 +72,49 @@ export function useTicketComments(
         attachments,
       );
 
-      // Replace the optimistic comment with the real one
+      // Replace the optimistic comment with the real one from HTTP response
+      // This ensures user data is always present, even if SSE is delayed
       if (ticket.value.commentsAndAttachments) {
-        const index = ticket.value.commentsAndAttachments.findIndex(
+        const tempIndex = ticket.value.commentsAndAttachments.findIndex(
           (c: any) => c.id === tempId
         );
-        if (index !== -1) {
-          ticket.value.commentsAndAttachments.splice(index, 1);
+
+        // Check if SSE already added the real comment
+        const sseAlreadyAdded = ticket.value.commentsAndAttachments.some(
+          (c: any) => c.id === newComment.id
+        );
+
+        if (tempIndex !== -1) {
+          if (sseAlreadyAdded) {
+            // SSE already added it, just remove the optimistic one
+            ticket.value.commentsAndAttachments.splice(tempIndex, 1);
+          } else {
+            // Replace optimistic with real comment (includes user data)
+            ticket.value.commentsAndAttachments.splice(tempIndex, 1, {
+              id: newComment.id,
+              content: newComment.content,
+              user_uuid: newComment.user_uuid,
+              createdAt: newComment.created_at || newComment.createdAt,
+              created_at: newComment.created_at || newComment.createdAt,
+              ticket_id: newComment.ticket_id,
+              attachments: newComment.attachments || [],
+              user: newComment.user,
+            });
+          }
+        } else if (!sseAlreadyAdded) {
+          // Optimistic comment was already removed (maybe by SSE race), add real one
+          ticket.value.commentsAndAttachments.unshift({
+            id: newComment.id,
+            content: newComment.content,
+            user_uuid: newComment.user_uuid,
+            createdAt: newComment.created_at || newComment.createdAt,
+            created_at: newComment.created_at || newComment.createdAt,
+            ticket_id: newComment.ticket_id,
+            attachments: newComment.attachments || [],
+            user: newComment.user,
+          });
         }
       }
-
-      // SSE will add the real comment, so we don't need to add it here
-      // The duplicate check in SSE handler will prevent duplicates
     } catch (error) {
       console.error('Error adding comment:', error);
       // Remove optimistic comment on error
