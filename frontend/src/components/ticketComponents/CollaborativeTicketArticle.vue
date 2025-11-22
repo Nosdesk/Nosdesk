@@ -3,7 +3,6 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue';
-import RevisionHistory from '@/components/editor/RevisionHistory.vue';
 import apiClient from '@/services/apiConfig';
 
 // Define props
@@ -21,6 +20,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   'update:content': [content: string];
   'initialization-complete': [];
+  'toggle-revision-history': [];
 }>();
 
 // Use binary content for Yjs document
@@ -28,9 +28,14 @@ const content = ref('');
 const router = useRouter();
 const isLoading = ref(false); // Editor syncs via WebSocket, no need to wait for HTTP load
 
-// Revision history state
-const showRevisionHistory = ref(false);
 const editorRef = ref<InstanceType<typeof CollaborativeEditor> | null>(null);
+
+// Expose editor ref methods for parent to use
+defineExpose({
+  viewSnapshot: (revisionData: any) => editorRef.value?.viewSnapshot(revisionData),
+  exitRevisionView: () => editorRef.value?.exitRevisionView(),
+  isViewingRevision: () => editorRef.value?.isViewingRevision,
+});
 
 // No need to load content via HTTP - the CollaborativeEditor handles everything via WebSocket
 // The editor will sync with the backend's in-memory Yjs document automatically
@@ -55,47 +60,6 @@ const handleExpand = () => {
 // Just update local state for any watchers
 const handleContentChange = (newValue: string) => {
   content.value = newValue;
-};
-
-// Revision history handlers
-const handleSelectRevision = async (revisionNumber: number | null) => {
-  if (!editorRef.value) {
-    console.error('Editor ref not available');
-    return;
-  }
-
-  if (revisionNumber === null) {
-    // Exit revision view and return to live document
-    editorRef.value.exitRevisionView();
-    return;
-  }
-
-  try {
-    // Fetch the specific revision snapshot from the API
-    const response = await apiClient.get(
-      `/collaboration/tickets/${props.ticketId}/revisions/${revisionNumber}`
-    );
-
-    const revisionData = response.data;
-
-    // Display the revision in the editor (read-only mode)
-    editorRef.value.viewSnapshot(revisionData);
-    console.log('Revision data received:', revisionData);
-  } catch (error) {
-    console.error('Failed to fetch revision:', error);
-  }
-};
-
-const handleCloseRevisionHistory = () => {
-  showRevisionHistory.value = false;
-  // Also exit revision view if we're currently viewing one
-  if (editorRef.value && editorRef.value.isViewingRevision) {
-    editorRef.value.exitRevisionView();
-  }
-};
-
-const toggleRevisionHistory = () => {
-  showRevisionHistory.value = !showRevisionHistory.value;
 };
 
 // Handle convert to documentation
@@ -126,9 +90,8 @@ const handleConvertToDocumentation = async () => {
       <div class="flex items-center gap-2">
         <!-- Revision History Toggle -->
         <button
-          @click="toggleRevisionHistory"
+          @click="emit('toggle-revision-history')"
           class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-          :class="{ 'bg-surface-alt text-primary': showRevisionHistory }"
           title="Revision history"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -161,27 +124,16 @@ const handleConvertToDocumentation = async () => {
     </div>
     
     <!-- Content -->
-    <div class="flex-grow flex w-full relative">
+    <div class="flex-grow flex w-full">
       <!-- Editor Container - always rendered, syncs content via WebSocket -->
-      <div class="flex-grow flex w-full">
-        <CollaborativeEditor
-          ref="editorRef"
-          v-model="content"
-          :doc-id="`ticket-${ticketId}`"
-          :is-binary-update="true"
-          :hide-revision-history="true"
-          @update:model-value="handleContentChange"
-          class="flex-grow w-full"
-        />
-      </div>
-
-      <!-- Revision History Sidebar -->
-      <RevisionHistory
-        v-if="showRevisionHistory"
-        :ticket-id="ticketId"
-        @close="handleCloseRevisionHistory"
-        @select-revision="handleSelectRevision"
-        @restored="() => console.log('Revision restored')"
+      <CollaborativeEditor
+        ref="editorRef"
+        v-model="content"
+        :doc-id="`ticket-${ticketId}`"
+        :is-binary-update="true"
+        :hide-revision-history="true"
+        @update:model-value="handleContentChange"
+        class="flex-grow w-full"
       />
     </div>
   </div>

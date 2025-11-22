@@ -12,7 +12,7 @@ import DeleteButton from '@/components/common/DeleteButton.vue';
 import { useDocumentationNavStore } from "@/stores/documentationNav";
 import DocumentationTocItem from '@/components/documentationComponents/DocumentationTocItem.vue';
 import { docsEmitter } from "@/services/docsEmitter";
-import DocumentationRevisionHistory from '@/components/editor/DocumentationRevisionHistory.vue';
+import RevisionHistory from '@/components/editor/RevisionHistory.vue';
 import apiClient from '@/services/apiConfig';
 
 const route = useRoute();
@@ -725,7 +725,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="bg-app flex flex-col h-full">
+  <div class="bg-app flex flex-col h-full overflow-hidden">
     <!-- Back button and metadata bar with subtle gradient background -->
     <div class="bg-gradient-to-r from-bg-app to-bg-surface border-b border-default w-full">
       <!-- Using grid for 3-column layout with fr units for responsive design -->
@@ -844,12 +844,12 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Main content area with a single scrollbar for the entire page -->
-    <div class="flex flex-col flex-1 items-center overflow-auto bg-gradient-to-b from-bg-app to-bg-surface">
+    <!-- Main content area -->
+    <div class="relative flex flex-col flex-1 min-h-0 overflow-hidden bg-gradient-to-b from-bg-app to-bg-surface">
       <!-- Search Results - Removed from main content area -->
 
       <!-- Index Page View -->
-      <div v-if="isIndexPage" class="flex flex-col max-w-5xl mx-auto w-full px-4 py-8 gap-8 animate-fadeIn">  
+      <div v-if="isIndexPage" class="flex flex-col max-w-5xl mx-auto w-full px-4 py-8 gap-8 animate-fadeIn overflow-auto">  
         <!-- Documentation header and controls -->
         <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
           <div class="flex flex-col gap-2">
@@ -930,11 +930,11 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Document Content View - Full width container with centered content -->
-      <div v-else-if="article || page" class="w-full h-full flex animate-fadeIn relative">
-        <!-- Main Content Area - Centered -->
-        <div class="flex-1 flex justify-center overflow-auto">
-          <div class="w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
+      <!-- Document Content View -->
+      <div v-else-if="article || page" class="flex flex-1 w-full items-stretch animate-fadeIn overflow-hidden">
+        <!-- Main Content Area - Scrollable -->
+        <div class="flex-1 overflow-auto">
+          <div class="w-full max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
             <!-- Linked Ticket Indicator -->
             <div
               v-if="page?.ticket_id || article?.ticket_id"
@@ -1027,12 +1027,13 @@ onUnmounted(() => {
         </div>
 
         <!-- Revision History Sidebar -->
-        <DocumentationRevisionHistory
+        <RevisionHistory
           v-if="showRevisionHistory && (page?.id || article?.id)"
           :document-id="Number(page?.id || article?.id)"
           @close="handleCloseRevisionHistory"
           @select-revision="handleSelectRevision"
           @restored="handleRevisionRestored"
+          class="absolute top-0 right-0 bottom-0 z-10"
         />
       </div>
 
@@ -1106,15 +1107,13 @@ onUnmounted(() => {
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
 .animate-fadeIn {
-  animation: fadeIn 0.3s ease-out forwards;
+  animation: fadeIn 0.2s ease-out forwards;
 }
 </style>

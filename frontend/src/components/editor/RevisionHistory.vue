@@ -76,7 +76,7 @@
           </svg>
         </div>
 
-        <!-- Contributors -->
+        <!-- Contributors (tickets) or Creator (documentation) -->
         <div v-if="revision.contributed_by && revision.contributed_by.length > 0" class="flex items-center gap-1 mb-1">
           <!-- Single contributor: show avatar (clickable) and name (not clickable) -->
           <div v-if="revision.contributed_by.length === 1" class="flex items-center gap-1">
@@ -108,6 +108,18 @@
               </span>
             </div>
           </div>
+        </div>
+        <!-- Documentation revisions use created_by instead -->
+        <div v-else-if="revision.created_by" class="flex items-center gap-1 mb-1">
+          <span class="text-xs text-tertiary">By:</span>
+          <UserAvatar
+            :name="revision.created_by"
+            :user-name="getUserName(revision.created_by)"
+            :show-name="false"
+            size="xs"
+            :clickable="true"
+          />
+          <span class="text-xs text-secondary">{{ getUserName(revision.created_by) || 'Unknown' }}</span>
         </div>
 
         <!-- Word Count -->
@@ -171,7 +183,8 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import { useDataStore } from '@/stores/dataStore'
 
 interface Props {
-  ticketId: number
+  ticketId?: number
+  documentId?: number
 }
 
 const props = defineProps<Props>()
@@ -184,6 +197,10 @@ const emit = defineEmits<{
 
 const dataStore = useDataStore()
 
+// Determine content type and ID
+const contentType = computed(() => props.documentId ? 'documentation' : 'ticket')
+const contentId = computed(() => props.documentId || props.ticketId || 0)
+
 // Use the composable
 const {
   revisions,
@@ -193,7 +210,7 @@ const {
   restoreError,
   loadRevisions,
   restoreToRevision,
-} = useVersionHistory(computed(() => props.ticketId))
+} = useVersionHistory(contentId, contentType.value)
 
 // Pre-fetch user data when revisions load
 watch(revisions, async (newRevisions) => {
@@ -202,9 +219,14 @@ watch(revisions, async (newRevisions) => {
   // Collect all unique user UUIDs
   const userUuids = new Set<string>()
   newRevisions.forEach(revision => {
-    revision.contributed_by.forEach(uuid => {
-      if (uuid) userUuids.add(uuid)
-    })
+    // Handle both ticket (contributed_by array) and documentation (created_by single) formats
+    if (revision.contributed_by) {
+      revision.contributed_by.forEach(uuid => {
+        if (uuid) userUuids.add(uuid)
+      })
+    } else if (revision.created_by) {
+      userUuids.add(revision.created_by)
+    }
   })
 
   // Pre-fetch user data for all contributors
@@ -284,9 +306,9 @@ function formatRelativeDate(dateString: string): string {
   return formatDate(dateString, "MMM d, yyyy")
 }
 
-// Watch for ticketId changes
+// Watch for content ID changes
 watch(
-  () => props.ticketId,
+  () => contentId.value,
   () => {
     loadRevisions()
     selectedRevision.value = null
@@ -303,7 +325,7 @@ onMounted(() => {
 .revision-history-sidebar {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex-shrink: 0;
   width: 320px;
   background-color: var(--color-surface);
   border-left: 1px solid var(--color-default);

@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
 import ticketService from "@/services/ticketService";
+import versionHistoryService from "@/services/versionHistoryService";
 
 // Composables
 import { useTicketData } from "@/composables/useTicketData";
@@ -27,11 +28,47 @@ import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectio
 import ProjectInfo from "@/components/ticketComponents/ProjectInfo.vue";
 import BackButton from "@/components/common/BackButton.vue";
 import DeleteButton from "@/components/common/DeleteButton.vue";
+import RevisionHistory from "@/components/editor/RevisionHistory.vue";
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const titleManager = useTitleManager();
+
+// Revision history state
+const showRevisionHistory = ref(false);
+const articleRef = ref<InstanceType<typeof CollaborativeTicketArticle> | null>(null);
+
+const toggleRevisionHistory = () => {
+    showRevisionHistory.value = !showRevisionHistory.value;
+};
+
+// Revision history handlers
+const handleSelectRevision = async (revisionNumber: number | null) => {
+    if (!articleRef.value) {
+        console.error('Article ref not available');
+        return;
+    }
+
+    if (revisionNumber === null) {
+        articleRef.value.exitRevisionView();
+        return;
+    }
+
+    try {
+        const response = await versionHistoryService.getRevision(ticket.value!.id, revisionNumber);
+        articleRef.value.viewSnapshot(response);
+    } catch (error) {
+        console.error('Failed to fetch revision:', error);
+    }
+};
+
+const handleCloseRevisionHistory = () => {
+    showRevisionHistory.value = false;
+    if (articleRef.value?.isViewingRevision?.()) {
+        articleRef.value.exitRevisionView();
+    }
+};
 
 // Ticket data management
 const {
@@ -170,8 +207,8 @@ watch(
 </script>
 
 <template>
-    <div class="flex-1">
-        <div v-if="ticket" class="flex flex-col">
+    <div class="flex-1 relative overflow-hidden">
+        <div v-if="ticket" class="flex flex-col h-full">
             <!-- Navigation and actions bar -->
             <div class="pt-4 px-6 flex justify-between items-center">
                 <div class="flex items-center gap-4">
@@ -407,9 +444,11 @@ watch(
                     <!-- Article -->
                     <div class="ticket-article rounded-xl">
                         <CollaborativeTicketArticle
+                            ref="articleRef"
                             :key="`article-${ticket.id}`"
                             :initial-content="ticket.article_content || ''"
                             :ticket-id="ticket.id"
+                            @toggle-revision-history="toggleRevisionHistory"
                         />
                     </div>
                 </div>
@@ -419,6 +458,16 @@ watch(
         <div v-else class="p-6 text-center text-secondary">
             Loading ticket...
         </div>
+
+        <!-- Revision History Sidebar -->
+        <RevisionHistory
+            v-if="showRevisionHistory && ticket"
+            :ticket-id="ticket.id"
+            @close="handleCloseRevisionHistory"
+            @select-revision="handleSelectRevision"
+            @restored="() => console.log('Revision restored')"
+            class="absolute top-0 right-0 bottom-0 z-10"
+        />
 
         <!-- Modals -->
         <DeviceSelectionModal
