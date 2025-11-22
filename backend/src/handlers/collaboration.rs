@@ -534,8 +534,8 @@ impl YjsAppState {
                                             let child_count = fragment.children(&txn).count();
                                             println!("📄 PostgreSQL content: {} children", child_count);
                                             let content_str = fragment.get_string(&txn);
-                                            println!("Fragment preview: {}",
-                                                if content_str.len() > 200 { &content_str[..200] } else { &content_str });
+                                            let preview: String = content_str.chars().take(100).collect();
+                                            println!("Fragment preview: {}", preview);
                                         } else {
                                             println!("⚠️ WARNING: 'prosemirror' fragment not found after PostgreSQL load!");
                                         }
@@ -774,9 +774,9 @@ impl YjsAppState {
             if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
                 let child_count = fragment.children(&txn).count();
                 let content_str = fragment.get_string(&txn);
+                let preview: String = content_str.chars().take(50).collect();
                 println!("💾 BEFORE SAVE - {}: Fragment has {} children, content preview: {}",
-                    doc_id, child_count,
-                    if content_str.len() > 100 { &content_str[..100] } else { &content_str });
+                    doc_id, child_count, preview);
 
                 // Also log the state vector to see what client IDs we have
                 let state_vec = txn.state_vector();
@@ -1129,12 +1129,14 @@ impl YjsWebSocket {
 
                     let content_changed = content_before != content_after;
                     if content_changed {
+                        let before_preview: String = content_before.chars().take(50).collect();
+                        let after_preview: String = content_after.chars().take(50).collect();
                         println!("📝 Content changed! Before: '{}' → After: '{}'",
-                            if content_before.len() > 50 { &content_before[..50] } else { &content_before },
-                            if content_after.len() > 50 { &content_after[..50] } else { &content_after });
+                            before_preview, after_preview);
                     } else {
+                        let after_preview: String = content_after.chars().take(30).collect();
                         println!("⚠️ Content UNCHANGED after processing message (still: '{}')",
-                            if content_after.len() > 30 { &content_after[..30] } else { &content_after });
+                            after_preview);
 
                         // WORKAROUND: If SYNC_UPDATE failed to apply, request the frontend to send
                         // its full state by sending a SYNC_STEP_1 (state vector request)
