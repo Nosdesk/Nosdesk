@@ -65,7 +65,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    profiles: ["prod"]
 
   # Backend - Development
   backend-dev:

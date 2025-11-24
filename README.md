@@ -37,49 +37,32 @@ A modern helpdesk and IT management system built with Rust and Vue.js, designed 
 
 ## 🚀 Quick Start
 
-### Building from Scratch
-
 **Prerequisites:** Docker and Docker Compose
 
 ```bash
-# 1. Clone and navigate
-git clone https://github.com/yourusername/Nosdesk.git
+# 1. Clone the repository
+git clone https://github.com/kylephillipsau/Nosdesk.git
 cd Nosdesk
 
-# 2. Review docker.env (contains all configuration)
-# Update JWT_SECRET, MFA_ENCRYPTION_KEY, and passwords for production
+# 2. Create environment configuration
+cp docker.env.example docker.env
 
-# 3. Build and start development environment
-docker compose --profile dev up --build
+# 3. Update required environment variables in docker.env:
+# - JWT_SECRET: Generate with `openssl rand -base64 32`
+# - MFA_ENCRYPTION_KEY: Generate with `openssl rand -hex 32`
+# - POSTGRES_PASSWORD: Change from default
+# - REDIS_PASSWORD: Change from default
+
+# 4. Start the application
+docker compose up -d --build
 ```
 
 Access the app at [http://localhost:8080](http://localhost:8080)
 
-### Docker Profiles
-
-**Development** (`--profile dev`):
+**First-time setup:** The application will automatically create a default admin user. Check the Docker logs for credentials:
 ```bash
-docker compose --profile dev up --build
+docker compose logs backend | grep "Default admin"
 ```
-- **postgres**: PostgreSQL 16 database with persistent storage
-- **redis**: Redis 7 for caching and real-time features
-- **backend-dev**: Rust API with hot reload and auto-migrations
-- **frontend-watch**: Vue.js dev server with HMR
-
-**Production** (`--profile prod`):
-```bash
-docker compose --profile prod up --build
-```
-- Optimized builds, backend serves pre-built frontend
-
-### Configuration
-
-All environment variables are in `docker.env`:
-- **Security**: JWT_SECRET, MFA_ENCRYPTION_KEY
-- **Database**: PostgreSQL connection (default: `helpdesk` db)
-- **Redis**: Cache and session storage
-- **Microsoft**: Optional Entra ID/Intune integration
-- **SMTP**: Email notifications
 
 ## 🏗️ Technology Stack
 
@@ -106,18 +89,51 @@ Nosdesk/
 
 ## 🔧 Configuration
 
-Environment variables are managed automatically:
-- **Docker**: `docker.env` file
-- **Native**: Auto-generated `backend/.env`
+All configuration is managed through `docker.env` which includes:
 
-Key integrations:
-- Microsoft Entra ID for SSO
-- Microsoft Intune for device management
-- Redis for real-time features and caching
+- **Security**: JWT_SECRET, MFA_ENCRYPTION_KEY (generate secure keys for production)
+- **Database**: PostgreSQL connection settings (default: `helpdesk` database)
+- **Redis**: Cache and session storage configuration
+- **Microsoft Integration** (Optional): Entra ID SSO and Intune device management
+- **SMTP**: Email notifications for tickets and alerts
+
+For local development outside Docker, the backend will auto-generate `.env` from the example file.
 
 ## 📚 Documentation
 
 - **API Documentation**: Import `api-insomnia.json` into Insomnia
+
+## 🤝 Contributing
+
+### Development Environment
+
+For active development with hot reloading:
+
+```bash
+# Start development environment
+docker compose --profile dev up -d --build
+
+# Access services:
+# - Application: http://localhost:8080
+# - Backend logs: docker compose logs -f backend-dev
+# - Frontend logs: docker compose logs -f frontend-watch
+```
+
+**Development stack includes:**
+- **postgres**: PostgreSQL database with persistent storage
+- **redis**: Redis for caching and real-time features
+- **backend-dev**: Rust API with hot reload and automatic migrations
+- **frontend-watch**: Vue.js dev server with Hot Module Replacement (HMR)
+
+**Database migrations:**
+```bash
+# Apply migrations
+docker compose exec backend-dev diesel migration run
+
+# Regenerate schema
+docker compose exec backend-dev sh -c 'diesel print-schema > src/schema.rs'
+```
+
 
 ## 📄 License
 
