@@ -4,7 +4,7 @@
       <!-- Header -->
       <div class="flex flex-col gap-2 items-center">
         <img :src="logo" alt="Nosdesk Logo" class="px-4 max-w-md" />
-        <h1 class="text-2xl font-bold text-primary mt-4">Complete Your Account Setup</h1>
+        <h1 class="text-2xl font-bold text-primary mt-4 text-center">Complete Your Account Setup</h1>
         <p class="text-secondary text-center">
           Your account type requires multi-factor authentication for security
         </p>
@@ -44,9 +44,6 @@
           Back to Login
         </button>
 
-        <div class="text-xs text-tertiary">
-          Step 1 of 1: Setup Multi-Factor Authentication
-        </div>
       </div>
     </div>
   </div>
@@ -78,9 +75,20 @@ onMounted(async () => {
   console.log('🔍 MFA Setup - Checking for credentials:', {
     hasLoginSetupContext: !!sessionStorage.getItem('mfaLoginSetupContext'),
     hasSetupCredentials: !!sessionStorage.getItem('mfaSetupCredentials'),
+    isAuthenticated: !!authStore.user,
     route: route.fullPath
   });
-  
+
+  // If user is already fully authenticated, redirect to dashboard
+  // This handles the case where user refreshes after completing MFA setup
+  if (authStore.user && !authStore.mfaSetupRequired) {
+    console.log('✅ User already authenticated, redirecting to dashboard');
+    sessionStorage.removeItem('mfaLoginSetupContext');
+    sessionStorage.removeItem('mfaSetupCredentials');
+    router.push('/');
+    return;
+  }
+
   // First check if we already have a valid setup context (from a refresh or direct navigation)
   const existingContext = sessionStorage.getItem('mfaLoginSetupContext');
   if (existingContext) {

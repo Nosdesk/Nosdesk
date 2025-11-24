@@ -191,6 +191,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
   ): Promise<any> {
     try {
       loading.value = true;
+      verifying.value = true;
       error.value = null;
 
       const request: MFALoginEnableRequest = {
@@ -204,6 +205,10 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       const result = await authService.enableMFAForLogin(request);
 
       if (result.success) {
+        // Extract backup codes from response
+        if (result.backup_codes) {
+          backupCodes.value = result.backup_codes;
+        }
         mfaEnabled.value = true;
         mfaStep.value = 'success';
         successMessage.value = 'MFA enabled successfully!';
@@ -216,6 +221,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       throw err;
     } finally {
       loading.value = false;
+      verifying.value = false;
     }
   }
 
