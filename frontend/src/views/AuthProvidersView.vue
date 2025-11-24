@@ -29,7 +29,6 @@ const isLoading = ref(false);
 const errorMessage = ref('');
 const providers = ref<Provider[]>([]);
 const successMessage = ref('');
-const testingProvider = ref<number | null>(null);
 const configValidations = ref<Record<number, ConfigValidation>>({});
 
 // Load providers from API
@@ -48,32 +47,12 @@ const loadProviders = async () => {
   }
 };
 
-// Set a provider as default
-const setAsDefault = async (provider: Provider) => {
-  try {
-    await axios.post('/api/admin/auth/providers/default', { provider_id: provider.id });
-    
-    // Update the UI
-    await loadProviders();
-    
-    successMessage.value = `${provider.name} set as default authentication method`;
-    setTimeout(() => { successMessage.value = ''; }, 3000);
-  } catch (error: any) {
-    console.error(`Failed to set ${provider.name} as default:`, error);
-    errorMessage.value = error.response?.data?.message || `Failed to set ${provider.name} as default`;
-    setTimeout(() => { errorMessage.value = ''; }, 3000);
-  }
-};
-
-// Test provider configuration
-const testProviderConfig = async (provider: Provider) => {
-  testingProvider.value = provider.id;
-  
+// Validate provider configuration
+const validateProviderConfig = async (provider: Provider) => {
   try {
     if (provider.provider_type === 'microsoft') {
-      // Use the configuration validation endpoint instead of full OAuth
       const response = await axios.get(`/api/integrations/graph/config`);
-      
+
       configValidations.value[provider.id] = {
         valid: true,
         client_id: response.data.client_id,
@@ -81,27 +60,22 @@ const testProviderConfig = async (provider: Provider) => {
         client_secret_configured: response.data.client_secret_configured,
         redirect_uri: response.data.redirect_uri
       };
-      
-      successMessage.value = `${provider.name} configuration is valid`;
-    } else {
-      // For other providers, we could add similar validation endpoints
-      successMessage.value = `${provider.name} configuration check not implemented`;
     }
-    
-    setTimeout(() => { successMessage.value = ''; }, 3000);
   } catch (error: any) {
-    console.error(`Error testing ${provider.name} configuration:`, error);
-    
     const errorDetails = error.response?.data;
     configValidations.value[provider.id] = {
       valid: false,
       error: errorDetails?.message || `Configuration validation failed`
     };
-    
-    errorMessage.value = `${provider.name} configuration error: ${errorDetails?.message || 'Configuration validation failed'}`;
-    setTimeout(() => { errorMessage.value = ''; }, 3000);
-  } finally {
-    testingProvider.value = null;
+  }
+};
+
+// Validate all enabled providers
+const validateAllProviders = async () => {
+  for (const provider of providers.value) {
+    if (provider.enabled && provider.provider_type !== 'local') {
+      await validateProviderConfig(provider);
+    }
   }
 };
 
@@ -176,8 +150,9 @@ const getConfigRequirements = (provider: Provider) => {
   }
 };
 
-onMounted(() => {
-  loadProviders();
+onMounted(async () => {
+  await loadProviders();
+  await validateAllProviders();
 });
 </script>
 
@@ -191,9 +166,6 @@ onMounted(() => {
     <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
       <div class="mb-6">
         <h1 class="text-2xl font-bold text-primary">Authentication Providers</h1>
-        <p class="text-secondary mt-2">
-          View authentication provider status and validate configuration. Providers are configured via environment variables.
-        </p>
       </div>
 
       <!-- Configuration Notice -->
@@ -209,27 +181,27 @@ onMounted(() => {
       <!-- Success message -->
       <div
         v-if="successMessage"
-        class="p-4 bg-status-success/30 text-status-success rounded-xl border border-status-success/50 mb-4 flex items-start"
+        class="p-4 bg-surface rounded-xl border border-status-success mb-4 flex items-start"
       >
         <div class="mr-3 mt-0.5 text-status-success flex-shrink-0">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
           </svg>
         </div>
-        <div>{{ successMessage }}</div>
+        <div class="text-primary">{{ successMessage }}</div>
       </div>
 
       <!-- Error message -->
       <div
         v-if="errorMessage"
-        class="p-4 bg-status-error/30 text-status-error rounded-xl border border-status-error/50 mb-4 flex items-start"
+        class="p-4 bg-surface rounded-xl border border-status-error mb-4 flex items-start"
       >
         <div class="mr-3 mt-0.5 text-status-error flex-shrink-0">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
           </svg>
         </div>
-        <div>{{ errorMessage }}</div>
+        <div class="text-primary">{{ errorMessage }}</div>
       </div>
       
       <!-- Loading state -->
@@ -259,12 +231,12 @@ onMounted(() => {
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="font-medium text-lg text-primary">{{ provider.name }}</span>
                   <span v-if="provider.is_default"
-                        class="px-2 py-0.5 text-xs bg-brand-blue/50 text-brand-blue rounded-full border border-brand-blue">
+                        class="px-2 py-0.5 text-xs bg-surface text-primary rounded-full border border-blue-500">
                     Default
                   </span>
                   <span
                     class="px-2 py-0.5 text-xs rounded-full border"
-                    :class="provider.enabled ? 'bg-status-success/50 text-status-success border-status-success' : 'bg-surface-alt text-tertiary border-default'"
+                    :class="provider.enabled ? 'bg-surface text-primary border-green-500' : 'bg-surface-alt text-tertiary border-default'"
                   >
                     {{ provider.enabled ? 'Available' : 'Not Configured' }}
                   </span>
@@ -289,33 +261,10 @@ onMounted(() => {
               </div>
             </div>
 
-            <!-- Provider actions -->
-            <div class="flex flex-wrap gap-2 ml-auto">
-              <button
-                v-if="provider.enabled && !provider.is_default"
-                @click="setAsDefault(provider)"
-                class="px-3 py-1.5 bg-brand-blue/50 text-brand-blue rounded-lg text-sm hover:bg-brand-blue/80 border border-brand-blue font-medium transition-colors"
-              >
-                Set as Default
-              </button>
-
-              <button
-                v-if="provider.enabled && provider.provider_type !== 'local'"
-                @click="testProviderConfig(provider)"
-                :disabled="testingProvider === provider.id"
-                class="px-3 py-1.5 bg-brand-purple/50 text-brand-purple rounded-lg text-sm hover:bg-brand-purple/80 border border-brand-purple font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                <svg v-if="testingProvider === provider.id" class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                {{ testingProvider === provider.id ? 'Testing...' : 'Validate Config' }}
-              </button>
-            </div>
           </div>
           
           <!-- Configuration Validation Results -->
-          <div v-if="configValidations[provider.id]" class="border-t border-default p-4 bg-surface-alt">
+          <div v-if="configValidations[provider.id]" class="border-t border-default p-4 bg-surface-alt rounded-b-xl">
             <div v-if="configValidations[provider.id].valid" class="text-sm">
               <div class="flex items-center gap-2 text-status-success mb-2">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -332,6 +281,7 @@ onMounted(() => {
                 </div>
                 <div v-if="configValidations[provider.id].client_secret_configured !== undefined">
                   <span class="text-tertiary">Client Secret:</span>
+                  {{ ' ' }}
                   <span :class="configValidations[provider.id].client_secret_configured ? 'text-status-success' : 'text-status-error'">
                     {{ configValidations[provider.id].client_secret_configured ? 'Configured' : 'Not Configured' }}
                   </span>

@@ -439,6 +439,9 @@ async fn main() -> std::io::Result<()> {
     // Initialize SSE state for real-time ticket updates
     let sse_state = web::Data::new(handlers::sse::SseState::new());
 
+    // Initialize system state for tracking uptime
+    let system_state = web::Data::new(handlers::system::SystemState::new());
+
     // Share the limiters across all app instances
     let public_limiter_data = web::Data::new(public_limiter);
     let auth_limiter_data = web::Data::new(auth_limiter);
@@ -493,6 +496,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(pool.clone()))
             .app_data(yjs_app_state.clone())
             .app_data(sse_state.clone())
+            .app_data(system_state.clone())
             .app_data(storage_data.clone())
             .app_data(json_config)
             .app_data(multipart_config)
@@ -581,6 +585,10 @@ async fn main() -> std::io::Result<()> {
                     // Email configuration (admin only) - environment-based config
                     .route("/admin/email/config", web::get().to(handlers::email::get_email_config))
                     .route("/admin/email/test", web::post().to(handlers::email::send_test_email))
+
+                    // System information (admin only)
+                    .route("/admin/system/info", web::get().to(handlers::system::get_system_info))
+                    .route("/admin/system/updates", web::get().to(handlers::system::check_system_updates))
 
                     // Microsoft Graph API endpoints
                     .route("/auth/microsoft/graph", web::post().to(handlers::process_graph_request))
