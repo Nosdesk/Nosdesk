@@ -21,6 +21,7 @@ const errorMessage = ref("");
 const successMessage = ref("");
 const showForgotPasswordModal = ref(false);
 const showMFARecoveryModal = ref(false);
+const microsoftAuthEnabled = ref(false);
 
 // MFA state
 const mfaToken = ref("");
@@ -35,6 +36,7 @@ onMounted(async () => {
       router.replace({ name: 'onboarding' });
       return;
     }
+    microsoftAuthEnabled.value = setupStatus.microsoft_auth_enabled || false;
   } catch (error) {
     console.error('Failed to check setup status:', error);
     // Continue to show login page if check fails
@@ -303,6 +305,7 @@ const handleMicrosoftLogoutClick = async () => {
                 id="mfa-token"
                 v-model="mfaToken"
                 type="text"
+                inputmode="numeric"
                 required
                 autocomplete="one-time-code"
                 placeholder="000000"
@@ -458,13 +461,13 @@ const handleMicrosoftLogoutClick = async () => {
           <span v-else>Sign in</span>
         </button>
 
-        <div class="relative flex gap-2 items-center justify-center">
+        <div v-if="microsoftAuthEnabled" class="relative flex gap-2 items-center justify-center">
           <div class="border-t border-default flex-grow"></div>
           <span class="mx-4 text-sm text-tertiary">or</span>
           <div class="border-t border-default flex-grow"></div>
         </div>
 
-        <div class="flex gap-2">
+        <div v-if="microsoftAuthEnabled" class="flex gap-2">
           <button
             type="button"
             @click="handleMicrosoftLoginClick"

@@ -6,6 +6,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 export interface OnboardingStatus {
   requires_setup: boolean;
   user_count: number;
+  microsoft_auth_enabled: boolean;
 }
 
 export interface AdminSetupRequest {

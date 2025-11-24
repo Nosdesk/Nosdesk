@@ -18,6 +18,7 @@ export interface TicketEvent {
     | "ProjectUnassigned"
     | "TicketLinked"
     | "TicketUnlinked"
+    | "DocumentationUpdated"
     | "Heartbeat";
   data: any;
 }
@@ -37,6 +38,7 @@ type SSEEventType =
   | "ticket-unlinked"
   | "project-assigned"
   | "project-unassigned"
+  | "documentation-updated"
   | "heartbeat"
   | "reconnect";
 
@@ -149,6 +151,7 @@ class SSEService {
       "ticket-unlinked",
       "project-assigned",
       "project-unassigned",
+      "documentation-updated",
       "heartbeat",
       "reconnect",
     ];

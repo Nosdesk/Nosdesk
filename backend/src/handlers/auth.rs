@@ -959,11 +959,17 @@ pub async fn check_setup_status(
 
     match repository::count_users(&mut conn) {
         Ok(user_count) => {
+            // Check if Microsoft auth is configured via environment variables
+            let microsoft_auth_enabled = std::env::var("MICROSOFT_CLIENT_ID").is_ok()
+                && std::env::var("MICROSOFT_TENANT_ID").is_ok()
+                && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok();
+
             let response = crate::models::OnboardingStatus {
                 requires_setup: user_count == 0,
                 user_count,
+                microsoft_auth_enabled,
             };
-            
+
             // Security headers now applied globally by SecurityHeaders middleware
             HttpResponse::Ok().json(response)
         },

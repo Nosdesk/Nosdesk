@@ -101,7 +101,7 @@ const toggleRevisionHistory = () => {
 // Handle convert to documentation
 const handleConvertToDocumentation = async () => {
   try {
-    // Call backend endpoint to create documentation page from ticket
+    // Backend handles both cases: returns existing page or creates new one
     const response = await apiClient.post(`/tickets/${props.ticketId}/documentation/create`, {
       title: `Documentation: Ticket #${props.ticketId}`,
       icon: '📋',
@@ -109,7 +109,7 @@ const handleConvertToDocumentation = async () => {
     });
 
     if (response.data && response.data.id) {
-      // Navigate to the new documentation page
+      // Navigate to the documentation page (existing or newly created)
       router.push(`/documentation/${response.data.id}`);
     }
   } catch (error) {

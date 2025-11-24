@@ -197,20 +197,13 @@ onMounted(() => {
       </div>
 
       <!-- Configuration Notice -->
-      <div class="p-4 bg-brand-blue/30 text-brand-blue rounded-xl border border-brand-blue/50 mb-4 flex items-center">
-        <div class="mr-3 text-brand-blue flex-shrink-0">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
-          </svg>
-        </div>
-        <div>
-          <p class="font-medium">Configuration via Environment Variables</p>
-          <p class="text-sm text-brand-blue/80 mt-1">
-            Authentication providers are configured through environment variables in your
-            <code class="bg-brand-blue/50 px-1 rounded">.env</code> file.
-            Use the "Validate Config" button to check if each provider is properly configured.
-          </p>
-        </div>
+      <div class="p-4 bg-surface-alt rounded-xl border border-default mb-4">
+        <p class="font-medium text-primary">Configuration via Environment Variables</p>
+        <p class="text-sm text-secondary mt-1">
+          Authentication providers are configured through environment variables in your
+          <code class="bg-surface px-1 rounded text-primary">.env</code> file.
+          Use the "Validate Config" button to check if each provider is properly configured.
+        </p>
       </div>
 
       <!-- Success message -->

@@ -1321,6 +1321,7 @@ pub struct ProgressPoint {
 pub struct OnboardingStatus {
     pub requires_setup: bool,
     pub user_count: i64,
+    pub microsoft_auth_enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]

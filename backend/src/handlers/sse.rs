@@ -82,6 +82,13 @@ pub enum TicketEvent {
         linked_ticket_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    DocumentationUpdated {
+        document_id: i32,
+        field: String,
+        value: serde_json::Value,
+        updated_by: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     Heartbeat {
         timestamp: chrono::DateTime<chrono::Utc>,
     },
@@ -219,6 +226,7 @@ impl Stream for SseStream {
                     TicketEvent::ProjectUnassigned { .. } => "project-unassigned",
                     TicketEvent::TicketLinked { .. } => "ticket-linked",
                     TicketEvent::TicketUnlinked { .. } => "ticket-unlinked",
+                    TicketEvent::DocumentationUpdated { .. } => "documentation-updated",
                     TicketEvent::Heartbeat { .. } => "heartbeat",
                 };
 

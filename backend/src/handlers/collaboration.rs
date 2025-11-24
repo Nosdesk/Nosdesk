@@ -13,8 +13,33 @@ use yrs::updates::encoder::Encode;
 use bytes::Bytes;
 use uuid::Uuid;
 use base64::{Engine as _, engine::general_purpose};
+use std::panic;
 
 use crate::repository;
+
+/// Safely get string content from a Yjs XmlFragment
+/// Returns None if the fragment contains invalid UTF-8 data (which can cause yrs to panic)
+fn safe_get_fragment_string(fragment: &yrs::XmlFragmentRef, txn: &yrs::Transaction) -> Option<String> {
+    match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        fragment.get_string(txn)
+    })) {
+        Ok(s) => Some(s),
+        Err(_) => None,
+    }
+}
+
+/// Get a preview of document content for logging
+fn get_content_preview(awareness: &Awareness, max_chars: usize) -> String {
+    let txn = awareness.doc().transact();
+    if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+        match safe_get_fragment_string(&fragment, &txn) {
+            Some(s) => s.chars().take(max_chars).collect(),
+            None => "(invalid char data)".to_string(),
+        }
+    } else {
+        "(no fragment)".to_string()
+    }
+}
 use crate::models::{NewArticleContent, NewArticleContentRevision};
 use crate::utils::redis_yjs_cache::RedisYjsCache;
 
@@ -434,12 +459,8 @@ impl YjsAppState {
                         loaded_from_redis = true;
 
                         // Diagnostic: Verify content
-                        use yrs::{GetString, XmlFragment};
-                        let txn = awareness.doc().transact();
-                        if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                            let child_count = fragment.children(&txn).count();
-                            println!("📄 Redis content: {} children", child_count);
-                        }
+                        let preview = get_content_preview(&awareness, 50);
+                        println!("📄 Redis content loaded: {}", preview);
                     }
                 } else {
                     println!("⚠️ Failed to decode Redis data - deleting corrupted entry");
@@ -528,27 +549,8 @@ impl YjsAppState {
                                         self.redis_cache.set_document(doc_id, &binary_content).await;
 
                                         // Diagnostic: Check what's actually in the document
-                                        use yrs::{GetString, XmlFragment};
-                                        use std::panic;
-                                        let txn = awareness.doc().transact();
-                                        if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                                            let child_count = fragment.children(&txn).count();
-                                            println!("📄 PostgreSQL content: {} children", child_count);
-                                            // Wrap in catch_unwind to handle invalid char panics from yrs
-                                            match panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                                                fragment.get_string(&txn)
-                                            })) {
-                                                Ok(content_str) => {
-                                                    let preview: String = content_str.chars().take(100).collect();
-                                                    println!("Fragment preview: {}", preview);
-                                                }
-                                                Err(_) => {
-                                                    println!("⚠️ Warning: Failed to get string from fragment (invalid char data)");
-                                                }
-                                            }
-                                        } else {
-                                            println!("⚠️ WARNING: 'prosemirror' fragment not found after PostgreSQL load!");
-                                        }
+                                        let preview = get_content_preview(&awareness, 100);
+                                        println!("📄 PostgreSQL content: {}", preview);
                                     }
                                 } else {
                                     println!("Failed to decode Yjs update from PostgreSQL");
@@ -779,31 +781,12 @@ impl YjsAppState {
             let doc = awareness.doc();
             let txn = doc.transact();
 
-            // DIAGNOSTIC: Check what's actually in the document before saving
-            use yrs::{GetString, XmlFragment};
-            use std::panic;
+            // Log content preview before saving
             if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                let child_count = fragment.children(&txn).count();
-                // Wrap in catch_unwind to handle invalid char panics from yrs
-                match panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                    fragment.get_string(&txn)
-                })) {
-                    Ok(content_str) => {
-                        let preview: String = content_str.chars().take(50).collect();
-                        println!("💾 BEFORE SAVE - {}: Fragment has {} children, content preview: {}",
-                            doc_id, child_count, preview);
-                    }
-                    Err(_) => {
-                        println!("💾 BEFORE SAVE - {}: Fragment has {} children (content has invalid chars)",
-                            doc_id, child_count);
-                    }
-                }
-
-                // Also log the state vector to see what client IDs we have
-                let state_vec = txn.state_vector();
-                println!("💾 BEFORE SAVE - State vector: {:?}", state_vec);
-            } else {
-                println!("⚠️ BEFORE SAVE - {}: NO 'prosemirror' fragment found in document!", doc_id);
+                let preview = safe_get_fragment_string(&fragment, &txn)
+                    .map(|s| s.chars().take(50).collect::<String>())
+                    .unwrap_or_else(|| "(invalid chars)".to_string());
+                println!("💾 Saving {}: {}", doc_id, preview);
             }
 
             txn.encode_state_as_update_v1(&StateVector::default())
@@ -1087,135 +1070,48 @@ impl YjsWebSocket {
             // Get the awareness for this document
             let awareness = app_state.get_or_create_awareness(&doc_id).await;
 
-            // DIAGNOSTIC: Check content BEFORE processing message
-            // Use catch_unwind to handle potential panics from corrupted document data
-            let content_before = {
-                use yrs::{GetString, XmlFragment};
-                use std::panic;
-                let txn = awareness.doc().transact();
-                if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                    // Wrap in catch_unwind to handle invalid char panics from yrs
-                    match panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                        fragment.get_string(&txn)
-                    })) {
-                        Ok(s) => s,
-                        Err(_) => {
-                            println!("⚠️ Warning: Failed to get string from fragment (invalid char data)");
-                            String::from("(corrupted)")
-                        }
-                    }
-                } else {
-                    String::from("(no fragment)")
-                }
-            };
+            // Get content hash before processing to detect changes
+            let content_before = get_content_preview(&awareness, 1000);
 
             // Use the built-in protocol handler to process the message
-            // DefaultProtocol is stateless, so we can create a new instance
             let protocol = DefaultProtocol;
 
-            // DIAGNOSTIC: Log incoming message details
-            let msg_type = if msg_vec.is_empty() { 255 } else { msg_vec[0] };
-            println!("🔍 Processing message: type={}, size={} bytes", msg_type, msg_vec.len());
-
-            // DIAGNOSTIC: Decode sync messages to see what they contain
-            if msg_type == 0 && msg_vec.len() > 1 {
-                let sync_step = msg_vec[1];
-                match sync_step {
-                    0 => println!("   📍 SYNC_STEP_1 (state vector request)"),
-                    1 => println!("   📍 SYNC_STEP_2 (state response)"),
-                    2 => {
-                        println!("   📍 SYNC_UPDATE (incremental change)");
-                        // Get the doc's current state vector to compare with incoming update
-                        let doc_state_vec = {
-                            let txn = awareness.doc().transact();
-                            txn.state_vector()
-                        };
-                        println!("      Backend state vector: {:?}", doc_state_vec);
-
-                        // Try to decode the update to see if it's valid
-                        if msg_vec.len() > 2 {
-                            match Update::decode_v1(&msg_vec[2..]) {
-                                Ok(_update) => println!("      ✓ Decoded SYNC_UPDATE successfully"),
-                                Err(e) => println!("      ✗ Failed to decode SYNC_UPDATE: {:?}", e),
-                            }
-                        }
-                    },
-                    _ => println!("   📍 Unknown sync step: {}", sync_step),
+            // Warn if state vector has too many clients (possible corruption)
+            {
+                let txn = awareness.doc().transact();
+                let client_count = txn.state_vector().len();
+                if client_count > 50 {
+                    println!("⚠️ Document {} has {} client IDs - possible corruption", doc_id, client_count);
                 }
             }
 
             match protocol.handle(&awareness, &msg_vec) {
                 Ok(messages) => {
-                    println!("✅ protocol.handle() succeeded, generated {} response message(s)", messages.len());
-
-                    // DIAGNOSTIC: Check content AFTER processing message
-                    // Use catch_unwind to handle potential panics from corrupted document data
-                    let content_after = {
-                        use yrs::{GetString, XmlFragment};
-                        use std::panic;
-                        let txn = awareness.doc().transact();
-                        if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                            match panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                                fragment.get_string(&txn)
-                            })) {
-                                Ok(s) => s,
-                                Err(_) => {
-                                    println!("⚠️ Warning: Failed to get string from fragment after update (invalid char data)");
-                                    String::from("(corrupted)")
-                                }
-                            }
-                        } else {
-                            String::from("(no fragment)")
-                        }
-                    };
-
+                    // Check if content changed
+                    let content_after = get_content_preview(&awareness, 1000);
                     let content_changed = content_before != content_after;
-                    if content_changed {
-                        let before_preview: String = content_before.chars().take(50).collect();
-                        let after_preview: String = content_after.chars().take(50).collect();
-                        println!("📝 Content changed! Before: '{}' → After: '{}'",
-                            before_preview, after_preview);
-                    } else {
-                        let after_preview: String = content_after.chars().take(30).collect();
-                        println!("⚠️ Content UNCHANGED after processing message (still: '{}')",
-                            after_preview);
 
-                        // WORKAROUND: If SYNC_UPDATE failed to apply, request the frontend to send
-                        // its full state by sending a SYNC_STEP_1 (state vector request)
-                        if msg_type == 0 && msg_vec.len() > 1 && msg_vec[1] == 2 {
-                            println!("🔄 SYNC_UPDATE failed to apply changes - requesting client's full state");
-                            use yrs::sync::Message;
-                            // Send empty state vector to request full state from client
-                            let sync_message = Message::Sync(yrs::sync::SyncMessage::SyncStep1(StateVector::default()));
-                            let encoded = sync_message.encode_v1();
-                            addr.do_send(YjsMessage(Bytes::from(encoded)));
-                            println!("📤 Sent SYNC_STEP_1 request to client - expecting full state in response");
-                        }
-                    }
-
-                    // Send any response messages back to the client
+                    // Send response messages to client
                     for message in messages {
                         let encoded = message.encode_v1();
                         addr.do_send(YjsMessage(Bytes::from(encoded)));
                     }
 
-                    // Broadcast the entire message to other clients
+                    // Broadcast to other clients
                     app_state.broadcast(&doc_id, &session_id, &msg_vec).await;
 
-                    // Mark document as changed after sync updates (even if failed)
-                    // This ensures the backend saves whatever state it has
-                    if is_sync_message || content_changed {
+                    // Mark document as changed for sync messages
+                    if is_sync_message {
                         app_state.mark_document_changed(&doc_id).await;
                     }
 
                     // Track contributor only when content actually changed
-                    // This ensures revisions are only created for sessions with real edits
                     if content_changed {
                         app_state.add_contributor(&doc_id, user_uuid).await;
                     }
                 },
                 Err(e) => {
-                    println!("Error handling protocol message: {:?}", e);
+                    println!("❌ Protocol error for {}: {:?}", doc_id, e);
                 }
             }
         });

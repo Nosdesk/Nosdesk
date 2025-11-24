@@ -14,6 +14,8 @@ import DocumentationTocItem from '@/components/documentationComponents/Documenta
 import { docsEmitter } from "@/services/docsEmitter";
 import RevisionHistory from '@/components/editor/RevisionHistory.vue';
 import apiClient from '@/services/apiConfig';
+import { useSSE } from '@/services/sseService';
+import { useAuthStore } from '@/stores/auth';
 
 const route = useRoute();
 const router = useRouter();
@@ -45,9 +47,52 @@ const editTitle = ref("");
 // Document icon
 const documentIcon = ref('📄');
 
+// Debounced title save
+let titleUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
+
 // Revision history state
 const showRevisionHistory = ref(false);
 const editorRef = ref<any>(null);
+
+// SSE for real-time updates
+const { addEventListener, removeEventListener, connect } = useSSE();
+const authStore = useAuthStore();
+
+// Handle SSE documentation updates from other clients
+const handleDocumentationUpdate = (event: any) => {
+  const data = event.data || event;
+  const currentPageId = page.value?.id || article.value?.id;
+
+  // Only update if this is for the current document and not from current user
+  if (data.document_id === currentPageId && data.updated_by !== authStore.user?.uuid) {
+    if (data.field === 'title' && data.value) {
+      // Update local state
+      if (page.value) {
+        page.value.title = data.value;
+      } else if (article.value) {
+        article.value.title = data.value;
+      }
+      editTitle.value = data.value;
+      titleManager.setCustomTitle(data.value);
+      emit('update:title', data.value);
+    }
+    if (data.field === 'slug' && data.value) {
+      if (page.value) {
+        page.value.slug = data.value;
+      } else if (article.value) {
+        article.value.slug = data.value;
+      }
+    }
+    if (data.field === 'icon' && data.value) {
+      if (page.value) {
+        page.value.icon = data.value;
+      } else if (article.value) {
+        article.value.icon = data.value;
+      }
+      documentIcon.value = data.value;
+    }
+  }
+};
 
 // Create a document object for the header
 const documentObj = computed(() => {
@@ -214,8 +259,13 @@ const updateTitle = (newTitle: string) => {
       page.value.slug = slug;
     }
 
-    // Save title/slug changes to database (metadata only, not content)
-    saveTitleChanges();
+    // Debounce the backend save (500ms)
+    if (titleUpdateTimeout) {
+      clearTimeout(titleUpdateTimeout);
+    }
+    titleUpdateTimeout = setTimeout(() => {
+      saveTitleChanges();
+    }, 500);
   }
 };
 
@@ -223,11 +273,18 @@ const updateTitle = (newTitle: string) => {
 const saveTitleChanges = async () => {
   if (!page.value && !article.value) return;
 
-  // TODO: Implement metadata-only update endpoint in backend
-  // For now, metadata updates happen when the page is saved through other means
-  // The title/slug changes are tracked in local state and will be persisted
-  // when the user navigates away or the page is updated
-  console.log('Title changed to:', editTitle.value);
+  const pageId = page.value?.id || article.value?.id;
+  if (!pageId) return;
+
+  try {
+    await apiClient.put(`/documentation/pages/${pageId}`, {
+      title: editTitle.value,
+      slug: editTitle.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+    });
+    console.log('Title saved:', editTitle.value);
+  } catch (error) {
+    console.error('Failed to save title:', error);
+  }
 };
 
 // Revision history handlers
@@ -713,7 +770,11 @@ onMounted(() => {
   if (route.query.search === 'string') {
     searchQuery.value = route.query.search;
   }
-  
+
+  // Connect to SSE and add listener for documentation updates
+  connect();
+  addEventListener('documentation-updated' as any, handleDocumentationUpdate);
+
   // Fetch content based on the route
   fetchContent();
 });
@@ -721,6 +782,7 @@ onMounted(() => {
 // Remove click outside listener on component unmount
 onUnmounted(() => {
   window.document.removeEventListener('click', handleClickOutside);
+  removeEventListener('documentation-updated' as any, handleDocumentationUpdate);
 });
 </script>
 
@@ -845,7 +907,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Main content area with a single scrollbar for the entire page -->
-    <div class="flex flex-col flex-1 overflow-hidden bg-gradient-to-b from-bg-app to-bg-surface">
+    <div class="flex flex-col flex-1 overflow-hidden bg-gradient-to-b from-bg-app to-bg-surface items-center">
       <!-- Search Results - Removed from main content area -->
 
       <!-- Index Page View -->
@@ -935,26 +997,6 @@ onUnmounted(() => {
         <!-- Main Content Area - Centered -->
         <div class="flex-1 flex justify-center overflow-auto">
           <div class="w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
-            <!-- Linked Ticket Indicator -->
-            <div
-              v-if="page?.ticket_id || article?.ticket_id"
-              class="flex items-center gap-2 px-4 py-2.5 mb-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg"
-            >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-600 dark:text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z" />
-            </svg>
-            <span class="text-sm text-blue-800 dark:text-blue-200">
-              This documentation page is linked to
-              <RouterLink
-                :to="`/tickets/${page?.ticket_id || article?.ticket_id}`"
-                class="font-medium underline hover:text-blue-600 dark:hover:text-blue-300"
-              >
-                Ticket #{{ page?.ticket_id || article?.ticket_id }}
-              </RouterLink>
-              and shares its content
-            </span>
-          </div>
-
           <!-- Documentation Header - Clean, modern styling -->
           <div class="mb-6">
             <!-- Icon and Title -->
@@ -998,6 +1040,19 @@ onUnmounted(() => {
 
               <!-- Action Buttons -->
               <div class="flex items-center gap-2">
+                <!-- Linked Ticket Button -->
+                <RouterLink
+                  v-if="page?.ticket_id || article?.ticket_id"
+                  :to="`/tickets/${page?.ticket_id || article?.ticket_id}`"
+                  class="px-3 py-1.5 text-xs rounded-md hover:bg-surface-hover transition-colors flex items-center gap-1.5 text-secondary hover:text-primary"
+                  title="View linked ticket"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                  </svg>
+                  <span>Ticket #{{ page?.ticket_id || article?.ticket_id }}</span>
+                </RouterLink>
+
                 <!-- Revision History Toggle -->
                 <button
                   @click="toggleRevisionHistory"

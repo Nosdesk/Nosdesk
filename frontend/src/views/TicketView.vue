@@ -386,22 +386,6 @@ watch(
                             </a>
                         </div>
                         </div>
-
-                        <!-- Comments -->
-                        <div class="ticket-comments rounded-xl">
-                            <CommentsAndAttachments
-                                :comments="comments"
-                                :current-user="
-                                    authStore.user?.uuid || 'Unknown User'
-                                "
-                                :recently-added-comment-ids="
-                                    recentlyAddedCommentIds
-                                "
-                                @add-comment="addComment"
-                                @delete-attachment="deleteAttachment"
-                                @delete-comment="deleteComment"
-                            />
-                        </div>
                     </div>
 
                     <!-- Article -->
@@ -410,6 +394,22 @@ watch(
                             :key="`article-${ticket.id}`"
                             :initial-content="ticket.article_content || ''"
                             :ticket-id="ticket.id"
+                        />
+                    </div>
+
+                    <!-- Comments -->
+                    <div class="ticket-comments rounded-xl">
+                        <CommentsAndAttachments
+                            :comments="comments"
+                            :current-user="
+                                authStore.user?.uuid || 'Unknown User'
+                            "
+                            :recently-added-comment-ids="
+                                recentlyAddedCommentIds
+                            "
+                            @add-comment="addComment"
+                            @delete-attachment="deleteAttachment"
+                            @delete-comment="deleteComment"
                         />
                     </div>
                 </div>
@@ -470,10 +470,11 @@ watch(
     min-width: 0; /* Prevent overflow */
 }
 
-/* Tablet (md): 2 columns, left column contains details + comments stacked */
+/* Tablet (lg): 2 columns, details + comments in left, article in right */
 @media (min-width: 1024px) {
     .ticket-grid {
         grid-template-columns: minmax(400px, 1.5fr) minmax(0, 1fr);
+        grid-template-rows: auto auto;
         align-items: start;
     }
 
@@ -481,10 +482,19 @@ watch(
         display: flex;
         flex-direction: column;
         gap: 1.5rem;
+        grid-column: 1;
+        grid-row: 1;
     }
 
     .ticket-article {
+        grid-column: 2;
+        grid-row: 1 / 3;
         align-self: start;
+    }
+
+    .ticket-comments {
+        grid-column: 1;
+        grid-row: 2;
     }
 }
 

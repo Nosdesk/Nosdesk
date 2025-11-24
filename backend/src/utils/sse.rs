@@ -182,6 +182,25 @@ impl SseBroadcaster {
         }).await;
     }
 
+    /// Broadcast a documentation page update to all connected clients
+    pub async fn broadcast_documentation_updated(
+        state: &web::Data<SseState>,
+        document_id: i32,
+        field: &str,
+        value: serde_json::Value,
+        updated_by: &str,
+    ) {
+        Self::broadcast_generic_event(state, |timestamp| {
+            TicketEvent::DocumentationUpdated {
+                document_id,
+                field: field.to_string(),
+                value,
+                updated_by: updated_by.to_string(),
+                timestamp,
+            }
+        }).await;
+    }
+
     /// Get the number of currently connected SSE clients
     pub fn get_connected_clients_count(state: &web::Data<SseState>) -> usize {
         state.get_client_count()

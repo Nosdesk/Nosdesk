@@ -34,6 +34,30 @@ const apiClient = axios.create({
   },
 });
 
+// Token refresh state to prevent multiple simultaneous refresh attempts
+let isRefreshing = false;
+let refreshSubscribers: ((success: boolean) => void)[] = [];
+
+function subscribeTokenRefresh(callback: (success: boolean) => void) {
+  refreshSubscribers.push(callback);
+}
+
+function onRefreshComplete(success: boolean) {
+  refreshSubscribers.forEach(callback => callback(success));
+  refreshSubscribers = [];
+}
+
+async function refreshAccessToken(): Promise<boolean> {
+  try {
+    const response = await axios.post(`${API_URL}/auth/refresh`, {}, {
+      withCredentials: true,
+    });
+    return response.status === 200;
+  } catch (error) {
+    return false;
+  }
+}
+
 // Helper function to get CSRF token from cookies
 function getCsrfToken(): string | null {
   const match = document.cookie.match(/csrf_token=([^;]+)/);
@@ -109,7 +133,7 @@ apiClient.interceptors.response.use(
 
     return response;
   },
-  (error) => {
+  async (error) => {
     const correlationId = error.response?.headers['x-correlation-id'] || currentCorrelationId;
 
     // Create typed error
@@ -126,25 +150,86 @@ apiClient.interceptors.response.use(
 
     // Handle authentication errors (401)
     if (error.response?.status === 401) {
-      // Prevent infinite redirect loop
-      if (!window.location.pathname.includes('/login') && !sessionStorage.getItem('redirecting-to-login')) {
-        logger.warn('Session expired - redirecting to login', {
-          correlationId
+      const originalRequest = error.config;
+
+      // Don't retry refresh requests or already retried requests
+      if (originalRequest.url?.includes('/auth/refresh') || originalRequest._retry) {
+        // Refresh failed or already retried - redirect to login
+        if (!window.location.pathname.includes('/login') && !sessionStorage.getItem('redirecting-to-login')) {
+          logger.warn('Session expired - redirecting to login', {
+            correlationId
+          });
+
+          sessionStorage.setItem('redirecting-to-login', 'true');
+
+          // Clear auth cookies
+          document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+          document.cookie = 'refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+          document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+
+          localStorage.removeItem('authProvider');
+
+          setTimeout(() => {
+            sessionStorage.removeItem('redirecting-to-login');
+            window.location.href = '/login';
+          }, 100);
+        }
+        return Promise.reject(appError);
+      }
+
+      // Mark request as retried
+      originalRequest._retry = true;
+
+      // If already refreshing, queue this request
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          subscribeTokenRefresh((success) => {
+            if (success) {
+              resolve(apiClient(originalRequest));
+            } else {
+              reject(appError);
+            }
+          });
         });
+      }
 
-        sessionStorage.setItem('redirecting-to-login', 'true');
+      // Attempt to refresh token
+      isRefreshing = true;
 
-        // Clear auth cookies
-        document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-        document.cookie = 'refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-        document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      try {
+        const refreshSuccess = await refreshAccessToken();
 
-        localStorage.removeItem('authProvider');
+        if (refreshSuccess) {
+          logger.debug('Token refreshed successfully', { correlationId });
+          onRefreshComplete(true);
+          isRefreshing = false;
 
-        setTimeout(() => {
-          sessionStorage.removeItem('redirecting-to-login');
-          window.location.href = '/login';
-        }, 100);
+          // Retry original request
+          return apiClient(originalRequest);
+        } else {
+          logger.warn('Token refresh failed', { correlationId });
+          onRefreshComplete(false);
+          isRefreshing = false;
+
+          // Redirect to login
+          if (!window.location.pathname.includes('/login') && !sessionStorage.getItem('redirecting-to-login')) {
+            sessionStorage.setItem('redirecting-to-login', 'true');
+
+            document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+            document.cookie = 'refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+            document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+
+            localStorage.removeItem('authProvider');
+
+            setTimeout(() => {
+              sessionStorage.removeItem('redirecting-to-login');
+              window.location.href = '/login';
+            }, 100);
+          }
+        }
+      } catch (refreshError) {
+        onRefreshComplete(false);
+        isRefreshing = false;
       }
       // Don't send 401 errors to error tracking (expected behavior)
     } else if (error.response?.status === 403) {
