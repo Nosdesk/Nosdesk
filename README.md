@@ -53,7 +53,7 @@ cp docker.env.example docker.env
 # - POSTGRES_PASSWORD: Change from default
 # - REDIS_PASSWORD: Change from default
 
-# 4. Start the application
+# 4. Start the application (production)
 docker compose up -d --build
 ```
 
@@ -111,27 +111,27 @@ For active development with hot reloading:
 
 ```bash
 # Start development environment
-docker compose --profile dev up -d --build
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 
 # Access services:
 # - Application: http://localhost:8080
-# - Backend logs: docker compose logs -f backend-dev
-# - Frontend logs: docker compose logs -f frontend-watch
+# - Backend logs: docker compose -f compose.yaml -f compose.dev.yaml logs -f backend
+# - Frontend logs: docker compose -f compose.yaml -f compose.dev.yaml logs -f frontend-watch
 ```
 
 **Development stack includes:**
 - **postgres**: PostgreSQL database with persistent storage
 - **redis**: Redis for caching and real-time features
-- **backend-dev**: Rust API with hot reload and automatic migrations
+- **backend**: Rust API with hot reload and automatic migrations (dev mode)
 - **frontend-watch**: Vue.js dev server with Hot Module Replacement (HMR)
 
 **Database migrations:**
 ```bash
 # Apply migrations
-docker compose exec backend-dev diesel migration run
+docker compose -f compose.yaml -f compose.dev.yaml exec backend diesel migration run
 
 # Regenerate schema
-docker compose exec backend-dev sh -c 'diesel print-schema > src/schema.rs'
+docker compose -f compose.yaml -f compose.dev.yaml exec backend sh -c 'diesel print-schema > src/schema.rs'
 ```
 
 

@@ -1,0 +1,49 @@
+services:
+  # Backend - Development override
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.dev
+    container_name: nosdesk-backend-dev
+    stdin_open: true
+    tty: true
+    volumes:
+      # Source code with :delegated for better macOS performance
+      - ./backend/src:/app/src:delegated
+      - ./backend/migrations:/app/migrations:delegated
+      - ./backend/Cargo.toml:/app/Cargo.toml:delegated
+      - ./backend/Cargo.lock:/app/Cargo.lock:delegated
+      # Build output with :cached (read-heavy from container perspective)
+      - ./backend/public:/app/public:cached
+      # Named volumes for caching
+      - backend_cargo_cache:/usr/local/cargo/registry
+      - backend_target_cache:/app/target # Cache compiled artifacts
+      - backend_uploads:/app/uploads
+    environment:
+      - RUST_LOG=debug,actix_web=debug,actix_server=info,diesel=debug
+      - RUST_BACKTRACE=1
+      - CARGO_MESSAGE_FORMAT=short
+      - CARGO_TERM_COLOR=always
+    healthcheck:
+      start_period: 120s # Longer for dev due to compilation time
+
+  # Frontend Build Service - Development (for live reloading)
+  frontend-watch:
+    image: node:20-alpine
+    container_name: nosdesk-frontend-watch
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - ./backend/public:/app/dist # Mount the backend public directory to dist
+      - frontend_node_modules:/app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true # Required for file watching in Docker on macOS/Windows
+    command: sh -c "npm install && npm run dev:unified"
+
+volumes:
+  frontend_node_modules:
+    driver: local
+  backend_cargo_cache:
+    driver: local
+  backend_target_cache:
+    driver: local

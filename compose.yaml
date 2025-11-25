@@ -1,12 +1,10 @@
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:15-alpine
+    image: postgres:18-alpine
     container_name: nosdesk-postgres
     restart: unless-stopped
     env_file: docker.env
-    environment:
-      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
@@ -15,14 +13,18 @@ services:
     networks:
       - nosdesk-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nosdesk} -d ${POSTGRES_DB:-helpdesk}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-nosdesk} -d ${POSTGRES_DB:-helpdesk}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
 
   # Redis Cache
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: nosdesk-redis
     restart: unless-stopped
     env_file: docker.env
@@ -39,7 +41,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # Backend - Production (default)
+  # Backend - Production
   backend:
     build:
       context: .
@@ -66,65 +68,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # Backend - Development
-  backend-dev:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile.dev
-    container_name: nosdesk-backend-dev
-    restart: unless-stopped
-    env_file: docker.env
-    stdin_open: true
-    tty: true
-    volumes:
-      # Source code with :delegated for better macOS performance
-      - ./backend/src:/app/src:delegated
-      - ./backend/migrations:/app/migrations:delegated
-      - ./backend/Cargo.toml:/app/Cargo.toml:delegated
-      - ./backend/Cargo.lock:/app/Cargo.lock:delegated
-      # Build output with :cached (read-heavy from container perspective)
-      - ./backend/public:/app/public:cached
-      # Named volumes for caching
-      - backend_cargo_cache:/usr/local/cargo/registry
-      - backend_target_cache:/app/target  # Cache compiled artifacts
-      - backend_uploads:/app/uploads
-    ports:
-      - "8080:8080"
-      - "3000:8080"  # Also expose on port 3000 for consistency
-    networks:
-      - nosdesk-network
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      - RUST_LOG=debug,actix_web=debug,actix_server=info,diesel=debug
-      - RUST_BACKTRACE=1
-      - CARGO_MESSAGE_FORMAT=short
-      - CARGO_TERM_COLOR=always
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      start_period: 120s  # Longer for dev due to compilation time
-      retries: 3
-    profiles: ["dev"]
-
-  # Frontend Build Service - Development (optional for live reloading)
-  frontend-watch:
-    image: node:20-alpine
-    container_name: nosdesk-frontend-watch
-    working_dir: /app
-    volumes:
-      - ./frontend:/app
-      - ./backend/public:/app/dist  # Mount the backend public directory to dist
-      - frontend_node_modules:/app/node_modules
-    environment:
-      - CHOKIDAR_USEPOLLING=true  # Required for file watching in Docker on macOS/Windows
-    command: sh -c "npm install && npm run dev:unified"
-    profiles: ["dev"]  # Now uses the same profile as backend-dev for unified dev experience
-
 volumes:
   postgres_data:
     driver: local
@@ -132,16 +75,10 @@ volumes:
     driver: local
   backend_uploads:
     driver: local
-  frontend_node_modules:
-    driver: local
-  backend_cargo_cache:
-    driver: local
-  backend_target_cache:
-    driver: local
 
 networks:
   nosdesk-network:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.20.0.0/16 
+        - subnet: 172.20.0.0/16
