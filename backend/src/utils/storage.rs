@@ -111,7 +111,7 @@ impl Storage for LocalStorage {
         folder: &str,
     ) -> Result<StoredFile, StorageError> {
         // Generate unique filename to prevent collisions
-        let unique_filename = format!("{}_{}", Uuid::new_v4(), filename);
+        let unique_filename = format!("{}_{}", Uuid::now_v7(), filename);
         let relative_path = format!("{}/{}", folder.trim_end_matches('/'), unique_filename);
         let full_path = self.get_full_path(&relative_path);
         

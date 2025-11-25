@@ -987,7 +987,7 @@ struct YjsWebSocket {
 
 impl YjsWebSocket {
     fn new(doc_id: String, app_state: YjsAppState, user_uuid: Uuid) -> Self {
-        let id = Uuid::new_v4().to_string();
+        let id = Uuid::now_v7().to_string();
         let now = Instant::now();
 
         YjsWebSocket {

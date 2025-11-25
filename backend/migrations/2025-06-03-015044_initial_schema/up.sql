@@ -4,6 +4,41 @@
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Create UUIDv7 generation function
+-- UUIDv7 provides time-ordered UUIDs with better database indexing performance
+-- Format: unix_ts_ms(48 bits) | ver(4) | rand_a(12) | var(2) | rand_b(62)
+CREATE OR REPLACE FUNCTION uuid_generate_v7()
+RETURNS UUID
+AS $$
+DECLARE
+    unix_ts_ms BIGINT;
+    uuid_bytes BYTEA;
+BEGIN
+    -- Get current timestamp in milliseconds since Unix epoch
+    unix_ts_ms := (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT;
+
+    -- Generate UUIDv7 bytes
+    -- First 6 bytes: timestamp (48 bits)
+    -- Next 2 bytes: version (4 bits = 0x7) + random (12 bits)
+    -- Last 8 bytes: variant (2 bits = 0b10) + random (62 bits)
+    uuid_bytes :=
+        -- Timestamp (48 bits)
+        SET_BYTE(E'\\x00000000', 0, (unix_ts_ms >> 40)::INT) ||
+        SET_BYTE(E'\\x00', 0, (unix_ts_ms >> 32)::INT) ||
+        SET_BYTE(E'\\x00', 0, (unix_ts_ms >> 24)::INT) ||
+        SET_BYTE(E'\\x00', 0, (unix_ts_ms >> 16)::INT) ||
+        SET_BYTE(E'\\x00', 0, (unix_ts_ms >> 8)::INT) ||
+        SET_BYTE(E'\\x00', 0, unix_ts_ms::INT) ||
+        -- Version (4 bits = 7) + rand_a (12 bits)
+        SET_BYTE(gen_random_bytes(2), 0, (GET_BYTE(gen_random_bytes(1), 0) & 15) | 112) || -- 0x70 = 0b01110000
+        -- Variant (2 bits = 0b10) + rand_b (62 bits)
+        SET_BYTE(gen_random_bytes(8), 0, (GET_BYTE(gen_random_bytes(1), 0) & 63) | 128); -- 0x80 = 0b10000000
+
+    RETURN CAST(ENCODE(uuid_bytes, 'hex') AS UUID);
+END;
+$$ LANGUAGE plpgsql VOLATILE;
 
 -- Create custom ENUM types
 CREATE TYPE documentation_status AS ENUM (
@@ -39,7 +74,7 @@ CREATE TYPE user_role AS ENUM (
 -- Users table with profile fields only (auth credentials moved to user_auth_identities)
 -- UUID is now the primary key for better security and distributed system support
 CREATE TABLE users (
-    uuid UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    uuid UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
     name VARCHAR(255) NOT NULL,
     role user_role NOT NULL DEFAULT 'user',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -229,7 +264,7 @@ CREATE INDEX idx_article_content_revisions_contributors ON article_content_revis
 -- Documentation pages - Notion-like with Yrs collaborative editing
 CREATE TABLE documentation_pages (
     id SERIAL PRIMARY KEY,
-    uuid UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    uuid UUID NOT NULL DEFAULT uuid_generate_v7() UNIQUE,
     title VARCHAR(255) NOT NULL,
     slug VARCHAR(255) UNIQUE,
     icon VARCHAR(50), -- emoji or icon identifier

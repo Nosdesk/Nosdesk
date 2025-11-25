@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_create_reset_token() {
-        let user_uuid = Uuid::new_v4();
+        let user_uuid = Uuid::now_v7();
         let token = ResetTokenUtils::create_reset_token(user_uuid, TokenType::PasswordReset);
 
         // Check token properties

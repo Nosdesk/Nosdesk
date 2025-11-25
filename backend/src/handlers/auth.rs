@@ -520,7 +520,7 @@ pub async fn register(
     };
 
     // Generate a UUID if not provided
-    let user_uuid = Uuid::new_v4();
+    let user_uuid = Uuid::now_v7();
 
     // Parse role from string to enum
     let user_role = match utils::parse_role(&user_data.role) {
@@ -1064,7 +1064,7 @@ pub async fn setup_initial_admin(
     };
 
     // Generate UUID for the admin user
-    let _user_uuid = Uuid::new_v4();
+    let _user_uuid = Uuid::now_v7();
 
     // Create the admin user using convenience function with email
     let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&admin_data.name, &admin_data.email);

@@ -1327,7 +1327,7 @@ pub async fn update_user_by_uuid(
                 let new_auth_identity = NewUserAuthIdentity {
                     user_uuid: user.uuid,
                     provider_type: "local".to_string(),
-                    external_id: Uuid::new_v4().to_string(), // Generate a new provider user ID
+                    external_id: Uuid::now_v7().to_string(), // Generate a new provider user ID
                     email: None, // Email in user_emails table
                     metadata: None,
                     password_hash: Some(password_hash),

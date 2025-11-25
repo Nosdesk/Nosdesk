@@ -308,7 +308,7 @@ pub async fn ticket_events_stream(
     };
 
     // Generate client ID and create stream
-    let client_id = Uuid::new_v4().to_string();
+    let client_id = Uuid::now_v7().to_string();
     state.add_client(client_id.clone(), user_info.sub.clone());
     let receiver = state.sender.subscribe();
     let stream = SseStream::new(receiver, client_id.clone(), state.clone());

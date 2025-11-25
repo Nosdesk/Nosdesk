@@ -37,7 +37,7 @@ impl ServerConfig {
 /// Generate a new UUID
 #[allow(dead_code)]
 pub fn generate_uuid() -> Uuid {
-    Uuid::new_v4()
+    Uuid::now_v7()
 }
 
 /// Validate environment variables are set

@@ -512,7 +512,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
         description: None, // No description field in TicketJson
         status,
         priority,
-        requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::new_v4())),
+        requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7())),
         assignee_uuid: if ticket_json.assignee.is_empty() { 
             None 
         } else { 
@@ -557,7 +557,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
             
             // Parse user UUID from JSON or use a default system user UUID
             let default_user_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
-                .unwrap_or_else(|_| Uuid::new_v4());
+                .unwrap_or_else(|_| Uuid::now_v7());
 
             let new_comment = NewComment {
                 content: comment_json.content.clone(),
@@ -630,7 +630,7 @@ pub fn create_complete_ticket(conn: &mut DbConnection, ticket_json: TicketJson) 
         description: None, // No description field in TicketJson
         status,
         priority,
-        requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::new_v4())),
+        requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7())),
         assignee_uuid: if ticket_json.assignee.is_empty() { 
             None 
         } else { 
@@ -675,7 +675,7 @@ pub fn create_complete_ticket(conn: &mut DbConnection, ticket_json: TicketJson) 
             
             // Parse user UUID from JSON or use a default system user UUID
             let default_user_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
-                .unwrap_or_else(|_| Uuid::new_v4());
+                .unwrap_or_else(|_| Uuid::now_v7());
 
             let new_comment = NewComment {
                 content: comment_json.content.clone(),

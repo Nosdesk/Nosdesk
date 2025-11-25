@@ -1701,7 +1701,7 @@ async fn create_new_user_from_microsoft(
     println!("Creating new user from Microsoft: {}", ms_user.user_principal_name);
 
     // Generate UUID for new user
-    let user_uuid = Uuid::new_v4();
+    let user_uuid = Uuid::now_v7();
     
     // Determine name (prefer displayName, fallback to givenName + surname, fallback to userPrincipalName)
     let name = ms_user.display_name.clone()
@@ -1958,7 +1958,7 @@ async fn create_new_user_from_microsoft_optimized(
     // User info is in the span context
 
     // Generate UUID for new user (this is our local UUID, different from Microsoft's)
-    let user_uuid = Uuid::new_v4().to_string();
+    let user_uuid = Uuid::now_v7().to_string();
     
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
@@ -1978,7 +1978,7 @@ async fn create_new_user_from_microsoft_optimized(
         .unwrap_or_else(|| ms_user.user_principal_name.clone());
 
     // Create new user with default role 'user' and store Microsoft UUID
-    let user_uuid = Uuid::new_v4();
+    let user_uuid = Uuid::now_v7();
     // Create Microsoft user with UUID
     let microsoft_uuid = Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?);
     let new_user = utils::NewUserBuilder::microsoft_user(
@@ -3295,8 +3295,8 @@ async fn create_new_user_from_microsoft_no_photos(
     stats: &mut UserSyncStats,
 ) -> Result<(), String> {
     // Generate UUID for new user
-    let user_uuid = Uuid::new_v4();
-    
+    let user_uuid = Uuid::now_v7();
+
     // Determine name and email
     let name = ms_user.display_name.clone()
         .or_else(|| {

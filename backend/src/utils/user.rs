@@ -20,7 +20,7 @@ impl NewUserBuilder {
     /// Create a new user builder with required fields
     pub fn new(name: String, email: String, role: UserRole) -> Self {
         Self {
-            uuid: Uuid::new_v4(),
+            uuid: Uuid::now_v7(),
             name,
             email,
             role,
