@@ -1105,6 +1105,10 @@ pub struct OAuthState {
     pub provider_type: String,
     pub exp: usize,
     pub user_connection: Option<bool>,
+    /// PKCE code verifier (for OIDC providers)
+    pub pkce_verifier: Option<String>,
+    /// Nonce for ID token validation (for OIDC providers)
+    pub nonce: Option<String>,
 }
 
 // OAuth Authentication request
@@ -1322,6 +1326,8 @@ pub struct OnboardingStatus {
     pub requires_setup: bool,
     pub user_count: i64,
     pub microsoft_auth_enabled: bool,
+    pub oidc_enabled: bool,
+    pub oidc_display_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

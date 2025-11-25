@@ -964,10 +964,20 @@ pub async fn check_setup_status(
                 && std::env::var("MICROSOFT_TENANT_ID").is_ok()
                 && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok();
 
+            // Check if OIDC is configured
+            let oidc_enabled = crate::config_utils::is_oidc_enabled();
+            let oidc_display_name = if oidc_enabled {
+                Some(crate::config_utils::get_oidc_display_name())
+            } else {
+                None
+            };
+
             let response = crate::models::OnboardingStatus {
                 requires_setup: user_count == 0,
                 user_count,
                 microsoft_auth_enabled,
+                oidc_enabled,
+                oidc_display_name,
             };
 
             // Security headers now applied globally by SecurityHeaders middleware

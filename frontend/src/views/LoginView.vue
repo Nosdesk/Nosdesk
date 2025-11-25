@@ -22,6 +22,8 @@ const successMessage = ref("");
 const showForgotPasswordModal = ref(false);
 const showMFARecoveryModal = ref(false);
 const microsoftAuthEnabled = ref(false);
+const oidcEnabled = ref(false);
+const oidcDisplayName = ref("SSO");
 
 // MFA state
 const mfaToken = ref("");
@@ -37,6 +39,8 @@ onMounted(async () => {
       return;
     }
     microsoftAuthEnabled.value = setupStatus.microsoft_auth_enabled || false;
+    oidcEnabled.value = setupStatus.oidc_enabled || false;
+    oidcDisplayName.value = setupStatus.oidc_display_name || "SSO";
   } catch (error) {
     console.error('Failed to check setup status:', error);
     // Continue to show login page if check fails
@@ -203,6 +207,42 @@ const handleMicrosoftLogoutClick = async () => {
   } catch (error: any) {
     console.error("Error logging out of Microsoft:", error);
     errorMessage.value = microsoftError.value || "Failed to initiate Microsoft logout";
+  }
+};
+
+const handleOidcLoginClick = async () => {
+  isLoading.value = true;
+  errorMessage.value = "";
+  successMessage.value = "";
+
+  try {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+    const response = await fetch(`${API_BASE_URL}/api/auth/oauth/authorize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        provider_type: 'oidc',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'Failed to initiate OIDC authentication');
+    }
+
+    const data = await response.json();
+    if (data.auth_url) {
+      window.location.href = data.auth_url;
+    } else {
+      throw new Error('No authorization URL received');
+    }
+  } catch (error: any) {
+    console.error("Error initiating OIDC authentication:", error);
+    errorMessage.value = error.message || "Failed to initiate SSO authentication";
+    isLoading.value = false;
   }
 };
 </script>
@@ -461,51 +501,80 @@ const handleMicrosoftLogoutClick = async () => {
           <span v-else>Sign in</span>
         </button>
 
-        <div v-if="microsoftAuthEnabled" class="relative flex gap-2 items-center justify-center">
+        <div v-if="microsoftAuthEnabled || oidcEnabled" class="relative flex gap-2 items-center justify-center">
           <div class="border-t border-default flex-grow"></div>
           <span class="mx-4 text-sm text-tertiary">or</span>
           <div class="border-t border-default flex-grow"></div>
         </div>
 
-        <div v-if="microsoftAuthEnabled" class="flex gap-2">
-          <button
-            type="button"
-            @click="handleMicrosoftLoginClick"
-            class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 21 21"
-              class="mr-2"
+        <!-- SSO Provider Buttons -->
+        <div v-if="microsoftAuthEnabled || oidcEnabled" class="flex flex-col gap-2">
+          <!-- Microsoft Entra Button -->
+          <div v-if="microsoftAuthEnabled" class="flex gap-2">
+            <button
+              type="button"
+              @click="handleMicrosoftLoginClick"
+              class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
             >
-              <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-              <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-              <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-              <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-            </svg>
-            Sign in with Microsoft Entra
-          </button>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 21 21"
+                class="mr-2"
+              >
+                <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+              </svg>
+              Sign in with Microsoft Entra
+            </button>
 
+            <button
+              type="button"
+              @click="handleMicrosoftLogoutClick"
+              title="Sign out of Microsoft account"
+              class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-5 w-5"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fill-rule="evenodd"
+                  d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+            </button>
+          </div>
+
+          <!-- OIDC/SSO Button -->
           <button
+            v-if="oidcEnabled"
             type="button"
-            @click="handleMicrosoftLogoutClick"
-            title="Sign out of Microsoft account"
-            class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
+            @click="handleOidcLoginClick"
+            :disabled="isLoading"
+            class="w-full flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5"
-              viewBox="0 0 20 20"
-              fill="currentColor"
+              class="h-5 w-5 mr-2"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
             >
-              <path
-                fill-rule="evenodd"
-                d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z"
-                clip-rule="evenodd"
-              />
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+              <polyline points="10 17 15 12 10 7" />
+              <line x1="15" y1="12" x2="3" y2="12" />
             </svg>
+            Sign in with {{ oidcDisplayName }}
           </button>
         </div>
       </form>

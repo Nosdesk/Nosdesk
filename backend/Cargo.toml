@@ -99,6 +99,10 @@ lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", 
 # File validation - MIME type detection via magic numbers
 infer = "0.16"             # Detect file types from magic numbers for secure upload validation
 
+# OpenID Connect support
+openidconnect = "3.5"      # OIDC client library with PKCE, discovery, and token validation
+once_cell = "1.19"         # Lazy initialization for OIDC client cache
+
 # For testing only
 [dev-dependencies]
 actix-rt = "2.10.0"

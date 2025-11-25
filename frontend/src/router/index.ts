@@ -395,6 +395,16 @@ const router = createRouter({
       }
     },
     {
+      path: '/auth/oidc/callback',
+      name: 'oidc-callback',
+      component: () => import('../views/auth/OidcCallbackView.vue'),
+      meta: {
+        layout: 'blank',
+        requiresAuth: false,
+        title: 'Authenticating...'
+      }
+    },
+    {
       path: '/pdf-viewer',
       name: 'pdf-viewer',
       component: PDFViewerView,

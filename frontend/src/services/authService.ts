@@ -7,6 +7,8 @@ export interface OnboardingStatus {
   requires_setup: boolean;
   user_count: number;
   microsoft_auth_enabled: boolean;
+  oidc_enabled: boolean;
+  oidc_display_name?: string;
 }
 
 export interface AdminSetupRequest {

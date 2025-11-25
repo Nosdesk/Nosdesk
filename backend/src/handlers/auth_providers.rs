@@ -18,6 +18,7 @@ use diesel::prelude::*;
 use crate::repository::user_auth_identities;
 use crate::config_utils;
 use crate::utils;
+use crate::oidc;
 
 // Structure for OAuth logout requests
 #[derive(Deserialize, Debug)]
@@ -37,13 +38,26 @@ fn get_provider_by_type(provider_type: &str) -> Result<AuthProvider, diesel::res
             true,
         )),
         "microsoft" => {
-            if std::env::var("MICROSOFT_CLIENT_ID").is_ok() 
-                && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok() 
+            if std::env::var("MICROSOFT_CLIENT_ID").is_ok()
+                && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
                 && std::env::var("MICROSOFT_TENANT_ID").is_ok() {
                 Ok(AuthProvider::new(
                     2,
                     "Microsoft".to_string(),
                     "microsoft".to_string(),
+                    true,
+                    false,
+                ))
+            } else {
+                Err(diesel::result::Error::NotFound)
+            }
+        },
+        "oidc" => {
+            if config_utils::is_oidc_enabled() {
+                Ok(AuthProvider::new(
+                    3,
+                    config_utils::get_oidc_display_name(),
+                    "oidc".to_string(),
                     true,
                     false,
                 ))
@@ -66,13 +80,26 @@ fn get_provider_by_id(provider_id: i32) -> Result<AuthProvider, diesel::result::
             true,
         )),
         2 => {
-            if std::env::var("MICROSOFT_CLIENT_ID").is_ok() 
-                && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok() 
+            if std::env::var("MICROSOFT_CLIENT_ID").is_ok()
+                && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
                 && std::env::var("MICROSOFT_TENANT_ID").is_ok() {
                 Ok(AuthProvider::new(
                     2,
                     "Microsoft".to_string(),
                     "microsoft".to_string(),
+                    true,
+                    false,
+                ))
+            } else {
+                Err(diesel::result::Error::NotFound)
+            }
+        },
+        3 => {
+            if config_utils::is_oidc_enabled() {
+                Ok(AuthProvider::new(
+                    3,
+                    config_utils::get_oidc_display_name(),
+                    "oidc".to_string(),
                     true,
                     false,
                 ))
@@ -137,6 +164,17 @@ pub async fn get_auth_providers(
         }));
     }
 
+    // Check if OIDC is configured
+    if config_utils::is_oidc_enabled() {
+        providers.push(json!({
+            "id": 3,
+            "name": config_utils::get_oidc_display_name(),
+            "provider_type": "oidc",
+            "enabled": true,
+            "is_default": false
+        }));
+    }
+
     HttpResponse::Ok().json(providers)
 }
 
@@ -160,6 +198,16 @@ pub async fn get_enabled_auth_providers(
             "id": 2,
             "provider_type": "microsoft",
             "name": "Microsoft",
+            "is_default": false
+        }));
+    }
+
+    // Check if OIDC is configured
+    if config_utils::is_oidc_enabled() {
+        providers.push(json!({
+            "id": 3,
+            "provider_type": "oidc",
+            "name": config_utils::get_oidc_display_name(),
             "is_default": false
         }));
     }
@@ -329,16 +377,82 @@ pub async fn oauth_authorize(
             "https://login.microsoftonline.com/{}/oauth2/v2.0/authorize?client_id={}&response_type=code&redirect_uri={}&response_mode=query&scope=User.Read&state={}",
             tenant_id, client_id, redirect_uri_config, state
         );
-        
+
         HttpResponse::Ok().json(json!({
             "auth_url": auth_url,
             "state": state
         }))
+    } else if provider.provider_type == "oidc" {
+        // Generate OIDC authorization URL with PKCE
+        match oidc::generate_auth_url(oauth_request.redirect_uri.clone(), oauth_request.user_connection).await {
+            Ok((auth_url, auth_data)) => {
+                // Create state JWT with PKCE verifier and nonce
+                let state = match create_oauth_state_with_oidc(
+                    "oidc",
+                    oauth_request.redirect_uri.clone(),
+                    oauth_request.user_connection,
+                    Some(auth_data.pkce_verifier),
+                    Some(auth_data.nonce),
+                ) {
+                    Ok(token) => token,
+                    Err(e) => {
+                        tracing::error!("Error creating OAuth state token for OIDC: {}", e);
+                        return HttpResponse::InternalServerError().json(json!({
+                            "status": "error",
+                            "message": "Failed to initiate authentication flow"
+                        }));
+                    }
+                };
+
+                // The auth_url from openidconnect library already includes a state
+                // We need to replace it with our JWT state
+                let auth_url_with_state = replace_state_in_url(&auth_url, &state);
+
+                HttpResponse::Ok().json(json!({
+                    "auth_url": auth_url_with_state,
+                    "state": state
+                }))
+            },
+            Err(e) => {
+                tracing::error!("Error generating OIDC authorization URL: {}", e);
+                HttpResponse::InternalServerError().json(json!({
+                    "status": "error",
+                    "message": format!("Failed to initiate OIDC authentication: {}", e)
+                }))
+            }
+        }
     } else {
         HttpResponse::BadRequest().json(json!({
             "status": "error",
             "message": format!("{} authentication is not implemented", provider.name)
         }))
+    }
+}
+
+// Helper function to replace the state parameter in an OAuth URL
+fn replace_state_in_url(url: &str, new_state: &str) -> String {
+    // Parse the URL and replace the state parameter
+    if let Some(query_start) = url.find('?') {
+        let (base, query) = url.split_at(query_start + 1);
+        let mut new_params: Vec<String> = Vec::new();
+        let mut state_replaced = false;
+
+        for param in query.split('&') {
+            if param.starts_with("state=") {
+                new_params.push(format!("state={}", urlencoding::encode(new_state)));
+                state_replaced = true;
+            } else {
+                new_params.push(param.to_string());
+            }
+        }
+
+        if !state_replaced {
+            new_params.push(format!("state={}", urlencoding::encode(new_state)));
+        }
+
+        format!("{}{}", base, new_params.join("&"))
+    } else {
+        format!("{}?state={}", url, urlencoding::encode(new_state))
     }
 }
 
@@ -664,6 +778,214 @@ pub async fn oauth_callback(
                 }))
             }
         }
+    } else if provider.provider_type == "oidc" {
+        // OIDC callback handling with PKCE
+        let pkce_verifier = match &state_data.pkce_verifier {
+            Some(v) => v.clone(),
+            None => {
+                tracing::error!("OIDC callback missing PKCE verifier in state");
+                return HttpResponse::BadRequest().json(json!({
+                    "status": "error",
+                    "message": "Invalid authentication state (missing PKCE verifier)"
+                }));
+            }
+        };
+
+        let nonce = match &state_data.nonce {
+            Some(n) => n.clone(),
+            None => {
+                tracing::error!("OIDC callback missing nonce in state");
+                return HttpResponse::BadRequest().json(json!({
+                    "status": "error",
+                    "message": "Invalid authentication state (missing nonce)"
+                }));
+            }
+        };
+
+        // Create auth data for token exchange
+        let auth_data = oidc::OidcAuthData {
+            pkce_verifier,
+            nonce,
+        };
+
+        // Exchange code for tokens and get user info
+        match oidc::exchange_code(code, &auth_data).await {
+            Ok(user_info) => {
+                // Check if this is a user connection request (vs. a standard login)
+                if is_connection {
+                    // Connection request - check if this identity is already linked
+                    match user_auth_identities::find_user_by_identity("oidc", &user_info.sub, &mut conn) {
+                        Ok(Some(existing_user_uuid)) => {
+                            // Found an existing identity - verify the user still exists
+                            match crate::repository::users::get_user_by_uuid(&existing_user_uuid, &mut conn) {
+                                Ok(_user) => {
+                                    return HttpResponse::BadRequest().json(json!({
+                                        "status": "error",
+                                        "message": "This OIDC account is already connected to another user account"
+                                    }));
+                                },
+                                Err(_) => {
+                                    // User doesn't exist (orphaned record) - clean it up
+                                    tracing::warn!(
+                                        "Found orphaned auth identity for user_uuid {} (provider: oidc, external_id: {}). Cleaning up...",
+                                        existing_user_uuid, user_info.sub
+                                    );
+                                    if let Err(e) = diesel::delete(
+                                        crate::schema::user_auth_identities::table
+                                            .filter(crate::schema::user_auth_identities::provider_type.eq("oidc"))
+                                            .filter(crate::schema::user_auth_identities::external_id.eq(&user_info.sub))
+                                    ).execute(&mut conn) {
+                                        tracing::error!("Failed to clean up orphaned auth identity: {:?}", e);
+                                    }
+                                }
+                            }
+                        },
+                        Ok(None) => {
+                            // Identity not yet linked, we can proceed
+                        },
+                        Err(e) => {
+                            tracing::error!("Error checking existing identity: {:?}", e);
+                            return HttpResponse::InternalServerError().json(json!({
+                                "status": "error",
+                                "message": "Failed to verify OIDC account status"
+                            }));
+                        }
+                    }
+
+                    // Extract user UUID from the redirect URL params
+                    let user_uuid_param = if state_data.redirect_uri.contains('?') {
+                        let query_params = state_data.redirect_uri.split('?').nth(1).unwrap_or("");
+                        let params = querystring::querify(query_params);
+                        params.iter()
+                            .find(|(key, _)| *key == "user_uuid")
+                            .map(|(_, value)| value.to_string())
+                    } else {
+                        None
+                    };
+
+                    let user_uuid = match user_uuid_param {
+                        Some(uuid_str) => {
+                            match uuid::Uuid::parse_str(&uuid_str) {
+                                Ok(uuid) => uuid,
+                                Err(_) => {
+                                    return HttpResponse::BadRequest().json(json!({
+                                        "status": "error",
+                                        "message": "Invalid user UUID in redirect URI"
+                                    }));
+                                }
+                            }
+                        },
+                        None => {
+                            return HttpResponse::BadRequest().json(json!({
+                                "status": "error",
+                                "message": "Missing user UUID for account connection"
+                            }));
+                        }
+                    };
+
+                    // Create the identity link
+                    let oidc_config = match oidc::OidcConfig::from_env() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::error!("Failed to load OIDC config: {}", e);
+                            return HttpResponse::InternalServerError().json(json!({
+                                "status": "error",
+                                "message": "OIDC configuration error"
+                            }));
+                        }
+                    };
+
+                    let display_name = oidc::get_display_name(&user_info, &oidc_config);
+                    let new_identity = crate::models::NewUserAuthIdentity {
+                        user_uuid,
+                        provider_type: "oidc".to_string(),
+                        external_id: user_info.sub.clone(),
+                        email: user_info.email.clone(),
+                        metadata: Some(serde_json::json!({
+                            "display_name": display_name
+                        })),
+                        password_hash: None,
+                    };
+                    match user_auth_identities::create_identity(new_identity, &mut conn) {
+                        Ok(_) => {
+                            let redirect_parts: Vec<&str> = state_data.redirect_uri.split('?').collect();
+                            let redirect_path = redirect_parts[0];
+                            let success_url = format!("{}?auth_success=true", redirect_path);
+
+                            HttpResponse::Found()
+                                .append_header(("Location", success_url))
+                                .finish()
+                        },
+                        Err(e) => {
+                            tracing::error!("Error connecting OIDC account: {}", e);
+                            let redirect_parts: Vec<&str> = state_data.redirect_uri.split('?').collect();
+                            let redirect_path = redirect_parts[0];
+                            let error_url = format!("{}?auth_error={}",
+                                redirect_path,
+                                urlencoding::encode(&format!("Failed to connect account: {}", e)));
+
+                            HttpResponse::Found()
+                                .append_header(("Location", error_url))
+                                .finish()
+                        }
+                    }
+                } else {
+                    // Regular login/signup flow
+                    let oidc_user_info = serde_json::json!({
+                        "id": user_info.sub,
+                        "mail": user_info.email,
+                        "displayName": user_info.name.clone().or_else(|| user_info.preferred_username.clone()),
+                        "givenName": user_info.given_name,
+                        "surname": user_info.family_name,
+                    });
+
+                    let user_result = find_or_create_oauth_user(&oidc_user_info, &provider, &mut conn).await;
+
+                    match user_result {
+                        Ok(user) => {
+                            let user_uuid = user.uuid;
+
+                            match crate::utils::jwt::helpers::create_login_response(user, &mut conn) {
+                                Ok((response, tokens)) => {
+                                    tracing::info!("OIDC: Created login response for user {}, creating session...", user_uuid);
+
+                                    if let Err(e) = crate::handlers::auth::create_session_record(&user_uuid, &tokens.access_token, &request, &mut conn).await {
+                                        tracing::error!("OIDC: Failed to create session record for user {}: {}", user_uuid, e);
+                                        return HttpResponse::InternalServerError().json(json!({
+                                            "status": "error",
+                                            "message": "Failed to create authentication session"
+                                        }));
+                                    }
+
+                                    tracing::info!("OIDC: Session created successfully for user {}", user_uuid);
+
+                                    HttpResponse::Ok()
+                                        .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
+                                        .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
+                                        .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
+                                        .json(response)
+                                },
+                                Err(error_response) => error_response,
+                            }
+                        },
+                        Err(e) => {
+                            tracing::error!("Error finding/creating user from OIDC: {:?}", e);
+                            HttpResponse::InternalServerError().json(json!({
+                                "status": "error",
+                                "message": "Failed to authenticate user"
+                            }))
+                        }
+                    }
+                }
+            },
+            Err(e) => {
+                tracing::error!("Error exchanging OIDC code for token: {}", e);
+                HttpResponse::InternalServerError().json(json!({
+                    "status": "error",
+                    "message": format!("Failed to authenticate with OIDC provider: {}", e)
+                }))
+            }
+        }
     } else {
         HttpResponse::BadRequest().json(json!({
             "status": "error",
@@ -753,13 +1075,24 @@ pub async fn oauth_logout(
 
 // Create a signed state JWT for OAuth flow
 fn create_oauth_state(provider_type: &str, redirect_uri: Option<String>, user_connection: Option<bool>) -> Result<String, String> {
+    create_oauth_state_with_oidc(provider_type, redirect_uri, user_connection, None, None)
+}
+
+// Create a signed state JWT for OAuth/OIDC flow with optional PKCE and nonce
+fn create_oauth_state_with_oidc(
+    provider_type: &str,
+    redirect_uri: Option<String>,
+    user_connection: Option<bool>,
+    pkce_verifier: Option<String>,
+    nonce: Option<String>,
+) -> Result<String, String> {
     // Get the JWT secret from environment or configuration
     let secret = JWT_SECRET.clone();
-    
+
     // Create expiration timestamp (10 minutes from now)
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as usize;
     let exp = now + (10 * 60); // 10 minutes
-    
+
     // Create claims
     let state = format!("{:x}", rand::random::<u128>());
     let claims = OAuthState {
@@ -768,8 +1101,10 @@ fn create_oauth_state(provider_type: &str, redirect_uri: Option<String>, user_co
         provider_type: provider_type.to_string(),
         exp,
         user_connection,
+        pkce_verifier,
+        nonce,
     };
-    
+
     // Create the token
     match jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
@@ -935,7 +1270,7 @@ async fn find_or_create_oauth_user(
                     // User found by email, create an identity for them
                     let new_identity = NewUserAuthIdentity {
                         user_uuid: user.uuid,
-                        provider_type: "microsoft".to_string(),
+                        provider_type: provider.provider_type.clone(),
                         external_id: provider_user_id.clone(),
                         email: Some(email.clone()),
                         metadata: Some(user_info.clone()),
@@ -944,7 +1279,7 @@ async fn find_or_create_oauth_user(
 
                     match crate::repository::user_auth_identities::create_identity(new_identity, conn) {
                         Ok(_) => {
-                            // Identity created, now add the Microsoft email to user_emails if not already present
+                            // Identity created, now add the OAuth email to user_emails if not already present
                             if let Err(_) = crate::repository::user_emails::find_user_by_any_email(conn, &email) {
                                 let new_email = crate::models::NewUserEmail {
                                     user_uuid: user.uuid,
@@ -952,14 +1287,14 @@ async fn find_or_create_oauth_user(
                                     email_type: "work".to_string(),
                                     is_primary: false,
                                     is_verified: true,
-                                    source: Some("microsoft".to_string()),
+                                    source: Some(provider.provider_type.clone()),
                                 };
 
                                 if let Err(e) = diesel::insert_into(crate::schema::user_emails::table)
                                     .values(&new_email)
                                     .execute(conn)
                                 {
-                                    tracing::warn!("Failed to add Microsoft email to user_emails: {:?}", e);
+                                    tracing::warn!("Failed to add {} email to user_emails: {:?}", provider.provider_type, e);
                                 }
                             }
 
@@ -1001,7 +1336,7 @@ async fn find_or_create_oauth_user(
             // Create an identity for the new user
             let new_identity = NewUserAuthIdentity {
                 user_uuid: user.uuid,
-                provider_type: "microsoft".to_string(),
+                provider_type: provider.provider_type.clone(),
                 external_id: provider_user_id,
                 email: Some(email),
                 metadata: Some(user_info.clone()),
@@ -1082,7 +1417,7 @@ async fn add_oauth_identity_to_user(
     // Create a new identity for the user
     let new_identity = crate::models::NewUserAuthIdentity {
         user_uuid: user.uuid,
-        provider_type: "microsoft".to_string(),
+        provider_type: provider.provider_type.clone(),
         external_id,
         email: email.clone(),
         metadata: Some(user_info.clone()),
@@ -1095,7 +1430,7 @@ async fn add_oauth_identity_to_user(
         Err(e) => return Err(format!("Failed to create auth identity: {:?}", e)),
     }
 
-    // Also add the Microsoft email to user_emails table if we have one
+    // Also add the OAuth provider email to user_emails table if we have one
     if let Some(email_address) = email {
         // Check if email already exists in user_emails table
         if let Err(_) = crate::repository::user_emails::find_user_by_any_email(conn, &email_address) {
@@ -1103,17 +1438,17 @@ async fn add_oauth_identity_to_user(
             let new_email = crate::models::NewUserEmail {
                 user_uuid: user.uuid,
                 email: email_address.to_lowercase(),
-                email_type: "work".to_string(), // Microsoft emails are typically work emails
+                email_type: "work".to_string(), // OAuth emails are typically work emails
                 is_primary: false, // Don't make it primary automatically
-                is_verified: true, // Microsoft verifies emails
-                source: Some("microsoft".to_string()),
+                is_verified: true, // OAuth providers verify emails
+                source: Some(provider.provider_type.clone()),
             };
 
             if let Err(e) = diesel::insert_into(crate::schema::user_emails::table)
                 .values(&new_email)
                 .execute(conn)
             {
-                tracing::warn!("Failed to add Microsoft email to user_emails: {:?}", e);
+                tracing::warn!("Failed to add OAuth provider email to user_emails: {:?}", e);
                 // Don't fail the whole operation if email insert fails
             }
         }
