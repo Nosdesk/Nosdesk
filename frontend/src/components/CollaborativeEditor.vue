@@ -368,11 +368,20 @@ const initEditor = async () => {
         // 2. Create the websocket provider
         // Note: y-websocket automatically appends `/${docId}` to the URL we provide
         // So we need to provide the base URL without the document ID
-        const baseWsUrl =
-            import.meta.env.VITE_WS_SERVER_URL ||
-            `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
-                window.location.hostname
-            }:8080/api/collaboration/ws`;
+        // Derive WebSocket URL from API URL for consistency with REST API configuration
+        const apiUrl = import.meta.env.VITE_API_URL || '/api';
+        let baseWsUrl = import.meta.env.VITE_WS_SERVER_URL;
+
+        if (!baseWsUrl) {
+            if (apiUrl.startsWith('/')) {
+                // Relative path - use current origin with WebSocket protocol
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                baseWsUrl = `${wsProtocol}//${window.location.host}${apiUrl}/collaboration/ws`;
+            } else {
+                // Absolute URL - convert http(s) to ws(s)
+                baseWsUrl = apiUrl.replace(/^http/, 'ws') + '/collaboration/ws';
+            }
+        }
 
         // Check authentication using auth store (httpOnly cookies)
         const authStore = useAuthStore();
@@ -1390,20 +1399,30 @@ const debugRelativePositions = () => {
 const diagnoseConnectionIssue = () => {
     log.info("=== WebSocket Connection Diagnostics ===");
 
-    // Environment configuration
-    const baseWsUrl =
-        import.meta.env.VITE_WS_SERVER_URL ||
-        `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.hostname}:8080/api/collaboration/ws`;
+    // Environment configuration - derive WebSocket URL from API URL
+    const apiUrl = import.meta.env.VITE_API_URL || '/api';
+    let baseWsUrl = import.meta.env.VITE_WS_SERVER_URL;
+
+    if (!baseWsUrl) {
+        if (apiUrl.startsWith('/')) {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            baseWsUrl = `${wsProtocol}//${window.location.host}${apiUrl}/collaboration/ws`;
+        } else {
+            baseWsUrl = apiUrl.replace(/^http/, 'ws') + '/collaboration/ws';
+        }
+    }
 
     log.info("Environment Configuration:", {
         nodeEnv: import.meta.env.NODE_ENV,
         mode: import.meta.env.MODE,
+        apiUrl: apiUrl,
         wsServerUrl:
             import.meta.env.VITE_WS_SERVER_URL ||
-            "Not set (using auto-detected)",
+            "Not set (derived from API URL)",
         computedWsUrl: baseWsUrl,
         windowLocation: {
             hostname: window.location.hostname,
+            host: window.location.host,
             port: window.location.port,
             protocol: window.location.protocol,
             href: window.location.href,
