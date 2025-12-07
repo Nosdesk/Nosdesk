@@ -1221,29 +1221,13 @@ impl YjsWebSocket {
             let msg_type = if msg_vec.is_empty() { 255 } else { msg_vec[0] };
             println!("🔍 Processing message: type={}, size={} bytes", msg_type, msg_vec.len());
 
-            // DIAGNOSTIC: Decode sync messages to see what they contain
+            // Log sync message type for debugging
             if msg_type == 0 && msg_vec.len() > 1 {
                 let sync_step = msg_vec[1];
                 match sync_step {
                     0 => println!("   📍 SYNC_STEP_1 (state vector request)"),
                     1 => println!("   📍 SYNC_STEP_2 (state response)"),
-                    2 => {
-                        println!("   📍 SYNC_UPDATE (incremental change)");
-                        // Get the doc's current state vector to compare with incoming update
-                        let doc_state_vec = {
-                            let txn = awareness.doc().transact();
-                            txn.state_vector()
-                        };
-                        println!("      Backend state vector: {:?}", doc_state_vec);
-
-                        // Try to decode the update to see if it's valid
-                        if msg_vec.len() > 2 {
-                            match Update::decode_v1(&msg_vec[2..]) {
-                                Ok(_update) => println!("      ✓ Decoded SYNC_UPDATE successfully"),
-                                Err(e) => println!("      ✗ Failed to decode SYNC_UPDATE: {:?}", e),
-                            }
-                        }
-                    },
+                    2 => println!("   📍 SYNC_UPDATE (incremental change, {} bytes)", msg_vec.len() - 2),
                     _ => println!("   📍 Unknown sync step: {}", sync_step),
                 }
             }

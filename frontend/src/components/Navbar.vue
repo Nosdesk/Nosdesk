@@ -517,7 +517,7 @@ const isRouteActive = (path: string, exact = false) => {
 
     <!-- Mobile Bottom Navigation (only on mobile) -->
     <nav
-        class="fixed bottom-0 left-0 right-0 bg-surface-alt border-t border-default z-20 sm:hidden print:hidden"
+        class="fixed bottom-0 left-0 right-0 bg-surface-alt border-t border-default z-20 sm:hidden print:hidden pb-[env(safe-area-inset-bottom)]"
         v-if="isMobile"
     >
         <div class="flex justify-around items-center h-12">

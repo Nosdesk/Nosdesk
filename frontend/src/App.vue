@@ -106,7 +106,7 @@ onMounted(async () => {
   <RouterView v-if="isBlankLayout" />
 
   <!-- Default layout with responsive navigation - Simple flexbox layout -->
-  <div v-else class="flex w-full h-screen bg-app overflow-hidden">
+  <div v-else class="flex w-full h-full bg-app overflow-hidden">
     <!-- Sidebar (includes both sidebar and mobile bottom nav) -->
     <Navbar @update:collapsed="handleNavCollapse" />
 
@@ -131,8 +131,8 @@ onMounted(async () => {
         @create="handleCreateClick"
       />
 
-      <!-- Scrollable content with bottom padding for mobile nav -->
-      <main class="flex-1 overflow-hidden pb-16 sm:pb-0">
+      <!-- Scrollable content with bottom padding for mobile nav (h-12 = 48px + safe area) -->
+      <main class="flex-1 overflow-hidden pb-[calc(3rem+env(safe-area-inset-bottom))] sm:pb-0">
         <RouterView
           v-slot="{ Component }"
           @update:ticket="titleManager.setTicket"
@@ -162,11 +162,7 @@ onMounted(async () => {
 </template>
 
 <style>
-/* Global styles */
-html, body {
-  background-color: var(--color-bg-app);
-  min-height: 100vh;
-}
+/* Global styles - note: html/body height and overflow are set in main.css */
 
 /* Custom scrollbar styles */
 ::-webkit-scrollbar {

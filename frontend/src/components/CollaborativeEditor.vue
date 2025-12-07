@@ -1041,16 +1041,20 @@ const updateConnectedUsers = () => {
     }
 };
 
-// Simple function to focus the editor
-const focusEditor = () => {
-    if (editorView) {
+// Focus the editor only when clicking on empty container areas (not on ProseMirror content)
+// This prevents interference with ProseMirror's native touch/click handling on mobile
+const focusEditor = (event: MouseEvent | TouchEvent) => {
+    if (!editorView) return;
+
+    // Check if the click/tap target is the editor container itself (not the ProseMirror content)
+    // ProseMirror handles focus internally when you click on its content
+    const target = event.target as HTMLElement;
+    const proseMirrorElement = editorView.dom;
+
+    // Only manually focus if clicking outside the ProseMirror element
+    // (e.g., on padding areas of the container)
+    if (!proseMirrorElement.contains(target)) {
         editorView.focus();
-        console.log(
-            "Editor focused, doc content:",
-            editorView.state.doc.textContent,
-        );
-        console.log("Editor DOM:", editorView.dom.innerHTML);
-        console.log("Has focus?", document.activeElement === editorView.dom);
     }
 };
 
@@ -2317,6 +2321,11 @@ defineExpose({
     width: 100%;
     /* Ensure cursor is always visible, even in empty editor */
     min-height: 1.5em;
+    /* Prevent iOS Safari from zooming when focusing on the editor */
+    /* Font size must be at least 16px to prevent auto-zoom on iOS */
+    font-size: max(1rem, 16px);
+    /* Prevent double-tap zoom on touch devices */
+    touch-action: manipulation;
 }
 
 /* Force cursor visibility in Chrome for empty contenteditable */

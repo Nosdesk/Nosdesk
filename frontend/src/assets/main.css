@@ -168,13 +168,18 @@
   }
 }
 
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   background-color: var(--background-color);
   color: var(--text-primary);
 }
 
 #app {
-  min-height: 100vh;
+  height: 100%;
   font-weight: normal;
 }
 
