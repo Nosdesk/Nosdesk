@@ -1251,22 +1251,10 @@ impl YjsWebSocket {
                         println!("📝 Content changed! Before: '{}' → After: '{}'",
                             if content_before.len() > 50 { &content_before[..50] } else { &content_before },
                             if content_after.len() > 50 { &content_after[..50] } else { &content_after });
-                    } else {
-                        println!("⚠️ Content UNCHANGED after processing message (still: '{}')",
-                            if content_after.len() > 30 { &content_after[..30] } else { &content_after });
-
-                        // WORKAROUND: If SYNC_UPDATE failed to apply, request the frontend to send
-                        // its full state by sending a SYNC_STEP_1 (state vector request)
-                        if msg_type == 0 && msg_vec.len() > 1 && msg_vec[1] == 2 {
-                            println!("🔄 SYNC_UPDATE failed to apply changes - requesting client's full state");
-                            use yrs::sync::Message;
-                            // Send empty state vector to request full state from client
-                            let sync_message = Message::Sync(yrs::sync::SyncMessage::SyncStep1(StateVector::default()));
-                            let encoded = sync_message.encode_v1();
-                            addr.do_send(YjsMessage(Bytes::from(encoded)));
-                            println!("📤 Sent SYNC_STEP_1 request to client - expecting full state in response");
-                        }
                     }
+                    // Note: SYNC_UPDATE messages that don't change content are normal and expected
+                    // (e.g., cursor position updates, selection changes, or awareness updates)
+                    // We should NOT request a full state sync just because content didn't change
 
                     // Send any response messages back to the client
                     for message in messages {
