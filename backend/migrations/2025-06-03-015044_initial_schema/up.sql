@@ -233,16 +233,20 @@ CREATE TABLE attachments (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
--- Article contents for knowledge base
+-- Article contents for knowledge base with Yjs collaborative editing (snapshot-based persistence)
 CREATE TABLE article_contents (
     id SERIAL PRIMARY KEY,
-    content TEXT NOT NULL,
     ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
     current_revision_number INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     created_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    updated_by UUID REFERENCES users(uuid) ON DELETE SET NULL
+    updated_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+
+    -- Yjs document state (current version) - snapshot-based persistence
+    yjs_state_vector BYTEA, -- Current state vector for sync
+    yjs_document BYTEA, -- Current Yjs document binary state (full snapshot)
+    yjs_client_id BIGINT -- Last client ID that updated this document
 );
 
 -- Article content revisions for version history

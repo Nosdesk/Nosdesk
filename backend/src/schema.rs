@@ -56,13 +56,15 @@ diesel::table! {
 diesel::table! {
     article_contents (id) {
         id -> Int4,
-        content -> Text,
         ticket_id -> Nullable<Int4>,
         current_revision_number -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
         updated_at -> Timestamptz,
         updated_by -> Nullable<Uuid>,
+        yjs_state_vector -> Nullable<Bytea>,
+        yjs_document -> Nullable<Bytea>,
+        yjs_client_id -> Nullable<Int8>,
     }
 }
 
@@ -430,25 +432,4 @@ diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,
-    article_content_revisions,
-    article_contents,
-    attachments,
-    comments,
-    devices,
-    documentation_pages,
-    documentation_revisions,
-    linked_tickets,
-    project_tickets,
-    projects,
-    refresh_tokens,
-    reset_tokens,
-    security_events,
-    sync_history,
-    ticket_devices,
-    tickets,
-    user_auth_identities,
-    user_emails,
-    user_ticket_views,
-    users,
-);
+    active_sessions,article_content_revisions,article_contents,attachments,comments,devices,documentation_pages,documentation_revisions,linked_tickets,project_tickets,projects,refresh_tokens,reset_tokens,security_events,sync_history,ticket_devices,tickets,user_auth_identities,user_emails,user_ticket_views,users,);

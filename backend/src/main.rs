@@ -504,7 +504,10 @@ async fn main() -> std::io::Result<()> {
             
             // === PUBLIC ROUTES (NO AUTHENTICATION REQUIRED) ===
             .route("/health", web::get().to(health_check))
-            
+
+            // Debug endpoint for frontend log forwarding (dev mode only)
+            .route("/api/debug/frontend-logs", web::post().to(handlers::debug::receive_frontend_logs))
+
             // Public file serving - ONLY user avatars, banners, and thumbs (no sensitive data)
             .route("/uploads/users/avatars/{filename:.*}", web::get().to(handlers::serve_public_file))
             .route("/uploads/users/banners/{filename:.*}", web::get().to(handlers::serve_public_file))

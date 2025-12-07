@@ -32,13 +32,71 @@ fn safe_get_fragment_string(fragment: &yrs::XmlFragmentRef, txn: &yrs::Transacti
 fn get_content_preview(awareness: &Awareness, max_chars: usize) -> String {
     let txn = awareness.doc().transact();
     if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-        match safe_get_fragment_string(&fragment, &txn) {
-            Some(s) => s.chars().take(max_chars).collect(),
+        // Get children count for diagnostic purposes
+        let children_count = fragment.len(&txn);
+        let text_content = match safe_get_fragment_string(&fragment, &txn) {
+            Some(s) => s.chars().take(max_chars).collect::<String>(),
             None => "(invalid char data)".to_string(),
+        };
+
+        // If text is empty but we have children, log structure info
+        if text_content.is_empty() && children_count > 0 {
+            format!("[{} children, text: '']", children_count)
+        } else if text_content.is_empty() {
+            format!("[0 children]")
+        } else {
+            text_content
         }
     } else {
         "(no fragment)".to_string()
     }
+}
+
+/// Log all root-level types in a Yjs document for debugging
+fn log_document_root_types(awareness: &Awareness, doc_id: &str) {
+    let doc = awareness.doc();
+    let txn = doc.transact();
+
+    // Get all root-level type names using root_refs iterator
+    let root_names: Vec<String> = txn.root_refs()
+        .map(|(name, _)| name.to_string())
+        .collect();
+
+    println!("🔍 Root types in {}: {:?}", doc_id, root_names);
+
+    // Check prosemirror fragment specifically
+    if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+        // XmlFragment children count using both methods
+        let children_iter: usize = fragment.children(&txn).count();
+        let children_len = fragment.len(&txn);
+        println!("   📁 'prosemirror' (XmlFragment):");
+        println!("      - children().count() = {}", children_iter);
+        println!("      - len() = {}", children_len);
+
+        // Try to iterate and describe children
+        for (i, child) in fragment.children(&txn).enumerate() {
+            println!("      - Child {}: {:?}", i, child);
+            if i >= 5 {
+                println!("      ... (more children)");
+                break;
+            }
+        }
+
+        // Try get_string
+        let text = fragment.get_string(&txn);
+        if text.is_empty() {
+            println!("      - get_string() = '' (empty)");
+        } else {
+            let preview: String = text.chars().take(100).collect();
+            println!("      - get_string() = '{}'", preview);
+        }
+    } else {
+        println!("   📁 'prosemirror': not found");
+    }
+
+    // Log state vector to see client contributions
+    let sv = txn.state_vector();
+    println!("   📊 State vector: {:?}", sv);
 }
 use crate::models::{NewArticleContent, NewArticleContentRevision};
 use crate::utils::redis_yjs_cache::RedisYjsCache;
@@ -109,12 +167,24 @@ pub async fn get_article_content(
 
     match doc_type {
         DocumentType::Ticket(ticket_id) => {
+            // Load Yjs document snapshot from article_contents table (snapshot-based persistence)
             match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
                 Ok(article_content) => {
                     println!("Retrieved article content for ticket {}", ticket_id);
 
-                    // Encode binary content as base64
-                    let content_base64 = general_purpose::STANDARD.encode(&article_content.content);
+                    // If yjs_document snapshot exists, encode as base64, otherwise return empty
+                    let content_base64 = if let Some(yjs_doc) = article_content.yjs_document {
+                        if !yjs_doc.is_empty() {
+                            println!("📦 Loading snapshot from PostgreSQL: ticket {} ({} bytes binary)", ticket_id, yjs_doc.len());
+                            general_purpose::STANDARD.encode(&yjs_doc)
+                        } else {
+                            println!("📝 Empty Yjs document for ticket {}", ticket_id);
+                            String::new()
+                        }
+                    } else {
+                        println!("📝 No Yjs document snapshot for ticket {}", ticket_id);
+                        String::new()
+                    };
 
                     HttpResponse::Ok().json(json!({
                         "content": content_base64,
@@ -122,7 +192,7 @@ pub async fn get_article_content(
                     }))
                 },
                 Err(e) => {
-                    println!("No article content found for ticket {}: {}", ticket_id, e);
+                    println!("📝 No article content found for ticket {}: {:?}", ticket_id, e);
                     HttpResponse::Ok().json(json!({
                         "content": "",
                         "ticket_id": ticket_id
@@ -426,18 +496,22 @@ impl YjsAppState {
 
             let doc = Doc::with_options(options);
 
-            // CRITICAL: Initialize the "prosemirror" XmlFragment root type
-            // This MUST be done before any sync operations to ensure the backend
-            // and frontend are working with the same document structure
+            // CRITICAL: Initialize the "prosemirror" XmlFragment root type BEFORE creating Awareness
+            // This MUST be done before any sync operations to ensure the backend and frontend
+            // are working with the same document structure. The yrs documentation says:
+            // "It's highly recommended for all collaborating clients to define all root level types
+            // they are going to use up front, during document creation."
+            // When data is loaded later via apply_update(), it will be merged into this structure.
             {
                 let mut txn = doc.transact_mut();
                 let _ = txn.get_or_insert_xml_fragment("prosemirror");
-                println!("🎯 Initialized 'prosemirror' XmlFragment for document: {}", doc_id);
+                println!("🎯 Pre-initialized 'prosemirror' XmlFragment for document: {}", doc_id);
             }
 
             let mut awareness = Awareness::new(doc);
 
             let mut loaded_from_redis = false;
+            let mut loaded_from_postgres = false;
 
             // STEP 1: Try to load from Redis (hot cache - survives restarts)
             if let Some(redis_data) = self.redis_cache.get_document(doc_id).await {
@@ -461,6 +535,7 @@ impl YjsAppState {
                         // Diagnostic: Verify content
                         let preview = get_content_preview(&awareness, 50);
                         println!("📄 Redis content loaded: {}", preview);
+                        log_document_root_types(&awareness, doc_id);
                     }
                 } else {
                     println!("⚠️ Failed to decode Redis data - deleting corrupted entry");
@@ -475,85 +550,97 @@ impl YjsAppState {
 
                 // Parse document type
                 if let Some(doc_type) = DocumentType::from_doc_id(doc_id) {
+                    println!("✅ Parsed doc_type successfully for {}", doc_id);
                     match self.pool.get() {
                         Ok(mut conn) => {
-                            let binary_content_opt: Option<Vec<u8>> = match doc_type {
+                            // PHASE 2: Load from PostgreSQL
+                            match doc_type {
                                 DocumentType::Ticket(ticket_id) => {
+                                    // Load Yjs document snapshot from article_contents table (snapshot-based persistence)
                                     match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
-                                        Ok(article_content) if !article_content.content.is_empty() => {
-                                            println!("📦 Loading from PostgreSQL: ticket {} ({} bytes base64)",
-                                                    ticket_id, article_content.content.len());
+                                        Ok(article_content) => {
+                                            if let Some(yjs_doc) = article_content.yjs_document {
+                                                if !yjs_doc.is_empty() {
+                                                    println!("📦 Loading snapshot from PostgreSQL: ticket {} ({} bytes binary)",
+                                                            ticket_id, yjs_doc.len());
 
-                                            // Decode base64 to get binary Yjs update data
-                                            use base64::{Engine as _, engine::general_purpose};
-                                            match general_purpose::STANDARD.decode(&article_content.content) {
-                                                Ok(binary) => {
-                                                    println!("Decoded base64 to {} bytes binary", binary.len());
-                                                    Some(binary)
-                                                },
-                                                Err(e) => {
-                                                    println!("Failed to decode base64 from PostgreSQL: {:?}", e);
-                                                    None
+                                                    if let Ok(update) = Update::decode_v1(&yjs_doc) {
+                                                        let apply_result = {
+                                                            let mut txn = awareness.doc_mut().transact_mut();
+                                                            txn.apply_update(update)
+                                                        };
+
+                                                        if let Err(e) = apply_result {
+                                                            println!("❌ Error applying PostgreSQL snapshot: {:?}", e);
+                                                        } else {
+                                                            println!("✅ Successfully loaded snapshot from PostgreSQL");
+                                                            loaded_from_postgres = true;
+
+                                                            // Cache in Redis for future fast access
+                                                            self.redis_cache.set_document(doc_id, &yjs_doc).await;
+
+                                                            // Diagnostic: Check content
+                                                            let preview = get_content_preview(&awareness, 100);
+                                                            println!("📄 PostgreSQL content: {}", preview);
+                                                            log_document_root_types(&awareness, doc_id);
+                                                        }
+                                                    } else {
+                                                        println!("❌ Failed to decode PostgreSQL snapshot for ticket {}", ticket_id);
+                                                    }
+                                                } else {
+                                                    println!("📝 Empty Yjs document for ticket {}", ticket_id);
                                                 }
+                                            } else {
+                                                println!("📝 No Yjs document snapshot for ticket {}", ticket_id);
                                             }
                                         },
-                                        Ok(_) => {
-                                            println!("📝 New ticket - no existing content in PostgreSQL");
-                                            None
-                                        },
                                         Err(e) => {
-                                            println!("📝 No existing ticket content in PostgreSQL: {:?}", e);
-                                            None
+                                            println!("📝 No article content found for ticket {}: {:?}", ticket_id, e);
                                         }
                                     }
                                 },
                                 DocumentType::Documentation(doc_page_id) => {
+                                    // Load Yjs document snapshot from documentation_pages table (snapshot-based persistence)
                                     match repository::get_documentation_page(doc_page_id, &mut conn) {
                                         Ok(doc_page) => {
                                             if let Some(yjs_doc) = doc_page.yjs_document {
                                                 if !yjs_doc.is_empty() {
                                                     println!("📦 Loading from PostgreSQL: doc page {} ({} bytes binary)",
                                                             doc_page_id, yjs_doc.len());
-                                                    Some(yjs_doc)
+
+                                                    if let Ok(update) = Update::decode_v1(&yjs_doc) {
+                                                        let apply_result = {
+                                                            let mut txn = awareness.doc_mut().transact_mut();
+                                                            txn.apply_update(update)
+                                                        };
+
+                                                        if let Err(e) = apply_result {
+                                                            println!("❌ Error applying PostgreSQL state: {:?}", e);
+                                                        } else {
+                                                            println!("✅ Successfully loaded documentation from PostgreSQL");
+                                                            loaded_from_postgres = true;
+
+                                                            // Cache in Redis
+                                                            self.redis_cache.set_document(doc_id, &yjs_doc).await;
+
+                                                            // Diagnostic: Check what's actually in the document
+                                                            let preview = get_content_preview(&awareness, 100);
+                                                            println!("📄 PostgreSQL content: {}", preview);
+                                                        }
+                                                    } else {
+                                                        println!("Failed to decode Yjs update from PostgreSQL");
+                                                    }
                                                 } else {
                                                     println!("📝 New documentation page - no existing Yjs content");
-                                                    None
                                                 }
                                             } else {
                                                 println!("📝 New documentation page - no existing Yjs content");
-                                                None
                                             }
                                         },
                                         Err(e) => {
                                             println!("📝 No existing documentation page in PostgreSQL: {:?}", e);
-                                            None
                                         }
                                     }
-                                }
-                            };
-
-                            // If we got binary content, apply it to the document
-                            if let Some(binary_content) = binary_content_opt {
-                                if let Ok(update) = Update::decode_v1(&binary_content) {
-                                    let apply_result = {
-                                        let mut txn = awareness.doc_mut().transact_mut();
-                                        txn.apply_update(update)
-                                    };
-
-                                    if let Err(e) = apply_result {
-                                        println!("❌ Error applying PostgreSQL state: {:?}", e);
-                                    } else {
-                                        println!("✅ Successfully loaded content from PostgreSQL");
-
-                                        // IMPORTANT: Cache in Redis for future restarts
-                                        self.redis_cache.set_document(doc_id, &binary_content).await;
-
-                                        // Diagnostic: Check what's actually in the document
-                                        let preview = get_content_preview(&awareness, 100);
-                                        println!("📄 PostgreSQL content: {}", preview);
-                                    }
-                                } else {
-                                    println!("Failed to decode Yjs update from PostgreSQL");
                                 }
                             }
                         },
@@ -561,7 +648,26 @@ impl YjsAppState {
                             println!("❌ Database connection error: {:?}", e);
                         }
                     }
+                } else {
+                    println!("⚠️ Could not parse doc_id format: '{}' (expected 'ticket-N' or 'doc-N')", doc_id);
                 }
+            }
+
+            // For NEW documents only (no existing data), initialize the prosemirror XmlFragment
+            // This ensures new documents have the proper root type structure for ProseMirror
+            if !loaded_from_redis && !loaded_from_postgres {
+                let mut txn = awareness.doc_mut().transact_mut();
+                let _ = txn.get_or_insert_xml_fragment("prosemirror");
+                println!("🎯 Initialized 'prosemirror' XmlFragment for NEW document: {}", doc_id);
+            }
+
+            // Log final state after loading attempts
+            let preview = get_content_preview(&awareness, 100);
+            if loaded_from_redis || loaded_from_postgres {
+                println!("📊 Document loaded: {}", preview);
+                log_document_root_types(&awareness, doc_id);
+            } else {
+                println!("📊 New document created: {}", preview);
             }
 
             let awareness_arc = Arc::new(awareness);
@@ -781,12 +887,25 @@ impl YjsAppState {
             let doc = awareness.doc();
             let txn = doc.transact();
 
+            // DIAGNOSTIC: Show ALL root types in the document
+            let root_names: Vec<String> = txn.root_refs()
+                .map(|(name, _)| name.to_string())
+                .collect();
+            println!("🔍 SAVE - {} root types: {:?}", doc_id, root_names);
+
+            // Log state vector to see which clients have contributed
+            let state_vec = txn.state_vector();
+            println!("🔍 SAVE - {} state vector: {:?}", doc_id, state_vec);
+
             // Log content preview before saving
             if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                let child_count = fragment.len(&txn);
                 let preview = safe_get_fragment_string(&fragment, &txn)
                     .map(|s| s.chars().take(50).collect::<String>())
                     .unwrap_or_else(|| "(invalid chars)".to_string());
-                println!("💾 Saving {}: {}", doc_id, preview);
+                println!("💾 Saving {}: {} children, preview: '{}'", doc_id, child_count, preview);
+            } else {
+                println!("⚠️ Saving {}: NO 'prosemirror' fragment found!", doc_id);
             }
 
             txn.encode_state_as_update_v1(&StateVector::default())
@@ -811,21 +930,16 @@ impl YjsAppState {
 
         match doc_type {
             DocumentType::Ticket(ticket_id) => {
-                // Use actix to spawn a blocking operation
+                // Save ticket article content Yjs snapshot to PostgreSQL (snapshot-based persistence)
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
-                            let new_content = NewArticleContent {
-                                ticket_id,
-                                content: general_purpose::STANDARD.encode(&content), // Convert binary to base64 string for storage
-                            };
-
-                            match repository::update_article_content(&mut conn, ticket_id, new_content) {
-                                Ok(_) => println!("✅ Successfully saved document for ticket {}", ticket_id),
-                                Err(e) => println!("❌ Failed to save document for ticket {}: {:?}", ticket_id, e),
+                            match repository::update_article_yjs_state(&mut conn, ticket_id, content) {
+                                Ok(_) => println!("✅ Successfully saved Yjs snapshot for ticket {}", ticket_id),
+                                Err(e) => println!("❌ Failed to save Yjs snapshot for ticket {}: {:?}", ticket_id, e),
                             }
                         },
-                        Err(e) => println!("❌ Database connection error when saving document: {:?}", e),
+                        Err(e) => println!("❌ Database connection error when saving ticket {}: {:?}", ticket_id, e),
                     }
                 });
             },
@@ -845,6 +959,22 @@ impl YjsAppState {
                 });
             }
         }
+    }
+
+    // Save document state to Redis immediately for fast recovery on page refresh
+    // This is called after updates are applied to ensure the latest state is cached
+    async fn save_to_redis_immediately(&self, doc_id: &str, awareness: &Awareness) {
+        // Get binary content from the document
+        let binary_content = {
+            let doc = awareness.doc();
+            let txn = doc.transact();
+            txn.encode_state_as_update_v1(&StateVector::default())
+        };
+
+        println!("💾 Immediate Redis save for {} ({} bytes)", doc_id, binary_content.len());
+
+        // Save to Redis synchronously (fast, in-memory)
+        self.redis_cache.set_document(doc_id, &binary_content).await;
     }
 
     // Create a snapshot revision for version history using native Yrs encoding
@@ -889,7 +1019,9 @@ impl YjsAppState {
                                     // Create if doesn't exist
                                     let new_content = NewArticleContent {
                                         ticket_id,
-                                        content: String::new(), // Placeholder
+                                        yjs_state_vector: None,
+                                        yjs_document: None,
+                                        yjs_client_id: None,
                                     };
                                     match repository::create_article_content(&mut conn, new_content) {
                                         Ok(ac) => ac,
@@ -1045,6 +1177,7 @@ impl YjsWebSocket {
     }
     
     // Process incoming messages using the built-in protocol
+    // Simplified to match the working nosdesk-old version - let yrs do the heavy lifting!
     fn process_message(&mut self, msg: &[u8], ctx: &mut ws::WebsocketContext<Self>) {
         if msg.is_empty() {
             return;
@@ -1070,48 +1203,110 @@ impl YjsWebSocket {
             // Get the awareness for this document
             let awareness = app_state.get_or_create_awareness(&doc_id).await;
 
-            // Get content hash before processing to detect changes
-            let content_before = get_content_preview(&awareness, 1000);
+            // DIAGNOSTIC: Check content BEFORE processing message
+            let content_before = {
+                let txn = awareness.doc().transact();
+                if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                    fragment.get_string(&txn)
+                } else {
+                    String::from("(no fragment)")
+                }
+            };
 
             // Use the built-in protocol handler to process the message
+            // DefaultProtocol is stateless, so we can create a new instance
             let protocol = DefaultProtocol;
 
-            // Warn if state vector has too many clients (possible corruption)
-            {
-                let txn = awareness.doc().transact();
-                let client_count = txn.state_vector().len();
-                if client_count > 50 {
-                    println!("⚠️ Document {} has {} client IDs - possible corruption", doc_id, client_count);
+            // DIAGNOSTIC: Log incoming message details
+            let msg_type = if msg_vec.is_empty() { 255 } else { msg_vec[0] };
+            println!("🔍 Processing message: type={}, size={} bytes", msg_type, msg_vec.len());
+
+            // DIAGNOSTIC: Decode sync messages to see what they contain
+            if msg_type == 0 && msg_vec.len() > 1 {
+                let sync_step = msg_vec[1];
+                match sync_step {
+                    0 => println!("   📍 SYNC_STEP_1 (state vector request)"),
+                    1 => println!("   📍 SYNC_STEP_2 (state response)"),
+                    2 => {
+                        println!("   📍 SYNC_UPDATE (incremental change)");
+                        // Get the doc's current state vector to compare with incoming update
+                        let doc_state_vec = {
+                            let txn = awareness.doc().transact();
+                            txn.state_vector()
+                        };
+                        println!("      Backend state vector: {:?}", doc_state_vec);
+
+                        // Try to decode the update to see if it's valid
+                        if msg_vec.len() > 2 {
+                            match Update::decode_v1(&msg_vec[2..]) {
+                                Ok(_update) => println!("      ✓ Decoded SYNC_UPDATE successfully"),
+                                Err(e) => println!("      ✗ Failed to decode SYNC_UPDATE: {:?}", e),
+                            }
+                        }
+                    },
+                    _ => println!("   📍 Unknown sync step: {}", sync_step),
                 }
             }
 
             match protocol.handle(&awareness, &msg_vec) {
                 Ok(messages) => {
-                    // Check if content changed
-                    let content_after = get_content_preview(&awareness, 1000);
-                    let content_changed = content_before != content_after;
+                    println!("✅ protocol.handle() succeeded, generated {} response message(s)", messages.len());
 
-                    // Send response messages to client
+                    // DIAGNOSTIC: Check content AFTER processing message
+                    let content_after = {
+                        let txn = awareness.doc().transact();
+                        if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                            fragment.get_string(&txn)
+                        } else {
+                            String::from("(no fragment)")
+                        }
+                    };
+
+                    let content_changed = content_before != content_after;
+                    if content_changed {
+                        println!("📝 Content changed! Before: '{}' → After: '{}'",
+                            if content_before.len() > 50 { &content_before[..50] } else { &content_before },
+                            if content_after.len() > 50 { &content_after[..50] } else { &content_after });
+                    } else {
+                        println!("⚠️ Content UNCHANGED after processing message (still: '{}')",
+                            if content_after.len() > 30 { &content_after[..30] } else { &content_after });
+
+                        // WORKAROUND: If SYNC_UPDATE failed to apply, request the frontend to send
+                        // its full state by sending a SYNC_STEP_1 (state vector request)
+                        if msg_type == 0 && msg_vec.len() > 1 && msg_vec[1] == 2 {
+                            println!("🔄 SYNC_UPDATE failed to apply changes - requesting client's full state");
+                            use yrs::sync::Message;
+                            // Send empty state vector to request full state from client
+                            let sync_message = Message::Sync(yrs::sync::SyncMessage::SyncStep1(StateVector::default()));
+                            let encoded = sync_message.encode_v1();
+                            addr.do_send(YjsMessage(Bytes::from(encoded)));
+                            println!("📤 Sent SYNC_STEP_1 request to client - expecting full state in response");
+                        }
+                    }
+
+                    // Send any response messages back to the client
                     for message in messages {
                         let encoded = message.encode_v1();
                         addr.do_send(YjsMessage(Bytes::from(encoded)));
                     }
 
-                    // Broadcast to other clients
+                    // Broadcast the entire message to other clients
                     app_state.broadcast(&doc_id, &session_id, &msg_vec).await;
 
-                    // Mark document as changed for sync messages
-                    if is_sync_message {
+                    // Mark document as changed after sync updates (even if failed)
+                    // This ensures the backend saves whatever state it has
+                    if is_sync_message || content_changed {
                         app_state.mark_document_changed(&doc_id).await;
                     }
 
                     // Track contributor only when content actually changed
+                    // This ensures revisions are only created for sessions with real edits
                     if content_changed {
                         app_state.add_contributor(&doc_id, user_uuid).await;
                     }
                 },
                 Err(e) => {
-                    println!("❌ Protocol error for {}: {:?}", doc_id, e);
+                    println!("Error handling protocol message: {:?}", e);
                 }
             }
         });

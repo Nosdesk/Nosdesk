@@ -4,10 +4,6 @@ version = "0.1.0"
 edition = "2021"
 default-run = "backend"
 
-[lib]
-name = "backend"
-path = "src/lib.rs"
-
 [[bin]]
 name = "backend"
 path = "src/main.rs"

@@ -296,20 +296,25 @@ pub struct NewAttachment {
 #[diesel(belongs_to(Ticket))]
 pub struct ArticleContent {
     pub id: i32,
-    pub content: String,
     pub ticket_id: Option<i32>,
     pub current_revision_number: i32,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
     pub updated_at: NaiveDateTime,
     pub updated_by: Option<Uuid>,
+    // Yjs document state (current version) - snapshot-based persistence
+    pub yjs_state_vector: Option<Vec<u8>>,
+    pub yjs_document: Option<Vec<u8>>,
+    pub yjs_client_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
 #[diesel(table_name = crate::schema::article_contents)]
 pub struct NewArticleContent {
-    pub content: String,
     pub ticket_id: i32,
+    pub yjs_state_vector: Option<Vec<u8>>,
+    pub yjs_document: Option<Vec<u8>>,
+    pub yjs_client_id: Option<i64>,
 }
 
 // Article Content Revision models for version history

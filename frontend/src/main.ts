@@ -1,6 +1,10 @@
 import './assets/main.css'
 import './services/apiConfig' // Import axios configuration
 
+// Initialize remote logging for debugging (can be disabled via localStorage)
+import { interceptConsole } from './utils/remoteLogger'
+interceptConsole()
+
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 

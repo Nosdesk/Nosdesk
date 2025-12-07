@@ -28,7 +28,5 @@ pub use projects::*;
 pub use tickets::*;
 pub use users::*;
 
-// Removed unused imports: sync_history, user_auth_identities, user_emails, active_sessions, security_events, mfa_reset_tokens
-
 // Note: We've completed the transition to a fully modular structure
 // by removing the base.rs file and keeping only domain-specific modules.

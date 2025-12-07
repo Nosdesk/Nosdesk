@@ -15,6 +15,7 @@ pub mod sse;
 pub mod password_reset;
 pub mod mfa_reset;
 pub mod system;
+pub mod debug;
 
 // Import all handlers from modules
 pub use auth::*;

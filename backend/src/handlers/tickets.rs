@@ -517,8 +517,10 @@ pub async fn create_empty_ticket(
 
     // Create empty article content for the ticket
     let new_article_content = crate::models::NewArticleContent {
-        content: "".to_string(), // Empty string for content
         ticket_id: ticket.id,
+        yjs_state_vector: None,
+        yjs_document: None,
+        yjs_client_id: None,
     };
 
     // Try to create article content, but don't fail if it doesn't work

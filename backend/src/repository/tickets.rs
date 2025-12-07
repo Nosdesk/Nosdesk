@@ -454,10 +454,8 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
         });
     }
     
-    // Get article content
-    let article_content = crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id)
-        .map(|content| content.content)
-        .ok();
+    // Get article content (now handled by Yjs collaborative editing)
+    let article_content: Option<String> = None;
     
     // Get linked tickets
     let linked_tickets = crate::repository::linked_tickets::get_linked_tickets(conn, ticket_id).unwrap_or_default();
@@ -585,12 +583,14 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
     }
     
     // Create article content if present
-    if let Some(content) = &ticket_json.article_content {
+    if let Some(_content) = &ticket_json.article_content {
         let new_article_content = NewArticleContent {
-            content: content.clone(),
             ticket_id: ticket.id,
+            yjs_state_vector: None,
+            yjs_document: None,
+            yjs_client_id: None,
         };
-        
+
         crate::repository::article_content::create_article_content(conn, new_article_content)?;
     }
     
@@ -703,12 +703,14 @@ pub fn create_complete_ticket(conn: &mut DbConnection, ticket_json: TicketJson) 
     }
     
     // Create article content if present
-    if let Some(content) = &ticket_json.article_content {
+    if let Some(_content) = &ticket_json.article_content {
         let new_article_content = NewArticleContent {
-            content: content.clone(),
             ticket_id: ticket.id,
+            yjs_state_vector: None,
+            yjs_document: None,
+            yjs_client_id: None,
         };
-        
+
         crate::repository::article_content::create_article_content(conn, new_article_content)?;
     }
     

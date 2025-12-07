@@ -98,6 +98,21 @@ const connectedUsers = ref<{ id: string; user: any }[]>([]);
 const isInitialized = ref(false);
 let reinitializeTimeout: ReturnType<typeof setTimeout> | null = null;
 
+// Visibility change debounce timeout
+let visibilityTimeout: ReturnType<typeof setTimeout> | null = null;
+
+// Event handler references for proper cleanup
+let onlineHandler: (() => void) | null = null;
+let offlineHandler: (() => void) | null = null;
+
+// Provider event handler references for proper cleanup
+let statusHandler: ((event: { status: string }) => void) | null = null;
+let connectionErrorHandler: ((error: any) => void) | null = null;
+let connectionCloseHandler: ((event: any) => void) | null = null;
+let syncedHandler: ((isSynced: boolean) => void) | null = null;
+let statusReconnectHandler: ((event: { status: string }) => void) | null = null;
+let awarenessChangeHandler: (() => void) | null = null;
+
 // Revision viewing state
 const isViewingRevision = ref(false);
 const currentRevisionNumber = ref<number | null>(null);
@@ -361,6 +376,25 @@ const initEditor = async () => {
         ydoc = new Y.Doc();
         ydoc.gc = false;  // Disable garbage collection to preserve all document history
 
+        // DIAGNOSTIC: Log ALL ydoc updates to trace where sync breaks
+        // This listener fires whenever the document changes locally OR remotely
+        ydoc.on('update', (update: Uint8Array, origin: any) => {
+            const isLocal = origin === null || origin === ydoc.clientID || (origin && origin.constructor && origin.constructor.name === 'WebsocketProvider' ? false : true);
+            log.info('🔄 YDOC UPDATE EVENT:', {
+                updateSize: update.length,
+                origin: origin?.constructor?.name || String(origin) || 'null',
+                isLikelyLocal: isLocal,
+                yXmlFragmentLength: yXmlFragment?.length || 0,
+                clientId: ydoc.clientID,
+                timestamp: new Date().toISOString(),
+            });
+
+            // Log update bytes for debugging
+            if (update.length < 100) {
+                log.debug('   Update bytes:', Array.from(update).map(b => b.toString(16).padStart(2, '0')).join(' '));
+            }
+        });
+
         // 1.5. Create SafePermanentUserData to track user contributions across snapshots
         // This wrapper provides fallback values for missing users instead of returning null
         permanentUserData = new SafePermanentUserData(ydoc);
@@ -426,11 +460,11 @@ const initEditor = async () => {
         }
 
         // 4. Get the XML fragment and initialize ProseMirror document
+        // IMPORTANT: This must be done BEFORE the WebSocket sync happens
+        // so that the ySyncPlugin is attached and can process incoming updates
         yXmlFragment = ydoc.getXmlFragment("prosemirror");
 
         // Initialize ProseMirror with the Yjs binding
-        // IMPORTANT: This must be done BEFORE connecting the WebSocket provider
-        // so that the ySyncPlugin is attached and can process incoming updates
         const { doc, mapping } = initProseMirrorDoc(yXmlFragment, schema);
 
         // Verify the document was initialized correctly
@@ -440,8 +474,8 @@ const initEditor = async () => {
             );
         }
 
-        // 5. Create the editor view - it's safe to create even before sync
-        // The ySyncPlugin will handle updates when the document syncs
+        // 5. Create the editor view BEFORE sync completes
+        // The ySyncPlugin must be attached to receive and process sync messages
         if (!editorElement.value) {
             throw new Error("Editor element became null during initialization");
         }
@@ -539,44 +573,44 @@ const initEditor = async () => {
         });
 
         // 7. Set up connection status handler with enhanced logging
-        provider.on(
-            "status",
-            (event: {
-                status: "connected" | "disconnected" | "connecting";
-            }) => {
-                const previousStatus = isConnected.value
-                    ? "connected"
-                    : "disconnected";
-                isConnected.value = event.status === "connected";
+        // Store handler reference for proper cleanup
+        statusHandler = (event: {
+            status: "connected" | "disconnected" | "connecting";
+        }) => {
+            const previousStatus = isConnected.value
+                ? "connected"
+                : "disconnected";
+            isConnected.value = event.status === "connected";
 
-                // Only log status changes, not every status event
-                if (previousStatus !== event.status) {
-                    log.info(`Connection status: ${event.status}`);
+            // Only log status changes, not every status event
+            if (previousStatus !== event.status) {
+                log.info(`Connection status: ${event.status}`);
+            }
+
+            // Log additional context for disconnections
+            if (event.status === "disconnected") {
+                log.warn(
+                    "WebSocket disconnected - will attempt to reconnect automatically",
+                );
+
+                // Only run diagnostics in debug mode or when explicitly enabled
+                if (
+                    import.meta.env.DEV ||
+                    window.localStorage.getItem(
+                        "editor-verbose-logging",
+                    ) === "true"
+                ) {
+                    diagnoseConnectionIssue();
                 }
-
-                // Log additional context for disconnections
-                if (event.status === "disconnected") {
-                    log.warn(
-                        "WebSocket disconnected - will attempt to reconnect automatically",
-                    );
-
-                    // Only run diagnostics in debug mode or when explicitly enabled
-                    if (
-                        import.meta.env.DEV ||
-                        window.localStorage.getItem(
-                            "editor-verbose-logging",
-                        ) === "true"
-                    ) {
-                        diagnoseConnectionIssue();
-                    }
-                } else if (event.status === "connected") {
-                    log.info("WebSocket connected successfully");
-                }
-            },
-        );
+            } else if (event.status === "connected") {
+                log.info("WebSocket connected successfully");
+            }
+        };
+        provider.on("status", statusHandler);
 
         // Add error event handler for more detailed error information
-        provider.on("connection-error", (error: any) => {
+        // Store handler reference for proper cleanup
+        connectionErrorHandler = (error: any) => {
             log.error("WebSocket connection error:", error);
             log.debug("Error details:", {
                 message: error?.message || "No error message",
@@ -585,10 +619,12 @@ const initEditor = async () => {
                 target: error?.target || "No target info",
                 timestamp: new Date().toISOString(),
             });
-        });
+        };
+        provider.on("connection-error", connectionErrorHandler);
 
         // Monitor for authentication-related disconnections
-        provider.on("connection-close", (event: any) => {
+        // Store handler reference for proper cleanup
+        connectionCloseHandler = (event: any) => {
             log.warn("WebSocket connection closed:", {
                 code: event?.code,
                 reason: event?.reason,
@@ -613,10 +649,12 @@ const initEditor = async () => {
                     "WebSocket closed abnormally - network issue or server crash",
                 );
             }
-        });
+        };
+        provider.on("connection-close", connectionCloseHandler);
 
         // Monitor initial sync completion
-        provider.on("synced", (isSynced: boolean) => {
+        // Store handler reference for proper cleanup
+        syncedHandler = (isSynced: boolean) => {
             log.info("🔄 WebSocket sync state changed:", {
                 isSynced,
                 yXmlFragmentLength: yXmlFragment?.length || 0,
@@ -632,7 +670,8 @@ const initEditor = async () => {
                     pmTextPreview: pmText.substring(0, 100),
                 });
             }
-        });
+        };
+        provider.on("synced", syncedHandler);
 
         // Monitor raw WebSocket messages to debug why content isn't loading
         if (provider.ws) {
@@ -819,57 +858,58 @@ const initEditor = async () => {
         const maxReconnectAttempts = 5;
         let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
-        provider.on(
-            "status",
-            (event: {
-                status: "connected" | "disconnected" | "connecting";
-            }) => {
-                if (event.status === "connecting") {
-                    reconnectAttempts++;
-                    // Only log after several attempts to avoid noise
-                    if (reconnectAttempts > 2) {
-                        log.warn(
-                            `Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts}`,
-                        );
-                    }
-
-                    if (reconnectAttempts > maxReconnectAttempts) {
-                        log.error(
-                            "Max reconnection attempts exceeded - connection failed",
-                        );
-                        log.error(
-                            "Possible causes: server down, token expired, or network issues",
-                        );
-                        // Stop trying to reconnect
-                        return;
-                    }
-                } else if (event.status === "connected") {
-                    reconnectAttempts = 0; // Reset counter on successful connection
-                    if (reconnectTimeout) {
-                        clearTimeout(reconnectTimeout);
-                        reconnectTimeout = null;
-                    }
-                    log.info("WebSocket connected successfully");
-                } else if (event.status === "disconnected") {
-                    // Add delay before allowing reconnection to prevent rapid cycling
-                    if (reconnectTimeout) {
-                        clearTimeout(reconnectTimeout);
-                    }
-                    reconnectTimeout = setTimeout(() => {
-                        if (reconnectAttempts < maxReconnectAttempts) {
-                            log.warn(
-                                "WebSocket disconnected - will attempt to reconnect automatically",
-                            );
-                        }
-                    }, 2000); // Wait 2 seconds before allowing reconnection
+        // Store handler reference for proper cleanup
+        statusReconnectHandler = (event: {
+            status: "connected" | "disconnected" | "connecting";
+        }) => {
+            if (event.status === "connecting") {
+                reconnectAttempts++;
+                // Only log after several attempts to avoid noise
+                if (reconnectAttempts > 2) {
+                    log.warn(
+                        `Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts}`,
+                    );
                 }
-            },
-        );
+
+                if (reconnectAttempts > maxReconnectAttempts) {
+                    log.error(
+                        "Max reconnection attempts exceeded - connection failed",
+                    );
+                    log.error(
+                        "Possible causes: server down, token expired, or network issues",
+                    );
+                    // Stop trying to reconnect
+                    return;
+                }
+            } else if (event.status === "connected") {
+                reconnectAttempts = 0; // Reset counter on successful connection
+                if (reconnectTimeout) {
+                    clearTimeout(reconnectTimeout);
+                    reconnectTimeout = null;
+                }
+                log.info("WebSocket connected successfully");
+            } else if (event.status === "disconnected") {
+                // Add delay before allowing reconnection to prevent rapid cycling
+                if (reconnectTimeout) {
+                    clearTimeout(reconnectTimeout);
+                }
+                reconnectTimeout = setTimeout(() => {
+                    if (reconnectAttempts < maxReconnectAttempts) {
+                        log.warn(
+                            "WebSocket disconnected - will attempt to reconnect automatically",
+                        );
+                    }
+                }, 2000); // Wait 2 seconds before allowing reconnection
+            }
+        };
+        provider.on("status", statusReconnectHandler);
 
         // 7. Add awareness change listener to update connected users
-        provider.awareness.on("change", () => {
+        // Store handler reference for proper cleanup
+        awarenessChangeHandler = () => {
             updateConnectedUsers();
-        });
+        };
+        provider.awareness.on("change", awarenessChangeHandler);
 
         // 8. Note: Save status tracking removed since backend handles saves automatically via Redis
 
@@ -882,22 +922,31 @@ const initEditor = async () => {
             diagnoseConnection: diagnoseConnectionIssue,
         };
 
-        // Add direct WebSocket event monitoring only in debug mode
-        if (
-            (import.meta.env.DEV ||
-                window.localStorage.getItem("editor-verbose-logging") ===
-                    "true") &&
-            provider &&
-            provider.ws
-        ) {
+        // Add direct WebSocket event monitoring - ALWAYS monitor close events
+        // to diagnose disconnection issues
+        if (provider && provider.ws) {
             const originalOnClose = provider.ws.onclose;
             provider.ws.onclose = (event: CloseEvent) => {
-                log.debug("WebSocket close event:", {
+                // Always log WebSocket close events as errors for debugging
+                // This helps identify why connections are closing prematurely
+                log.error("[DIAGNOSTIC] WebSocket closed!", {
                     code: event.code,
                     reason: event.reason || "No reason provided",
                     wasClean: event.wasClean,
                     closeCodeMeaning: getCloseCodeMeaning(event.code),
+                    timestamp: new Date().toISOString(),
+                    isDocumentHidden: document.hidden,
+                    providerState: {
+                        wsconnected: provider?.wsconnected,
+                        wsconnecting: provider?.wsconnecting,
+                    },
+                    docId: props.docId,
+                    yXmlFragmentLength: yXmlFragment?.length || 0,
+                    editorContent: editorView?.state.doc.textContent?.substring(0, 100) || "(empty)",
                 });
+
+                // Log stack trace to identify caller
+                log.debug("WebSocket close stack trace:", new Error().stack);
 
                 // Call original handler if it exists
                 if (originalOnClose && provider?.ws) {
@@ -907,7 +956,7 @@ const initEditor = async () => {
 
             const originalOnError = provider.ws.onerror;
             provider.ws.onerror = (event: Event) => {
-                log.debug("WebSocket error event:", {
+                log.error("WebSocket error event:", {
                     type: event.type,
                     timestamp: new Date().toISOString(),
                 });
@@ -1057,15 +1106,25 @@ const handleKeydown = (event: KeyboardEvent) => {
     }
 };
 
-// Handle tab visibility changes to prevent wasteful reconnect cycles
-// When browser backgrounds tab, timers get throttled causing irregular resyncs
-// This leads to timeout->reconnect->timeout cycles. Clean disconnect is better.
+// Handle tab visibility changes with debounce to prevent aggressive disconnection
+// When browser backgrounds tab for extended periods, we disconnect to save resources
+// But short tab switches (< 30 seconds) should maintain the connection
 const handleVisibilityChange = () => {
+    // Clear any pending visibility timeout
+    if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+        visibilityTimeout = null;
+    }
+
     if (document.hidden && provider?.wsconnected) {
-        log.info(
-            "Tab backgrounded - disconnecting WebSocket to save resources",
-        );
-        provider.disconnect();
+        // Wait 30 seconds before disconnecting when backgrounded
+        // This prevents disconnect during brief tab switches
+        visibilityTimeout = setTimeout(() => {
+            if (document.hidden && provider?.wsconnected) {
+                log.info("Tab backgrounded for 30s - disconnecting WebSocket to save resources");
+                provider.disconnect();
+            }
+        }, 30000);
     } else if (!document.hidden && provider && !provider.wsconnected) {
         log.info("Tab foregrounded - reconnecting WebSocket");
         provider.connect();
@@ -1238,9 +1297,33 @@ const cleanup = () => {
     if (provider) {
         try {
             // Remove all event listeners first to prevent callbacks during destruction
-            provider.off("status", null as any);
-            provider.off("connection-error", null as any);
-            provider.off("connection-close", null as any);
+            // Use stored handler references for proper removal
+            if (statusHandler) {
+                provider.off("status", statusHandler);
+                statusHandler = null;
+            }
+            if (statusReconnectHandler) {
+                provider.off("status", statusReconnectHandler);
+                statusReconnectHandler = null;
+            }
+            if (connectionErrorHandler) {
+                provider.off("connection-error", connectionErrorHandler);
+                connectionErrorHandler = null;
+            }
+            if (connectionCloseHandler) {
+                provider.off("connection-close", connectionCloseHandler);
+                connectionCloseHandler = null;
+            }
+            if (syncedHandler) {
+                provider.off("synced", syncedHandler);
+                syncedHandler = null;
+            }
+
+            // Remove awareness change handler
+            if (provider.awareness && awarenessChangeHandler) {
+                provider.awareness.off("change", awarenessChangeHandler);
+                awarenessChangeHandler = null;
+            }
 
             // Destroy awareness (this will no longer trigger editor updates)
             if (provider.awareness) {
@@ -1504,16 +1587,15 @@ onMounted(() => {
     document.addEventListener("keydown", handleKeydown);
     window.addEventListener("beforeunload", handleBeforeUnload);
 
-    // Add network status monitoring
-    window.addEventListener("online", () => {
-        log.info(
-            "Network came back online - websocket may reconnect automatically",
-        );
-    });
-
-    window.addEventListener("offline", () => {
+    // Add network status monitoring with stored handler references for proper cleanup
+    onlineHandler = () => {
+        log.info("Network came back online - websocket may reconnect automatically");
+    };
+    offlineHandler = () => {
         log.warn("Network went offline - websocket connection will be lost");
-    });
+    };
+    window.addEventListener("online", onlineHandler);
+    window.addEventListener("offline", offlineHandler);
 
     // Add visibility change listener (handler defined at top level)
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -1525,9 +1607,21 @@ onBeforeUnmount(() => {
     document.removeEventListener("keydown", handleKeydown);
     window.removeEventListener("beforeunload", handleBeforeUnload);
 
-    // Remove network status monitoring
-    window.removeEventListener("online", () => {});
-    window.removeEventListener("offline", () => {});
+    // Remove network status monitoring using stored handler references
+    if (onlineHandler) {
+        window.removeEventListener("online", onlineHandler);
+        onlineHandler = null;
+    }
+    if (offlineHandler) {
+        window.removeEventListener("offline", offlineHandler);
+        offlineHandler = null;
+    }
+
+    // Clear visibility change debounce timeout
+    if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+        visibilityTimeout = null;
+    }
 
     // Remove visibility change listener
     document.removeEventListener("visibilitychange", handleVisibilityChange);

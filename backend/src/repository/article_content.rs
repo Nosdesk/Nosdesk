@@ -89,4 +89,39 @@ pub fn get_latest_article_content_revision(
         .filter(article_content_revisions::article_content_id.eq(article_content_id))
         .order(article_content_revisions::revision_number.desc())
         .first(conn)
+}
+
+// Update Yjs state fields for ticket article content (snapshot-based persistence)
+pub fn update_article_yjs_state(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    yjs_document: Vec<u8>,
+) -> QueryResult<ArticleContent> {
+    // First check if article content exists for this ticket
+    let existing = article_contents::table
+        .filter(article_contents::ticket_id.eq(ticket_id))
+        .first::<ArticleContent>(conn);
+
+    match existing {
+        Ok(article) => {
+            // Update existing article content Yjs state
+            diesel::update(article_contents::table.find(article.id))
+                .set((
+                    article_contents::yjs_document.eq(Some(yjs_document)),
+                    article_contents::updated_at.eq(diesel::dsl::now),
+                ))
+                .get_result(conn)
+        },
+        Err(Error::NotFound) => {
+            // Create new article content with Yjs state
+            let new_content = NewArticleContent {
+                ticket_id,
+                yjs_state_vector: None,
+                yjs_document: Some(yjs_document),
+                yjs_client_id: None,
+            };
+            create_article_content(conn, new_content)
+        },
+        Err(e) => Err(e)
+    }
 } 
