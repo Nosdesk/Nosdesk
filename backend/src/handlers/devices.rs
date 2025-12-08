@@ -5,9 +5,10 @@ use diesel::result::Error;
 use std::collections::HashMap;
 use uuid::Uuid;
 use crate::utils;
+use crate::utils::rbac::{is_admin, is_technician_or_admin};
 
 use crate::db::Pool;
-use crate::models::{NewDevice, DeviceUpdate, Device, User};
+use crate::models::{Claims, NewDevice, DeviceUpdate, Device, User};
 use crate::repository;
 
 // Pagination query parameters
@@ -256,16 +257,33 @@ pub async fn get_user_devices(
     }
 }
 
-/// Create a new device
+/// Create a new device (technician or admin only)
 pub async fn create_device(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     device: web::Json<NewDevice>,
 ) -> impl Responder {
+    // Extract claims and check role
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can create devices"
+        }));
+    }
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
-    
+
     match repository::create_device(&mut conn, device.into_inner()) {
         Ok(device) => {
             // Get user data if device has a primary user
@@ -282,7 +300,7 @@ pub async fn create_device(
     }
 }
 
-/// Update a device
+/// Update a device (technician or admin only)
 pub async fn update_device(
     pool: web::Data<Pool>,
     path: web::Path<i32>,
@@ -296,11 +314,22 @@ pub async fn update_device(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    // Extract claims from cookie auth middleware for SSE events
-    let user_info = match req.extensions().get::<crate::models::Claims>() {
+    // Extract claims from cookie auth middleware for SSE events and role check
+    let user_info = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
     };
+
+    // Check role - only technicians and admins can update devices
+    if !is_technician_or_admin(&user_info) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can update devices"
+        }));
+    }
 
     // Check if device is editable (not synced from Microsoft Graph)
     let existing_device = match repository::get_device_by_id(&mut conn, device_id) {
@@ -369,17 +398,34 @@ pub async fn update_device(
     }
 }
 
-/// Delete a device
+/// Delete a device (admin only)
 pub async fn delete_device(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<i32>,
 ) -> impl Responder {
+    // Extract claims and check role
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only administrators can delete devices"
+        }));
+    }
+
     let device_id = path.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
-    
+
     match repository::delete_device(&mut conn, device_id) {
         Ok(rows_affected) => {
             if rows_affected > 0 {
@@ -397,7 +443,7 @@ pub async fn delete_device(
     }
 }
 
-/// Unmanage a device (remove Intune/Entra IDs to make it editable)
+/// Unmanage a device (remove Intune/Entra IDs to make it editable) - admin only
 pub async fn unmanage_device(
     pool: web::Data<Pool>,
     path: web::Path<i32>,
@@ -409,11 +455,22 @@ pub async fn unmanage_device(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    // Extract claims from cookie auth middleware
-    let _user_info = match req.extensions().get::<crate::models::Claims>() {
+    // Extract claims from cookie auth middleware and check role
+    let user_info = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
     };
+
+    // Only admins can unmanage devices
+    if !is_admin(&user_info) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only administrators can unmanage devices"
+        }));
+    }
 
     // Check if device exists
     let existing_device = match repository::get_device_by_id(&mut conn, device_id) {

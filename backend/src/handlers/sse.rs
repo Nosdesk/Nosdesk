@@ -324,7 +324,6 @@ pub async fn ticket_events_stream(
 
 #[derive(Deserialize)]
 pub struct TicketEventsQuery {
-    ticket_id: Option<i32>,
     sse_token: Option<String>,
 }
 

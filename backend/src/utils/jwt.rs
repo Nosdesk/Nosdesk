@@ -1,5 +1,4 @@
 use actix_web::{HttpResponse, Error as ActixError};
-use actix_web_httpauth::extractors::bearer::BearerAuth;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation, errors::ErrorKind};
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -158,19 +157,6 @@ impl JwtUtils {
         Ok((claims, user))
     }
 
-    /// Extract and validate JWT from BearerAuth
-    pub async fn authenticate_request(
-        auth: &BearerAuth,
-        conn: &mut DbConnection,
-    ) -> Result<(Claims, User), ActixError> {
-        let token = auth.token();
-
-        match Self::validate_token_with_user_check(token, conn).await {
-            Ok((claims, user)) => Ok((claims, user)),
-            Err(jwt_error) => Err(jwt_error.into()),
-        }
-    }
-
     /// Authenticate request using token string (for cookie-based auth)
     pub async fn authenticate_with_token(
         token: &str,
@@ -198,39 +184,6 @@ impl JwtUtils {
             .get::<Claims>()
             .cloned()
             .ok_or_else(|| actix_web::error::ErrorUnauthorized("Authentication required"))
-    }
-
-    /// Check if user has required role
-    pub fn check_role_permission(claims: &Claims, required_role: &str) -> Result<(), JwtError> {
-        match (claims.role.as_str(), required_role) {
-            ("admin", _) => Ok(()), // Admin can access everything
-            (user_role, required) if user_role == required => Ok(()),
-            ("technician", "user") => Ok(()), // Technician can access user-level resources
-            _ => Err(JwtError::InsufficientPermissions {
-                required: required_role.to_string(),
-                actual: claims.role.clone(),
-            }),
-        }
-    }
-
-    /// Check if token has required scope
-    /// Returns Ok if token has "full" scope or matches the required scope
-    pub fn check_scope(claims: &Claims, required_scope: &str) -> Result<(), JwtError> {
-        if claims.scope == "full" || claims.scope == required_scope {
-            Ok(())
-        } else {
-            Err(JwtError::InsufficientScope {
-                required: required_scope.to_string(),
-                actual: claims.scope.clone(),
-            })
-        }
-    }
-
-    /// Extract token from query parameters (for SSE where headers aren't supported)
-    pub fn extract_token_from_query(query_token: Option<&String>) -> Result<&str, JwtError> {
-        query_token
-            .map(|s| s.as_str())
-            .ok_or(JwtError::MissingToken)
     }
 
     /// Generate a cryptographically secure refresh token (32 bytes = 64 hex chars)
@@ -563,94 +516,5 @@ pub mod helpers {
         };
 
         Ok((response, tokens))
-    }
-
-    /// Middleware helper for role-based access control
-    pub async fn require_role(
-        auth: &BearerAuth,
-        conn: &mut DbConnection,
-        required_role: &str,
-    ) -> Result<(Claims, User), ActixError> {
-        let (claims, user) = JwtUtils::authenticate_request(auth, conn).await?;
-        JwtUtils::check_role_permission(&claims, required_role)?;
-        Ok((claims, user))
-    }
-
-    /// Middleware helper for admin-only access
-    pub async fn require_admin(
-        auth: &BearerAuth,
-        conn: &mut DbConnection,
-    ) -> Result<(Claims, User), ActixError> {
-        require_role(auth, conn, "admin").await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::models::UserRole;
-
-    #[test]
-    fn test_role_permission_check() {
-        let admin_claims = Claims {
-            sub: "test-uuid".to_string(),
-            name: "Admin User".to_string(),
-            email: "admin@test.com".to_string(),
-            role: "admin".to_string(),
-            scope: "full".to_string(),
-            exp: 9999999999,
-            iat: 1000000000,
-        };
-
-        let user_claims = Claims {
-            sub: "test-uuid".to_string(),
-            name: "Regular User".to_string(),
-            email: "user@test.com".to_string(),
-            role: "user".to_string(),
-            scope: "full".to_string(),
-            exp: 9999999999,
-            iat: 1000000000,
-        };
-
-        // Admin can access everything
-        assert!(JwtUtils::check_role_permission(&admin_claims, "admin").is_ok());
-        assert!(JwtUtils::check_role_permission(&admin_claims, "technician").is_ok());
-        assert!(JwtUtils::check_role_permission(&admin_claims, "user").is_ok());
-
-        // User can only access user-level resources
-        assert!(JwtUtils::check_role_permission(&user_claims, "user").is_ok());
-        assert!(JwtUtils::check_role_permission(&user_claims, "technician").is_err());
-        assert!(JwtUtils::check_role_permission(&user_claims, "admin").is_err());
-    }
-
-    #[test]
-    fn test_scope_check() {
-        let full_scope_claims = Claims {
-            sub: "test-uuid".to_string(),
-            name: "Test User".to_string(),
-            email: "test@test.com".to_string(),
-            role: "user".to_string(),
-            scope: "full".to_string(),
-            exp: 9999999999,
-            iat: 1000000000,
-        };
-
-        let limited_scope_claims = Claims {
-            sub: "test-uuid".to_string(),
-            name: "Test User".to_string(),
-            email: "test@test.com".to_string(),
-            role: "user".to_string(),
-            scope: "mfa_recovery".to_string(),
-            exp: 9999999999,
-            iat: 1000000000,
-        };
-
-        // Full scope can access everything
-        assert!(JwtUtils::check_scope(&full_scope_claims, "full").is_ok());
-        assert!(JwtUtils::check_scope(&full_scope_claims, "mfa_recovery").is_ok());
-
-        // Limited scope can only access matching scope
-        assert!(JwtUtils::check_scope(&limited_scope_claims, "mfa_recovery").is_ok());
-        assert!(JwtUtils::check_scope(&limited_scope_claims, "full").is_err());
     }
 } 

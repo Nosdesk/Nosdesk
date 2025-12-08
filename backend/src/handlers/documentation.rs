@@ -1,12 +1,14 @@
 use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use chrono::Utc;
 use serde::Deserialize;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::{Pool, DbConnection};
-use crate::models::{NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus, DocumentationPage, DocumentationPageResponse, UserInfo};
+use crate::models::{Claims, NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus, DocumentationPage, DocumentationPageResponse, UserInfo};
 use crate::repository;
 use crate::utils;
+use crate::utils::rbac::{is_admin, is_technician_or_admin};
 
 // DTO for creating documentation pages (fields that frontend should send)
 #[derive(Debug, Deserialize)]
@@ -139,10 +141,20 @@ pub async fn create_documentation_page(
     };
 
     // Extract claims from cookie auth middleware
-    let claims = match req.extensions().get::<crate::models::Claims>() {
+    let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
     };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can create documentation pages"
+        }));
+    }
 
     let request = page_request.into_inner();
 
@@ -225,10 +237,20 @@ pub async fn update_documentation_page(
     };
 
     // Extract claims from cookie auth middleware
-    let claims = match req.extensions().get::<crate::models::Claims>() {
+    let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
     };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can update documentation pages"
+        }));
+    }
 
     // Check if the page exists and get its current state
     match repository::get_documentation_page(page_id, &mut conn) {
@@ -323,10 +345,20 @@ pub async fn delete_documentation_page(
     };
 
     // Extract claims from cookie auth middleware
-    let claims = match req.extensions().get::<crate::models::Claims>() {
+    let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
     };
+
+    if !is_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only administrators can delete documentation pages"
+        }));
+    }
 
     // Check if the page exists
     match repository::get_documentation_page(page_id, &mut conn) {
@@ -453,6 +485,7 @@ pub struct ReorderPagesRequest {
 
 // Reorder pages under a parent
 pub async fn reorder_pages(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     request: web::Json<ReorderPagesRequest>,
 ) -> impl Responder {
@@ -460,6 +493,22 @@ pub async fn reorder_pages(
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
+
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can reorder documentation pages"
+        }));
+    }
 
     match repository::reorder_pages(&mut conn, Some(request.parent_id), &request.page_orders) {
         Ok(updated_pages) => HttpResponse::Ok().json(updated_pages),
@@ -479,6 +528,7 @@ pub struct MovePageRequest {
 
 // Move a page to a new parent
 pub async fn move_page_to_parent(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     request: web::Json<MovePageRequest>,
 ) -> impl Responder {
@@ -487,8 +537,24 @@ pub async fn move_page_to_parent(
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can move documentation pages"
+        }));
+    }
+
     let display_order = request.display_order.unwrap_or(0);
-    
+
     match repository::move_page_to_parent(&mut conn, request.page_id, request.new_parent_id, display_order) {
         Ok(page) => HttpResponse::Ok().json(page),
         Err(e) => {
@@ -594,10 +660,20 @@ pub async fn create_documentation_page_from_ticket(
     };
 
     // Extract claims from cookie auth middleware
-    let claims = match req.extensions().get::<crate::models::Claims>() {
+    let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
     };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can create documentation pages from tickets"
+        }));
+    }
 
     // Check if a documentation page already exists for this ticket
     match repository::get_documentation_pages_by_ticket_id(&mut conn, ticket_id) {

@@ -4,21 +4,9 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{UserEmail, NewUserEmail};
-use crate::schema::{user_emails, users};
+use crate::schema::user_emails;
 
-/// Get all emails for a specific user
-pub fn get_user_emails(
-    conn: &mut DbConnection,
-    user_uuid: &Uuid,
-) -> Result<Vec<UserEmail>, diesel::result::Error> {
-    user_emails::table
-        .filter(user_emails::user_uuid.eq(user_uuid))
-        .order(user_emails::is_primary.desc())
-        .then_order_by(user_emails::created_at.asc())
-        .load::<UserEmail>(conn)
-}
-
-/// Get all emails for a specific user by UUID (now redundant with get_user_emails, kept for compatibility)
+/// Get all emails for a specific user by UUID
 pub fn get_user_emails_by_uuid(
     conn: &mut DbConnection,
     user_uuid: &Uuid,

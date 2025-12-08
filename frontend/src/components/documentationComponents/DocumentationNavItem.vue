@@ -192,7 +192,7 @@ const hasChildren = computed(() => {
         <!-- Page Icon -->
         <span class="mr-1 flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center text-tertiary">
           <span v-if="page.icon && !isIconSvg(page.icon)" class="text-xs">{{ page.icon }}</span>
-          <span v-else-if="page.icon && isIconSvg(page.icon)" v-html="page.icon" class="w-3.5 h-3.5"></span>
+          <span v-else-if="page.icon && isIconSvg(page.icon)" v-safe-html.svg="page.icon" class="w-3.5 h-3.5"></span>
           <span v-else class="text-xs">📄</span>
         </span>
         

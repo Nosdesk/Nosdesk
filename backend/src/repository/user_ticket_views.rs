@@ -120,29 +120,4 @@ impl UserTicketViewsRepository {
                     .collect()
             })
     }
-
-    /// Get all views for a specific user
-    pub fn get_user_views(
-        &self,
-        user_uuid_param: Uuid,
-    ) -> Result<Vec<UserTicketView>, diesel::result::Error> {
-        use crate::schema::user_ticket_views::dsl::*;
-        let mut conn = self.pool.get().expect("Failed to get DB connection");
-
-        user_ticket_views
-            .filter(user_uuid.eq(user_uuid_param))
-            .order(last_viewed_at.desc())
-            .load::<UserTicketView>(&mut conn)
-    }
-
-    /// Delete a view record (for cleanup)
-    pub fn delete_view(
-        &self,
-        view_id: i32,
-    ) -> Result<usize, diesel::result::Error> {
-        use crate::schema::user_ticket_views::dsl::*;
-        let mut conn = self.pool.get().expect("Failed to get DB connection");
-
-        diesel::delete(user_ticket_views.find(view_id)).execute(&mut conn)
-    }
 }

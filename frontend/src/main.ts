@@ -1,7 +1,7 @@
 import './assets/main.css'
 import './services/apiConfig' // Import axios configuration
 
-// Initialize remote logging for debugging (can be disabled via localStorage)
+// Initialise remote logging for debugging (can be disabled via localStorage)
 import { interceptConsole } from './utils/remoteLogger'
 interceptConsole()
 
@@ -10,8 +10,12 @@ import { createPinia } from 'pinia'
 
 import App from './App.vue'
 import router from './router'
+import { vSafeHtml } from './directives/vSafeHtml'
 
 const app = createApp(App)
+
+// Register global directives
+app.directive('safe-html', vSafeHtml)
 
 const pinia = createPinia()
 app.use(pinia)

@@ -85,26 +85,3 @@ pub fn get_user_with_primary_email(
         updated_at: user.updated_at,
     }
 }
-
-/// Update user's primary email (updates the primary email in user_emails table)
-pub fn update_primary_email(
-    user_uuid: &Uuid,
-    new_email: String,
-    conn: &mut DbConnection,
-) -> Result<UserEmail, diesel::result::Error> {
-    use crate::schema::user_emails;
-
-    // Find current primary email
-    let current_primary = user_emails::table
-        .filter(user_emails::user_uuid.eq(user_uuid))
-        .filter(user_emails::is_primary.eq(true))
-        .first::<UserEmail>(conn)?;
-
-    // Update it with new email
-    diesel::update(user_emails::table.find(current_primary.id))
-        .set((
-            user_emails::email.eq(new_email),
-            user_emails::updated_at.eq(chrono::Utc::now().naive_utc())
-        ))
-        .get_result(conn)
-}

@@ -90,7 +90,8 @@ where
             || path == "/api/auth/setup/status"
             || path == "/api/auth/register"
             || path.starts_with("/api/auth/password-reset/")
-            || path.starts_with("/api/auth/mfa-reset/");
+            || path.starts_with("/api/auth/mfa-reset/")
+            || path == "/api/debug/frontend-logs";
 
         if is_public_endpoint {
             // Skip CSRF validation for public auth endpoints

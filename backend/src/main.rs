@@ -142,11 +142,8 @@ async fn main() -> std::io::Result<()> {
     }
     eprintln!("✅ DATABASE_URL is set");
 
-    if std::env::var("JWT_SECRET").is_err() {
-        eprintln!("❌ FATAL ERROR: JWT_SECRET environment variable is not set!");
-        std::process::exit(1);
-    }
-    eprintln!("✅ JWT_SECRET is set");
+    // JWT_SECRET presence is validated after tracing init (see below)
+    eprintln!("✅ JWT_SECRET will be validated after tracing initialization");
 
     eprintln!(">>> Initializing tracing...");
 
@@ -185,11 +182,21 @@ async fn main() -> std::io::Result<()> {
     debug!("  HOST: {}", env::var("HOST").unwrap_or("NOT_SET".to_string()));
     debug!("  PORT: {}", env::var("PORT").unwrap_or("NOT_SET".to_string()));
     
+    // Get environment early for validation
+    let environment = env::var("ENVIRONMENT").unwrap_or("development".to_string());
+    info!("Environment: {}", environment);
+
     // Validate that JWT_SECRET is set and secure
     let _jwt_secret = match std::env::var("JWT_SECRET") {
         Ok(secret) => {
             if secret.len() < 32 {
-                warn!("JWT_SECRET is less than 32 characters - consider using a longer key for production");
+                if environment == "production" {
+                    error!("❌ JWT_SECRET must be at least 32 characters in production");
+                    error!("   Generate a secure key with: openssl rand -base64 32");
+                    std::process::exit(1);
+                } else {
+                    warn!("JWT_SECRET is less than 32 characters - this would be rejected in production");
+                }
             }
             secret
         },
@@ -199,10 +206,7 @@ async fn main() -> std::io::Result<()> {
             std::process::exit(1);
         }
     };
-    
-    // Get environment early for validation
-    let environment = env::var("ENVIRONMENT").unwrap_or("development".to_string());
-    info!("Environment: {}", environment);
+    info!("✅ JWT_SECRET validated");
     
     // Validate that MFA_ENCRYPTION_KEY is set for production
     if environment == "production" {

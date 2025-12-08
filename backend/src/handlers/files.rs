@@ -191,20 +191,15 @@ pub async fn serve_temp_file(
 }
 
 // Helper function to extract token from request
+// SECURITY: Only accepts tokens via secure channels (cookies or Authorization header)
+// Query parameter tokens are NOT supported to prevent token exposure in URLs/logs
 fn extract_token_from_request(req: &actix_web::HttpRequest) -> Result<String, actix_web::Error> {
-    // First try httpOnly cookie (standard auth method)
+    // First try httpOnly cookie (preferred, most secure method)
     if let Some(cookie) = req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE) {
         return Ok(cookie.value().to_string());
     }
 
-    // Fallback to query parameter ?token=... (for legacy support or direct links)
-    if let Some(token) = req.query_string().split('&')
-        .find(|param| param.starts_with("token="))
-        .and_then(|param| param.split('=').nth(1)) {
-        return Ok(token.to_string());
-    }
-
-    // Finally try Authorization header
+    // Fallback to Authorization header (for API clients)
     if let Some(auth_header) = req.headers().get("Authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
             if let Some(token) = auth_str.strip_prefix("Bearer ") {
@@ -213,7 +208,7 @@ fn extract_token_from_request(req: &actix_web::HttpRequest) -> Result<String, ac
         }
     }
 
-    Err(actix_web::error::ErrorUnauthorized("No authentication token provided"))
+    Err(actix_web::error::ErrorUnauthorized("No authentication token provided. Use httpOnly cookie or Authorization header."))
 }
 
 // Helper function to validate token for file access

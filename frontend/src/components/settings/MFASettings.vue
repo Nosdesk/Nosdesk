@@ -4,6 +4,7 @@ import { ref, computed, onMounted } from "vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import OtpInput from "@/components/common/OtpInput.vue";
 import { useAuthStore } from "@/stores/auth";
+import { useMfaSetupStore } from "@/stores/mfaSetup";
 import { useMfa } from "@/composables/useMfa";
 
 // Props for different modes
@@ -25,6 +26,9 @@ const mfa = useMfa({ isLoginSetup: props.isLoginSetup });
 
 // Auth store for user data
 const authStore = useAuthStore();
+
+// Secure MFA setup store for credentials
+const mfaSetupStore = useMfaSetupStore();
 
 // UI-specific state
 const verificationCode = ref("");
@@ -75,25 +79,15 @@ const emitMfaMessages = () => {
 // Async setup function for login mode
 const setupMFAData = async () => {
     if (props.isLoginSetup) {
-        const context = await waitForContext();
+        const creds = await waitForCredentials();
         const setupData = await mfa.setupMFAForLogin(
-            context.email,
-            context.password,
+            creds.email,
+            creds.password,
         );
 
         if (!setupData) {
             throw new Error("Failed to start MFA setup");
         }
-
-        // Update the context with setup data
-        sessionStorage.setItem(
-            "mfaLoginSetupContext",
-            JSON.stringify({
-                ...context,
-                setupData,
-                timestamp: Date.now(),
-            }),
-        );
 
         emitMfaMessages();
         return setupData;
@@ -104,46 +98,30 @@ const setupMFAData = async () => {
     }
 };
 
-// Helper function for waiting for context
-const waitForContext = async (): Promise<any> => {
+// Helper function for waiting for credentials from secure store
+const waitForCredentials = async (): Promise<{ email: string; password: string }> => {
     return new Promise((resolve, reject) => {
         let attempts = 0;
         const maxAttempts = 30;
 
-        const checkForContext = () => {
-            const context = sessionStorage.getItem("mfaLoginSetupContext");
-            if (context) {
-                try {
-                    const parsed = JSON.parse(context);
-                    if (parsed.email && parsed.password) {
-                        resolve(parsed);
-                    } else {
-                        attempts++;
-                        if (attempts >= maxAttempts) {
-                            reject(
-                                new Error(
-                                    "Timeout waiting for MFA setup context",
-                                ),
-                            );
-                        } else {
-                            setTimeout(checkForContext, 100);
-                        }
-                    }
-                } catch (error) {
-                    logger.error("Failed to load MFA setup context:", error);
-                    reject(new Error("Invalid MFA setup context"));
+        const checkForCredentials = () => {
+            if (mfaSetupStore.hasValidCredentials) {
+                const creds = mfaSetupStore.getCredentials;
+                if (creds) {
+                    resolve({ email: creds.email, password: creds.password });
+                    return;
                 }
+            }
+
+            attempts++;
+            if (attempts >= maxAttempts) {
+                reject(new Error("Timeout waiting for MFA setup credentials"));
             } else {
-                attempts++;
-                if (attempts >= maxAttempts) {
-                    reject(new Error("Timeout waiting for MFA setup context"));
-                } else {
-                    setTimeout(checkForContext, 100);
-                }
+                setTimeout(checkForCredentials, 100);
             }
         };
 
-        checkForContext();
+        checkForCredentials();
     });
 };
 
@@ -234,16 +212,14 @@ const verifyMFA = async () => {
 };
 
 const enableMFAForLogin = async () => {
-    const context = sessionStorage.getItem("mfaLoginSetupContext");
-    if (!context) {
-        throw new Error("MFA setup context not found");
+    const creds = mfaSetupStore.getCredentials;
+    if (!creds) {
+        throw new Error("MFA setup credentials not found");
     }
 
-    const { email, password } = JSON.parse(context);
-
     const result = await mfa.enableMFAForLogin(
-        email,
-        password,
+        creds.email,
+        creds.password,
         verificationCode.value,
     );
 
@@ -311,8 +287,7 @@ const cancelMFASetup = () => {
 };
 
 const completeSetup = () => {
-    sessionStorage.removeItem("mfaLoginSetupContext");
-    sessionStorage.removeItem("mfaSetupCredentials");
+    mfaSetupStore.clearCredentials();
     emit("success", "setup-complete");
 };
 

@@ -1,9 +1,10 @@
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
 
 use crate::db::Pool;
 use crate::models::{NewProject, ProjectUpdate};
 use crate::repository;
+use crate::utils::rbac::{require_admin, require_technician_or_admin};
 
 // Get all projects with ticket counts
 pub async fn get_all_projects(
@@ -42,34 +43,44 @@ pub async fn get_project(
     }
 }
 
-// Create a new project
+// Create a new project (technician or admin only)
 pub async fn create_project(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     project: web::Json<NewProject>,
 ) -> impl Responder {
+    if let Err(e) = require_technician_or_admin(&req) {
+        return e;
+    }
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
-    
+
     match repository::create_project(&mut conn, project.into_inner()) {
         Ok(project) => HttpResponse::Created().json(project),
         Err(_) => HttpResponse::InternalServerError().json("Failed to create project"),
     }
 }
 
-// Update an existing project
+// Update an existing project (technician or admin only)
 pub async fn update_project(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<i32>,
     project_update: web::Json<ProjectUpdate>,
 ) -> impl Responder {
+    if let Err(e) = require_technician_or_admin(&req) {
+        return e;
+    }
+
     let project_id = path.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
-    
+
     match repository::update_project(&mut conn, project_id, project_update.into_inner()) {
         Ok(project) => HttpResponse::Ok().json(project),
         Err(e) => {
@@ -81,17 +92,22 @@ pub async fn update_project(
     }
 }
 
-// Delete a project
+// Delete a project (admin only)
 pub async fn delete_project(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<i32>,
 ) -> impl Responder {
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+
     let project_id = path.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
-    
+
     match repository::delete_project(&mut conn, project_id) {
         Ok(0) => HttpResponse::NotFound().json("Project not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
@@ -116,43 +132,53 @@ pub async fn get_project_tickets(
     }
 }
 
-// Add a ticket to a project
+// Add a ticket to a project (technician or admin only)
 pub async fn add_ticket_to_project(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    if let Err(e) = require_technician_or_admin(&req) {
+        return e;
+    }
+
     let (project_id, ticket_id) = path.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
-    
+
     match repository::add_ticket_to_project(&mut conn, project_id, ticket_id) {
         Ok(association) => {
             // Broadcast SSE event for project assignment
             println!("Broadcasting SSE event: Ticket {} assigned to project {}", ticket_id, project_id);
             use crate::utils::sse::SseBroadcaster;
             SseBroadcaster::broadcast_project_assigned(&sse_state, ticket_id, project_id).await;
-            
+
             HttpResponse::Created().json(association)
         },
         Err(_) => HttpResponse::InternalServerError().json("Failed to add ticket to project"),
     }
 }
 
-// Remove a ticket from a project
+// Remove a ticket from a project (technician or admin only)
 pub async fn remove_ticket_from_project(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    if let Err(e) = require_technician_or_admin(&req) {
+        return e;
+    }
+
     let (project_id, ticket_id) = path.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
-    
+
     match repository::remove_ticket_from_project(&mut conn, project_id, ticket_id) {
         Ok(0) => HttpResponse::NotFound().json("Association not found"),
         Ok(_) => {
@@ -160,7 +186,7 @@ pub async fn remove_ticket_from_project(
             println!("Broadcasting SSE event: Ticket {} unassigned from project {}", ticket_id, project_id);
             use crate::utils::sse::SseBroadcaster;
             SseBroadcaster::broadcast_project_unassigned(&sse_state, ticket_id, project_id).await;
-            
+
             HttpResponse::NoContent().finish()
         },
         Err(_) => HttpResponse::InternalServerError().json("Failed to remove ticket from project"),

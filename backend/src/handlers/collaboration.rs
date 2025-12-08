@@ -113,8 +113,6 @@ const MIN_SAVE_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_PENDING_DURATION: Duration = Duration::from_secs(120);
 // How long to wait before doing final save on empty room
 const EMPTY_ROOM_FINAL_SAVE_DELAY: Duration = Duration::from_secs(2);
-// How long to keep document state after room becomes empty
-const EMPTY_ROOM_CLEANUP_DELAY: Duration = Duration::from_secs(300); // 5 minutes
 
 // Document type enum to distinguish between tickets and documentation
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -132,13 +130,6 @@ impl DocumentType {
             id_str.parse::<i32>().ok().map(DocumentType::Documentation)
         } else {
             None
-        }
-    }
-
-    fn to_string(&self) -> String {
-        match self {
-            DocumentType::Ticket(id) => format!("ticket-{}", id),
-            DocumentType::Documentation(id) => format!("doc-{}", id),
         }
     }
 }
@@ -332,19 +323,9 @@ impl DocumentState {
         // Only do final save if room has been empty for a bit, changes exist, and we haven't done it yet
         if let Some(empty_since) = self.room_empty_since {
             let now = Instant::now();
-            return !self.final_save_completed && 
+            return !self.final_save_completed &&
                    (self.has_pending_changes || now.duration_since(empty_since) < Duration::from_secs(5)) &&
                    now.duration_since(empty_since) >= EMPTY_ROOM_FINAL_SAVE_DELAY;
-        }
-        false
-    }
-    
-    fn should_cleanup(&self) -> bool {
-        // Clean up document state after room has been empty for the cleanup delay and final save is done
-        if let Some(empty_since) = self.room_empty_since {
-            let now = Instant::now();
-            return self.final_save_completed &&
-                   now.duration_since(empty_since) >= EMPTY_ROOM_CLEANUP_DELAY;
         }
         false
     }
@@ -832,18 +813,6 @@ impl YjsAppState {
         }
     }
 
-    // Helper method to save a document by ID
-    async fn save_document_by_id(&self, doc_id: &str) {
-        let mut documents = self.documents.write().await;
-        if let Some(doc_state) = documents.get_mut(doc_id) {
-            // Force save regardless of timing constraints when explicitly called
-            if doc_state.has_pending_changes {
-                self.save_document_internal(doc_id, &doc_state.awareness);
-                doc_state.mark_saved();
-            }
-        }
-    }
-
     // Broadcast update to all sessions in a room except sender
     async fn broadcast(&self, doc_id: &str, sender_id: &str, msg: &[u8]) {
         if msg.is_empty() {
@@ -959,22 +928,6 @@ impl YjsAppState {
                 });
             }
         }
-    }
-
-    // Save document state to Redis immediately for fast recovery on page refresh
-    // This is called after updates are applied to ensure the latest state is cached
-    async fn save_to_redis_immediately(&self, doc_id: &str, awareness: &Awareness) {
-        // Get binary content from the document
-        let binary_content = {
-            let doc = awareness.doc();
-            let txn = doc.transact();
-            txn.encode_state_as_update_v1(&StateVector::default())
-        };
-
-        println!("💾 Immediate Redis save for {} ({} bytes)", doc_id, binary_content.len());
-
-        // Save to Redis synchronously (fast, in-memory)
-        self.redis_cache.set_document(doc_id, &binary_content).await;
     }
 
     // Create a snapshot revision for version history using native Yrs encoding
@@ -1108,7 +1061,6 @@ struct YjsWebSocket {
     doc_id: String,
     app_state: YjsAppState,
     hb: Instant,
-    protocol: DefaultProtocol,
     user_uuid: Uuid, // User UUID for contributor tracking
     // Statistics for debugging
     messages_received: u32,
@@ -1127,7 +1079,6 @@ impl YjsWebSocket {
             doc_id,
             app_state,
             hb: now,
-            protocol: DefaultProtocol,
             user_uuid,
             messages_received: 0,
             pings_sent: 0,

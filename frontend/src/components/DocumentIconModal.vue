@@ -167,7 +167,7 @@ const handleClose = () => {
         <div class="flex items-center gap-3">
           <div class="flex items-center justify-center w-12 h-12 bg-surface-alt rounded-md">
             <span v-if="!isSelectedIconSvg" class="text-3xl select-none">{{ selectedIcon }}</span>
-            <span v-else v-html="selectedIcon" class="w-8 h-8 text-primary"></span>
+            <span v-else v-safe-html.svg="selectedIcon" class="w-8 h-8 text-primary"></span>
           </div>
           <div>
             <p class="text-sm text-secondary">Current Selection</p>
@@ -197,7 +197,7 @@ const handleClose = () => {
           class="flex items-center justify-center p-2 hover:bg-surface-hover rounded-md transition-colors"
           :class="{ 'bg-surface ring-2 ring-brand-blue': selectedIcon === icon.svg }"
         >
-          <span v-html="icon.svg" class="w-6 h-6 text-primary"></span>
+          <span v-safe-html.svg="icon.svg" class="w-6 h-6 text-primary"></span>
         </button>
       </div>
 

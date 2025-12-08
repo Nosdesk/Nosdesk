@@ -326,6 +326,10 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout() {
+    // Check if user logged in via OIDC provider
+    const currentProvider = authProvider.value;
+    const isOidcUser = currentProvider === 'oidc';
+
     try {
       // Call backend logout endpoint to clear cookies
       await apiClient.post('/auth/logout');
@@ -350,12 +354,31 @@ export const useAuthStore = defineStore('auth', () => {
     // Remove auth provider header
     delete axios.defaults.headers.common['X-Auth-Provider'];
 
-    // Redirect to login page
+    // For OIDC users, also logout from the identity provider (e.g., Keycloak)
+    if (isOidcUser) {
+      try {
+        const response = await apiClient.post('/auth/oauth/logout', {
+          provider_type: 'oidc',
+          redirect_uri: window.location.origin + '/login'
+        });
+
+        if (response.data.logout_url) {
+          // Redirect to OIDC provider's logout endpoint
+          window.location.href = response.data.logout_url;
+          return; // Don't navigate with router, we're doing a full redirect
+        }
+      } catch (err) {
+        logger.error('OIDC logout request failed:', err);
+        // Continue with normal redirect if OIDC logout fails
+      }
+    }
+
+    // Redirect to login page (for non-OIDC users or if OIDC logout fails)
     router.push('/login');
   }
 
   // Helper method to set auth provider consistently
-  function setAuthProvider(provider: 'local' | 'microsoft') {
+  function setAuthProvider(provider: 'local' | 'microsoft' | 'oidc') {
     authProvider.value = provider;
     localStorage.setItem('authProvider', provider);
     axios.defaults.headers.common['X-Auth-Provider'] = provider;

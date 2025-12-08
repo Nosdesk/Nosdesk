@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::models::{Claims, NewTicket, TicketPriority, TicketStatus, TicketUpdate, TicketsJson, UserRole};
 use crate::repository;
+use crate::utils::rbac::{is_admin, is_technician_or_admin};
 
 // Helper type for database operations with proper error handling
 type DbResult<T> = Result<T, HttpResponse>;
@@ -377,10 +378,27 @@ pub async fn update_ticket(
 
 // Delete a ticket with comprehensive cleanup
 pub async fn delete_ticket(
+    req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     path: web::Path<i32>,
 ) -> impl Responder {
+    // Extract claims and check role
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only administrators can delete tickets"
+        }));
+    }
+
     let ticket_id = path.into_inner();
     let mut conn = match get_db_conn(&pool).await {
         Ok(conn) => conn,
@@ -404,9 +422,26 @@ pub async fn delete_ticket(
 
 // Import tickets from JSON file
 pub async fn import_tickets_from_json(
+    req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     json_path: web::Path<String>,
 ) -> impl Responder {
+    // Extract claims and check role
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only administrators can import tickets"
+        }));
+    }
+
     let json_path_str = json_path.into_inner();
     let path = Path::new(&json_path_str);
 
@@ -448,9 +483,26 @@ pub async fn import_tickets_from_json(
 
 // Import tickets from JSON string
 pub async fn import_tickets_from_json_string(
+    req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     tickets_json: web::Json<TicketsJson>,
 ) -> impl Responder {
+    // Extract claims and check role
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only administrators can import tickets"
+        }));
+    }
+
     let mut conn = match get_db_conn(&pool).await {
         Ok(conn) => conn,
         Err(e) => return e,
@@ -675,10 +727,27 @@ pub async fn update_ticket_partial(
 
 // Link tickets
 pub async fn link_tickets(
+    req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    // Extract claims and check role
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can link tickets"
+        }));
+    }
+
     let (ticket_id, linked_ticket_id) = path.into_inner();
     let mut conn = match get_db_conn(&pool).await {
         Ok(conn) => conn,
@@ -715,10 +784,27 @@ pub async fn link_tickets(
 
 // Unlink tickets
 pub async fn unlink_tickets(
+    req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    // Extract claims and check role
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can unlink tickets"
+        }));
+    }
+
     let (ticket_id, linked_ticket_id) = path.into_inner();
     let mut conn = match get_db_conn(&pool).await {
         Ok(conn) => conn,
@@ -755,10 +841,27 @@ pub async fn unlink_tickets(
 
 // Add device to ticket
 pub async fn add_device_to_ticket(
+    req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    // Extract claims and check role
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can add devices to tickets"
+        }));
+    }
+
     let (ticket_id, device_id) = path.into_inner();
     let mut conn = match get_db_conn(&pool).await {
         Ok(conn) => conn,
@@ -798,10 +901,27 @@ pub async fn add_device_to_ticket(
 
 // Remove device from ticket
 pub async fn remove_device_from_ticket(
+    req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    // Extract claims and check role
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can remove devices from tickets"
+        }));
+    }
+
     let (ticket_id, device_id) = path.into_inner();
     let mut conn = match get_db_conn(&pool).await {
         Ok(conn) => conn,

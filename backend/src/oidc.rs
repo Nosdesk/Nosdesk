@@ -14,13 +14,14 @@ use openidconnect::{
     core::{CoreClient, CoreProviderMetadata, CoreIdToken, CoreIdTokenClaims, CoreIdTokenVerifier},
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce,
     OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope,
-    TokenResponse, AuthUrl, TokenUrl, UserInfoUrl,
+    TokenResponse, AuthUrl, TokenUrl, UserInfoUrl, EndSessionUrl,
     reqwest::async_http_client,
+    AdditionalProviderMetadata, ProviderMetadata,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error, debug};
+use tracing::{info, warn, debug};
 
 use crate::config_utils;
 
@@ -37,6 +38,8 @@ pub struct OidcConfig {
     pub display_name: String,
     pub scopes: Vec<String>,
     pub username_claim: String,
+    /// OIDC logout URI for single sign-out (reserved for future use)
+    #[allow(dead_code)]
     pub logout_uri: Option<String>,
 }
 
@@ -81,6 +84,98 @@ impl OidcConfig {
     }
 }
 
+// Cached OIDC configuration (loaded once at startup)
+lazy_static::lazy_static! {
+    /// Cached OIDC configuration - None if OIDC is not enabled or config is invalid
+    static ref OIDC_CONFIG: Option<OidcConfig> = {
+        if !config_utils::is_oidc_enabled() {
+            return None;
+        }
+        match OidcConfig::from_env() {
+            Ok(config) => Some(config),
+            Err(e) => {
+                eprintln!("Failed to load OIDC config: {}", e);
+                None
+            }
+        }
+    };
+}
+
+/// Get the cached OIDC configuration (if enabled and valid)
+#[allow(dead_code)]
+pub fn get_config() -> Option<&'static OidcConfig> {
+    OIDC_CONFIG.as_ref()
+}
+
+/// Get the OIDC display name (returns "OIDC" as default if not configured)
+pub fn get_display_name_cached() -> String {
+    OIDC_CONFIG
+        .as_ref()
+        .map(|c| c.display_name.clone())
+        .unwrap_or_else(|| "OIDC".to_string())
+}
+
+/// Get the cached end_session_endpoint URL (from discovery or manual config)
+/// This is used for RP-initiated logout
+pub async fn get_end_session_endpoint() -> Option<String> {
+    // First, ensure the client is initialized (which populates the endpoint cache)
+    let _ = get_oidc_client().await;
+
+    // Return the cached endpoint
+    let endpoint_guard = END_SESSION_ENDPOINT.read().await;
+    endpoint_guard.clone()
+}
+
+/// Generate a logout URL for RP-initiated logout (OpenID Connect RP-Initiated Logout 1.0)
+///
+/// Parameters:
+/// - `post_logout_redirect_uri`: Where to redirect after logout (must be registered with the OIDC provider)
+/// - `id_token_hint`: Optional ID token to hint which user is logging out (recommended for security)
+/// - `state`: Optional state parameter for CSRF protection on the redirect
+///
+/// Returns the full logout URL or None if OIDC logout is not configured
+pub async fn generate_logout_url(
+    post_logout_redirect_uri: &str,
+    id_token_hint: Option<&str>,
+    state: Option<&str>,
+) -> Option<String> {
+    let end_session_endpoint = get_end_session_endpoint().await?;
+
+    // Build query parameters
+    let mut params: Vec<(&str, String)> = vec![
+        ("post_logout_redirect_uri", post_logout_redirect_uri.to_string()),
+    ];
+
+    // id_token_hint helps the OP identify the user without requiring confirmation
+    if let Some(token) = id_token_hint {
+        params.push(("id_token_hint", token.to_string()));
+    }
+
+    // state is optional CSRF protection for the redirect
+    if let Some(s) = state {
+        params.push(("state", s.to_string()));
+    }
+
+    // Include client_id for providers that require it
+    if let Some(config) = get_config() {
+        params.push(("client_id", config.client_id.clone()));
+    }
+
+    // Build query string using urlencoding
+    let query_string: String = params
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+        .collect::<Vec<_>>()
+        .join("&");
+
+    // Append query to endpoint URL
+    let separator = if end_session_endpoint.contains('?') { "&" } else { "?" };
+    let logout_url = format!("{}{}{}", end_session_endpoint, separator, query_string);
+
+    info!("OIDC: Generated logout URL: {}", logout_url);
+    Some(logout_url)
+}
+
 /// User info extracted from OIDC ID token and/or userinfo endpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcUserInfo {
@@ -113,8 +208,40 @@ pub struct OidcAuthData {
     pub nonce: String,
 }
 
+/// Additional provider metadata for logout support (RP-Initiated Logout 1.0)
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct LogoutProviderMetadata {
+    /// URL for the end session endpoint (for RP-initiated logout)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_session_endpoint: Option<EndSessionUrl>,
+}
+impl AdditionalProviderMetadata for LogoutProviderMetadata {}
+
+/// Provider metadata type with logout support
+type ProviderMetadataWithLogout = ProviderMetadata<
+    LogoutProviderMetadata,
+    openidconnect::core::CoreAuthDisplay,
+    openidconnect::core::CoreClientAuthMethod,
+    openidconnect::core::CoreClaimName,
+    openidconnect::core::CoreClaimType,
+    openidconnect::core::CoreGrantType,
+    openidconnect::core::CoreJweContentEncryptionAlgorithm,
+    openidconnect::core::CoreJweKeyManagementAlgorithm,
+    openidconnect::core::CoreJwsSigningAlgorithm,
+    openidconnect::core::CoreJsonWebKeyType,
+    openidconnect::core::CoreJsonWebKeyUse,
+    openidconnect::core::CoreJsonWebKey,
+    openidconnect::core::CoreResponseMode,
+    openidconnect::core::CoreResponseType,
+    openidconnect::core::CoreSubjectIdentifierType,
+>;
+
 /// Cached OIDC client for reuse
 static OIDC_CLIENT: once_cell::sync::Lazy<Arc<RwLock<Option<CoreClient>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(None)));
+
+/// Cached end_session_endpoint URL (discovered from provider metadata)
+static END_SESSION_ENDPOINT: once_cell::sync::Lazy<Arc<RwLock<Option<String>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(None)));
 
 /// Initialize or get the cached OIDC client
@@ -154,13 +281,36 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<CoreClient, String> {
         let issuer = IssuerUrl::new(issuer_url.clone())
             .map_err(|e| format!("Invalid issuer URL: {}", e))?;
 
-        // Discover provider metadata
-        let provider_metadata = CoreProviderMetadata::discover_async(issuer, async_http_client)
-            .await
-            .map_err(|e| format!("OIDC discovery failed: {}", e))?;
+        // Discover provider metadata with logout support
+        let provider_metadata: ProviderMetadataWithLogout =
+            ProviderMetadataWithLogout::discover_async(issuer, async_http_client)
+                .await
+                .map_err(|e| format!("OIDC discovery failed: {}", e))?;
+
+        // Cache the end_session_endpoint if available from discovery or config fallback
+        if let Some(end_session_url) = provider_metadata.additional_metadata().end_session_endpoint.as_ref() {
+            let url_string = end_session_url.url().to_string();
+            info!("OIDC: Discovered end_session_endpoint: {}", url_string);
+            let mut endpoint_guard = END_SESSION_ENDPOINT.write().await;
+            *endpoint_guard = Some(url_string);
+        } else if let Some(ref logout_uri) = config.logout_uri {
+            // Fallback to manually configured logout URI if discovery doesn't provide one
+            info!("OIDC: Using manually configured logout URI as fallback: {}", logout_uri);
+            let mut endpoint_guard = END_SESSION_ENDPOINT.write().await;
+            *endpoint_guard = Some(logout_uri.clone());
+        } else {
+            info!("OIDC: Provider does not advertise end_session_endpoint and no OIDC_LOGOUT_URI configured");
+        }
+
+        // Convert to CoreProviderMetadata for client creation
+        // We need to re-discover with CoreProviderMetadata since the client expects that type
+        let core_metadata = CoreProviderMetadata::discover_async(
+            IssuerUrl::new(issuer_url.clone()).unwrap(),
+            async_http_client
+        ).await.map_err(|e| format!("OIDC discovery failed: {}", e))?;
 
         let client = CoreClient::from_provider_metadata(
-            provider_metadata,
+            core_metadata,
             client_id,
             Some(client_secret),
         )
@@ -175,6 +325,13 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<CoreClient, String> {
             .map_err(|e| format!("Invalid auth URI: {}", e))?;
         let token_url = TokenUrl::new(config.token_uri.clone().unwrap())
             .map_err(|e| format!("Invalid token URI: {}", e))?;
+
+        // Cache the logout_uri from config if provided (for manual configuration)
+        if let Some(ref logout_uri) = config.logout_uri {
+            info!("OIDC: Using manually configured logout URI: {}", logout_uri);
+            let mut endpoint_guard = END_SESSION_ENDPOINT.write().await;
+            *endpoint_guard = Some(logout_uri.clone());
+        }
 
         // For manual config, we create a minimal client without provider metadata
         // Note: This won't have JWKS for ID token signature verification
@@ -371,13 +528,6 @@ pub fn get_display_name(user_info: &OidcUserInfo, config: &OidcConfig) -> String
         .or_else(|| user_info.name.clone())
         .or_else(|| user_info.email.clone())
         .unwrap_or_else(|| user_info.sub.clone())
-}
-
-/// Clear the cached OIDC client (useful if config changes)
-pub async fn clear_client_cache() {
-    let mut client_guard = OIDC_CLIENT.write().await;
-    *client_guard = None;
-    info!("OIDC: Client cache cleared");
 }
 
 #[cfg(test)]

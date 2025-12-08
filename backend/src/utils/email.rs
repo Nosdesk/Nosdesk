@@ -463,20 +463,6 @@ impl EmailService {
 
         self.send_html_email(to, subject, &html_body).await
     }
-
-    /// Get the current configuration (sanitized - no password)
-    pub fn get_config_info(&self) -> serde_json::Value {
-        serde_json::json!({
-            "smtp_host": self.config.smtp_host,
-            "smtp_port": self.config.smtp_port,
-            "smtp_username": self.config.smtp_username,
-            "smtp_password_configured": !self.config.smtp_password.is_empty(),
-            "from_name": self.config.from_name,
-            "from_email": self.config.from_email,
-            "enabled": self.config.enabled,
-            "is_configured": self.config.is_configured()
-        })
-    }
 }
 
 #[cfg(test)]

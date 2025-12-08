@@ -50,7 +50,7 @@ pub use microsoft_graph::*;
 pub use msgraph_integration::{get_connection_status, get_config_validation, test_connection, sync_data, get_sync_progress_endpoint, get_active_syncs, cancel_sync_session, get_last_sync, get_entra_object_id};
 
 // Import necessary types for placeholders
-use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
+use actix_web::{web, HttpResponse, HttpMessage, Responder};
 use serde_json::json;
 use std::sync::Arc;
 

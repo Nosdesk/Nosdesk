@@ -96,11 +96,6 @@ pub fn is_oidc_enabled() -> bool {
     env::var("OIDC_CLIENT_ID").is_ok() && env::var("OIDC_CLIENT_SECRET").is_ok()
 }
 
-/// Check if OIDC auto-discovery is available (issuer URL is set)
-pub fn is_oidc_discovery_enabled() -> bool {
-    env::var("OIDC_ISSUER_URL").is_ok()
-}
-
 /// Get OIDC client ID
 pub fn get_oidc_client_id() -> Result<String, ConfigError> {
     get_env_var("OIDC_CLIENT_ID")
@@ -154,11 +149,4 @@ pub fn get_oidc_username_claim() -> String {
 /// Get OIDC logout URI (optional)
 pub fn get_oidc_logout_uri() -> Option<String> {
     env::var("OIDC_LOGOUT_URI").ok()
-}
-
-/// Check if OIDC auto-redirect is disabled
-pub fn is_oidc_redirect_disabled() -> bool {
-    env::var("OIDC_DISABLE_REDIRECT")
-        .map(|v| v.to_lowercase() == "true" || v == "1" || v.to_lowercase() == "yes")
-        .unwrap_or(false)
 } 

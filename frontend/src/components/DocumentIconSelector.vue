@@ -61,7 +61,7 @@ const isCurrentIconSvg = computed(() => {
       aria-label="Select document icon"
     >
       <span v-if="!isCurrentIconSvg" class="select-none">{{ currentIcon }}</span>
-      <span v-else v-html="currentIcon" :class="[sizeClasses[size]]" class="text-primary"></span>
+      <span v-else v-safe-html.svg="currentIcon" :class="[sizeClasses[size]]" class="text-primary"></span>
     </button>
 
     <!-- Icon modal -->

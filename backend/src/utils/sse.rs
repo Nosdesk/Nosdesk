@@ -1,6 +1,4 @@
-// Removed unused import: use serde_json::json;
 use crate::handlers::sse::{SseState, TicketEvent};
-use crate::utils::jwt::JwtUtils;
 use actix_web::web;
 use chrono::Utc;
 
@@ -199,20 +197,6 @@ impl SseBroadcaster {
                 timestamp,
             }
         }).await;
-    }
-
-    /// Get the number of currently connected SSE clients
-    pub fn get_connected_clients_count(state: &web::Data<SseState>) -> usize {
-        state.get_client_count()
-    }
-
-    /// Validate SSE authentication token from query parameters
-    pub async fn validate_sse_token(
-        token: Option<&String>,
-        conn: &mut crate::db::DbConnection,
-    ) -> Result<(crate::models::Claims, crate::models::User), crate::utils::jwt::JwtError> {
-        let token_str = JwtUtils::extract_token_from_query(token)?;
-        JwtUtils::validate_token_with_user_check(token_str, conn).await
     }
 }
 

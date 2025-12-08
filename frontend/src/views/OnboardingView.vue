@@ -2,11 +2,13 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { useMfaSetupStore } from '@/stores/mfaSetup';
 import logo from '@/assets/logo.svg';
 import authService, { type AdminSetupRequest } from '@/services/authService';
 
 const router = useRouter();
 const authStore = useAuthStore();
+const mfaSetupStore = useMfaSetupStore();
 const isLoading = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
@@ -180,17 +182,12 @@ const attemptAutoLogin = async (): Promise<boolean> => {
         // Redirect to MFA setup with proper credentials storage
         setTimeout(() => {
           console.log('🔄 Onboarding: MFA setup required, storing credentials');
-          
-          // Store credentials in sessionStorage for MFA setup
-          sessionStorage.setItem('mfaSetupCredentials', JSON.stringify({
-            email: adminData.value.email,
-            password: adminData.value.password,
-            from: 'onboarding',
-            timestamp: Date.now()
-          }));
-          
+
+          // Store credentials securely in memory-only Pinia store
+          mfaSetupStore.setCredentials(adminData.value.email, adminData.value.password, 'onboarding');
+
           console.log('🔄 Onboarding: Credentials stored for MFA setup');
-          
+
           router.push({ name: 'mfa-setup' });
         }, 1500);
         return true;

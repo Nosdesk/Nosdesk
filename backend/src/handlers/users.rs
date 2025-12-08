@@ -8,7 +8,7 @@ use futures::{StreamExt, TryStreamExt};
 use actix_multipart::Multipart;
 use std::collections::HashSet;
 
-use crate::models::{NewUser, UserResponse, UserUpdate, UserUpdateWithPassword, UserProfileUpdate};
+use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword, UserProfileUpdate};
 use crate::repository;
 use crate::repository::user_emails as user_emails_repo;
 use crate::utils;

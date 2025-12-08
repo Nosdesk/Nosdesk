@@ -3,6 +3,7 @@
 import { ref, onMounted, nextTick } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
+import { useMfaSetupStore } from "@/stores/mfaSetup";
 import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
 import MFARecoveryModal from "@/components/auth/MFARecoveryModal.vue";
@@ -12,6 +13,7 @@ import logo from "@/assets/logo.svg";
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+const mfaSetupStore = useMfaSetupStore();
 const { handleMicrosoftLogin, handleMicrosoftLogout, error: microsoftError } = useMicrosoftAuth();
 const email = ref("");
 const password = ref("");
@@ -34,7 +36,6 @@ onMounted(async () => {
   try {
     const setupStatus = await authService.checkSetupStatus();
     if (setupStatus.requires_setup) {
-      console.log('No users found, redirecting to onboarding...');
       router.replace({ name: 'onboarding' });
       return;
     }
@@ -42,7 +43,6 @@ onMounted(async () => {
     oidcEnabled.value = setupStatus.oidc_enabled || false;
     oidcDisplayName.value = setupStatus.oidc_display_name || "SSO";
   } catch (error) {
-    console.error('Failed to check setup status:', error);
     // Continue to show login page if check fails
   }
 
@@ -80,15 +80,10 @@ const handleLogin = async () => {
     // Check if MFA setup is required and redirect to MFA setup view
     if (authStore.mfaSetupRequired) {
       console.log('🔄 MFA setup required, redirecting to MFA setup view');
-      
-      // Store credentials in sessionStorage for MFA setup
-      sessionStorage.setItem('mfaSetupCredentials', JSON.stringify({
-        email: email.value,
-        password: password.value,
-        from: 'login',
-        timestamp: Date.now()
-      }));
-      
+
+      // Store credentials securely in memory-only Pinia store
+      mfaSetupStore.setCredentials(email.value, password.value, 'login');
+
       // Redirect to MFA setup view
       router.push({ name: "mfa-setup" });
       return;
@@ -243,6 +238,41 @@ const handleOidcLoginClick = async () => {
     console.error("Error initiating OIDC authentication:", error);
     errorMessage.value = error.message || "Failed to initiate SSO authentication";
     isLoading.value = false;
+  }
+};
+
+const handleOidcLogoutClick = async () => {
+  try {
+    errorMessage.value = "";
+    successMessage.value = "";
+
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+    const response = await fetch(`${API_BASE_URL}/api/auth/oauth/logout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        provider_type: 'oidc',
+        redirect_uri: window.location.href,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to get logout URL');
+    }
+
+    const data = await response.json();
+    if (data.logout_url) {
+      window.location.href = data.logout_url;
+    } else {
+      // Provider doesn't support logout, show message
+      successMessage.value = data.message || 'Logged out of application. You may still be signed in to your identity provider.';
+    }
+  } catch (error: any) {
+    console.error("Error logging out of OIDC provider:", error);
+    errorMessage.value = error.message || "Failed to initiate SSO logout";
   }
 };
 </script>
@@ -553,29 +583,50 @@ const handleOidcLoginClick = async () => {
           </div>
 
           <!-- OIDC/SSO Button -->
-          <button
-            v-if="oidcEnabled"
-            type="button"
-            @click="handleOidcLoginClick"
-            :disabled="isLoading"
-            class="w-full flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5 mr-2"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+          <div v-if="oidcEnabled" class="flex gap-2">
+            <button
+              type="button"
+              @click="handleOidcLoginClick"
+              :disabled="isLoading"
+              class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-              <polyline points="10 17 15 12 10 7" />
-              <line x1="15" y1="12" x2="3" y2="12" />
-            </svg>
-            Sign in with {{ oidcDisplayName }}
-          </button>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-5 w-5 mr-2"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                <polyline points="10 17 15 12 10 7" />
+                <line x1="15" y1="12" x2="3" y2="12" />
+              </svg>
+              Sign in with {{ oidcDisplayName }}
+            </button>
+
+            <button
+              type="button"
+              @click="handleOidcLogoutClick"
+              :title="`Sign out of ${oidcDisplayName} account`"
+              class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-5 w-5"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fill-rule="evenodd"
+                  d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
       </form>
 

@@ -18,14 +18,6 @@ impl TokenType {
         }
     }
 
-    pub fn from_str(s: &str) -> Result<Self, String> {
-        match s {
-            "password_reset" => Ok(TokenType::PasswordReset),
-            "mfa_reset" => Ok(TokenType::MfaReset),
-            _ => Err(format!("Invalid token type: {}", s)),
-        }
-    }
-
     /// Get the expiration duration for this token type
     pub fn expiration_duration(&self) -> Duration {
         match self {

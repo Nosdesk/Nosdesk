@@ -11,7 +11,7 @@ use crate::db::{Pool, DbConnection};
 use crate::utils::jwt::JWT_SECRET;
 use crate::models::{
     OAuthRequest, OAuthExchangeRequest,
-    OAuthState, Claims, AuthProvider
+    OAuthState, AuthProvider
 };
 use diesel::prelude::*;
 // Auth providers are now configured via environment variables
@@ -56,7 +56,7 @@ fn get_provider_by_type(provider_type: &str) -> Result<AuthProvider, diesel::res
             if config_utils::is_oidc_enabled() {
                 Ok(AuthProvider::new(
                     3,
-                    config_utils::get_oidc_display_name(),
+                    crate::oidc::get_display_name_cached(),
                     "oidc".to_string(),
                     true,
                     false,
@@ -98,7 +98,7 @@ fn get_provider_by_id(provider_id: i32) -> Result<AuthProvider, diesel::result::
             if config_utils::is_oidc_enabled() {
                 Ok(AuthProvider::new(
                     3,
-                    config_utils::get_oidc_display_name(),
+                    crate::oidc::get_display_name_cached(),
                     "oidc".to_string(),
                     true,
                     false,
@@ -168,7 +168,7 @@ pub async fn get_auth_providers(
     if config_utils::is_oidc_enabled() {
         providers.push(json!({
             "id": 3,
-            "name": config_utils::get_oidc_display_name(),
+            "name": crate::oidc::get_display_name_cached(),
             "provider_type": "oidc",
             "enabled": true,
             "is_default": false
@@ -207,7 +207,7 @@ pub async fn get_enabled_auth_providers(
         providers.push(json!({
             "id": 3,
             "provider_type": "oidc",
-            "name": config_utils::get_oidc_display_name(),
+            "name": crate::oidc::get_display_name_cached(),
             "is_default": false
         }));
     }
@@ -1037,37 +1037,62 @@ pub async fn oauth_logout(
         }
     };
 
-    // For Microsoft Entra, generate the logout URL
-    if provider.provider_type == "microsoft" {
-        // Get the tenant ID from environment variables
-        let tenant_id = match config_utils::get_microsoft_tenant_id() {
-            Ok(val) => val,
-            Err(e) => {
-                eprintln!("Error getting tenant_id for Microsoft provider: {:?}", e);
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Microsoft authentication is not properly configured: {}", e)
-                }));
+    // Generate logout URL based on provider type
+    match provider.provider_type.as_str() {
+        "microsoft" => {
+            // For Microsoft Entra, generate the logout URL
+            let tenant_id = match config_utils::get_microsoft_tenant_id() {
+                Ok(val) => val,
+                Err(e) => {
+                    eprintln!("Error getting tenant_id for Microsoft provider: {:?}", e);
+                    return HttpResponse::InternalServerError().json(json!({
+                        "status": "error",
+                        "message": format!("Microsoft authentication is not properly configured: {}", e)
+                    }));
+                }
+            };
+
+            // URL encode the redirect URI
+            let encoded_redirect = urlencoding::encode(&logout_request.redirect_uri);
+
+            // Create the logout URL
+            let logout_url = format!(
+                "https://login.microsoftonline.com/{}/oauth2/v2.0/logout?post_logout_redirect_uri={}",
+                tenant_id, encoded_redirect
+            );
+
+            HttpResponse::Ok().json(json!({
+                "logout_url": logout_url
+            }))
+        },
+        "oidc" => {
+            // For OIDC providers, use the RP-initiated logout flow
+            // Generate the logout URL with the redirect URI
+            match oidc::generate_logout_url(
+                &logout_request.redirect_uri,
+                None, // id_token_hint - could be passed from frontend if available
+                None, // state - could be used for CSRF protection
+            ).await {
+                Some(logout_url) => {
+                    HttpResponse::Ok().json(json!({
+                        "logout_url": logout_url
+                    }))
+                },
+                None => {
+                    // OIDC provider doesn't support logout or isn't configured
+                    HttpResponse::Ok().json(json!({
+                        "logout_url": null,
+                        "message": "OIDC provider does not support RP-initiated logout or end_session_endpoint is not configured"
+                    }))
+                }
             }
-        };
-        
-        // URL encode the redirect URI
-        let encoded_redirect = urlencoding::encode(&logout_request.redirect_uri);
-        
-        // Create the logout URL
-        let logout_url = format!(
-            "https://login.microsoftonline.com/{}/oauth2/v2.0/logout?post_logout_redirect_uri={}",
-            tenant_id, encoded_redirect
-        );
-        
-        HttpResponse::Ok().json(json!({
-            "logout_url": logout_url
-        }))
-    } else {
-        HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": format!("{} logout is not implemented", provider.name)
-        }))
+        },
+        _ => {
+            HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": format!("{} logout is not implemented", provider.name)
+            }))
+        }
     }
 }
 
@@ -1349,34 +1374,6 @@ async fn find_or_create_oauth_user(
             }
         },
         Err(e) => Err(format!("Failed to create user: {:?}", e)),
-    }
-}
-
-// Helper function to generate application JWT token
-fn generate_app_jwt_token(user: &crate::models::User) -> Result<String, String> {
-    let secret = JWT_SECRET.clone();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as usize;
-
-    let claims = Claims {
-        sub: crate::utils::uuid_to_string(&user.uuid),
-        name: user.name.clone(),
-        email: String::new(),
-        role: crate::utils::role_to_string(&user.role),
-        scope: "full".to_string(),
-        exp: now + 24 * 60 * 60, // 24 hours from now
-        iat: now,
-    };
-
-    match jsonwebtoken::encode(
-        &jsonwebtoken::Header::default(),
-        &claims,
-        &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
-    ) {
-        Ok(token) => Ok(token),
-        Err(e) => Err(format!("Failed to create JWT: {}", e)),
     }
 }
 

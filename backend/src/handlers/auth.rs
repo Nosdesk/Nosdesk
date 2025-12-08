@@ -967,7 +967,7 @@ pub async fn check_setup_status(
             // Check if OIDC is configured
             let oidc_enabled = crate::config_utils::is_oidc_enabled();
             let oidc_display_name = if oidc_enabled {
-                Some(crate::config_utils::get_oidc_display_name())
+                Some(crate::oidc::get_display_name_cached())
             } else {
                 None
             };
