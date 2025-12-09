@@ -14,9 +14,18 @@ pub fn get_comments_by_ticket_id(conn: &mut DbConnection, ticket_id: i32) -> Que
 }
 
 pub fn create_comment(conn: &mut DbConnection, new_comment: NewComment) -> QueryResult<Comment> {
-    diesel::insert_into(comments::table)
+    let result = diesel::insert_into(comments::table)
         .values(&new_comment)
-        .get_result(conn)
+        .get_result(conn);
+
+    // Update the parent ticket's updated_at timestamp
+    if result.is_ok() {
+        let _ = diesel::update(tickets::table.find(new_comment.ticket_id))
+            .set(tickets::updated_at.eq(diesel::dsl::now))
+            .execute(conn);
+    }
+
+    result
 }
 
 // Attachment operations

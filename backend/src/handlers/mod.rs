@@ -295,9 +295,18 @@ pub async fn add_comment_to_ticket(
             // Use the centralized SSE broadcasting utility
             use crate::utils::sse::SseBroadcaster;
             SseBroadcaster::broadcast_comment_added(&sse_state, ticket_id, response.clone()).await;
-            
-            println!("SSE: Successfully broadcasted comment-added event for ticket {}", ticket_id);
-            
+
+            // Also broadcast the ticket modified date update
+            SseBroadcaster::broadcast_ticket_updated(
+                &sse_state,
+                ticket_id,
+                "modified",
+                serde_json::json!(chrono::Utc::now()),
+                &claims.sub,
+            ).await;
+
+            println!("SSE: Successfully broadcasted comment-added and modified events for ticket {}", ticket_id);
+
             println!("Successfully created comment with {} attachments", attachments.len());
             println!("Returning JSON response: {}", response);
             HttpResponse::Created().json(response)

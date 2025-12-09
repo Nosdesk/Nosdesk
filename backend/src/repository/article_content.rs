@@ -70,6 +70,7 @@ pub fn get_latest_article_content_revision(
 }
 
 // Update Yjs state fields for ticket article content (snapshot-based persistence)
+// Also updates the parent ticket's updated_at timestamp
 pub fn update_article_yjs_state(
     conn: &mut DbConnection,
     ticket_id: i32,
@@ -80,7 +81,7 @@ pub fn update_article_yjs_state(
         .filter(article_contents::ticket_id.eq(ticket_id))
         .first::<ArticleContent>(conn);
 
-    match existing {
+    let result = match existing {
         Ok(article) => {
             // Update existing article content Yjs state
             diesel::update(article_contents::table.find(article.id))
@@ -101,5 +102,14 @@ pub fn update_article_yjs_state(
             create_article_content(conn, new_content)
         },
         Err(e) => Err(e)
+    };
+
+    // Update the parent ticket's updated_at timestamp
+    if result.is_ok() {
+        let _ = diesel::update(tickets::table.find(ticket_id))
+            .set(tickets::updated_at.eq(diesel::dsl::now))
+            .execute(conn);
     }
+
+    result
 } 

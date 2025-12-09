@@ -382,15 +382,17 @@ pub struct YjsAppState {
     sessions: RoomSessionStore,
     pool: web::Data<crate::db::Pool>,
     redis_cache: Arc<RedisYjsCache>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
 }
 
 impl YjsAppState {
-    pub fn new(pool: web::Data<crate::db::Pool>, redis_cache: Arc<RedisYjsCache>) -> Self {
+    pub fn new(pool: web::Data<crate::db::Pool>, redis_cache: Arc<RedisYjsCache>, sse_state: web::Data<crate::handlers::sse::SseState>) -> Self {
         let state = YjsAppState {
             documents: Arc::new(RwLock::new(HashMap::new())),
             sessions: Arc::new(RwLock::new(HashMap::new())),
             pool,
             redis_cache,
+            sse_state,
         };
         // Start the periodic cleanup and save task
         let state_clone = state.clone();
@@ -931,11 +933,22 @@ impl YjsAppState {
         match doc_type {
             DocumentType::Ticket(ticket_id) => {
                 // Save ticket article content Yjs snapshot to PostgreSQL (snapshot-based persistence)
+                let sse_state = self.sse_state.clone();
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
                             match repository::update_article_yjs_state(&mut conn, ticket_id, content) {
-                                Ok(_) => println!("✅ Successfully saved Yjs snapshot for ticket {}", ticket_id),
+                                Ok(_) => {
+                                    println!("✅ Successfully saved Yjs snapshot for ticket {}", ticket_id);
+                                    // Broadcast SSE event for ticket modified date update
+                                    crate::utils::sse::SseBroadcaster::broadcast_ticket_updated(
+                                        &sse_state,
+                                        ticket_id,
+                                        "modified",
+                                        serde_json::json!(chrono::Utc::now()),
+                                        "system", // Article edits are tracked by the system
+                                    ).await;
+                                },
                                 Err(e) => println!("❌ Failed to save Yjs snapshot for ticket {}: {:?}", ticket_id, e),
                             }
                         },

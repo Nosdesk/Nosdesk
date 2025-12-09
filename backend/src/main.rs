@@ -438,11 +438,11 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    // Initialize WebSocket app state for collaborative editing
-    let yjs_app_state = web::Data::new(handlers::collaboration::YjsAppState::new(web::Data::new(pool.clone()), redis_cache));
-
-    // Initialize SSE state for real-time ticket updates
+    // Initialize SSE state for real-time ticket updates (must be created before YjsAppState)
     let sse_state = web::Data::new(handlers::sse::SseState::new());
+
+    // Initialize WebSocket app state for collaborative editing (includes SseState for broadcasting)
+    let yjs_app_state = web::Data::new(handlers::collaboration::YjsAppState::new(web::Data::new(pool.clone()), redis_cache, sse_state.clone()));
 
     // Initialize system state for tracking uptime
     let system_state = web::Data::new(handlers::system::SystemState::new());
