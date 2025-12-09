@@ -673,77 +673,10 @@ const initEditor = async () => {
         };
         provider.on("synced", syncedHandler);
 
-        // Monitor raw WebSocket messages to debug why content isn't loading
-        if (provider.ws) {
-            const originalOnMessage = provider.ws.onmessage;
-            const originalSend = provider.ws.send.bind(provider.ws);
-
-            // Log outgoing messages
-            provider.ws.send = (data: string | ArrayBufferLike | Blob | ArrayBufferView) => {
-                if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
-                    const dataView = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array((data as ArrayBufferView).buffer);
-                    const messageType = dataView.length > 0 ? dataView[0] : null;
-
-                    let typeLabel = 'UNKNOWN';
-                    if (messageType === 0) typeLabel = 'MESSAGE_SYNC';
-                    else if (messageType === 1) typeLabel = 'MESSAGE_AWARENESS';
-
-                    log.info("📤 Sending WebSocket message:", {
-                        size: `${dataView.length} bytes`,
-                        messageType: typeLabel,
-                        firstByte: messageType !== null ? `0x${messageType.toString(16).padStart(2, '0')}` : 'null',
-                    });
-
-                    // For SYNC messages, log sync step
-                    if (messageType === 0 && dataView.length > 1) {
-                        const syncStep = dataView[1];
-                        const stepLabel = syncStep === 0 ? 'SYNC_STEP_1 (state vector)' : syncStep === 1 ? 'SYNC_STEP_2' : 'SYNC_UPDATE';
-                        log.info(`   Sync step: ${stepLabel} (0x${syncStep.toString(16).padStart(2, '0')})`);
-                    }
-                }
-                return originalSend(data);
-            };
-
-            provider.ws.onmessage = (event) => {
-                if (event.data instanceof ArrayBuffer || event.data instanceof Blob) {
-                    const size = event.data instanceof ArrayBuffer ? event.data.byteLength : event.data.size;
-
-                    // DIAGNOSTIC: Decode and inspect message structure
-                    if (event.data instanceof ArrayBuffer) {
-                        const dataView = new Uint8Array(event.data);
-                        const messageType = dataView.length > 0 ? dataView[0] : null;
-
-                        // Get first 20 bytes in hex format (matching backend logging)
-                        const previewLen = Math.min(dataView.length, 20);
-                        const preview = Array.from(dataView.slice(0, previewLen))
-                            .map(b => b.toString(16).padStart(2, '0'))
-                            .join(' ');
-
-                        // Decode message type
-                        let typeLabel = 'UNKNOWN';
-                        if (messageType === 0) typeLabel = 'MESSAGE_SYNC (0x00)';
-                        else if (messageType === 1) typeLabel = 'MESSAGE_AWARENESS (0x01)';
-                        else if (messageType === 2) typeLabel = 'MESSAGE_AUTH (0x02)';
-
-                        log.info("📨 Raw WebSocket binary message received:", {
-                            size: `${size} bytes`,
-                            messageType: typeLabel,
-                            firstByte: messageType !== null ? `0x${messageType.toString(16).padStart(2, '0')}` : 'null',
-                            first20Bytes: preview,
-                        });
-
-                    } else {
-                        log.info("📨 Raw WebSocket binary message received:", {
-                            size: `${size} bytes`,
-                            type: event.data.constructor.name,
-                        });
-                    }
-                }
-                if (originalOnMessage && provider?.ws) {
-                    originalOnMessage.call(provider.ws, event);
-                }
-            };
-        }
+        // Note: We intentionally do NOT override provider.ws.onmessage here.
+        // y-websocket handles all sync messages (SYNC_STEP_1, SYNC_STEP_2, SYNC_UPDATE)
+        // internally through its messageHandlers. Overriding onmessage can interfere
+        // with the sync protocol and cause document content to not be applied correctly.
 
         // Track sync protocol errors which can cause disconnections
         // Monitor document updates to verify content is syncing
