@@ -716,8 +716,19 @@ impl YjsAppState {
         if let Some(doc_state) = documents.get_mut(doc_id) {
             doc_state.mark_room_active();
         }
+        drop(documents);
 
         println!("Session {} joined document {} (room now has {} users)", session_id, doc_id, room_size);
+
+        // Broadcast viewer count change via SSE for tickets
+        if let Some(DocumentType::Ticket(ticket_id)) = DocumentType::from_doc_id(doc_id) {
+            let sse_state = self.sse_state.clone();
+            crate::utils::sse::SseBroadcaster::broadcast_viewer_count(
+                &sse_state,
+                ticket_id,
+                room_size,
+            ).await;
+        }
     }
 
     // Update session activity timestamp
@@ -742,11 +753,22 @@ impl YjsAppState {
             let is_empty = room.is_empty();
             println!("Session {} left document {} (room now has {} users)", session_id, doc_id, room_size);
 
+            // Release the sessions lock before any async operations
+            drop(sessions);
+
+            // Broadcast viewer count change via SSE for tickets
+            if let Some(DocumentType::Ticket(ticket_id)) = DocumentType::from_doc_id(doc_id) {
+                let sse_state = self.sse_state.clone();
+                crate::utils::sse::SseBroadcaster::broadcast_viewer_count(
+                    &sse_state,
+                    ticket_id,
+                    room_size,
+                ).await;
+            }
+
             // If room is empty, mark it as empty but don't save immediately
             if is_empty {
                 println!("Room for document {} is now empty, will save after delay", doc_id);
-                // Release the sessions lock to avoid deadlock
-                drop(sessions);
 
                 // Mark the document as having an empty room
                 let mut documents = self.documents.write().await;

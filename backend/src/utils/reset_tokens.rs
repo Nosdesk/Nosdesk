@@ -8,6 +8,7 @@ use uuid::Uuid;
 pub enum TokenType {
     PasswordReset,
     MfaReset,
+    Invitation,
 }
 
 impl TokenType {
@@ -15,14 +16,16 @@ impl TokenType {
         match self {
             TokenType::PasswordReset => "password_reset",
             TokenType::MfaReset => "mfa_reset",
+            TokenType::Invitation => "invitation",
         }
     }
 
     /// Get the expiration duration for this token type
     pub fn expiration_duration(&self) -> Duration {
         match self {
-            TokenType::PasswordReset => Duration::hours(1), // 1 hour for password resets
-            TokenType::MfaReset => Duration::minutes(15),   // 15 minutes for MFA resets
+            TokenType::PasswordReset => Duration::hours(1),  // 1 hour for password resets
+            TokenType::MfaReset => Duration::minutes(15),    // 15 minutes for MFA resets
+            TokenType::Invitation => Duration::days(7),      // 7 days for user invitations
         }
     }
 }

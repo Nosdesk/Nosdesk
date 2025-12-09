@@ -208,11 +208,18 @@ pub struct CreateUserRequest {
     banner_url: Option<String>,
     avatar_thumb: Option<String>,
     microsoft_uuid: Option<Uuid>,
+    /// Optional password - if provided, sets the password directly.
+    /// If not provided and SMTP is configured, sends an invitation email.
+    /// If not provided and SMTP is not configured, returns an error.
+    password: Option<String>,
+    /// Whether to send an invitation email (only used when SMTP is configured and no password provided)
+    send_invitation: Option<bool>,
 }
 
 pub async fn create_user(
     db_pool: web::Data<crate::db::Pool>,
     user_data: web::Json<CreateUserRequest>,
+    req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
@@ -221,6 +228,21 @@ pub async fn create_user(
             "message": "Could not get database connection"
         })),
     };
+
+    // Get the admin user who is creating this user (for invitation email)
+    let admin_name = req.extensions()
+        .get::<crate::models::Claims>()
+        .and_then(|claims| {
+            uuid::Uuid::parse_str(&claims.sub)
+                .ok()
+                .and_then(|uuid| repository::get_user_by_uuid(&uuid, &mut conn).ok())
+                .map(|u| u.name)
+        })
+        .unwrap_or_else(|| "An administrator".to_string());
+
+    // Check email configuration
+    let email_config = crate::utils::email::EmailConfig::from_env().ok();
+    let smtp_configured = email_config.as_ref().map(|c| c.is_configured()).unwrap_or(false);
 
     // Comprehensive input validation using our validation utilities
     let mut validation_errors = Vec::new();
@@ -240,10 +262,32 @@ pub async fn create_user(
         validation_errors.push("email: Invalid email format".to_string());
     }
 
+    // Validate password if provided
+    if let Some(ref password) = user_data.password {
+        if password.len() < 8 {
+            validation_errors.push("password: Password must be at least 8 characters".to_string());
+        } else if password.len() > 128 {
+            validation_errors.push("password: Password must be less than 128 characters".to_string());
+        }
+    }
+
+    // If no password provided and SMTP not configured, require password
+    if user_data.password.is_none() && !smtp_configured {
+        validation_errors.push("password: Password is required when email is not configured".to_string());
+    }
+
+    if !validation_errors.is_empty() {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Validation failed",
+            "errors": validation_errors
+        }));
+    }
+
     // Validate role
     let _role_enum = match user_data.role {
         crate::models::UserRole::Admin => "admin",
-        crate::models::UserRole::Technician => "technician", 
+        crate::models::UserRole::Technician => "technician",
         crate::models::UserRole::User => "user",
     };
     // Role is already validated by the enum type
@@ -286,7 +330,7 @@ pub async fn create_user(
 
     // Create new user with normalized data using builder
     let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
-    let (new_user, email) = utils::NewUserBuilder::new(normalized_name, normalized_email, user_data.role)
+    let (new_user, email) = utils::NewUserBuilder::new(normalized_name.clone(), normalized_email, user_data.role)
         .with_uuid(user_uuid)
         .with_pronouns(user_data.pronouns.as_ref().map(|p| p.trim().to_string()))
         .with_avatar(
@@ -299,37 +343,117 @@ pub async fn create_user(
 
     match repository::user_helpers::create_user_with_email(new_user, email.clone(), true, Some("manual".to_string()), &mut conn) {
         Ok((user, _email_entry)) => {
-            // Create default password hash for this user
             use bcrypt::hash;
             use crate::models::NewUserAuthIdentity;
 
-            let password_hash = match hash("changeme", DEFAULT_COST) {
-                Ok(hash) => hash,
-                Err(e) => {
-                    eprintln!("Error hashing password: {:?}", e);
+            // Determine how to handle authentication setup
+            let (password_hash, invitation_sent) = if let Some(ref password) = user_data.password {
+                // Password provided - hash it directly
+                let hash = match hash(password, DEFAULT_COST) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        eprintln!("Error hashing password: {:?}", e);
+                        return HttpResponse::InternalServerError().json(json!({
+                            "status": "error",
+                            "message": "Error setting password"
+                        }));
+                    }
+                };
+                (Some(hash), false)
+            } else if smtp_configured && user_data.send_invitation.unwrap_or(true) {
+                // No password, SMTP configured - create invitation token and send email
+                let invitation_token = crate::utils::reset_tokens::ResetTokenUtils::create_reset_token(
+                    user.uuid,
+                    crate::utils::reset_tokens::TokenType::Invitation,
+                );
+
+                // Store the invitation token
+                let ip_address = req.connection_info().realip_remote_addr().map(|s| s.to_string());
+                let user_agent = req.headers()
+                    .get("User-Agent")
+                    .and_then(|h| h.to_str().ok())
+                    .map(|s| s.to_string());
+
+                if let Err(e) = repository::reset_tokens::create_reset_token(
+                    &mut conn,
+                    &invitation_token.token_hash,
+                    user.uuid,
+                    invitation_token.token_type.as_str(),
+                    ip_address.as_deref(),
+                    user_agent.as_deref(),
+                    invitation_token.expires_at,
+                    None,
+                ) {
+                    eprintln!("Error storing invitation token: {:?}", e);
                     return HttpResponse::InternalServerError().json(json!({
                         "status": "error",
-                        "message": "Error setting default password"
+                        "message": "Error creating invitation"
                     }));
                 }
+
+                // Send invitation email
+                let base_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| {
+                    let conn_info = req.connection_info();
+                    format!("{}://{}", conn_info.scheme(), conn_info.host())
+                });
+
+                let email_service = match crate::utils::email::EmailService::from_env() {
+                    Ok(service) => service,
+                    Err(e) => {
+                        eprintln!("Error initializing email service: {:?}", e);
+                        return HttpResponse::InternalServerError().json(json!({
+                            "status": "error",
+                            "message": "Error sending invitation email"
+                        }));
+                    }
+                };
+
+                if let Err(e) = email_service.send_invitation_email(
+                    &email,
+                    &normalized_name,
+                    &invitation_token.raw_token,
+                    &base_url,
+                    &admin_name,
+                ).await {
+                    eprintln!("Error sending invitation email: {:?}", e);
+                    // Don't fail - user was created, just couldn't send email
+                    println!("⚠️ User created but invitation email failed to send");
+                }
+
+                (None, true) // No password hash - user will set via invitation
+            } else {
+                // No password and no SMTP - this should have been caught in validation
+                return HttpResponse::BadRequest().json(json!({
+                    "status": "error",
+                    "message": "Password is required when email is not configured"
+                }));
             };
 
             println!("Created user with UUID: {}", user.uuid);
 
-            // Create local auth identity with default password
+            // Create local auth identity (with or without password)
             let new_identity = NewUserAuthIdentity {
                 user_uuid: user.uuid,
                 provider_type: "local".to_string(),
                 external_id: utils::uuid_to_string(&user.uuid),
                 email: Some(email.clone()),
                 metadata: None,
-                password_hash: Some(password_hash),
+                password_hash,
             };
 
             match repository::user_auth_identities::create_identity(new_identity, &mut conn) {
                 Ok(_) => {
-                    println!("✅ New user created successfully: {} (default password: changeme)", user.name);
-                    let response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+                    if invitation_sent {
+                        println!("✅ New user created successfully: {} (invitation email sent)", user.name);
+                    } else {
+                        println!("✅ New user created successfully: {} (password set)", user.name);
+                    }
+                    let mut response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+                    // Add invitation_sent flag to response
+                    if let serde_json::Value::Object(ref mut map) = serde_json::to_value(&response).unwrap_or_default() {
+                        map.insert("invitation_sent".to_string(), serde_json::Value::Bool(invitation_sent));
+                        return HttpResponse::Created().json(map.clone());
+                    }
                     HttpResponse::Created().json(response)
                 },
                 Err(e) => {
@@ -342,7 +466,7 @@ pub async fn create_user(
         },
         Err(e) => {
             eprintln!("Error creating user: {:?}", e);
-            
+
             // Provide more specific error messages for common issues
             let error_message = if format!("{:?}", e).contains("duplicate") || format!("{:?}", e).contains("unique") {
                 if format!("{:?}", e).contains("email") {
@@ -355,7 +479,7 @@ pub async fn create_user(
             } else {
                 "Error creating user"
             };
-            
+
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": error_message

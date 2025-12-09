@@ -198,6 +198,21 @@ impl SseBroadcaster {
             }
         }).await;
     }
+
+    /// Broadcast viewer count change for a ticket to all connected clients
+    pub async fn broadcast_viewer_count(
+        state: &web::Data<SseState>,
+        ticket_id: i32,
+        count: usize,
+    ) {
+        Self::broadcast_generic_event(state, |timestamp| {
+            TicketEvent::ViewerCountChanged {
+                ticket_id,
+                count,
+                timestamp,
+            }
+        }).await;
+    }
 }
 
 /// Macro for easy SSE broadcasting with error handling

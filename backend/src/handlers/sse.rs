@@ -89,6 +89,11 @@ pub enum TicketEvent {
         updated_by: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    ViewerCountChanged {
+        ticket_id: i32,
+        count: usize,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     Heartbeat {
         timestamp: chrono::DateTime<chrono::Utc>,
     },
@@ -227,6 +232,7 @@ impl Stream for SseStream {
                     TicketEvent::TicketLinked { .. } => "ticket-linked",
                     TicketEvent::TicketUnlinked { .. } => "ticket-unlinked",
                     TicketEvent::DocumentationUpdated { .. } => "documentation-updated",
+                    TicketEvent::ViewerCountChanged { .. } => "viewer-count-changed",
                     TicketEvent::Heartbeat { .. } => "heartbeat",
                 };
 

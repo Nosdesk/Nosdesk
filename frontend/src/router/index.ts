@@ -70,6 +70,16 @@ const router = createRouter({
       }
     },
     {
+      path: '/accept-invitation',
+      name: 'accept-invitation',
+      component: () => import('@/views/AcceptInvitationView.vue'),
+      meta: {
+        layout: 'blank',
+        requiresAuth: false,
+        title: 'Accept Invitation'
+      }
+    },
+    {
       path: '/onboarding',
       name: 'onboarding',
       component: OnboardingView,

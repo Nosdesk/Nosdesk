@@ -463,6 +463,131 @@ impl EmailService {
 
         self.send_html_email(to, subject, &html_body).await
     }
+
+    /// Send a user invitation email for new account setup
+    pub async fn send_invitation_email(
+        &self,
+        to: &str,
+        user_name: &str,
+        invitation_token: &str,
+        base_url: &str,
+        invited_by: &str,
+    ) -> Result<(), String> {
+        if !self.config.is_configured() {
+            return Err("Email is not configured".to_string());
+        }
+
+        let setup_link = format!("{}/accept-invitation?token={}", base_url, invitation_token);
+
+        let html_body = format!(
+            r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }}
+        .container {{
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }}
+        .header {{
+            text-align: center;
+            margin-bottom: 30px;
+        }}
+        .header h1 {{
+            color: #059669;
+            margin: 0;
+            font-size: 24px;
+        }}
+        .content {{
+            margin-bottom: 30px;
+        }}
+        .button {{
+            display: inline-block;
+            background-color: #059669;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-weight: 500;
+            text-align: center;
+            margin: 20px 0;
+        }}
+        .button:hover {{
+            background-color: #047857;
+        }}
+        .info {{
+            background-color: #ecfdf5;
+            border-left: 4px solid #059669;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }}
+        .footer {{
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            font-size: 14px;
+            color: #6b7280;
+            text-align: center;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Welcome to Nosdesk!</h1>
+        </div>
+
+        <div class="content">
+            <p>Hello {user_name},</p>
+
+            <p>You've been invited to join Nosdesk by <strong>{invited_by}</strong>. To complete your account setup and create your password, click the button below:</p>
+
+            <div style="text-align: center;">
+                <a href="{setup_link}" class="button">Set Up Your Account</a>
+            </div>
+
+            <p>Or copy and paste this link into your browser:</p>
+            <p style="word-break: break-all;"><a href="{setup_link}">{setup_link}</a></p>
+
+            <div class="info">
+                <strong>ℹ️ Getting Started:</strong>
+                <ul style="margin: 10px 0; padding-left: 20px;">
+                    <li>This invitation link will expire in <strong>7 days</strong></li>
+                    <li>You'll need to create a password during setup</li>
+                    <li>Choose a strong password with at least 8 characters</li>
+                    <li>If you didn't expect this invitation, you can safely ignore this email</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>This is an automated message from Nosdesk. Please do not reply to this email.</p>
+            <p>If you have any questions, please contact your system administrator.</p>
+        </div>
+    </div>
+</body>
+</html>"#,
+            user_name = escape_html(user_name),
+            invited_by = escape_html(invited_by),
+            setup_link = setup_link
+        );
+
+        let subject = "You've Been Invited to Nosdesk - Set Up Your Account";
+
+        self.send_html_email(to, subject, &html_body).await
+    }
 }
 
 #[cfg(test)]

@@ -58,7 +58,7 @@ const {
 const ticketId = computed(() =>
     route.params.id ? Number(route.params.id) : undefined,
 );
-const { isConnected, recentlyAddedCommentIds } = useTicketSSE(
+const { isConnected, recentlyAddedCommentIds, activeViewerCount } = useTicketSSE(
     ticket,
     ticketId,
     selectedStatus,
@@ -194,6 +194,9 @@ watch(
                         ></div>
                         <span class="text-secondary">
                             {{ isConnected ? "Live updates" : "Connecting..." }}
+                        </span>
+                        <span v-if="activeViewerCount > 0" class="text-secondary ml-2">
+                            <span class="text-brand-blue">{{ activeViewerCount }}</span> viewing
                         </span>
                     </div>
                 </div>

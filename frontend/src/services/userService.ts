@@ -155,16 +155,34 @@ const userService = {
   },
 
   // Create a new user
-  async createUser(user: { name: string; email: string; role: string; pronouns?: string }): Promise<User | null> {
+  async createUser(user: {
+    name: string;
+    email: string;
+    role: string;
+    pronouns?: string;
+    password?: string;
+    send_invitation?: boolean;
+  }): Promise<User | null> {
     try {
-      // Send minimal user data - backend generates UUID and sets all defaults
-      // This follows REST best practices and KISS principle
-      const payload = {
+      // Send user data - backend generates UUID and sets all defaults
+      // If send_invitation is true, backend will send email invite
+      // If password is provided, user can log in immediately
+      const payload: Record<string, unknown> = {
         name: user.name.trim(),
         email: user.email.trim().toLowerCase(),
         role: user.role,
         pronouns: user.pronouns || null,
       };
+
+      // Include password if provided (for when SMTP is not configured)
+      if (user.password) {
+        payload.password = user.password;
+      }
+
+      // Include send_invitation flag
+      if (user.send_invitation !== undefined) {
+        payload.send_invitation = user.send_invitation;
+      }
 
       const response = await apiClient.post(`/users`, payload);
       return response.data;
@@ -539,6 +557,20 @@ const userService = {
         success: false,
         message: error.response?.data?.message || 'Failed to cleanup stale images'
       };
+    }
+  },
+
+  // Get email configuration status (admin only)
+  async getEmailConfigStatus(): Promise<{ is_configured: boolean; enabled: boolean }> {
+    try {
+      const response = await apiClient.get('/admin/email/config');
+      return {
+        is_configured: response.data.is_configured || false,
+        enabled: response.data.enabled || false
+      };
+    } catch (error) {
+      logger.error('Failed to get email config status', { error });
+      return { is_configured: false, enabled: false };
     }
   }
 };

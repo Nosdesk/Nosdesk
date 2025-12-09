@@ -1818,6 +1818,37 @@ pub struct SessionRevocationRequest {
     pub session_id: Option<i32>, // If None, revoke all others
 }
 
+// ===== INVITATION MODELS =====
+
+/// Request to accept an invitation and set password
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AcceptInvitationRequest {
+    pub token: String,
+    pub password: String,
+}
+
+/// Response for invitation acceptance
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AcceptInvitationResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// Request to validate an invitation token (check if it's valid before showing the form)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ValidateInvitationRequest {
+    pub token: String,
+}
+
+/// Response for invitation validation
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ValidateInvitationResponse {
+    pub valid: bool,
+    pub user_email: Option<String>,
+    pub user_name: Option<String>,
+    pub message: Option<String>,
+}
+
 /// Response for session operations
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SessionResponse {

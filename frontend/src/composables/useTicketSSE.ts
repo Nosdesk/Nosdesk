@@ -29,6 +29,7 @@ export function useTicketSSE(
   const recentTicketsStore = useRecentTicketsStore();
 
   const recentlyAddedCommentIds = ref<Set<number>>(new Set());
+  const activeViewerCount = ref<number>(0);
 
   // Highlight comment
   function highlightComment(commentId: number): void {
@@ -416,6 +417,19 @@ export function useTicketSSE(
     }
   }
 
+  // Handle viewer count changed
+  function handleViewerCountChanged(data: any): void {
+    const eventData = data.data || data;
+    if (!ticket.value || eventData.ticket_id !== ticket.value.id) return;
+
+    activeViewerCount.value = eventData.count || 0;
+    console.log(
+      "%c[SSE Handler] ✅ viewer-count-changed: Updated",
+      "color: #22c55e; font-weight: bold",
+      { count: activeViewerCount.value }
+    );
+  }
+
   // Event handler configuration - DRY principle
   const eventHandlers = {
     "ticket-updated": handleTicketUpdated,
@@ -428,6 +442,7 @@ export function useTicketSSE(
     "ticket-unlinked": handleTicketUnlinked,
     "project-assigned": handleProjectAssigned,
     "project-unassigned": handleProjectUnassigned,
+    "viewer-count-changed": handleViewerCountChanged,
   } as const;
 
   // Setup event listeners
@@ -480,5 +495,6 @@ export function useTicketSSE(
   return {
     isConnected,
     recentlyAddedCommentIds,
+    activeViewerCount,
   };
 }

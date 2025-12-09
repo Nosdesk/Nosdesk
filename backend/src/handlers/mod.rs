@@ -14,6 +14,7 @@ pub mod msgraph_integration;
 pub mod sse;
 pub mod password_reset;
 pub mod mfa_reset;
+pub mod invitation;
 pub mod system;
 pub mod debug;
 

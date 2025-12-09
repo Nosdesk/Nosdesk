@@ -9,6 +9,7 @@ import BackButton from "@/components/common/BackButton.vue";
 import DeleteButton from "@/components/common/DeleteButton.vue";
 import UserProfileCard from "@/components/settings/UserProfileCard.vue";
 import UserEmailsCard from "@/components/settings/UserEmailsCard.vue";
+import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import { RouterLink } from "vue-router";
 import ticketService from "@/services/ticketService";
 import userService from "@/services/userService";
@@ -46,6 +47,13 @@ const editingEmail = ref(false);
 const editingRole = ref(false);
 const editingPronouns = ref(false);
 const isSaving = ref(false);
+
+// Invitation/password state
+const smtpConfigured = ref(true);  // Default to true (will check on mount)
+const sendInvitation = ref(true);  // Default to sending invitation
+const manualPassword = ref("");
+const confirmPassword = ref("");
+const showPassword = ref(false);
 
 // Editing values
 const editValues = ref<UserFormData>({
@@ -106,6 +114,20 @@ const fetchUserData = async () => {
             if (!canEdit.value) {
                 error.value = "You do not have permission to create users";
                 return;
+            }
+
+            // Check SMTP configuration status
+            try {
+                const emailConfig = await userService.getEmailConfigStatus();
+                smtpConfigured.value = emailConfig.is_configured && emailConfig.enabled;
+                // If SMTP is not configured, default to manual password
+                if (!smtpConfigured.value) {
+                    sendInvitation.value = false;
+                }
+            } catch (err) {
+                console.error("Failed to check email config:", err);
+                smtpConfigured.value = false;
+                sendInvitation.value = false;
             }
 
             // Focus on name field after DOM update
@@ -227,13 +249,39 @@ const saveUser = async () => {
         isSaving.value = true;
 
         if (isCreationMode.value) {
+            // Validate password if not sending invitation
+            if (!sendInvitation.value) {
+                if (!manualPassword.value || manualPassword.value.length < 8) {
+                    error.value = "Password must be at least 8 characters long";
+                    return;
+                }
+                if (manualPassword.value !== confirmPassword.value) {
+                    error.value = "Passwords do not match";
+                    return;
+                }
+            }
+
             // Create new user
-            const userData = {
+            const userData: {
+                name: string;
+                email: string;
+                role: string;
+                pronouns?: string;
+                password?: string;
+                send_invitation?: boolean;
+            } = {
                 name: editValues.value.name,
                 email: editValues.value.email,
                 role: editValues.value.role,
                 pronouns: editValues.value.pronouns,
             };
+
+            // Add password or invitation flag based on selected option
+            if (sendInvitation.value && smtpConfigured.value) {
+                userData.send_invitation = true;
+            } else if (manualPassword.value) {
+                userData.password = manualPassword.value;
+            }
 
             const newUser = await userService.createUser(userData);
 
@@ -363,191 +411,314 @@ onMounted(() => {
             </div>
 
             <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
-                <!-- Creation Mode Header -->
-                <div
-                    v-if="isCreationMode"
-                    class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
-                >
-                    <div
-                        class="px-4 py-3 bg-surface-alt border-b border-default"
-                    >
-                        <h1 class="text-lg font-medium text-primary">
-                            Create New User
-                        </h1>
-                        <p class="text-secondary text-sm mt-1">
-                            Enter user details below
-                        </p>
-                    </div>
-                </div>
-
                 <!-- Error Display -->
                 <div
                     v-if="error"
-                    class="bg-status-error/30 border border-status-error rounded-lg p-4 text-status-error text-sm"
+                    class="bg-status-error/10 border border-status-error/30 rounded-xl p-4 flex items-start gap-3"
                 >
-                    {{ error }}
+                    <svg class="w-5 h-5 text-status-error flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span class="text-status-error text-sm">{{ error }}</span>
                 </div>
 
                 <!-- User Creation Form -->
-                <div
-                    v-if="isCreationMode"
-                    class="grid grid-cols-1 xl:grid-cols-2 gap-4"
-                >
-                    <!-- Basic Information -->
-                    <div
-                        class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
-                    >
-                        <div
-                            class="px-4 py-3 bg-surface-alt border-b border-default"
-                        >
-                            <h2 class="text-lg font-medium text-primary">
-                                Basic Information
-                            </h2>
-                        </div>
-                        <div class="p-3">
-                            <div class="flex flex-col gap-3">
-                                <!-- Name -->
-                                <div class="flex flex-col gap-1.5">
-                                    <h3
-                                        class="text-xs font-medium text-secondary uppercase tracking-wide"
-                                    >
-                                        Name *
-                                    </h3>
-                                    <div
-                                        class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors"
-                                    >
-                                        <input
-                                            v-model="editValues.name"
-                                            type="text"
-                                            placeholder="Enter user name"
-                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
-                                        />
-                                    </div>
+                <div v-if="isCreationMode" class="flex flex-col gap-6">
+                    <!-- Main Form Card -->
+                    <div class="bg-surface rounded-xl border border-default overflow-hidden">
+                        <!-- Card Header -->
+                        <div class="px-6 py-4 bg-surface-alt border-b border-default">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                                    </svg>
                                 </div>
-
-                                <!-- Email -->
-                                <div class="flex flex-col gap-1.5">
-                                    <h3
-                                        class="text-xs font-medium text-secondary uppercase tracking-wide"
-                                    >
-                                        Email *
-                                    </h3>
-                                    <div
-                                        class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors"
-                                    >
-                                        <input
-                                            v-model="editValues.email"
-                                            type="email"
-                                            placeholder="Enter email address"
-                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
-                                        />
-                                    </div>
-                                </div>
-
-                                <!-- Role -->
-                                <div class="flex flex-col gap-1.5">
-                                    <h3
-                                        class="text-xs font-medium text-secondary uppercase tracking-wide"
-                                    >
-                                        Role
-                                    </h3>
-                                    <div
-                                        class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors"
-                                    >
-                                        <select
-                                            v-model="editValues.role"
-                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
-                                        >
-                                            <option
-                                                v-for="option in roleOptions"
-                                                :key="option.value"
-                                                :value="option.value"
-                                                class="bg-surface-alt"
-                                            >
-                                                {{ option.label }}
-                                            </option>
-                                        </select>
-                                    </div>
+                                <div>
+                                    <h1 class="text-lg font-semibold text-primary">Create New User</h1>
+                                    <p class="text-sm text-tertiary">Add a new user to your organization</p>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Additional Details -->
-                    <div
-                        class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
-                    >
-                        <div
-                            class="px-4 py-3 bg-surface-alt border-b border-default"
-                        >
-                            <h2 class="text-lg font-medium text-primary">
-                                Additional Details
-                            </h2>
-                        </div>
-                        <div class="p-3">
-                            <div class="flex flex-col gap-3">
-                                <!-- Pronouns -->
-                                <div class="flex flex-col gap-1.5">
-                                    <h3
-                                        class="text-xs font-medium text-secondary uppercase tracking-wide"
-                                    >
-                                        Pronouns
-                                    </h3>
-                                    <div
-                                        class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors"
-                                    >
+                        <!-- Form Content -->
+                        <div class="p-6">
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                <!-- Left Column: Basic Info -->
+                                <div class="flex flex-col gap-5">
+                                    <h2 class="text-sm font-semibold text-primary flex items-center gap-2">
+                                        <svg class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                        </svg>
+                                        Basic Information
+                                    </h2>
+
+                                    <!-- Name Field -->
+                                    <div class="flex flex-col gap-2">
+                                        <label class="text-xs font-medium text-tertiary uppercase tracking-wider">
+                                            Full Name <span class="text-status-error">*</span>
+                                        </label>
+                                        <div class="relative">
+                                            <input
+                                                id="name-input"
+                                                v-model="editValues.name"
+                                                type="text"
+                                                placeholder="Enter full name"
+                                                class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <!-- Email Field -->
+                                    <div class="flex flex-col gap-2">
+                                        <label class="text-xs font-medium text-tertiary uppercase tracking-wider">
+                                            Email Address <span class="text-status-error">*</span>
+                                        </label>
+                                        <div class="relative">
+                                            <input
+                                                v-model="editValues.email"
+                                                type="email"
+                                                placeholder="user@example.com"
+                                                class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <!-- Role Field -->
+                                    <div class="flex flex-col gap-2">
+                                        <label class="text-xs font-medium text-tertiary uppercase tracking-wider">Role</label>
+                                        <BaseDropdown
+                                            v-model="editValues.role"
+                                            :options="roleOptions"
+                                            placeholder="Select a role"
+                                        />
+                                    </div>
+
+                                    <!-- Pronouns Field -->
+                                    <div class="flex flex-col gap-2">
+                                        <label class="text-xs font-medium text-tertiary uppercase tracking-wider">Pronouns</label>
                                         <input
                                             v-model="editValues.pronouns"
                                             type="text"
                                             placeholder="e.g., he/him, she/her, they/them"
-                                            class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
+                                            class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
                                         />
+                                    </div>
+                                </div>
+
+                                <!-- Right Column: Account Setup -->
+                                <div class="flex flex-col gap-5">
+                                    <h2 class="text-sm font-semibold text-primary flex items-center gap-2">
+                                        <svg class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                                        </svg>
+                                        Account Setup
+                                    </h2>
+
+                                    <!-- SMTP Warning Banner -->
+                                    <div
+                                        v-if="!smtpConfigured"
+                                        class="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg"
+                                    >
+                                        <svg class="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                        </svg>
+                                        <div class="flex flex-col gap-1">
+                                            <span class="text-sm font-medium text-amber-500">Email not configured</span>
+                                            <span class="text-xs text-amber-500/80">You must set a password manually since email invitations are unavailable.</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Setup Method Selection -->
+                                    <div class="flex flex-col gap-3">
+                                        <label class="text-xs font-medium text-tertiary uppercase tracking-wider">Setup Method</label>
+
+                                        <!-- Send Invitation Option -->
+                                        <button
+                                            v-if="smtpConfigured"
+                                            type="button"
+                                            @click="sendInvitation = true"
+                                            class="relative flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left"
+                                            :class="sendInvitation
+                                                ? 'border-blue-500 bg-blue-500/5'
+                                                : 'border-default bg-surface-alt hover:border-strong'"
+                                        >
+                                            <div
+                                                class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                                                :class="sendInvitation ? 'bg-blue-500/20' : 'bg-surface-hover'"
+                                            >
+                                                <svg class="w-5 h-5" :class="sendInvitation ? 'text-blue-500' : 'text-tertiary'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                </svg>
+                                            </div>
+                                            <div class="flex-1 min-w-0">
+                                                <span class="font-medium" :class="sendInvitation ? 'text-primary' : 'text-secondary'">Send invitation email</span>
+                                                <p class="text-xs text-tertiary mt-0.5">User will receive an email with a secure link to set their own password</p>
+                                            </div>
+                                        </button>
+
+                                        <!-- Set Password Option -->
+                                        <button
+                                            type="button"
+                                            @click="sendInvitation = false"
+                                            class="relative flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left"
+                                            :class="!sendInvitation
+                                                ? 'border-blue-500 bg-blue-500/5'
+                                                : 'border-default bg-surface-alt hover:border-strong'"
+                                        >
+                                            <div
+                                                class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                                                :class="!sendInvitation ? 'bg-blue-500/20' : 'bg-surface-hover'"
+                                            >
+                                                <svg class="w-5 h-5" :class="!sendInvitation ? 'text-blue-500' : 'text-tertiary'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                                </svg>
+                                            </div>
+                                            <div class="flex-1 min-w-0">
+                                                <span class="font-medium" :class="!sendInvitation ? 'text-primary' : 'text-secondary'">Set password manually</span>
+                                                <p class="text-xs text-tertiary mt-0.5">Create a password for the user now and share it with them securely</p>
+                                            </div>
+                                        </button>
+                                    </div>
+
+                                    <!-- Password Fields (shown when manual password selected) -->
+                                    <div
+                                        v-if="!sendInvitation"
+                                        class="flex flex-col gap-4 pt-2"
+                                    >
+                                        <!-- Password Input -->
+                                        <div class="flex flex-col gap-2">
+                                            <label class="text-xs font-medium text-tertiary uppercase tracking-wider">
+                                                Password <span class="text-status-error">*</span>
+                                            </label>
+                                            <div class="relative">
+                                                <input
+                                                    v-model="manualPassword"
+                                                    :type="showPassword ? 'text' : 'password'"
+                                                    placeholder="Minimum 8 characters"
+                                                    autocomplete="new-password"
+                                                    class="w-full px-4 py-3 pr-12 bg-surface-alt border rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-1 transition-colors"
+                                                    :class="manualPassword && manualPassword.length < 8
+                                                        ? 'border-amber-500 focus:border-amber-500 focus:ring-amber-500'
+                                                        : manualPassword.length >= 8
+                                                            ? 'border-status-success focus:border-status-success focus:ring-status-success'
+                                                            : 'border-default focus:border-blue-500 focus:ring-blue-500'"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    @click="showPassword = !showPassword"
+                                                    class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary hover:text-primary transition-colors p-1"
+                                                    tabindex="-1"
+                                                >
+                                                    <svg v-if="showPassword" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                    </svg>
+                                                    <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                            <!-- Password strength indicator -->
+                                            <div class="flex items-center gap-2">
+                                                <div class="flex-1 h-1 bg-surface-alt rounded-full overflow-hidden">
+                                                    <div
+                                                        class="h-full transition-all duration-300"
+                                                        :class="manualPassword.length >= 8 ? 'bg-status-success' : manualPassword.length >= 4 ? 'bg-amber-500' : 'bg-status-error'"
+                                                        :style="{ width: `${Math.min(100, (manualPassword.length / 8) * 100)}%` }"
+                                                    />
+                                                </div>
+                                                <span
+                                                    class="text-xs"
+                                                    :class="manualPassword.length >= 8 ? 'text-status-success' : 'text-tertiary'"
+                                                >
+                                                    {{ manualPassword.length }}/8
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <!-- Confirm Password Input -->
+                                        <div class="flex flex-col gap-2">
+                                            <label class="text-xs font-medium text-tertiary uppercase tracking-wider">
+                                                Confirm Password <span class="text-status-error">*</span>
+                                            </label>
+                                            <input
+                                                v-model="confirmPassword"
+                                                :type="showPassword ? 'text' : 'password'"
+                                                placeholder="Re-enter password"
+                                                autocomplete="new-password"
+                                                class="w-full px-4 py-3 bg-surface-alt border rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-1 transition-colors"
+                                                :class="confirmPassword && manualPassword !== confirmPassword
+                                                    ? 'border-status-error focus:border-status-error focus:ring-status-error'
+                                                    : confirmPassword && manualPassword === confirmPassword && manualPassword.length >= 8
+                                                        ? 'border-status-success focus:border-status-success focus:ring-status-success'
+                                                        : 'border-default focus:border-blue-500 focus:ring-blue-500'"
+                                            />
+                                            <!-- Match indicator -->
+                                            <p
+                                                v-if="confirmPassword"
+                                                class="text-xs flex items-center gap-1.5"
+                                                :class="manualPassword === confirmPassword && manualPassword.length >= 8 ? 'text-status-success' : 'text-status-error'"
+                                            >
+                                                <svg
+                                                    v-if="manualPassword === confirmPassword && manualPassword.length >= 8"
+                                                    class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                                >
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                </svg>
+                                                <svg
+                                                    v-else
+                                                    class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                                >
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                                </svg>
+                                                {{ manualPassword === confirmPassword && manualPassword.length >= 8 ? 'Passwords match' : 'Passwords do not match' }}
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Creation Mode Buttons -->
-                    <div class="flex justify-end gap-3">
-                        <button
-                            @click="router.push('/users')"
-                            :disabled="isSaving"
-                            class="px-6 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover disabled:opacity-50 transition-colors text-sm font-medium"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            @click="saveUser"
-                            :disabled="
-                                isSaving ||
-                                !editValues.name ||
-                                !editValues.email
-                            "
-                            class="px-6 py-2.5 bg-status-success text-white rounded-lg hover:bg-status-success/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
-                        >
-                            <svg
-                                v-if="isSaving"
-                                class="w-4 h-4 animate-spin"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                            >
-                                <circle
-                                    class="opacity-25"
-                                    cx="12"
-                                    cy="12"
-                                    r="10"
-                                    stroke="currentColor"
-                                    stroke-width="4"
-                                ></circle>
-                                <path
-                                    class="opacity-75"
-                                    fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 004 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                ></path>
-                            </svg>
-                            {{ isSaving ? "Creating..." : "Create User" }}
-                        </button>
+                        <!-- Card Footer with Actions -->
+                        <div class="px-6 py-4 bg-surface-alt border-t border-default flex items-center justify-between">
+                            <p class="text-xs text-tertiary">
+                                <span class="text-status-error">*</span> Required fields
+                            </p>
+                            <div class="flex items-center gap-3">
+                                <button
+                                    @click="router.push('/users')"
+                                    :disabled="isSaving"
+                                    class="px-5 py-2.5 text-sm font-medium text-secondary hover:text-primary bg-transparent hover:bg-surface-hover rounded-lg transition-colors disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    @click="saveUser"
+                                    :disabled="
+                                        isSaving ||
+                                        !editValues.name ||
+                                        !editValues.email ||
+                                        (!sendInvitation && (manualPassword.length < 8 || manualPassword !== confirmPassword))
+                                    "
+                                    class="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                >
+                                    <svg
+                                        v-if="isSaving"
+                                        class="w-4 h-4 animate-spin"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 004 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                    </svg>
+                                    <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                    </svg>
+                                    {{ isSaving ? "Creating..." : "Create User" }}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

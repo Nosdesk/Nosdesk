@@ -487,6 +487,40 @@ class AuthService {
   }
 
   /**
+   * Validate invitation token
+   */
+  async validateInvitation(token: string): Promise<{
+    valid: boolean;
+    user_email?: string;
+    user_name?: string;
+    message?: string;
+  }> {
+    try {
+      const response = await apiClient.post('/auth/invitation/validate', { token });
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to validate invitation', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Accept invitation and set password
+   */
+  async acceptInvitation(token: string, password: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await apiClient.post('/auth/invitation/accept', {
+        token,
+        password
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to accept invitation', { error });
+      throw error;
+    }
+  }
+
+  /**
    * Request MFA reset
    */
   async requestMFAReset(email: string, password: string): Promise<{ message: string }> {
