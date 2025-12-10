@@ -1,20 +1,17 @@
 <script setup lang="ts">
 import { formatDate as formatDateUtil } from '@/utils/dateUtils';
-import { ref, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
-import StatusBadge from "@/components/StatusBadge.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import BackButton from "@/components/common/BackButton.vue";
-import DeleteButton from "@/components/common/DeleteButton.vue";
 import UserProfileCard from "@/components/settings/UserProfileCard.vue";
 import UserEmailsCard from "@/components/settings/UserEmailsCard.vue";
+import UserAssignedTickets from "@/components/UserAssignedTickets.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import { RouterLink } from "vue-router";
-import ticketService from "@/services/ticketService";
 import userService from "@/services/userService";
 import { getDevicesByUser } from "@/services/deviceService";
-import type { Ticket } from "@/services/ticketService";
 import type { User } from "@/services/userService";
 import type { Device } from "@/types/device";
 
@@ -36,8 +33,6 @@ const authStore = useAuthStore();
 const loading = ref(true);
 const error = ref<string | null>(null);
 const userProfile = ref<UserProfile | null>(null);
-const assignedTickets = ref<Ticket[]>([]);
-const requestedTickets = ref<Ticket[]>([]);
 const devices = ref<Device[]>([]);
 
 // Creation and editing state
@@ -74,6 +69,12 @@ const roleOptions = [
 const canEdit = ref(false);
 const canEditRole = ref(false);
 const isOwnProfile = ref(false);
+
+// Check if the profile user can have assigned tickets (technicians and admins only)
+const canHaveAssignedTickets = computed(() => {
+    const role = userProfile.value?.role;
+    return role === 'technician' || role === 'admin';
+});
 
 // Update document title when user profile changes
 watch(userProfile, (newProfile) => {
@@ -189,16 +190,7 @@ const fetchUserData = async () => {
         // Name editing is now handled by UserProfileCard
         // No need to focus on name field since it's in the card component
 
-        // Load tickets from the API
-        const allTickets = await ticketService.getTickets();
-
-        // Filter tickets for this user
-        assignedTickets.value = allTickets.filter(
-            (t) => t.assignee === userUuid,
-        );
-        requestedTickets.value = allTickets.filter(
-            (t) => t.requester === userUuid,
-        );
+        // Tickets are now loaded by UserAssignedTickets component
 
         // Load devices from the API
         try {
@@ -827,143 +819,22 @@ onMounted(() => {
 
                     <!-- Tickets Area -->
                     <div class="flex flex-col gap-4 xl:w-1/2 xl:min-w-0">
-                        <!-- Assigned Tickets -->
-                        <div
-                            class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
-                        >
-                            <div
-                                class="px-4 py-3 bg-surface-alt border-b border-default flex justify-between items-center"
-                            >
-                                <h2 class="text-lg font-medium text-primary">
-                                    {{ assignedTickets.length }} Assigned
-                                    Tickets
-                                </h2>
-                                <RouterLink
-                                    :to="`/tickets?assignee=${route.params.uuid}`"
-                                    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                                >
-                                    See All
-                                </RouterLink>
-                            </div>
-                            <div class="p-3">
-                                <div
-                                    v-if="assignedTickets.length === 0"
-                                    class="text-secondary text-sm"
-                                >
-                                    No assigned tickets
-                                </div>
-                                <div v-else class="flex flex-col gap-3">
-                                    <RouterLink
-                                        v-for="ticket in assignedTickets.slice(
-                                            0,
-                                            5,
-                                        )"
-                                        :key="ticket.id"
-                                        :to="`/tickets/${ticket.id}`"
-                                        class="block bg-surface-alt p-3 rounded-lg hover:bg-surface-hover transition-colors"
-                                    >
-                                        <div
-                                            class="flex items-center justify-between"
-                                        >
-                                            <div>
-                                                <h3
-                                                    class="font-medium text-primary"
-                                                >
-                                                    {{ ticket.title }}
-                                                </h3>
-                                                <p
-                                                    class="text-sm text-secondary"
-                                                >
-                                                    {{
-                                                        formatDate(
-                                                            ticket.created,
-                                                        )
-                                                    }}
-                                                </p>
-                                            </div>
-                                            <StatusBadge
-                                                type="status"
-                                                :value="
-                                                    ticket.status as
-                                                        | 'open'
-                                                        | 'in-progress'
-                                                        | 'closed'
-                                                "
-                                            />
-                                        </div>
-                                    </RouterLink>
-                                </div>
-                            </div>
-                        </div>
+                        <!-- Assigned Tickets (only for technicians and admins) -->
+                        <UserAssignedTickets
+                            v-if="canHaveAssignedTickets"
+                            :user-uuid="userProfile.uuid"
+                            ticket-type="assigned"
+                            :limit="5"
+                            :show-filters="false"
+                        />
 
                         <!-- Requested Tickets -->
-                        <div
-                            class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
-                        >
-                            <div
-                                class="px-4 py-3 bg-surface-alt border-b border-default flex justify-between items-center"
-                            >
-                                <h2 class="text-lg font-medium text-primary">
-                                    {{ requestedTickets.length }} Requested
-                                    Tickets
-                                </h2>
-                                <RouterLink
-                                    :to="`/tickets?requester=${route.params.uuid}`"
-                                    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                                >
-                                    See All
-                                </RouterLink>
-                            </div>
-                            <div class="p-3">
-                                <div
-                                    v-if="requestedTickets.length === 0"
-                                    class="text-secondary text-sm"
-                                >
-                                    No requested tickets
-                                </div>
-                                <div v-else class="flex flex-col gap-3">
-                                    <RouterLink
-                                        v-for="ticket in requestedTickets.slice(
-                                            0,
-                                            5,
-                                        )"
-                                        :key="ticket.id"
-                                        :to="`/tickets/${ticket.id}`"
-                                        class="block bg-surface-alt p-3 rounded-lg hover:bg-surface-hover transition-colors"
-                                    >
-                                        <div
-                                            class="flex items-center justify-between"
-                                        >
-                                            <div>
-                                                <h3
-                                                    class="font-medium text-primary"
-                                                >
-                                                    {{ ticket.title }}
-                                                </h3>
-                                                <p
-                                                    class="text-sm text-secondary"
-                                                >
-                                                    {{
-                                                        formatDate(
-                                                            ticket.created,
-                                                        )
-                                                    }}
-                                                </p>
-                                            </div>
-                                            <StatusBadge
-                                                type="status"
-                                                :value="
-                                                    ticket.status as
-                                                        | 'open'
-                                                        | 'in-progress'
-                                                        | 'closed'
-                                                "
-                                            />
-                                        </div>
-                                    </RouterLink>
-                                </div>
-                            </div>
-                        </div>
+                        <UserAssignedTickets
+                            :user-uuid="userProfile.uuid"
+                            ticket-type="requested"
+                            :limit="5"
+                            :show-filters="false"
+                        />
                     </div>
                 </div>
             </div>

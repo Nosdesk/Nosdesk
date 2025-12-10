@@ -199,7 +199,8 @@ pub async fn get_users_batch(
 // API request model for user creation (includes email which goes in user_emails table)
 #[derive(Debug, Deserialize)]
 pub struct CreateUserRequest {
-    uuid: Uuid,
+    /// Optional UUID - if not provided, a new UUIDv7 will be generated
+    uuid: Option<Uuid>,
     name: String,
     email: String,
     role: crate::models::UserRole,
@@ -325,8 +326,8 @@ pub async fn create_user(
         }));
     }
 
-    // Generate UUID if provided
-    let user_uuid = user_data.uuid;
+    // Use provided UUID or generate a new UUIDv7
+    let user_uuid = user_data.uuid.unwrap_or_else(uuid::Uuid::now_v7);
 
     // Create new user with normalized data using builder
     let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&user_data.name, &user_data.email);

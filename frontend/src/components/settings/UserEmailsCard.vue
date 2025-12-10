@@ -217,27 +217,19 @@ watch(() => props.userUuid, () => {
           </div>
 
           <!-- Edit actions (only when canEdit is true) -->
-          <div v-if="canEdit && email.id !== 0" class="mt-3 pt-3 border-t border-subtle flex flex-wrap gap-2">
+          <div v-if="canEdit && email.id !== 0 && !email.is_primary" class="mt-3 flex flex-wrap gap-2">
             <button
-              v-if="!email.is_primary"
               @click="setAsPrimary(email.id, email.email)"
               class="text-xs px-3 py-1.5 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600/30 transition-colors"
             >
               Set as Primary
             </button>
             <button
-              v-if="!email.is_primary"
               @click="deleteEmail(email.id, email.email)"
               class="text-xs px-3 py-1.5 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/30 transition-colors"
             >
               Remove
             </button>
-          </div>
-          <!-- Note for primary email -->
-          <div v-if="canEdit && email.id === 0 && email.is_primary" class="mt-3 pt-3 border-t border-subtle">
-            <span class="text-xs text-tertiary">
-              This is your account's primary email. Manage it in your profile settings.
-            </span>
           </div>
         </div>
       </div>

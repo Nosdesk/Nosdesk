@@ -1,6 +1,6 @@
 <template>
-  <div class="min-h-screen w-full flex items-center justify-center bg-app">
-    <div class="flex flex-col gap-6 w-full max-w-4xl p-8 py-12">
+  <div class="min-h-screen w-full flex items-start justify-center bg-app overflow-y-auto py-8 sm:py-12">
+    <div class="flex flex-col gap-6 w-full max-w-4xl px-4 sm:px-8 my-auto">
       <!-- Header -->
       <div class="flex flex-col gap-2 items-center">
         <img :src="logo" alt="Nosdesk Logo" class="px-4 max-w-md" />

@@ -1,5 +1,6 @@
-use image::ImageFormat;
+use image::{ImageFormat, ImageReader};
 use tokio::fs;
+use std::io::Cursor;
 
 /// Process and resize an uploaded avatar image to WebP format with fixed dimensions
 /// This ensures consistent sizing and optimal storage
@@ -9,27 +10,27 @@ pub async fn process_avatar_image(
     max_size: u32, // Maximum width/height in pixels
 ) -> Result<Option<String>, String> {
     println!("Processing avatar image for user: {}, max_size: {}px", user_uuid, max_size);
-    
+
     // Process image in a blocking task to avoid blocking the async runtime
     let user_uuid = user_uuid.to_string();
     let image_bytes = image_bytes.to_vec();
     let avatar_result = tokio::task::spawn_blocking(move || {
-        // Load the image
-        let img = match image::load_from_memory(&image_bytes) {
+        // Load the image with EXIF orientation support
+        let mut img = match load_image_with_orientation(&image_bytes) {
             Ok(img) => img,
             Err(e) => {
-                println!("Failed to load image from memory: {}", e);
+                println!("Failed to load image: {}", e);
                 return None;
             }
         };
-        
-        println!("Original image dimensions: {}x{}", img.width(), img.height());
-        
+
+        println!("Original image dimensions (after orientation): {}x{}", img.width(), img.height());
+
         // Create a square image by center cropping to 1:1 aspect ratio
         let square_img = create_square_crop(&img, max_size);
-        
+
         println!("Final image dimensions: {}x{}", square_img.width(), square_img.height());
-        
+
         // Convert to WebP format
         let mut webp_bytes = Vec::new();
         match square_img.write_to(&mut std::io::Cursor::new(&mut webp_bytes), ImageFormat::WebP) {
@@ -109,15 +110,15 @@ pub async fn generate_user_avatar_thumbnail(
     // Process image in a blocking task to avoid blocking the async runtime
     let user_uuid = user_uuid.to_string();
     let thumbnail_result = tokio::task::spawn_blocking(move || {
-        // Load the image
-        let img = match image::load_from_memory(&img_bytes) {
+        // Load the image with EXIF orientation support
+        let img = match load_image_with_orientation(&img_bytes) {
             Ok(img) => img,
             Err(e) => {
-                println!("Failed to load image from memory: {}", e);
+                println!("Failed to load image: {}", e);
                 return None;
             }
         };
-        
+
         // Create a square thumbnail by center cropping to 1:1 aspect ratio
         let thumbnail = create_square_crop(&img, 48);
         
@@ -247,16 +248,16 @@ pub async fn process_banner_image(
     let user_uuid = user_uuid.to_string();
     let image_bytes = image_bytes.to_vec();
     let banner_result = tokio::task::spawn_blocking(move || {
-        // Load the image
-        let img = match image::load_from_memory(&image_bytes) {
+        // Load the image with EXIF orientation support
+        let img = match load_image_with_orientation(&image_bytes) {
             Ok(img) => img,
             Err(e) => {
-                println!("Failed to load image from memory: {}", e);
+                println!("Failed to load image: {}", e);
                 return None;
             }
         };
-        
-        println!("Original banner dimensions: {}x{}", img.width(), img.height());
+
+        println!("Original banner dimensions (after orientation): {}x{}", img.width(), img.height());
         
         // Create a banner-aspect image by cropping and resizing
         let banner_img = create_banner_crop(&img, max_width, max_height);
@@ -429,6 +430,37 @@ fn create_square_crop(img: &image::DynamicImage, target_size: u32) -> image::Dyn
     } else {
         cropped_img
     };
-    
+
     final_img
-} 
+}
+
+/// Load an image from bytes and apply EXIF orientation correction
+/// This ensures images taken on phones/cameras display correctly regardless of how they were held
+fn load_image_with_orientation(image_bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    use image::ImageDecoder;
+
+    let cursor = Cursor::new(image_bytes);
+    let reader = ImageReader::new(cursor)
+        .with_guessed_format()
+        .map_err(|e| format!("Failed to guess image format: {}", e))?;
+
+    let mut decoder = reader
+        .into_decoder()
+        .map_err(|e| format!("Failed to create decoder: {}", e))?;
+
+    // Get the EXIF orientation (defaults to no rotation if not present)
+    let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+
+    // Decode the image
+    let mut img = image::DynamicImage::from_decoder(decoder)
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
+
+    // Apply the orientation transformation
+    img.apply_orientation(orientation);
+
+    if orientation != image::metadata::Orientation::NoTransforms {
+        println!("Applied EXIF orientation correction: {:?}", orientation);
+    }
+
+    Ok(img)
+}

@@ -1,24 +1,27 @@
 <script setup lang="ts">
-import { formatDate, formatDateTime } from '@/utils/dateUtils';
-import { ref, onMounted, computed, watch } from "vue";
+import { formatRelativeTime } from '@/utils/dateUtils';
+import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "@/components/UserAvatar.vue";
 import ticketService, { type Ticket } from "@/services/ticketService";
 
-const props = defineProps({
-    limit: {
-        type: Number,
-        default: 5,
-    },
-    showTitle: {
-        type: Boolean,
-        default: true,
-    },
-    filterStatus: {
-        type: String,
-        default: "", // empty string means show all
-    },
+const props = withDefaults(defineProps<{
+    limit?: number;
+    showTitle?: boolean;
+    filterStatus?: string;
+    userUuid?: string;
+    ticketType?: 'assigned' | 'requested';
+    title?: string;
+    showFilters?: boolean;
+}>(), {
+    limit: 5,
+    showTitle: true,
+    filterStatus: "",
+    userUuid: "",
+    ticketType: 'assigned',
+    title: "",
+    showFilters: true,
 });
 
 const router = useRouter();
@@ -27,8 +30,26 @@ const authStore = useAuthStore();
 const tickets = ref<Ticket[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
-const selectedStatus = ref(props.filterStatus || "active"); // Default to active tickets
+// When filters are hidden, default to showing all tickets; otherwise default to active
+const selectedStatus = ref(props.filterStatus || (props.showFilters ? "active" : ""));
 const sortBy = ref("date"); // default sort by date
+
+// Computed: target user UUID (prop or current user)
+const targetUserUuid = computed(() => props.userUuid || authStore.user?.uuid || "");
+
+// Computed: display title
+const displayTitle = computed(() => {
+    if (props.title) return props.title;
+    return props.ticketType === 'requested' ? 'Requested Tickets' : 'Assigned Tickets';
+});
+
+// Computed: "See All" link
+const seeAllLink = computed(() => {
+    const baseLink = '/tickets';
+    const paramKey = props.ticketType === 'requested' ? 'requester' : 'assignee';
+    const userParam = props.userUuid || 'current';
+    return `${baseLink}?${paramKey}=${userParam}`;
+});
 
 // Status options for the filter
 const statusOptions = [
@@ -45,106 +66,58 @@ const sortOptions = [
     { value: "priority", label: "Highest Priority" },
 ];
 
-// Priority mapping for sorting (higher number = higher priority)
-const priorityOrder = {
-    critical: 4,
-    high: 3,
-    medium: 2,
-    low: 1,
-    default: 0,
+// Badge class mappings
+const priorityClasses: Record<string, string> = {
+    critical: "bg-red-500/20 text-red-700 dark:text-red-300 border-red-500/30",
+    high: "bg-red-500/20 text-red-700 dark:text-red-300 border-red-500/30",
+    medium: "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30",
+    low: "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30",
 };
 
-// Format relative time
-const formatRelativeTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    if (diffInSeconds < 60) {
-        return "just now";
-    } else if (diffInSeconds < 3600) {
-        const minutes = Math.floor(diffInSeconds / 60);
-        return `${minutes}m ago`;
-    } else if (diffInSeconds < 86400) {
-        const hours = Math.floor(diffInSeconds / 3600);
-        return `${hours}h ago`;
-    } else {
-        const days = Math.floor(diffInSeconds / 86400);
-        if (days < 7) {
-            return `${days}d ago`;
-        } else if (days < 30) {
-            const weeks = Math.floor(days / 7);
-            return `${weeks}w ago`;
-        } else {
-            return formatDate(dateString, "MMM d, yyyy");
-        }
-    }
+const statusClasses: Record<string, string> = {
+    open: "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30",
+    "in-progress": "bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30",
+    closed: "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30",
 };
 
-// Get class for priority badge - matching LinkedTicketPreview style
-const getPriorityClass = (priority: string) => {
-    switch (priority) {
-        case "critical":
-            return "bg-red-500/20 text-red-700 dark:text-red-300 border-red-500/30";
-        case "high":
-            return "bg-red-500/20 text-red-700 dark:text-red-300 border-red-500/30";
-        case "medium":
-            return "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30";
-        case "low":
-            return "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30";
-        default:
-            return "bg-slate-600/20 text-slate-700 dark:text-slate-300 border-slate-500/30";
-    }
-};
+const defaultBadgeClass = "bg-slate-600/20 text-slate-700 dark:text-slate-300 border-slate-500/30";
 
-// Get class for status badge - matching LinkedTicketPreview style
-const getStatusClass = (status: string) => {
-    switch (status) {
-        case "open":
-            return "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30";
-        case "in-progress":
-            return "bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30";
-        case "closed":
-            return "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30";
-        default:
-            return "bg-slate-600/20 text-slate-700 dark:text-slate-300 border-slate-500/30";
-    }
-};
+const getPriorityClass = (priority: string) => priorityClasses[priority] || defaultBadgeClass;
+const getStatusClass = (status: string) => statusClasses[status] || defaultBadgeClass;
+const formatStatus = (status: string) => status === "in-progress" ? "In Progress" : status.charAt(0).toUpperCase() + status.slice(1);
 
-// Get formatted status for display
-const getFormattedStatus = (status: string) => {
-    switch (status) {
-        case "in-progress":
-            return "In Progress";
-        default:
-            return status.charAt(0).toUpperCase() + status.slice(1);
-    }
-};
-
-// Get tickets assigned to the current user
-const fetchAssignedTickets = async () => {
-    if (!authStore.user?.uuid) return;
+// Get tickets for the target user (assigned or requested based on ticketType)
+const fetchTickets = async () => {
+    if (!targetUserUuid.value) return;
 
     loading.value = true;
     error.value = null;
 
     try {
-        // Handle the "active" filter by fetching open and in-progress tickets
-        let statusFilter: string | undefined = selectedStatus.value;
-        if (statusFilter === "active") {
-            statusFilter = undefined; // We'll filter client-side for active tickets
-        } else if (statusFilter === "") {
-            statusFilter = undefined; // All tickets
-        }
+        // "active" and "" both mean fetch all (active filters client-side)
+        const statusFilter = selectedStatus.value && selectedStatus.value !== "active"
+            ? selectedStatus.value
+            : undefined;
 
-        const response = await ticketService.getPaginatedTickets({
+        // Build query params based on ticket type
+        const queryParams: Parameters<typeof ticketService.getPaginatedTickets>[0] = {
             page: 1,
             pageSize: props.limit * 2, // Fetch more to account for client-side filtering
             sortField: sortBy.value === "priority" ? "priority" : "modified",
             sortDirection: "desc",
             status: statusFilter,
-            assignee: authStore.user.uuid,
-        });
+        };
+
+        // Set assignee or requester based on ticket type
+        if (props.ticketType === 'requested') {
+            queryParams.requester = targetUserUuid.value;
+        } else {
+            queryParams.assignee = targetUserUuid.value;
+        }
+
+        // Use a unique request key to prevent race conditions when multiple instances exist
+        const requestKey = `user-tickets-${props.ticketType}-${targetUserUuid.value}`;
+        const response = await ticketService.getPaginatedTickets(queryParams, requestKey);
 
         // Client-side filter for "active" status (open + in-progress)
         let filteredTickets = response.data;
@@ -158,8 +131,8 @@ const fetchAssignedTickets = async () => {
         // Limit to the requested number
         tickets.value = filteredTickets.slice(0, props.limit);
     } catch (err) {
-        console.error("Error fetching assigned tickets:", err);
-        error.value = "Failed to load your assigned tickets";
+        console.error(`Error fetching ${props.ticketType} tickets:`, err);
+        error.value = `Failed to load ${props.ticketType} tickets`;
     } finally {
         loading.value = false;
     }
@@ -169,37 +142,26 @@ const navigateToTicket = (ticketId: number) => {
     router.push(`/tickets/${ticketId}`);
 };
 
-// Simple watcher that triggers when user becomes available or filters change
+// Watch for changes and fetch - uses immediate:true to handle initial load
+// This is the Vue 3 recommended pattern for data fetching that depends on reactive state
 watch(
     [
-        () => authStore.user?.uuid,
+        targetUserUuid,
         () => props.filterStatus,
+        () => props.ticketType,
         selectedStatus,
         sortBy,
     ],
     ([userUuid, newPropStatus]) => {
         if (newPropStatus) selectedStatus.value = newPropStatus;
+        // Fetch when we have a valid userUuid
         if (userUuid) {
-            fetchAssignedTickets();
+            fetchTickets();
         }
     },
-    { immediate: true },
+    { immediate: true }
 );
 
-// Get status counts for the tickets
-const statusCounts = computed(() => {
-    if (!authStore.user) return { total: 0, open: 0, inProgress: 0, closed: 0 };
-
-    // This would normally be done on the backend with a dedicated API
-    // Here we're just counting the tickets we already have
-    return {
-        total: tickets.value.length,
-        open: tickets.value.filter((t) => t.status === "open").length,
-        inProgress: tickets.value.filter((t) => t.status === "in-progress")
-            .length,
-        closed: tickets.value.filter((t) => t.status === "closed").length,
-    };
-});
 </script>
 
 <template>
@@ -208,21 +170,21 @@ const statusCounts = computed(() => {
     >
         <!-- Header with title and filter -->
         <div
-            class="px-4 py-3 bg-surface-hover border-b border-default flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3"
+            class="px-4 py-3 bg-surface-alt border-b border-default flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3"
         >
             <div v-if="showTitle" class="flex items-center gap-3">
                 <h2 class="text-lg font-medium text-primary">
-                    Your Assigned Tickets
+                    {{ displayTitle }}
                 </h2>
                 <router-link
-                    to="/tickets?assignee=current"
-                    class="text-xs px-3 py-1.5 bg-blue-600 text-primary rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                    :to="seeAllLink"
+                    class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
                 >
                     See All
                 </router-link>
             </div>
 
-            <div class="flex flex-col sm:flex-row gap-2">
+            <div v-if="showFilters" class="flex flex-col sm:flex-row gap-2">
                 <!-- Sort dropdown -->
                 <div class="relative">
                     <select
@@ -301,7 +263,7 @@ const statusCounts = computed(() => {
                 </svg>
                 <p class="text-red-400 font-medium">{{ error }}</p>
                 <button
-                    @click="fetchAssignedTickets"
+                    @click="fetchTickets"
                     class="px-4 py-2 bg-surface-alt border border-default rounded-lg text-primary hover:bg-surface-hover transition-colors text-sm font-medium"
                 >
                     Try Again
@@ -370,7 +332,7 @@ const statusCounts = computed(() => {
                                 class="inline-flex items-center px-2 py-0.5 rounded-md font-medium border"
                                 :class="getStatusClass(ticket.status)"
                             >
-                                {{ getFormattedStatus(ticket.status) }}
+                                {{ formatStatus(ticket.status) }}
                             </span>
 
                             <span

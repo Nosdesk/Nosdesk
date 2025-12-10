@@ -76,11 +76,11 @@ const isEditable = computed(() => props.canEdit && props.showEditableFields);
 // Computed properties for variant-based styling
 const isCompact = computed(() => props.variant === 'compact');
 
-const bannerHeight = computed(() => isCompact.value ? 'h-20' : 'h-32 sm:h-42');
+const bannerHeight = computed(() => isCompact.value ? 'h-20' : 'h-32 sm:h-40');
 
-const avatarSize = computed(() => isCompact.value ? 'w-20 h-20' : 'w-28 h-28 sm:w-32 sm:h-32');
+const avatarSize = computed(() => isCompact.value ? 'w-20 h-20' : 'w-28 h-28 sm:w-36 sm:h-36');
 
-const avatarOffset = computed(() => isCompact.value ? '-top-10' : '-top-14 sm:-top-16');
+const avatarOffset = computed(() => isCompact.value ? '-top-10' : '-top-14 sm:-top-12');
 
 const contentPadding = computed(() => isCompact.value ? 'pt-12' : 'pt-16 sm:pt-20');
 
@@ -488,7 +488,7 @@ const getRoleDisplayName = (role: string) => {
         </div>
 
         <!-- Profile Content -->
-        <div class="px-4 sm:px-6 pb-4 relative">
+        <div class="px-4 sm:px-6 relative">
             <!-- Avatar (overlaps banner or positioned at top if no banner) -->
             <!-- Clickable avatar with RouterLink when navigation is enabled and not editing -->
             <RouterLink
@@ -497,7 +497,7 @@ const getRoleDisplayName = (role: string) => {
                 class="block rounded-full overflow-hidden border-4 border-surface shadow-lg hover:ring-2 hover:ring-blue-500 transition-all"
                 :class="[
                     avatarSize,
-                    showBanner ? `absolute ${avatarOffset} left-4 sm:left-6` : 'mx-auto mt-4'
+                    showBanner ? `absolute ${avatarOffset} left-3 sm:left-4` : 'mx-auto mt-4'
                 ]"
             >
                 <UserAvatar
@@ -515,7 +515,7 @@ const getRoleDisplayName = (role: string) => {
                 class="rounded-full overflow-hidden border-4 border-surface shadow-lg"
                 :class="[
                     avatarSize,
-                    showBanner ? `absolute ${avatarOffset} left-4 sm:left-6` : 'mx-auto mt-4',
+                    showBanner ? `absolute ${avatarOffset} left-3 sm:left-4` : 'mx-auto mt-4',
                     { 'cursor-pointer': isEditable }
                 ]"
                 @click="isEditable ? handleAvatarClick() : undefined"
@@ -570,64 +570,56 @@ const getRoleDisplayName = (role: string) => {
 
             <!-- EDITABLE MODE -->
             <template v-if="isEditable">
-                <div :class="showBanner ? contentPadding : 'pt-4'">
-                    <div class="mb-6">
-                        <!-- Name with inline edit -->
-                        <div class="mb-3">
-                            <InlineEdit
-                                v-model="formData.name"
-                                :placeholder="
-                                    displayUser?.name || 'Enter name...'
-                                "
-                                text-size="2xl"
-                                :can-edit="true"
-                                @update:modelValue="handleNameUpdate"
-                            />
-                        </div>
-
-                        <!-- Role badge -->
-                        <div class="flex flex-wrap gap-2">
-                            <div
-                                class="px-3 py-1.5 rounded-full text-sm font-medium"
-                                :class="
-                                    getRoleBadgeClass(
-                                        displayUser?.role || 'user',
-                                    )
-                                "
-                            >
-                                {{
-                                    getRoleDisplayName(
-                                        displayUser?.role || "user",
-                                    )
-                                }}
-                            </div>
-                        </div>
+                <!-- Name and role badge - positioned to the right of avatar -->
+                <div
+                    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    :class="showBanner ? 'pt-16 sm:py-6 sm:pl-[9.5rem]' : 'pt-4'"
+                >
+                    <!-- Left: Name with inline edit -->
+                    <div class="flex flex-col gap-1 min-w-0 flex-1">
+                        <InlineEdit
+                            v-model="formData.name"
+                            :placeholder="
+                                displayUser?.name || 'Enter name...'
+                            "
+                            text-size="2xl"
+                            :can-edit="true"
+                            @update:modelValue="handleNameUpdate"
+                        />
                     </div>
 
-                    <!-- Editable fields -->
-                    <div v-if="showPronouns" class="grid grid-cols-1 gap-6">
-                        <!-- Pronouns -->
-                        <div class="flex flex-col gap-1.5">
-                            <h3
-                                class="text-xs font-medium text-tertiary uppercase tracking-wide"
+                    <!-- Right: Role badge -->
+                    <div
+                        class="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap self-start sm:self-center flex-shrink-0"
+                        :class="getRoleBadgeClass(displayUser?.role || 'user')"
+                    >
+                        {{ getRoleDisplayName(displayUser?.role || "user") }}
+                    </div>
+                </div>
+
+                <!-- Editable fields - full width below avatar -->
+                <div v-if="showPronouns" class="pt-4 pb-6">
+                    <!-- Pronouns -->
+                    <div class="flex flex-col gap-1.5">
+                        <h3
+                            class="text-xs font-medium text-tertiary uppercase tracking-wide"
+                        >
+                            Pronouns
+                        </h3>
+                        <div class="flex flex-col sm:flex-row gap-3">
+                            <input
+                                v-model="formData.pronouns"
+                                type="text"
+                                class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                placeholder="Add pronouns (e.g., he/him, she/her, they/them)"
+                            />
+                            <button
+                                @click="updatePronouns"
+                                :disabled="!pronounsModified || loading"
+                                class="px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                Pronouns
-                            </h3>
-                            <div class="flex flex-col sm:flex-row gap-3">
-                                <input
-                                    v-model="formData.pronouns"
-                                    type="text"
-                                    class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                    placeholder="Add pronouns (e.g., he/him, she/her, they/them)"
-                                />
-                                <button
-                                    @click="updatePronouns"
-                                    :disabled="!pronounsModified || loading"
-                                    class="px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    Save
-                                </button>
-                            </div>
+                                Save
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -635,45 +627,15 @@ const getRoleDisplayName = (role: string) => {
 
             <!-- READ-ONLY MODE -->
             <template v-else>
-                <!-- Mobile: Stacked layout -->
-                <div class="flex flex-col gap-3 sm:hidden" :class="showBanner ? contentPadding : 'pt-4'">
-                    <!-- Name on top -->
-                    <h2 class="text-2xl font-semibold text-primary">
-                        {{ displayUser?.name || "Unknown User" }}
-                    </h2>
-                    <!-- Badge and pronouns below -->
-                    <div class="flex items-center gap-3">
-                        <div
-                            class="px-3 py-1.5 rounded-full text-sm font-medium"
-                            :class="
-                                getRoleBadgeClass(displayUser?.role || 'user')
-                            "
-                        >
-                            {{
-                                getRoleDisplayName(displayUser?.role || "user")
-                            }}
-                        </div>
-                        <span
-                            v-if="showPronouns && displayUser?.pronouns"
-                            class="text-sm text-tertiary"
-                        >
-                            {{ displayUser.pronouns }}
-                        </span>
-                    </div>
-                    <!-- Email (if provided via slot or showEmail prop) -->
-                    <p v-if="showEmail && displayUser?.email" class="text-secondary text-lg">
-                        {{ displayUser.email }}
-                    </p>
-                </div>
-
-                <!-- Desktop: Single row with baseline alignment -->
+                <!-- Content area - uses same padding top as avatar offset to align vertically -->
                 <div
-                    class="hidden sm:flex items-baseline justify-between gap-4"
-                    :class="showBanner ? 'pl-34 pt-4' : 'pt-4'"
+                    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    :class="showBanner ? 'pt-16 sm:py-6 sm:pl-[9.5rem]' : 'pt-4'"
                 >
-                    <!-- Left: Name and pronouns -->
-                    <div class="flex flex-col gap-2 flex-1 min-w-0">
-                        <div class="flex items-baseline gap-3">
+                    <!-- Left: Name, email, pronouns -->
+                    <div class="flex flex-col gap-1 min-w-0">
+                        <!-- Name with pronouns inline -->
+                        <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                             <h2 class="text-2xl font-semibold text-primary">
                                 {{ displayUser?.name || "Unknown User" }}
                             </h2>
@@ -684,15 +646,15 @@ const getRoleDisplayName = (role: string) => {
                                 {{ displayUser.pronouns }}
                             </span>
                         </div>
-                        <!-- Email (if provided) -->
-                        <p v-if="showEmail && displayUser?.email" class="text-secondary text-lg">
+                        <!-- Email below name -->
+                        <p v-if="showEmail && displayUser?.email" class="text-secondary truncate">
                             {{ displayUser.email }}
                         </p>
                     </div>
 
-                    <!-- Right: Badge -->
+                    <!-- Right: Role badge -->
                     <div
-                        class="px-3 py-1.5 rounded-full text-sm font-medium flex-shrink-0"
+                        class="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap self-start sm:self-center flex-shrink-0"
                         :class="getRoleBadgeClass(displayUser?.role || 'user')"
                     >
                         {{ getRoleDisplayName(displayUser?.role || "user") }}

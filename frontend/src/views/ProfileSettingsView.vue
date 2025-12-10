@@ -515,68 +515,74 @@ const cancelDelete = () => {
             />
 
             <!-- Admin Role Management Card -->
-            <div v-if="isManagingOtherUser && authStore.isAdmin && targetUser" class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
-              <div class="px-4 py-3 bg-surface-alt border-b border-default flex flex-wrap items-center gap-2">
-                <div class="w-6 h-6 bg-status-error/20 rounded-full flex items-center justify-center flex-shrink-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-status-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
+            <div v-if="isManagingOtherUser && authStore.isAdmin && targetUser" class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
+              <div class="px-4 sm:px-6 py-4 bg-surface-alt border-b border-default">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 bg-amber-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 class="text-base sm:text-lg font-semibold text-primary">Role Management</h2>
+                      <p class="text-xs text-secondary hidden sm:block">Control user access permissions</p>
+                    </div>
+                  </div>
+                  <span class="text-xs px-2.5 py-1 bg-amber-500/20 text-amber-500 rounded-full font-medium">Admin Only</span>
                 </div>
-                <h2 class="text-base sm:text-lg font-medium text-primary">Role Management</h2>
-                <span class="text-xs px-2 py-1 bg-status-error/30 text-status-error rounded-full sm:ml-auto">Admin Only</span>
               </div>
+
               <div class="p-4 sm:p-6">
-                <div class="flex flex-col gap-4">
-                  <div class="flex flex-col gap-3">
-                    <div class="flex-1">
-                      <h3 class="text-sm font-medium text-primary mb-1">User Role</h3>
-                      <p class="text-xs text-secondary mb-3">
-                        Control what {{ targetUser.name }} can access and manage in the system.
+                <div class="flex flex-col gap-5">
+                  <!-- Current role display -->
+                  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-default">
+                    <div>
+                      <p class="text-sm text-secondary mb-1">
+                        Control what <span class="text-primary font-medium">{{ targetUser.name }}</span> can access and manage.
                       </p>
-
-                      <div class="flex flex-wrap items-center gap-3">
-                        <div class="flex items-center gap-2">
-                          <span class="text-sm text-secondary">Current:</span>
-                          <span
-                            class="px-2 py-1 rounded text-xs font-medium"
-                            :class="getRoleColorClass(targetUser.role)"
-                          >
-                            {{ targetUser.role.charAt(0).toUpperCase() + targetUser.role.slice(1) }}
-                          </span>
-                        </div>
-
-                        <div v-if="updatingRole" class="flex items-center gap-2 text-brand-blue">
-                          <div class="animate-spin h-3 w-3 border border-brand-blue border-t-transparent rounded-full"></div>
-                          <span class="text-xs">Updating...</span>
-                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                      <span class="text-sm text-tertiary">Current role:</span>
+                      <span
+                        class="px-3 py-1.5 rounded-lg text-sm font-medium"
+                        :class="getRoleColorClass(targetUser.role)"
+                      >
+                        {{ targetUser.role.charAt(0).toUpperCase() + targetUser.role.slice(1) }}
+                      </span>
+                      <div v-if="updatingRole" class="flex items-center gap-2 text-blue-500">
+                        <div class="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
                       </div>
                     </div>
                   </div>
 
-                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <!-- Role selection grid -->
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button
                       v-for="role in availableRoles"
                       :key="role.value"
                       @click="updateUserRole(role.value)"
                       :disabled="updatingRole || targetUser.role === role.value"
-                      class="p-3 sm:p-4 rounded-lg border transition-all text-left min-h-[80px] active:scale-[0.98]"
+                      class="group p-4 rounded-xl border-2 transition-all text-left"
                       :class="[
                         targetUser.role === role.value
-                          ? 'border-brand-blue/50 bg-brand-blue/20'
-                          : 'border-default hover:border-strong bg-surface-alt hover:bg-surface-hover',
+                          ? 'border-blue-500 bg-blue-500/10'
+                          : 'border-transparent bg-surface-alt hover:bg-surface-hover hover:border-default',
                         updatingRole ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
                       ]"
                     >
-                      <div class="flex items-center gap-2 mb-2">
-                        <div
-                          class="w-3 h-3 rounded-full flex-shrink-0"
-                          :style="{ backgroundColor: role.color }"
-                        ></div>
-                        <span class="font-medium text-primary text-sm">{{ role.label }}</span>
+                      <div class="flex items-start justify-between gap-2 mb-2">
+                        <div class="flex items-center gap-2.5">
+                          <div
+                            class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                            :style="{ backgroundColor: role.color }"
+                          ></div>
+                          <span class="font-semibold text-primary text-sm">{{ role.label }}</span>
+                        </div>
                         <svg
                           v-if="targetUser.role === role.value"
                           xmlns="http://www.w3.org/2000/svg"
-                          class="h-4 w-4 text-brand-blue ml-auto flex-shrink-0"
+                          class="h-5 w-5 text-blue-500 flex-shrink-0"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
@@ -588,19 +594,14 @@ const cancelDelete = () => {
                     </button>
                   </div>
 
-                  <div class="bg-status-warning/20 border border-status-warning/50 rounded-lg p-3">
-                    <div class="flex gap-2 sm:gap-3">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-5 sm:w-5 text-status-warning flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                      </svg>
-                      <div class="min-w-0 flex-1">
-                        <p class="text-xs font-medium text-status-warning mb-1">Role Change Warning</p>
-                        <p class="text-xs text-status-warning/80 leading-relaxed">
-                          Changing a user's role will immediately affect their access permissions.
-                          The user will need to log out and back in for changes to take full effect.
-                        </p>
-                      </div>
-                    </div>
+                  <!-- Warning notice -->
+                  <div class="flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p class="text-sm text-secondary">
+                      Role changes take effect immediately. The user may need to refresh their session to see updated permissions.
+                    </p>
                   </div>
                 </div>
               </div>

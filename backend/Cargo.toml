@@ -69,8 +69,8 @@ fastrand = "2.0.0"
 # Add mime crate
 mime = "0.3.17"
 
-# Image processing for thumbnail generation
-image = { version = "0.24", features = ["webp", "jpeg", "png"] }
+# Image processing for thumbnail generation (v0.25+ has native EXIF orientation support)
+image = { version = "0.25", features = ["webp", "jpeg", "png"] }
 
 # Rate limiting for security
 actix-limitation = "0.5.1"
