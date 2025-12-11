@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { useRouter, useRoute } from "vue-router";
 import { computed, ref, onMounted, onUnmounted } from "vue";
+
+// Debounce utility for resize events
+function debounce<T extends (...args: any[]) => void>(fn: T, delay: number): T {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  return ((...args: Parameters<T>) => {
+    if (timeoutId) clearTimeout(timeoutId)
+    timeoutId = setTimeout(() => fn(...args), delay)
+  }) as T
+}
 import UserAvatar from "./UserAvatar.vue";
 import UserDropdownMenu from "./UserDropdownMenu.vue";
 import HeaderTitle from "./HeaderTitle.vue";
@@ -40,7 +49,7 @@ const props = withDefaults(defineProps<Props>(), {
   navbarCollapsed: false,
 });
 
-const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle", "create"]);
+const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle", "updateTicketTitle", "create"]);
 
 const isTicketView = computed(() => {
   return props.ticket !== null;
@@ -94,6 +103,15 @@ const handlePreviewDocumentTitle = (newTitle: string) => {
 const handleUpdateDocumentIcon = (newIcon: string) => {
   if (props.document) {
     emit("updateDocumentIcon", newIcon);
+  }
+};
+
+const handleUpdateTicketTitle = (newTitle: string) => {
+  if (props.ticket) {
+    if (import.meta.env.DEV) {
+      console.log(`SiteHeader: Updating ticket title to "${newTitle}" for ticket:`, props.ticket);
+    }
+    emit("updateTicketTitle", newTitle);
   }
 };
 
@@ -186,15 +204,18 @@ const updateMobileStatus = () => {
   isMobile.value = window.innerWidth < 768;
 };
 
+// Debounced version - only updates after resize stops for 150ms
+const debouncedUpdateMobileStatus = debounce(updateMobileStatus, 150);
+
 // Event listeners for click outside
 onMounted(() => {
-  // Add resize listener
-  window.addEventListener('resize', updateMobileStatus);
+  // Add resize listener (debounced to prevent excessive re-renders)
+  window.addEventListener('resize', debouncedUpdateMobileStatus);
 });
 
 onUnmounted(() => {
   // Remove resize listener
-  window.removeEventListener('resize', updateMobileStatus);
+  window.removeEventListener('resize', debouncedUpdateMobileStatus);
 });
 
 // Add a ref for the header avatar component
@@ -225,10 +246,13 @@ defineExpose({
         <template v-if="isTicketView && props.ticket">
           <div class="flex items-center gap-2 min-w-0 flex-1">
             <ItemIdentifier :id="props.ticket.id" size="md" class="flex-shrink-0" />
-            <!-- Display ticket title as read-only in header -->
-            <h1 class="text-xl font-semibold text-primary truncate flex-1 min-w-0">
-              {{ props.ticket.title || 'Untitled Ticket' }}
-            </h1>
+            <!-- Editable ticket title in header -->
+            <HeaderTitle
+              :initialTitle="props.ticket.title || 'Untitled Ticket'"
+              :placeholder-text="'Enter ticket title...'"
+              @update-title="handleUpdateTicketTitle"
+              class="min-w-0 flex-1"
+            />
           </div>
         </template>
         <template v-else-if="isDeviceView && props.device">

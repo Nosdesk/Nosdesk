@@ -5,6 +5,8 @@ import documentationService from '@/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import type { Page } from '@/services/documentationService'
 import DocumentationNavItem from './DocumentationNavItem.vue'
+import { storeToRefs } from 'pinia'
+import { useSSE } from '@/services/sseService'
 
 // Define emitted events
 defineEmits<{
@@ -29,9 +31,35 @@ interface PageChild {
 
 const route = useRoute()
 const router = useRouter()
-const pages = ref<Page[]>([])
-const isLoading = ref(true)
 const docNavStore = useDocumentationNavStore()
+
+// SSE for real-time updates
+const { addEventListener, removeEventListener } = useSSE()
+
+// Handle SSE documentation updates - update sidebar reactively
+const handleDocumentationUpdate = (event: any) => {
+  // SSE events come as {type: "DocumentationUpdated", data: {...}} from backend
+  const data = event.data || event;
+
+  console.log('[DocumentationNav] SSE event received:', {
+    rawEvent: event,
+    extractedData: data,
+    field: data?.field,
+    value: data?.value,
+    document_id: data?.document_id,
+    pagesCount: pages.value?.length,
+  });
+
+  // Update the sidebar reactively for title/icon changes
+  if (data.field === 'title' || data.field === 'icon') {
+    console.log('[DocumentationNav] Updating sidebar field:', data.field, '=', data.value, 'for page', data.document_id);
+    docNavStore.updatePageField(data.document_id, data.field, data.value);
+  }
+};
+
+// Use store's reactive pages and loading state
+const { pages, isLoading } = storeToRefs(docNavStore)
+
 const pageParentMap = ref<Record<string, string | null>>({})
 const hierarchicalPages = ref<Page[]>([])
 
@@ -43,7 +71,7 @@ const isDragging = ref(false);
 
 // Load pages and organize them hierarchically
 const loadPages = async () => {
-  isLoading.value = true;
+  docNavStore.setLoading(true);
   try {
     // Try to get ordered top-level pages first
     let topLevelPages = await documentationService.getOrderedTopLevelPages();
@@ -109,9 +137,9 @@ const loadPages = async () => {
       // Store the parent map
       pageParentMap.value = parentMap;
       
-      // Update the pages ref
-      pages.value = topLevelPages;
-      
+      // Update the pages in the store
+      docNavStore.setPages(topLevelPages);
+
     } else {
       // For each top-level page, fetch its ordered children recursively
       await Promise.all(topLevelPages.map(async (page) => {
@@ -140,10 +168,10 @@ const loadPages = async () => {
     
     // Store the parent map
     pageParentMap.value = parentMap;
-    
-    // Update the pages ref
-    pages.value = topLevelPages;
-    
+
+    // Update the pages in the store
+    docNavStore.setPages(topLevelPages);
+
   } catch (error) {
     console.error('Error loading pages:', error);
     
@@ -203,15 +231,15 @@ const loadPages = async () => {
       
       // Store the parent map
       pageParentMap.value = parentMap;
-      
-      // Update the pages ref
-      pages.value = topLevelPages;
-      
+
+      // Update the pages in the store
+      docNavStore.setPages(topLevelPages);
+
     } catch (fallbackError) {
       console.error('Error loading fallback pages:', fallbackError);
     }
   } finally {
-    isLoading.value = false;
+    docNavStore.setLoading(false);
   }
 };
 
@@ -358,24 +386,43 @@ const handlePageDragEnd = () => {
   dropPosition.value = null;
 };
 
+// Check if dropping would create a circular reference
+const wouldCreateCircularReference = (draggedId: string | number, targetId: string | number, position: 'above' | 'inside' | 'below'): boolean => {
+  // Can't drop onto itself
+  if (String(draggedId) === String(targetId)) {
+    return true;
+  }
+
+  const draggedPage = findPageById(pages.value, draggedId);
+  if (!draggedPage) return true;
+
+  // Get all descendants of the dragged page
+  const descendantIds = getAllChildrenIds(draggedPage);
+
+  // For 'inside' position: can't drop into any descendant
+  if (position === 'inside') {
+    return descendantIds.includes(String(targetId));
+  }
+
+  // For 'above' or 'below' positions: can't drop as sibling of any descendant
+  // because that would change the parent to the descendant's parent
+  if (descendantIds.includes(String(targetId))) {
+    return true;
+  }
+
+  return false;
+};
+
 // Handle page drag over
 const handlePageDragOver = (id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below') => {
-  if (String(draggedPageId.value) === String(id)) {
-    // Can't drop onto itself
+  // Check for circular reference
+  if (wouldCreateCircularReference(draggedPageId.value as string | number, id, position)) {
+    // Reset drop indicators to show this is invalid
+    dropTargetId.value = null;
+    dropPosition.value = null;
     return;
   }
-  
-  // Prevent dropping a page into its own child (would create infinite loop)
-  const draggedPage = findPageById(pages.value, draggedPageId.value as string | number);
-  if (!draggedPage) return;
-  
-  if (position === 'inside') {
-    const childPages = getAllChildrenIds(draggedPage);
-    if (childPages.includes(String(id))) {
-      return;
-    }
-  }
-  
+
   dropTargetId.value = id;
   dropPosition.value = position;
 };
@@ -396,12 +443,14 @@ const getAllChildrenIds = (page: Page): string[] => {
 
 // Handle page drop
 const handlePageDrop = async (id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below') => {
-  if (String(draggedPageId.value) === String(id)) {
-    // Can't drop onto itself
+  if (!draggedPageId.value || !position) {
     return;
   }
-  
-  if (!draggedPageId.value || !position) {
+
+  // Final safety check for circular reference
+  if (wouldCreateCircularReference(draggedPageId.value, id, position)) {
+    console.warn('Prevented circular reference in page hierarchy');
+    handlePageDragEnd();
     return;
   }
 
@@ -421,13 +470,23 @@ const handlePageDrop = async (id: string | number, event: DragEvent, position: '
         id,
         0 // First position inside the target
       );
-      
+
       // Expand the target to show the newly nested page
       docNavStore.expandPage(String(id));
     } else {
-      // Get the siblings of the target
+      // For 'above' or 'below' positions, the dragged page becomes a sibling of the target
+      // This means it should have the same parent as the target
+
+      // Get the current parent of the dragged page
+      const draggedPageCurrentParent = findParentPage(pages.value, draggedPageId.value as string | number);
+      const draggedPageCurrentParentId = draggedPageCurrentParent ? draggedPageCurrentParent.id : null;
+
+      // Check if the dragged page needs to change its parent
+      const needsParentChange = String(draggedPageCurrentParentId) !== String(targetParentId);
+
+      // Get the siblings of the target (which will become siblings of the dragged page)
       let siblings: Page[] = [];
-      
+
       if (targetParentId) {
         // Get the parent's children
         const parent = findPageById(pages.value, targetParentId);
@@ -436,35 +495,64 @@ const handlePageDrop = async (id: string | number, event: DragEvent, position: '
         }
       } else {
         // This is a top-level page, siblings are other top-level pages
-        siblings = pages.value;
+        siblings = [...pages.value];
       }
-      
+
       // Find the index of the target in its siblings
       const targetIndex = siblings.findIndex(p => String(p.id) === String(id));
       if (targetIndex === -1) return;
-      
-      // Move the dragged page to be before or after the target
+
+      // Calculate the new position
       const newIndex = position === 'above' ? targetIndex : targetIndex + 1;
-      
-      // Create page orders with the new position
-      const pageOrders = siblings
-        .filter(p => String(p.id) !== String(draggedPageId.value)) // Remove the dragged page from its current position
-        .map((p, i) => {
-          if (i >= newIndex) {
-            // Shift pages down
-            return { page_id: Number(p.id), display_order: i + 1 };
+
+      if (needsParentChange) {
+        // First, move the page to the new parent with the correct display order
+        await documentationService.movePage(
+          draggedPageId.value,
+          targetParentId, // null for top-level
+          newIndex
+        );
+
+        // Then reorder all siblings to ensure correct order
+        // Filter out the dragged page from current siblings (it's already been moved)
+        const siblingsWithoutDragged = siblings.filter(p => String(p.id) !== String(draggedPageId.value));
+
+        // Build the page orders including the newly moved page
+        const pageOrders: { page_id: number, display_order: number }[] = [];
+        let orderIndex = 0;
+
+        for (let i = 0; i < siblingsWithoutDragged.length; i++) {
+          if (orderIndex === newIndex) {
+            // Insert the dragged page at this position
+            pageOrders.push({ page_id: Number(draggedPageId.value), display_order: orderIndex });
+            orderIndex++;
           }
-          return { page_id: Number(p.id), display_order: i };
-        });
-      
-      // Insert the dragged page at the new position
-      pageOrders.splice(newIndex, 0, { page_id: Number(draggedPageId.value), display_order: newIndex });
-      
-      // Reorder the pages
-      await documentationService.reorderPages(
-        targetParentId || null, // Use null for top-level pages
-        pageOrders
-      );
+          pageOrders.push({ page_id: Number(siblingsWithoutDragged[i].id), display_order: orderIndex });
+          orderIndex++;
+        }
+
+        // If newIndex is at the end, add the dragged page
+        if (newIndex >= siblingsWithoutDragged.length) {
+          pageOrders.push({ page_id: Number(draggedPageId.value), display_order: orderIndex });
+        }
+
+        await documentationService.reorderPages(targetParentId || null, pageOrders);
+      } else {
+        // Same parent - just reorder
+        const pageOrders = siblings
+          .filter(p => String(p.id) !== String(draggedPageId.value))
+          .map((p, i) => {
+            if (i >= newIndex) {
+              return { page_id: Number(p.id), display_order: i + 1 };
+            }
+            return { page_id: Number(p.id), display_order: i };
+          });
+
+        // Insert the dragged page at the new position
+        pageOrders.splice(newIndex, 0, { page_id: Number(draggedPageId.value), display_order: newIndex });
+
+        await documentationService.reorderPages(targetParentId || null, pageOrders);
+      }
     }
     
     // Reload the pages with the new structure
@@ -479,13 +567,16 @@ const handlePageDrop = async (id: string | number, event: DragEvent, position: '
 
 onMounted(async () => {
   await loadPages()
-  
+
   // Set initial sidebar state based on screen size
   docNavStore.updateSidebarForScreenSize()
 
   // Add resize event listener
   window.addEventListener('resize', handleResize)
-  
+
+  // Register SSE listener for documentation updates
+  addEventListener('documentation-updated' as any, handleDocumentationUpdate);
+
   // Auto-expand parents of the current page
   const currentPageId = route.path.split('/').pop() || ''
   if (currentPageId) {
@@ -494,7 +585,7 @@ onMounted(async () => {
     if (currentPage && currentPage.children && currentPage.children.length > 0) {
       docNavStore.expandPage(currentPageId)
     }
-    
+
     // Expand all parent pages
     docNavStore.expandParents(currentPageId, pageParentMap.value)
   }
@@ -503,6 +594,7 @@ onMounted(async () => {
 // Clean up event listeners when component is unmounted
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
+  removeEventListener('documentation-updated' as any, handleDocumentationUpdate);
 })
 
 // Create a method to reload the sidebar
@@ -526,44 +618,51 @@ watch(() => docNavStore.needsRefresh, (needsRefresh) => {
 </script>
 
 <template>
-  <div class="documentation-nav relative">
-    <div v-if="isLoading" class="p-2 text-center">
-      <div class="animate-pulse">
-        <div class="h-3 bg-surface rounded w-3/4 mx-auto mb-1"></div>
-        <div class="h-3 bg-surface rounded w-1/2 mx-auto mb-1"></div>
-        <div class="h-3 bg-surface rounded w-2/3 mx-auto"></div>
+  <nav class="documentation-nav" :class="{ 'is-dragging': isDragging }">
+    <!-- Loading State -->
+    <div v-if="isLoading" class="px-2 py-4">
+      <div class="space-y-2">
+        <div class="h-6 bg-surface-hover rounded animate-pulse"></div>
+        <div class="h-6 bg-surface-hover rounded animate-pulse w-4/5"></div>
+        <div class="h-6 bg-surface-hover rounded animate-pulse w-3/5"></div>
+        <div class="h-6 bg-surface-hover rounded animate-pulse w-4/5"></div>
       </div>
     </div>
-    <div v-else class="relative">
-      <ul class="flex flex-col gap-1 p-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-border-default scrollbar-thumb-rounded">
-        <DocumentationNavItem
-          v-for="page in pages"
-          :key="page.id"
-          :page="page"
-          :level="0"
-          :is-dragging="String(draggedPageId) === String(page.id)"
-          :is-drop-target="String(dropTargetId) === String(page.id) && dropPosition === 'inside'"
-          :is-drop-above="String(dropTargetId) === String(page.id) && dropPosition === 'above'"
-          :is-drop-below="String(dropTargetId) === String(page.id) && dropPosition === 'below'"
-          @toggle-expand="handleToggleExpand"
-          @page-click="handlePageClick"
-          @drag-start="handlePageDragStart"
-          @drag-end="handlePageDragEnd"
-          @drag-over="handlePageDragOver"
-          @drop="handlePageDrop"
-        />
-      </ul>
+
+    <!-- Navigation Tree -->
+    <ul v-else class="flex flex-col py-1">
+      <DocumentationNavItem
+        v-for="page in pages"
+        :key="page.id"
+        :page="page"
+        :level="0"
+        :dragged-page-id="draggedPageId"
+        :is-dragging="String(draggedPageId) === String(page.id)"
+        :is-drop-target="String(dropTargetId) === String(page.id) && dropPosition === 'inside'"
+        :is-drop-above="String(dropTargetId) === String(page.id) && dropPosition === 'above'"
+        :is-drop-below="String(dropTargetId) === String(page.id) && dropPosition === 'below'"
+        @toggle-expand="handleToggleExpand"
+        @page-click="handlePageClick"
+        @drag-start="handlePageDragStart"
+        @drag-end="handlePageDragEnd"
+        @drag-over="handlePageDragOver"
+        @drop="handlePageDrop"
+      />
+    </ul>
+
+    <!-- Empty State -->
+    <div v-if="!isLoading && pages.length === 0" class="px-4 py-8 text-center">
+      <div class="text-tertiary text-sm">No documents yet</div>
     </div>
-  </div>
+  </nav>
 </template>
 
 <style scoped>
-/* Only keep the transition for drag overlay since it's not easily done with Tailwind */
 .documentation-nav {
-  transition: opacity 0.2s ease;
+  @apply relative;
 }
 
-.documentation-nav.dragging {
-  opacity: 0.8;
+.documentation-nav.is-dragging {
+  @apply select-none;
 }
 </style>

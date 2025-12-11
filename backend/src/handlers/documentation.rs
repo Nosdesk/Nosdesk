@@ -555,11 +555,28 @@ pub async fn move_page_to_parent(
 
     let display_order = request.display_order.unwrap_or(0);
 
+    // Validation: Cannot move a page to be its own parent
+    if request.new_parent_id == Some(request.page_id) {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Invalid operation",
+            "message": "A page cannot be its own parent"
+        }));
+    }
+
     match repository::move_page_to_parent(&mut conn, request.page_id, request.new_parent_id, display_order) {
         Ok(page) => HttpResponse::Ok().json(page),
+        Err(diesel::result::Error::RollbackTransaction) => {
+            HttpResponse::BadRequest().json(json!({
+                "error": "Circular reference",
+                "message": "Cannot move a page to be a child of its own descendant"
+            }))
+        }
         Err(e) => {
             eprintln!("Error moving page: {:?}", e);
-            HttpResponse::InternalServerError().json("Failed to move page to new parent")
+            HttpResponse::InternalServerError().json(json!({
+                "error": "Internal server error",
+                "message": "Failed to move page to new parent"
+            }))
         }
     }
 }

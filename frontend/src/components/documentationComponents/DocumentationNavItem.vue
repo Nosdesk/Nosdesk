@@ -4,39 +4,17 @@ import { useDocumentationNavStore } from '@/stores/documentationNav'
 import type { Page } from '@/services/documentationService'
 import { computed, ref } from 'vue'
 
-// Define props
-const props = defineProps({
-  page: {
-    type: Object as () => Page,
-    required: true
-  },
-  isChild: {
-    type: Boolean,
-    default: false
-  },
-  level: {
-    type: Number,
-    default: 0
-  },
-  isDragging: {
-    type: Boolean,
-    default: false
-  },
-  isDropTarget: {
-    type: Boolean,
-    default: false
-  },
-  isDropAbove: {
-    type: Boolean,
-    default: false
-  },
-  isDropBelow: {
-    type: Boolean,
-    default: false
-  }
-})
+const props = defineProps<{
+  page: Page;
+  isChild?: boolean;
+  level?: number;
+  isDragging?: boolean;
+  isDropTarget?: boolean;
+  isDropAbove?: boolean;
+  isDropBelow?: boolean;
+  draggedPageId?: string | number | null;
+}>()
 
-// Define emits
 const emit = defineEmits<{
   (e: 'toggleExpand', id: string | number): void;
   (e: 'pageClick', id: string | number): void;
@@ -49,30 +27,28 @@ const emit = defineEmits<{
 const route = useRoute()
 const docNavStore = useDocumentationNavStore()
 const dragPosition = ref<'above' | 'inside' | 'below' | null>(null)
+const itemRef = ref<HTMLElement | null>(null)
 
-// Computed classes for the page item based on level
-const pageItemClasses = computed(() => {
-  const classes: Record<string, boolean> = {
-    'ml-0': props.level === 0,
-    'ml-2': props.level === 1,
-    'ml-4': props.level === 2,
-    'ml-6': props.level === 3,
-    'ml-8': props.level === 4,
-    'ml-10': props.level >= 5,
-    'opacity-50': props.isDragging,
-    'border-t-2 border-blue-500': dragPosition.value === 'above' || props.isDropAbove,
-    'border-b-2 border-blue-500': dragPosition.value === 'below' || props.isDropBelow,
-    'bg-blue-900/30': dragPosition.value === 'inside' || props.isDropTarget,
-  }
-  
-  // Add active page indicator
-  const isActive = route.path === `/documentation/${props.page.id}` || 
-                  (typeof props.page.slug === 'string' && route.path === `/documentation/${props.page.slug}`)
-  
-  classes['text-secondary'] = !isActive
-  classes['text-primary bg-surface'] = isActive
-  
-  return classes
+// Calculate indent based on level using CSS custom property
+const indentStyle = computed(() => ({
+  '--indent-level': props.level ?? 0,
+  paddingLeft: `${(props.level ?? 0) * 12}px`
+}))
+
+// Check if this page is currently active
+const isActive = computed(() => {
+  return route.path === `/documentation/${props.page.id}` ||
+         (typeof props.page.slug === 'string' && route.path === `/documentation/${props.page.slug}`)
+})
+
+// Check if this page has children
+const hasChildren = computed(() => {
+  return props.page.children && props.page.children.length > 0
+})
+
+// Check if this page is expanded
+const isExpanded = computed(() => {
+  return docNavStore.expandedPages[props.page.id]
 })
 
 // Check if an icon is an SVG
@@ -80,146 +56,194 @@ const isIconSvg = (icon: string | undefined): boolean => {
   return Boolean(icon && icon.startsWith('<svg'))
 }
 
+// Get all descendant IDs of a page recursively
+const getAllDescendantIds = (page: Page): string[] => {
+  const ids: string[] = []
+  if (page.children && page.children.length > 0) {
+    for (const child of page.children) {
+      ids.push(String(child.id))
+      ids.push(...getAllDescendantIds(child))
+    }
+  }
+  return ids
+}
+
+// Check if this item is a descendant of the dragged page (would create circular reference)
+const isDescendantOfDragged = computed(() => {
+  if (!props.draggedPageId) return false
+  // This check is done by the parent - we just check if the dragged page is an ancestor
+  // If draggedPageId matches this page's ID, it's being dragged
+  return String(props.draggedPageId) === String(props.page.id)
+})
+
 // Handle toggle expansion
-const handleToggleExpand = (id: string | number, event: Event) => {
+const handleToggleExpand = (event: Event) => {
   event.stopPropagation()
-  emit('toggleExpand', id)
+  emit('toggleExpand', props.page.id)
 }
 
 // Handle page click
-const handlePageClick = (id: string | number) => {
-  emit('pageClick', id)
+const handlePageClick = () => {
+  emit('pageClick', props.page.id)
 }
 
-// Handle drag events
+// Drag event handlers
 const handleDragStart = (event: DragEvent) => {
   if (!event.dataTransfer) return
-  // Set the drag data
   event.dataTransfer.setData('text/plain', String(props.page.id))
   event.dataTransfer.effectAllowed = 'move'
-  
-  // Emit drag start event
   emit('dragStart', props.page.id, event)
 }
 
 const handleDragEnd = (event: DragEvent) => {
-  // Clear drag position
   dragPosition.value = null
-  
-  // Emit drag end event
   emit('dragEnd', event)
 }
 
 const handleDragOver = (event: DragEvent) => {
   event.preventDefault()
-  
   if (!event.dataTransfer) return
   event.dataTransfer.dropEffect = 'move'
-  
-  // Determine drop position based on mouse position
+
+  // Calculate drop position based on mouse Y within the element
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   const mouseY = event.clientY
-  const threshold = rect.height / 3
-  
-  if (mouseY < rect.top + threshold) {
-    // Top third - drop above
+  const relativeY = mouseY - rect.top
+  const height = rect.height
+
+  // Divide into thirds for above/inside/below
+  if (relativeY < height * 0.25) {
     dragPosition.value = 'above'
-  } else if (mouseY > rect.bottom - threshold) {
-    // Bottom third - drop below
+  } else if (relativeY > height * 0.75) {
     dragPosition.value = 'below'
   } else {
-    // Middle - drop inside (nest)
     dragPosition.value = 'inside'
   }
-  
-  // Emit drag over event
-  emit('dragOver', props.page.id, event, dragPosition.value as 'above' | 'inside' | 'below')
+
+  emit('dragOver', props.page.id, event, dragPosition.value)
 }
 
-const handleDragLeave = () => {
-  // Clear drag position
-  dragPosition.value = null
+const handleDragLeave = (event: DragEvent) => {
+  // Only clear if we're actually leaving this element (not entering a child)
+  const relatedTarget = event.relatedTarget as HTMLElement
+  if (!itemRef.value?.contains(relatedTarget)) {
+    dragPosition.value = null
+  }
 }
 
 const handleDrop = (event: DragEvent) => {
   event.preventDefault()
-  
   if (dragPosition.value) {
-    // Emit drop event with position
     emit('drop', props.page.id, event, dragPosition.value)
   }
-  
-  // Clear drag position
   dragPosition.value = null
 }
-
-// Check if this page has children
-const hasChildren = computed(() => {
-  return props.page.children && props.page.children.length > 0;
-});
 </script>
 
 <template>
-  <li class="flex flex-col gap-0.5 relative nav-item">
-    <!-- Main Page Item -->
+  <li class="relative select-none">
+    <!-- Drop indicator line - Above -->
     <div
-      class="flex gap-1 text-xs font-medium px-2 py-1 hover:text-primary hover:bg-surface-hover rounded transition-colors items-center relative"
-      :class="pageItemClasses"
-      @click.stop="handlePageClick(page.id)"
+      v-if="dragPosition === 'above' || isDropAbove"
+      class="absolute left-0 right-0 top-0 h-0.5 bg-blue-500 rounded-full z-10 pointer-events-none"
+      :style="indentStyle"
+    >
+      <div class="absolute -left-1 -top-1 w-2 h-2 bg-blue-500 rounded-full"></div>
+    </div>
+
+    <!-- Main Item -->
+    <div
+      ref="itemRef"
+      class="group relative flex items-center gap-1.5 py-1.5 px-2 rounded-md text-[13px] cursor-pointer transition-all duration-150"
+      :class="[
+        isActive
+          ? 'bg-surface text-primary font-medium'
+          : 'text-secondary hover:text-primary hover:bg-surface-hover',
+        isDragging && 'opacity-40 scale-[0.98]',
+        (dragPosition === 'inside' || isDropTarget) && 'bg-blue-500/10 ring-1 ring-blue-500/30',
+      ]"
+      :style="indentStyle"
       draggable="true"
+      @click.stop="handlePageClick"
       @dragstart="handleDragStart"
       @dragend="handleDragEnd"
       @dragover="handleDragOver"
       @dragleave="handleDragLeave"
       @drop="handleDrop"
     >
-      
-      <!-- Expand/Collapse Arrow (only if has children) -->
-      <span
+      <!-- Expand/Collapse Toggle -->
+      <button
         v-if="hasChildren"
-        class="text-tertiary transition-transform duration-200 cursor-pointer flex-shrink-0 flex items-center justify-center hover:text-primary"
-        :class="{ 'rotate-90': docNavStore.expandedPages[page.id] }"
-        @click.stop="handleToggleExpand(page.id, $event)"
-        aria-label="Toggle children"
+        class="flex-shrink-0 w-4 h-4 flex items-center justify-center text-tertiary hover:text-primary rounded transition-colors"
+        @click.stop="handleToggleExpand"
+        :aria-label="isExpanded ? 'Collapse' : 'Expand'"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+        <svg
+          class="w-3 h-3 transition-transform duration-200"
+          :class="{ 'rotate-90': isExpanded }"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+
+      <!-- Spacer when no children (aligns icons) -->
+      <span v-else class="w-4 flex-shrink-0"></span>
+
+      <!-- Page Icon -->
+      <span class="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+        <span v-if="page.icon && !isIconSvg(page.icon)" class="text-sm leading-none">{{ page.icon }}</span>
+        <span v-else-if="page.icon && isIconSvg(page.icon)" v-safe-html.svg="page.icon" class="w-4 h-4"></span>
+        <span v-else class="text-sm leading-none text-tertiary">📄</span>
+      </span>
+
+      <!-- Page Title -->
+      <span class="flex-1 truncate min-w-0">{{ page.title }}</span>
+
+      <!-- Drag Handle (visible on hover) -->
+      <span class="flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity text-tertiary">
+        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
+          <circle cx="5" cy="4" r="1.5"/>
+          <circle cx="11" cy="4" r="1.5"/>
+          <circle cx="5" cy="8" r="1.5"/>
+          <circle cx="11" cy="8" r="1.5"/>
+          <circle cx="5" cy="12" r="1.5"/>
+          <circle cx="11" cy="12" r="1.5"/>
         </svg>
       </span>
-      
-      <!-- Page Icon and Title -->
-      <div class="flex items-center flex-grow max-w-full gap-1" :class="{ 'ml-2.5': !hasChildren }">
-        <!-- Page Icon -->
-        <span class="mr-1 flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center text-tertiary">
-          <span v-if="page.icon && !isIconSvg(page.icon)" class="text-xs">{{ page.icon }}</span>
-          <span v-else-if="page.icon && isIconSvg(page.icon)" v-safe-html.svg="page.icon" class="w-3.5 h-3.5"></span>
-          <span v-else class="text-xs">📄</span>
-        </span>
-        
-        <!-- Page Title -->
-        <span class="truncate max-w-[calc(100%-2.5rem)]">{{ page.title }}</span>
-      </div>
-      
-      <!-- Drag handle indicator that shows on hover -->
-      <div class="opacity-0 group-hover:opacity-50 transition-opacity duration-200 ml-auto">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16" />
-        </svg>
-      </div>
     </div>
-    
-    <!-- Child Pages (only shown when expanded) -->
-    <div v-if="docNavStore.expandedPages[page.id] && hasChildren" class="pl-1.5">
-      <ul class="flex flex-col gap-0.5 border-l border-default pl-1 relative">
-        <!-- Show a subtle expanding line animation when first expanded -->
-        <div class="absolute left-0 top-0 bottom-0 w-px bg-border-subtle expand-line"></div>
-        
+
+    <!-- Drop indicator line - Below -->
+    <div
+      v-if="dragPosition === 'below' || isDropBelow"
+      class="absolute left-0 right-0 bottom-0 h-0.5 bg-blue-500 rounded-full z-10 pointer-events-none"
+      :style="indentStyle"
+    >
+      <div class="absolute -left-1 -top-1 w-2 h-2 bg-blue-500 rounded-full"></div>
+    </div>
+
+    <!-- Children Container -->
+    <div
+      v-if="hasChildren && isExpanded"
+      class="relative mt-0.5"
+    >
+      <!-- Vertical connecting line -->
+      <div
+        class="absolute top-0 bottom-2 w-px bg-border-default opacity-50"
+        :style="{ left: `${((level ?? 0) + 1) * 12 + 8}px` }"
+      ></div>
+
+      <ul class="flex flex-col">
         <DocumentationNavItem
           v-for="child in page.children"
           :key="child.id"
           :page="child"
           :is-child="true"
           :level="(level ?? 0) + 1"
+          :dragged-page-id="draggedPageId"
           :is-dragging="$attrs['is-dragging'] === String(child.id)"
           :is-drop-target="$attrs['is-drop-target'] === String(child.id)"
           :is-drop-above="$attrs['is-drop-above'] === String(child.id)"
@@ -237,43 +261,7 @@ const hasChildren = computed(() => {
 </template>
 
 <style scoped>
-.nav-item {
-  position: relative;
-  transition: all 0.2s ease-in-out;
-}
-
-/* Drag-and-drop visual indicators */
-.border-t-2.border-blue-500 {
-  position: relative;
-}
-
-.border-t-2.border-blue-500::before {
-  content: "";
-  position: absolute;
-  top: -2px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background-color: #3b82f6;
-  z-index: 10;
-}
-
-.border-b-2.border-blue-500 {
-  position: relative;
-}
-
-.border-b-2.border-blue-500::after {
-  content: "";
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background-color: #3b82f6;
-  z-index: 10;
-}
-
-/* Cursor styles for draggable elements */
+/* Smooth grab cursor for draggable items */
 [draggable="true"] {
   cursor: grab;
 }
@@ -281,27 +269,4 @@ const hasChildren = computed(() => {
 [draggable="true"]:active {
   cursor: grabbing;
 }
-
-/* Animation for the dragged item */
-[draggable="true"].opacity-50 {
-  transform: scale(0.98);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
-}
-
-/* Animation for the expanding line when children are shown */
-.expand-line {
-  animation: expandLineAnimation 0.3s ease-out forwards;
-  transform-origin: top;
-}
-
-@keyframes expandLineAnimation {
-  from {
-    transform: scaleY(0);
-    opacity: 0;
-  }
-  to {
-    transform: scaleY(1);
-    opacity: 1;
-  }
-}
-</style> 
+</style>

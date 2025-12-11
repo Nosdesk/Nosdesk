@@ -5,21 +5,39 @@ interface ExpandedState {
   [pageId: string]: boolean;
 }
 
+// Page interface matching the documentation service
+interface NavPage {
+  id: string | number;
+  slug: string;
+  title: string;
+  icon: string | null;
+  parent_id: string | number | null;
+  display_order?: number;
+  children: NavPage[];
+  [key: string]: any; // Allow other properties
+}
+
 export const useDocumentationNavStore = defineStore('documentationNav', () => {
   // State for expanded pages
   const expandedPages = ref<ExpandedState>({})
-  
+
   // State for sidebar visibility
   const isSidebarOpen = ref(false)
-  
+
   // State for current page path
   const currentPagePath = ref<string[]>([])
-  
+
   // State for page hierarchy
   const pageHierarchy = ref<Record<string, string[]>>({})
-  
+
   // Add a flag for refreshing the navigation
   const needsRefresh = ref(false)
+
+  // Centralized pages state - the single source of truth for nav pages
+  const pages = ref<NavPage[]>([])
+
+  // Loading state
+  const isLoading = ref(false)
   
   // Initialize from localStorage if available
   if (localStorage.getItem('docNavExpandedPages')) {
@@ -125,15 +143,71 @@ export const useDocumentationNavStore = defineStore('documentationNav', () => {
     const isMobile = window.innerWidth < 768
     isSidebarOpen.value = !isMobile
   }
-  
+
+  // Set pages (used by DocumentationNav to initialize/reload)
+  const setPages = (newPages: NavPage[]) => {
+    pages.value = newPages
+  }
+
+  // Set loading state
+  const setLoading = (loading: boolean) => {
+    isLoading.value = loading
+  }
+
+  // Helper to find a page by ID recursively
+  const findPageById = (pageList: NavPage[], pageId: string | number): NavPage | null => {
+    for (const page of pageList) {
+      if (String(page.id) === String(pageId)) {
+        return page
+      }
+      if (page.children && page.children.length > 0) {
+        const found = findPageById(page.children, pageId)
+        if (found) return found
+      }
+    }
+    return null
+  }
+
+  // Update a specific field on a page reactively (no API call, just state update)
+  const updatePageField = (pageId: string | number, field: string, value: any) => {
+    console.log('[documentationNavStore] updatePageField called:', {
+      pageId,
+      pageIdType: typeof pageId,
+      field,
+      value,
+      pagesCount: pages.value?.length,
+      firstPageId: pages.value?.[0]?.id,
+      firstPageIdType: typeof pages.value?.[0]?.id,
+    });
+    const page = findPageById(pages.value, pageId)
+    console.log('[documentationNavStore] findPageById result:', page ? `Found page: ${page.title}` : 'Page NOT found');
+    if (page) {
+      // Direct mutation triggers Vue reactivity
+      page[field] = value
+      console.log('[documentationNavStore] Updated page field:', field, '=', value);
+    }
+  }
+
   return {
+    // State
     expandedPages,
     isSidebarOpen,
     currentPagePath,
     pageHierarchy,
     needsRefresh,
+    pages,
+    isLoading,
+
+    // Legacy refresh (still needed for structural changes like drag-drop)
     refreshPages,
     isRefreshNeeded,
+
+    // Page state management
+    setPages,
+    setLoading,
+    updatePageField,
+
+    // Expansion state
     togglePage,
     expandPage,
     collapsePage,
@@ -141,6 +215,8 @@ export const useDocumentationNavStore = defineStore('documentationNav', () => {
     setCurrentPagePath,
     updatePageHierarchy,
     getChildrenOfPage,
+
+    // Sidebar state
     toggleSidebar,
     openSidebar,
     closeSidebar,

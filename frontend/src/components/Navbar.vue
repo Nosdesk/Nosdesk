@@ -249,7 +249,7 @@ const isRouteActive = (path: string, exact = false) => {
                 <img
                     v-if="!isCollapsed"
                     alt="Nosdesk Logo"
-                    class="h-10"
+                    class="h-8"
                     src="@/assets/logo.svg"
                 />
                 <!-- Favicon N when collapsed -->

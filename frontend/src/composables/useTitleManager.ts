@@ -2,7 +2,8 @@ import { ref, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import ticketService from '@/services/ticketService';
 import { useRecentTicketsStore } from '@/stores/recentTickets';
-import documentationService from '@/services/documentationService';
+import apiClient from '@/services/apiConfig';
+import { useDocumentationNavStore } from '@/stores/documentationNav';
 
 export interface TitleableDocument {
   id: string;
@@ -23,16 +24,17 @@ export interface TitleableDevice {
   [key: string]: any; // Allow other properties from the reactive device object
 }
 
+// Singleton state - shared across all useTitleManager() calls
+// This ensures all components see the same reactive state (Vue 3 best practice for shared state)
+const currentTicket = ref<TitleableTicket | null>(null);
+const currentDevice = ref<TitleableDevice | null>(null);
+const currentDocument = ref<TitleableDocument | null>(null);
+const documentationTitle = ref<string | null>(null);
+const customTitle = ref<string | null>(null);
+const isTransitioning = ref(false);
+
 export function useTitleManager() {
   const route = useRoute();
-
-  // State - store the full reactive objects
-  const currentTicket = ref<TitleableTicket | null>(null);
-  const currentDevice = ref<TitleableDevice | null>(null);
-  const currentDocument = ref<TitleableDocument | null>(null);
-  const documentationTitle = ref<string | null>(null);
-  const customTitle = ref<string | null>(null);
-  const isTransitioning = ref(false);
 
   // Computed properties
   const isTicketView = computed(() => currentTicket.value !== null);
@@ -180,42 +182,37 @@ export function useTitleManager() {
       if (import.meta.env.DEV) {
         console.log(`useTitleManager: Updating document title to "${newTitle}"`);
       }
-      
+
       // Update the title in the current document for UI display
       currentDocument.value.title = newTitle;
       documentationTitle.value = newTitle;
       setCustomTitle(newTitle);
-      
+
       // Generate a slug from the title
-      const slug = newTitle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      
+      const newSlug = newTitle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
       try {
-        // First, fetch the current document to get all its properties
         const currentDocId = currentDocument.value.id;
-        const existingDoc = await documentationService.getArticleById(currentDocId);
-        
-        if (!existingDoc) {
-          console.error(`Could not find document with ID ${currentDocId}`);
-          return;
-        }
-        
-        // Save the updated document to the backend, preserving all existing properties
-        const updatedDocument = await documentationService.saveArticle({
-          ...existingDoc,
+
+        // Use simple PUT request with only title and slug - this triggers SSE broadcast
+        await apiClient.put(`/documentation/pages/${currentDocId}`, {
           title: newTitle,
-          slug: slug,
-          children: existingDoc.children || []
+          slug: newSlug,
         });
-        
-        if (updatedDocument) {
-          if (import.meta.env.DEV) {
-            console.log(`useTitleManager: Successfully updated document title and slug in backend`);
-          }
-          // Update the slug in the current document
-          if (currentDocument.value) {
-            currentDocument.value.slug = slug;
-          }
+
+        if (import.meta.env.DEV) {
+          console.log(`useTitleManager: Successfully updated document title and slug in backend`);
         }
+
+        // Update the slug in the current document
+        if (currentDocument.value) {
+          currentDocument.value.slug = newSlug;
+        }
+
+        // Update sidebar reactively for the current user (SSE won't do this since it filters out same-user updates)
+        const documentationNavStore = useDocumentationNavStore();
+        documentationNavStore.updatePageField(currentDocId, 'title', newTitle);
+        documentationNavStore.updatePageField(currentDocId, 'slug', newSlug);
       } catch (error) {
         console.error('Error updating document title and slug:', error);
       }
@@ -227,32 +224,25 @@ export function useTitleManager() {
       if (import.meta.env.DEV) {
         console.log(`useTitleManager: Updating document icon to "${newIcon}"`);
       }
-      
+
       // Update the icon in the current document for UI display
       currentDocument.value.icon = newIcon;
-      
+
       try {
-        // First, fetch the current document to get all its properties
         const currentDocId = currentDocument.value.id;
-        const existingDoc = await documentationService.getArticleById(currentDocId);
-        
-        if (!existingDoc) {
-          console.error(`Could not find document with ID ${currentDocId}`);
-          return;
-        }
-        
-        // Save the updated document to the backend, preserving all existing properties
-        const updatedDocument = await documentationService.saveArticle({
-          ...existingDoc,
+
+        // Use simple PUT request with only icon - this triggers SSE broadcast
+        await apiClient.put(`/documentation/pages/${currentDocId}`, {
           icon: newIcon,
-          children: existingDoc.children || []
         });
-        
-        if (updatedDocument) {
-          if (import.meta.env.DEV) {
-            console.log(`useTitleManager: Successfully updated document icon in backend`);
-          }
+
+        if (import.meta.env.DEV) {
+          console.log(`useTitleManager: Successfully updated document icon in backend`);
         }
+
+        // Update sidebar reactively for the current user (SSE won't do this since it filters out same-user updates)
+        const documentationNavStore = useDocumentationNavStore();
+        documentationNavStore.updatePageField(currentDocId, 'icon', newIcon);
       } catch (error) {
         console.error('Error updating document icon:', error);
       }

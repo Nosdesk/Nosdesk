@@ -523,7 +523,7 @@ const handleDrop = async (event: DragEvent) => {
                         :class="[
                             props.recentlyAddedCommentIds?.has(comment.id)
                                 ? 'bg-blue-600/20 border-blue-500/50 animate-pulse'
-                                : 'bg-surface border-subtle',
+                                : 'bg-surface-alt border-subtle',
                         ]"
                     >
                         <div class="flex flex-row gap-2 justify-between">
@@ -536,10 +536,10 @@ const handleDrop = async (event: DragEvent) => {
                                     size="md"
                                 />
                                 <div class="flex flex-col flex-grow">
-                                    <p class="text-secondary">
+                                    <p class="text-primary">
                                         {{ comment.content }}
                                     </p>
-                                    <small class="text-tertiary"
+                                    <small class="text-secondary"
                                         >{{
                                             comment.user?.name ||
                                             comment.user_uuid

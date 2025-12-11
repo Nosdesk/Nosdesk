@@ -272,7 +272,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
           <h3
             v-else
             @click="startEditing('name')"
-            class="font-medium text-primary truncate cursor-pointer hover:text-blue-300 transition-colors"
+            class="text-md font-medium text-primary truncate cursor-pointer hover:text-blue-300 transition-colors"
             :title="editableName || 'Click to edit device name'"
           >
             {{ editableName || 'Unnamed Device' }}
@@ -347,7 +347,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
             <span
               v-else
               @click="startEditing('serial_number')"
-              class="text-secondary font-mono text-xs cursor-pointer hover:text-blue-300 transition-colors"
+              class="text-secondary font-mono text-sm cursor-pointer hover:text-blue-300 transition-colors"
               :title="'Click to edit: ' + (editableSerialNumber || 'N/A')"
             >
               {{ editableSerialNumber || 'N/A' }}
@@ -369,7 +369,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
             <span
               v-else
               @click="startEditing('model')"
-              class="text-secondary text-xs truncate cursor-pointer hover:text-blue-300 transition-colors"
+              class="text-secondary text-sm truncate cursor-pointer hover:text-blue-300 transition-colors"
               :title="'Click to edit: ' + (editableModel || 'Unknown')"
             >
               {{ editableModel || 'Unknown' }}
@@ -394,7 +394,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
             <span
               v-else
               @click="startEditing('manufacturer')"
-              class="text-secondary text-xs truncate cursor-pointer hover:text-blue-300 transition-colors"
+              class="text-secondary text-sm truncate cursor-pointer hover:text-blue-300 transition-colors"
               :title="'Click to edit: ' + (editableManufacturer || 'Unknown')"
             >
               {{ editableManufacturer || 'Unknown' }}
@@ -416,7 +416,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
             <span
               v-else
               @click="startEditing('hostname')"
-              class="text-secondary font-mono text-xs truncate cursor-pointer hover:text-blue-300 transition-colors"
+              class="text-secondary font-mono text-sm truncate cursor-pointer hover:text-blue-300 transition-colors"
               :title="'Click to edit: ' + (editableHostname || 'N/A')"
             >
               {{ editableHostname || 'N/A' }}

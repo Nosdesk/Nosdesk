@@ -132,6 +132,42 @@ pub fn reorder_pages(
     })
 }
 
+// Check if a page is a descendant of another page (to prevent circular references)
+fn is_descendant_of(
+    conn: &mut DbConnection,
+    page_id: i32,
+    potential_ancestor_id: i32,
+) -> Result<bool, Error> {
+    // Get all descendants of the potential ancestor recursively
+    let descendants = get_all_descendant_ids(conn, potential_ancestor_id)?;
+    Ok(descendants.contains(&page_id))
+}
+
+// Get all descendant IDs of a page recursively
+fn get_all_descendant_ids(
+    conn: &mut DbConnection,
+    page_id: i32,
+) -> Result<Vec<i32>, Error> {
+    let mut all_descendants = Vec::new();
+    let mut pages_to_check = vec![page_id];
+
+    while !pages_to_check.is_empty() {
+        // Get direct children of all pages in the current batch
+        let children: Vec<DocumentationPage> = documentation_pages::table
+            .filter(documentation_pages::parent_id.eq_any(&pages_to_check))
+            .load(conn)?;
+
+        // Clear the pages to check and add the children's IDs
+        pages_to_check.clear();
+        for child in children {
+            all_descendants.push(child.id);
+            pages_to_check.push(child.id);
+        }
+    }
+
+    Ok(all_descendants)
+}
+
 // Move a page to a new parent
 pub fn move_page_to_parent(
     conn: &mut DbConnection,
@@ -141,6 +177,19 @@ pub fn move_page_to_parent(
 ) -> Result<DocumentationPage, Error> {
     // Begin transaction
     conn.transaction(|conn| {
+        // Validation 1: Cannot move a page to be its own parent
+        if new_parent_id == Some(page_id) {
+            return Err(Error::RollbackTransaction);
+        }
+
+        // Validation 2: Cannot move a page to be a child of its own descendant
+        // (this would create a circular reference)
+        if let Some(parent_id) = new_parent_id {
+            if is_descendant_of(conn, parent_id, page_id)? {
+                return Err(Error::RollbackTransaction);
+            }
+        }
+
         // Update the page's parent_id and display_order
         let updated_page = diesel::update(documentation_pages::table.find(page_id))
             .set((
@@ -148,7 +197,7 @@ pub fn move_page_to_parent(
                 documentation_pages::display_order.eq(display_order),
             ))
             .get_result::<DocumentationPage>(conn)?;
-            
+
         Ok(updated_page)
     })
 }

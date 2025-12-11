@@ -130,7 +130,7 @@ const formattedDate = (dateString: string) => {
         
         <!-- Title - extends to full width when buttons not shown -->
         <div class="min-w-0 flex-1">
-          <h3 class="text-primary font-medium truncate text-sm">
+          <h3 class="text-primary font-medium truncate text-md">
             {{ linkedTicket.title }}
           </h3>
         </div>

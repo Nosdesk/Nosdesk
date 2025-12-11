@@ -8,6 +8,7 @@ import documentationService from "@/services/documentationService";
 import ticketService from "@/services/ticketService";
 import type { Article, Page, PageChild } from "@/services/documentationService";
 import BackButton from '@/components/common/BackButton.vue';
+import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue';
 import DeleteButton from '@/components/common/DeleteButton.vue';
 import { useDocumentationNavStore } from "@/stores/documentationNav";
 import DocumentationTocItem from '@/components/documentationComponents/DocumentationTocItem.vue';
@@ -44,6 +45,9 @@ const searchRef = ref<HTMLElement | null>(null);
 const editContent = ref("");
 const editTitle = ref("");
 
+// Ref for the title h1 element - used to manually update contenteditable
+const titleElementRef = ref<HTMLElement | null>(null);
+
 // Document icon
 const documentIcon = ref('📄');
 
@@ -55,16 +59,31 @@ const showRevisionHistory = ref(false);
 const editorRef = ref<any>(null);
 
 // SSE for real-time updates
-const { addEventListener, removeEventListener, connect } = useSSE();
+const { addEventListener, removeEventListener, connect, isConnected, isConnecting, error: sseError } = useSSE();
 const authStore = useAuthStore();
 
 // Handle SSE documentation updates from other clients
 const handleDocumentationUpdate = (event: any) => {
+  // SSE events come as {type: "DocumentationUpdated", data: {...}} from backend
+  // The sseService parses the raw event.data, so we receive the full object
   const data = event.data || event;
+
+  console.log('[SSE] Documentation update received:', {
+    rawEvent: event,
+    extractedData: data,
+    field: data?.field,
+    value: data?.value,
+    document_id: data?.document_id,
+    updated_by: data?.updated_by,
+    currentUserUuid: authStore.user?.uuid,
+    isSameUser: data?.updated_by === authStore.user?.uuid,
+  });
+
   const currentPageId = page.value?.id || article.value?.id;
 
-  // Only update if this is for the current document and not from current user
-  if (data.document_id === currentPageId && data.updated_by !== authStore.user?.uuid) {
+  // Update the current page's local state if this is for the current document
+  // Note: Sidebar updates are handled by DocumentationNav.vue's own SSE listener
+  if (data.document_id === currentPageId) {
     if (data.field === 'title' && data.value) {
       // Update local state
       if (page.value) {
@@ -75,6 +94,10 @@ const handleDocumentationUpdate = (event: any) => {
       editTitle.value = data.value;
       titleManager.setCustomTitle(data.value);
       emit('update:title', data.value);
+      // Manually update the contenteditable element (Vue reactivity doesn't update it)
+      if (titleElementRef.value && titleElementRef.value.textContent !== data.value) {
+        titleElementRef.value.textContent = data.value;
+      }
     }
     if (data.field === 'slug' && data.value) {
       if (page.value) {
@@ -103,16 +126,15 @@ const documentObj = computed(() => {
       icon: page.value.icon || '📄',
       slug: page.value.slug
     };
-  } else if (!article.value) {
-    return null;
+  } else if (article.value) {
+    return {
+      id: String(article.value.id),
+      title: article.value.title,
+      icon: article.value.icon || documentIcon.value,
+      slug: article.value.slug
+    };
   }
-  
-  return {
-    id: String(article.value.id),
-    title: editTitle.value || article.value.title,
-    icon: documentIcon.value,
-    slug: article.value.slug
-  };
+  return null;
 });
 
 // Define emits for article data
@@ -238,11 +260,11 @@ const updateContent = (newContent: string) => {
   }
 };
 
-// Handle title update
+// Handle title update (from content area or header)
 const updateTitle = (newTitle: string) => {
   editTitle.value = newTitle;
 
-  // Update the title in the header
+  // Update the title in all places
   if (article.value || page.value) {
     emit('update:title', newTitle);
     titleManager.setCustomTitle(newTitle);
@@ -250,7 +272,7 @@ const updateTitle = (newTitle: string) => {
     // Generate a slug from the title
     const slug = newTitle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
-    // Update the document object with new title and slug
+    // Update the local document state (this triggers documentObj computed update)
     if (article.value) {
       article.value.title = newTitle;
       article.value.slug = slug;
@@ -276,12 +298,17 @@ const saveTitleChanges = async () => {
   const pageId = page.value?.id || article.value?.id;
   if (!pageId) return;
 
+  const newSlug = editTitle.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
   try {
     await apiClient.put(`/documentation/pages/${pageId}`, {
       title: editTitle.value,
-      slug: editTitle.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+      slug: newSlug,
     });
-    console.log('Title saved:', editTitle.value);
+
+    // Optimistic update for the current user's sidebar (SSE will also update but this is instant)
+    documentationNavStore.updatePageField(pageId, 'title', editTitle.value);
+    documentationNavStore.updatePageField(pageId, 'slug', newSlug);
   } catch (error) {
     console.error('Failed to save title:', error);
   }
@@ -408,11 +435,9 @@ const filteredPages = computed(() => {
   return results;
 });
 
-// Handle search input
+// Handle search input - DebouncedSearchInput already handles debouncing
 const handleSearch = (query: string) => {
-  searchQuery.value = query;
   searchDropdownVisible.value = query.length > 0;
-  // No longer updating URL parameters to avoid any page refreshes
 };
 
 // Close search dropdown when clicking outside
@@ -717,6 +742,9 @@ watch(documentObj, (newDocument) => {
   emit('update:document', newDocument);
 }, { immediate: true });
 
+// Note: Title sync is now handled entirely via SSE in handleDocumentationUpdate()
+// When header updates title → useTitleManager saves to backend → SSE broadcasts → handleDocumentationUpdate() updates local state
+
 // Computed properties
 const flattenedPages = computed(() => {
   const flattened: Array<Page & { level: number }> = [];
@@ -784,124 +812,107 @@ onUnmounted(() => {
   window.document.removeEventListener('click', handleClickOutside);
   removeEventListener('documentation-updated' as any, handleDocumentationUpdate);
 });
+
+// Expose methods for parent components (like SiteHeader via router meta)
+defineExpose({
+  createNewPage
+});
 </script>
 
 <template>
   <div class="bg-app flex flex-col h-full">
-    <!-- Back button and metadata bar with subtle gradient background -->
-    <div class="bg-gradient-to-r from-bg-app to-bg-surface border-b border-default w-full">
-      <!-- Using grid for 3-column layout with fr units for responsive design -->
-      <div class="grid grid-cols-[1fr_2fr_1fr] w-full items-center px-6 py-3">
-        <!-- Left column: Back button -->
-        <div class="flex justify-start">
-          <BackButton :fallbackRoute="fallbackRoute" :label="backButtonLabel" class="hover:scale-105 transition-transform duration-200" />
-        </div>
-        
-        <!-- Center column: Search bar, using fr units for width -->
-        <div v-if="isMainDocumentationPage" class="flex justify-center items-center" ref="searchRef">
-          <div class="relative w-full max-w-3xl mx-auto">
-            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            </div>
-            <input
-              v-model="searchQuery"
-              type="text"
-              placeholder="Search documentation..."
-              class="w-full pl-10 pr-4 py-2 bg-surface/80 text-primary rounded-full placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue border border-default shadow-lg transition-all duration-200 hover:border-brand-blue/50 focus:border-brand-blue"
-              @input="handleSearch(searchQuery)"
-              @focus="searchDropdownVisible = searchQuery.length > 0"
-            />
-            <div v-if="searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
-              <button
-                @click="searchQuery = ''; searchDropdownVisible = false"
-                class="text-secondary hover:text-primary p-1 rounded-full hover:bg-surface-hover transition-colors"
-                aria-label="Clear search"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
-          
-          <!-- Search Results as a dropdown -->
-          <div v-if="searchQuery && searchDropdownVisible"
-               class="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 bg-surface border border-default rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto w-full max-w-3xl">
-            <div class="p-3 border-b border-default flex justify-between items-center">
-              <h2 class="text-sm font-medium text-primary flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                Search Results
-              </h2>
-              <button
-                @click="searchDropdownVisible = false"
-                class="text-secondary hover:text-primary rounded-full p-1 hover:bg-surface-hover"
-                aria-label="Close search results"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            
-            <!-- No results message -->
-            <div v-if="filteredPages.length === 0" class="p-6 text-center text-secondary text-sm">
-              <div class="flex flex-col items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-tertiary mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p>No pages found for "<span class="text-primary">{{ searchQuery }}</span>"</p>
-                <span class="text-xs text-tertiary mt-1">Try a different search term</span>
-              </div>
-            </div>
+    <!-- Header bar matching TicketsListView style -->
+    <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
+      <div class="p-2 flex items-center gap-2 flex-wrap" ref="searchRef">
+        <!-- Back button -->
+        <BackButton :fallbackRoute="fallbackRoute" :label="backButtonLabel" />
 
-            <!-- Results list -->
-            <div v-else class="divide-y divide-subtle">
-              <div v-for="item in filteredPages" :key="item.id"
-                   class="hover:bg-surface-hover transition-colors">
-                <RouterLink 
-                  :to="item.path ? `/documentation/${item.path}` : `/documentation/${item.id}`" 
-                  class="flex items-start gap-3 p-4"
-                  @click="searchDropdownVisible = false"
-                >
-                  <div class="text-xl flex-shrink-0 bg-surface-alt p-1.5 rounded text-center" style="min-width: 2rem">
-                    {{ item.icon || '📄' }}
-                  </div>
-                  <div class="flex-1">
-                    <h3 class="text-primary font-medium">{{ item.title }}</h3>
-                    <p v-if="item.description" class="text-secondary text-xs mt-1 line-clamp-2">
-                      {{ item.description }}
-                    </p>
-                    <div class="flex items-center gap-2 mt-2">
-                      <span class="text-xs text-brand-blue bg-brand-blue/20 px-2 py-0.5 rounded">
-                        {{ item.isPage ? 'Page' : 'Topic' }}
-                      </span>
-                    </div>
-                  </div>
-                </RouterLink>
-              </div>
-            </div>
+        <!-- Search bar (only on index page) -->
+        <template v-if="isMainDocumentationPage">
+          <DebouncedSearchInput
+            v-model="searchQuery"
+            placeholder="Search documentation..."
+            @update:modelValue="handleSearch"
+            @focus="searchDropdownVisible = searchQuery.length > 0"
+          />
+        </template>
+
+        <!-- Spacer to push items to the right -->
+        <div class="flex-1"></div>
+
+        <!-- Saving indicator -->
+        <span v-if="isSaving && !isMainDocumentationPage" class="text-brand-blue flex items-center gap-1 text-xs">
+          <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Saving...
+        </span>
+
+        <!-- Results count (only on index page with search) -->
+        <div v-if="isMainDocumentationPage && searchQuery" class="text-xs text-tertiary">
+          {{ filteredPages.length }} result{{ filteredPages.length !== 1 ? 's' : '' }}
+        </div>
+
+        <!-- Delete button (only when viewing a document) - Far right -->
+        <DeleteButton
+          v-if="(article || page) && !isTicketNote && !isIndexPage"
+          :itemName="'documentation page'"
+          @delete="handleDeletePage"
+        />
+      </div>
+
+      <!-- Search Results dropdown -->
+      <div v-if="searchQuery && searchDropdownVisible"
+           class="absolute left-0 right-0 mt-1 mx-2 bg-surface border border-default rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto">
+        <div class="p-2 border-b border-default flex justify-between items-center">
+          <h2 class="text-sm font-medium text-primary flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-brand-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            Search Results
+          </h2>
+          <button
+            @click="searchDropdownVisible = false"
+            class="text-secondary hover:text-primary rounded-full p-1 hover:bg-surface-hover"
+            aria-label="Close search results"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- No results message -->
+        <div v-if="filteredPages.length === 0" class="p-4 text-center text-secondary text-sm">
+          <div class="flex flex-col items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p>No pages found for "<span class="text-primary">{{ searchQuery }}</span>"</p>
           </div>
         </div>
-        <div v-else></div> <!-- Empty placeholder when search isn't shown -->
-        
-        <!-- Right column: Actions -->
-        <div class="flex justify-end items-center gap-3">
-          <span v-if="isSaving" class="text-brand-blue flex items-center gap-1 text-xs">
-            <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            Saving...
-          </span>
-          <DeleteButton
-            v-if="(article || page) && !isTicketNote && !isIndexPage"
-            :itemName="'documentation page'"
-            @delete="handleDeletePage"
-          />
+
+        <!-- Results list -->
+        <div v-else class="divide-y divide-subtle">
+          <div v-for="item in filteredPages" :key="item.id"
+               class="hover:bg-surface-hover transition-colors">
+            <RouterLink
+              :to="item.path ? `/documentation/${item.path}` : `/documentation/${item.id}`"
+              class="flex items-start gap-3 p-3"
+              @click="searchDropdownVisible = false"
+            >
+              <div class="text-lg flex-shrink-0 bg-surface-alt p-1 rounded text-center" style="min-width: 1.75rem">
+                {{ item.icon || '📄' }}
+              </div>
+              <div class="flex-1 min-w-0">
+                <h3 class="text-primary font-medium text-sm truncate">{{ item.title }}</h3>
+                <p v-if="item.description" class="text-secondary text-xs mt-0.5 line-clamp-1">
+                  {{ item.description }}
+                </p>
+              </div>
+            </RouterLink>
+          </div>
         </div>
       </div>
     </div>
@@ -911,29 +922,7 @@ onUnmounted(() => {
       <!-- Search Results - Removed from main content area -->
 
       <!-- Index Page View -->
-      <div v-if="isIndexPage" class="flex flex-col max-w-5xl mx-auto w-full px-4 py-8 gap-8 animate-fadeIn">  
-        <!-- Documentation header and controls -->
-        <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
-          <div class="flex flex-col gap-2">
-            <h1 class="text-3xl font-bold text-primary flex items-center gap-3">
-              <span class="text-brand-blue text-4xl">📚</span>
-              Documentation
-            </h1>
-            <p class="text-primary text-base max-w-2xl">
-              Browse and manage your documentation pages. Click on a page to view or edit it.
-            </p>
-          </div>
-          <button
-            @click="createNewPage"
-            class="bg-brand-blue hover:bg-brand-blue/80 text-white px-6 py-2.5 rounded-lg flex items-center gap-2 text-sm font-medium shadow-lg transition-all duration-200 ease-in-out transform hover:scale-105"
-            :disabled="isSaving"
-          >
-            <span v-if="isSaving" class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></span>
-            <span v-else class="text-lg">+</span>
-            <span>{{ isSaving ? 'Creating...' : 'New Page' }}</span>
-          </button>
-        </div>
-
+      <div v-if="isIndexPage" class="flex flex-col max-w-5xl mx-auto w-full px-4 py-6 gap-6 animate-fadeIn">
         <!-- Recent Pages Section -->
         <div class="flex flex-col gap-4">
           <div class="flex items-center gap-2 pb-2 border-b border-default">
@@ -983,9 +972,11 @@ onUnmounted(() => {
             </p>
             <button
               @click="createNewPage"
-              class="bg-brand-blue hover:bg-brand-blue/80 text-white px-6 py-3 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg"
+              class="px-2 py-1 text-xs font-medium text-primary bg-brand-blue rounded-md hover:bg-brand-blue/80 focus:ring-2 focus:outline-none focus:ring-brand-blue/50 flex items-center gap-1"
             >
-              <span class="text-lg">+</span>
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
               Create your first page
             </button>
           </div>
@@ -999,19 +990,17 @@ onUnmounted(() => {
           <div class="w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
           <!-- Documentation Header - Clean, modern styling -->
           <div class="mb-6">
-            <!-- Icon and Title -->
-            <div class="flex items-start gap-3 mb-4">
-              <div class="text-2xl sm:text-3xl flex-shrink-0 select-none">{{ (page || article)?.icon || '📄' }}</div>
-              <div class="flex-1 min-w-0">
-                <h1
-                  contenteditable="true"
-                  @blur="updateTitle(($event.target as HTMLElement).textContent || '')"
-                  @keydown.enter.prevent="($event.target as HTMLElement).blur()"
-                  class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-brand-blue/30 rounded px-1 -mx-1"
-                >
-                  {{ (page || article)?.title || 'Untitled' }}
-                </h1>
-              </div>
+            <!-- Title - ref used to manually update contenteditable when header changes title -->
+            <div class="mb-4">
+              <h1
+                ref="titleElementRef"
+                contenteditable="true"
+                @blur="updateTitle(($event.target as HTMLElement).textContent || '')"
+                @keydown.enter.prevent="($event.target as HTMLElement).blur()"
+                class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-brand-blue/30 rounded px-1 -mx-1"
+              >
+                {{ editTitle || (page || article)?.title || 'Untitled' }}
+              </h1>
             </div>
 
             <!-- Metadata bar - Subtle, minimal -->
@@ -1022,6 +1011,17 @@ onUnmounted(() => {
                 <div v-if="page?.created_by || article?.created_by" class="flex items-center gap-1.5">
                   <span class="text-secondary">{{ (page || article)?.created_by?.name || 'Unknown' }}</span>
                 </div>
+
+                <!-- SSE Connection Status Indicator -->
+                <div
+                  class="w-2 h-2 rounded-full flex-shrink-0"
+                  :class="{
+                    'bg-status-success animate-pulse': isConnected,
+                    'bg-status-warning animate-pulse': isConnecting && !isConnected,
+                    'bg-status-error': !isConnected && !isConnecting,
+                  }"
+                  :title="isConnected ? 'Live updates active' : isConnecting ? 'Connecting...' : 'Disconnected'"
+                ></div>
 
                 <!-- Separator -->
                 <span v-if="(page?.created_by || article?.created_by) && (page?.updated_at || article?.updated_at)" class="text-subtle">·</span>

@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 
+// Debounce utility for resize events
+function debounce<T extends (...args: any[]) => void>(fn: T, delay: number): T {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  return ((...args: Parameters<T>) => {
+    if (timeoutId) clearTimeout(timeoutId)
+    timeoutId = setTimeout(() => fn(...args), delay)
+  }) as T
+}
+
 const props = defineProps<{
   currentPage?: number
   totalPages?: number
@@ -25,15 +34,18 @@ const checkScreenSize = () => {
   isMobile.value = window.innerWidth < 768 // md breakpoint
 }
 
+// Debounced version - only updates after resize stops for 150ms
+const debouncedCheckScreenSize = debounce(checkScreenSize, 150)
+
 // Initialize on mount
 onMounted(() => {
-  checkScreenSize()
-  window.addEventListener('resize', checkScreenSize)
+  checkScreenSize() // Initial check (immediate)
+  window.addEventListener('resize', debouncedCheckScreenSize)
 })
 
 // Clean up on unmount
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', checkScreenSize)
+  window.removeEventListener('resize', debouncedCheckScreenSize)
 })
 
 // Watch for currentPage changes to update input value

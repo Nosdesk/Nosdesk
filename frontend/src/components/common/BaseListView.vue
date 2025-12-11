@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, shallowRef } from 'vue'
+
+// Debounce utility for resize events
+function debounce<T extends (...args: any[]) => void>(fn: T, delay: number): T {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  return ((...args: Parameters<T>) => {
+    if (timeoutId) clearTimeout(timeoutId)
+    timeoutId = setTimeout(() => fn(...args), delay)
+  }) as T
+}
 
 const props = defineProps<{
   title: string
@@ -103,15 +112,19 @@ const checkScreenSize = () => {
   isMobile.value = window.innerWidth < 768 // md breakpoint
 }
 
+// Debounced version - only updates after resize stops for 150ms
+// This prevents 60+ re-renders per second during active resizing
+const debouncedCheckScreenSize = debounce(checkScreenSize, 150)
+
 // Initialize on mount
 onMounted(() => {
-  checkScreenSize()
-  window.addEventListener('resize', checkScreenSize)
+  checkScreenSize() // Initial check (immediate)
+  window.addEventListener('resize', debouncedCheckScreenSize)
 })
 
 // Clean up on unmount
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', checkScreenSize)
+  window.removeEventListener('resize', debouncedCheckScreenSize)
 })
 </script>
 
@@ -142,8 +155,8 @@ onBeforeUnmount(() => {
 
       <!-- Content -->
       <div v-else class="flex-1 flex flex-col overflow-hidden">
-        <!-- Desktop Table View -->
-        <template v-if="!isMobile">
+        <!-- Desktop Table View - hidden on mobile via CSS -->
+        <div v-show="!isMobile" class="contents">
           <!-- Table Header (if columns are provided) -->
           <div v-if="columns && columns.length > 0" class="sticky top-0 z-10 bg-surface border-b border-default text-sm text-primary">
             <div class="flex min-w-[800px] gap-1">
@@ -185,20 +198,18 @@ onBeforeUnmount(() => {
               <slot name="header-suffix" class="p-3 py-4"></slot>
             </div>
           </div>
-          
+
           <!-- Table Body -->
           <div class="flex-1 overflow-y-auto">
             <slot></slot>
           </div>
-        </template>
+        </div>
 
-        <!-- Mobile Card View -->
-        <template v-else>
-          <div class="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
-            <slot name="mobile-view"></slot>
-          </div>
-        </template>
-        
+        <!-- Mobile Card View - hidden on desktop via CSS -->
+        <div v-show="isMobile" class="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
+          <slot name="mobile-view"></slot>
+        </div>
+
 
       </div>
     </div>

@@ -528,7 +528,8 @@ async fn main() -> std::io::Result<()> {
             .route("/api/files/temp/{filename:.*}", web::get().to(handlers::serve_temp_file))
             
             // SSE endpoints (with custom token-based auth)
-            .route("/api/events/tickets", web::get().to(handlers::sse::ticket_events_stream))
+            // Main event stream for all real-time updates (tickets, documentation, devices, etc.)
+            .route("/api/events/stream", web::get().to(handlers::sse::ticket_events_stream))
             .route("/api/events/status", web::get().to(handlers::sse::sse_status))
             
             // Authentication routes (public by design)

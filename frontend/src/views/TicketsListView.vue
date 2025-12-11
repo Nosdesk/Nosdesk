@@ -11,7 +11,26 @@ import { IdCell, TextCell, StatusBadgeCell, UserAvatarCell, DateCell } from "@/c
 import StatusBadge from "@/components/StatusBadge.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import { useListManagement } from "@/composables/useListManagement";
+import { parseDate } from "@/utils/dateUtils";
 import type { Ticket } from "@/services/ticketService";
+
+// Compact date/time format for mobile
+const formatCompactDateTime = (dateString: string): string => {
+  const date = parseDate(dateString);
+  if (!date) return '';
+
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const isThisYear = date.getFullYear() === now.getFullYear();
+
+  if (isToday) {
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  } else if (isThisYear) {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+           ' ' + date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+};
 
 const route = useRoute();
 const router = useRouter();
@@ -356,60 +375,77 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
 
         <!-- Mobile Card View -->
         <template #mobile-view>
-          <div class="flex flex-col gap-2 p-2">
+          <div class="flex flex-col divide-y divide-default">
             <div
               v-for="ticket in listManager.items.value"
               :key="ticket.id"
+              v-memo="[ticket.id, ticket.title, ticket.status, ticket.priority, ticket.created, ticket.requester, ticket.assignee]"
               @click="listManager.navigateToItem(ticket)"
-              class="bg-surface-alt rounded-lg p-3 hover:bg-surface-hover transition-colors cursor-pointer"
+              class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer"
             >
-              <div class="flex items-start gap-3">
-                <div class="flex-grow-0">
-                  <input
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-default bg-surface-alt text-brand-blue focus:ring-brand-blue"
-                    :checked="listManager.selectedItems.value.includes(ticket.id.toString())"
-                    @click.stop="(event) => listManager.toggleSelection(event, ticket.id.toString())"
-                  />
+              <!-- Status indicator -->
+              <div
+                class="w-1.5 h-8 rounded-full flex-shrink-0"
+                :class="{
+                  'bg-amber-500': ticket.status === 'open',
+                  'bg-blue-500': ticket.status === 'in-progress',
+                  'bg-emerald-500': ticket.status === 'closed'
+                }"
+              ></div>
+
+              <!-- Main content -->
+              <div class="flex-1 min-w-0">
+                <!-- Title row -->
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-secondary font-medium">#{{ ticket.id }}</span>
+                  <span class="text-sm text-primary font-medium truncate">{{ ticket.title }}</span>
                 </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center justify-between">
-                    <div class="font-medium truncate text-primary">{{ ticket.title }}</div>
-                    <div class="text-xs text-tertiary ml-2">#{{ ticket.id }}</div>
-                  </div>
-                  <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                    <StatusBadge type="status" :value="ticket.status" :short="true" :compact="true" />
-                    <StatusBadge type="priority" :value="ticket.priority" :short="true" :compact="true" />
-                  </div>
-                  <div class="mt-2 flex items-center gap-2 text-xs">
-                    <div class="flex items-center gap-1">
-                      <UserAvatar 
-                        v-if="ticket.requester_user || ticket.requester" 
-                        :name="ticket.requester_user?.name || ticket.requester" 
-                        :avatarUrl="ticket.requester_user?.avatar_thumb" 
-                        :userUuid="ticket.requester_user?.uuid"
-                        size="xs" 
-                      />
-                      <span v-else class="text-tertiary">No requester</span>
-                      <span class="text-secondary">Requester</span>
-                    </div>
-                    <div class="flex items-center gap-1">
+
+                <!-- Meta row -->
+                <div class="flex items-center gap-1.5 mt-1 overflow-hidden">
+                  <StatusBadge type="priority" :value="ticket.priority" :short="true" :compact="true" class="flex-shrink-0" />
+                  <span class="text-[10px] text-tertiary flex-shrink-0">{{ formatCompactDateTime(ticket.created) }}</span>
+                  <template v-if="ticket.requester_user?.name || ticket.requester">
+                    <span class="text-[10px] text-tertiary flex-shrink-0">·</span>
+                    <div class="flex-shrink-0 [&>div>*]:!w-4 [&>div>*]:!h-4">
                       <UserAvatar
-                        v-if="ticket.assignee_user || ticket.assignee"
-                        :name="ticket.assignee_user?.name || ticket.assignee"
-                        :avatarUrl="ticket.assignee_user?.avatar_thumb"
-                        :userUuid="ticket.assignee_user?.uuid"
+                        :name="ticket.requester_user?.name || ticket.requester"
+                        :avatarUrl="ticket.requester_user?.avatar_thumb"
+                        :userUuid="ticket.requester_user?.uuid"
                         size="xs"
+                        :showName="false"
+                        :clickable="false"
                       />
-                      <span v-else class="text-tertiary">Unassigned</span>
-                      <span class="text-secondary">Assignee</span>
                     </div>
-                  </div>
-                  <div class="mt-2 text-xs text-secondary">
-                    Created: {{ listManager.formatDate(ticket.created) }}
-                  </div>
+                    <span class="text-[10px] text-tertiary truncate">{{ ticket.requester_user?.name || ticket.requester }}</span>
+                  </template>
                 </div>
               </div>
+
+              <!-- Assignee avatar (right side) -->
+              <div class="flex-shrink-0">
+                <UserAvatar
+                  v-if="ticket.assignee_user || ticket.assignee"
+                  :name="ticket.assignee_user?.name || ticket.assignee"
+                  :avatarUrl="ticket.assignee_user?.avatar_thumb"
+                  :userUuid="ticket.assignee_user?.uuid"
+                  size="sm"
+                />
+                <div
+                  v-else
+                  class="w-8 h-8 rounded-full bg-surface-alt border border-dashed border-default flex items-center justify-center"
+                  title="Unassigned"
+                >
+                  <svg class="w-4 h-4 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+              </div>
+
+              <!-- Chevron -->
+              <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
             </div>
           </div>
         </template>

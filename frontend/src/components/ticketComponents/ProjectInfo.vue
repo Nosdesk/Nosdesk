@@ -73,7 +73,7 @@ const getStatusClass = (status: string) => {
     <!-- Header -->
     <div class="px-4 py-3 bg-surface-alt border-b border-default">
       <div class="flex items-center justify-between">
-        <h3 class="text-lg font-medium text-primary">{{ project.name }}</h3>
+        <h3 class="text-md font-medium text-primary truncate">{{ project.name }}</h3>
         
         <!-- Action buttons -->
         <div class="flex items-center gap-1">
@@ -113,20 +113,20 @@ const getStatusClass = (status: string) => {
         <div class="grid grid-cols-3 gap-3 text-sm">
           <div class="flex flex-col gap-1">
             <span class="text-xs text-tertiary uppercase tracking-wide">Project ID</span>
-            <span class="text-secondary font-mono text-xs">#{{ projectId }}</span>
+            <span class="text-secondary font-mono text-sm">#{{ projectId }}</span>
           </div>
           <div class="flex flex-col gap-1">
             <span class="text-xs text-tertiary uppercase tracking-wide">Status</span>
             <span
               :class="getStatusClass(project.status)"
-              class="text-xs px-2 py-1 rounded-md border w-fit"
+              class="text-sm px-2 py-1 rounded-md border w-fit"
             >
               {{ project.status }}
             </span>
           </div>
           <div class="flex flex-col gap-1">
             <span class="text-xs text-tertiary uppercase tracking-wide">Tickets</span>
-            <span class="text-secondary text-xs">{{ ticketCount }}</span>
+            <span class="text-secondary text-sm">{{ ticketCount }}</span>
           </div>
         </div>
       </div>

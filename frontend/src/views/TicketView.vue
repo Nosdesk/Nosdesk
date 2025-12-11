@@ -114,7 +114,7 @@ const handleTitleUpdate = (newTitle: string) => {
         if (ticket.value && lastSavedTitle !== newTitle) {
             try {
                 // Call the API directly without reverting local state
-                await ticketService.update(ticket.value.id, { title: newTitle });
+                await ticketService.updateTicket(ticket.value.id, { title: newTitle });
 
                 // Update our saved reference
                 lastSavedTitle = newTitle;

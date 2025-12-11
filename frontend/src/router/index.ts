@@ -244,7 +244,9 @@ const router = createRouter({
       component: DocumentationPageView,
       meta: {
         requiresAuth: true,
-        title: 'Documentation'
+        title: 'Documentation',
+        createButtonText: 'Create Document',
+        createButtonAction: 'createNewPage'
       }
     },
     {
@@ -253,7 +255,9 @@ const router = createRouter({
       component: DocumentationPageView,
       meta: {
         requiresAuth: true,
-        title: 'Documentation'
+        title: 'Documentation',
+        createButtonText: 'Create Document',
+        createButtonAction: 'createNewPage'
       },
       props: true,
       beforeEnter: async (to) => {
