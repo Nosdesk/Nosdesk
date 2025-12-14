@@ -69,9 +69,18 @@ const dropTargetId = ref<string | number | null>(null);
 const dropPosition = ref<'above' | 'inside' | 'below' | null>(null);
 const isDragging = ref(false);
 
+// Single global drop indicator state
+const navRef = ref<HTMLElement | null>(null);
+const dropIndicatorY = ref<number | null>(null);
+const dropIndicatorIndent = ref<number>(8);
+
 // Load pages and organize them hierarchically
 const loadPages = async () => {
-  docNavStore.setLoading(true);
+  // Only show loading state if we don't have cached pages
+  const hasCachedPages = pages.value && pages.value.length > 0;
+  if (!hasCachedPages) {
+    docNavStore.setLoading(true);
+  }
   try {
     // Try to get ordered top-level pages first
     let topLevelPages = await documentationService.getOrderedTopLevelPages();
@@ -384,6 +393,7 @@ const handlePageDragEnd = () => {
   draggedPageId.value = null;
   dropTargetId.value = null;
   dropPosition.value = null;
+  dropIndicatorY.value = null;
 };
 
 // Check if dropping would create a circular reference
@@ -414,17 +424,38 @@ const wouldCreateCircularReference = (draggedId: string | number, targetId: stri
 };
 
 // Handle page drag over
-const handlePageDragOver = (id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below') => {
+const handlePageDragOver = (id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below', level: number = 0) => {
   // Check for circular reference
   if (wouldCreateCircularReference(draggedPageId.value as string | number, id, position)) {
     // Reset drop indicators to show this is invalid
     dropTargetId.value = null;
     dropPosition.value = null;
+    dropIndicatorY.value = null;
     return;
   }
 
   dropTargetId.value = id;
   dropPosition.value = position;
+
+  // Calculate the global indicator position for above/below
+  if (position === 'above' || position === 'below') {
+    const targetElement = event.currentTarget as HTMLElement;
+    if (targetElement && navRef.value) {
+      const targetRect = targetElement.getBoundingClientRect();
+      const navRect = navRef.value.getBoundingClientRect();
+
+      // Position at top or bottom of the target element
+      const yPos = position === 'above'
+        ? targetRect.top - navRect.top
+        : targetRect.bottom - navRect.top;
+
+      dropIndicatorY.value = yPos;
+      dropIndicatorIndent.value = 8 + (level * 8);
+    }
+  } else {
+    // For 'inside' position, hide the line indicator
+    dropIndicatorY.value = null;
+  }
 };
 
 // Function to get all children IDs recursively
@@ -618,14 +649,24 @@ watch(() => docNavStore.needsRefresh, (needsRefresh) => {
 </script>
 
 <template>
-  <nav class="documentation-nav" :class="{ 'is-dragging': isDragging }">
-    <!-- Loading State -->
-    <div v-if="isLoading" class="px-2 py-4">
-      <div class="space-y-2">
-        <div class="h-6 bg-surface-hover rounded animate-pulse"></div>
-        <div class="h-6 bg-surface-hover rounded animate-pulse w-4/5"></div>
-        <div class="h-6 bg-surface-hover rounded animate-pulse w-3/5"></div>
-        <div class="h-6 bg-surface-hover rounded animate-pulse w-4/5"></div>
+  <nav ref="navRef" class="documentation-nav" :class="{ 'is-dragging': isDragging }">
+    <!-- Single Global Drop Indicator -->
+    <div
+      v-if="dropIndicatorY !== null && isDragging"
+      class="drop-indicator"
+      :style="{
+        top: `${dropIndicatorY}px`,
+        left: `${dropIndicatorIndent}px`,
+      }"
+    >
+      <div class="drop-indicator-dot"></div>
+    </div>
+
+    <!-- Loading State (only shown on initial load when no cached pages) -->
+    <div v-if="isLoading && pages.length === 0" class="py-1 px-2 space-y-1">
+      <div v-for="i in 5" :key="i" class="flex items-center gap-1.5 py-1">
+        <div class="w-3 h-3 rounded bg-surface-hover/50 animate-pulse"></div>
+        <div class="flex-1 h-3 rounded bg-surface-hover/60 animate-pulse" :style="{ maxWidth: `${70 + (i % 3) * 10}%` }"></div>
       </div>
     </div>
 
@@ -639,13 +680,11 @@ watch(() => docNavStore.needsRefresh, (needsRefresh) => {
         :dragged-page-id="draggedPageId"
         :is-dragging="String(draggedPageId) === String(page.id)"
         :is-drop-target="String(dropTargetId) === String(page.id) && dropPosition === 'inside'"
-        :is-drop-above="String(dropTargetId) === String(page.id) && dropPosition === 'above'"
-        :is-drop-below="String(dropTargetId) === String(page.id) && dropPosition === 'below'"
         @toggle-expand="handleToggleExpand"
         @page-click="handlePageClick"
         @drag-start="handlePageDragStart"
         @drag-end="handlePageDragEnd"
-        @drag-over="handlePageDragOver"
+        @drag-over="(id, event, position, level) => handlePageDragOver(id, event, position, level)"
         @drop="handlePageDrop"
       />
     </ul>
@@ -664,5 +703,28 @@ watch(() => docNavStore.needsRefresh, (needsRefresh) => {
 
 .documentation-nav.is-dragging {
   @apply select-none;
+}
+
+/* Single global drop indicator */
+.drop-indicator {
+  position: absolute;
+  right: 8px;
+  height: 2px;
+  background-color: #3b82f6;
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 50;
+  transform: translateY(-1px);
+  transition: top 0.1s ease-out, left 0.1s ease-out;
+}
+
+.drop-indicator-dot {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  background-color: #3b82f6;
+  border-radius: 50%;
 }
 </style>

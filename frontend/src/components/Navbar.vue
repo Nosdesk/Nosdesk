@@ -2,6 +2,7 @@
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import DocumentationNav from "@/components/documentationComponents/DocumentationNav.vue";
 import RecentTickets from "@/components/RecentTickets.vue";
+import CollapsibleSection from "@/components/common/CollapsibleSection.vue";
 import {
     ref,
     watch,
@@ -26,11 +27,20 @@ const isDesktop = ref(false); // ≥1024px - shows expandable sidebar
 const isDocsCollapsed = ref(false);
 const isTicketsCollapsed = ref(false);
 
+// State for compact nav mode (small viewport height)
+const isCompactNav = ref(false);
+
 // Refs for DOM elements - These will be passed to the composable
 const navbarRef = ref<HTMLElement | null>(null);
-const ticketsSectionRef = ref<HTMLElement | null>(null);
-const docsSectionRef = ref<HTMLElement | null>(null);
 const resizerRef = ref<HTMLElement | null>(null);
+
+// Component refs for CollapsibleSection instances
+const ticketsSectionComponent = ref<InstanceType<typeof CollapsibleSection> | null>(null);
+const docsSectionComponent = ref<InstanceType<typeof CollapsibleSection> | null>(null);
+
+// Computed refs that extract DOM elements from component instances
+const ticketsSectionRef = computed(() => ticketsSectionComponent.value?.$el || null);
+const docsSectionRef = computed(() => docsSectionComponent.value?.$el || null);
 
 // Define locally for check in onMounted, or expose from composable if preferred
 const MIN_SECTION_HEIGHT = 60;
@@ -80,6 +90,7 @@ const toggleTickets = () => {
 // Check screen size and set navbar state accordingly
 const checkScreenSize = () => {
     const width = window.innerWidth;
+    const height = window.innerHeight;
     const previousMobile = isMobile.value;
     const previousTablet = isTablet.value;
     const previousDesktop = isDesktop.value;
@@ -88,6 +99,9 @@ const checkScreenSize = () => {
     isMobile.value = width < 640; // sm breakpoint (phones only)
     isTablet.value = width >= 640 && width < 1024; // sm to lg (tablets and landscape phones)
     isDesktop.value = width >= 1024; // lg and above
+
+    // Check if viewport height is small (compact nav mode)
+    isCompactNav.value = height < 750;
 
     // Get stored user preference
     const storedPref = localStorage.getItem("navbarCollapsed");
@@ -117,9 +131,11 @@ onMounted(() => {
 
     // Determine initial screen size
     const width = window.innerWidth;
+    const height = window.innerHeight;
     isMobile.value = width < 640;
     isTablet.value = width >= 640 && width < 1024;
     isDesktop.value = width >= 1024;
+    isCompactNav.value = height < 750;
 
     // Set initial collapsed state based on screen size
     if (isMobile.value) {
@@ -256,26 +272,34 @@ const isRouteActive = (path: string, exact = false) => {
                 <img v-else alt="Nosdesk" class="h-8 w-8" src="/favicon.svg" />
             </RouterLink>
 
-            <div class="flex flex-col gap-1 mb-2">
+            <div
+                class="mb-2"
+                :class="[
+                    isCompactNav && !isCollapsed
+                        ? 'grid grid-cols-6 gap-0.5'
+                        : 'flex flex-col gap-1'
+                ]"
+            >
                 <RouterLink
                     v-for="link in navLinks"
                     :key="link.to"
                     :to="link.to"
-                    class="rounded-md transition-colors duration-200 flex items-center gap-3 relative overflow-hidden"
+                    class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden"
                     :class="[
                         isRouteActive(link.to, link.exact)
                             ? 'bg-surface-alt/80 text-primary font-medium'
                             : 'text-secondary hover:bg-surface-hover hover:text-primary',
-                        isCollapsed
+                        isCollapsed || isCompactNav
                             ? 'px-2 py-1.5 justify-center'
-                            : 'px-3 py-2',
+                            : 'px-3 py-2 gap-3',
                     ]"
-                    :title="isCollapsed ? link.text : ''"
+                    :title="isCollapsed || isCompactNav ? link.text : ''"
                 >
                     <!-- Active indicator bar -->
                     <div
                         v-if="isRouteActive(link.to, link.exact)"
                         class="absolute left-0 top-0 bottom-0 w-1"
+                        :class="{ 'w-full h-0.5 top-auto': isCompactNav && !isCollapsed }"
                         :style="{ backgroundColor: link.color }"
                     ></div>
 
@@ -293,7 +317,7 @@ const isRouteActive = (path: string, exact = false) => {
                         />
                     </svg>
                     <span
-                        v-if="!isCollapsed"
+                        v-if="!isCollapsed && !isCompactNav"
                         class="text-sm whitespace-nowrap"
                         >{{ link.text }}</span
                     >
@@ -312,77 +336,21 @@ const isRouteActive = (path: string, exact = false) => {
                 v-if="!isCollapsed"
             >
                 <!-- Recent Tickets section with collapsible header -->
-                <div
-                    ref="ticketsSectionRef"
-                    class="tickets-section flex-shrink-0 overflow-hidden flex flex-col transition-all duration-200"
+                <CollapsibleSection
+                    ref="ticketsSectionComponent"
+                    title="Recent Tickets"
+                    :is-collapsed="isTicketsCollapsed"
+                    accent-color="#2C80FF"
+                    class="tickets-section flex-shrink-0 transition-all duration-200"
                     :style="{
                         maxHeight: isTicketsCollapsed
                             ? '32px'
                             : `${ticketsHeight}px`,
                     }"
-                    :class="[
-                        isTicketsCollapsed
-                            ? 'opacity-90 hover:opacity-100'
-                            : '',
-                    ]"
+                    @toggle="toggleTickets"
                 >
-                    <div
-                        class="flex items-center justify-between py-1.5 px-3 cursor-pointer transition-colors duration-200 group"
-                        :class="
-                            isTicketsCollapsed
-                                ? 'hover:bg-surface-hover'
-                                : 'bg-surface-hover/40'
-                        "
-                        @click="toggleTickets"
-                    >
-                        <h3
-                            class="text-xs font-medium text-secondary uppercase tracking-wider flex items-center gap-1"
-                        >
-                            <span
-                                class="w-2 h-2 bg-brand-blue rounded-full"
-                            ></span>
-                            Recent Tickets
-                        </h3>
-                        <button
-                            class="text-tertiary group-hover:text-primary transition-colors duration-200 bg-surface-hover rounded p-0.5"
-                            :title="
-                                isTicketsCollapsed
-                                    ? 'Expand section'
-                                    : 'Collapse section'
-                            "
-                        >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                class="h-3 w-3"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    :d="
-                                        isTicketsCollapsed
-                                            ? 'M19 9l-7 7-7-7'
-                                            : 'M5 15l7-7 7 7'
-                                    "
-                                />
-                            </svg>
-                        </button>
-                    </div>
-
-                    <div
-                        class="overflow-y-auto bg-surface/60"
-                        :class="
-                            isTicketsCollapsed
-                                ? 'opacity-0 h-0'
-                                : 'opacity-100 flex-1'
-                        "
-                    >
-                        <RecentTickets v-if="!isTicketsCollapsed" />
-                    </div>
-                </div>
+                    <RecentTickets />
+                </CollapsibleSection>
 
                 <!-- Resizer between sections -->
                 <div
@@ -397,71 +365,16 @@ const isRouteActive = (path: string, exact = false) => {
                 </div>
 
                 <!-- Documentation section with collapsible header -->
-                <div
-                    ref="docsSectionRef"
-                    class="docs-section flex-1 min-h-0 overflow-hidden flex flex-col transition-all duration-200 -mt-px"
-                    :class="[
-                        isDocsCollapsed ? 'opacity-90 hover:opacity-100' : '',
-                    ]"
+                <CollapsibleSection
+                    ref="docsSectionComponent"
+                    title="Documentation"
+                    :is-collapsed="isDocsCollapsed"
+                    accent-color="#8B5CF6"
+                    class="docs-section flex-1 min-h-0 transition-all duration-200 -mt-px"
+                    @toggle="toggleDocs"
                 >
-                    <div
-                        class="flex items-center justify-between py-1.5 px-3 cursor-pointer transition-colors duration-200 group"
-                        :class="
-                            isDocsCollapsed
-                                ? 'hover:bg-surface-hover'
-                                : 'bg-surface-hover/40'
-                        "
-                        @click="toggleDocs"
-                    >
-                        <h3
-                            class="text-xs font-medium text-secondary uppercase tracking-wider flex items-center gap-1"
-                        >
-                            <span
-                                class="w-2 h-2 bg-brand-purple rounded-full"
-                            ></span>
-                            Documentation
-                        </h3>
-                        <button
-                            class="text-tertiary group-hover:text-primary transition-colors duration-200 bg-surface-hover rounded p-0.5"
-                            :title="
-                                isDocsCollapsed
-                                    ? 'Expand section'
-                                    : 'Collapse section'
-                            "
-                        >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                class="h-3 w-3"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    :d="
-                                        isDocsCollapsed
-                                            ? 'M19 9l-7 7-7-7'
-                                            : 'M5 15l7-7 7 7'
-                                    "
-                                />
-                            </svg>
-                        </button>
-                    </div>
-
-                    <div
-                        class="overflow-y-auto flex-1 bg-surface/60"
-                        :class="
-                            isDocsCollapsed ? 'opacity-0 h-0' : 'opacity-100'
-                        "
-                    >
-                        <DocumentationNav
-                            v-if="!isDocsCollapsed"
-                            @search="handleDocSearch"
-                        />
-                    </div>
-                </div>
+                    <DocumentationNav @search="handleDocSearch" />
+                </CollapsibleSection>
             </div>
         </div>
 
@@ -469,48 +382,36 @@ const isRouteActive = (path: string, exact = false) => {
         <div class="flex-shrink-0 border-t border-default" v-if="!isMobile">
             <button
                 @click="toggleNav"
-                class="w-full h-12 px-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors group flex items-center"
-                :class="isCollapsed ? 'justify-center' : 'justify-between'"
+                class="w-full h-8 px-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors group flex items-center justify-center"
                 aria-label="Toggle sidebar"
             >
-                <!-- Left side with icon and text -->
-                <div class="flex items-center">
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        class="h-4 w-4 group-hover:text-brand-gold transition-colors"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                    >
-                        <path
-                            v-if="isCollapsed"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M13 5l7 7-7 7M5 5l7 7-7 7"
-                        />
-                        <path
-                            v-else
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
-                        />
-                    </svg>
-                    <span
-                        v-if="!isCollapsed"
-                        class="ml-2 text-xs whitespace-nowrap"
-                        >Collapse Sidebar</span
-                    >
-                </div>
-
-                <!-- Keyboard shortcut (only shown when expanded) -->
-                <kbd
-                    v-if="!isCollapsed"
-                    class="hidden md:inline-flex text-[10px] px-1.5 py-0.5 bg-surface-alt rounded text-tertiary items-center"
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-3.5 w-3.5 group-hover:text-brand-gold transition-colors"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
                 >
-                    ⌘ K
-                </kbd>
+                    <path
+                        v-if="isCollapsed"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M13 5l7 7-7 7M5 5l7 7-7 7"
+                    />
+                    <path
+                        v-else
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+                    />
+                </svg>
+                <span
+                    v-if="!isCollapsed"
+                    class="ml-1.5 text-xs whitespace-nowrap"
+                    >Collapse</span
+                >
             </button>
         </div>
     </nav>

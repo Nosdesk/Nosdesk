@@ -10,8 +10,6 @@ const props = defineProps<{
   level?: number;
   isDragging?: boolean;
   isDropTarget?: boolean;
-  isDropAbove?: boolean;
-  isDropBelow?: boolean;
   draggedPageId?: string | number | null;
 }>()
 
@@ -20,7 +18,7 @@ const emit = defineEmits<{
   (e: 'pageClick', id: string | number): void;
   (e: 'dragStart', id: string | number, event: DragEvent): void;
   (e: 'dragEnd', event: DragEvent): void;
-  (e: 'dragOver', id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below'): void;
+  (e: 'dragOver', id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below', level: number): void;
   (e: 'drop', id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below'): void;
 }>()
 
@@ -29,10 +27,10 @@ const docNavStore = useDocumentationNavStore()
 const dragPosition = ref<'above' | 'inside' | 'below' | null>(null)
 const itemRef = ref<HTMLElement | null>(null)
 
-// Calculate indent based on level using CSS custom property
+// Calculate indent based on level - base padding of 8px plus 8px per level
 const indentStyle = computed(() => ({
   '--indent-level': props.level ?? 0,
-  paddingLeft: `${(props.level ?? 0) * 12}px`
+  paddingLeft: `${8 + (props.level ?? 0) * 8}px`
 }))
 
 // Check if this page is currently active
@@ -120,7 +118,7 @@ const handleDragOver = (event: DragEvent) => {
     dragPosition.value = 'inside'
   }
 
-  emit('dragOver', props.page.id, event, dragPosition.value)
+  emit('dragOver', props.page.id, event, dragPosition.value, props.level ?? 0)
 }
 
 const handleDragLeave = (event: DragEvent) => {
@@ -142,19 +140,10 @@ const handleDrop = (event: DragEvent) => {
 
 <template>
   <li class="relative select-none">
-    <!-- Drop indicator line - Above -->
-    <div
-      v-if="dragPosition === 'above' || isDropAbove"
-      class="absolute left-0 right-0 top-0 h-0.5 bg-blue-500 rounded-full z-10 pointer-events-none"
-      :style="indentStyle"
-    >
-      <div class="absolute -left-1 -top-1 w-2 h-2 bg-blue-500 rounded-full"></div>
-    </div>
-
     <!-- Main Item -->
     <div
       ref="itemRef"
-      class="group relative flex items-center gap-1.5 py-1.5 px-2 rounded-md text-[13px] cursor-pointer transition-all duration-150"
+      class="group relative flex items-center gap-1 py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150"
       :class="[
         isActive
           ? 'bg-surface text-primary font-medium'
@@ -171,33 +160,30 @@ const handleDrop = (event: DragEvent) => {
       @dragleave="handleDragLeave"
       @drop="handleDrop"
     >
-      <!-- Expand/Collapse Toggle -->
+      <!-- Expand/Collapse Toggle (only shown for pages with children) -->
       <button
         v-if="hasChildren"
-        class="flex-shrink-0 w-4 h-4 flex items-center justify-center text-tertiary hover:text-primary rounded transition-colors"
+        class="flex-shrink-0 w-3 h-3 flex items-center justify-center text-tertiary hover:text-primary rounded transition-colors"
         @click.stop="handleToggleExpand"
         :aria-label="isExpanded ? 'Collapse' : 'Expand'"
       >
         <svg
-          class="w-3 h-3 transition-transform duration-200"
+          class="w-2.5 h-2.5 transition-transform duration-200"
           :class="{ 'rotate-90': isExpanded }"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
-          stroke-width="2"
+          stroke-width="2.5"
         >
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
         </svg>
       </button>
 
-      <!-- Spacer when no children (aligns icons) -->
-      <span v-else class="w-4 flex-shrink-0"></span>
-
       <!-- Page Icon -->
-      <span class="flex-shrink-0 w-4 h-4 flex items-center justify-center">
-        <span v-if="page.icon && !isIconSvg(page.icon)" class="text-sm leading-none">{{ page.icon }}</span>
-        <span v-else-if="page.icon && isIconSvg(page.icon)" v-safe-html.svg="page.icon" class="w-4 h-4"></span>
-        <span v-else class="text-sm leading-none text-tertiary">📄</span>
+      <span class="flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center leading-none">
+        <span v-if="page.icon && !isIconSvg(page.icon)" class="text-xs leading-none flex items-center justify-center">{{ page.icon }}</span>
+        <span v-else-if="page.icon && isIconSvg(page.icon)" v-safe-html.svg="page.icon" class="w-3.5 h-3.5 flex items-center justify-center"></span>
+        <span v-else class="text-xs leading-none text-tertiary flex items-center justify-center">📄</span>
       </span>
 
       <!-- Page Title -->
@@ -216,24 +202,15 @@ const handleDrop = (event: DragEvent) => {
       </span>
     </div>
 
-    <!-- Drop indicator line - Below -->
-    <div
-      v-if="dragPosition === 'below' || isDropBelow"
-      class="absolute left-0 right-0 bottom-0 h-0.5 bg-blue-500 rounded-full z-10 pointer-events-none"
-      :style="indentStyle"
-    >
-      <div class="absolute -left-1 -top-1 w-2 h-2 bg-blue-500 rounded-full"></div>
-    </div>
-
     <!-- Children Container -->
     <div
       v-if="hasChildren && isExpanded"
-      class="relative mt-0.5"
+      class="relative"
     >
       <!-- Vertical connecting line -->
       <div
         class="absolute top-0 bottom-2 w-px bg-border-default opacity-50"
-        :style="{ left: `${((level ?? 0) + 1) * 12 + 8}px` }"
+        :style="{ left: `${8 + ((level ?? 0) + 1) * 8 + 6}px` }"
       ></div>
 
       <ul class="flex flex-col">
@@ -246,13 +223,11 @@ const handleDrop = (event: DragEvent) => {
           :dragged-page-id="draggedPageId"
           :is-dragging="$attrs['is-dragging'] === String(child.id)"
           :is-drop-target="$attrs['is-drop-target'] === String(child.id)"
-          :is-drop-above="$attrs['is-drop-above'] === String(child.id)"
-          :is-drop-below="$attrs['is-drop-below'] === String(child.id)"
           @toggle-expand="(id) => emit('toggleExpand', id)"
           @page-click="(id) => emit('pageClick', id)"
           @drag-start="(id, event) => emit('dragStart', id, event)"
           @drag-end="(event) => emit('dragEnd', event)"
-          @drag-over="(id, event, position) => emit('dragOver', id, event, position)"
+          @drag-over="(id, event, position, level) => emit('dragOver', id, event, position, level)"
           @drop="(id, event, position) => emit('drop', id, event, position)"
         />
       </ul>

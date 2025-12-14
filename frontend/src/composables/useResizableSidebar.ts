@@ -1,4 +1,4 @@
-import { ref, onMounted, onBeforeUnmount, type Ref } from 'vue'
+import { ref, onMounted, onBeforeUnmount, type Ref, type ComputedRef } from 'vue'
 
 // Min/max heights constants
 const MIN_SECTION_HEIGHT = 60;
@@ -13,8 +13,8 @@ const logDebug = (...args: any[]) => {
 
 export function useResizableSidebar(
   navbarRef: Ref<HTMLElement | null>,
-  ticketsSectionRef: Ref<HTMLElement | null>,
-  docsSectionRef: Ref<HTMLElement | null>,
+  ticketsSectionRef: Ref<HTMLElement | null> | ComputedRef<HTMLElement | null>,
+  docsSectionRef: Ref<HTMLElement | null> | ComputedRef<HTMLElement | null>,
   resizerRef: Ref<HTMLElement | null>
 ) {
   const ticketsHeight = ref(200);
