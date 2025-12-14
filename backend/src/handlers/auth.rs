@@ -1202,8 +1202,8 @@ pub async fn mfa_setup(
         .unwrap_or_else(|| format!("user-{}", user.uuid));
 
     // Generate QR code
-    let qr_code = match mfa::generate_qr_code(secret.as_str(), &user_email, "Nosdesk") {
-        Ok(qr) => qr,
+    let qr_result = match mfa::generate_qr_code(secret.as_str(), &user_email, "Nosdesk") {
+        Ok(result) => result,
         Err(e) => {
             tracing::error!("Failed to generate QR code: {}", e);
             return HttpResponse::InternalServerError().json(json!({
@@ -1217,9 +1217,10 @@ pub async fn mfa_setup(
 
     let response = crate::models::MfaSetupResponse {
         secret: secret.as_str().to_string(),
-        qr_code,
+        qr_code: qr_result.svg_data_url,
         // Do not generate or return backup codes until after verification completes
         backup_codes: vec![],
+        qr_matrix: Some(qr_result.matrix),
     };
 
     HttpResponse::Ok().json(response)
@@ -1687,8 +1688,8 @@ pub async fn mfa_setup_login(
         .unwrap_or_else(|| format!("user-{}", user.uuid));
 
     // Generate QR code
-    let qr_code = match mfa::generate_qr_code(secret.as_str(), &user_email, "Nosdesk") {
-        Ok(qr) => qr,
+    let qr_result = match mfa::generate_qr_code(secret.as_str(), &user_email, "Nosdesk") {
+        Ok(result) => result,
         Err(e) => {
             tracing::error!("Failed to generate QR code: {}", e);
             return HttpResponse::InternalServerError().json(json!({
@@ -1702,8 +1703,9 @@ pub async fn mfa_setup_login(
 
     let response = crate::models::MfaSetupResponse {
         secret: secret.as_str().to_string(),
-        qr_code,
+        qr_code: qr_result.svg_data_url,
         backup_codes: vec![],
+        qr_matrix: Some(qr_result.matrix),
     };
 
     HttpResponse::Ok().json(response)

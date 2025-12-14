@@ -1396,12 +1396,23 @@ impl CompleteTicketResponse {
 
 // === MFA (Multi-Factor Authentication) Models ===
 
+/// QR code matrix data for frontend rendering
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QrMatrix {
+    /// Width/height of the QR code (always square)
+    pub size: usize,
+    /// Flattened boolean array (row-major order), true = dark module
+    pub data: Vec<bool>,
+}
+
 /// Response for MFA setup request
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MfaSetupResponse {
     pub secret: String,
     pub qr_code: String,
     pub backup_codes: Vec<String>,
+    /// QR code matrix data for animated rendering
+    pub qr_matrix: Option<QrMatrix>,
 }
 
 /// Request for verifying MFA setup

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { logger } from "@/utils/logger";
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import OtpInput from "@/components/common/OtpInput.vue";
 import { useAuthStore } from "@/stores/auth";
@@ -34,6 +34,10 @@ const mfaSetupStore = useMfaSetupStore();
 const verificationCode = ref("");
 const showSecret = ref(false);
 const secretCopied = ref(false);
+
+// QR code rendering: Single grid that shows skeleton pattern initially,
+// then smoothly transitions when real data arrives. Cells animate in
+// radially from center, creating a generative effect.
 
 // Handle OTP complete (auto-submit)
 const handleOtpComplete = () => {
@@ -291,103 +295,211 @@ const completeSetup = () => {
     emit("success", "setup-complete");
 };
 
-// QR code skeleton cell helpers (37x37 grid)
-const getQrCellClass = (i: number) => {
-    const row = Math.floor((i - 1) / 37);
-    const col = (i - 1) % 37;
+// Computed: total cells for QR grid (depends on matrix size or default)
+// TOTP QR codes are Version 6 (41x41) for typical email lengths
+const qrGridSize = computed(() => {
+    return mfa.qrMatrix.value?.size || 41;
+});
+const qrTotalCells = computed(() => qrGridSize.value * qrGridSize.value);
 
-    // Check if cell is in finder pattern (7x7) - not including border
-    const inTopLeftPattern = row <= 6 && col <= 6;
-    const inTopRightPattern = row <= 6 && col >= 30;
-    const inBottomLeftPattern = row >= 30 && col <= 6;
+// Computed: padding for QR grid to add quiet zone (standard is 4 modules)
+// This creates a white border around the QR code for better scanning
+const qrGridPadding = computed(() => {
+    // 4 modules of quiet zone on each side
+    // As percentage of total container: 4 / (size + 8) * 100
+    const quietZone = 4;
+    const totalWithQuiet = qrGridSize.value + (quietZone * 2);
+    const paddingPercent = (quietZone / totalWithQuiet) * 100;
+    return `${paddingPercent.toFixed(2)}%`;
+});
 
-    // Check if cell is in white border zone (only inner edges)
-    // Top-left: border on right (col 7) and bottom (row 7)
-    const isTopLeftBorder = (row === 7 && col <= 7) || (col === 7 && row <= 7);
-    // Top-right: border on left (col 29) and bottom (row 7)
-    const isTopRightBorder =
-        (row === 7 && col >= 29) || (col === 29 && row <= 7);
-    // Bottom-left: border on right (col 7) and top (row 29)
-    const isBottomLeftBorder =
-        (row === 29 && col <= 7) || (col === 7 && row >= 29);
+// Animation tick for dynamic loading pattern - updates every 60ms
+const animTick = ref(0);
+let animInterval: ReturnType<typeof setInterval> | null = null;
 
-    // White borders (inner edges only)
-    if (isTopLeftBorder || isTopRightBorder || isBottomLeftBorder) {
-        return "aspect-square bg-white";
+// Track when data arrives for transition animation
+const dataArrivedTick = ref<number | null>(null);
+const transitionDuration = 30; // ticks for transition (~1.8s)
+
+// Start/stop animation based on whether we have real data
+watch(() => mfa.qrMatrix.value, (newVal) => {
+    if (newVal && dataArrivedTick.value === null) {
+        // Data just arrived - record the tick and keep animating for transition
+        dataArrivedTick.value = animTick.value;
     }
+}, { immediate: true });
+
+// Start animation on mount
+onMounted(() => {
+    animInterval = setInterval(() => {
+        animTick.value++;
+        // Stop animation after transition completes
+        if (dataArrivedTick.value !== null &&
+            animTick.value > dataArrivedTick.value + transitionDuration) {
+            clearInterval(animInterval!);
+            animInterval = null;
+        }
+    }, 60);
+});
+
+// Cleanup on unmount
+onUnmounted(() => {
+    if (animInterval) {
+        clearInterval(animInterval);
+    }
+});
+
+// Hash function for deterministic but chaotic noise
+const hash = (x: number, y: number, t: number): number => {
+    const n = Math.sin(x * 127.1 + y * 311.7 + t * 53.3) * 43758.5453;
+    return n - Math.floor(n);
+};
+
+// Determine if a cell should be dark in the loading skeleton (time-varying)
+// Starts all white, radial wave brings in noise pattern from center
+const isLoadingCellDark = (row: number, col: number, size: number, tick: number): boolean => {
+    const center = (size - 1) / 2;
+    const dr = row - center;
+    const dc = col - center;
+    const dist = Math.sqrt(dr * dr + dc * dc);
+    const maxDist = Math.sqrt(2) * center;
+    const normalizedDist = dist / maxDist;
+
+    // Initial expansion wave - starts white, pattern radiates out
+    // Wave reaches edge by tick 15 (~900ms)
+    const initialWaveDuration = 15;
+    if (tick < initialWaveDuration) {
+        const initialWavePos = tick / initialWaveDuration;
+        const edgeNoise = hash(row, col, 0) * 0.1;
+        // Cell is white until initial wave reaches it
+        if (normalizedDist + edgeNoise > initialWavePos) {
+            return false;
+        }
+    }
+
+    // Finder patterns (7x7 in corners) - show once wave reaches them
+    const inTopLeftPattern = row <= 6 && col <= 6;
+    const inTopRightPattern = row <= 6 && col >= size - 7;
+    const inBottomLeftPattern = row >= size - 7 && col <= 6;
 
     if (inTopLeftPattern || inTopRightPattern || inBottomLeftPattern) {
-        // Determine local position within the 7x7 finder pattern
         let localRow = row;
         let localCol = col;
+        if (inTopRightPattern) localCol = col - (size - 7);
+        if (inBottomLeftPattern) localRow = row - (size - 7);
 
-        if (inTopRightPattern) localCol = col - 30;
-        if (inBottomLeftPattern) localRow = row - 30;
-
-        // Finder pattern logic (7x7)
-        // Outer ring: black
-        if (
-            localRow === 0 ||
-            localRow === 6 ||
-            localCol === 0 ||
-            localCol === 6
-        ) {
-            return "aspect-square bg-gray-800";
-        }
+        // Outer ring: dark
+        if (localRow === 0 || localRow === 6 || localCol === 0 || localCol === 6) return true;
         // Inner white ring
-        if (
-            localRow === 1 ||
-            localRow === 5 ||
-            localCol === 1 ||
-            localCol === 5
-        ) {
-            return "aspect-square bg-white";
-        }
-        // Center 3x3 black
-        return "aspect-square bg-gray-800";
+        if (localRow === 1 || localRow === 5 || localCol === 1 || localCol === 5) return false;
+        // Center 3x3: dark
+        return true;
     }
 
-    // Regular animated cell
-    return "aspect-square bg-gray-800 qr-wave-cell";
+    // White border around finder patterns
+    const isFinderBorder =
+        (row === 7 && col <= 7) || (col === 7 && row <= 7) ||
+        (row === 7 && col >= size - 8) || (col === size - 8 && row <= 7) ||
+        (row === size - 8 && col <= 7) || (col === 7 && row >= size - 8);
+    if (isFinderBorder) return false;
+
+    // Base noise for this cell - static per position
+    const baseNoise = hash(row, col, 0);
+
+    // Radial wave - continuously emanates from center
+    // Wave position cycles from 0 to 1 every 20 ticks (~1.2s at 60ms interval)
+    const waveCycle = 20;
+    const wavePos = (tick % waveCycle) / waveCycle;
+
+    // Calculate wave influence on this cell
+    // Wave creates a sinusoidal modulation that travels outward
+    const waveOffset = (normalizedDist - wavePos) * Math.PI * 2;
+    const waveInfluence = Math.sin(waveOffset) * 0.5 + 0.5; // 0 to 1
+
+    // Time-varying component - changes with each wave cycle
+    const cycleNum = Math.floor(tick / waveCycle);
+    const timeNoise = hash(row, col, cycleNum);
+
+    // Combine: base noise + wave-modulated time noise
+    // Wave passing through causes cells to potentially flip
+    const combinedNoise = baseNoise * 0.4 + timeNoise * 0.3 + waveInfluence * 0.3;
+
+    // Threshold with slight position variation for organic feel
+    const threshold = 0.48 + hash(row * 7, col * 13, 0) * 0.08;
+
+    return combinedNoise > threshold;
 };
 
+// Get cell style - radial delay for final state animation
 const getQrCellStyle = (i: number) => {
-    const row = Math.floor((i - 1) / 37);
-    const col = (i - 1) % 37;
+    const size = qrGridSize.value;
+    const row = Math.floor((i - 1) / size);
+    const col = (i - 1) % size;
 
-    // Check if cell is in finder pattern or border area
-    const inTopLeftArea = row <= 7 && col <= 7;
-    const inTopRightArea = row <= 7 && col >= 29;
-    const inBottomLeftArea = row >= 29 && col <= 7;
+    // Radial distance from center
+    const center = (size - 1) / 2;
+    const dr = row - center;
+    const dc = col - center;
+    const dist = Math.sqrt(dr * dr + dc * dc);
 
-    // No animation for finder pattern and border cells
-    if (inTopLeftArea || inTopRightArea || inBottomLeftArea) {
-        return {};
-    }
+    // Small noise for organic feel
+    const n1 = Math.sin(row * 17.31 + col * 83.17) * 7654.321;
+    const noise = Math.abs(n1 - Math.floor(n1));
 
-    // Radial pulse with QR-like noise
-    const centerRow = 18;
-    const centerCol = 18;
-    const distance = Math.sqrt(
-        Math.pow(row - centerRow, 2) + Math.pow(col - centerCol, 2),
-    );
-
-    // Base timing from distance creates ripple effect
-    const baseDelay = distance * 35;
-
-    // More noise for QR-like randomness
-    const noise1 = Math.sin(row * 2.3) * Math.cos(col * 1.7) * 200;
-    const noise2 = ((i * 7) % 11) * 25;
-    const noise = noise1 + noise2;
-
-    // Faster, varied durations
-    const duration = 400 + ((i * 13) % 7) * 80; // 400-960ms
+    // Radial delay - cells lock in from center outward when data arrives
+    const radialDelay = dist * 25 + noise * 100;
 
     return {
-        "--wave-delay": `${Math.max(0, baseDelay + noise)}ms`,
-        "--wave-duration": `${duration}ms`,
+        "--del": `${Math.round(radialDelay)}ms`,
     };
 };
+
+// Get cell class - handles loading, transition, and final states
+const getQrCellClass = (i: number) => {
+    const size = qrGridSize.value;
+    const row = Math.floor((i - 1) / size);
+    const col = (i - 1) % size;
+
+    // Calculate radial distance for this cell
+    const center = (size - 1) / 2;
+    const dr = row - center;
+    const dc = col - center;
+    const dist = Math.sqrt(dr * dr + dc * dc);
+    const maxDist = Math.sqrt(2) * center;
+    const normalizedDist = dist / maxDist;
+
+    // If we have real matrix data
+    if (mfa.qrMatrix.value) {
+        const matrix = mfa.qrMatrix.value;
+        const idx = row * matrix.size + col;
+        const finalIsDark = matrix.data[idx];
+
+        // Check if we're still in transition
+        if (dataArrivedTick.value !== null) {
+            const ticksSinceArrival = animTick.value - dataArrivedTick.value;
+            // Radial wave progress: 0 at start, 1 when complete
+            const waveProgress = ticksSinceArrival / transitionDuration;
+
+            // Add noise to the transition wave edge for organic feel
+            const edgeNoise = hash(row, col, 0) * 0.15;
+            const cellThreshold = normalizedDist + edgeNoise;
+
+            // If wave hasn't reached this cell yet, show loading pattern
+            if (cellThreshold > waveProgress) {
+                const loadingIsDark = isLoadingCellDark(row, col, size, animTick.value);
+                return loadingIsDark ? "aspect-square qr-cell-loading-dark" : "aspect-square qr-cell-loading-light";
+            }
+        }
+
+        // Wave has passed or transition complete - show final data
+        return finalIsDark ? "aspect-square qr-cell-final-dark" : "aspect-square qr-cell-final-light";
+    }
+
+    // No data yet - show loading skeleton
+    const isDark = isLoadingCellDark(row, col, size, animTick.value);
+    return isDark ? "aspect-square qr-cell-loading-dark" : "aspect-square qr-cell-loading-light";
+};
+
 
 // Format secret with spaces for better readability
 const formatSecret = (secret: string) => {
@@ -518,33 +630,24 @@ defineExpose({
     animation: shimmer 1.5s infinite;
 }
 
-/* QR Code flashing/dithering animation */
-@keyframes qrFlash {
-    0%,
-    100% {
-        opacity: 0.03;
-    }
-    40%,
-    60% {
-        opacity: 1;
-    }
+/* Loading state - cells shift dynamically */
+.qr-cell-loading-dark {
+    background-color: rgb(17, 24, 39);
+    transition: background-color 120ms ease-out;
 }
 
-.qr-wave-cell {
-    opacity: 0.03;
-    animation: qrFlash var(--wave-duration, 1s) ease-in-out infinite;
-    animation-delay: var(--wave-delay);
+.qr-cell-loading-light {
+    background-color: white;
+    transition: background-color 120ms ease-out;
 }
 
-/* QR code fade transition */
-.qr-fade-enter-active,
-.qr-fade-leave-active {
-    transition: opacity 0.3s ease;
+/* Final state - solid colors, no animation (transition handled in JS) */
+.qr-cell-final-dark {
+    background-color: rgb(17, 24, 39);
 }
 
-.qr-fade-enter-from,
-.qr-fade-leave-to {
-    opacity: 0;
+.qr-cell-final-light {
+    background-color: white;
 }
 </style>
 
@@ -620,50 +723,24 @@ defineExpose({
                     <!-- QR Code Section -->
                     <div class="flex justify-center lg:justify-start">
                         <div class="bg-white p-4 rounded-lg shadow-lg">
-                            <!-- QR Code with crossfade transition -->
+                            <!-- QR Code container - single grid that handles both states -->
                             <div class="relative w-48 h-48 lg:w-44 lg:h-44">
-                                <Transition name="qr-fade">
-                                    <!-- QR Code Skeleton when loading (not during verification) -->
+                                <div
+                                    class="absolute inset-0 bg-white rounded-lg overflow-hidden"
+                                    :style="{ padding: qrGridPadding }"
+                                >
                                     <div
-                                        v-if="
-                                            (mfa.loading.value &&
-                                                !mfa.verifying.value) ||
-                                            !mfa.qrCodeUrl.value
-                                        "
-                                        key="skeleton"
-                                        class="absolute inset-0 bg-white rounded-lg flex items-center justify-center overflow-hidden"
+                                        class="w-full h-full grid"
+                                        :style="{ gridTemplateColumns: `repeat(${qrGridSize}, 1fr)` }"
                                     >
-                                        <!-- QR Code Wave Pattern with integrated finder patterns (37x37 grid) -->
-                                        <div
-                                            class="absolute inset-[8.9%] grid grid-cols-[repeat(37,1fr)]"
-                                        >
-                                            <template
-                                                v-for="i in 1369"
-                                                :key="i"
-                                            >
-                                                <div
-                                                    :class="getQrCellClass(i)"
-                                                    :style="getQrCellStyle(i)"
-                                                ></div>
-                                            </template>
-                                        </div>
+                                        <template v-for="i in qrTotalCells" :key="i">
+                                            <div
+                                                :class="getQrCellClass(i)"
+                                                :style="getQrCellStyle(i)"
+                                            ></div>
+                                        </template>
                                     </div>
-                                </Transition>
-
-                                <Transition name="qr-fade">
-                                    <!-- Actual QR Code when loaded (stays visible during verification) -->
-                                    <img
-                                        v-if="
-                                            mfa.qrCodeUrl.value &&
-                                            (!mfa.loading.value ||
-                                                mfa.verifying.value)
-                                        "
-                                        key="qrcode"
-                                        :src="mfa.qrCodeUrl.value"
-                                        alt="MFA QR Code"
-                                        class="absolute inset-0 w-full h-full"
-                                    />
-                                </Transition>
+                                </div>
                             </div>
                         </div>
                     </div>

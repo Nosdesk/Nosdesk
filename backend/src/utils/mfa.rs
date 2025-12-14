@@ -172,25 +172,47 @@ pub async fn generate_backup_codes_async() -> (Vec<String>, Vec<String>) {
     (plaintext_codes, hashed_codes)
 }
 
-/// Generate QR code as SVG string
-pub fn generate_qr_code(secret: &str, user_email: &str, service_name: &str) -> Result<String> {
+/// QR code generation result containing both SVG and matrix data
+pub struct QrCodeResult {
+    /// Base64-encoded SVG data URL
+    pub svg_data_url: String,
+    /// Matrix data for frontend animated rendering
+    pub matrix: crate::models::QrMatrix,
+}
+
+/// Generate QR code as SVG string and return matrix data for animated rendering
+pub fn generate_qr_code(secret: &str, user_email: &str, service_name: &str) -> Result<QrCodeResult> {
     // Create TOTP URL for authenticator apps
     let totp_url = format!(
         "otpauth://totp/{}:{}?secret={}&issuer={}",
         service_name, user_email, secret, service_name
     );
-    
+
     let code = QrCode::new(&totp_url)
         .map_err(|e| anyhow!("Failed to generate QR code: {}", e))?;
-    
+
+    // Extract matrix data for frontend (row-major order)
+    let size = code.width();
+    let data: Vec<bool> = code.to_colors()
+        .iter()
+        .map(|c| *c == qrcode::Color::Dark)
+        .collect();
+
+    tracing::info!("QR code generated: size={}x{}, total_modules={}, data_len={}",
+        size, size, size * size, data.len());
+
+    let matrix = crate::models::QrMatrix { size, data };
+
     let svg = code
         .render::<svg::Color>()
         .min_dimensions(200, 200)
         .build();
-    
+
     // Convert SVG to base64 data URL for frontend
     let base64_svg = general_purpose::STANDARD.encode(svg);
-    Ok(format!("data:image/svg+xml;base64,{}", base64_svg))
+    let svg_data_url = format!("data:image/svg+xml;base64,{}", base64_svg);
+
+    Ok(QrCodeResult { svg_data_url, matrix })
 }
 
 /// Verify TOTP token with timing-attack protection and clock drift tolerance

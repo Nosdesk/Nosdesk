@@ -5,7 +5,8 @@ import authService, {
   type MFAVerifyRequest,
   type MFAEnableRequest,
   type MFALoginSetupRequest,
-  type MFALoginEnableRequest
+  type MFALoginEnableRequest,
+  type QrMatrix
 } from '@/services/authService';
 
 /**
@@ -26,6 +27,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
   const mfaEnabled = ref(false);
   const mfaStep = ref<'setup' | 'verify' | 'enabled' | 'success'>('setup');
   const qrCodeUrl = ref('');
+  const qrMatrix = ref<QrMatrix | null>(null);
   const mfaSecret = ref('');
   const backupCodes = ref<string[]>([]);
   const error = ref<string | null>(null);
@@ -72,9 +74,17 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       const data = await authService.setupMFAForLogin(request);
 
       qrCodeUrl.value = data.qr_code;
+      qrMatrix.value = data.qr_matrix || null;
       mfaSecret.value = data.secret;
       backupCodes.value = data.backup_codes || [];
       mfaStep.value = 'verify';
+
+      // Log matrix info for debugging
+      if (data.qr_matrix) {
+        console.log(`[MFA] QR matrix received: size=${data.qr_matrix.size}x${data.qr_matrix.size}, data_length=${data.qr_matrix.data.length}`);
+      } else {
+        console.log('[MFA] No QR matrix received from backend');
+      }
 
       successMessage.value = 'MFA setup initiated. Please scan the QR code with your authenticator app.';
 
@@ -100,8 +110,16 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       const data = await authService.setupMFA();
 
       qrCodeUrl.value = data.qr_code;
+      qrMatrix.value = data.qr_matrix || null;
       mfaSecret.value = data.secret;
       backupCodes.value = [];
+
+      // Log matrix info for debugging
+      if (data.qr_matrix) {
+        console.log(`[MFA] QR matrix received: size=${data.qr_matrix.size}x${data.qr_matrix.size}, data_length=${data.qr_matrix.data.length}`);
+      } else {
+        console.log('[MFA] No QR matrix received from backend');
+      }
 
       successMessage.value = 'MFA setup initiated. Please scan the QR code with your authenticator app.';
     } catch (err) {
@@ -284,6 +302,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
   function resetMFASetup(): void {
     mfaStep.value = 'setup';
     qrCodeUrl.value = '';
+    qrMatrix.value = null;
     mfaSecret.value = '';
     backupCodes.value = [];
     error.value = null;
@@ -305,6 +324,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
     mfaEnabled,
     mfaStep,
     qrCodeUrl,
+    qrMatrix,
     mfaSecret,
     backupCodes,
     error,

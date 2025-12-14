@@ -34,10 +34,16 @@ export interface LoginResponse {
 }
 
 // MFA Interfaces
+export interface QrMatrix {
+  size: number;
+  data: boolean[];
+}
+
 export interface MFASetupData {
   secret: string;
   qr_code: string;
   backup_codes: string[];
+  qr_matrix?: QrMatrix;
 }
 
 export interface MFAStatusResponse {
