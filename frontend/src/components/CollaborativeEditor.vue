@@ -66,10 +66,12 @@ import {
     emDash,
     ellipsis,
 } from "prosemirror-inputrules";
+import { createImageUploadPlugin } from "./editor/imageUploadPlugin";
 
 // Props
 interface Props {
     docId: string;
+    ticketId?: number;
     hideRevisionHistory?: boolean;
 }
 
@@ -568,6 +570,12 @@ const initEditor = async () => {
                     keymap(baseKeymap), // Basic key bindings
                     dropCursor(), // Shows cursor when dragging
                     // NOTE: gapCursor() removed - causes null reference errors with empty Yjs documents
+                    createImageUploadPlugin({
+                        ticketId: props.ticketId,
+                        onUploadStart: () => log.debug('Image upload started'),
+                        onUploadEnd: () => log.debug('Image upload completed'),
+                        onUploadError: (error) => log.error('Image upload failed:', error)
+                    }),
                 ],
             }),
         });
@@ -2518,5 +2526,34 @@ defineExpose({
 /* Toolbar button active state */
 .toolbar-button-active {
     background-color: var(--color-surface-alt);
+}
+
+/* Image upload placeholder styles */
+.image-upload-placeholder {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background-color: var(--color-surface-alt);
+    border: 1px dashed var(--color-default);
+    border-radius: 0.5rem;
+    color: var(--color-secondary);
+    font-size: 0.875rem;
+    margin: 0.25rem 0;
+}
+
+.image-upload-spinner {
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid var(--color-default);
+    border-top-color: rgb(59 130 246);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 </style>

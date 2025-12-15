@@ -524,6 +524,7 @@ async fn main() -> std::io::Result<()> {
             )
             
             // Public file serving with token-based auth for attachments
+            .route("/api/files/tickets/{ticket_id}/notes/{filename:.*}", web::get().to(handlers::serve_ticket_note_image))
             .route("/api/files/tickets/{filename:.*}", web::get().to(handlers::serve_ticket_file))
             .route("/api/files/temp/{filename:.*}", web::get().to(handlers::serve_temp_file))
             
@@ -653,6 +654,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets/{ticket_id}/devices/{device_id}", web::delete().to(handlers::remove_device_from_ticket))
                     .route("/tickets/{ticket_id}/comments", web::get().to(handlers::get_comments_by_ticket_id))
                     .route("/tickets/{ticket_id}/comments", web::post().to(handlers::add_comment_to_ticket))
+                    .route("/tickets/{ticket_id}/notes/images", web::post().to(handlers::upload_ticket_note_image))
                     .route("/comments/{id}", web::delete().to(handlers::delete_comment))
                     .route("/comments/{comment_id}/attachments", web::post().to(handlers::add_attachment_to_comment))
                     .route("/attachments/{id}", web::delete().to({

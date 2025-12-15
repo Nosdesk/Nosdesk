@@ -684,6 +684,7 @@ pub struct UserInfo {
 pub struct UserInfoWithAvatar {
     pub uuid: Uuid,
     pub name: String,
+    pub avatar_url: Option<String>,
     pub avatar_thumb: Option<String>,
 }
 
@@ -724,6 +725,7 @@ impl From<User> for UserInfoWithAvatar {
         UserInfoWithAvatar {
             uuid: user.uuid,
             name: user.name,
+            avatar_url: user.avatar_url,
             avatar_thumb: user.avatar_thumb,
         }
     }

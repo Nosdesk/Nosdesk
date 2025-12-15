@@ -8,6 +8,7 @@ interface Props {
   canEdit?: boolean;
   prefix?: string;
   showEditHint?: boolean;
+  truncate?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -15,7 +16,8 @@ const props = withDefaults(defineProps<Props>(), {
   textSize: 'base',
   canEdit: true,
   prefix: '',
-  showEditHint: true
+  showEditHint: true,
+  truncate: false
 });
 
 const emit = defineEmits<{
@@ -74,23 +76,24 @@ const textSizeClasses = {
 </script>
 
 <template>
-  <div class="flex items-center gap-3 group flex-1">
+  <div class="flex items-center gap-3 group flex-1 min-w-0">
     <span
       v-if="prefix"
-      class="text-tertiary font-medium flex items-center select-none"
+      class="text-tertiary font-medium flex items-center select-none flex-shrink-0"
       :class="[textSizeClasses[textSize], { 'opacity-50': isEditing }]"
     >
       {{ prefix }}
     </span>
 
-    <div class="flex-1 relative">
-      <!-- Display mode - shows wrapped text -->
+    <div class="flex-1 relative min-w-0">
+      <!-- Display mode - shows wrapped text or truncated text -->
       <div
         v-if="!isEditing"
         @click="handleClick"
-        class="w-full font-semibold px-1 py-0.5 rounded-lg hover:bg-surface-hover transition-all duration-150 border-2 border-transparent break-words"
+        class="w-full font-semibold px-1 py-0.5 rounded-lg hover:bg-surface-hover transition-all duration-150 border-2 border-transparent"
         :class="[
           textSizeClasses[textSize],
+          truncate ? 'truncate' : 'break-words',
           {
             'cursor-pointer': canEdit,
             'cursor-default': !canEdit,
@@ -98,6 +101,7 @@ const textSizeClasses = {
             'text-tertiary italic': !modelValue
           }
         ]"
+        :title="truncate && modelValue ? modelValue : undefined"
       >
         {{ modelValue || placeholder }}
       </div>

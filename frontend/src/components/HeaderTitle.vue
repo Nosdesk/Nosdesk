@@ -7,9 +7,12 @@ interface Props {
   initialTitle: string;
   prefix?: string;
   placeholderText?: string;
+  truncate?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  truncate: false
+});
 const emit = defineEmits(['updateTitle', 'updateTitlePreview']);
 
 // Use a ref that syncs with the prop for immediate reactivity
@@ -34,6 +37,7 @@ const handleTitleUpdate = (newValue: string) => {
     :prefix="prefix"
     :placeholder="placeholderText || 'Enter title...'"
     text-size="xl"
+    :truncate="truncate"
     @update:modelValue="handleTitleUpdate"
   />
 </template>

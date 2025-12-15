@@ -246,10 +246,11 @@ defineExpose({
         <template v-if="isTicketView && props.ticket">
           <div class="flex items-center gap-2 min-w-0 flex-1">
             <ItemIdentifier :id="props.ticket.id" size="md" class="flex-shrink-0" />
-            <!-- Editable ticket title in header -->
+            <!-- Editable ticket title in header - truncated to fit -->
             <HeaderTitle
               :initialTitle="props.ticket.title || 'Untitled Ticket'"
               :placeholder-text="'Enter ticket title...'"
+              :truncate="true"
               @update-title="handleUpdateTicketTitle"
               class="min-w-0 flex-1"
             />
@@ -274,6 +275,7 @@ defineExpose({
             <HeaderTitle
               :initialTitle="props.document.title"
               :placeholder-text="'Enter document title...'"
+              :truncate="true"
               @update-title="handleUpdateDocumentTitle"
               @update-title-preview="handlePreviewDocumentTitle"
               class="min-w-0 flex-1"

@@ -168,6 +168,7 @@ const handleConvertToDocumentation = async () => {
           ref="editorRef"
           v-model="content"
           :doc-id="`ticket-${ticketId}`"
+          :ticket-id="ticketId"
           :is-binary-update="true"
           :hide-revision-history="true"
           @update:model-value="handleContentChange"

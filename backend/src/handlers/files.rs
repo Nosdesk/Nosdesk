@@ -247,4 +247,140 @@ async fn validate_file_access_token(
         Ok(_) => Ok(()),
         Err(_) => Err(actix_web::error::ErrorUnauthorized("User not found")),
     }
+}
+
+/// Upload images for ticket notes (collaborative editor)
+/// Images are stored in tickets/{ticket_id}/notes/ folder
+pub async fn upload_ticket_note_image(
+    path: web::Path<i32>,
+    mut payload: Multipart,
+    pool: web::Data<crate::db::Pool>,
+    storage: web::Data<Arc<dyn Storage>>,
+) -> Result<HttpResponse, actix_web::Error> {
+    let ticket_id = path.into_inner();
+    println!("Received ticket note image upload for ticket {}", ticket_id);
+
+    // Verify ticket exists
+    let mut conn = pool.get().map_err(|e| {
+        eprintln!("Database connection error: {:?}", e);
+        actix_web::error::ErrorInternalServerError("Database connection error")
+    })?;
+
+    // Check if ticket exists
+    crate::repository::tickets::get_ticket_by_id(&mut conn, ticket_id)
+        .map_err(|_| actix_web::error::ErrorNotFound("Ticket not found"))?;
+
+    let mut uploaded_files = Vec::new();
+
+    // Process each field in the multipart form
+    while let Some(mut field) = payload.try_next().await? {
+        let field_name = field.name();
+        if field_name != "files" {
+            println!("Skipping non-file field: {}", field_name);
+            continue;
+        }
+
+        // Get the filename from the field
+        let content_disposition = field.content_disposition();
+        let original_filename = content_disposition
+            .get_filename()
+            .ok_or_else(|| actix_web::error::ErrorBadRequest("Filename is required"))?;
+
+        // SECURITY: Sanitize filename to prevent path traversal attacks
+        let sanitized_filename = FileValidator::sanitize_filename(original_filename)
+            .map_err(|e| {
+                eprintln!("Filename sanitization failed: {:?}", e);
+                actix_web::error::ErrorBadRequest(format!("Invalid filename: {}", e))
+            })?;
+
+        println!("Processing ticket note image: {} (sanitized: {})", original_filename, sanitized_filename);
+
+        // Read the field data with incremental size validation
+        let mut file_data = Vec::new();
+        let mut total_size = 0usize;
+
+        while let Some(chunk) = field.next().await {
+            let data = chunk.map_err(|e| {
+                eprintln!("Error reading chunk: {:?}", e);
+                actix_web::error::ErrorInternalServerError("Error reading chunk")
+            })?;
+
+            // SECURITY: Validate chunk doesn't cause file to exceed max size (10MB for images)
+            const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
+            if total_size + data.len() > MAX_IMAGE_SIZE {
+                return Err(actix_web::error::ErrorBadRequest("File too large (max 10MB)"));
+            }
+
+            total_size += data.len();
+            file_data.extend_from_slice(&data);
+        }
+
+        println!("Read {} bytes of data for file {}", total_size, sanitized_filename);
+
+        // SECURITY: Validate MIME type - only allow images
+        let detected_mime = FileValidator::validate_mime_type(&file_data)
+            .map_err(|e| {
+                eprintln!("MIME validation failed: {:?}", e);
+                actix_web::error::ErrorBadRequest(format!("Invalid file type: {}", e))
+            })?;
+
+        // Only allow image types
+        if !detected_mime.starts_with("image/") {
+            return Err(actix_web::error::ErrorBadRequest("Only image files are allowed"));
+        }
+
+        println!("Validated MIME type: {}", detected_mime);
+
+        // Store in tickets/{ticket_id}/notes/ folder
+        let folder = format!("tickets/{}/notes", ticket_id);
+        let stored_file = storage.store_file(&file_data, &sanitized_filename, &detected_mime, &folder)
+            .await
+            .map_err(|e| {
+                eprintln!("Failed to store file: {:?}", e);
+                actix_web::error::ErrorInternalServerError("Failed to store file")
+            })?;
+
+        println!("Stored ticket note image: {}", stored_file.url);
+
+        uploaded_files.push(json!({
+            "url": stored_file.url,
+            "name": sanitized_filename,
+            "size": total_size
+        }));
+    }
+
+    println!("Ticket note image upload complete. Returning {} files", uploaded_files.len());
+    Ok(HttpResponse::Ok().json(uploaded_files))
+}
+
+/// Serve ticket note images
+/// Path format: tickets/{ticket_id}/notes/{filename}
+pub async fn serve_ticket_note_image(
+    path: web::Path<(i32, String)>,
+    req: actix_web::HttpRequest,
+    pool: web::Data<crate::db::Pool>,
+    storage: web::Data<Arc<dyn Storage>>,
+) -> Result<HttpResponse, actix_web::Error> {
+    let (ticket_id, filename) = path.into_inner();
+
+    // Extract token from request
+    let token = extract_token_from_request(&req)?;
+
+    // Validate the token
+    let mut conn = pool.get().map_err(|e| {
+        eprintln!("Database connection error: {:?}", e);
+        actix_web::error::ErrorInternalServerError("Database connection error")
+    })?;
+
+    validate_file_access_token(&token, &mut conn).await?;
+
+    // Serve from tickets/{ticket_id}/notes/ folder
+    let file_path = format!("tickets/{}/notes/{}", ticket_id, filename);
+    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
+        Ok(response) => Ok(response),
+        Err(e) => {
+            eprintln!("Error serving ticket note image {}: {:?}", file_path, e);
+            Err(actix_web::error::ErrorNotFound("File not found"))
+        }
+    }
 } 

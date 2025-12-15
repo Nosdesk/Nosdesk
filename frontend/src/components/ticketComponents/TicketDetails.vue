@@ -8,6 +8,7 @@ import SectionCard from "@/components/common/SectionCard.vue";
 interface UserInfo {
   uuid: string;
   name: string;
+  avatar_url?: string | null;
   avatar_thumb?: string | null;
 }
 
