@@ -72,12 +72,21 @@ export function useTitleManager() {
     return finalTitle;
   });
   
-  // Watch for route changes
+  // Watch for route changes to clear stale state
+  // Only clear when navigating to routes that don't have their own title management
+  const titleManagedRoutes = ['ticket', 'device', 'documentation-article'];
   watch(
     () => route.name,
-    () => {
-      // Reset custom title when route changes
-      customTitle.value = null;
+    (newRouteName) => {
+      // Only clear all state when navigating to a route without title management
+      // This prevents flash during transitions between title-managed routes
+      if (!titleManagedRoutes.includes(newRouteName as string)) {
+        currentTicket.value = null;
+        currentDevice.value = null;
+        currentDocument.value = null;
+        documentationTitle.value = null;
+        customTitle.value = null;
+      }
     }
   );
 
@@ -130,6 +139,7 @@ export function useTitleManager() {
       documentationTitle.value = documentData.title;
       setCustomTitle(documentData.title);
     }
+    // Note: Clearing is handled by clearDocument() called from App.vue on route leave
   };
   
   // Preview the ticket title as the user types (real-time updates)
@@ -268,6 +278,7 @@ export function useTitleManager() {
   const clearDocument = () => {
     currentDocument.value = null;
     documentationTitle.value = null;
+    customTitle.value = null;
   };
 
   return {

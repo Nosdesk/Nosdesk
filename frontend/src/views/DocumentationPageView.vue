@@ -738,8 +738,12 @@ watch(() => route.query.createFromTicket, (newValue) => {
 }, { immediate: true });
 
 // Emit the document object when it changes
+// Only emit when we have a valid document - clearing is handled by App.vue on route leave
+// This prevents title flashing during page transitions between documentation pages
 watch(documentObj, (newDocument) => {
-  emit('update:document', newDocument);
+  if (newDocument) {
+    emit('update:document', newDocument);
+  }
 }, { immediate: true });
 
 // Note: Title sync is now handled entirely via SSE in handleDocumentationUpdate()

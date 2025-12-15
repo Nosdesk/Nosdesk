@@ -147,12 +147,7 @@ onMounted(async () => {
             @before-enter="titleManager.startTransition"
             @after-enter="titleManager.endTransition"
             @before-leave="titleManager.startTransition"
-            @after-leave="() => {
-              if (route.name !== 'ticket') titleManager.clearTicket();
-              if (route.name !== 'device') titleManager.clearDevice();
-              if (route.name !== 'documentation-article') titleManager.clearDocument();
-              titleManager.endTransition();
-            }"
+            @after-leave="titleManager.endTransition"
           >
             <component :is="Component" :key="$route.fullPath" ref="currentViewComponent" class="h-full overflow-auto" />
           </Transition>

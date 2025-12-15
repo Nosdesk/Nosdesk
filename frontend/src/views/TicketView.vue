@@ -133,8 +133,11 @@ const emit = defineEmits<{
 watch(
     ticket,
     (newTicket) => {
-        // Pass the actual reactive ticket object reference
-        emit("update:ticket", newTicket);
+        // Only emit when we have valid ticket data - prevents title flash during loading
+        // Clearing is handled by App.vue on route leave
+        if (newTicket) {
+            emit("update:ticket", newTicket);
+        }
     },
     { immediate: true, deep: true }, // deep: true to watch nested property changes
 );

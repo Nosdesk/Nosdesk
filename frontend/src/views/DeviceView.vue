@@ -413,8 +413,11 @@ const handleUnmanageDevice = async () => {
 
 // Watch device and emit device object updates
 watch(device, (newDevice) => {
-  // Pass the actual reactive device object reference
-  emit('update:device', newDevice);
+  // Only emit when we have valid device data - prevents title flash during loading
+  // Clearing is handled by App.vue on route leave
+  if (newDevice) {
+    emit('update:device', newDevice);
+  }
 }, { immediate: true, deep: true }); // deep: true to watch nested property changes
 
 onMounted(() => {
