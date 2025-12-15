@@ -292,7 +292,7 @@ defineExpose({
           v-if="props.showCreateButton"
           @click="handleCreateClick"
           :disabled="isCreating"
-          class="px-2 md:px-4 py-2 text-sm font-medium bg-brand-blue text-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 md:gap-2"
+          class="create-button px-4 py-2 text-sm font-medium bg-brand-blue text-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           :aria-label="isCreating ? `Creating...` : `Create ${props.createButtonText}`"
         >
           <!-- Always show icon -->
@@ -301,7 +301,7 @@ defineExpose({
             <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
 
-          <span class="hidden md:inline">{{ isCreating ? 'Creating...' : props.createButtonText }}</span>
+          <span class="create-button-text">{{ isCreating ? 'Creating...' : props.createButtonText }}</span>
         </button>
 
         <!-- User Profile Menu -->
@@ -340,5 +340,17 @@ defineExpose({
   position: fixed;
   transform: translateZ(0);
   will-change: transform;
+}
+
+/* Only compact the create button text below 400px */
+@media (max-width: 400px) {
+  .create-button {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    gap: 0.25rem;
+  }
+  .create-button-text {
+    display: none;
+  }
 }
 </style>
