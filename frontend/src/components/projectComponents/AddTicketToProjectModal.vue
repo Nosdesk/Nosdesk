@@ -131,14 +131,14 @@ const createAndAddTicket = async () => {
         <button
           @click="isCreatingTicket = false"
           class="flex-1 py-2 text-center text-sm"
-          :class="!isCreatingTicket ? 'text-blue-400 border-b-2 border-blue-400' : 'text-tertiary border-b border-default'"
+          :class="!isCreatingTicket ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary border-b border-default'"
         >
           Existing Tickets
         </button>
         <button
           @click="isCreatingTicket = true"
           class="flex-1 py-2 text-center text-sm"
-          :class="isCreatingTicket ? 'text-blue-400 border-b-2 border-blue-400' : 'text-tertiary border-b border-default'"
+          :class="isCreatingTicket ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary border-b border-default'"
         >
           Create New Ticket
         </button>
@@ -152,14 +152,14 @@ const createAndAddTicket = async () => {
             id="ticketTitle"
             v-model="newTicketTitle"
             type="text"
-            class="w-full p-2 rounded-lg border-default bg-surface text-primary placeholder-tertiary focus:border-blue-500 focus:ring-blue-500"
+            class="w-full p-2 rounded-lg border-default bg-surface text-primary placeholder-tertiary focus:border-brand-blue focus:ring-brand-blue"
             placeholder="Enter ticket title..."
           >
         </div>
         
         <button
           @click="createAndAddTicket"
-          class="w-full py-2 mt-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+          class="w-full py-2 mt-2 bg-brand-blue hover:opacity-90 text-white font-medium rounded-lg transition-colors"
         >
           Create & Add to Project
         </button>
@@ -171,7 +171,7 @@ const createAndAddTicket = async () => {
         <div>
           <input type="text"
             v-model="searchQuery"
-            class="w-full p-2 rounded-lg border-default bg-surface text-primary placeholder-tertiary focus:border-blue-500 focus:ring-blue-500"
+            class="w-full p-2 rounded-lg border-default bg-surface text-primary placeholder-tertiary focus:border-brand-blue focus:ring-brand-blue"
             placeholder="Search tickets by ID or title..."
           >
         </div>

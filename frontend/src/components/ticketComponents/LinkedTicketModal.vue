@@ -192,13 +192,13 @@ const viewTicket = (ticketId: number, event: Event) => {
 const getPriorityClass = (priority: TicketPriority) => {
   switch (priority) {
     case 'low':
-      return 'bg-green-900/30 text-green-400 border-green-700/30';
+      return 'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200 border-green-400/40 dark:border-green-500/30';
     case 'medium':
-      return 'bg-yellow-900/30 text-yellow-400 border-yellow-700/30';
+      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30';
     case 'high':
-      return 'bg-red-900/30 text-red-400 border-red-700/30';
+      return 'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200 border-red-400/40 dark:border-red-500/30';
     default:
-      return 'bg-slate-700/30 text-slate-400 border-slate-600/30';
+      return 'bg-slate-400/20 dark:bg-slate-500/20 text-slate-900 dark:text-slate-200 border-slate-400/40 dark:border-slate-500/30';
   }
 };
 

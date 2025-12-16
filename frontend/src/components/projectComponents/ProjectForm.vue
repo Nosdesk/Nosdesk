@@ -52,7 +52,7 @@ const statusOptions = [
         type="text"
         required
         :disabled="disabled"
-        class="px-3 py-2 bg-surface rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+        class="px-3 py-2 bg-surface rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-brand-blue disabled:opacity-50"
         placeholder="Enter project name"
       />
     </div>
@@ -65,7 +65,7 @@ const statusOptions = [
         v-model="formData.description"
         rows="3"
         :disabled="disabled"
-        class="px-3 py-2 bg-surface rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:opacity-50"
+        class="px-3 py-2 bg-surface rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-brand-blue resize-none disabled:opacity-50"
         placeholder="Enter project description (optional)"
       ></textarea>
     </div>
@@ -77,7 +77,7 @@ const statusOptions = [
         id="status"
         v-model="formData.status"
         :disabled="disabled"
-        class="px-3 py-2 bg-surface rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+        class="px-3 py-2 bg-surface rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-brand-blue disabled:opacity-50"
       >
         <option
           v-for="option in statusOptions"
@@ -102,7 +102,7 @@ const statusOptions = [
       <button
         type="submit"
         :disabled="disabled"
-        class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+        class="px-4 py-2 text-sm font-medium bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
       >
         {{ mode === 'create' ? 'Create Project' : 'Save Changes' }}
       </button>

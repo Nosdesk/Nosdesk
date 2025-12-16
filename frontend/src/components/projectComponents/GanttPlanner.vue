@@ -474,21 +474,21 @@ const hideTooltip = () => {
           <button 
             @click="setTimeScale('day')" 
             class="px-2 py-0.5 text-xs rounded-md transition-colors"
-            :class="timeScale === 'day' ? 'bg-blue-600 text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
+            :class="timeScale === 'day' ? 'bg-brand-blue text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
           >
             Day
           </button>
           <button 
             @click="setTimeScale('week')" 
             class="px-2 py-0.5 text-xs rounded-md transition-colors"
-            :class="timeScale === 'week' ? 'bg-blue-600 text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
+            :class="timeScale === 'week' ? 'bg-brand-blue text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
           >
             Week
           </button>
           <button 
             @click="setTimeScale('month')" 
             class="px-2 py-0.5 text-xs rounded-md transition-colors"
-            :class="timeScale === 'month' ? 'bg-blue-600 text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
+            :class="timeScale === 'month' ? 'bg-brand-blue text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
           >
             Month
           </button>
@@ -616,9 +616,9 @@ const hideTooltip = () => {
                   <span
                     class="text-[10px] px-1.5 py-0.5 rounded-sm font-medium uppercase tracking-wide"
                     :class="{
-                      'bg-blue-500/20 text-blue-400': ticket.status === 'in-progress',
-                      'bg-green-500/20 text-green-400': ticket.status === 'closed',
-                      'bg-yellow-500/20 text-yellow-400': ticket.status === 'open'
+                      'bg-blue-400/20 dark:bg-blue-500/20 [color:#1e3a8a] dark:text-blue-200': ticket.status === 'in-progress',
+                      'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200': ticket.status === 'closed',
+                      'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200': ticket.status === 'open'
                     }"
                   >
                     {{ ticket.status }}
@@ -628,9 +628,9 @@ const hideTooltip = () => {
                   <span
                     class="text-[10px] px-1.5 py-0.5 rounded-sm font-medium uppercase tracking-wide"
                     :class="{
-                      'bg-red-500/20 text-red-400': ticket.priority === 'high',
-                      'bg-yellow-500/20 text-yellow-400': ticket.priority === 'medium',
-                      'bg-blue-500/20 text-blue-400': ticket.priority === 'low'
+                      'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200': ticket.priority === 'high',
+                      'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200': ticket.priority === 'medium',
+                      'bg-blue-400/20 dark:bg-blue-500/20 [color:#1e3a8a] dark:text-blue-200': ticket.priority === 'low'
                     }"
                   >
                     {{ ticket.priority }}

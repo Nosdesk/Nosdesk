@@ -922,7 +922,7 @@ defineExpose({
     </div>
 
     <!-- Main content area with a single scrollbar for the entire page -->
-    <div class="flex flex-col flex-1 overflow-hidden bg-gradient-to-b from-bg-app to-bg-surface items-center">
+    <div class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
       <!-- Search Results - Removed from main content area -->
 
       <!-- Index Page View -->
@@ -988,9 +988,9 @@ defineExpose({
       </div>
 
       <!-- Document Content View - Full width container with centered content -->
-      <div v-else-if="article || page" class="w-full flex-1 flex animate-fadeIn">
+      <div v-else-if="article || page" class="w-full flex animate-fadeIn">
         <!-- Main Content Area - Centered -->
-        <div class="flex-1 flex justify-center overflow-auto">
+        <div class="flex-1 flex justify-center">
           <div class="w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
           <!-- Documentation Header - Clean, modern styling -->
           <div class="mb-6">

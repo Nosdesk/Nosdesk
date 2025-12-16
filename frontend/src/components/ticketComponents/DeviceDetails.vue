@@ -237,13 +237,13 @@ const handleKeydown = (event: KeyboardEvent, field: string) => {
 const warrantyStatusClass = computed(() => {
   switch (editableWarrantyStatus.value) {
     case 'Active':
-      return 'bg-green-900/30 text-green-400 border-green-700/30';
+      return 'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200 border-green-400/40 dark:border-green-500/30';
     case 'Warning':
-      return 'bg-yellow-900/30 text-yellow-400 border-yellow-700/30';
+      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30';
     case 'Expired':
-      return 'bg-red-900/30 text-red-400 border-red-700/30';
+      return 'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200 border-red-400/40 dark:border-red-500/30';
     default:
-      return 'bg-gray-900/30 text-gray-400 border-gray-700/30';
+      return 'bg-gray-400/20 dark:bg-gray-500/20 text-gray-900 dark:text-gray-200 border-gray-400/40 dark:border-gray-500/30';
   }
 });
 

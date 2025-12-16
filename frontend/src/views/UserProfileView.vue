@@ -346,7 +346,7 @@ onMounted(() => {
                     <RouterLink
                         v-if="isOwnProfile"
                         to="/profile/settings"
-                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-1"
+                        class="px-4 py-2 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium flex items-center gap-1"
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -375,7 +375,7 @@ onMounted(() => {
                     <RouterLink
                         v-else-if="canEditRole && userProfile && !isOwnProfile"
                         :to="`/users/${userProfile.uuid}/settings`"
-                        class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium flex items-center gap-2"
+                        class="px-4 py-2 bg-brand-purple text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium flex items-center gap-2"
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import BackButton from '@/components/common/BackButton.vue';
+import SystemInfoCard from '@/components/admin/SystemInfoCard.vue';
+import { AdminIcons, getIconBgClass } from '@/components/admin/AdminIcons';
 
 const router = useRouter();
 
@@ -41,20 +42,7 @@ const adminMenuItems = [
 
 // Helper function to render the icon based on name
 const renderIcon = (iconName: string) => {
-  switch (iconName) {
-    case 'lock':
-      return `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />`;
-    case 'cog':
-      return `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />`;
-    case 'paint':
-      return `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />`;
-    case 'mail':
-      return `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />`;
-    case 'database':
-      return `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />`;
-    default:
-      return `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />`;
-  }
+  return AdminIcons[iconName as keyof typeof AdminIcons] || AdminIcons.plus;
 };
 
 const navigateToOption = (route: string) => {
@@ -83,38 +71,25 @@ const navigateToOption = (route: string) => {
           v-for="(item, index) in adminMenuItems"
           :key="index"
           @click="navigateToOption(item.route)"
-          class="bg-surface border border-default rounded-lg p-5 hover:bg-surface-hover cursor-pointer transition duration-150 ease-in-out"
+          class="bg-surface border border-default rounded-lg p-4 hover:bg-surface-hover cursor-pointer transition duration-150 ease-in-out"
         >
-          <div class="flex items-start gap-2">
-            <div class="flex-shrink-0 h-10 w-10 rounded-md bg-brand-blue/20 flex items-center justify-center text-brand-blue mr-4">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderIcon(item.icon)"></svg>
+          <div class="flex items-center gap-3">
+            <div
+              class="flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center"
+              :class="getIconBgClass(item.icon)"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="renderIcon(item.icon)"></svg>
             </div>
-            <div>
+            <div class="flex-1 min-w-0">
               <h3 class="text-primary font-medium">{{ item.title }}</h3>
-              <p class="mt-1 text-sm text-secondary">{{ item.description }}</p>
+              <p class="text-xs text-secondary truncate">{{ item.description }}</p>
             </div>
           </div>
         </div>
       </div>
 
       <!-- System Information -->
-      <div class="bg-surface border border-default rounded-lg p-6 mb-8">
-        <h2 class="text-xl font-medium text-primary mb-4">System Information</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div class="py-2">
-            <div class="text-sm text-tertiary">Application Version</div>
-            <div class="text-primary">Nosdesk v1.0.0</div>
-          </div>
-          <div class="py-2">
-            <div class="text-sm text-tertiary">Last Update</div>
-            <div class="text-primary">April 4, 2023</div>
-          </div>
-          <div class="py-2">
-            <div class="text-sm text-tertiary">Environment</div>
-            <div class="text-primary">Production</div>
-          </div>
-        </div>
-      </div>
+      <SystemInfoCard />
     </div>
   </div>
 </template> 

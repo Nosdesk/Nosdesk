@@ -210,7 +210,7 @@ onMounted(async () => {
             v-for="action in errorInfo.actions"
             :key="action.action"
             @click="handleAction(action.action)"
-            class="px-4 py-2 rounded-lg transition-colors text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white"
+            class="px-4 py-2 rounded-lg transition-colors text-sm font-medium bg-brand-blue hover:opacity-90 text-white"
           >
             {{ action.label }}
           </button>

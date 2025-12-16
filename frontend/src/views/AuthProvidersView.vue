@@ -3,6 +3,10 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import BackButton from '@/components/common/BackButton.vue';
+import EnvConfigNotice from '@/components/admin/EnvConfigNotice.vue';
+import AlertMessage from '@/components/common/AlertMessage.vue';
+import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import { AdminIcons, isBrandIcon } from '@/components/admin/AdminIcons';
 
 // Define types for our data structures
 interface Provider {
@@ -80,39 +84,37 @@ const validateAllProviders = async () => {
 };
 
 // Helper function to render SVG icons
-const getProviderIcon = (iconName: string) => {
-  switch (iconName) {
+const getProviderIcon = (providerType: string) => {
+  // Map provider types to icon names
+  const iconMap: Record<string, string> = {
+    microsoft: 'microsoft',
+    google: 'google',
+    local: 'user',
+    oidc: 'key'
+  };
+  const iconName = iconMap[providerType] || 'lock';
+  return AdminIcons[iconName as keyof typeof AdminIcons] || AdminIcons.lock;
+};
+
+// Helper to get icon background class
+const getProviderIconBgClass = (providerType: string) => {
+  switch (providerType) {
     case 'microsoft':
-      return `
-        <svg width="16" height="16" viewBox="0 0 21 21" class="mr-2">
-          <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-          <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-          <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-          <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-        </svg>
-      `;
+      return 'bg-blue-500/20 text-blue-400';
     case 'google':
-      return `
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
-          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.1 5.1 0 0 1-2.2 3.35v2.74h3.56c2.08-1.92 3.28-4.74 3.28-8.1z"/>
-          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77a6.45 6.45 0 0 1-3.71 1.07 6.41 6.41 0 0 1-6-4.18H2.4v2.82A11.46 11.46 0 0 0 12 23z"/>
-          <path fill="#FBBC05" d="M5.99 14.54a6.6 6.6 0 0 1-.38-2.23c0-.77.14-1.52.38-2.22V7.27H2.4a11.54 11.54 0 0 0 0 10.46l3.59-3.19z"/>
-          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.2 1.64l3.15-3.15A10.56 10.56 0 0 0 12 1C7.33 1 3.28 3.83 1.32 7.75l3.66 2.84A6.53 6.53 0 0 1 12 5.38z"/>
-        </svg>
-      `;
+      return 'bg-surface-alt';
     case 'local':
-      return `
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-        </svg>
-      `;
+      return 'bg-purple-500/20 text-purple-500';
+    case 'oidc':
+      return 'bg-amber-500/20 text-amber-500';
     default:
-      return `
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-        </svg>
-      `;
+      return 'bg-purple-500/20 text-purple-500';
   }
+};
+
+// Check if provider uses brand icon
+const isProviderBrandIcon = (providerType: string) => {
+  return ['google'].includes(providerType);
 };
 
 // Helper to get provider status description
@@ -169,51 +171,20 @@ onMounted(async () => {
       </div>
 
       <!-- Configuration Notice -->
-      <div class="p-4 bg-surface-alt rounded-xl border border-default mb-4">
-        <p class="font-medium text-primary">Configuration via Environment Variables</p>
-        <p class="text-sm text-secondary mt-1">
-          Authentication providers are configured through environment variables in your
-          <code class="bg-surface px-1 rounded text-primary">.env</code> file.
-          Use the "Validate Config" button to check if each provider is properly configured.
-        </p>
-      </div>
+      <EnvConfigNotice>
+        Authentication providers are configured through environment variables in your
+        <code class="bg-surface px-1 rounded text-primary">.env</code> file.
+        Use the "Validate Config" button to check if each provider is properly configured.
+      </EnvConfigNotice>
 
       <!-- Success message -->
-      <div
-        v-if="successMessage"
-        class="p-4 bg-surface rounded-xl border border-status-success mb-4 flex items-start"
-      >
-        <div class="mr-3 mt-0.5 text-status-success flex-shrink-0">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-          </svg>
-        </div>
-        <div class="text-primary">{{ successMessage }}</div>
-      </div>
+      <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
 
       <!-- Error message -->
-      <div
-        v-if="errorMessage"
-        class="p-4 bg-surface rounded-xl border border-status-error mb-4 flex items-start"
-      >
-        <div class="mr-3 mt-0.5 text-status-error flex-shrink-0">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-          </svg>
-        </div>
-        <div class="text-primary">{{ errorMessage }}</div>
-      </div>
+      <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
       
       <!-- Loading state -->
-      <div v-if="isLoading" class="flex justify-center my-8">
-        <div class="animate-spin h-8 w-8 text-brand-blue">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-        </div>
-        <span class="ml-3 text-primary">Loading providers...</span>
-      </div>
+      <LoadingSpinner v-if="isLoading" text="Loading providers..." />
 
       <!-- Provider list -->
       <div v-else class="flex flex-col gap-4">
@@ -221,84 +192,86 @@ onMounted(async () => {
              class="bg-surface border border-default rounded-xl hover:border-strong transition-colors">
 
           <!-- Provider Header -->
-          <div class="p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div class="flex items-start gap-4">
+          <div class="p-4 flex flex-col gap-3">
+            <!-- Header row with icon -->
+            <div class="flex items-center gap-3">
               <!-- Provider icon -->
-              <div class="flex-shrink-0 h-12 w-12 rounded-lg bg-surface-alt flex items-center justify-center text-secondary" v-html="getProviderIcon(provider.provider_type)"></div>
+              <div
+                class="flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center"
+                :class="getProviderIconBgClass(provider.provider_type)"
+              >
+                <span v-if="isProviderBrandIcon(provider.provider_type)" v-html="getProviderIcon(provider.provider_type)"></span>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="getProviderIcon(provider.provider_type)"></svg>
+              </div>
 
-              <!-- Provider name and status -->
-              <div>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-medium text-lg text-primary">{{ provider.name }}</span>
-                  <span v-if="provider.is_default"
-                        class="px-2 py-0.5 text-xs bg-surface text-primary rounded-full border border-blue-500">
-                    Default
-                  </span>
-                  <span
-                    class="px-2 py-0.5 text-xs rounded-full border"
-                    :class="provider.enabled ? 'bg-surface text-primary border-green-500' : 'bg-surface-alt text-tertiary border-default'"
-                  >
-                    {{ provider.enabled ? 'Available' : 'Not Configured' }}
-                  </span>
+              <!-- Title and badges -->
+              <div class="flex-1 flex items-center gap-2 flex-wrap">
+                <span class="font-medium text-primary">{{ provider.name }}</span>
+                <span v-if="provider.is_default"
+                      class="px-1.5 py-0.5 text-xs bg-brand-blue/20 text-brand-blue rounded-full border border-brand-blue/50">
+                  Default
+                </span>
+                <span
+                  class="px-1.5 py-0.5 text-xs rounded-full border"
+                  :class="provider.enabled ? 'bg-status-success/20 text-status-success border-status-success/50' : 'bg-surface-alt text-tertiary border-default'"
+                >
+                  {{ provider.enabled ? 'Configured' : 'Not Configured' }}
+                </span>
+                <span
+                  v-if="provider.enabled"
+                  class="px-1.5 py-0.5 text-xs rounded-full border bg-brand-blue/20 text-brand-blue border-brand-blue/50"
+                >
+                  Enabled
+                </span>
+              </div>
+            </div>
+
+            <!-- Current Configuration -->
+            <div v-if="configValidations[provider.id]?.valid" class="flex flex-col md:flex-row gap-4 text-sm">
+              <!-- Left: Client ID and Tenant ID (full values) -->
+              <div class="flex-1 flex flex-col gap-2">
+                <div v-if="configValidations[provider.id].client_id" class="flex flex-col gap-0.5">
+                  <span class="text-tertiary text-xs">Client ID</span>
+                  <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidations[provider.id].client_id }}</span>
                 </div>
-                <div class="text-sm text-secondary mt-1">
-                  {{ getProviderDescription(provider) }}
+                <div v-if="configValidations[provider.id].tenant_id" class="flex flex-col gap-0.5">
+                  <span class="text-tertiary text-xs">Tenant ID</span>
+                  <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidations[provider.id].tenant_id }}</span>
                 </div>
-                
-                <!-- Configuration requirements -->
-                <div v-if="getConfigRequirements(provider).length > 0" class="mt-2">
-                  <div class="text-xs text-tertiary mb-1">Required environment variables:</div>
-                  <div class="flex flex-wrap gap-1">
-                    <code
-                      v-for="envVar in getConfigRequirements(provider)"
-                      :key="envVar"
-                      class="text-xs bg-surface-alt text-secondary px-1.5 py-0.5 rounded"
-                    >
-                      {{ envVar }}
-                    </code>
-                  </div>
+                <div v-if="configValidations[provider.id].redirect_uri" class="flex flex-col gap-0.5">
+                  <span class="text-tertiary text-xs">Redirect URI</span>
+                  <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidations[provider.id].redirect_uri }}</span>
+                </div>
+              </div>
+              <!-- Right: Secret status -->
+              <div v-if="configValidations[provider.id].client_secret_configured !== undefined" class="flex flex-row md:flex-col gap-4 md:gap-2 md:w-28 md:flex-shrink-0">
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-tertiary text-xs">Secret</span>
+                  <span :class="configValidations[provider.id].client_secret_configured ? 'text-status-success' : 'text-status-error'" class="font-medium bg-surface-alt px-2 py-1.5 rounded text-xs">{{ configValidations[provider.id].client_secret_configured ? 'Configured' : 'Not Set' }}</span>
                 </div>
               </div>
             </div>
 
-          </div>
-          
-          <!-- Configuration Validation Results -->
-          <div v-if="configValidations[provider.id]" class="border-t border-default p-4 bg-surface-alt rounded-b-xl">
-            <div v-if="configValidations[provider.id].valid" class="text-sm">
-              <div class="flex items-center gap-2 text-status-success mb-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Configuration Valid
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-secondary">
-                <div v-if="configValidations[provider.id].client_id">
-                  <span class="text-tertiary">Client ID:</span> {{ configValidations[provider.id].client_id }}
-                </div>
-                <div v-if="configValidations[provider.id].tenant_id">
-                  <span class="text-tertiary">Tenant ID:</span> {{ configValidations[provider.id].tenant_id }}
-                </div>
-                <div v-if="configValidations[provider.id].client_secret_configured !== undefined">
-                  <span class="text-tertiary">Client Secret:</span>
-                  {{ ' ' }}
-                  <span :class="configValidations[provider.id].client_secret_configured ? 'text-status-success' : 'text-status-error'">
-                    {{ configValidations[provider.id].client_secret_configured ? 'Configured' : 'Not Configured' }}
-                  </span>
-                </div>
-                <div v-if="configValidations[provider.id].redirect_uri">
-                  <span class="text-tertiary">Redirect URI:</span> {{ configValidations[provider.id].redirect_uri }}
-                </div>
-              </div>
+            <!-- Configuration error -->
+            <div v-if="configValidations[provider.id] && !configValidations[provider.id].valid" class="p-2 bg-status-error/10 border border-status-error/30 rounded-lg text-sm text-status-error flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+              </svg>
+              {{ configValidations[provider.id].error }}
             </div>
-            <div v-else class="text-sm">
-              <div class="flex items-center gap-2 text-status-error mb-1">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                </svg>
-                Configuration Error
+
+            <!-- Required environment variables -->
+            <div v-if="getConfigRequirements(provider).length > 0" class="flex items-center gap-2 text-xs">
+              <span class="text-tertiary">Env:</span>
+              <div class="flex flex-wrap gap-1">
+                <code
+                  v-for="envVar in getConfigRequirements(provider)"
+                  :key="envVar"
+                  class="bg-surface-alt text-secondary px-1 py-0.5 rounded"
+                >
+                  {{ envVar }}
+                </code>
               </div>
-              <div class="text-xs text-status-error">{{ configValidations[provider.id].error }}</div>
             </div>
           </div>
         </div>

@@ -85,3 +85,52 @@ pub fn get_user_with_primary_email(
         updated_at: user.updated_at,
     }
 }
+
+/// Batch get primary emails for multiple users efficiently
+/// Returns a HashMap of user_uuid -> email
+pub fn get_primary_emails_batch(
+    user_uuids: &[Uuid],
+    conn: &mut DbConnection,
+) -> std::collections::HashMap<Uuid, String> {
+    use crate::schema::user_emails;
+
+    let emails: Vec<(Uuid, String)> = user_emails::table
+        .filter(user_emails::user_uuid.eq_any(user_uuids))
+        .filter(user_emails::is_primary.eq(true))
+        .select((user_emails::user_uuid, user_emails::email))
+        .load::<(Uuid, String)>(conn)
+        .unwrap_or_default();
+
+    emails.into_iter().collect()
+}
+
+/// Helper to convert multiple users to UserResponses with their emails
+pub fn get_users_with_primary_emails(
+    users: Vec<crate::models::User>,
+    conn: &mut DbConnection,
+) -> Vec<crate::models::UserResponse> {
+    // Collect all user UUIDs
+    let user_uuids: Vec<Uuid> = users.iter().map(|u| u.uuid).collect();
+
+    // Batch fetch all primary emails
+    let email_map = get_primary_emails_batch(&user_uuids, conn);
+
+    // Convert users to UserResponses with their emails
+    users.into_iter().map(|user| {
+        let email = email_map.get(&user.uuid).cloned();
+        crate::models::UserResponse {
+            uuid: user.uuid,
+            name: user.name,
+            email,
+            role: user.role,
+            pronouns: user.pronouns,
+            avatar_url: user.avatar_url,
+            banner_url: user.banner_url,
+            avatar_thumb: user.avatar_thumb,
+            theme: user.theme,
+            microsoft_uuid: user.microsoft_uuid,
+            created_at: user.created_at,
+            updated_at: user.updated_at,
+        }
+    }).collect()
+}

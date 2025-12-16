@@ -50,7 +50,7 @@ const handleSubmit = () => {
           v-model="device.name"
           type="text"
           required
-          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
+          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-brand-blue"
           placeholder="Enter device name"
         />
       </div>
@@ -63,7 +63,7 @@ const handleSubmit = () => {
           v-model="device.hostname"
           type="text"
           required
-          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
+          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-brand-blue"
           placeholder="Enter hostname"
         />
       </div>
@@ -76,7 +76,7 @@ const handleSubmit = () => {
           v-model="device.serial_number"
           type="text"
           required
-          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
+          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-brand-blue"
           placeholder="Enter serial number"
         />
       </div>
@@ -89,7 +89,7 @@ const handleSubmit = () => {
           v-model="device.model"
           type="text"
           required
-          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
+          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-brand-blue"
           placeholder="Enter model"
         />
       </div>
@@ -102,7 +102,7 @@ const handleSubmit = () => {
           v-model="device.warranty_status"
           type="text"
           required
-          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-blue-500"
+          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-brand-blue"
           placeholder="Enter warranty status"
         />
       </div>
@@ -118,7 +118,7 @@ const handleSubmit = () => {
         </button>
         <button
           type="submit"
-          class="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+          class="px-4 py-2 text-sm bg-brand-blue text-white rounded-lg hover:opacity-90"
         >
           Add Device
         </button>

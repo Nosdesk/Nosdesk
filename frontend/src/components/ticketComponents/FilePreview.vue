@@ -331,7 +331,7 @@ onMounted(async () => {
           <a
             :href="src"
             target="_blank"
-            class="px-3 py-1.5 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition-colors flex items-center gap-2"
+            class="px-3 py-1.5 bg-brand-blue text-white text-sm rounded hover:opacity-90 transition-colors flex items-center gap-2"
             :download="filename"
           >
             <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">

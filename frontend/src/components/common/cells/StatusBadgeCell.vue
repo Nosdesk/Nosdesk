@@ -14,11 +14,11 @@ const getStatusClasses = (value: string, type: string) => {
   if (type === 'warranty') {
     switch (value) {
       case 'Active':
-        return `${baseClasses} text-green-400 bg-green-900/30`
+        return `${baseClasses} bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200`
       case 'Warning':
-        return `${baseClasses} text-yellow-400 bg-yellow-900/30`
+        return `${baseClasses} bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200`
       case 'Expired':
-        return `${baseClasses} text-red-400 bg-red-900/30`
+        return `${baseClasses} bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200`
       case 'Unknown':
         return `${baseClasses} text-tertiary bg-surface-alt`
       default:

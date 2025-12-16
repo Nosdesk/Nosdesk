@@ -54,7 +54,7 @@ const getStatusColor = (value: string) => {
   if (props.type === 'status') {
     switch (value) {
       case 'open':
-        return 'bg-yellow-500'
+        return 'bg-amber-500'
       case 'in-progress':
         return 'bg-blue-500'
       case 'closed':
@@ -67,7 +67,7 @@ const getStatusColor = (value: string) => {
       case 'low':
         return 'bg-green-500'
       case 'medium':
-        return 'bg-yellow-500'
+        return 'bg-amber-500'
       case 'high':
         return 'bg-red-500'
       default:

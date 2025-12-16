@@ -5,7 +5,7 @@
       <div v-if="loading" class="bg-surface rounded-xl border border-default shadow-2xl p-8">
         <div class="flex flex-col items-center gap-4">
           <svg
-            class="w-12 h-12 animate-spin text-blue-500"
+            class="w-12 h-12 animate-spin text-brand-blue"
             fill="none"
             viewBox="0 0 24 24"
           >
@@ -116,7 +116,7 @@
           </div>
           <button
             @click="backToLogin"
-            class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+            class="px-6 py-2 bg-brand-blue hover:opacity-90 text-white rounded-lg transition-colors font-medium"
           >
             Back to Login
           </button>

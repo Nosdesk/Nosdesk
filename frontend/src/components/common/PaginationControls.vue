@@ -157,91 +157,73 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
 
 <template>
   <div class="flex-shrink-0 bg-surface border-t border-default">
-    <!-- Mobile Layout -->
-    <div v-if="isMobile" class="flex flex-col gap-3 p-3">
-      <!-- Top row: Page info and navigation -->
-      <div class="flex items-center justify-between">
-        <!-- Page info with input -->
-        <div class="flex items-center gap-2">
-          <span class="text-sm text-secondary">Page</span>
-          <div class="flex items-center gap-1">
-            <input
-              v-model="pageInputValue"
-              @blur="handlePageInput"
-              @keydown="handlePageInputKeydown"
-              @focus="handlePageInputFocus"
-              type="number"
-              :min="1"
-              :max="totalPagesDisplay"
-              class="w-16 px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
-              ref="pageInput"
-            />
-            <span class="text-sm text-secondary">of {{ totalPagesDisplay }}</span>
-          </div>
-        </div>
-        
-        <!-- Navigation buttons -->
-        <div v-if="hasMultiplePages" class="flex items-center gap-1">
-          <button
-            @click="changePage(currentPageDisplay - 1)"
-            :disabled="currentPageDisplay <= 1"
-            :class="[
-              'p-2 rounded-md text-sm transition-colors',
-              currentPageDisplay <= 1
-                ? 'bg-surface-alt text-tertiary cursor-not-allowed'
-                : 'bg-surface-alt text-primary hover:bg-surface-hover'
-            ]"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-
-          <button
-            @click="changePage(currentPageDisplay + 1)"
-            :disabled="currentPageDisplay >= totalPagesDisplay"
-            :class="[
-              'p-2 rounded-md text-sm transition-colors',
-              currentPageDisplay >= totalPagesDisplay
-                ? 'bg-surface-alt text-tertiary cursor-not-allowed'
-                : 'bg-surface-alt text-primary hover:bg-surface-hover'
-            ]"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-        </div>
+    <!-- Mobile Layout - Single condensed row -->
+    <div v-if="isMobile" class="flex items-center justify-between gap-2 p-2">
+      <!-- Left: Page info with input -->
+      <div class="flex items-center gap-1 text-xs text-secondary">
+        <span>Page</span>
+        <input
+          v-model="pageInputValue"
+          @blur="handlePageInput"
+          @keydown="handlePageInputKeydown"
+          @focus="handlePageInputFocus"
+          type="number"
+          :min="1"
+          :max="totalPagesDisplay"
+          class="w-10 px-1 py-0.5 text-xs bg-surface-alt border border-default text-primary rounded focus:ring-brand-blue focus:border-brand-blue [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
+          ref="pageInput"
+        />
+        <span>/{{ totalPagesDisplay }}</span>
       </div>
-      
-      <!-- Bottom row: Page size and import -->
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2 text-sm text-secondary">
-          <select
-            :value="pageSize"
-            @change="changePageSize"
-            class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 py-1 px-2"
-          >
-            <option
-              v-for="size in (pageSizeOptions || defaultPageSizeOptions)"
-              :key="size"
-              :value="size"
-            >
-              {{ size }}
-            </option>
-          </select>
-          <span>per page</span>
-        </div>
 
+      <!-- Center: Per page selector -->
+      <div class="flex items-center gap-1 text-xs text-secondary">
+        <select
+          :value="pageSize"
+          @change="changePageSize"
+          class="bg-surface-alt border border-default text-primary text-xs rounded focus:ring-brand-blue focus:border-brand-blue py-0.5 px-1"
+        >
+          <option
+            v-for="size in (pageSizeOptions || defaultPageSizeOptions)"
+            :key="size"
+            :value="size"
+          >
+            {{ size }}
+          </option>
+        </select>
+        <span>/pg</span>
+      </div>
+
+      <!-- Right: Navigation buttons -->
+      <div v-if="hasMultiplePages" class="flex items-center gap-1">
         <button
-          v-if="showImport"
-          @click="emit('import')"
-          class="px-3 py-1 text-xs font-medium text-primary bg-blue-600 rounded-md hover:bg-blue-700 focus:ring-2 focus:outline-none focus:ring-blue-800 flex items-center gap-1 transition-colors"
+          @click="changePage(currentPageDisplay - 1)"
+          :disabled="currentPageDisplay <= 1"
+          :class="[
+            'p-1.5 rounded text-xs transition-colors',
+            currentPageDisplay <= 1
+              ? 'bg-surface-alt text-tertiary cursor-not-allowed'
+              : 'bg-surface-alt text-primary hover:bg-surface-hover'
+          ]"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
-          Import
+        </button>
+
+        <button
+          @click="changePage(currentPageDisplay + 1)"
+          :disabled="currentPageDisplay >= totalPagesDisplay"
+          :class="[
+            'p-1.5 rounded text-xs transition-colors',
+            currentPageDisplay >= totalPagesDisplay
+              ? 'bg-surface-alt text-tertiary cursor-not-allowed'
+              : 'bg-surface-alt text-primary hover:bg-surface-hover'
+          ]"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
         </button>
       </div>
     </div>
@@ -254,7 +236,7 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
         <select
           :value="pageSize"
           @change="changePageSize"
-          class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 py-1 px-2"
+          class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-brand-blue focus:border-brand-blue py-1 px-2"
         >
           <option
             v-for="size in (pageSizeOptions || defaultPageSizeOptions)"
@@ -294,7 +276,7 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
               :class="[
                 'py-1 text-sm rounded-md transition-colors flex-shrink-0 w-10 text-center',
                 page === currentPageDisplay
-                  ? 'bg-blue-600 text-primary'
+                  ? 'bg-brand-blue text-white'
                   : 'bg-surface-alt text-primary hover:bg-surface-hover'
               ]"
             >
@@ -340,7 +322,7 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
               type="number"
               :min="1"
               :max="totalPagesDisplay"
-              class="px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
+              class="px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-brand-blue focus:border-brand-blue [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
               ref="pageInput"
             />
             <span>of {{ totalPagesDisplay }}</span>
@@ -351,7 +333,7 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
         <button
           v-if="showImport"
           @click="emit('import')"
-          class="px-3 py-1 text-xs font-medium text-primary bg-blue-600 rounded-md hover:bg-blue-700 focus:ring-2 focus:outline-none focus:ring-blue-800 flex items-center gap-1 transition-colors"
+          class="px-3 py-1 text-xs font-medium text-white bg-brand-blue rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-brand-blue flex items-center gap-1 transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" />

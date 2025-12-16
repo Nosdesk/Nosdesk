@@ -159,7 +159,7 @@ const formatDate = (dateString: string): string => {
           v-model="searchQuery"
           type="text"
           placeholder="Search projects by name or description..."
-          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-colors"
+          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20 transition-colors"
         />
         <div v-if="isLoading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
           <svg class="w-5 h-5 animate-spin text-slate-400" fill="none" viewBox="0 0 24 24">

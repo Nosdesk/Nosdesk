@@ -5,6 +5,9 @@ import { useRouter } from "vue-router";
 import apiClient from "@/services/apiConfig";
 import BackButton from "@/components/common/BackButton.vue";
 import Modal from "@/components/Modal.vue";
+import AlertMessage from "@/components/common/AlertMessage.vue";
+import EnvConfigNotice from "@/components/admin/EnvConfigNotice.vue";
+import { AdminIcons } from "@/components/admin/AdminIcons";
 import type {
   ConfigValidation,
   ConnectionStatus,
@@ -145,41 +148,6 @@ const fetchConnectionStatus = async () => {
 
     // Still try to validate configuration even if status fetch fails
     await validateConfiguration();
-  } finally {
-    isLoading.value = false;
-  }
-};
-
-// Update configure connection to validate instead
-const checkConfiguration = () => {
-  validateConfiguration();
-};
-
-// Test connection
-const testConnection = async () => {
-  isLoading.value = true;
-  errorMessage.value = null;
-
-  try {
-    // Use the real Microsoft Graph integration endpoint
-    const response = await apiClient.post("/integrations/graph/test");
-
-    if (response.data.success) {
-      connectionStatus.value = "connected";
-      successMessage.value = response.data.message || "Connection tested successfully";
-    } else {
-      connectionStatus.value = "error";
-      errorMessage.value = response.data.message || "Connection test failed";
-    }
-
-    setTimeout(() => {
-      successMessage.value = null;
-    }, 3000);
-  } catch (error: any) {
-    console.error("Failed to test connection:", error);
-    errorMessage.value =
-      error.response?.data?.message || "Failed to test connection";
-    connectionStatus.value = "error";
   } finally {
     isLoading.value = false;
   }
@@ -483,125 +451,66 @@ onMounted(async () => {
         </p>
       </div>
 
+      <!-- Configuration Notice -->
+      <EnvConfigNotice>
+        Microsoft Graph integration is configured through environment variables.
+        Set <code class="bg-surface px-1 rounded text-primary">MICROSOFT_CLIENT_ID</code>,
+        <code class="bg-surface px-1 rounded text-primary">MICROSOFT_CLIENT_SECRET</code>, and
+        <code class="bg-surface px-1 rounded text-primary">MICROSOFT_TENANT_ID</code> in your environment.
+      </EnvConfigNotice>
+
       <!-- Success message -->
-      <div
-        v-if="successMessage"
-        class="p-4 bg-green-900/50 text-green-400 rounded-lg border border-green-700"
-      >
-        {{ successMessage }}
-      </div>
+      <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
 
       <!-- Error message -->
-      <div
-        v-if="errorMessage"
-        class="p-4 bg-red-900/50 text-red-400 rounded-lg border border-red-700"
-      >
-        {{ errorMessage }}
-      </div>
+      <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
       <!-- Connection status card -->
-      <div class="bg-surface border border-default rounded-lg p-6 mb-4">
-        <div
-          class="flex flex-col md:flex-row md:justify-between md:items-center gap-4"
-        >
-          <div class="flex flex-col gap-1">
-            <h2 class="text-xl font-medium text-primary mb-2">
-              Connection Status
-            </h2>
-            <div class="flex items-center">
+      <div class="bg-surface border border-default rounded-xl hover:border-strong transition-colors">
+        <div class="p-4 flex flex-col gap-3">
+          <!-- Header row with icon -->
+          <div class="flex items-center gap-3">
+            <!-- Microsoft icon -->
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="AdminIcons.microsoft"></svg>
+            </div>
+
+            <!-- Title and status badges -->
+            <div class="flex-1 flex items-center gap-2 flex-wrap">
+              <span class="font-medium text-primary">Connection Status</span>
               <span
-                :class="[
-                  'px-3 py-1 rounded-full text-sm inline-flex items-center border gap-1',
-                  getStatusDisplay(connectionStatus).class,
-                ]"
+                class="px-1.5 py-0.5 text-xs rounded-full border"
+                :class="{
+                  'bg-status-success/20 text-status-success border-status-success/50': connectionStatus === 'connected',
+                  'bg-surface-alt text-tertiary border-default': connectionStatus === 'disconnected',
+                  'bg-brand-blue/20 text-brand-blue border-brand-blue/50': connectionStatus === 'connecting',
+                  'bg-status-error/20 text-status-error border-status-error/50': connectionStatus === 'error'
+                }"
               >
-                <span
-                  class="h-2 w-2 rounded-full mr-2"
-                  :class="{
-                    'bg-green-400': connectionStatus === 'connected',
-                    'bg-slate-400': connectionStatus === 'disconnected',
-                    'bg-blue-400': connectionStatus === 'connecting',
-                    'bg-red-400': connectionStatus === 'error',
-                  }"
-                ></span>
                 {{ getStatusDisplay(connectionStatus).text }}
               </span>
             </div>
-            <p v-if="lastSync" class="text-sm text-secondary mt-2">
-              Last synchronized: {{ lastSync }}
-            </p>
+
+            <!-- Sync button -->
+            <button
+                @click="syncData"
+                :disabled="connectionStatus !== 'connected' || isLoading || isSyncing"
+                class="px-3 py-1.5 bg-status-success/20 text-status-success border border-status-success/50 rounded-lg text-sm hover:bg-status-success/30 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
+              >
+                <svg v-if="isSyncing" class="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {{ isSyncing ? 'Syncing...' : 'Sync' }}
+            </button>
           </div>
 
-          <div class="flex flex-wrap gap-3">
-            <button
-              @click="checkConfiguration"
-              class="px-4 py-2 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors border border-subtle flex items-center gap-2"
-              :disabled="isValidatingConfig"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <span v-if="isValidatingConfig">Checking...</span>
-              <span v-else>Check Config</span>
-            </button>
-
-            <button
-              @click="testConnection"
-              class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-              :disabled="isLoading"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                />
-              </svg>
-              Test Connection
-            </button>
-
-            <button
-              @click="syncData"
-              class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-              :disabled="connectionStatus !== 'connected' || isLoading || isSyncing"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-              <span v-if="isSyncing">Syncing...</span>
-              <span v-else>Sync Data</span>
-            </button>
-
-
+          <!-- Last sync info -->
+          <div v-if="lastSync" class="text-sm">
+            <span class="text-tertiary">Last synchronized:</span> <span class="text-primary">{{ lastSync }}</span>
           </div>
         </div>
       </div>
@@ -609,138 +518,112 @@ onMounted(async () => {
       <!-- Configuration Details -->
       <div
         v-if="configValidation"
-        class="bg-surface border border-default rounded-lg p-6 mb-4"
+        class="bg-surface border border-default rounded-xl hover:border-strong transition-colors"
       >
-        <h2 class="text-xl font-medium text-primary mb-4">
-          Configuration Details
-        </h2>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div class="bg-surface-alt rounded-lg p-4">
-            <div class="text-secondary text-sm mb-1">Client ID</div>
-            <div class="text-primary font-mono text-sm break-all">
-              {{ configValidation.client_id || 'Not configured' }}
+        <div class="p-4 flex flex-col gap-3">
+          <!-- Header row with icon -->
+          <div class="flex items-center gap-3">
+            <!-- Config icon -->
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-slate-500/20 flex items-center justify-center text-slate-400">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="AdminIcons.cog"></svg>
             </div>
-          </div>
 
-          <div class="bg-surface-alt rounded-lg p-4">
-            <div class="text-secondary text-sm mb-1">Tenant ID</div>
-            <div class="text-primary font-mono text-sm break-all">
-              {{ configValidation.tenant_id || 'Not configured' }}
-            </div>
-          </div>
-
-          <div class="bg-surface-alt rounded-lg p-4">
-            <div class="text-secondary text-sm mb-1">Client Secret</div>
-            <div class="text-primary font-mono text-sm">
-              {{ configValidation.client_secret_configured ? '••••••••••••••••' : 'Not configured' }}
-            </div>
-          </div>
-
-          <div class="bg-surface-alt rounded-lg p-4">
-            <div class="text-secondary text-sm mb-1">Configuration Status</div>
-            <div class="flex items-center gap-2">
+            <!-- Title and status -->
+            <div class="flex-1 flex items-center gap-2 flex-wrap">
+              <span class="font-medium text-primary">Configuration Details</span>
               <span
-                :class="[
-                  'px-2 py-1 rounded-full text-sm flex items-center gap-1',
-                  configValidation.valid 
-                    ? 'bg-green-900/50 text-green-400 border border-green-700'
-                    : 'bg-red-900/50 text-red-400 border border-red-700'
-                ]"
+                class="px-1.5 py-0.5 text-xs rounded-full border"
+                :class="configValidation.valid
+                  ? 'bg-status-success/20 text-status-success border-status-success/50'
+                  : 'bg-status-error/20 text-status-error border-status-error/50'"
               >
-                <span
-                  class="h-2 w-2 rounded-full"
-                  :class="configValidation.valid ? 'bg-green-400' : 'bg-red-400'"
-                ></span>
                 {{ configValidation.valid ? 'Valid' : 'Invalid' }}
               </span>
             </div>
           </div>
-        </div>
-        
-        <!-- Configuration Issues -->
-        <div
-          v-if="configValidation.issues && configValidation.issues.length > 0"
-          class="bg-orange-900/20 border border-orange-800/50 rounded-lg p-4"
-        >
-          <h3 class="text-orange-300 font-medium mb-2 flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.864-.833-2.634 0l-5.898 8.5c-.77.833.192 2.5 1.732 2.5z" />
+
+          <!-- Configuration values - two column layout -->
+          <div class="flex flex-col md:flex-row gap-4 text-sm">
+            <!-- Left: Client ID and Tenant ID (full values) -->
+            <div class="flex-1 flex flex-col gap-2">
+              <div class="flex flex-col gap-0.5">
+                <span class="text-tertiary text-xs">Client ID</span>
+                <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidation.client_id || 'Not set' }}</span>
+              </div>
+              <div class="flex flex-col gap-0.5">
+                <span class="text-tertiary text-xs">Tenant ID</span>
+                <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidation.tenant_id || 'Not set' }}</span>
+              </div>
+            </div>
+            <!-- Right: Secret and Status -->
+            <div class="flex flex-row md:flex-col gap-4 md:gap-2 md:w-28 md:flex-shrink-0">
+              <div class="flex flex-col gap-0.5">
+                <span class="text-tertiary text-xs">Secret</span>
+                <span :class="configValidation.client_secret_configured ? 'text-status-success' : 'text-status-error'" class="font-medium bg-surface-alt px-2 py-1.5 rounded text-xs">{{ configValidation.client_secret_configured ? 'Configured' : 'Not Set' }}</span>
+              </div>
+              <div class="flex flex-col gap-0.5">
+                <span class="text-tertiary text-xs">Status</span>
+                <span :class="configValidation.valid ? 'text-status-success' : 'text-status-error'" class="font-medium bg-surface-alt px-2 py-1.5 rounded text-xs">{{ configValidation.valid ? 'Ready' : 'Incomplete' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Configuration Issues -->
+          <div
+            v-if="configValidation.issues && configValidation.issues.length > 0"
+            class="p-2 bg-status-error/10 border border-status-error/30 rounded-lg text-sm text-status-error flex items-start gap-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
             </svg>
-            Configuration Issues
-          </h3>
-          <ul class="text-orange-200 text-sm space-y-1">
-            <li v-for="issue in configValidation.issues" :key="issue" class="flex items-start gap-2">
-              <span class="text-orange-400 mt-1">•</span>
-              <span>{{ issue }}</span>
-            </li>
-          </ul>
-        </div>
-        
-        <!-- Environment Variables Help -->
-        <div
-          v-if="!configValidation.valid"
-          class="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4 mt-4"
-        >
-          <h3 class="text-blue-300 font-medium mb-2 flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Required Environment Variables
-          </h3>
-          <div class="text-blue-200 text-sm space-y-1">
-            <p class="mb-2">Add these environment variables to your <code class="bg-blue-800/50 px-1 rounded">docker.env</code> file:</p>
-            <div class="bg-slate-800/50 rounded p-3 font-mono text-xs space-y-1">
-              <div>MICROSOFT_CLIENT_ID=your_client_id</div>
-              <div>MICROSOFT_CLIENT_SECRET=your_client_secret</div>
-              <div>MICROSOFT_TENANT_ID=your_tenant_id</div>
+            <div>
+              <span v-for="(issue, index) in configValidation.issues" :key="issue">
+                {{ issue }}<span v-if="index < configValidation.issues.length - 1">; </span>
+              </span>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Available entities -->
-      <div
-        class="flex flex-col gap-2 bg-surface border border-default rounded-lg p-6"
-      >
-        <div>
-          <h2 class="text-xl font-medium text-primary mb-4">
-            Available Data Entities
-          </h2>
-          <p class="text-secondary mb-4">
-            These are the data entities that can be imported from Microsoft
-            Graph API
-          </p>
-        </div>
+      <div class="bg-surface border border-default rounded-xl hover:border-strong transition-colors">
+        <div class="p-4 flex flex-col gap-3">
+          <!-- Header row with icon -->
+          <div class="flex items-center gap-3">
+            <!-- Database icon -->
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-500">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="AdminIcons.database"></svg>
+            </div>
 
-        <div class="flex flex-col gap-4">
-          <div
-            v-for="entity in availableEntities"
-            :key="entity.id"
-            class="p-4 bg-surface-alt rounded-lg border border-subtle"
-          >
-            <div class="flex items-start">
-              <div class="flex-1">
-                <h3 class="text-primary font-medium">{{ entity.name }}</h3>
-                <p class="text-sm text-secondary mt-1">
-                  {{ entity.description }}
-                </p>
-              </div>
-              <div class="ml-4">
-                <button
-                  @click="toggleEntity(entity.id)"
-                  class="px-3 py-1 text-sm rounded-md"
-                  :class="
-                    selectedEntities.includes(entity.id)
-                      ? 'bg-blue-900/50 text-blue-400 border border-blue-700'
-                      : 'bg-slate-800 text-slate-400 border border-slate-700'
-                  "
+            <!-- Title -->
+            <div class="flex-1">
+              <span class="font-medium text-primary">Available Data Entities</span>
+            </div>
+          </div>
+
+          <!-- Entity selection grid -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div
+              v-for="entity in availableEntities"
+              :key="entity.id"
+              @click="toggleEntity(entity.id)"
+              class="p-3 rounded-lg border cursor-pointer transition-colors"
+              :class="selectedEntities.includes(entity.id)
+                ? 'bg-brand-blue/10 border-brand-blue/50'
+                : 'bg-surface-alt border-default hover:border-strong'"
+            >
+              <div class="flex items-center justify-between mb-1">
+                <h3 class="text-primary font-medium text-sm">{{ entity.name }}</h3>
+                <span
+                  class="px-1.5 py-0.5 text-xs rounded-full border"
+                  :class="selectedEntities.includes(entity.id)
+                    ? 'bg-brand-blue/20 text-brand-blue border-brand-blue/50'
+                    : 'bg-surface-alt text-tertiary border-default'"
                 >
-                  {{
-                    selectedEntities.includes(entity.id) ? "Selected" : "Select"
-                  }}
-                </button>
+                  {{ selectedEntities.includes(entity.id) ? 'Selected' : 'Select' }}
+                </span>
               </div>
+              <p class="text-xs text-secondary">{{ entity.description }}</p>
             </div>
           </div>
         </div>
@@ -749,187 +632,176 @@ onMounted(async () => {
       <!-- Sync Progress / Active Synchronizations -->
       <div
         v-if="(isSyncing && syncProgress) || (activeSyncs.length > 0 && !isSyncing) || isLoadingActiveSyncs"
-        class="bg-surface border border-default rounded-lg p-6"
+        class="bg-surface border border-default rounded-xl hover:border-strong transition-colors"
       >
         <!-- Show real-time progress when actively monitoring a sync -->
-        <div v-if="isSyncing && syncProgress">
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-medium text-primary">
-              Sync Progress
-            </h2>
+        <div v-if="isSyncing && syncProgress" class="p-4 flex flex-col gap-3">
+          <!-- Header row with icon -->
+          <div class="flex items-center gap-3">
+            <!-- Sync icon -->
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-brand-blue/20 flex items-center justify-center text-brand-blue">
+              <svg class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </div>
+
+            <!-- Title and status -->
+            <div class="flex-1 flex items-center gap-2 flex-wrap">
+              <span class="font-medium text-primary">{{ formatSyncType(syncProgress.sync_type || syncProgress.entity) }}</span>
+              <span
+                class="px-1.5 py-0.5 text-xs rounded-full border"
+                :class="{
+                  'bg-brand-blue/20 text-brand-blue border-brand-blue/50': syncProgress.status === 'running' || syncProgress.status === 'starting',
+                  'bg-status-success/20 text-status-success border-status-success/50': syncProgress.status === 'completed',
+                  'bg-amber-500/20 text-amber-400 border-amber-500/50': syncProgress.status === 'completed_with_errors',
+                  'bg-status-error/20 text-status-error border-status-error/50': syncProgress.status === 'error',
+                  'bg-amber-500/20 text-amber-400 border-amber-500/50': syncProgress.status === 'cancelling',
+                  'bg-surface-alt text-tertiary border-default': syncProgress.status === 'cancelled'
+                }"
+              >
+                {{ syncProgress.status === 'completed_with_errors' ? 'Completed with errors' : syncProgress.status }}
+              </span>
+            </div>
+
+            <!-- Cancel button -->
             <button
-              @click="cancelSync(currentSessionId!)"
               v-if="(syncProgress.status === 'running' || syncProgress.status === 'starting') && currentSessionId"
-              class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              @click="cancelSync(currentSessionId!)"
+              class="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/50 rounded-lg text-sm hover:bg-red-500/30 font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap"
             >
-              Cancel Sync
+              Cancel
             </button>
           </div>
-          
-          <div class="flex flex-col gap-2">
-            <!-- Header with operation and status -->
-            <div class="flex items-center justify-between">
-              <div class="flex flex-col gap-2">
-                <h3 class="text-lg font-medium text-primary">
-                  {{ formatSyncType(syncProgress.sync_type || syncProgress.entity) }}
-                </h3>
-                <div class="flex items-center gap-2 mt-1">
-                  <span class="px-2 py-1 text-xs rounded-full" :class="{
-                    'bg-blue-900/50 text-blue-400 border border-blue-700': syncProgress.status === 'running' || syncProgress.status === 'starting',
-                    'bg-green-900/50 text-green-400 border border-green-700': syncProgress.status === 'completed',
-                    'bg-orange-900/50 text-orange-400 border border-orange-700': syncProgress.status === 'completed_with_errors',
-                    'bg-red-900/50 text-red-400 border border-red-700': syncProgress.status === 'error',
-                    'bg-yellow-900/50 text-yellow-400 border border-yellow-700': syncProgress.status === 'cancelling',
-                    'bg-gray-900/50 text-gray-400 border border-gray-700': syncProgress.status === 'cancelled'
-                  }">
-                    {{ syncProgress.status === 'completed_with_errors' ? 'completed with errors' : syncProgress.status }}
-                  </span>
-                </div>
-              </div>
-              
-              <!-- Progress stats -->
-              <div class="text-right">
-                <div class="text-lg font-medium text-primary">
-                  {{ syncProgress.current }} / {{ syncProgress.total }}
-                </div>
-                <div v-if="syncProgress.total > 0" class="text-sm text-secondary">
-                  {{ Math.round((syncProgress.current / syncProgress.total) * 100) }}% complete
-                </div>
-              </div>
-            </div>
-            
-            <!-- Progress Bar -->
-            <div class="flex flex-col gap-2">
-              <div class="w-full bg-surface-alt rounded-full h-3">
-                <div 
-                  class="h-3 rounded-full transition-all duration-300" 
-                  :class="{
-                    'bg-blue-500': syncProgress.status === 'running' || syncProgress.status === 'starting',
-                    'bg-green-500': syncProgress.status === 'completed',
-                    'bg-orange-500': syncProgress.status === 'completed_with_errors',
-                    'bg-red-500': syncProgress.status === 'error',
-                    'bg-yellow-500': syncProgress.status === 'cancelling',
-                    'bg-gray-500': syncProgress.status === 'cancelled'
-                  }"
-                  :style="{ 
-                    width: syncProgress.total > 0 
-                      ? `${Math.round((syncProgress.current / syncProgress.total) * 100)}%` 
-                      : (syncProgress.status === 'completed' || syncProgress.status === 'completed_with_errors') ? '100%' : '0%'
-                  }"
-                ></div>
-              </div>
-            </div>
-            
-            <!-- Status message -->
-            <div class="bg-surface-alt/50 rounded-lg p-3">
-              <div class="text-sm text-secondary">
-                {{ syncProgress.message }}
-              </div>
-            </div>
+
+          <!-- Progress info -->
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-secondary">{{ syncProgress.message }}</span>
+            <span class="text-primary font-medium">{{ syncProgress.current }} / {{ syncProgress.total }} <span v-if="syncProgress.total > 0" class="text-tertiary">({{ Math.round((syncProgress.current / syncProgress.total) * 100) }}%)</span></span>
+          </div>
+
+          <!-- Progress Bar -->
+          <div class="w-full bg-surface-alt rounded-full h-2">
+            <div
+              class="h-2 rounded-full transition-all duration-300"
+              :class="{
+                'bg-brand-blue': syncProgress.status === 'running' || syncProgress.status === 'starting',
+                'bg-status-success': syncProgress.status === 'completed',
+                'bg-amber-500': syncProgress.status === 'completed_with_errors',
+                'bg-status-error': syncProgress.status === 'error',
+                'bg-amber-500': syncProgress.status === 'cancelling',
+                'bg-slate-500': syncProgress.status === 'cancelled'
+              }"
+              :style="{
+                width: syncProgress.total > 0
+                  ? `${Math.round((syncProgress.current / syncProgress.total) * 100)}%`
+                  : (syncProgress.status === 'completed' || syncProgress.status === 'completed_with_errors') ? '100%' : '0%'
+              }"
+            ></div>
           </div>
         </div>
 
         <!-- Show active syncs when not actively monitoring -->
-        <div v-else>
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-medium text-primary">
-              Active Synchronizations
-            </h2>
+        <div v-else class="p-4 flex flex-col gap-3">
+          <!-- Header row with icon -->
+          <div class="flex items-center gap-3">
+            <!-- Sync icon -->
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-brand-blue/20 flex items-center justify-center text-brand-blue">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </div>
+
+            <!-- Title -->
+            <div class="flex-1">
+              <span class="font-medium text-primary">Active Synchronizations</span>
+            </div>
+
+            <!-- Refresh button -->
             <button
               @click="fetchActiveSyncs"
-              class="px-3 py-1 bg-surface-alt text-primary rounded-md hover:bg-surface-hover transition-colors text-sm flex items-center gap-1"
               :disabled="isLoadingActiveSyncs"
+              class="px-3 py-1.5 bg-surface-alt text-primary border border-default rounded-lg text-sm hover:bg-surface-hover font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <svg v-if="isLoadingActiveSyncs" class="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               Refresh
             </button>
           </div>
-          
-          <div v-if="isLoadingActiveSyncs" class="text-center py-4">
-            <div class="inline-flex items-center text-secondary">
-              <svg class="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Loading active syncs...
-            </div>
+
+          <div v-if="isLoadingActiveSyncs" class="text-center py-4 text-secondary text-sm">
+            Loading active syncs...
           </div>
-          
-          <div v-else-if="activeSyncs.length === 0" class="text-center py-4 text-secondary">
+
+          <div v-else-if="activeSyncs.length === 0" class="text-center py-4 text-secondary text-sm">
             No active synchronizations
           </div>
-          
-          <div v-else class="flex flex-col gap-3">
+
+          <div v-else class="flex flex-col gap-2">
             <div
               v-for="sync in activeSyncs"
               :key="sync.session_id"
-              class="p-4 bg-surface-alt rounded-lg border border-subtle"
+              class="p-3 bg-surface-alt rounded-lg border border-default"
             >
-              <div class="flex justify-between items-start">
+              <div class="flex items-center gap-3">
                 <div class="flex-1">
-                  <div class="flex items-center gap-2 mb-2">
-                    <h3 class="font-medium text-primary">{{ formatSyncType(sync.sync_type) }}</h3>
-                    <span class="px-2 py-1 text-xs rounded-full" :class="{
-                      'bg-blue-900/50 text-blue-400 border border-blue-700': sync.status === 'running' || sync.status === 'starting',
-                      'bg-yellow-900/50 text-yellow-400 border border-yellow-700': sync.status === 'cancelling',
-                      'bg-green-900/50 text-green-400 border border-green-700': sync.status === 'completed',
-                      'bg-orange-900/50 text-orange-400 border border-orange-700': sync.status === 'completed_with_errors',
-                      'bg-red-900/50 text-red-400 border border-red-700': sync.status === 'error'
-                    }">
-                      {{ sync.status === 'completed_with_errors' ? 'completed with errors' : sync.status }}
-                    </span>
-                  </div>
-                  
-                  <div class="text-sm text-secondary mb-2">
-                    {{ sync.message }}
-                  </div>
-
-                  <div class="flex items-center gap-4 text-xs text-tertiary">
-                    <span>Started {{ formatTimeAgo(sync.started_at) }}</span>
-                    <span>{{ sync.current }} / {{ sync.total }}</span>
-                    <span v-if="sync.total > 0">
-                      {{ Math.round((sync.current / sync.total) * 100) }}%
-                    </span>
-                  </div>
-                  
-                  <!-- Progress bar for each sync -->
-                  <div class="w-full bg-surface-alt rounded-full h-2 mt-2">
-                    <div 
-                      class="h-2 rounded-full transition-all duration-300" 
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="font-medium text-primary text-sm">{{ formatSyncType(sync.sync_type) }}</span>
+                    <span
+                      class="px-1.5 py-0.5 text-xs rounded-full border"
                       :class="{
-                        'bg-blue-500': sync.status === 'running' || sync.status === 'starting',
-                        'bg-yellow-500': sync.status === 'cancelling',
-                        'bg-green-500': sync.status === 'completed',
-                        'bg-orange-500': sync.status === 'completed_with_errors',
-                        'bg-red-500': sync.status === 'error'
+                        'bg-brand-blue/20 text-brand-blue border-brand-blue/50': sync.status === 'running' || sync.status === 'starting',
+                        'bg-amber-500/20 text-amber-400 border-amber-500/50': sync.status === 'cancelling',
+                        'bg-status-success/20 text-status-success border-status-success/50': sync.status === 'completed',
+                        'bg-amber-500/20 text-amber-400 border-amber-500/50': sync.status === 'completed_with_errors',
+                        'bg-status-error/20 text-status-error border-status-error/50': sync.status === 'error'
                       }"
-                      :style="{ 
-                        width: sync.total > 0 
-                          ? `${Math.round((sync.current / sync.total) * 100)}%` 
-                          : (sync.status === 'completed' || sync.status === 'completed_with_errors') ? '100%' : '0%' 
+                    >
+                      {{ sync.status === 'completed_with_errors' ? 'Completed with errors' : sync.status }}
+                    </span>
+                  </div>
+                  <div class="text-xs text-secondary">{{ sync.message }}</div>
+                  <div class="flex items-center gap-3 text-xs text-tertiary mt-1">
+                    <span>{{ formatTimeAgo(sync.started_at) }}</span>
+                    <span>{{ sync.current }} / {{ sync.total }}<span v-if="sync.total > 0"> ({{ Math.round((sync.current / sync.total) * 100) }}%)</span></span>
+                  </div>
+                  <!-- Progress bar -->
+                  <div class="w-full bg-surface rounded-full h-1.5 mt-2">
+                    <div
+                      class="h-1.5 rounded-full transition-all duration-300"
+                      :class="{
+                        'bg-brand-blue': sync.status === 'running' || sync.status === 'starting',
+                        'bg-amber-500': sync.status === 'cancelling',
+                        'bg-status-success': sync.status === 'completed',
+                        'bg-amber-500': sync.status === 'completed_with_errors',
+                        'bg-status-error': sync.status === 'error'
+                      }"
+                      :style="{
+                        width: sync.total > 0
+                          ? `${Math.round((sync.current / sync.total) * 100)}%`
+                          : (sync.status === 'completed' || sync.status === 'completed_with_errors') ? '100%' : '0%'
                       }"
                     ></div>
                   </div>
                 </div>
-                
-                <div class="flex gap-2 ml-4">
+
+                <div class="flex gap-2">
                   <button
                     v-if="currentSessionId !== sync.session_id && (sync.status === 'running' || sync.status === 'starting')"
                     @click="resumeSync(sync.session_id)"
-                    class="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors flex items-center gap-1"
+                    class="px-2 py-1 bg-brand-blue/20 text-brand-blue border border-brand-blue/50 rounded text-xs hover:bg-brand-blue/30 transition-colors"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
                     Monitor
                   </button>
-                  
                   <button
                     v-if="sync.status === 'running' || sync.status === 'starting'"
                     @click="cancelSync(sync.session_id)"
-                    class="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm"
+                    class="px-2 py-1 bg-red-500/20 text-red-400 border border-red-500/50 rounded text-xs hover:bg-red-500/30 transition-colors"
                   >
                     Cancel
                   </button>
@@ -943,113 +815,108 @@ onMounted(async () => {
       <!-- Last Sync Details -->
       <div
         v-if="lastSyncDetails || isLoadingLastSync"
-        class="flex flex-col gap-2 bg-surface border border-default rounded-lg p-6 mb-4"
+        class="bg-surface border border-default rounded-xl hover:border-strong transition-colors"
       >
-        <h2 class="text-xl font-medium text-primary mb-4">Last Synchronization</h2>
-        
-        <div v-if="isLoadingLastSync" class="text-center py-4">
-          <div class="inline-flex items-center text-secondary">
-            <svg class="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            Loading last sync details...
-          </div>
-        </div>
-        
-        <div v-else-if="lastSyncDetails" class="flex flex-col gap-4">
-          <!-- Sync Overview -->
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="bg-surface-alt rounded-lg p-4">
-              <div>
-
-              </div>
-              <div class="text-secondary text-sm">Sync Type</div>
-              <div class="text-primary font-medium">{{ formatSyncType(lastSyncDetails.sync_type) }}</div>
-              <div class="flex items-center gap-2 mt-2">
-                <span class="text-xs capitalize" :class="{
-                  'text-green-400': lastSyncDetails.status === 'completed',
-                  'text-orange-400': lastSyncDetails.status === 'completed_with_errors',
-                  'text-red-400': lastSyncDetails.status === 'error',
-                  'text-gray-400': lastSyncDetails.status === 'cancelled'
-                }">
-                  {{ lastSyncDetails.status === 'completed_with_errors' ? 'completed with errors' : lastSyncDetails.status }}
-                </span>
-              </div>
-            </div>
-            
-            <div class="bg-surface-alt rounded-lg p-4">
-              <div class="text-secondary text-sm">Started</div>
-              <div class="text-primary font-medium">{{ formatTimeAgo(lastSyncDetails.started_at) }}</div>
-              <div class="text-tertiary text-xs">{{ formatDateTime(lastSyncDetails.started_at) }}</div>
+        <div class="p-4 flex flex-col gap-3">
+          <!-- Header row with icon -->
+          <div class="flex items-center gap-3">
+            <!-- History icon -->
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-purple-500/20 flex items-center justify-center text-purple-400">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
             </div>
 
-                         <div class="bg-surface-alt rounded-lg p-4">
-               <div class="text-secondary text-sm">Duration</div>
-               <div class="text-primary font-medium">{{ formatDuration(lastSyncDetails.started_at, lastSyncDetails.updated_at) }}</div>
-               <div class="text-tertiary text-xs">
-                 <span v-if="lastSyncDetails.total > 0">
-                   {{ lastSyncDetails.current }} / {{ lastSyncDetails.total }} items
-                 </span>
-                 <span v-else-if="lastSyncDetails.status === 'cancelled'">
-                   Cancelled
-                 </span>
-                 <span v-else-if="lastSyncDetails.status === 'error'">
-                   Failed
-                 </span>
-                 <span v-else>
-                   No items processed
-                 </span>
-               </div>
-             </div>
-          </div>
-          
-          <!-- Progress Bar -->
-          <div class="w-full bg-surface-alt rounded-full h-3">
-            <div 
-              class="h-3 rounded-full transition-all duration-300" 
-              :class="{
-                'bg-green-500': lastSyncDetails.status === 'completed',
-                'bg-orange-500': lastSyncDetails.status === 'completed_with_errors',
-                'bg-red-500': lastSyncDetails.status === 'error',
-                'bg-gray-500': lastSyncDetails.status === 'cancelled'
-              }"
-                             :style="{ 
-                 width: lastSyncDetails.total > 0 
-                   ? `${Math.round((lastSyncDetails.current / lastSyncDetails.total) * 100)}%` 
-                  : (lastSyncDetails.status === 'completed' || lastSyncDetails.status === 'completed_with_errors') ? '100%' : '0%'
-               }"
-            ></div>
-          </div>
-          
-          <!-- Sync Message -->
-          <div class="bg-surface-alt rounded-lg p-4">
-            <div class="text-secondary text-sm mb-1">Message</div>
-            <div class="text-primary">{{ lastSyncDetails.message }}</div>
-          </div>
-          
-          <!-- Refresh Button -->
-          <div class="flex justify-end">
+            <!-- Title and badges -->
+            <div class="flex-1 flex items-center gap-2 flex-wrap">
+              <span class="font-medium text-primary">Last Synchronization</span>
+              <span
+                v-if="lastSyncDetails"
+                class="px-1.5 py-0.5 text-xs rounded-full border"
+                :class="{
+                  'bg-status-success/20 text-status-success border-status-success/50': lastSyncDetails.status === 'completed',
+                  'bg-amber-500/20 text-amber-400 border-amber-500/50': lastSyncDetails.status === 'completed_with_errors',
+                  'bg-status-error/20 text-status-error border-status-error/50': lastSyncDetails.status === 'error',
+                  'bg-surface-alt text-tertiary border-default': lastSyncDetails.status === 'cancelled'
+                }"
+              >
+                {{ lastSyncDetails.status === 'completed_with_errors' ? 'Completed with Errors' : lastSyncDetails.status.charAt(0).toUpperCase() + lastSyncDetails.status.slice(1) }}
+              </span>
+            </div>
+
+            <!-- Refresh button -->
             <button
               @click="fetchLastSyncDetails"
-              class="px-3 py-1 bg-surface-alt text-primary rounded-md hover:bg-surface-hover transition-colors text-sm flex items-center gap-1"
               :disabled="isLoadingLastSync"
+              class="px-3 py-1.5 bg-surface-alt text-secondary border border-default rounded-lg text-sm hover:bg-surface-hover hover:text-primary font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <svg :class="{ 'animate-spin': isLoadingLastSync }" xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               Refresh
             </button>
           </div>
+
+          <!-- Loading state -->
+          <div v-if="isLoadingLastSync" class="flex items-center justify-center py-4 text-secondary">
+            <svg class="animate-spin h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Loading sync details...
+          </div>
+
+          <!-- Sync Details Content -->
+          <div v-else-if="lastSyncDetails">
+            <!-- Compact stats row -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-sm">
+              <div><span class="text-tertiary">Type:</span> <span class="text-primary">{{ formatSyncType(lastSyncDetails.sync_type) }}</span></div>
+              <div><span class="text-tertiary">Started:</span> <span class="text-primary">{{ formatTimeAgo(lastSyncDetails.started_at) }}</span></div>
+              <div><span class="text-tertiary">Duration:</span> <span class="text-primary">{{ formatDuration(lastSyncDetails.started_at, lastSyncDetails.updated_at) }}</span></div>
+              <div>
+                <span class="text-tertiary">Progress:</span>
+                <span class="text-primary">
+                  <span v-if="lastSyncDetails.total > 0">{{ lastSyncDetails.current }} / {{ lastSyncDetails.total }}</span>
+                  <span v-else-if="lastSyncDetails.status === 'cancelled'">Cancelled</span>
+                  <span v-else-if="lastSyncDetails.status === 'error'">Failed</span>
+                  <span v-else>-</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="w-full bg-surface-alt rounded-full h-2 mt-3">
+              <div
+                class="h-2 rounded-full transition-all duration-300"
+                :class="{
+                  'bg-status-success': lastSyncDetails.status === 'completed',
+                  'bg-amber-500': lastSyncDetails.status === 'completed_with_errors',
+                  'bg-status-error': lastSyncDetails.status === 'error',
+                  'bg-gray-500': lastSyncDetails.status === 'cancelled'
+                }"
+                :style="{
+                  width: lastSyncDetails.total > 0
+                    ? `${Math.round((lastSyncDetails.current / lastSyncDetails.total) * 100)}%`
+                    : (lastSyncDetails.status === 'completed' || lastSyncDetails.status === 'completed_with_errors') ? '100%' : '0%'
+                }"
+              ></div>
+            </div>
+
+            <!-- Message -->
+            <div v-if="lastSyncDetails.message" class="text-sm text-secondary mt-2">
+              {{ lastSyncDetails.message }}
+            </div>
+          </div>
+
+          <!-- No sync history -->
+          <div v-else class="text-center py-6 text-secondary">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p class="font-medium">No Previous Synchronizations</p>
+            <p class="text-sm mt-1 text-tertiary">Run your first sync to see details here</p>
+          </div>
         </div>
-        
-                 <div v-else class="text-center py-8 text-secondary">
-           <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-           </svg>
-           <p class="text-lg font-medium">No Previous Synchronizations</p>
-           <p class="text-sm mt-1">Run your first sync to see details here</p>
-         </div>
       </div>
 
 
@@ -1063,137 +930,123 @@ onMounted(async () => {
       @close="showSyncModal = false"
     >
       <div class="flex flex-col gap-4">
-        <p class="text-secondary">
+        <p class="text-secondary text-sm">
           Select the data entities you want to import from Microsoft Graph:
         </p>
 
         <div class="flex flex-col gap-2">
-          <div
+          <label
             v-for="entity in availableEntities"
             :key="entity.id"
-            class="flex gap-1 items-center p-3 rounded-md border border-subtle bg-surface-alt/50"
+            :for="`sync-${entity.id}`"
+            class="flex items-center gap-3 p-3 rounded-lg border border-default bg-surface hover:border-strong cursor-pointer transition-colors"
+            :class="{ 'border-brand-blue bg-brand-blue/5': selectedEntities.includes(entity.id) }"
           >
             <input
               type="checkbox"
               :id="`sync-${entity.id}`"
               :checked="selectedEntities.includes(entity.id)"
               @change="toggleEntity(entity.id)"
-              class="w-4 h-4 text-blue-600 bg-surface-alt border-subtle focus:ring-blue-500 focus:ring-2"
+              class="w-4 h-4 text-brand-blue bg-surface border-default rounded focus:ring-brand-blue focus:ring-2"
             />
-            <label
-              :for="`sync-${entity.id}`"
-              class="ml-3 block text-primary cursor-pointer"
-            >
-              {{ entity.name }}
-            </label>
-          </div>
+            <span class="text-primary text-sm">{{ entity.name }}</span>
+          </label>
         </div>
 
-        <div
-          class="bg-blue-900/20 border border-blue-800/50 rounded-md p-3 text-sm text-blue-300"
-        >
-          <p class="flex gap-2 items-center">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5 mr-2 flex-shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <span>
-              Synchronization will import the latest data from Microsoft
-              services. This may take several minutes depending on the amount of
-              data.
-            </span>
-          </p>
+        <!-- Info notice -->
+        <div class="p-3 bg-brand-blue/10 border border-brand-blue/30 rounded-lg text-sm text-brand-blue flex items-start gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>Synchronization will import the latest data from Microsoft services. This may take several minutes depending on the amount of data.</span>
         </div>
 
         <!-- Sync Progress Results -->
-        <div
-          v-if="syncResults"
-          class="mt-4 p-4 bg-surface-alt rounded-lg border border-subtle"
-        >
-          <h4 class="text-lg font-medium text-primary mb-3">Sync Results</h4>
-          
-          <div class="flex flex-col gap-3">
-            <div v-for="result in syncResults.results" :key="result.entity" class="p-3 rounded-md border" :class="{
-              'bg-green-900/30 border-green-700': result.status === 'completed',
-              'bg-orange-900/30 border-orange-700': result.status === 'completed_with_errors',
-              'bg-red-900/30 border-red-700': result.status === 'error'
-            }">
+        <div v-if="syncResults" class="p-4 bg-surface-alt rounded-lg border border-default">
+          <h4 class="text-sm font-medium text-primary mb-3">Sync Results</h4>
+
+          <div class="flex flex-col gap-2">
+            <div
+              v-for="result in syncResults.results"
+              :key="result.entity"
+              class="p-3 rounded-lg border"
+              :class="{
+                'bg-status-success/10 border-status-success/30': result.status === 'completed',
+                'bg-amber-500/10 border-amber-500/30': result.status === 'completed_with_errors',
+                'bg-status-error/10 border-status-error/30': result.status === 'error'
+              }"
+            >
               <div class="flex justify-between items-start">
                 <div>
-                  <h5 class="font-medium text-primary capitalize">{{ result.entity }}</h5>
-                  <p class="text-sm text-secondary">
-                    Processed {{ result.processed }} of {{ result.total }} items
-                    <span v-if="result.total > 0" class="ml-2 text-tertiary">
+                  <h5 class="font-medium text-primary text-sm capitalize">{{ result.entity }}</h5>
+                  <p class="text-xs text-secondary">
+                    {{ result.processed }} / {{ result.total }} items
+                    <span v-if="result.total > 0" class="text-tertiary">
                       ({{ Math.round((result.processed / result.total) * 100) }}%)
                     </span>
                   </p>
                 </div>
                 <div class="flex items-center">
-                  <svg v-if="result.status === 'completed'" class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg v-if="result.status === 'completed'" class="w-4 h-4 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                   </svg>
-                  <svg v-else-if="result.status === 'completed_with_errors'" class="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg v-else-if="result.status === 'completed_with_errors'" class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.864-.833-2.634 0l-5.898 8.5c-.77.833.192 2.5 1.732 2.5z"></path>
                   </svg>
-                  <svg v-else class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg v-else class="w-4 h-4 text-status-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                   </svg>
                 </div>
               </div>
-              
+
               <!-- Error Details -->
-              <div v-if="result.errors && result.errors.length > 0" class="mt-2">
-                <p class="text-sm font-medium text-red-300 mb-1">Errors:</p>
-                <ul class="text-sm text-red-200 flex flex-col gap-1">
-                  <li v-for="error in result.errors.slice(0, 3)" :key="error" class="pl-2 border-l-2 border-red-500">
+              <div v-if="result.errors && result.errors.length > 0" class="mt-2 pt-2 border-t border-status-error/20">
+                <ul class="text-xs text-status-error flex flex-col gap-1">
+                  <li v-for="error in result.errors.slice(0, 3)" :key="error" class="pl-2 border-l-2 border-status-error/50">
                     {{ error }}
                   </li>
-                  <li v-if="result.errors.length > 3" class="text-red-300 italic">
+                  <li v-if="result.errors.length > 3" class="text-status-error/70 italic pl-2">
                     ... and {{ result.errors.length - 3 }} more errors
                   </li>
                 </ul>
               </div>
             </div>
           </div>
-          
+
           <!-- Overall Summary -->
-          <div class="mt-4 pt-3 border-t border-subtle">
+          <div class="mt-3 pt-3 border-t border-default">
             <div class="flex justify-between items-center text-sm">
-              <span class="text-secondary">Total processed:</span>
+              <span class="text-tertiary">Total processed:</span>
               <span class="font-medium text-primary">{{ syncResults.total_processed }} items</span>
             </div>
             <div v-if="syncResults.total_errors > 0" class="flex justify-between items-center text-sm mt-1">
-              <span class="text-secondary">Total errors:</span>
-              <span class="font-medium text-red-400">{{ syncResults.total_errors }}</span>
+              <span class="text-tertiary">Total errors:</span>
+              <span class="font-medium text-status-error">{{ syncResults.total_errors }}</span>
             </div>
           </div>
         </div>
 
-        <div class="flex justify-end gap-3 mt-6">
+        <!-- Action buttons -->
+        <div class="flex justify-end gap-2 pt-2">
           <button
             @click="showSyncModal = false"
-            class="px-4 py-2 bg-surface-alt text-primary rounded-md hover:bg-surface-hover border border-subtle"
+            class="px-3 py-1.5 bg-surface-alt text-secondary border border-default rounded-lg text-sm hover:bg-surface-hover hover:text-primary font-medium transition-colors"
           >
             Cancel
           </button>
           <button
             @click="startSync"
-            class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
             :disabled="isLoading || isSyncing || selectedEntities.length === 0"
+            class="px-3 py-1.5 bg-status-success/20 text-status-success border border-status-success/50 rounded-lg text-sm hover:bg-status-success/30 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
           >
-            <span v-if="isLoading">Starting Sync...</span>
-            <span v-else-if="isSyncing">Syncing...</span>
-            <span v-else>Start Sync</span>
+            <svg v-if="isLoading || isSyncing" class="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {{ isLoading ? 'Starting...' : isSyncing ? 'Syncing...' : 'Start Sync' }}
           </button>
         </div>
       </div>

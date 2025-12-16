@@ -4,6 +4,7 @@ import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "@/components/UserAvatar.vue";
+import StatusBadge from "@/components/StatusBadge.vue";
 import ticketService, { type Ticket } from "@/services/ticketService";
 
 const props = withDefaults(defineProps<{
@@ -65,26 +66,6 @@ const sortOptions = [
     { value: "date", label: "Latest Modified" },
     { value: "priority", label: "Highest Priority" },
 ];
-
-// Badge class mappings
-const priorityClasses: Record<string, string> = {
-    critical: "bg-red-500/20 text-red-700 dark:text-red-300 border-red-500/30",
-    high: "bg-red-500/20 text-red-700 dark:text-red-300 border-red-500/30",
-    medium: "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30",
-    low: "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30",
-};
-
-const statusClasses: Record<string, string> = {
-    open: "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30",
-    "in-progress": "bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30",
-    closed: "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30",
-};
-
-const defaultBadgeClass = "bg-slate-600/20 text-slate-700 dark:text-slate-300 border-slate-500/30";
-
-const getPriorityClass = (priority: string) => priorityClasses[priority] || defaultBadgeClass;
-const getStatusClass = (status: string) => statusClasses[status] || defaultBadgeClass;
-const formatStatus = (status: string) => status === "in-progress" ? "In Progress" : status.charAt(0).toUpperCase() + status.slice(1);
 
 // Get tickets for the target user (assigned or requested based on ticketType)
 const fetchTickets = async () => {
@@ -178,7 +159,7 @@ watch(
                 </h2>
                 <router-link
                     :to="seeAllLink"
-                    class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                    class="text-xs px-3 py-1.5 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors font-medium"
                 >
                     See All
                 </router-link>
@@ -189,7 +170,7 @@ watch(
                 <div class="relative">
                     <select
                         v-model="sortBy"
-                        class="bg-surface border border-default text-sm rounded-lg focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 focus:outline-none block w-full px-3 py-2 text-primary transition-colors hover:bg-surface-hover"
+                        class="bg-surface border border-default text-sm rounded-lg focus:ring-2 focus:ring-brand-blue/50 focus:border-brand-blue focus:outline-none block w-full px-3 py-2 text-primary transition-colors hover:bg-surface-hover"
                     >
                         <option
                             v-for="option in sortOptions"
@@ -205,7 +186,7 @@ watch(
                 <div class="relative">
                     <select
                         v-model="selectedStatus"
-                        class="bg-surface border border-default text-sm rounded-lg focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 focus:outline-none block w-full px-3 py-2 text-primary transition-colors hover:bg-surface-hover"
+                        class="bg-surface border border-default text-sm rounded-lg focus:ring-2 focus:ring-brand-blue/50 focus:border-brand-blue focus:outline-none block w-full px-3 py-2 text-primary transition-colors hover:bg-surface-hover"
                     >
                         <option
                             v-for="option in statusOptions"
@@ -313,7 +294,7 @@ watch(
                         <!-- Title and ID -->
                         <div class="flex items-start gap-2">
                             <h3
-                                class="text-primary font-medium group-hover:text-blue-400 transition-colors flex-1 leading-snug"
+                                class="text-primary font-medium group-hover:text-brand-blue transition-colors flex-1 leading-snug"
                             >
                                 {{ ticket.title }}
                             </h3>
@@ -328,22 +309,8 @@ watch(
                             >
 
                             <!-- Status and Priority badges -->
-                            <span
-                                class="inline-flex items-center px-2 py-0.5 rounded-md font-medium border"
-                                :class="getStatusClass(ticket.status)"
-                            >
-                                {{ formatStatus(ticket.status) }}
-                            </span>
-
-                            <span
-                                class="inline-flex items-center px-2 py-0.5 rounded-md font-medium border"
-                                :class="getPriorityClass(ticket.priority)"
-                            >
-                                {{
-                                    ticket.priority.charAt(0).toUpperCase() +
-                                    ticket.priority.slice(1)
-                                }}
-                            </span>
+                            <StatusBadge type="status" :value="ticket.status" :compact="true" />
+                            <StatusBadge type="priority" :value="ticket.priority" :short="true" :compact="true" />
 
                             <!-- Requester info -->
                             <div

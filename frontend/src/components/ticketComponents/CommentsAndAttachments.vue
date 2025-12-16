@@ -428,7 +428,7 @@ const handleDrop = async (event: DragEvent) => {
                         <div class="flex gap-2">
                             <button
                                 type="submit"
-                                class="flex-1 bg-blue-500 text-white h-10 px-4 rounded-md hover:bg-blue-600 transition-colors text-sm font-medium"
+                                class="flex-1 bg-brand-blue text-white h-10 px-4 rounded-md hover:opacity-90 transition-colors text-sm font-medium"
                             >
                                 Add
                             </button>

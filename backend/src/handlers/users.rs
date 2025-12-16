@@ -43,7 +43,7 @@ pub struct PaginatedResponse<T> {
 pub async fn get_users(
     pool: web::Data<crate::db::Pool>,
 ) -> impl Responder {
-    
+
     let mut conn = match pool.get() {
         Ok(conn) => {
             conn
@@ -56,7 +56,8 @@ pub async fn get_users(
 
     match repository::get_users(&mut conn) {
         Ok(users) => {
-            let user_responses: Vec<UserResponse> = users.into_iter().map(UserResponse::from).collect();
+            // Convert users to UserResponse with emails (batch fetch for efficiency)
+            let user_responses = repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
             HttpResponse::Ok().json(user_responses)
         },
         Err(e) => {
@@ -92,10 +93,10 @@ pub async fn get_paginated_users(
         Ok((users, total)) => {
             // Calculate total pages
             let total_pages = (total as f64 / page_size as f64).ceil() as i64;
-            
-            // Convert users to UserResponse
-            let user_responses: Vec<UserResponse> = users.into_iter().map(UserResponse::from).collect();
-            
+
+            // Convert users to UserResponse with emails (batch fetch for efficiency)
+            let user_responses = repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
+
             // Create paginated response
             let response = PaginatedResponse {
                 data: user_responses,
@@ -104,7 +105,7 @@ pub async fn get_paginated_users(
                 page_size,
                 total_pages,
             };
-            
+
             HttpResponse::Ok().json(response)
         },
         Err(e) => {
@@ -186,7 +187,8 @@ pub async fn get_users_batch(
 
     match repository::get_users_by_uuids(&uuids_vec, &mut conn) {
         Ok(users) => {
-            let user_responses: Vec<UserResponse> = users.into_iter().map(UserResponse::from).collect();
+            // Convert users to UserResponse with emails (batch fetch for efficiency)
+            let user_responses = repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
             HttpResponse::Ok().json(user_responses)
         },
         Err(e) => {

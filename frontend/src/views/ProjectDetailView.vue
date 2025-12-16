@@ -175,13 +175,13 @@ const getStatusClass = (status: string) => {
 const getPriorityClass = (priority: string) => {
   switch (priority) {
     case 'high':
-      return 'bg-red-500/20 text-red-400 border-red-500/30'
+      return 'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200 border-red-400/40 dark:border-red-500/30'
     case 'medium':
-      return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30'
     case 'low':
-      return 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+      return 'bg-blue-400/20 dark:bg-blue-500/20 [color:#1e3a8a] dark:text-blue-200 border-blue-400/40 dark:border-blue-500/30'
     default:
-      return 'bg-gray-500/20 text-gray-400 border-gray-500/30'
+      return 'bg-gray-400/20 dark:bg-gray-500/20 text-gray-900 dark:text-gray-200 border-gray-400/40 dark:border-gray-500/30'
   }
 }
 
@@ -261,7 +261,7 @@ watch(() => route.query.view, (newValue) => {
 
       <!-- Loading state -->
       <div v-if="isLoading" class="flex justify-center items-center py-8">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-blue"></div>
       </div>
 
       <!-- Project details -->
@@ -344,7 +344,7 @@ watch(() => route.query.view, (newValue) => {
             <h2 class="text-xl font-medium text-white">Tickets</h2>
             <button 
               @click="showAddTicketModal = true"
-              class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+              class="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm rounded-lg hover:opacity-90 transition-colors"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -374,7 +374,7 @@ watch(() => route.query.view, (newValue) => {
               </div>
               <button 
                 @click="showAddTicketModal = true"
-                class="mt-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                class="mt-2 px-6 py-2 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors"
               >
                 Add Your First Ticket
               </button>

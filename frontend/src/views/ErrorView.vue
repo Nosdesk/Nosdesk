@@ -1,7 +1,8 @@
 <!-- ErrorView.vue -->
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
-import { onMounted, onUnmounted, ref, reactive, watchEffect, computed } from "vue";
+import { onMounted, onUnmounted, ref, reactive, watchEffect, watch, computed, nextTick } from "vue";
+import { useThemeStore } from "@/stores/theme";
 
 // Type definition for the direction of a glitch spike.
 // 'vertical' = vertical glitch, 'horizontal' = horizontal glitch, null = no glitch
@@ -14,6 +15,10 @@ const CHANNELS: ColorChannel[] = ["red", "green", "blue"];
 // Vue Router instances for accessing route parameters and navigation.
 const route = useRoute();
 const router = useRouter();
+
+// Theme store for light/dark mode detection
+const themeStore = useThemeStore();
+const isDarkMode = computed(() => themeStore.isDarkMode);
 
 // Navigation functions.
 const goBack = () => router.back();
@@ -385,11 +390,20 @@ const animate = () => {
       ((Math.sin(effectiveWobbleTime * colorPulseSpeed) + 1) / 2) *
         (colorPulseMax - colorPulseMin);
 
-    // Color matrix values for each channel
-    const colorMatrixValues = [
-      `${colorIntensityPulse.toFixed(3)} 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0`,
-      `0 0 0 0 0  0 ${colorIntensityPulse.toFixed(3)} 0 0 0  0 0 0 0 0  0 0 0 1 0`,
-      `0 0 0 0 0  0 0 0 0 0  0 0 ${colorIntensityPulse.toFixed(3)} 0 0  0 0 0 1 0`
+    // Color matrix values for each channel - varies by theme
+    // Dark mode: RGB channels (Red, Green, Blue)
+    // Light mode: CMY channels (Cyan=G+B, Magenta=R+B, Yellow=R+G)
+    const p = colorIntensityPulse.toFixed(3);
+    const colorMatrixValues = isDarkMode.value ? [
+      // Dark mode RGB
+      `${p} 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0`,  // Red only
+      `0 0 0 0 0  0 ${p} 0 0 0  0 0 0 0 0  0 0 0 1 0`,  // Green only
+      `0 0 0 0 0  0 0 0 0 0  0 0 ${p} 0 0  0 0 0 1 0`   // Blue only
+    ] : [
+      // Light mode CMY
+      `0 0 0 0 0  0 ${p} 0 0 0  0 0 ${p} 0 0  0 0 0 1 0`,  // Cyan (G+B)
+      `${p} 0 0 0 0  0 0 0 0 0  0 0 ${p} 0 0  0 0 0 1 0`,  // Magenta (R+B)
+      `${p} 0 0 0 0  0 ${p} 0 0 0  0 0 0 0 0  0 0 0 1 0`   // Yellow (R+G)
     ];
 
     // Modify the glitch frequency and effects when click is active
@@ -741,27 +755,8 @@ onMounted(() => {
   // Adjust SVG size based on viewport and text length
   adjustSvgSize();
 
-  // Initialize color channel filter refs with safer casting
-  const channelIds = ['red', 'green', 'blue'];
-  turbulenceRefs.value = channelIds.map(id => {
-    const element = document.querySelector(`#${id}Turbulence`);
-    return element as unknown as SVGFETurbulenceElement;
-  });
-  
-  offsetRefs.value = channelIds.map(id => {
-    const element = document.querySelector(`#${id}Offset`);
-    return element as unknown as SVGFEOffsetElement;
-  });
-  
-  displacementRefs.value = channelIds.map(id => {
-    const element = document.querySelector(`#${id}Displacement`);
-    return element as unknown as SVGFEDisplacementMapElement;
-  });
-  
-  colorMatrixRefs.value = channelIds.map(id => {
-    const element = document.querySelector(`#${id}ColorMatrix`);
-    return element as unknown as SVGFEColorMatrixElement;
-  });
+  // Initialize color channel filter refs based on current theme
+  initializeFilterRefs();
 
   // Add window resize listener for responsive adjustments
   window.addEventListener('resize', adjustSvgSize);
@@ -845,6 +840,64 @@ const adjustSvgSize = () => {
   fontSize.value = `${calculatedFontSize * fontSizeAdjustment}px`;
 };
 
+// Initialize filter element refs based on current theme
+// Dark mode uses RGB channels, light mode uses CMY channels
+const initializeFilterRefs = () => {
+  if (isDarkMode.value) {
+    // Dark mode: RGB channels with screen blend
+    const channelIds = ['red', 'green', 'blue'];
+    turbulenceRefs.value = channelIds.map(id => {
+      const element = document.querySelector(`#${id}Turbulence`);
+      return element as unknown as SVGFETurbulenceElement;
+    });
+
+    offsetRefs.value = channelIds.map(id => {
+      const element = document.querySelector(`#${id}Offset`);
+      return element as unknown as SVGFEOffsetElement;
+    });
+
+    displacementRefs.value = channelIds.map(id => {
+      const element = document.querySelector(`#${id}Displacement`);
+      return element as unknown as SVGFEDisplacementMapElement;
+    });
+
+    colorMatrixRefs.value = channelIds.map(id => {
+      const element = document.querySelector(`#${id}ColorMatrix`);
+      return element as unknown as SVGFEColorMatrixElement;
+    });
+  } else {
+    // Light mode: CMY channels with multiply blend
+    const channelIds = ['cyan', 'magenta', 'yellow'];
+    turbulenceRefs.value = channelIds.map(id => {
+      const element = document.querySelector(`#${id}Turbulence`);
+      return element as unknown as SVGFETurbulenceElement;
+    });
+
+    offsetRefs.value = channelIds.map(id => {
+      const element = document.querySelector(`#${id}Offset`);
+      return element as unknown as SVGFEOffsetElement;
+    });
+
+    displacementRefs.value = channelIds.map(id => {
+      const element = document.querySelector(`#${id}Displacement`);
+      return element as unknown as SVGFEDisplacementMapElement;
+    });
+
+    colorMatrixRefs.value = channelIds.map(id => {
+      const element = document.querySelector(`#${id}ColorMatrix`);
+      return element as unknown as SVGFEColorMatrixElement;
+    });
+  }
+};
+
+// Watch for theme changes and reinitialize filter refs
+watch(isDarkMode, () => {
+  // Use nextTick to ensure DOM has updated with the new filter
+  nextTick(() => {
+    initializeFilterRefs();
+  });
+});
+
 // Per-control slider bounds
 const debugMeta = computed(() => ({
   masterEffectEnabled: { min: 0, max: 1, step: 1 },
@@ -864,27 +917,27 @@ const debugMeta = computed(() => ({
     <div class="flex flex-col text-center">
       <svg ref="svg" class="error-svg" :width="svgWidth" :height="svgHeight">
         <defs>
-          <filter id="rgbGlitch" primitiveUnits="userSpaceOnUse">
-            <!-- 
-              SVG Filter Chain Explanation:
-              The filter works by creating three distorted versions of the source text (one for each RGB channel)
-              and then blending them together. Each channel's distortion is driven by an feTurbulence (noise)
-              which is then offset and used by an feDisplacementMap. The feColorMatrix isolates the specific channel.
+          <!--
+            SVG Filter Chain Explanation:
+            The filter works by creating three distorted versions of the source text (one for each color channel)
+            and then blending them together. Each channel's distortion is driven by an feTurbulence (noise)
+            which is then offset and used by an feDisplacementMap. The feColorMatrix isolates the specific channel.
 
-              The final output is achieved after these steps for each of Red, Green, and Blue channels:
-              1. feTurbulence: Generates Perlin noise. Key attributes like `baseFrequency`, `numOctaves`, and `seed` are dynamically animated.
-                 - `baseFrequency`: Controls the scale/granularity of the noise. Lower values = larger, smoother patterns.
-                 - `numOctaves`: Controls the detail/complexity of the noise. Higher values = more detail.
-                 - `seed`: Changes the noise pattern entirely.
-              2. feOffset: Shifts the generated turbulence texture. Used for the broad warp centering effect (controlled by smoothed mouse position)
-                 and for the continuous drift of channels.
-              3. feDisplacementMap: Uses the (offset) turbulence noise to distort the `SourceGraphic` (the original text).
-                 - `scale`: Controls the intensity/amplitude of the displacement.
-              4. feColorMatrix: Isolates the color for the current channel (e.g., makes everything red for the red channel path).
-                 Its `values` attribute is also pulsed slightly to make colors breathe.
-              5. feBlend (mode="screen"): Combines the R, G, and B distorted layers additively to create the final RGB glitch effect.
-            -->
+            Dark Mode (RGB + Screen blend):
+            - Uses white text which contains all RGB values (1,1,1)
+            - feColorMatrix isolates Red, Green, or Blue channels
+            - feBlend mode="screen" additively combines channels back to white
+            - Creates chromatic aberration where channels separate into R, G, B
 
+            Light Mode (CMY + Multiply blend):
+            - Uses black text which absorbs all light (0,0,0)
+            - feColorMatrix converts to Cyan (no red), Magenta (no green), Yellow (no blue)
+            - feBlend mode="multiply" subtractively combines channels back to black
+            - Creates chromatic aberration where channels separate into C, M, Y
+          -->
+
+          <!-- Dark Mode Filter (RGB + Screen) -->
+          <filter id="rgbGlitchDark" primitiveUnits="userSpaceOnUse">
             <!-- Red Channel -->
             <feTurbulence
               id="redTurbulence"
@@ -978,7 +1031,7 @@ const debugMeta = computed(() => ({
               result="blue"
             />
 
-            <!-- Additive Blending with feBlend -->
+            <!-- Additive Blending with feBlend (screen mode) -->
             <feBlend in="red" in2="green" mode="screen" result="redGreen" />
             <feBlend
               in="redGreen"
@@ -986,17 +1039,127 @@ const debugMeta = computed(() => ({
               mode="screen"
               result="finalGlitchOutput"
             />
-
           </filter>
-          
+
+          <!-- Light Mode Filter (RGB with darken blend for light backgrounds) -->
+          <!-- Uses the same RGB channel separation but with darken blend mode -->
+          <!-- Starting from white text, each channel removes other colors, creating CMY fringing -->
+          <filter id="rgbGlitchLight" primitiveUnits="userSpaceOnUse">
+            <!-- Cyan Channel (white minus red = cyan) -->
+            <feTurbulence
+              id="cyanTurbulence"
+              type="turbulence"
+              baseFrequency="0.01"
+              numOctaves="3"
+              result="cyanTurb"
+            />
+            <feOffset
+              id="cyanOffset"
+              in="cyanTurb"
+              dx="0"
+              result="cyanOffsetTurb"
+            />
+            <feDisplacementMap
+              id="cyanDisplacement"
+              in="SourceGraphic"
+              in2="cyanOffsetTurb"
+              scale="15"
+              xChannelSelector="R"
+              yChannelSelector="G"
+              result="cyanDistorted"
+            />
+            <!-- Cyan = keep G and B, zero R -->
+            <feColorMatrix
+              id="cyanColorMatrix"
+              in="cyanDistorted"
+              type="matrix"
+              values="0 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0"
+              result="cyan"
+            />
+
+            <!-- Magenta Channel (white minus green = magenta) -->
+            <feTurbulence
+              id="magentaTurbulence"
+              type="turbulence"
+              baseFrequency="0.01"
+              numOctaves="3"
+              result="magentaTurb"
+            />
+            <feOffset
+              id="magentaOffset"
+              in="magentaTurb"
+              dx="0"
+              result="magentaOffsetTurb"
+            />
+            <feDisplacementMap
+              id="magentaDisplacement"
+              in="SourceGraphic"
+              in2="magentaOffsetTurb"
+              scale="15"
+              xChannelSelector="R"
+              yChannelSelector="G"
+              result="magentaDistorted"
+            />
+            <!-- Magenta = keep R and B, zero G -->
+            <feColorMatrix
+              id="magentaColorMatrix"
+              in="magentaDistorted"
+              type="matrix"
+              values="1 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0"
+              result="magenta"
+            />
+
+            <!-- Yellow Channel (white minus blue = yellow) -->
+            <feTurbulence
+              id="yellowTurbulence"
+              type="turbulence"
+              baseFrequency="0.01"
+              numOctaves="3"
+              result="yellowTurb"
+            />
+            <feOffset
+              id="yellowOffset"
+              in="yellowTurb"
+              dx="0"
+              result="yellowOffsetTurb"
+            />
+            <feDisplacementMap
+              id="yellowDisplacement"
+              in="SourceGraphic"
+              in2="yellowOffsetTurb"
+              scale="15"
+              xChannelSelector="R"
+              yChannelSelector="G"
+              result="yellowDistorted"
+            />
+            <!-- Yellow = keep R and G, zero B -->
+            <feColorMatrix
+              id="yellowColorMatrix"
+              in="yellowDistorted"
+              type="matrix"
+              values="1 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0"
+              result="yellow"
+            />
+
+            <!-- Darken blending: keeps the darkest value from each channel -->
+            <!-- CMY channels overlap to create black where aligned, colors where separated -->
+            <feBlend in="cyan" in2="magenta" mode="darken" result="cyanMagenta" />
+            <feBlend
+              in="cyanMagenta"
+              in2="yellow"
+              mode="darken"
+              result="finalGlitchOutput"
+            />
+          </filter>
+
         </defs>
         <text
           x="50%"
           y="50%"
           text-anchor="middle"
           dominant-baseline="middle"
-          :filter="masterEffectEnabled ? 'url(#rgbGlitch)' : 'none'"
-          class="error-text"
+          :filter="masterEffectEnabled ? (isDarkMode ? 'url(#rgbGlitchDark)' : 'url(#rgbGlitchLight)') : 'none'"
+          :class="['error-text', isDarkMode ? 'error-text-dark' : 'error-text-light']"
           :style="{ fontSize: fontSize }"
         >
           {{ errorCode }}
@@ -1020,7 +1183,7 @@ const debugMeta = computed(() => ({
           </button>
           <button
             @click="goHome"
-            class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            class="px-4 py-2 text-sm font-medium bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors"
           >
             Go to Dashboard
           </button>
@@ -1169,6 +1332,16 @@ const debugMeta = computed(() => ({
 
 /* Error text styling */
 .error-text {
+  font-weight: bold;
+}
+
+/* Dark mode: white text for RGB additive mixing (screen blend) */
+.error-text-dark {
+  fill: white;
+}
+
+/* Light mode: white text with CMY darken blend creates colored fringing on light backgrounds */
+.error-text-light {
   fill: white;
 }
 </style>

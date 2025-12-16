@@ -38,7 +38,7 @@
             </div>
             <button
               @click="goToLogin"
-              class="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium mt-2"
+              class="w-full px-6 py-3 bg-brand-blue hover:opacity-90 text-white rounded-lg transition-colors font-medium mt-2"
             >
               Go to Login
             </button>
@@ -66,7 +66,7 @@
                   required
                   autocomplete="new-password"
                   placeholder="Enter new password"
-                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors pr-12"
+                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue transition-colors pr-12"
                   :disabled="loading"
                   @input="validatePassword"
                 />
@@ -118,7 +118,7 @@
                   required
                   autocomplete="new-password"
                   placeholder="Confirm new password"
-                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors pr-12"
+                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue transition-colors pr-12"
                   :disabled="loading"
                   @input="validatePasswordMatch"
                 />
@@ -159,7 +159,7 @@
             <!-- Submit Button -->
             <button
               type="submit"
-              class="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
+              class="w-full px-6 py-3 bg-brand-blue hover:opacity-90 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
               :disabled="loading || !isFormValid"
             >
               <svg

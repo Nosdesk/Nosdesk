@@ -230,8 +230,8 @@ const sizeClasses = computed(() => {
 
 // Computed class for the name text that scales with viewport
 const nameTextClasses = computed(() => {
-  const baseClasses = 'text-white transition-all duration-200'
-  
+  const baseClasses = 'text-primary transition-all duration-200'
+
   switch (props.size) {
     case 'xs':
       return `${baseClasses} text-[10px] sm:text-xs`

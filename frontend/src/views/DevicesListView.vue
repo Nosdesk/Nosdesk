@@ -182,7 +182,7 @@ defineExpose({
 
           <button
             @click="listManager.resetFilters"
-            class="px-2 py-1 text-xs font-medium text-primary bg-brand-blue rounded-md hover:bg-brand-blue/80 focus:ring-2 focus:outline-none focus:ring-brand-blue/50"
+            class="px-2 py-1 text-xs font-medium text-white bg-brand-blue rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-brand-blue"
           >
             Reset
           </button>
@@ -266,69 +266,77 @@ defineExpose({
           </DataTable>
         </template>
 
-        <!-- Mobile Card View -->
+        <!-- Mobile/Tablet Card View -->
         <template #mobile-view>
-          <div class="flex flex-col gap-2 p-2">
+          <div class="flex flex-col divide-y divide-default">
             <div
               v-for="device in listManager.items.value"
               :key="device.id"
               @click="listManager.navigateToItem(device)"
-              class="bg-surface rounded-lg p-3 hover:bg-surface-hover transition-colors cursor-pointer"
+              class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer"
             >
-              <div class="flex items-center gap-3">
-                <div class="flex-grow-0">
-                  <input
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-default bg-surface-alt text-brand-blue focus:ring-brand-blue"
-                    :checked="listManager.selectedItems.value.includes(device.id.toString())"
-                    @click.stop="(event) => listManager.toggleSelection(event, device.id.toString())"
-                  />
+              <!-- Device icon -->
+              <div class="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+
+              <!-- Main content -->
+              <div class="flex-1 min-w-0">
+                <!-- Name and ID -->
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-secondary font-medium flex-shrink-0">#{{ device.id }}</span>
+                  <span class="text-sm text-primary font-medium truncate">{{ device.name }}</span>
                 </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center justify-between mb-2">
-                    <div class="font-medium truncate text-primary">{{ device.name }}</div>
-                    <div class="text-xs text-secondary ml-2">#{{ device.id }}</div>
-                  </div>
-                  <div class="flex flex-wrap gap-1 mb-2">
-                    <span class="bg-surface-alt px-2 py-1 rounded text-xs text-primary">
-                      {{ device.manufacturer || 'Unknown' }}
-                    </span>
-                    <span class="bg-surface-alt px-2 py-1 rounded text-xs text-primary">
-                      {{ device.model }}
-                    </span>
-                    <span class="bg-surface-alt px-2 py-1 rounded text-xs text-primary font-mono">
-                      SN: {{ device.serial_number }}
-                    </span>
-                    <span 
-                      class="px-2 py-1 rounded text-xs"
-                      :class="{
-                        'bg-status-success/30 text-status-success': device.warranty_status === 'Active',
-                        'bg-status-warning/30 text-status-warning': device.warranty_status === 'Warning',
-                        'bg-status-error/30 text-status-error': device.warranty_status === 'Expired',
-                        'bg-surface-alt text-secondary': device.warranty_status === 'Unknown'
-                      }"
-                    >
-                      {{ device.warranty_status }}
-                    </span>
-                  </div>
-                  <div class="flex items-center justify-between text-xs">
-                    <div v-if="device.primary_user" class="flex items-center gap-2">
-                      <span class="text-secondary">Assigned to:</span>
-                      <UserAvatar
-                        :name="device.primary_user.uuid"
-                        :user-name="device.primary_user.name"
-                        :avatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
-                        :show-name="true"
-                        size="xs"
-                      />
-                    </div>
-                    <div v-else class="text-tertiary">Unassigned</div>
-                    <div class="text-secondary">
-                      {{ device.updated_at ? formatDate(device.updated_at) : 'Never' }}
-                    </div>
+
+                <!-- Meta row: manufacturer, model, serial, warranty, user - responsive layout -->
+                <div class="flex flex-wrap items-center gap-2 mt-1.5 text-xs">
+                  <!-- Manufacturer & Model -->
+                  <span class="text-secondary flex-shrink-0">{{ device.manufacturer || 'Unknown' }} {{ device.model }}</span>
+
+                  <!-- Serial Number -->
+                  <span class="text-tertiary font-mono flex-shrink-0">SN: {{ device.serial_number }}</span>
+
+                  <!-- Warranty Status -->
+                  <span
+                    class="warranty-badge inline-flex items-center px-1.5 py-0.5 rounded font-medium border flex-shrink-0"
+                    :class="{
+                      'bg-emerald-100 dark:bg-emerald-500/20 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/30': device.warranty_status === 'Active',
+                      'bg-amber-100 dark:bg-amber-500/20 dark:text-amber-300 border-amber-300 dark:border-amber-500/30': device.warranty_status === 'Warning',
+                      'bg-red-100 dark:bg-red-500/20 dark:text-red-300 border-red-300 dark:border-red-500/30': device.warranty_status === 'Expired',
+                      'bg-slate-100 dark:bg-slate-500/20 dark:text-slate-300 border-slate-300 dark:border-slate-500/30': device.warranty_status === 'Unknown'
+                    }"
+                    :style="{ color: device.warranty_status === 'Active' ? '#047857' : device.warranty_status === 'Warning' ? '#b45309' : device.warranty_status === 'Expired' ? '#b91c1c' : '#475569' }"
+                  >
+                    {{ device.warranty_status }}
+                  </span>
+
+                  <!-- Primary User -->
+                  <div class="flex items-center gap-1 min-w-0 flex-shrink-0">
+                    <span class="text-tertiary">User:</span>
+                    <template v-if="device.primary_user">
+                      <div class="[&>div]:!w-4 [&>div]:!h-4 [&>div>*]:!w-4 [&>div>*]:!h-4 [&>div>*]:!text-[8px]">
+                        <UserAvatar
+                          :name="device.primary_user.uuid"
+                          :user-name="device.primary_user.name"
+                          :avatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                          :show-name="false"
+                          :clickable="false"
+                          size="xs"
+                        />
+                      </div>
+                      <span class="text-secondary truncate max-w-[100px]">{{ device.primary_user.name }}</span>
+                    </template>
+                    <span v-else class="text-tertiary italic">Unassigned</span>
                   </div>
                 </div>
               </div>
+
+              <!-- Chevron -->
+              <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
             </div>
           </div>
         </template>
@@ -352,6 +360,11 @@ defineExpose({
 </template>
 
 <style scoped>
+/* Dark mode: override inline style color for badges */
+:global(.dark) .warranty-badge {
+  color: inherit !important;
+}
+
 /* Custom scrollbar styling */
 .overflow-y-auto::-webkit-scrollbar,
 .overflow-x-auto::-webkit-scrollbar {

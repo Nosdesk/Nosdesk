@@ -308,15 +308,15 @@ const getWarrantyStatusClass = (status: string) => {
   switch (status.toLowerCase()) {
     case 'active':
     case 'compliant':
-      return 'bg-green-900/30 text-green-400 border-green-700/30';
+      return 'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200 border-green-400/40 dark:border-green-500/30';
     case 'warning':
     case 'noncompliant':
-      return 'bg-yellow-900/30 text-yellow-400 border-yellow-700/30';
+      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30';
     case 'expired':
     case 'error':
-      return 'bg-red-900/30 text-red-400 border-red-700/30';
+      return 'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200 border-red-400/40 dark:border-red-500/30';
     default:
-      return 'bg-slate-700/30 text-slate-400 border-slate-600/30';
+      return 'bg-slate-400/20 dark:bg-slate-500/20 text-slate-900 dark:text-slate-200 border-slate-400/40 dark:border-slate-500/30';
   }
 };
 
@@ -358,7 +358,7 @@ const formatLastUpdated = (dateString: string): string => {
         <input
           type="text"
           v-model="searchQuery"
-          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-colors"
+          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20 transition-colors"
           placeholder="Search devices by name, hostname, serial number, manufacturer, or user..."
         >
         <div v-if="loading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">

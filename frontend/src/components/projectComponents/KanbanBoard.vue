@@ -286,13 +286,13 @@ const handleAddTicket = (ticketId: number) => {
 const getPriorityColor = (priority: string) => {
   switch (priority) {
     case 'high':
-      return 'bg-red-500/20 text-red-400'
+      return 'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200'
     case 'medium':
-      return 'bg-yellow-500/20 text-yellow-400'
+      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200'
     case 'low':
-      return 'bg-green-500/20 text-green-400'
+      return 'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200'
     default:
-      return 'bg-slate-500/20 text-slate-400'
+      return 'bg-slate-400/20 dark:bg-slate-500/20 [color:#1e293b] dark:text-slate-200'
   }
 }
 
@@ -356,7 +356,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
                 <div
                   class="w-2 h-2 rounded-full flex-shrink-0"
                   :class="{
-                    'bg-yellow-500': column.id === 'open',
+                    'bg-amber-500': column.id === 'open',
                     'bg-blue-500': column.id === 'in-progress',
                     'bg-green-500': column.id === 'closed'
                   }"
@@ -425,9 +425,9 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
                   <div 
                     class="px-2 py-1 rounded-md text-xs font-medium border flex-shrink-0"
                     :class="{
-                      'bg-red-900/30 text-red-400 border-red-700/30': ticket.priority === 'high',
-                      'bg-yellow-900/30 text-yellow-400 border-yellow-700/30': ticket.priority === 'medium',
-                      'bg-green-900/30 text-green-400 border-green-700/30': ticket.priority === 'low'
+                      'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200 border-red-400/40 dark:border-red-500/30': ticket.priority === 'high',
+                      'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30': ticket.priority === 'medium',
+                      'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200 border-green-400/40 dark:border-green-500/30': ticket.priority === 'low'
                     }"
                   >
                     {{ ticket.priority }}

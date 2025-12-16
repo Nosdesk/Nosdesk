@@ -855,7 +855,7 @@ defineExpose({
                                         verificationCode.length !== 6 ||
                                         mfa.verifying.value
                                     "
-                                    class="w-full lg:w-auto px-6 h-12 lg:h-14 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-surface-hover flex items-center justify-center transition-colors active:scale-[0.98]"
+                                    class="w-full lg:w-auto px-6 h-12 lg:h-14 bg-brand-blue text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-brand-blue disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-surface-hover flex items-center justify-center transition-colors active:scale-[0.98]"
                                 >
                                     <span
                                         v-if="mfa.verifying.value"
@@ -1049,7 +1049,7 @@ defineExpose({
                         <div class="flex justify-center pt-2">
                             <button
                                 @click="completeSetup"
-                                class="w-full sm:w-auto px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium min-h-[52px] active:scale-[0.98]"
+                                class="w-full sm:w-auto px-8 py-3 bg-brand-blue text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-brand-blue transition-colors font-medium min-h-[52px] active:scale-[0.98]"
                             >
                                 Start Using Nosdesk!
                             </button>

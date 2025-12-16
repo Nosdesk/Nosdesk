@@ -286,7 +286,7 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
 
           <button
             @click="listManager.resetFilters"
-            class="px-2 py-1 text-xs font-medium text-primary bg-brand-blue rounded-md hover:bg-brand-blue/80 focus:ring-2 focus:outline-none focus:ring-brand-blue/50"
+            class="px-2 py-1 text-xs font-medium text-white bg-brand-blue rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-brand-blue"
           >
             Reset
           </button>
@@ -373,7 +373,7 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
           </DataTable>
         </template>
 
-        <!-- Mobile Card View -->
+        <!-- Mobile/Tablet Card View -->
         <template #mobile-view>
           <div class="flex flex-col divide-y divide-default">
             <div
@@ -385,7 +385,7 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
             >
               <!-- Status indicator -->
               <div
-                class="w-1.5 h-8 rounded-full flex-shrink-0"
+                class="w-1.5 self-stretch rounded-full flex-shrink-0"
                 :class="{
                   'bg-amber-500': ticket.status === 'open',
                   'bg-blue-500': ticket.status === 'in-progress',
@@ -397,48 +397,60 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
               <div class="flex-1 min-w-0">
                 <!-- Title row -->
                 <div class="flex items-center gap-2">
-                  <span class="text-xs text-secondary font-medium">#{{ ticket.id }}</span>
+                  <span class="text-xs text-secondary font-medium flex-shrink-0">#{{ ticket.id }}</span>
                   <span class="text-sm text-primary font-medium truncate">{{ ticket.title }}</span>
                 </div>
 
-                <!-- Meta row -->
-                <div class="flex items-center gap-1.5 mt-1 overflow-hidden">
-                  <StatusBadge type="priority" :value="ticket.priority" :short="true" :compact="true" class="flex-shrink-0" />
-                  <span class="text-[10px] text-tertiary flex-shrink-0">{{ formatCompactDateTime(ticket.created) }}</span>
-                  <template v-if="ticket.requester_user?.name || ticket.requester">
-                    <span class="text-[10px] text-tertiary flex-shrink-0">·</span>
-                    <div class="flex-shrink-0 [&>div>*]:!w-4 [&>div>*]:!h-4">
-                      <UserAvatar
-                        :name="ticket.requester_user?.name || ticket.requester"
-                        :avatarUrl="ticket.requester_user?.avatar_thumb"
-                        :userUuid="ticket.requester_user?.uuid"
-                        size="xs"
-                        :showName="false"
-                        :clickable="false"
-                      />
-                    </div>
-                    <span class="text-[10px] text-tertiary truncate">{{ ticket.requester_user?.name || ticket.requester }}</span>
-                  </template>
-                </div>
-              </div>
+                <!-- Meta row: status, priority, date, and users - responsive layout -->
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
+                  <!-- Status & Priority -->
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <StatusBadge type="status" :value="ticket.status" :short="true" :compact="true" />
+                    <StatusBadge type="priority" :value="ticket.priority" :short="true" :compact="true" />
+                  </div>
 
-              <!-- Assignee avatar (right side) -->
-              <div class="flex-shrink-0">
-                <UserAvatar
-                  v-if="ticket.assignee_user || ticket.assignee"
-                  :name="ticket.assignee_user?.name || ticket.assignee"
-                  :avatarUrl="ticket.assignee_user?.avatar_thumb"
-                  :userUuid="ticket.assignee_user?.uuid"
-                  size="sm"
-                />
-                <div
-                  v-else
-                  class="w-8 h-8 rounded-full bg-surface-alt border border-dashed border-default flex items-center justify-center"
-                  title="Unassigned"
-                >
-                  <svg class="w-4 h-4 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
+                  <!-- Date -->
+                  <span class="text-tertiary flex-shrink-0">{{ formatCompactDateTime(ticket.created) }}</span>
+
+                  <!-- Requester -->
+                  <div class="flex items-center gap-1 min-w-0">
+                    <span class="text-tertiary flex-shrink-0">From:</span>
+                    <div class="flex items-center gap-1 min-w-0">
+                      <div class="flex-shrink-0 [&>div]:!w-4 [&>div]:!h-4 [&>div>*]:!w-4 [&>div>*]:!h-4 [&>div>*]:!text-[8px]">
+                        <UserAvatar
+                          v-if="ticket.requester_user?.name || ticket.requester"
+                          :name="ticket.requester_user?.name || ticket.requester"
+                          :avatarUrl="ticket.requester_user?.avatar_thumb"
+                          :userUuid="ticket.requester_user?.uuid"
+                          size="xs"
+                          :showName="false"
+                          :clickable="false"
+                        />
+                      </div>
+                      <span class="text-secondary truncate max-w-[120px]">{{ ticket.requester_user?.name || ticket.requester || 'Unknown' }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Assignee -->
+                  <div class="flex items-center gap-1 min-w-0">
+                    <span class="text-tertiary flex-shrink-0">To:</span>
+                    <div class="flex items-center gap-1 min-w-0">
+                      <template v-if="ticket.assignee_user?.name || ticket.assignee">
+                        <div class="flex-shrink-0 [&>div]:!w-4 [&>div]:!h-4 [&>div>*]:!w-4 [&>div>*]:!h-4 [&>div>*]:!text-[8px]">
+                          <UserAvatar
+                            :name="ticket.assignee_user?.name || ticket.assignee"
+                            :avatarUrl="ticket.assignee_user?.avatar_thumb"
+                            :userUuid="ticket.assignee_user?.uuid"
+                            size="xs"
+                            :showName="false"
+                            :clickable="false"
+                          />
+                        </div>
+                        <span class="text-secondary truncate max-w-[120px]">{{ ticket.assignee_user?.name || ticket.assignee }}</span>
+                      </template>
+                      <span v-else class="text-tertiary italic">Unassigned</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 

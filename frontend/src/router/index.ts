@@ -448,6 +448,16 @@ const router = createRouter({
       }
     },
     {
+      path: '/admin/settings/branding',
+      name: 'admin-branding',
+      component: () => import('../views/BrandingSettingsView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Branding',
+        adminRequired: true
+      }
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/error/404'
     }

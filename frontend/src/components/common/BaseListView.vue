@@ -109,7 +109,7 @@ const isMobile = ref(false)
 
 // Function to check screen size
 const checkScreenSize = () => {
-  isMobile.value = window.innerWidth < 768 // md breakpoint
+  isMobile.value = window.innerWidth < 1024 // lg breakpoint - use card view for tablets too
 }
 
 // Debounced version - only updates after resize stops for 150ms
@@ -137,13 +137,13 @@ onBeforeUnmount(() => {
     <div class="flex-1 flex flex-col overflow-hidden">
       <!-- Loading state -->
       <div v-if="isLoading" class="flex justify-center items-center h-64">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-brand-blue"></div>
       </div>
 
       <!-- Error state -->
       <div v-else-if="error" class="flex flex-col items-center gap-4 justify-center p-8 text-center text-status-error">
         {{ error }}
-        <button @click="emit('retry')" class="mt-4 px-4 py-2 bg-blue-600 text-primary rounded hover:bg-blue-700 transition-colors">
+        <button @click="emit('retry')" class="mt-4 px-4 py-2 bg-brand-blue text-white rounded hover:opacity-90 transition-colors">
           Try Again
         </button>
       </div>
@@ -164,7 +164,7 @@ onBeforeUnmount(() => {
               <div v-if="enableSelection" class="p-3 py-4 w-10 flex-shrink-0">
                 <input
                   type="checkbox"
-                  class="w-4 h-4 rounded border-default bg-surface-alt text-blue-600 focus:ring-blue-500"
+                  class="w-4 h-4 rounded border-default bg-surface-alt text-brand-blue focus:ring-brand-blue"
                   :checked="allSelected && visibleItems && visibleItems.length > 0"
                   :indeterminate="selectedItems && selectedItems.length > 0 && !allSelected"
                   @change="toggleAllItems"

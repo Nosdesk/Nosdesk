@@ -117,7 +117,7 @@ watch(() => props.userUuid, () => {
       <button
         v-if="canEdit && !showAddForm"
         @click="showAddForm = true"
-        class="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center gap-2"
+        class="px-3 py-1.5 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors text-sm flex items-center gap-2"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -136,14 +136,14 @@ watch(() => props.userUuid, () => {
             v-model="newEmailAddress"
             type="email"
             placeholder="email@example.com"
-            class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-brand-blue focus:outline-none"
             @keyup.enter="addEmail"
           />
           <div class="flex gap-2">
             <button
               @click="addEmail"
               :disabled="addingEmail"
-              class="px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              class="px-4 py-2.5 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {{ addingEmail ? 'Adding...' : 'Add' }}
             </button>
@@ -159,7 +159,7 @@ watch(() => props.userUuid, () => {
 
       <!-- Loading state -->
       <div v-if="loading" class="flex justify-center py-8">
-        <div class="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+        <div class="animate-spin h-8 w-8 border-4 border-brand-blue border-t-transparent rounded-full"></div>
       </div>
 
       <!-- Empty state -->

@@ -33,11 +33,11 @@ const ticketBadgeColors = computed(() => {
 
   switch (linkedTicket.value.status) {
     case 'open':
-      return 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30';
+      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30';
     case 'in-progress':
-      return 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30';
+      return 'bg-blue-400/20 dark:bg-blue-500/20 [color:#1e3a8a] dark:text-blue-200 border-blue-400/40 dark:border-blue-500/30';
     case 'closed':
-      return 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30';
+      return 'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200 border-green-400/40 dark:border-green-500/30';
     default:
       return 'bg-slate-600/20 text-slate-700 dark:text-slate-300 border-slate-500/30';
   }

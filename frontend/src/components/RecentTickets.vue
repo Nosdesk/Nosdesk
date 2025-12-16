@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
-import { onMounted } from 'vue'
+import { onMounted, computed } from 'vue'
 import { formatRelativeTime, parseDate } from '@/utils/dateUtils'
 
 const recentTicketsStore = useRecentTicketsStore()
 
+// Only show loading skeleton on initial load (when we have no data yet)
+const showLoading = computed(() =>
+  recentTicketsStore.isLoading && recentTicketsStore.recentTickets.length === 0
+)
+
 onMounted(async () => {
-  await recentTicketsStore.fetchRecentTickets()
+  // Only fetch if we don't have data yet (prevents refetch on every mount)
+  if (recentTicketsStore.recentTickets.length === 0) {
+    await recentTicketsStore.fetchRecentTickets()
+  }
 })
 
 // Status colors
@@ -40,14 +48,14 @@ const relativeTime = (dateString: string | null | undefined): string => {
 
 <template>
   <div class="h-full flex flex-col">
-    <!-- Loading -->
-    <div v-if="recentTicketsStore.isLoading" class="p-1 space-y-0.5">
+    <!-- Loading (only on initial load) -->
+    <div v-if="showLoading" class="p-1 space-y-0.5">
       <div v-for="i in 8" :key="i" class="h-7 bg-surface-hover rounded animate-pulse"></div>
     </div>
 
     <!-- List -->
     <div v-else-if="recentTicketsStore.recentTickets.length > 0" class="flex-1 min-h-0 overflow-y-auto">
-      <div class="py-0.5">
+      <TransitionGroup name="ticket-list" tag="div" class="py-0.5 relative">
         <RouterLink
           v-for="ticket in recentTicketsStore.recentTickets"
           :key="ticket.id"
@@ -74,7 +82,7 @@ const relativeTime = (dateString: string | null | undefined): string => {
             {{ relativeTime(ticket.last_viewed_at || ticket.updated_at || ticket.modified || ticket.created_at || ticket.created) }}
           </span>
         </RouterLink>
-      </div>
+      </TransitionGroup>
     </div>
 
     <!-- Empty -->
@@ -92,4 +100,22 @@ const relativeTime = (dateString: string | null | undefined): string => {
 .overflow-y-auto::-webkit-scrollbar { width: 3px; }
 .overflow-y-auto::-webkit-scrollbar-track { background: transparent; }
 .overflow-y-auto::-webkit-scrollbar-thumb { background-color: var(--color-surface-hover); border-radius: 2px; }
+
+/* FLIP animation for list reordering */
+.ticket-list-move,
+.ticket-list-enter-active,
+.ticket-list-leave-active {
+  transition: all 0.3s ease;
+}
+
+.ticket-list-enter-from,
+.ticket-list-leave-to {
+  opacity: 0;
+}
+
+/* Take leaving items out of layout flow so move animations calculate correctly */
+.ticket-list-leave-active {
+  position: absolute;
+  width: calc(100% - 4px); /* Account for mx-0.5 */
+}
 </style>

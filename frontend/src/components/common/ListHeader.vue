@@ -26,7 +26,7 @@ const emit = defineEmits<{
       <button
         v-if="showAddButton !== false"
         @click="emit('add')"
-        class="bg-blue-500 hover:bg-blue-600 text-primary px-4 py-2 rounded-lg transition-colors"
+        class="bg-brand-blue hover:opacity-90 text-white px-4 py-2 rounded-lg transition-colors"
       >
         {{ addButtonText || `Add ${title.slice(0, -1)}` }}
       </button>

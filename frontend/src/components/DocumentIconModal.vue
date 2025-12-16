@@ -211,7 +211,7 @@ const handleClose = () => {
         </button>
         <button
           @click="emit('update:icon', selectedIcon); emit('close');"
-          class="px-4 py-2 bg-brand-blue text-primary rounded-md hover:opacity-90 transition-colors"
+          class="px-4 py-2 bg-brand-blue text-white rounded-md hover:opacity-90 transition-colors"
         >
           Select
         </button>

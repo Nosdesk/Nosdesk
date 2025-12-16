@@ -195,40 +195,52 @@ defineExpose({
           </DataTable>
         </template>
 
-        <!-- Mobile Card View -->
+        <!-- Mobile/Tablet Card View -->
         <template #mobile-view>
-          <div class="flex flex-col gap-2 p-2">
+          <div class="flex flex-col divide-y divide-default">
             <div
               v-for="user in listManager.items.value"
               :key="user.uuid"
               @click="listManager.navigateToItem(user)"
-              class="bg-surface rounded-lg p-3 hover:bg-surface-hover transition-colors cursor-pointer"
+              class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer"
             >
-              <div class="flex items-start gap-3">
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <UserAvatar
-                      :name="user.uuid"
-                      :userName="user.name"
-                      size="sm"
-                      :clickable="false"
-                      :show-name="false"
-                    />
-                    <div class="flex-1 min-w-0">
-                      <div class="font-medium truncate text-primary">{{ user.name }}</div>
-                      <div class="text-xs text-tertiary truncate">{{ user.email }}</div>
-                    </div>
-                  </div>
-                  <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                    <span class="bg-surface-alt px-2 py-1 rounded text-primary">
-                      {{ user.role }}
-                    </span>
-                    <span class="bg-surface-alt/50 px-2 py-1 rounded text-secondary">
-                      {{ user.department || 'N/A' }}
-                    </span>
-                  </div>
+              <!-- Avatar -->
+              <UserAvatar
+                :name="user.uuid"
+                :userName="user.name"
+                size="sm"
+                :clickable="false"
+                :show-name="false"
+                class="flex-shrink-0"
+              />
+
+              <!-- Main content -->
+              <div class="flex-1 min-w-0">
+                <!-- Name -->
+                <div class="text-sm text-primary font-medium truncate">{{ user.name }}</div>
+
+                <!-- Meta row: email, role, department - responsive layout -->
+                <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
+                  <span v-if="user.email" class="text-tertiary truncate max-w-[200px]">{{ user.email }}</span>
+                  <span
+                    class="role-badge inline-flex items-center px-1.5 py-0.5 rounded font-medium border"
+                    :class="{
+                      'bg-purple-100 dark:bg-purple-500/20 dark:text-purple-300 border-purple-300 dark:border-purple-500/30': user.role === 'admin',
+                      'bg-blue-100 dark:bg-blue-500/20 dark:text-blue-300 border-blue-300 dark:border-blue-500/30': user.role === 'technician',
+                      'bg-slate-100 dark:bg-slate-500/20 dark:text-slate-300 border-slate-300 dark:border-slate-500/30': user.role === 'user'
+                    }"
+                    :style="{ color: user.role === 'admin' ? '#7e22ce' : user.role === 'technician' ? '#1d4ed8' : '#475569' }"
+                  >
+                    {{ user.role }}
+                  </span>
+                  <span class="text-secondary">{{ user.department || 'N/A' }}</span>
                 </div>
               </div>
+
+              <!-- Chevron -->
+              <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
             </div>
           </div>
         </template>
@@ -251,6 +263,11 @@ defineExpose({
 </template>
 
 <style scoped>
+/* Dark mode: override inline style color for badges */
+:global(.dark) .role-badge {
+  color: inherit !important;
+}
+
 /* Custom scrollbar styling */
 .overflow-y-auto::-webkit-scrollbar,
 .overflow-x-auto::-webkit-scrollbar {

@@ -171,7 +171,7 @@ const showTemplateDialog = () => {
       <div class="flex flex-wrap gap-3 mb-4">
         <button 
           @click="showImportDialog"
-          class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+          class="px-4 py-2 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors flex items-center gap-2"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -302,7 +302,7 @@ const showTemplateDialog = () => {
               <div>
                 <button 
                   @click="downloadTemplate(template.type)"
-                  class="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center gap-2"
+                  class="px-3 py-2 text-sm bg-brand-blue text-white rounded-md hover:opacity-90 transition-colors flex items-center gap-2"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -330,7 +330,7 @@ const showTemplateDialog = () => {
           </label>
           <select
             v-model="selectedFileType"
-            class="w-full rounded-md bg-surface-alt border-subtle text-primary py-2 px-3 focus:border-blue-500 focus:ring focus:ring-blue-500 focus:ring-opacity-50"
+            class="w-full rounded-md bg-surface-alt border-subtle text-primary py-2 px-3 focus:border-brand-blue focus:ring focus:ring-brand-blue focus:ring-opacity-50"
           >
             <option value="users">Users</option>
             <option value="devices">Devices</option>
@@ -401,7 +401,7 @@ const showTemplateDialog = () => {
             :disabled="!fileUploaded || isLoading"
             :class="[
               'px-4 py-2 text-white rounded-lg transition-colors flex items-center gap-2',
-              !fileUploaded || isLoading ? 'bg-blue-800 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+              !fileUploaded || isLoading ? 'bg-brand-blue/50 cursor-not-allowed' : 'bg-brand-blue hover:opacity-90'
             ]"
           >
             <svg v-if="isLoading" class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -435,7 +435,7 @@ const showTemplateDialog = () => {
             </div>
             <button 
               @click="downloadTemplate(template.type)"
-              class="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1"
+              class="px-3 py-1 text-sm bg-brand-blue text-white rounded-md hover:opacity-90 transition-colors flex items-center gap-1"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />

@@ -89,7 +89,7 @@ const getColumnVisibility = (column: Column) => {
         <div class="px-4 py-3 flex items-center font-semibold text-primary bg-surface border-b-1 border-default sticky top-0 z-10">
           <input
             type="checkbox"
-            class="w-4 h-4 rounded border-default bg-surface text-blue-600 focus:ring-blue-500"
+            class="w-4 h-4 rounded border-default bg-surface text-brand-blue focus:ring-brand-blue"
             :checked="allSelected && data.length > 0"
             @click="emit('toggle-all', $event)"
           />
@@ -122,7 +122,7 @@ const getColumnVisibility = (column: Column) => {
           <div class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover transition-colors border-b border-default">
             <input
               type="checkbox"
-              class="w-4 h-4 rounded border-default bg-surface text-blue-600 focus:ring-blue-500"
+              class="w-4 h-4 rounded border-default bg-surface text-brand-blue focus:ring-brand-blue"
               :checked="selectedItems.includes(item[itemIdField].toString())"
               @click.stop="emit('toggle-selection', $event, item[itemIdField].toString())"
             />

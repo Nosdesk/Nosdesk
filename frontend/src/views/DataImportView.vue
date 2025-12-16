@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import BackButton from '@/components/common/BackButton.vue';
+import { AdminIcons, isBrandIcon, getIconBgClass } from '@/components/admin/AdminIcons';
 
 const router = useRouter();
 
@@ -48,14 +48,19 @@ const navigateToOption = (route: string, status: string) => {
 const getStatusBadge = (status: string) => {
   switch (status) {
     case 'available':
-      return { text: 'Available', class: 'bg-green-900/50 text-green-400 border-green-700' };
+      return { text: 'Available', class: 'bg-status-success/20 text-status-success border-status-success/50' };
     case 'coming-soon':
-      return { text: 'Coming Soon', class: 'bg-blue-900/50 text-blue-400 border-blue-700' };
+      return { text: 'Coming Soon', class: 'bg-brand-blue/20 text-brand-blue border-brand-blue/50' };
     case 'beta':
-      return { text: 'Beta', class: 'bg-purple-900/50 text-purple-400 border-purple-700' };
+      return { text: 'Beta', class: 'bg-purple-500/20 text-purple-400 border-purple-500/50' };
     default:
-      return { text: status, class: 'bg-slate-900/50 text-slate-400 border-slate-700' };
+      return { text: status, class: 'bg-surface-alt text-tertiary border-default' };
   }
+};
+
+// Get icon content
+const getIcon = (iconName: string) => {
+  return AdminIcons[iconName as keyof typeof AdminIcons] || AdminIcons.plus;
 };
 </script>
 
@@ -81,44 +86,31 @@ const getStatusBadge = (status: string) => {
           :key="index"
           @click="navigateToOption(item.route, item.status)"
           :class="[
-            'bg-surface border border-default rounded-lg p-5 transition duration-150 ease-in-out',
-            item.status === 'available' ? 'hover:bg-surface-hover cursor-pointer' : 'opacity-80'
+            'bg-surface border border-default rounded-lg p-4 transition duration-150 ease-in-out',
+            item.status === 'available' ? 'hover:bg-surface-hover cursor-pointer' : 'opacity-70'
           ]"
         >
-          <div class="flex items-start gap-2">
-            <div class="flex-shrink-0 h-10 w-10 rounded-md bg-blue-600/20 flex items-center justify-center text-blue-400 mr-4">
-              <svg v-if="item.icon === 'microsoft'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21" fill="none" class="h-6 w-6">
-                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-              </svg>
-              <svg v-else-if="item.icon === 'file'" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <svg v-else-if="item.icon === 'api'" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <svg v-else-if="item.icon === 'directory'" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
-              </svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
+          <div class="flex items-center gap-3">
+            <div
+              class="flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center"
+              :class="getIconBgClass(item.icon)"
+            >
+              <span v-if="isBrandIcon(item.icon)" v-html="getIcon(item.icon)"></span>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="getIcon(item.icon)"></svg>
             </div>
-            <div class="flex-1">
-              <div class="flex items-center justify-between">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
                 <h3 class="text-primary font-medium">{{ item.title }}</h3>
-                <span 
+                <span
                   :class="[
-                    'ml-2 px-2 py-0.5 text-xs rounded-full border inline-block',
+                    'px-1.5 py-0.5 text-xs rounded-full border',
                     getStatusBadge(item.status).class
                   ]"
                 >
                   {{ getStatusBadge(item.status).text }}
                 </span>
               </div>
-              <p class="mt-1 text-sm text-secondary">{{ item.description }}</p>
+              <p class="text-xs text-secondary truncate">{{ item.description }}</p>
             </div>
           </div>
         </div>
