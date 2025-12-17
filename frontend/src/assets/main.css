@@ -25,6 +25,12 @@
   --color-secondary: #4b5563;
   --color-tertiary: #6b7280;
 
+  /* Accent colors */
+  --color-accent: #2C80FF;
+  --color-accent-hover: #1a6ee0;
+  --color-accent-muted: rgba(44, 128, 255, 0.15);
+
+  /* Brand colors */
   --color-brand-gold: #FDBD10;
   --color-brand-blue: #2C80FF;
   --color-brand-green: #00C951;
@@ -32,14 +38,37 @@
   --color-brand-purple: #8B5CF6;
   --color-brand-gray: #99A1AF;
 
+  /* Status colors */
   --color-status-success: #00C951;
+  --color-status-success-muted: rgba(0, 201, 81, 0.15);
   --color-status-error: #EF4444;
+  --color-status-error-muted: rgba(239, 68, 68, 0.15);
   --color-status-warning: #F59E0B;
+  --color-status-warning-muted: rgba(245, 158, 11, 0.15);
   --color-status-info: #3B82F6;
+  --color-status-info-muted: rgba(59, 130, 246, 0.15);
+
+  /* Ticket status colors */
+  --color-status-open: #F59E0B;
+  --color-status-open-muted: rgba(245, 158, 11, 0.15);
+  --color-status-in-progress: #3B82F6;
+  --color-status-in-progress-muted: rgba(59, 130, 246, 0.15);
+  --color-status-closed: #10B981;
+  --color-status-closed-muted: rgba(16, 185, 129, 0.15);
+
+  /* Priority colors */
+  --color-priority-high: #EF4444;
+  --color-priority-high-muted: rgba(239, 68, 68, 0.15);
+  --color-priority-medium: #F59E0B;
+  --color-priority-medium-muted: rgba(245, 158, 11, 0.15);
+  --color-priority-low: #10B981;
+  --color-priority-low-muted: rgba(16, 185, 129, 0.15);
 }
 
 /* ============================================
    THEME VARIABLES - Light/Dark switching
+   These are the default values that get overwritten
+   by the theme system's CSS injector
    ============================================ */
 @layer theme {
   :root {
@@ -47,7 +76,7 @@
     --color-app: #f3f4f6;
     --color-surface: #ffffff;
     --color-surface-alt: #f3f4f6;
-    --color-surface-hover: #f3f4f6;
+    --color-surface-hover: #e5e7eb;
 
     /* Borders */
     --color-default: #e5e7eb;
@@ -59,11 +88,36 @@
     --color-secondary: #4b5563;
     --color-tertiary: #6b7280;
 
+    /* Accent colors */
+    --color-accent: #2C80FF;
+    --color-accent-hover: #1a6ee0;
+    --color-accent-muted: rgba(44, 128, 255, 0.15);
+
     /* Status colors */
     --color-status-success: #00C951;
+    --color-status-success-muted: rgba(0, 201, 81, 0.15);
     --color-status-error: #EF4444;
+    --color-status-error-muted: rgba(239, 68, 68, 0.15);
     --color-status-warning: #F59E0B;
+    --color-status-warning-muted: rgba(245, 158, 11, 0.15);
     --color-status-info: #3B82F6;
+    --color-status-info-muted: rgba(59, 130, 246, 0.15);
+
+    /* Ticket status colors */
+    --color-status-open: #F59E0B;
+    --color-status-open-muted: rgba(245, 158, 11, 0.15);
+    --color-status-in-progress: #3B82F6;
+    --color-status-in-progress-muted: rgba(59, 130, 246, 0.15);
+    --color-status-closed: #10B981;
+    --color-status-closed-muted: rgba(16, 185, 129, 0.15);
+
+    /* Priority colors */
+    --color-priority-high: #EF4444;
+    --color-priority-high-muted: rgba(239, 68, 68, 0.15);
+    --color-priority-medium: #F59E0B;
+    --color-priority-medium-muted: rgba(245, 158, 11, 0.15);
+    --color-priority-low: #10B981;
+    --color-priority-low-muted: rgba(16, 185, 129, 0.15);
 
     /* Legacy support */
     --color-bg-app: var(--color-app);
@@ -88,7 +142,7 @@
     --shadow-outer-light: rgba(255, 255, 255, 0.7);
   }
 
-  /* Dark theme overrides */
+  /* Dark theme overrides - these are defaults before theme injection */
   .dark {
     /* Background layers */
     --color-app: #0f172a;
@@ -97,14 +151,45 @@
     --color-surface-hover: rgba(51, 65, 85, 0.5);
 
     /* Borders - subtle in dark mode */
-    --color-default: #334155;       /* slate-700 - subtle but visible */
-    --color-subtle: #293548;        /* between slate-800 and slate-700 */
-    --color-strong: #475569;        /* slate-600 - more prominent */
+    --color-default: #334155;
+    --color-subtle: #293548;
+    --color-strong: #475569;
 
     /* Text colors */
     --color-primary: #f9fafb;
     --color-secondary: #cbd5e1;
     --color-tertiary: #94a3b8;
+
+    /* Accent colors */
+    --color-accent: #2C80FF;
+    --color-accent-hover: #4d9aff;
+    --color-accent-muted: rgba(44, 128, 255, 0.2);
+
+    /* Status colors - brighter for dark mode */
+    --color-status-success: #00C951;
+    --color-status-success-muted: rgba(0, 201, 81, 0.2);
+    --color-status-error: #EF4444;
+    --color-status-error-muted: rgba(239, 68, 68, 0.2);
+    --color-status-warning: #F59E0B;
+    --color-status-warning-muted: rgba(245, 158, 11, 0.2);
+    --color-status-info: #3B82F6;
+    --color-status-info-muted: rgba(59, 130, 246, 0.2);
+
+    /* Ticket status colors - brighter for dark mode */
+    --color-status-open: #FBBF24;
+    --color-status-open-muted: rgba(251, 191, 36, 0.2);
+    --color-status-in-progress: #60A5FA;
+    --color-status-in-progress-muted: rgba(96, 165, 250, 0.2);
+    --color-status-closed: #34D399;
+    --color-status-closed-muted: rgba(52, 211, 153, 0.2);
+
+    /* Priority colors - brighter for dark mode */
+    --color-priority-high: #F87171;
+    --color-priority-high-muted: rgba(248, 113, 113, 0.2);
+    --color-priority-medium: #FBBF24;
+    --color-priority-medium-muted: rgba(251, 191, 36, 0.2);
+    --color-priority-low: #34D399;
+    --color-priority-low-muted: rgba(52, 211, 153, 0.2);
 
     /* Shadows */
     --shadow-inset-dark: rgba(0, 0, 0, 0.3);
@@ -141,6 +226,14 @@
   .text-secondary { color: var(--color-secondary); }
   .text-tertiary { color: var(--color-tertiary); }
 
+  /* Accent color utilities */
+  .bg-accent { background-color: var(--color-accent); }
+  .text-accent { color: var(--color-accent); }
+  .border-accent { border-color: var(--color-accent); }
+  .bg-accent-hover { background-color: var(--color-accent-hover); }
+  .bg-accent-muted { background-color: var(--color-accent-muted); }
+  .focus\:ring-accent:focus { --tw-ring-color: var(--color-accent); }
+
   /* Brand color utilities */
   .bg-brand-blue { background-color: var(--color-brand-blue); }
   .text-brand-blue { color: var(--color-brand-blue); }
@@ -152,12 +245,55 @@
   /* Status color utilities */
   .bg-status-success { background-color: var(--color-status-success); }
   .text-status-success { color: var(--color-status-success); }
+  .border-status-success { border-color: var(--color-status-success); }
+  .bg-status-success-muted { background-color: var(--color-status-success-muted); }
+
   .bg-status-error { background-color: var(--color-status-error); }
   .text-status-error { color: var(--color-status-error); }
+  .border-status-error { border-color: var(--color-status-error); }
+  .bg-status-error-muted { background-color: var(--color-status-error-muted); }
+
   .bg-status-warning { background-color: var(--color-status-warning); }
   .text-status-warning { color: var(--color-status-warning); }
+  .border-status-warning { border-color: var(--color-status-warning); }
+  .bg-status-warning-muted { background-color: var(--color-status-warning-muted); }
+
   .bg-status-info { background-color: var(--color-status-info); }
   .text-status-info { color: var(--color-status-info); }
+  .border-status-info { border-color: var(--color-status-info); }
+  .bg-status-info-muted { background-color: var(--color-status-info-muted); }
+
+  /* Ticket status utilities */
+  .bg-status-open { background-color: var(--color-status-open); }
+  .text-status-open { color: var(--color-status-open); }
+  .border-status-open { border-color: var(--color-status-open); }
+  .bg-status-open-muted { background-color: var(--color-status-open-muted); }
+
+  .bg-status-in-progress { background-color: var(--color-status-in-progress); }
+  .text-status-in-progress { color: var(--color-status-in-progress); }
+  .border-status-in-progress { border-color: var(--color-status-in-progress); }
+  .bg-status-in-progress-muted { background-color: var(--color-status-in-progress-muted); }
+
+  .bg-status-closed { background-color: var(--color-status-closed); }
+  .text-status-closed { color: var(--color-status-closed); }
+  .border-status-closed { border-color: var(--color-status-closed); }
+  .bg-status-closed-muted { background-color: var(--color-status-closed-muted); }
+
+  /* Priority utilities */
+  .bg-priority-high { background-color: var(--color-priority-high); }
+  .text-priority-high { color: var(--color-priority-high); }
+  .border-priority-high { border-color: var(--color-priority-high); }
+  .bg-priority-high-muted { background-color: var(--color-priority-high-muted); }
+
+  .bg-priority-medium { background-color: var(--color-priority-medium); }
+  .text-priority-medium { color: var(--color-priority-medium); }
+  .border-priority-medium { border-color: var(--color-priority-medium); }
+  .bg-priority-medium-muted { background-color: var(--color-priority-medium-muted); }
+
+  .bg-priority-low { background-color: var(--color-priority-low); }
+  .text-priority-low { color: var(--color-priority-low); }
+  .border-priority-low { border-color: var(--color-priority-low); }
+  .bg-priority-low-muted { background-color: var(--color-priority-low-muted); }
 
   /* Scrollbar hide utility */
   .scrollbar-hide {

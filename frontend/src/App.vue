@@ -6,6 +6,10 @@ import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import authService from '@/services/authService'
+import { useBrandingStore } from '@/stores/branding'
+
+// Initialize branding store and load config
+const brandingStore = useBrandingStore()
 
 const route = useRoute()
 const isBlankLayout = computed(() => route.meta.layout === 'blank')
@@ -75,6 +79,9 @@ const handleCreateClick = () => {
 };
 
 onMounted(async () => {
+  // Load branding configuration (public endpoint, no auth required)
+  brandingStore.loadBranding();
+
   // Security: Prevent multiple initialization checks
   if (initializationChecked.value) {
     return;

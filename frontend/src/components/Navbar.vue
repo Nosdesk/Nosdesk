@@ -12,6 +12,23 @@ import {
     nextTick,
 } from "vue";
 import { useResizableSidebar } from "@/composables/useResizableSidebar";
+import { useBrandingStore } from "@/stores/branding";
+import { useThemeStore } from "@/stores/theme";
+
+// Get branding and theme stores
+const brandingStore = useBrandingStore();
+const themeStore = useThemeStore();
+
+// Computed logo URL based on current theme
+const logoUrl = computed(() => {
+    const customLogo = brandingStore.getLogoUrl(themeStore.isDarkMode);
+    return customLogo || null;
+});
+
+// Computed favicon URL for collapsed state
+const faviconUrl = computed(() => {
+    return brandingStore.faviconUrl || '/favicon.svg';
+});
 
 const route = useRoute();
 const router = useRouter();
@@ -263,13 +280,19 @@ const isRouteActive = (path: string, exact = false) => {
             >
                 <!-- Full logo when expanded -->
                 <img
-                    v-if="!isCollapsed"
+                    v-if="!isCollapsed && logoUrl"
+                    :alt="brandingStore.appName + ' Logo'"
+                    class="h-8 max-w-full object-contain"
+                    :src="logoUrl"
+                />
+                <img
+                    v-else-if="!isCollapsed"
                     alt="Nosdesk Logo"
                     class="h-8"
                     src="@/assets/logo.svg"
                 />
-                <!-- Favicon N when collapsed -->
-                <img v-else alt="Nosdesk" class="h-8 w-8" src="/favicon.svg" />
+                <!-- Favicon/icon when collapsed -->
+                <img v-else :alt="brandingStore.appName" class="h-8 w-8 object-contain" :src="faviconUrl" />
             </RouterLink>
 
             <div

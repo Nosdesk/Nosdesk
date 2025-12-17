@@ -10,20 +10,19 @@ const props = defineProps<{
   compact?: boolean
 }>()
 
-// Status badges - WCAG AA compliant (4.5:1 contrast ratio)
-// Light mode: -700 shade text on -100 equivalent background (professional, readable)
-// Dark mode: -300 shade text on -500/20 background (softer, easier on eyes)
+// Status badges using semantic color tokens
+// These classes use CSS variables that adapt to any theme
 const statusConfig = {
-  open: { classes: 'bg-amber-100 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30', lightColor: '#b45309' },
-  'in-progress': { classes: 'bg-blue-100 dark:bg-blue-500/20 dark:text-blue-300 border border-blue-300 dark:border-blue-500/30', lightColor: '#1d4ed8' },
-  closed: { classes: 'bg-emerald-100 dark:bg-emerald-500/20 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30', lightColor: '#047857' }
+  open: 'bg-status-open-muted text-status-open border border-status-open/30',
+  'in-progress': 'bg-status-in-progress-muted text-status-in-progress border border-status-in-progress/30',
+  closed: 'bg-status-closed-muted text-status-closed border border-status-closed/30',
 }
 
-// Priority badges use the same pattern
+// Priority badges using semantic color tokens
 const priorityConfig = {
-  low: { classes: 'bg-emerald-100 dark:bg-emerald-500/20 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30', lightColor: '#047857' },
-  medium: { classes: 'bg-amber-100 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30', lightColor: '#b45309' },
-  high: { classes: 'bg-red-100 dark:bg-red-500/20 dark:text-red-300 border border-red-300 dark:border-red-500/30', lightColor: '#b91c1c' }
+  low: 'bg-priority-low-muted text-priority-low border border-priority-low/30',
+  medium: 'bg-priority-medium-muted text-priority-medium border border-priority-medium/30',
+  high: 'bg-priority-high-muted text-priority-high border border-priority-high/30',
 }
 
 const displayText = computed(() => {
@@ -44,7 +43,7 @@ const displayText = computed(() => {
   return `${props.value} priority`
 })
 
-const config = computed(() => {
+const colorClasses = computed(() => {
   if (props.type === 'status') {
     return statusConfig[props.value as 'open' | 'in-progress' | 'closed']
   }
@@ -52,33 +51,23 @@ const config = computed(() => {
 })
 
 const badgeClasses = computed(() => {
-  const colorClasses = config.value.classes
-
-  const sizeClasses = props.type === 'status'
-    ? (props.compact ? 'px-2 py-0.5 rounded text-xs' : 'px-3 py-1 rounded-full text-sm')
-    : (props.compact ? 'px-1.5 py-0.5 rounded text-xs font-medium' : 'px-2 py-0.5 rounded font-medium')
+  const sizeClasses =
+    props.type === 'status'
+      ? props.compact
+        ? 'px-2 py-0.5 rounded text-xs'
+        : 'px-3 py-1 rounded-full text-sm'
+      : props.compact
+        ? 'px-1.5 py-0.5 rounded text-xs font-medium'
+        : 'px-2 py-0.5 rounded font-medium'
 
   return props.customClasses
-    ? [colorClasses, sizeClasses, props.customClasses]
-    : [colorClasses, sizeClasses]
-})
-
-// Light mode text colors applied via inline style
-// Dark mode colors defined in the classes (dark:text-*) override via CSS specificity
-const textStyle = computed(() => {
-  return { color: config.value.lightColor }
+    ? [colorClasses.value, sizeClasses, props.customClasses]
+    : [colorClasses.value, sizeClasses]
 })
 </script>
 
 <template>
-  <span :class="badgeClasses" :style="textStyle" class="status-badge">
+  <span :class="badgeClasses">
     {{ displayText }}
   </span>
 </template>
-
-<style scoped>
-/* Dark mode: override inline style color with Tailwind dark:text-* classes */
-:global(.dark) .status-badge {
-  color: inherit !important;
-}
-</style>

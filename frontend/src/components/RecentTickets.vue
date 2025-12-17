@@ -18,11 +18,11 @@ onMounted(async () => {
   }
 })
 
-// Status colors
+// Status colors using semantic tokens
 const statusColors: Record<string, string> = {
-  open: 'bg-amber-500',
-  'in-progress': 'bg-blue-500',
-  closed: 'bg-emerald-500'
+  open: 'bg-status-open',
+  'in-progress': 'bg-status-in-progress',
+  closed: 'bg-status-closed'
 }
 
 
@@ -73,7 +73,7 @@ const relativeTime = (dateString: string | null | undefined): string => {
           <span class="text-xs text-secondary font-medium flex-shrink-0">#{{ ticket.id }}</span>
 
           <!-- Title -->
-          <span class="text-xs text-primary truncate flex-1 group-hover:text-blue-600 dark:group-hover:text-blue-400">
+          <span class="text-xs text-primary truncate flex-1 group-hover:text-accent">
             {{ ticket.title }}
           </span>
 

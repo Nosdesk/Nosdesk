@@ -277,6 +277,25 @@ diesel::table! {
 }
 
 diesel::table! {
+    site_settings (id) {
+        id -> Int4,
+        #[max_length = 255]
+        app_name -> Varchar,
+        #[max_length = 2048]
+        logo_url -> Nullable<Varchar>,
+        #[max_length = 2048]
+        logo_light_url -> Nullable<Varchar>,
+        #[max_length = 2048]
+        favicon_url -> Nullable<Varchar>,
+        #[max_length = 7]
+        primary_color -> Nullable<Varchar>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        updated_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     sync_history (id) {
         id -> Int4,
         #[max_length = 100]
@@ -424,6 +443,7 @@ diesel::joinable!(refresh_tokens -> users (user_uuid));
 diesel::joinable!(reset_tokens -> users (user_uuid));
 diesel::joinable!(security_events -> active_sessions (session_id));
 diesel::joinable!(security_events -> users (user_uuid));
+diesel::joinable!(site_settings -> users (updated_by));
 diesel::joinable!(sync_history -> users (initiated_by));
 diesel::joinable!(ticket_devices -> devices (device_id));
 diesel::joinable!(ticket_devices -> tickets (ticket_id));
@@ -432,4 +452,4 @@ diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,article_content_revisions,article_contents,attachments,comments,devices,documentation_pages,documentation_revisions,linked_tickets,project_tickets,projects,refresh_tokens,reset_tokens,security_events,sync_history,ticket_devices,tickets,user_auth_identities,user_emails,user_ticket_views,users,);
+    active_sessions,article_content_revisions,article_contents,attachments,comments,devices,documentation_pages,documentation_revisions,linked_tickets,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_history,ticket_devices,tickets,user_auth_identities,user_emails,user_ticket_views,users,);

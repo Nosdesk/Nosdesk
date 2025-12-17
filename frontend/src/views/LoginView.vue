@@ -1,14 +1,26 @@
 <!-- LoginView.vue -->
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from "vue";
+import { ref, onMounted, nextTick, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useMfaSetupStore } from "@/stores/mfaSetup";
+import { useBrandingStore } from "@/stores/branding";
+import { useThemeStore } from "@/stores/theme";
 import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
 import MFARecoveryModal from "@/components/auth/MFARecoveryModal.vue";
 import authService from "@/services/authService";
-import logo from "@/assets/logo.svg";
+import defaultLogo from "@/assets/logo.svg";
+
+// Get branding and theme stores
+const brandingStore = useBrandingStore();
+const themeStore = useThemeStore();
+
+// Computed logo URL - use custom logo if available, else default
+const logoSrc = computed(() => {
+  const customLogo = brandingStore.getLogoUrl(themeStore.isDarkMode);
+  return customLogo || defaultLogo;
+});
 
 const router = useRouter();
 const route = useRoute();
@@ -32,6 +44,11 @@ const mfaToken = ref("");
 
 // Check for success message and email prefill from URL query params (e.g., from onboarding)
 onMounted(async () => {
+  // Load branding if not already loaded (important for blank layout pages like login)
+  if (!brandingStore.isLoaded) {
+    brandingStore.loadBranding();
+  }
+
   // Check if onboarding is required before showing login
   try {
     const setupStatus = await authService.checkSetupStatus();
@@ -284,7 +301,7 @@ const handleOidcLogoutClick = async () => {
     <div class="flex flex-col gap-4 w-full max-w-md p-8">
       <!-- Logo/Brand -->
       <div class="flex flex-col gap-2 items-center">
-        <img :src="logo" alt="Nosdesk Logo" class="px-4" />
+        <img :src="logoSrc" :alt="brandingStore.appName + ' Logo'" class="h-12 max-w-full px-4 object-contain" />
         <p class="text-secondary mt-2">Sign in to your account</p>
       </div>
 

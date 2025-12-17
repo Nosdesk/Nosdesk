@@ -300,14 +300,13 @@ defineExpose({
 
                   <!-- Warranty Status -->
                   <span
-                    class="warranty-badge inline-flex items-center px-1.5 py-0.5 rounded font-medium border flex-shrink-0"
+                    class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border flex-shrink-0"
                     :class="{
-                      'bg-emerald-100 dark:bg-emerald-500/20 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/30': device.warranty_status === 'Active',
-                      'bg-amber-100 dark:bg-amber-500/20 dark:text-amber-300 border-amber-300 dark:border-amber-500/30': device.warranty_status === 'Warning',
-                      'bg-red-100 dark:bg-red-500/20 dark:text-red-300 border-red-300 dark:border-red-500/30': device.warranty_status === 'Expired',
-                      'bg-slate-100 dark:bg-slate-500/20 dark:text-slate-300 border-slate-300 dark:border-slate-500/30': device.warranty_status === 'Unknown'
+                      'bg-status-success-muted text-status-success border-status-success/30': device.warranty_status === 'Active',
+                      'bg-status-warning-muted text-status-warning border-status-warning/30': device.warranty_status === 'Warning',
+                      'bg-status-error-muted text-status-error border-status-error/30': device.warranty_status === 'Expired',
+                      'bg-surface-alt text-secondary border-default': device.warranty_status === 'Unknown'
                     }"
-                    :style="{ color: device.warranty_status === 'Active' ? '#047857' : device.warranty_status === 'Warning' ? '#b45309' : device.warranty_status === 'Expired' ? '#b91c1c' : '#475569' }"
                   >
                     {{ device.warranty_status }}
                   </span>
@@ -360,11 +359,6 @@ defineExpose({
 </template>
 
 <style scoped>
-/* Dark mode: override inline style color for badges */
-:global(.dark) .warranty-badge {
-  color: inherit !important;
-}
-
 /* Custom scrollbar styling */
 .overflow-y-auto::-webkit-scrollbar,
 .overflow-x-auto::-webkit-scrollbar {

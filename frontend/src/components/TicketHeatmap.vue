@@ -5,7 +5,6 @@ import { useRouter } from "vue-router";
 import { getTickets } from "@/services/ticketService";
 import type { Ticket } from "@/services/ticketService";
 import HeatmapTooltip from "@/components/HeatmapTooltip.vue";
-import { useThemeStore } from "@/stores/theme";
 
 interface Props {
     ticketStatus?: "open" | "in-progress" | "closed";
@@ -22,7 +21,6 @@ interface DayData {
 }
 
 const router = useRouter();
-const themeStore = useThemeStore();
 const heatmapData = ref<DayData[]>([]);
 const isLoading = ref(true);
 const error = ref<string | null>(null);
@@ -107,25 +105,13 @@ const fetchTicketData = async () => {
     }
 };
 
-// Get color based on activity count and theme
-const getColor = (count: number) => {
-    const isDark = themeStore.isDarkMode;
-
-    if (isDark) {
-        // Dark mode - darker greens with good contrast
-        if (count === 0) return "#334155"; // slate-700 - No activity (slightly lighter than bg)
-        if (count <= 1) return "#14532d"; // green-950 - Very low
-        if (count <= 2) return "#166534"; // green-800 - Low activity
-        if (count <= 3) return "#15803d"; // green-700 - Medium activity
-        return "#16a34a"; // green-600 - High activity
-    } else {
-        // Light mode - lighter greens with good contrast
-        if (count === 0) return "#f3f4f6"; // gray-100 - No activity (subtle)
-        if (count <= 1) return "#dcfce7"; // green-100 - Very low
-        if (count <= 2) return "#86efac"; // green-300 - Low activity
-        if (count <= 3) return "#4ade80"; // green-400 - Medium activity
-        return "#22c55e"; // green-500 - High activity
-    }
+// Get CSS class based on activity count
+const getColorClass = (count: number) => {
+    if (count === 0) return "heatmap-level-0";
+    if (count <= 1) return "heatmap-level-1";
+    if (count <= 2) return "heatmap-level-2";
+    if (count <= 3) return "heatmap-level-3";
+    return "heatmap-level-4";
 };
 
 // Format date for tooltip
@@ -330,16 +316,13 @@ onMounted(() => {
                                     <div class="p-[1px]">
                                         <div
                                             class="w-full h-2.5 rounded-[1px] transition-transform duration-75 hover:scale-110 hover:z-10 border border-subtle"
-                                            :class="{
-                                                'cursor-pointer hover:border-default':
-                                                    day.count > 0,
-                                                'cursor-default': day.count === 0,
-                                            }"
-                                            :style="{
-                                                backgroundColor: getColor(
-                                                    day.count,
-                                                ),
-                                            }"
+                                            :class="[
+                                                getColorClass(day.count),
+                                                {
+                                                    'cursor-pointer hover:border-default': day.count > 0,
+                                                    'cursor-default': day.count === 0,
+                                                }
+                                            ]"
                                             @click="handleDayClick(day)"
                                         />
                                     </div>
@@ -363,12 +346,10 @@ onMounted(() => {
                         <span>Less</span>
                         <div class="flex gap-0.5">
                             <div
-                                v-for="i in 6"
+                                v-for="i in 5"
                                 :key="i"
                                 class="w-2.5 h-2.5 rounded-[1px] border border-subtle"
-                                :style="{
-                                    backgroundColor: getColor(i - 1),
-                                }"
+                                :class="getColorClass(i - 1)"
                             />
                         </div>
                         <span>More</span>
@@ -378,3 +359,28 @@ onMounted(() => {
         </div>
     </div>
 </template>
+
+<style scoped>
+/* Heatmap color levels using semantic CSS variables */
+/* Level 0: No activity - uses surface-alt for empty state */
+.heatmap-level-0 {
+    background-color: var(--color-bg-surface-alt);
+}
+
+/* Levels 1-4: Gradient from muted to full status-success color */
+.heatmap-level-1 {
+    background-color: color-mix(in srgb, var(--color-status-success) 25%, var(--color-bg-surface-alt));
+}
+
+.heatmap-level-2 {
+    background-color: color-mix(in srgb, var(--color-status-success) 50%, var(--color-bg-surface-alt));
+}
+
+.heatmap-level-3 {
+    background-color: color-mix(in srgb, var(--color-status-success) 75%, var(--color-bg-surface-alt));
+}
+
+.heatmap-level-4 {
+    background-color: var(--color-status-success);
+}
+</style>

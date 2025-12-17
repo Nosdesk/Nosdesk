@@ -286,13 +286,13 @@ const handleAddTicket = (ticketId: number) => {
 const getPriorityColor = (priority: string) => {
   switch (priority) {
     case 'high':
-      return 'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200'
+      return 'bg-priority-high-muted text-priority-high'
     case 'medium':
-      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200'
+      return 'bg-priority-medium-muted text-priority-medium'
     case 'low':
-      return 'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200'
+      return 'bg-priority-low-muted text-priority-low'
     default:
-      return 'bg-slate-400/20 dark:bg-slate-500/20 [color:#1e293b] dark:text-slate-200'
+      return 'bg-surface-alt text-secondary'
   }
 }
 
@@ -330,13 +330,13 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
 <template>
   <div class="h-full flex flex-col relative">
     <!-- Error message -->
-    <div v-if="error" class="bg-red-900/30 border border-red-700/30 text-red-400 px-4 py-3 rounded-lg mb-4">
+    <div v-if="error" class="bg-status-error-muted border border-status-error/30 text-status-error px-4 py-3 rounded-lg mb-4">
       {{ error }}
     </div>
-    
+
     <!-- Loading state -->
     <div v-if="isLoading" class="flex justify-center items-center py-8">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
     </div>
     
     <div v-else class="flex-1 overflow-x-auto">
@@ -346,7 +346,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
           :key="column.id"
           class="w-80 flex flex-col bg-surface-alt rounded-xl border border-default h-full overflow-hidden"
           :class="{
-            'ring-2 ring-blue-500/50': dragState.dragOverColumn === column.id && dragState.isDragging
+            'ring-2 ring-accent/50': dragState.dragOverColumn === column.id && dragState.isDragging
           }"
         >
           <!-- Column Header -->
@@ -356,9 +356,9 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
                 <div
                   class="w-2 h-2 rounded-full flex-shrink-0"
                   :class="{
-                    'bg-amber-500': column.id === 'open',
-                    'bg-blue-500': column.id === 'in-progress',
-                    'bg-green-500': column.id === 'closed'
+                    'bg-status-open': column.id === 'open',
+                    'bg-status-in-progress': column.id === 'in-progress',
+                    'bg-status-closed': column.id === 'closed'
                   }"
                 ></div>
                 <h3 class="font-medium text-primary">{{ column.title }}</h3>
@@ -376,7 +376,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
             <!-- Insertion indicator at top -->
             <div
               v-if="getInsertionLinePosition(column.id, dragState.insertIndex) === 'top'"
-              class="absolute top-4 left-4 right-4 h-0.5 bg-blue-500 rounded-full z-20 transition-all duration-200"
+              class="absolute top-4 left-4 right-4 h-0.5 bg-accent rounded-full z-20 transition-all duration-200"
             ></div>
             
             <!-- Tickets -->
@@ -396,12 +396,12 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
               <!-- Insertion indicator after this ticket -->
               <div
                 v-if="shouldShowInsertionAfter(column.id, index)"
-                class="absolute -bottom-1.5 left-0 right-0 h-0.5 bg-blue-500 rounded-full z-20 transition-all duration-200"
+                class="absolute -bottom-1.5 left-0 right-0 h-0.5 bg-accent rounded-full z-20 transition-all duration-200"
               ></div>
               
               <div class="flex flex-col gap-3">
                 <!-- Ticket Title -->
-                <h4 class="text-sm font-medium text-primary group-hover:text-blue-300 transition-colors line-clamp-2">
+                <h4 class="text-sm font-medium text-primary group-hover:text-accent transition-colors line-clamp-2">
                   {{ ticket.title }}
                 </h4>
                 
@@ -422,12 +422,12 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
                   </div>
                   
                   <!-- Priority Badge -->
-                  <div 
+                  <div
                     class="px-2 py-1 rounded-md text-xs font-medium border flex-shrink-0"
                     :class="{
-                      'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200 border-red-400/40 dark:border-red-500/30': ticket.priority === 'high',
-                      'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30': ticket.priority === 'medium',
-                      'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200 border-green-400/40 dark:border-green-500/30': ticket.priority === 'low'
+                      'bg-priority-high-muted text-priority-high border-priority-high/30': ticket.priority === 'high',
+                      'bg-priority-medium-muted text-priority-medium border-priority-medium/30': ticket.priority === 'medium',
+                      'bg-priority-low-muted text-priority-low border-priority-low/30': ticket.priority === 'low'
                     }"
                   >
                     {{ ticket.priority }}
@@ -439,7 +439,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
             <!-- Insertion indicator at bottom -->
             <div
               v-if="getInsertionLinePosition(column.id, dragState.insertIndex) === 'bottom'"
-              class="h-0.5 bg-blue-500 rounded-full transition-all duration-200"
+              class="h-0.5 bg-accent rounded-full transition-all duration-200"
             ></div>
 
             <!-- Empty state indicator -->
@@ -447,7 +447,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
               v-if="column.tickets.length === 0"
               class="flex-1 flex items-center justify-center text-tertiary text-sm border-2 border-dashed border-subtle rounded-lg py-8"
               :class="{
-                'border-blue-500/50 bg-blue-500/5': dragState.dragOverColumn === column.id && dragState.isDragging
+                'border-accent/50 bg-accent-muted': dragState.dragOverColumn === column.id && dragState.isDragging
               }"
             >
               Drop tickets here
@@ -456,7 +456,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
             <!-- Add Ticket Button -->
             <button
               @click="createTicket(column.id)"
-              class="w-full mt-4 p-3 bg-surface border border-subtle rounded-lg text-sm text-tertiary hover:text-blue-400 hover:bg-blue-600/10 hover:border-blue-600/30 transition-all duration-200 flex items-center justify-center gap-2"
+              class="w-full mt-4 p-3 bg-surface border border-subtle rounded-lg text-sm text-tertiary hover:text-accent hover:bg-accent-muted hover:border-accent/30 transition-all duration-200 flex items-center justify-center gap-2"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />

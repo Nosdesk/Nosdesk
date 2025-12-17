@@ -512,10 +512,14 @@ async fn main() -> std::io::Result<()> {
             // Debug endpoint for frontend log forwarding (dev mode only)
             .route("/api/debug/frontend-logs", web::post().to(handlers::debug::receive_frontend_logs))
 
-            // Public file serving - ONLY user avatars, banners, and thumbs (no sensitive data)
+            // Public file serving - ONLY user avatars, banners, thumbs, and branding (no sensitive data)
             .route("/uploads/users/avatars/{filename:.*}", web::get().to(handlers::serve_public_file))
             .route("/uploads/users/banners/{filename:.*}", web::get().to(handlers::serve_public_file))
             .route("/uploads/users/thumbs/{filename:.*}", web::get().to(handlers::serve_public_file))
+            .route("/uploads/branding/{filename:.*}", web::get().to(handlers::branding::serve_branding_file))
+
+            // Public branding config (needed for favicon/logo before login)
+            .route("/api/branding", web::get().to(handlers::branding::get_public_branding))
             
             // Public WebSocket for collaboration (auth handled in WebSocket handler)
             .service(
@@ -602,6 +606,12 @@ async fn main() -> std::io::Result<()> {
                     // System information (admin only)
                     .route("/admin/system/info", web::get().to(handlers::system::get_system_info))
                     .route("/admin/system/updates", web::get().to(handlers::system::check_system_updates))
+
+                    // Branding configuration (admin only)
+                    .route("/admin/branding/config", web::get().to(handlers::branding::get_branding_config))
+                    .route("/admin/branding/config", web::patch().to(handlers::branding::update_branding_config))
+                    .route("/admin/branding/image", web::post().to(handlers::branding::upload_branding_image))
+                    .route("/admin/branding/image", web::delete().to(handlers::branding::delete_branding_image))
 
                     // Microsoft Graph API endpoints
                     .route("/auth/microsoft/graph", web::post().to(handlers::process_graph_request))

@@ -48,11 +48,11 @@ const filteredProjects = computed(() => {
   return result
 })
 
-// Status badge classes
+// Status badge classes using semantic tokens
 const statusClasses: Record<ProjectStatus, string> = {
-  active: 'bg-green-500/20 text-green-600 dark:text-green-400 border-green-500/30',
-  completed: 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/30',
-  archived: 'bg-slate-500/20 text-slate-600 dark:text-slate-400 border-slate-500/30',
+  active: 'bg-status-success-muted text-status-success border-status-success/30',
+  completed: 'bg-status-info-muted text-status-info border-status-info/30',
+  archived: 'bg-surface-alt text-secondary border-default',
 }
 
 const getStatusClass = (status: ProjectStatus) => statusClasses[status] || statusClasses.archived
@@ -197,17 +197,6 @@ defineExpose({
           Reset
         </button>
 
-        <!-- Create button -->
-        <button
-          @click="openCreateModal"
-          class="px-2 py-1 text-xs font-medium text-primary bg-brand-blue rounded-md hover:bg-brand-blue/80 focus:ring-2 focus:outline-none focus:ring-brand-blue/50 flex items-center gap-1"
-        >
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-          </svg>
-          New Project
-        </button>
-
         <!-- Results count -->
         <div class="text-xs text-tertiary ml-auto">
           {{ filteredProjects.length }} project{{ filteredProjects.length !== 1 ? 's' : '' }}
@@ -218,12 +207,12 @@ defineExpose({
     <!-- Main content -->
     <div class="flex-1 overflow-y-auto p-4">
       <!-- Error message -->
-      <div v-if="error" class="mb-4 bg-red-500/10 border border-red-500/30 text-red-500 px-4 py-3 rounded-lg flex items-center gap-3">
+      <div v-if="error" class="mb-4 bg-status-error-muted border border-status-error/30 text-status-error px-4 py-3 rounded-lg flex items-center gap-3">
         <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <span>{{ error }}</span>
-        <button @click="error = null" class="ml-auto text-red-400 hover:text-red-300">
+        <button @click="error = null" class="ml-auto text-status-error hover:opacity-80">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -233,7 +222,7 @@ defineExpose({
       <!-- Loading State -->
       <div v-if="isLoading" class="flex justify-center items-center py-16">
         <div class="flex items-center gap-3 text-secondary">
-          <div class="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent"></div>
+          <div class="animate-spin rounded-full h-8 w-8 border-2 border-accent border-t-transparent"></div>
           <span class="text-sm font-medium">Loading projects...</span>
         </div>
       </div>
@@ -276,13 +265,13 @@ defineExpose({
             <div class="flex items-start justify-between gap-3">
               <div class="flex items-center gap-3 min-w-0 flex-1">
                 <!-- Project icon -->
-                <div class="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-                  <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class="w-10 h-10 rounded-lg bg-accent-muted flex items-center justify-center flex-shrink-0">
+                  <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                   </svg>
                 </div>
                 <div class="min-w-0 flex-1">
-                  <h3 class="font-semibold text-primary truncate group-hover:text-blue-500 transition-colors">
+                  <h3 class="font-semibold text-primary truncate group-hover:text-accent transition-colors">
                     {{ project.name }}
                   </h3>
                   <span
@@ -307,7 +296,7 @@ defineExpose({
                 </button>
                 <button
                   @click="(e) => removeProject(e, project.id)"
-                  class="p-1.5 text-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors"
+                  class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded-md transition-colors"
                   title="Delete project"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

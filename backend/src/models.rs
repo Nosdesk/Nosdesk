@@ -1911,3 +1911,56 @@ pub struct RecentTicket {
     pub last_viewed_at: NaiveDateTime,
     pub view_count: i32,
 }
+
+// ============================================================================
+// Site Settings - Branding and Customization
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::site_settings)]
+pub struct SiteSettings {
+    pub id: i32,
+    pub app_name: String,
+    pub logo_url: Option<String>,
+    pub logo_light_url: Option<String>,
+    pub favicon_url: Option<String>,
+    pub primary_color: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub updated_by: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::site_settings)]
+pub struct UpdateSiteSettings {
+    pub app_name: Option<String>,
+    pub logo_url: Option<Option<String>>,
+    pub logo_light_url: Option<Option<String>>,
+    pub favicon_url: Option<Option<String>>,
+    pub primary_color: Option<Option<String>>,
+    pub updated_by: Option<Uuid>,
+}
+
+// API response for site settings (without internal fields)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SiteSettingsResponse {
+    pub app_name: String,
+    pub logo_url: Option<String>,
+    pub logo_light_url: Option<String>,
+    pub favicon_url: Option<String>,
+    pub primary_color: Option<String>,
+    pub updated_at: NaiveDateTime,
+}
+
+impl From<SiteSettings> for SiteSettingsResponse {
+    fn from(settings: SiteSettings) -> Self {
+        SiteSettingsResponse {
+            app_name: settings.app_name,
+            logo_url: settings.logo_url,
+            logo_light_url: settings.logo_light_url,
+            favicon_url: settings.favicon_url,
+            primary_color: settings.primary_color,
+            updated_at: settings.updated_at,
+        }
+    }
+}

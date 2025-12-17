@@ -421,6 +421,23 @@ CREATE TABLE user_ticket_views (
     UNIQUE(user_uuid, ticket_id)
 );
 
+-- Site settings for branding and customization
+-- Single-row table pattern: only one row should exist
+CREATE TABLE site_settings (
+    id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1), -- Enforce single row
+    app_name VARCHAR(255) NOT NULL DEFAULT 'Nosdesk',
+    logo_url VARCHAR(2048), -- Custom logo (uploaded or external URL)
+    logo_light_url VARCHAR(2048), -- Optional light theme variant
+    favicon_url VARCHAR(2048), -- Custom favicon (uploaded or external URL)
+    primary_color VARCHAR(7), -- Hex color code e.g. #2C80FF
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_by UUID REFERENCES users(uuid) ON DELETE SET NULL
+);
+
+-- Insert default site settings
+INSERT INTO site_settings (id, app_name) VALUES (1, 'Nosdesk');
+
 -- ============================================================================
 -- INDEXES - Optimized for common query patterns
 -- ============================================================================
@@ -540,3 +557,4 @@ SELECT diesel_manage_updated_at('tickets');
 SELECT diesel_manage_updated_at('comments');
 SELECT diesel_manage_updated_at('documentation_pages');
 SELECT diesel_manage_updated_at('documentation_revisions');
+SELECT diesel_manage_updated_at('site_settings');

@@ -76,28 +76,28 @@ const handleSelectTicket = (ticketId: number) => {
 const getStatusClass = (status: string) => {
   switch (status.toLowerCase()) {
     case 'open':
-      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30'
+      return 'bg-status-open-muted text-status-open border-status-open/30'
     case 'in progress':
-      return 'bg-blue-400/20 dark:bg-blue-500/20 [color:#1e3a8a] dark:text-blue-200 border-blue-400/40 dark:border-blue-500/30'
+    case 'in-progress':
+      return 'bg-status-in-progress-muted text-status-in-progress border-status-in-progress/30'
     case 'resolved':
-      return 'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200 border-green-400/40 dark:border-green-500/30'
     case 'closed':
-      return 'bg-gray-400/20 dark:bg-gray-500/20 text-gray-900 dark:text-gray-200 border-gray-400/40 dark:border-gray-500/30'
+      return 'bg-status-closed-muted text-status-closed border-status-closed/30'
     default:
-      return 'bg-gray-400/20 dark:bg-gray-500/20 text-gray-900 dark:text-gray-200 border-gray-400/40 dark:border-gray-500/30'
+      return 'bg-surface-alt text-secondary border-default'
   }
 }
 
 const getPriorityClass = (priority: string) => {
   switch (priority.toLowerCase()) {
     case 'high':
-      return 'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200 border-red-400/40 dark:border-red-500/30'
+      return 'bg-priority-high-muted text-priority-high border-priority-high/30'
     case 'medium':
-      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30'
+      return 'bg-priority-medium-muted text-priority-medium border-priority-medium/30'
     case 'low':
-      return 'bg-blue-400/20 dark:bg-blue-500/20 [color:#1e3a8a] dark:text-blue-200 border-blue-400/40 dark:border-blue-500/30'
+      return 'bg-priority-low-muted text-priority-low border-priority-low/30'
     default:
-      return 'bg-gray-400/20 dark:bg-gray-500/20 text-gray-900 dark:text-gray-200 border-gray-400/40 dark:border-gray-500/30'
+      return 'bg-surface-alt text-secondary border-default'
   }
 }
 </script>
@@ -125,7 +125,7 @@ const getPriorityClass = (priority: string) => {
       </div>
 
       <!-- Error message -->
-      <div v-if="error" class="bg-red-500/20 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg">
+      <div v-if="error" class="bg-status-error-muted border border-status-error/30 text-status-error px-4 py-3 rounded-lg">
         {{ error }}
       </div>
 

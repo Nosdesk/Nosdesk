@@ -1,60 +1,129 @@
-// src/stores/theme.ts
-import { logger } from '@/utils/logger';
+/**
+ * Theme Store
+ *
+ * Manages the application theme state, including:
+ * - Theme selection (system, light, dark, or custom theme IDs)
+ * - Accent color overrides
+ * - Theme application to DOM
+ * - Backend synchronization
+ */
+import { logger } from '@/utils/logger'
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import userService from '@/services/userService'
 import type { User } from '@/services/userService'
-
-export type Theme = 'system' | 'light' | 'dark'
+import {
+  getTheme,
+  getAllThemes,
+  getLightThemes,
+  getDarkThemes,
+  hasTheme,
+  applyTheme,
+} from '@/themes'
+import type { Theme, ThemeMode } from '@/themes'
 
 export const useThemeStore = defineStore('theme', () => {
-  // Use localStorage to persist theme preference, default to 'system'
-  const savedTheme = localStorage.getItem('theme') as Theme | null
-  const currentTheme = ref<Theme>(savedTheme || 'system')
+  // Current theme selection (theme ID or 'system')
+  const savedTheme = localStorage.getItem('theme') || 'system'
+  const currentTheme = ref<ThemeMode>(savedTheme)
+
+  // Optional accent color override
+  const savedAccent = localStorage.getItem('accentColor')
+  const accentColorOverride = ref<string | null>(savedAccent || null)
+
+  // Syncing state
   const isSyncing = ref<boolean>(false)
 
-  // Computed property to get the effective theme (resolves 'system' to 'light' or 'dark')
-  const effectiveTheme = computed<'light' | 'dark'>(() => {
+  // System preference tracking
+  const systemPrefersDark = ref(
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  )
+
+  // Listen for system preference changes
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+    systemPrefersDark.value = e.matches
     if (currentTheme.value === 'system') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+      applyCurrentTheme()
     }
-    return currentTheme.value
   })
 
-  const isDarkMode = computed(() => effectiveTheme.value === 'dark')
-
-  // Update the DOM to reflect the current theme
-  // Uses Tailwind's class-based dark mode convention
-  function updateTheme(): void {
-    if (effectiveTheme.value === 'dark') {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
+  /**
+   * Get the resolved theme object
+   * Resolves 'system' to light or dark based on OS preference
+   */
+  const effectiveTheme = computed<Theme>(() => {
+    if (currentTheme.value === 'system') {
+      return systemPrefersDark.value
+        ? getTheme('dark')!
+        : getTheme('light')!
     }
+
+    // Return the selected theme, fallback to light if not found
+    return getTheme(currentTheme.value) ?? getTheme('light')!
+  })
+
+  /**
+   * Whether the current effective theme is dark
+   */
+  const isDarkMode = computed(() => effectiveTheme.value.meta.isDark)
+
+  /**
+   * Available themes for UI display
+   */
+  const availableThemes = computed(() => getAllThemes())
+  const lightThemes = computed(() => getLightThemes())
+  const darkThemes = computed(() => getDarkThemes())
+
+  /**
+   * Apply the current theme to the DOM
+   */
+  function applyCurrentTheme(): void {
+    applyTheme(effectiveTheme.value, accentColorOverride.value ?? undefined)
   }
 
-  // Set theme directly (accepts 'system', 'light', or 'dark')
-  function setTheme(theme: Theme): void {
-    if (theme !== 'system' && theme !== 'light' && theme !== 'dark') {
-      logger.warn('Invalid theme:', theme, '- must be system, light, or dark')
+  /**
+   * Set the current theme
+   */
+  function setTheme(themeId: ThemeMode): void {
+    // Validate theme exists (or is 'system')
+    if (themeId !== 'system' && !hasTheme(themeId)) {
+      logger.warn('Invalid theme ID:', themeId)
       return
     }
-    currentTheme.value = theme
-    localStorage.setItem('theme', theme)
-    updateTheme()
+
+    currentTheme.value = themeId
+    localStorage.setItem('theme', themeId)
+    applyCurrentTheme()
   }
 
-  // Toggle between light and dark (skips 'system')
-  function toggleTheme(): void {
-    if (currentTheme.value === 'system') {
-      // If currently on system, toggle to the opposite of current system preference
-      setTheme(isDarkMode.value ? 'light' : 'dark')
+  /**
+   * Set the accent color override
+   */
+  function setAccentColor(color: string | null): void {
+    accentColorOverride.value = color
+    if (color) {
+      localStorage.setItem('accentColor', color)
     } else {
-      setTheme(currentTheme.value === 'light' ? 'dark' : 'light')
+      localStorage.removeItem('accentColor')
+    }
+    applyCurrentTheme()
+  }
+
+  /**
+   * Toggle between light and dark modes
+   * If on a specific theme, switches to the opposite base theme
+   */
+  function toggleTheme(): void {
+    if (isDarkMode.value) {
+      setTheme('light')
+    } else {
+      setTheme('dark')
     }
   }
 
-  // Sync theme to backend
+  /**
+   * Sync theme to backend user profile
+   */
   async function syncThemeToBackend(userUuid: string): Promise<boolean> {
     if (!userUuid) {
       logger.warn('Cannot sync theme: no user UUID provided')
@@ -68,7 +137,7 @@ export const useThemeStore = defineStore('theme', () => {
         theme: currentTheme.value
       })
 
-      logger.debug('✅ Theme synced to backend:', currentTheme.value)
+      logger.debug('Theme synced to backend:', currentTheme.value)
       return true
     } catch (error) {
       logger.error('Failed to sync theme to backend:', error)
@@ -78,35 +147,40 @@ export const useThemeStore = defineStore('theme', () => {
     }
   }
 
-  // Load theme from user profile
+  /**
+   * Load theme from user profile
+   */
   function loadThemeFromUser(user: User | null): void {
     if (user && user.theme) {
-      logger.debug('📥 Loading theme from user profile:', user.theme)
-      setTheme(user.theme as Theme)
+      logger.debug('Loading theme from user profile:', user.theme)
+      setTheme(user.theme as ThemeMode)
     }
   }
 
   // Initialize theme on store creation
-  updateTheme()
+  applyCurrentTheme()
 
-  // Watch for changes in effectiveTheme and update DOM
+  // Watch for effective theme changes
   watch(effectiveTheme, () => {
-    updateTheme()
-  })
-
-  // Listen for system theme changes (only affects 'system' theme)
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (currentTheme.value === 'system') {
-      updateTheme()
-    }
+    applyCurrentTheme()
   })
 
   return {
+    // State
     currentTheme,
     effectiveTheme,
     isDarkMode,
+    accentColorOverride,
     isSyncing,
+
+    // Theme lists for UI
+    availableThemes,
+    lightThemes,
+    darkThemes,
+
+    // Actions
     setTheme,
+    setAccentColor,
     toggleTheme,
     syncThemeToBackend,
     loadThemeFromUser,

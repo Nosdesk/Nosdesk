@@ -4,6 +4,7 @@ import ticketService from '@/services/ticketService';
 import { useRecentTicketsStore } from '@/stores/recentTickets';
 import apiClient from '@/services/apiConfig';
 import { useDocumentationNavStore } from '@/stores/documentationNav';
+import { useBrandingStore } from '@/stores/branding';
 
 export interface TitleableDocument {
   id: string;
@@ -35,13 +36,19 @@ const isTransitioning = ref(false);
 
 export function useTitleManager() {
   const route = useRoute();
+  const brandingStore = useBrandingStore();
+
+  // Helper to get the app name (reactive)
+  const getAppName = () => brandingStore.appName;
 
   // Computed properties
   const isTicketView = computed(() => currentTicket.value !== null);
   const isDeviceView = computed(() => currentDevice.value !== null);
   const isDocumentView = computed(() => currentDocument.value !== null);
-  
+
   const pageTitle = computed(() => {
+    const appName = getAppName();
+
     // Custom title takes precedence if set
     if (customTitle.value) {
       return customTitle.value;
@@ -66,8 +73,8 @@ export function useTitleManager() {
     const routeTitle = route.meta?.title as string;
 
     // Update document title
-    const finalTitle = routeTitle || 'Nosdesk';
-    document.title = `${finalTitle} | Nosdesk`;
+    const finalTitle = routeTitle || appName;
+    document.title = `${finalTitle} | ${appName}`;
 
     return finalTitle;
   });
@@ -96,7 +103,7 @@ export function useTitleManager() {
     (newTitle) => {
       if (currentTicket.value && newTitle !== undefined) {
         // Automatically update the document title when the ticket title changes
-        document.title = `#${currentTicket.value.id} ${newTitle} | Nosdesk`;
+        document.title = `#${currentTicket.value.id} ${newTitle} | ${getAppName()}`;
 
         // Also update the recent tickets store
         const recentTicketsStore = useRecentTicketsStore();
@@ -111,7 +118,7 @@ export function useTitleManager() {
   const setCustomTitle = (title: string | null) => {
     customTitle.value = title;
     if (title) {
-      document.title = `${title} | Nosdesk`;
+      document.title = `${title} | ${getAppName()}`;
     }
   };
   
@@ -121,7 +128,7 @@ export function useTitleManager() {
     // The document title will automatically update when ticketData.title changes
     // since we're watching the reactive object
     if (ticketData) {
-      document.title = `#${ticketData.id} ${ticketData.title} | Nosdesk`;
+      document.title = `#${ticketData.id} ${ticketData.title} | ${getAppName()}`;
     }
   };
   
@@ -129,7 +136,7 @@ export function useTitleManager() {
     // Store the actual reactive device object reference
     currentDevice.value = deviceData;
     if (deviceData) {
-      document.title = `#${deviceData.id} ${deviceData.hostname} | Nosdesk`;
+      document.title = `#${deviceData.id} ${deviceData.hostname} | ${getAppName()}`;
     }
   };
 
@@ -157,9 +164,9 @@ export function useTitleManager() {
       // Update the title in the current document for UI display
       currentDocument.value.title = newTitle;
       documentationTitle.value = newTitle;
-      
+
       // Update the document title for real-time feedback
-      document.title = `${newTitle} | Nosdesk`;
+      document.title = `${newTitle} | ${getAppName()}`;
     }
   };
   

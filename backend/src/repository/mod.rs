@@ -18,6 +18,9 @@ pub mod refresh_tokens;
 pub mod reset_tokens;
 pub mod user_ticket_views;
 
+// Site configuration
+pub mod site_settings;
+
 // Re-export all functions
 pub use article_content::*;
 pub use comments::*;

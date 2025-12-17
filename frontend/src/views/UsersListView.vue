@@ -223,13 +223,12 @@ defineExpose({
                 <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
                   <span v-if="user.email" class="text-tertiary truncate max-w-[200px]">{{ user.email }}</span>
                   <span
-                    class="role-badge inline-flex items-center px-1.5 py-0.5 rounded font-medium border"
+                    class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border"
                     :class="{
-                      'bg-purple-100 dark:bg-purple-500/20 dark:text-purple-300 border-purple-300 dark:border-purple-500/30': user.role === 'admin',
-                      'bg-blue-100 dark:bg-blue-500/20 dark:text-blue-300 border-blue-300 dark:border-blue-500/30': user.role === 'technician',
-                      'bg-slate-100 dark:bg-slate-500/20 dark:text-slate-300 border-slate-300 dark:border-slate-500/30': user.role === 'user'
+                      'bg-[rgba(139,92,246,0.15)] text-brand-purple border-brand-purple/30': user.role === 'admin',
+                      'bg-accent-muted text-accent border-accent/30': user.role === 'technician',
+                      'bg-surface-alt text-secondary border-default': user.role === 'user'
                     }"
-                    :style="{ color: user.role === 'admin' ? '#7e22ce' : user.role === 'technician' ? '#1d4ed8' : '#475569' }"
                   >
                     {{ user.role }}
                   </span>
@@ -263,11 +262,6 @@ defineExpose({
 </template>
 
 <style scoped>
-/* Dark mode: override inline style color for badges */
-:global(.dark) .role-badge {
-  color: inherit !important;
-}
-
 /* Custom scrollbar styling */
 .overflow-y-auto::-webkit-scrollbar,
 .overflow-x-auto::-webkit-scrollbar {

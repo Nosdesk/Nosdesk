@@ -9,29 +9,64 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const getStatusClasses = (value: string, type: string) => {
-  const baseClasses = 'text-xs px-2 py-1 rounded-full whitespace-nowrap'
+  const baseClasses = 'text-xs px-2 py-1 rounded-full whitespace-nowrap border'
 
   if (type === 'warranty') {
     switch (value) {
       case 'Active':
-        return `${baseClasses} bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200`
+        return `${baseClasses} bg-status-success-muted text-status-success border-status-success/30`
       case 'Warning':
-        return `${baseClasses} bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200`
+        return `${baseClasses} bg-status-warning-muted text-status-warning border-status-warning/30`
       case 'Expired':
-        return `${baseClasses} bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200`
+        return `${baseClasses} bg-status-error-muted text-status-error border-status-error/30`
       case 'Unknown':
-        return `${baseClasses} text-tertiary bg-surface-alt`
+        return `${baseClasses} bg-surface-alt text-secondary border-default`
       default:
-        return `${baseClasses} text-tertiary bg-surface-alt`
+        return `${baseClasses} bg-surface-alt text-secondary border-default`
+    }
+  }
+
+  if (type === 'status') {
+    switch (value?.toLowerCase()) {
+      case 'open':
+        return `${baseClasses} bg-status-open-muted text-status-open border-status-open/30`
+      case 'in-progress':
+      case 'in progress':
+        return `${baseClasses} bg-status-in-progress-muted text-status-in-progress border-status-in-progress/30`
+      case 'closed':
+      case 'resolved':
+        return `${baseClasses} bg-status-closed-muted text-status-closed border-status-closed/30`
+      default:
+        return `${baseClasses} bg-surface-alt text-secondary border-default`
+    }
+  }
+
+  if (type === 'priority') {
+    switch (value?.toLowerCase()) {
+      case 'high':
+        return `${baseClasses} bg-priority-high-muted text-priority-high border-priority-high/30`
+      case 'medium':
+        return `${baseClasses} bg-priority-medium-muted text-priority-medium border-priority-medium/30`
+      case 'low':
+        return `${baseClasses} bg-priority-low-muted text-priority-low border-priority-low/30`
+      default:
+        return `${baseClasses} bg-surface-alt text-secondary border-default`
     }
   }
 
   if (type === 'role') {
-    return `${baseClasses} bg-surface-alt text-primary`
+    switch (value?.toLowerCase()) {
+      case 'admin':
+        return `${baseClasses} bg-[rgba(139,92,246,0.15)] text-brand-purple border-brand-purple/30`
+      case 'technician':
+        return `${baseClasses} bg-accent-muted text-accent border-accent/30`
+      default:
+        return `${baseClasses} bg-surface-alt text-secondary border-default`
+    }
   }
 
-  // Default for status/priority
-  return `${baseClasses} bg-surface-alt text-primary`
+  // Default fallback
+  return `${baseClasses} bg-surface-alt text-secondary border-default`
 }
 </script>
 
