@@ -12,7 +12,7 @@ pub fn get_max_file_size() -> usize {
 }
 
 /// Allowed MIME types for general uploads
-/// Combines images, documents, and archives for maximum flexibility
+/// Combines images, documents, archives, and audio for maximum flexibility
 const ALLOWED_MIME_TYPES: &[&str] = &[
     // Images
     "image/jpeg",
@@ -36,6 +36,15 @@ const ALLOWED_MIME_TYPES: &[&str] = &[
     "application/x-tar",
     "application/gzip",
     "application/x-7z-compressed",
+    // Audio (for voice notes)
+    "audio/webm",
+    "audio/ogg",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/wav",
+    "audio/x-wav",
+    // Video/WebM (browser may detect voice notes as video/webm)
+    "video/webm",
 ];
 
 /// Custom error type for file validation
@@ -138,7 +147,7 @@ impl FileValidator {
         if !ALLOWED_MIME_TYPES.contains(&detected_type) {
             return Err(FileValidationError::InvalidMimeType {
                 detected: detected_type.to_string(),
-                allowed_category: "allowed file types (images, documents, archives)".to_string(),
+                allowed_category: "allowed file types (images, documents, archives, audio)".to_string(),
             });
         }
 

@@ -694,6 +694,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/{uuid}/with-emails", web::get().to(handlers::get_user_with_emails))
                     .route("/users/{uuid}/auth-identities", web::get().to(handlers::get_user_auth_identities_by_uuid))
                     .route("/users/{uuid}/auth-identities/{id}", web::delete().to(handlers::delete_user_auth_identity_by_uuid))
+                    .route("/users/{uuid}/resend-invitation", web::post().to(handlers::resend_invitation))
                     
                     // ===== DEVICE MANAGEMENT =====
                     .route("/devices", web::get().to(handlers::get_all_devices))

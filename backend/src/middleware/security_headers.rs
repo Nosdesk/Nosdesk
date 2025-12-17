@@ -27,7 +27,8 @@ impl SecurityHeaders {
                 "style-src 'self' 'unsafe-inline'; ", // unsafe-inline needed for some frameworks
                 "img-src 'self' data: https:; ",
                 "font-src 'self' data:; ",
-                "connect-src 'self'; ",
+                "connect-src 'self' blob:; ", // blob: for voice note uploads
+                "media-src 'self' blob:; ", // blob: for audio/video playback (voice notes)
                 "frame-ancestors 'none'; ",
                 "base-uri 'self'; ",
                 "form-action 'self'"
@@ -42,7 +43,8 @@ impl SecurityHeaders {
                 "style-src 'self' 'unsafe-inline'; ",
                 "img-src 'self' data: https:; ",
                 "font-src 'self' data:; ",
-                "connect-src 'self' ws: wss:; ", // WebSocket for hot reload
+                "connect-src 'self' ws: wss: blob:; ", // WebSocket for hot reload, blob: for voice notes
+                "media-src 'self' blob:; ", // blob: for audio/video playback (voice notes)
                 "frame-ancestors 'none'; ",
                 "base-uri 'self'; ",
                 "form-action 'self'"
@@ -145,10 +147,11 @@ where
             }
 
             // Permissions-Policy (formerly Feature-Policy)
+            // Allow microphone for voice notes feature
             if !headers.contains_key("Permissions-Policy") {
                 headers.insert(
                     "Permissions-Policy".parse().unwrap(),
-                    "geolocation=(), microphone=(), camera=()".parse().unwrap(),
+                    "geolocation=(), microphone=(self), camera=()".parse().unwrap(),
                 );
             }
 

@@ -268,7 +268,7 @@ const generatePdfThumbnail = async (url: string) => {
   <div :class="[
     'flex flex-col gap-2',
     attachmentType === 'audio' ? 'w-full' : '',
-    attachmentType === 'video' ? 'bg-surface-alt rounded-lg p-3 w-full' : '',
+    attachmentType === 'video' ? 'w-full' : '',
     attachmentType === 'image' ? 'max-w-[250px]' : '',
     attachmentType === 'pdf' ? 'max-w-[250px]' : ''
   ]">
@@ -320,9 +320,7 @@ const generatePdfThumbnail = async (url: string) => {
 
     <!-- Content -->
     <template v-if="attachmentType === 'audio'">
-      <div class="bg-surface-alt rounded-lg p-3 w-full">
-        <AudioPlayer :src="authenticatedUrl" />
-      </div>
+      <AudioPlayer :src="authenticatedUrl" />
     </template>
     <template v-else-if="attachmentType === 'video'">
       <VideoPlayer
@@ -486,7 +484,7 @@ const generatePdfThumbnail = async (url: string) => {
             :href="authenticatedUrl"
             target="_blank"
             :download="attachment.name"
-            class="flex items-center gap-1 p-2 bg-red-600/90 text-white hover:bg-red-700 rounded transition-colors"
+            class="flex items-center gap-1 p-2 bg-brand-blue text-white hover:opacity-90 rounded transition-colors"
             title="Download PDF"
             @click.stop
           >
@@ -522,7 +520,7 @@ const generatePdfThumbnail = async (url: string) => {
       <button
         type="button"
         @click.stop="emit('submit')"
-        class="px-3 py-1.5 bg-green-500 text-white text-sm rounded hover:bg-green-600 transition-colors"
+        class="px-3 py-1.5 bg-brand-blue text-white text-sm rounded hover:opacity-90 transition-colors"
       >
         Submit Video
       </button>

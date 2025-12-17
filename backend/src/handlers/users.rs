@@ -7,11 +7,84 @@ use uuid::Uuid;
 use futures::{StreamExt, TryStreamExt};
 use actix_multipart::Multipart;
 use std::collections::HashSet;
+use tracing::{info, error};
 
 use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword, UserProfileUpdate};
 use crate::repository;
 use crate::repository::user_emails as user_emails_repo;
 use crate::utils;
+use crate::db::DbConnection;
+
+/// Result type for invitation sending operations
+pub enum SendInvitationResult {
+    Success,
+    EmailServiceError(String),
+    TokenStorageError(String),
+    EmailSendError(String),
+}
+
+/// Helper function to create and send an invitation to a user.
+/// This consolidates the duplicated invitation logic between create_user and resend_invitation.
+async fn send_user_invitation(
+    conn: &mut DbConnection,
+    req: &HttpRequest,
+    user_uuid: Uuid,
+    user_email: &str,
+    user_name: &str,
+    admin_name: &str,
+) -> SendInvitationResult {
+    // Create invitation token
+    let invitation_token = crate::utils::reset_tokens::ResetTokenUtils::create_reset_token(
+        user_uuid,
+        crate::utils::reset_tokens::TokenType::Invitation,
+    );
+
+    // Get request metadata
+    let ip_address = req.connection_info().realip_remote_addr().map(|s| s.to_string());
+    let user_agent = req.headers()
+        .get("User-Agent")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    // Store the invitation token
+    if let Err(e) = repository::reset_tokens::create_reset_token(
+        conn,
+        &invitation_token.token_hash,
+        user_uuid,
+        invitation_token.token_type.as_str(),
+        ip_address.as_deref(),
+        user_agent.as_deref(),
+        invitation_token.expires_at,
+        None,
+    ) {
+        return SendInvitationResult::TokenStorageError(format!("{:?}", e));
+    }
+
+    // Get frontend base URL
+    let base_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| {
+        let conn_info = req.connection_info();
+        format!("{}://{}", conn_info.scheme(), conn_info.host())
+    });
+
+    // Initialize email service
+    let email_service = match crate::utils::email::EmailService::from_env() {
+        Ok(service) => service,
+        Err(e) => return SendInvitationResult::EmailServiceError(format!("{:?}", e)),
+    };
+
+    // Send invitation email
+    if let Err(e) = email_service.send_invitation_email(
+        user_email,
+        user_name,
+        &invitation_token.raw_token,
+        &base_url,
+        admin_name,
+    ).await {
+        return SendInvitationResult::EmailSendError(format!("{:?}", e));
+    }
+
+    SendInvitationResult::Success
+}
 
 // Pagination query parameters
 #[derive(Deserialize)]
@@ -344,7 +417,8 @@ pub async fn create_user(
         .with_microsoft_uuid(user_data.microsoft_uuid)
         .build_with_email();
 
-    match repository::user_helpers::create_user_with_email(new_user, email.clone(), true, Some("manual".to_string()), &mut conn) {
+    // Email starts as unverified - will be verified when user accepts invitation or verifies email
+    match repository::user_helpers::create_user_with_email(new_user, email.clone(), false, Some("manual".to_string()), &mut conn) {
         Ok((user, _email_entry)) => {
             use bcrypt::hash;
             use crate::models::NewUserAuthIdentity;
@@ -364,63 +438,37 @@ pub async fn create_user(
                 };
                 (Some(hash), false)
             } else if smtp_configured && user_data.send_invitation.unwrap_or(true) {
-                // No password, SMTP configured - create invitation token and send email
-                let invitation_token = crate::utils::reset_tokens::ResetTokenUtils::create_reset_token(
-                    user.uuid,
-                    crate::utils::reset_tokens::TokenType::Invitation,
-                );
-
-                // Store the invitation token
-                let ip_address = req.connection_info().realip_remote_addr().map(|s| s.to_string());
-                let user_agent = req.headers()
-                    .get("User-Agent")
-                    .and_then(|h| h.to_str().ok())
-                    .map(|s| s.to_string());
-
-                if let Err(e) = repository::reset_tokens::create_reset_token(
+                // No password, SMTP configured - send invitation email
+                match send_user_invitation(
                     &mut conn,
-                    &invitation_token.token_hash,
+                    &req,
                     user.uuid,
-                    invitation_token.token_type.as_str(),
-                    ip_address.as_deref(),
-                    user_agent.as_deref(),
-                    invitation_token.expires_at,
-                    None,
-                ) {
-                    eprintln!("Error storing invitation token: {:?}", e);
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Error creating invitation"
-                    }));
-                }
-
-                // Send invitation email
-                let base_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| {
-                    let conn_info = req.connection_info();
-                    format!("{}://{}", conn_info.scheme(), conn_info.host())
-                });
-
-                let email_service = match crate::utils::email::EmailService::from_env() {
-                    Ok(service) => service,
-                    Err(e) => {
-                        eprintln!("Error initializing email service: {:?}", e);
+                    &email,
+                    &normalized_name,
+                    &admin_name,
+                ).await {
+                    SendInvitationResult::Success => {
+                        // Invitation sent successfully
+                    },
+                    SendInvitationResult::TokenStorageError(e) => {
+                        eprintln!("Error storing invitation token: {}", e);
+                        return HttpResponse::InternalServerError().json(json!({
+                            "status": "error",
+                            "message": "Error creating invitation"
+                        }));
+                    },
+                    SendInvitationResult::EmailServiceError(e) => {
+                        eprintln!("Error initializing email service: {}", e);
                         return HttpResponse::InternalServerError().json(json!({
                             "status": "error",
                             "message": "Error sending invitation email"
                         }));
-                    }
-                };
-
-                if let Err(e) = email_service.send_invitation_email(
-                    &email,
-                    &normalized_name,
-                    &invitation_token.raw_token,
-                    &base_url,
-                    &admin_name,
-                ).await {
-                    eprintln!("Error sending invitation email: {:?}", e);
-                    // Don't fail - user was created, just couldn't send email
-                    println!("⚠️ User created but invitation email failed to send");
+                    },
+                    SendInvitationResult::EmailSendError(e) => {
+                        eprintln!("Error sending invitation email: {}", e);
+                        // Don't fail - user was created, just couldn't send email
+                        println!("⚠️ User created but invitation email failed to send");
+                    },
                 }
 
                 (None, true) // No password hash - user will set via invitation
@@ -507,47 +555,164 @@ pub async fn update_user(
     }))
 }
 
+/// Request body for delete user endpoint
+/// Accepts either mfa_code (when MFA is required/enabled) or password (when MFA is not required)
+#[derive(Deserialize)]
+pub struct DeleteUserRequest {
+    pub mfa_code: Option<String>,
+    pub password: Option<String>,
+}
+
 pub async fn delete_user(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
+    body: web::Json<DeleteUserRequest>,
 ) -> impl Responder {
     let user_uuid = uuid.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Database connection error"
+        })),
     };
 
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Authentication required"
+        })),
     };
 
     // Only admins can delete users
     if claims.role != "admin" {
         return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
+            "status": "error",
             "message": "Only administrators can delete users"
         }));
+    }
+
+    // Get the admin user (the one making the request) to verify their credentials
+    let admin_uuid = match utils::parse_uuid(&claims.sub) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid admin UUID"
+        })),
+    };
+
+    let admin_user = match repository::get_user_by_uuid(&admin_uuid, &mut conn) {
+        Ok(user) => user,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Failed to get admin user"
+        })),
+    };
+
+    // Check if MFA is required for admins
+    let mfa_required = crate::utils::mfa::should_require_mfa(&admin_user.role);
+    let admin_has_mfa = admin_user.mfa_enabled && admin_user.mfa_secret.is_some();
+
+    // Verify credentials based on MFA requirement
+    if mfa_required && admin_has_mfa {
+        // MFA is required and enabled - verify MFA code
+        let mfa_code = match &body.mfa_code {
+            Some(code) if !code.is_empty() => code,
+            _ => return HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": "MFA code is required to delete users"
+            })),
+        };
+
+        let mfa_result = match crate::utils::mfa::verify_mfa_token(&admin_uuid, mfa_code, &mut conn).await {
+            Ok(result) => result,
+            Err(e) => {
+                return HttpResponse::BadRequest().json(json!({
+                    "status": "error",
+                    "message": format!("MFA verification failed: {}", e)
+                }));
+            }
+        };
+
+        if !mfa_result.is_valid {
+            return HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": "Invalid MFA code"
+            }));
+        }
+    } else {
+        // MFA not required or not enabled - verify password
+        let password = match &body.password {
+            Some(pwd) if !pwd.is_empty() => pwd,
+            _ => return HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": "Password is required to delete users"
+            })),
+        };
+
+        // Get admin's auth identity to verify password
+        let auth_identities = match repository::user_auth_identities::get_user_identities(&admin_uuid, &mut conn) {
+            Ok(identities) => identities,
+            Err(_) => return HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to get authentication data"
+            })),
+        };
+
+        // Find local auth identity with password
+        let local_identity = auth_identities.iter()
+            .find(|id| id.provider_type == "local" && id.password_hash.is_some());
+
+        let password_hash = match local_identity {
+            Some(identity) => identity.password_hash.as_ref().unwrap(),
+            None => return HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": "No password set for this account"
+            })),
+        };
+
+        // Verify password
+        let password_valid = match bcrypt::verify(password, password_hash) {
+            Ok(valid) => valid,
+            Err(_) => return HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Password verification failed"
+            })),
+        };
+
+        if !password_valid {
+            return HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": "Invalid password"
+            }));
+        }
     }
 
     // Parse the target user UUID
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid UUID format"),
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid UUID format"
+        })),
     };
 
     // Get the target user
     let target_user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json("User not found"),
+        Err(_) => return HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "User not found"
+        })),
     };
 
     // Prevent self-deletion
     if claims.sub == user_uuid {
         return HttpResponse::BadRequest().json(json!({
-            "error": "Cannot delete self",
+            "status": "error",
             "message": "You cannot delete your own account while logged in"
         }));
     }
@@ -555,16 +720,28 @@ pub async fn delete_user(
     // Prevent deletion of admin users (safety measure)
     if target_user.role == crate::models::UserRole::Admin {
         return HttpResponse::BadRequest().json(json!({
-            "error": "Cannot delete admin",
+            "status": "error",
             "message": "Administrator accounts cannot be deleted for security reasons"
         }));
     }
 
     // Delete the user
     match repository::delete_user(&target_user.uuid, &mut conn) {
-        Ok(count) if count > 0 => HttpResponse::NoContent().finish(),
-        Ok(_) => HttpResponse::NotFound().json("User not found"),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to delete user"),
+        Ok(count) if count > 0 => {
+            info!("User deleted successfully: {} (uuid={})", target_user.name, target_user.uuid);
+            HttpResponse::NoContent().finish()
+        },
+        Ok(_) => HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "User not found"
+        })),
+        Err(e) => {
+            error!("Failed to delete user {} (uuid={}): {:?}", target_user.name, target_user.uuid, e);
+            HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to delete user. The user may have associated data that prevents deletion."
+            }))
+        },
     }
 }
 
@@ -1847,6 +2024,164 @@ pub async fn delete_user_email(
                 "message": "Failed to delete email"
             }))
         }
+    }
+}
+
+/// Resend invitation email to a user who hasn't set up their account yet
+pub async fn resend_invitation(
+    db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
+    path: web::Path<String>, // User UUID
+) -> impl Responder {
+    let user_uuid = path.into_inner();
+    let mut conn = match db_pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Database connection failed"
+        })),
+    };
+
+    // Extract claims from cookie auth middleware
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Authentication required"
+        })),
+    };
+
+    // Only admins can resend invitations
+    if claims.role != "admin" {
+        return HttpResponse::Forbidden().json(json!({
+            "status": "error",
+            "message": "Only administrators can resend invitations"
+        }));
+    }
+
+    // Check email configuration
+    let email_config = crate::utils::email::EmailConfig::from_env().ok();
+    let smtp_configured = email_config.as_ref().map(|c| c.is_configured()).unwrap_or(false);
+
+    if !smtp_configured {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Email is not configured. Cannot send invitation."
+        }));
+    }
+
+    // Get the user
+    let uuid_parsed = match utils::parse_uuid(&user_uuid) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid UUID format"
+        })),
+    };
+
+    let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
+        Ok(user) => user,
+        Err(_) => return HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "User not found"
+        })),
+    };
+
+    // Check if user already has a password set (completed setup)
+    let auth_identities = match repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn) {
+        Ok(identities) => identities,
+        Err(_) => Vec::new(),
+    };
+
+    let has_password = auth_identities.iter().any(|identity| {
+        identity.provider_type == "local" && identity.password_hash.is_some()
+    });
+
+    if has_password {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "User has already completed account setup. Cannot resend invitation."
+        }));
+    }
+
+    // Get user's primary email - try to find one marked as primary first
+    let emails = match user_emails_repo::get_user_emails_by_uuid(&mut conn, &user.uuid) {
+        Ok(emails) if !emails.is_empty() => emails,
+        _ => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "User has no email address"
+        })),
+    };
+
+    // Find primary email or use first one
+    let user_email = emails
+        .iter()
+        .find(|e| e.is_primary)
+        .map(|e| e.email.clone())
+        .unwrap_or_else(|| emails[0].email.clone());
+
+    // Get the admin user's name for the invitation email
+    let admin_uuid = match utils::parse_uuid(&claims.sub) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Invalid admin UUID"
+        })),
+    };
+
+    let admin_name = match repository::get_user_by_uuid(&admin_uuid, &mut conn) {
+        Ok(admin) => admin.name,
+        Err(_) => "An administrator".to_string(),
+    };
+
+    // Invalidate any existing invitation tokens for this user
+    if let Err(e) = repository::reset_tokens::invalidate_tokens_by_type(
+        &mut conn,
+        user.uuid,
+        "invitation",
+    ) {
+        eprintln!("Warning: Failed to invalidate old invitation tokens: {:?}", e);
+        // Continue anyway - old tokens will expire naturally
+    }
+
+    // Send invitation using shared helper
+    match send_user_invitation(
+        &mut conn,
+        &req,
+        user.uuid,
+        &user_email,
+        &user.name,
+        &admin_name,
+    ).await {
+        SendInvitationResult::Success => {
+            println!("✅ Invitation email resent to {} for user {}", user_email, user.name);
+            HttpResponse::Ok().json(json!({
+                "status": "success",
+                "message": "Invitation email sent successfully",
+                "email": user_email
+            }))
+        },
+        SendInvitationResult::TokenStorageError(e) => {
+            eprintln!("Error storing invitation token: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Error creating invitation"
+            }))
+        },
+        SendInvitationResult::EmailServiceError(e) => {
+            eprintln!("Error initializing email service: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Error sending invitation email"
+            }))
+        },
+        SendInvitationResult::EmailSendError(e) => {
+            eprintln!("Error sending invitation email: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to send invitation email"
+            }))
+        },
     }
 }
 

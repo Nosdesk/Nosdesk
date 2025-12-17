@@ -233,6 +233,19 @@ pub async fn accept_invitation(
         // Don't fail the request for this
     }
 
+    // Mark user's primary email as verified (they proved ownership by receiving the invitation)
+    use crate::schema::user_emails;
+    if let Err(e) = diesel::update(
+        user_emails::table
+            .filter(user_emails::user_uuid.eq(&user.uuid))
+            .filter(user_emails::is_primary.eq(true))
+    )
+    .set(user_emails::is_verified.eq(true))
+    .execute(&mut conn) {
+        warn!("Failed to mark email as verified: {:?}", e);
+        // Don't fail the request for this
+    }
+
     // Log security event for invitation acceptance
     if let Err(e) = log_invitation_acceptance_event(&user.uuid, &http_request, &mut conn).await {
         warn!("Failed to log invitation acceptance event: {}", e);

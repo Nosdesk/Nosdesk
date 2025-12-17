@@ -73,6 +73,26 @@ pub fn count_recent_tokens(
         .get_result(conn)
 }
 
+/// Invalidate all tokens of a specific type for a user
+/// Used when resending invitations to invalidate old tokens
+pub fn invalidate_tokens_by_type(
+    conn: &mut DbConnection,
+    user_uuid_value: Uuid,
+    token_type_value: &str,
+) -> QueryResult<usize> {
+    diesel::update(
+        reset_tokens::table
+            .filter(reset_tokens::user_uuid.eq(user_uuid_value))
+            .filter(reset_tokens::token_type.eq(token_type_value))
+            .filter(reset_tokens::is_used.eq(false))
+    )
+    .set((
+        reset_tokens::is_used.eq(true),
+        reset_tokens::used_at.eq(Some(Utc::now())),
+    ))
+    .execute(conn)
+}
+
 /// Validate and consume a reset token
 /// Returns Ok(user_uuid) if token is valid, unused, and not expired
 pub fn validate_and_consume_token(

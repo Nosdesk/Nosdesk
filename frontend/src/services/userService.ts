@@ -572,6 +572,24 @@ const userService = {
       logger.error('Failed to get email config status', { error });
       return { is_configured: false, enabled: false };
     }
+  },
+
+  // Resend invitation email to a user who hasn't completed account setup
+  async resendInvitation(uuid: string): Promise<{ success: boolean; message: string; email?: string }> {
+    try {
+      const response = await apiClient.post(`/users/${uuid}/resend-invitation`);
+      return {
+        success: true,
+        message: response.data.message || 'Invitation email sent successfully',
+        email: response.data.email
+      };
+    } catch (error: any) {
+      logger.error('Failed to resend invitation', { error, uuid });
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to send invitation email'
+      };
+    }
   }
 };
 

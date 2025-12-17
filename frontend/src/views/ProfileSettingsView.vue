@@ -16,6 +16,7 @@ import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import userService from '@/services/userService';
 import type { User } from '@/services/userService';
 import apiClient from '@/services/apiConfig';
+import { useMfa } from '@/composables/useMfa';
 
 const route = useRoute();
 const router = useRouter();
@@ -227,7 +228,12 @@ onMounted(async () => {
   
   // Load target user if in admin mode
   await loadTargetUser();
-  
+
+  // Check if user has completed account setup (for resend invitation feature)
+  if (isManagingOtherUser.value && targetUser.value) {
+    await checkUserSetupStatus();
+  }
+
   isUpdatingFromRoute.value = true;
   
   // Handle initialization based on current URL
@@ -325,15 +331,74 @@ const updateUserRole = async (newRole: string) => {
   }
 };
 
+// Resend invitation functionality
+const resendingInvitation = ref(false);
+const userHasCompletedSetup = ref(true); // Default to true, will be checked on load
+
+// Check if user has completed account setup (has password)
+const checkUserSetupStatus = async () => {
+  if (!targetUser.value) return;
+
+  try {
+    // Get auth identities to check if user has a password set
+    const identities = await apiClient.get(`/users/${targetUser.value.uuid}/auth-identities`);
+    const hasPassword = identities.data?.some((identity: any) =>
+      identity.provider_type === 'local' && identity.password_hash
+    );
+    userHasCompletedSetup.value = hasPassword;
+  } catch (e) {
+    // If we can't check, assume setup is complete
+    userHasCompletedSetup.value = true;
+  }
+};
+
+// Resend invitation email
+const resendInvitation = async () => {
+  if (!targetUser.value) return;
+
+  try {
+    resendingInvitation.value = true;
+    const result = await userService.resendInvitation(targetUser.value.uuid);
+
+    if (result.success) {
+      handleSuccess(`Invitation email sent to ${result.email || targetUser.value.email}`);
+    } else {
+      handleError(result.message);
+    }
+  } catch (e) {
+    handleError('Failed to resend invitation email');
+  } finally {
+    resendingInvitation.value = false;
+  }
+};
+
 // Delete account functionality
 const showDeleteModal = ref(false);
+const deleteMfaCode = ref('');
 const deletePassword = ref('');
 const isDeleting = ref(false);
 
+// MFA status for delete confirmation
+const { mfaEnabled: adminMfaEnabled, checkMFAStatus: checkAdminMfaStatus } = useMfa();
+
+// Check admin's MFA status when delete modal opens
+const openDeleteModal = async () => {
+  showDeleteModal.value = true;
+  await checkAdminMfaStatus();
+};
+
 const deleteAccount = async () => {
-  if (!deletePassword.value) {
-    handleError('Please enter your password to confirm deletion');
-    return;
+  // Validate input based on MFA status
+  if (adminMfaEnabled.value) {
+    if (!deleteMfaCode.value) {
+      handleError('Please enter your 2FA code to confirm deletion');
+      return;
+    }
+  } else {
+    if (!deletePassword.value) {
+      handleError('Please enter your password to confirm deletion');
+      return;
+    }
   }
 
   try {
@@ -345,9 +410,13 @@ const deleteAccount = async () => {
       return;
     }
 
-    // Delete the user account
+    // Delete the user account (requires admin's MFA code or password)
+    const requestData = adminMfaEnabled.value
+      ? { mfa_code: deleteMfaCode.value }
+      : { password: deletePassword.value };
+
     await apiClient.delete(`/users/${userToDelete.uuid}`, {
-      data: { password: deletePassword.value }
+      data: requestData
     });
 
     // If deleting own account, logout and redirect
@@ -364,12 +433,14 @@ const deleteAccount = async () => {
     isDeleting.value = false;
   } finally {
     showDeleteModal.value = false;
+    deleteMfaCode.value = '';
     deletePassword.value = '';
   }
 };
 
 const cancelDelete = () => {
   showDeleteModal.value = false;
+  deleteMfaCode.value = '';
   deletePassword.value = '';
 };
 </script>
@@ -644,6 +715,75 @@ const cancelDelete = () => {
               @error="handleError"
             />
 
+            <!-- Resend Invitation Card (Admin only, for users who haven't completed setup) -->
+            <div
+              v-if="isManagingOtherUser && authStore.isAdmin && targetUser && !userHasCompletedSetup"
+              class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
+            >
+              <div class="px-4 sm:px-6 py-4 bg-surface-alt border-b border-default">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 class="text-base sm:text-lg font-semibold text-primary">Account Setup</h2>
+                      <p class="text-xs text-secondary hidden sm:block">User has not completed account setup</p>
+                    </div>
+                  </div>
+                  <span class="text-xs px-2.5 py-1 bg-amber-500/20 text-amber-500 rounded-full font-medium">Pending</span>
+                </div>
+              </div>
+
+              <div class="p-4 sm:p-6">
+                <div class="flex flex-col gap-4">
+                  <!-- Status banner -->
+                  <div class="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                      <p class="text-sm font-medium text-amber-500">Invitation pending</p>
+                      <p class="text-xs text-amber-500/80 mt-1">
+                        {{ targetUser.name }} has not yet set up their account. You can resend the invitation email with a new setup link.
+                      </p>
+                    </div>
+                  </div>
+
+                  <!-- Resend invitation action -->
+                  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div class="flex-1">
+                      <h3 class="text-base font-medium text-primary mb-1">Resend Invitation Email</h3>
+                      <p class="text-sm text-secondary">
+                        Send a new invitation email to <span class="text-primary font-medium">{{ targetUser.email }}</span> with a secure link to set up their password.
+                      </p>
+                    </div>
+                    <button
+                      @click="resendInvitation"
+                      :disabled="resendingInvitation"
+                      class="px-4 py-2 bg-brand-blue text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-brand-blue transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <svg v-if="resendingInvitation" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 004 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                      {{ resendingInvitation ? 'Sending...' : 'Resend Invitation' }}
+                    </button>
+                  </div>
+
+                  <!-- Info notice -->
+                  <p class="text-xs text-tertiary">
+                    The invitation link expires in 7 days. Any previous invitation links will be invalidated when a new one is sent.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <!-- Delete Account Section -->
             <div class="bg-surface rounded-xl border border-status-error hover:border-status-error transition-colors overflow-hidden">
               <div class="px-4 py-3 bg-status-error/10 border-b border-status-error">
@@ -671,7 +811,7 @@ const cancelDelete = () => {
                     </p>
                   </div>
                   <button
-                    @click="showDeleteModal = true"
+                    @click="openDeleteModal"
                     class="px-4 py-2 bg-status-error text-primary rounded-lg hover:bg-status-error/80 focus:outline-none focus:ring-2 focus:ring-status-error transition-colors flex items-center gap-2 whitespace-nowrap"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -717,18 +857,43 @@ const cancelDelete = () => {
           </div>
         </div>
 
-        <div class="flex flex-col gap-2">
+        <!-- MFA Code Input (shown when admin has MFA enabled) -->
+        <div v-if="adminMfaEnabled" class="flex flex-col gap-2">
           <label class="text-sm font-medium text-secondary">
-            {{ isAdminMode ? 'Enter your admin password to confirm:' : 'Enter your password to confirm:' }}
+            Enter your 2FA code from your authenticator app to confirm:
+          </label>
+          <input
+            v-model="deleteMfaCode"
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            autocomplete="one-time-code"
+            maxlength="6"
+            class="w-full px-4 py-2 bg-surface-alt text-primary rounded-lg border border-default focus:ring-2 focus:ring-status-error focus:outline-none text-center text-2xl tracking-widest font-mono"
+            placeholder="000000"
+            @keyup.enter="deleteAccount"
+          />
+          <p class="text-xs text-secondary">
+            Enter the 6-digit code from your authenticator app.
+          </p>
+        </div>
+
+        <!-- Password Input (shown when admin doesn't have MFA enabled) -->
+        <div v-else class="flex flex-col gap-2">
+          <label class="text-sm font-medium text-secondary">
+            Enter your password to confirm:
           </label>
           <input
             v-model="deletePassword"
             type="password"
             autocomplete="current-password"
             class="w-full px-4 py-2 bg-surface-alt text-primary rounded-lg border border-default focus:ring-2 focus:ring-status-error focus:outline-none"
-            placeholder="Password"
+            placeholder="Enter your password"
             @keyup.enter="deleteAccount"
           />
+          <p class="text-xs text-secondary">
+            Enter your account password to confirm this action.
+          </p>
         </div>
 
         <div class="flex justify-end gap-3 pt-2">
@@ -741,7 +906,7 @@ const cancelDelete = () => {
           </button>
           <button
             @click="deleteAccount"
-            :disabled="!deletePassword || isDeleting"
+            :disabled="(adminMfaEnabled ? (!deleteMfaCode || deleteMfaCode.length < 6) : !deletePassword) || isDeleting"
             class="px-4 py-2 bg-status-error text-primary rounded-lg hover:bg-status-error/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <span v-if="isDeleting" class="animate-spin h-4 w-4">

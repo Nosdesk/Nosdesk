@@ -144,32 +144,139 @@ pub fn update_user(
 }
 
 pub fn delete_user(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<usize, Error> {
-    use crate::schema::{comments, devices, user_auth_identities, user_emails};
+    use crate::schema::{
+        comments, devices, tickets, attachments, linked_tickets, project_tickets,
+        ticket_devices, article_contents, sync_history, user_auth_identities, user_emails,
+        documentation_pages, documentation_revisions, projects,
+    };
 
     // Start a transaction to ensure all-or-nothing deletion
     conn.transaction::<_, Error, _>(|conn| {
-        // 1. Delete all comments by this user
-        // Note: comments.user_uuid references users.uuid
+        // === Phase 1: Handle RESTRICT constraints ===
+        // These tables have ON DELETE RESTRICT, so we need to delete/reassign data first
+
+        // 1a. Delete all comments by this user
         diesel::delete(comments::table.filter(comments::user_uuid.eq(user_uuid)))
             .execute(conn)?;
 
-        // 2. Update devices to remove user associations (set primary_user_uuid to NULL)
-        // Note: devices.primary_user_uuid references users.uuid
+        // 1b. Update tickets where user is requester (RESTRICT) - set to NULL
+        diesel::update(tickets::table.filter(tickets::requester_uuid.eq(user_uuid)))
+            .set(tickets::requester_uuid.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // 1c. Update documentation_pages created_by/last_edited_by (RESTRICT)
+        // We need to reassign to another user or handle this specially
+        // For now, we'll update to a system user or the first admin
+        // This is a simplification - in production you might want to preserve authorship
+        let first_admin: Option<User> = users::table
+            .into_boxed()
+            .filter(users::role.eq(crate::models::UserRole::Admin))
+            .filter(users::uuid.ne(user_uuid))
+            .first(conn)
+            .optional()?;
+
+        if let Some(admin) = first_admin {
+            // Reassign documentation to another admin
+            diesel::update(documentation_pages::table.filter(documentation_pages::created_by.eq(user_uuid)))
+                .set(documentation_pages::created_by.eq(admin.uuid))
+                .execute(conn)?;
+
+            diesel::update(documentation_pages::table.filter(documentation_pages::last_edited_by.eq(user_uuid)))
+                .set(documentation_pages::last_edited_by.eq(admin.uuid))
+                .execute(conn)?;
+
+            diesel::update(documentation_revisions::table.filter(documentation_revisions::created_by.eq(user_uuid)))
+                .set(documentation_revisions::created_by.eq(admin.uuid))
+                .execute(conn)?;
+        }
+        // Note: If no other admin exists, the delete will fail due to FK constraint
+        // This is intentional - we need at least one admin to own documentation
+
+        // === Phase 2: Handle SET NULL constraints ===
+        // These tables have ON DELETE SET NULL but we handle explicitly for clarity
+
+        // 2a. Devices
         diesel::update(devices::table.filter(devices::primary_user_uuid.eq(user_uuid)))
             .set(devices::primary_user_uuid.eq::<Option<Uuid>>(None))
             .execute(conn)?;
+        diesel::update(devices::table.filter(devices::created_by.eq(user_uuid)))
+            .set(devices::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
 
-        // 3. Delete user auth identities
-        // Note: user_auth_identities.user_uuid references users.uuid with ON DELETE CASCADE
+        // 2b. Tickets (assignee, created_by, closed_by)
+        diesel::update(tickets::table.filter(tickets::assignee_uuid.eq(user_uuid)))
+            .set(tickets::assignee_uuid.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+        diesel::update(tickets::table.filter(tickets::created_by.eq(user_uuid)))
+            .set(tickets::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+        diesel::update(tickets::table.filter(tickets::closed_by.eq(user_uuid)))
+            .set(tickets::closed_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // 2c. Projects
+        diesel::update(projects::table.filter(projects::created_by.eq(user_uuid)))
+            .set(projects::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+        diesel::update(projects::table.filter(projects::owner_uuid.eq(user_uuid)))
+            .set(projects::owner_uuid.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // 2d. Attachments
+        diesel::update(attachments::table.filter(attachments::uploaded_by.eq(user_uuid)))
+            .set(attachments::uploaded_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // 2e. Linked tickets
+        diesel::update(linked_tickets::table.filter(linked_tickets::created_by.eq(user_uuid)))
+            .set(linked_tickets::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // 2f. Project tickets
+        diesel::update(project_tickets::table.filter(project_tickets::created_by.eq(user_uuid)))
+            .set(project_tickets::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // 2g. Ticket devices
+        diesel::update(ticket_devices::table.filter(ticket_devices::created_by.eq(user_uuid)))
+            .set(ticket_devices::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // 2h. Article contents
+        diesel::update(article_contents::table.filter(article_contents::created_by.eq(user_uuid)))
+            .set(article_contents::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+        diesel::update(article_contents::table.filter(article_contents::updated_by.eq(user_uuid)))
+            .set(article_contents::updated_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // 2i. Sync history
+        diesel::update(sync_history::table.filter(sync_history::initiated_by.eq(user_uuid)))
+            .set(sync_history::initiated_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // 2j. User auth identities created_by
+        diesel::update(user_auth_identities::table.filter(user_auth_identities::created_by.eq(user_uuid)))
+            .set(user_auth_identities::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // 2k. User emails created_by
+        diesel::update(user_emails::table.filter(user_emails::created_by.eq(user_uuid)))
+            .set(user_emails::created_by.eq::<Option<Uuid>>(None))
+            .execute(conn)?;
+
+        // === Phase 3: Delete CASCADE tables explicitly (for clarity) ===
+        // These would be deleted automatically by CASCADE, but explicit is clearer
+
+        // 3a. Delete user auth identities
         diesel::delete(user_auth_identities::table.filter(user_auth_identities::user_uuid.eq(user_uuid)))
             .execute(conn)?;
 
-        // 4. Delete user emails
-        // Note: user_emails.user_uuid references users.uuid with ON DELETE CASCADE
+        // 3b. Delete user emails
         diesel::delete(user_emails::table.filter(user_emails::user_uuid.eq(user_uuid)))
             .execute(conn)?;
 
-        // 5. Finally delete the user
+        // === Phase 4: Delete the user ===
         let deleted_count = diesel::delete(users::table.find(user_uuid)).execute(conn)?;
 
         Ok(deleted_count)

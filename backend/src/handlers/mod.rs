@@ -27,7 +27,8 @@ pub use users::{
     get_user_emails, get_user_with_emails, add_user_email, update_user_email, delete_user_email,
     cleanup_stale_images,
     get_user_auth_identities, delete_user_auth_identity,
-    get_user_auth_identities_by_uuid, delete_user_auth_identity_by_uuid
+    get_user_auth_identities_by_uuid, delete_user_auth_identity_by_uuid,
+    resend_invitation
 };
 pub use files::*;
 // Export specific items from tickets to avoid conflicts

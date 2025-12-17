@@ -54,158 +54,137 @@ const drawWaveform = () => {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  const width = canvas.width;
-  const height = canvas.height;
-  const step = Math.ceil(audioData.value.length / width);
-  const amp = height * 0.9;
+  // Handle high DPI displays
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
 
-  // Solid background color using semantic variable
-  ctx.fillStyle = 'var(--bg-surface)';
+  const width = rect.width;
+  const height = rect.height;
+  const centerY = height / 2;
+
+  // Brand colors
+  const brandBlue = '#2C80FF';
+  const brandPink = '#FF66B3';
+  const brandPurple = '#8B5CF6';
+
+  // Check theme
+  const isDark = document.documentElement.classList.contains('dark');
+  const bgColor = isDark ? '#1a1f2e' : '#f1f5f9';
+  const unplayedColor = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)';
+
+  // Clear background
+  ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, width, height);
 
-  const waveGradient = ctx.createLinearGradient(0, 0, 0, height);
-  waveGradient.addColorStop(0, '#60A5FA');
-  waveGradient.addColorStop(1, '#3B82F6');
+  // Calculate progress
+  const progress = durationLoaded.value && duration.value > 0
+    ? currentTime.value / duration.value
+    : 0;
+  const progressX = progress * width;
 
-  ctx.beginPath();
-  ctx.strokeStyle = waveGradient;
-  ctx.lineWidth = 2;
+  // Bar configuration - responsive bar count based on width
+  const numBars = Math.max(30, Math.min(80, Math.floor(width / 6)));
+  const barWidth = width / numBars;
+  const gap = Math.max(1, barWidth * 0.15);
+  const maxBarHeight = height * 0.4;
 
-  ctx.beginPath();
-  ctx.moveTo(0, height / 2);
+  // Helper: blend two hex colors
+  const blendColors = (color1: string, color2: string, t: number): string => {
+    const r1 = parseInt(color1.slice(1, 3), 16);
+    const g1 = parseInt(color1.slice(3, 5), 16);
+    const b1 = parseInt(color1.slice(5, 7), 16);
+    const r2 = parseInt(color2.slice(1, 3), 16);
+    const g2 = parseInt(color2.slice(3, 5), 16);
+    const b2 = parseInt(color2.slice(5, 7), 16);
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  };
 
-  for (let i = 0; i < width; i++) {
-    const index = i * step;
-    const windowSize = Math.min(step * 2, audioData.value.length - index);
-    let sum = 0;
-    for (let j = 0; j < windowSize; j++) {
-      sum += Math.abs(audioData.value[index + j] || 0);
-    }
-    const value = sum / windowSize;
-    
-    const x = i;
-    const y = height / 2 - (value * amp / 2);
-    
-    if (i === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      const prevX = i - 1;
-      const prevY = height / 2 - (Math.abs(audioData.value[prevX * step]) * amp / 2);
-      const cpX = x - (x - prevX) / 2;
-      const cpY = prevY;
-      ctx.quadraticCurveTo(cpX, cpY, x, y);
-    }
-  }
-
-  for (let i = width - 1; i >= 0; i--) {
-    const index = i * step;
-    const windowSize = Math.min(step * 2, audioData.value.length - index);
-    let sum = 0;
-    for (let j = 0; j < windowSize; j++) {
-      sum += Math.abs(audioData.value[index + j] || 0);
-    }
-    const value = sum / windowSize;
-    
-    const x = i;
-    const y = height / 2 + (value * amp / 2);
-    
-    if (i === width - 1) {
-      ctx.lineTo(x, y);
-    } else {
-      const nextX = i + 1;
-      const nextY = height / 2 + (Math.abs(audioData.value[nextX * step]) * amp / 2);
-      const cpX = x + (nextX - x) / 2;
-      const cpY = nextY;
-      ctx.quadraticCurveTo(cpX, cpY, x, y);
-    }
-  }
-
-  ctx.closePath();
-  ctx.fillStyle = waveGradient;
-  ctx.fill();
-
-  ctx.shadowColor = '#60A5FA';
-  ctx.shadowBlur = 5;
-  ctx.strokeStyle = '#93C5FD';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // Only draw progress if we have a valid duration
-  if (durationLoaded.value && duration.value > 0 && isFinite(duration.value)) {
-    const progress = (currentTime.value / duration.value) * width;
-    
-    const progressGradient = ctx.createLinearGradient(0, 0, 0, height);
-    progressGradient.addColorStop(0, '#2563EB');
-    progressGradient.addColorStop(1, '#3B82F6');
-    
-    ctx.fillStyle = progressGradient;
-    ctx.fillRect(0, 0, progress, height);
-    
-    ctx.save();
+  // Helper: draw rounded rectangle
+  const drawRoundedRect = (x: number, y: number, w: number, h: number, r: number) => {
+    const radius = Math.min(r, w / 2, Math.abs(h) / 2);
     ctx.beginPath();
-    ctx.rect(0, 0, progress, height);
-    ctx.clip();
-    
-    ctx.beginPath();
-    for (let i = 0; i < width; i++) {
-      const index = i * step;
-      const windowSize = Math.min(step * 2, audioData.value.length - index);
-      let sum = 0;
-      for (let j = 0; j < windowSize; j++) {
-        sum += Math.abs(audioData.value[index + j] || 0);
-      }
-      const value = sum / windowSize;
-      
-      const x = i;
-      const y = height / 2 - (value * amp / 2);
-      
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        const prevX = i - 1;
-        const prevY = height / 2 - (Math.abs(audioData.value[prevX * step]) * amp / 2);
-        const cpX = x - (x - prevX) / 2;
-        const cpY = prevY;
-        ctx.quadraticCurveTo(cpX, cpY, x, y);
-      }
-    }
-    
-    for (let i = width - 1; i >= 0; i--) {
-      const index = i * step;
-      const windowSize = Math.min(step * 2, audioData.value.length - index);
-      let sum = 0;
-      for (let j = 0; j < windowSize; j++) {
-        sum += Math.abs(audioData.value[index + j] || 0);
-      }
-      const value = sum / windowSize;
-      
-      const x = i;
-      const y = height / 2 + (value * amp / 2);
-      
-      if (i === width - 1) {
-        ctx.lineTo(x, y);
-      } else {
-        const nextX = i + 1;
-        const nextY = height / 2 + (Math.abs(audioData.value[nextX * step]) * amp / 2);
-        const cpX = x + (nextX - x) / 2;
-        const cpY = nextY;
-        ctx.quadraticCurveTo(cpX, cpY, x, y);
-      }
-    }
-    
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    ctx.lineTo(x + radius, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
-    ctx.fillStyle = '#93C5FD';
+  };
+
+  // Draw bars
+  for (let i = 0; i < numBars; i++) {
+    const x = i * barWidth;
+    const barCenterX = x + barWidth / 2;
+
+    // Sample audio data for this bar
+    const dataIndex = Math.floor((i / numBars) * audioData.value.length);
+    const amplitude = Math.pow(audioData.value[dataIndex] || 0, 0.8);
+    const barHeight = Math.max(2, amplitude * maxBarHeight);
+
+    // Determine if this bar is played
+    const isPlayed = barCenterX <= progressX;
+
+    // Color based on frequency position (purple -> pink -> blue)
+    const t = i / numBars;
+    let playedColor: string;
+    if (t < 0.33) {
+      playedColor = blendColors(brandPurple, brandPink, t / 0.33);
+    } else if (t < 0.66) {
+      playedColor = blendColors(brandPink, brandBlue, (t - 0.33) / 0.33);
+    } else {
+      playedColor = brandBlue;
+    }
+
+    const color = isPlayed ? playedColor : unplayedColor;
+
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = isPlayed ? 0.9 : 0.6;
+
+    // Draw top bar
+    drawRoundedRect(x + gap / 2, centerY - barHeight, barWidth - gap, barHeight, 2);
     ctx.fill();
-    
-    ctx.shadowColor = '#60A5FA';
-    ctx.shadowBlur = 8;
-    ctx.strokeStyle = '#BFDBFE';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    
+
+    // Draw bottom bar (mirrored)
+    drawRoundedRect(x + gap / 2, centerY, barWidth - gap, barHeight, 2);
+    ctx.fill();
+
     ctx.restore();
   }
+
+  // Draw playhead line
+  if (progress > 0 && progress < 1) {
+    ctx.save();
+    ctx.strokeStyle = brandBlue;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = brandBlue;
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.moveTo(progressX, 2);
+    ctx.lineTo(progressX, height - 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Subtle center line
+  ctx.save();
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, centerY);
+  ctx.lineTo(width, centerY);
+  ctx.stroke();
+  ctx.restore();
 };
 
 const initAudioContext = () => {
@@ -416,8 +395,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 bg-surface-alt rounded-lg w-full">
-    <!-- Audio player -->
+  <div class="audio-player w-full">
+    <!-- Hidden audio element -->
     <audio
       ref="audioRef"
       :src="props.src"
@@ -425,12 +404,15 @@ onUnmounted(() => {
       class="hidden"
     />
 
-    <div class="flex items-center gap-3">
+    <!-- Player controls - single row compact layout -->
+    <div class="flex items-center gap-3 w-full">
+      <!-- Play/Pause button -->
       <button
         type="button"
         @click="togglePlayPause"
         :disabled="isLoading || !!error"
-        class="w-8 h-8 flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-surface-hover disabled:cursor-not-allowed transition-colors"
+        class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-brand-blue hover:opacity-90 disabled:bg-surface-hover disabled:cursor-not-allowed transition-colors"
+        :aria-label="isPlaying ? 'Pause' : 'Play'"
       >
         <template v-if="isLoading">
           <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -453,29 +435,30 @@ onUnmounted(() => {
         </template>
       </button>
 
-      <div class="flex-1 flex items-center gap-2">
-        <span class="text-sm text-secondary min-w-[40px]">{{ formattedCurrentTime }}</span>
-        <div
-          ref="progressBarRef"
-          @mousedown="handleMouseDown"
-          class="flex-1 h-8 bg-surface rounded cursor-pointer overflow-hidden relative select-none"
-        >
-          <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center">
-            <span class="text-sm text-tertiary">Loading...</span>
-          </div>
-          <div v-else-if="error" class="absolute inset-0 flex items-center justify-center">
-            <span class="text-sm text-red-400">{{ error }}</span>
-          </div>
-          <canvas
-            v-else
-            ref="waveformCanvasRef"
-            class="absolute inset-0 w-full h-full"
-            width="1000"
-            height="32"
-          ></canvas>
+      <!-- Current time -->
+      <span class="text-xs font-mono text-secondary tabular-nums flex-shrink-0 w-8">{{ formattedCurrentTime }}</span>
+
+      <!-- Waveform -->
+      <div
+        ref="progressBarRef"
+        @mousedown="handleMouseDown"
+        class="flex-1 h-10 bg-surface rounded-lg cursor-pointer overflow-hidden relative select-none min-w-0"
+      >
+        <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center">
+          <span class="text-xs text-tertiary">Loading...</span>
         </div>
-        <span class="text-sm text-tertiary min-w-[40px]">{{ formattedDuration }}</span>
+        <div v-else-if="error" class="absolute inset-0 flex items-center justify-center">
+          <span class="text-xs text-red-400 px-2 text-center truncate">{{ error }}</span>
+        </div>
+        <canvas
+          v-else
+          ref="waveformCanvasRef"
+          class="absolute inset-0 w-full h-full"
+        ></canvas>
       </div>
+
+      <!-- Duration -->
+      <span class="text-xs font-mono text-tertiary tabular-nums flex-shrink-0 w-8">{{ formattedDuration }}</span>
     </div>
   </div>
 </template>
