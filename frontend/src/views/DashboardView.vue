@@ -5,9 +5,11 @@ import UserAssignedTickets from '@/components/UserAssignedTickets.vue'
 import { getTickets } from '@/services/ticketService'
 import type { Ticket } from '@/services/ticketService'
 import { useAuthStore } from '@/stores/auth'
+import { useBrandingStore } from '@/stores/branding'
 
-// Initialize auth store
+// Initialize stores
 const authStore = useAuthStore()
+const brandingStore = useBrandingStore()
 
 // Get current time-based greeting with helpdesk-themed messages
 const getGreeting = () => {
@@ -112,7 +114,7 @@ onMounted(() => {
           {{ formattedGreeting }}
         </h2>
         <p class="text-secondary mt-2">
-          Welcome to your Nosdesk dashboard
+          Welcome to your {{ brandingStore.appName }} dashboard
         </p>
       </div>
 

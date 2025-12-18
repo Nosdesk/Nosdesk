@@ -13,9 +13,40 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import brandingService, { type BrandingConfig } from '@/services/brandingService'
 
+const BRANDING_CACHE_KEY = 'nosdesk_branding_cache'
+
+/**
+ * Load cached branding from localStorage
+ */
+function loadCachedBranding(): BrandingConfig | null {
+  try {
+    const cached = localStorage.getItem(BRANDING_CACHE_KEY)
+    if (cached) {
+      return JSON.parse(cached)
+    }
+  } catch (e) {
+    // Ignore parse errors
+  }
+  return null
+}
+
+/**
+ * Save branding to localStorage cache
+ */
+function saveBrandingCache(config: BrandingConfig): void {
+  try {
+    localStorage.setItem(BRANDING_CACHE_KEY, JSON.stringify(config))
+  } catch (e) {
+    // Ignore storage errors
+  }
+}
+
 export const useBrandingStore = defineStore('branding', () => {
-  // Branding configuration
-  const config = ref<BrandingConfig>({
+  // Load cached branding immediately to prevent flash
+  const cachedBranding = loadCachedBranding()
+
+  // Branding configuration - use cached values if available
+  const config = ref<BrandingConfig>(cachedBranding || {
     app_name: 'Nosdesk',
     logo_url: null,
     logo_light_url: null,
@@ -79,13 +110,16 @@ export const useBrandingStore = defineStore('branding', () => {
       config.value = brandingConfig
       isLoaded.value = true
 
+      // Cache branding to localStorage for instant load on next visit
+      saveBrandingCache(brandingConfig)
+
       // Apply branding to the document
       applyBrandingToDocument()
 
       logger.debug('Branding loaded:', brandingConfig)
     } catch (error) {
       logger.error('Failed to load branding:', error)
-      // Keep defaults on error
+      // Keep defaults/cached values on error
     } finally {
       isLoading.value = false
     }
@@ -96,6 +130,7 @@ export const useBrandingStore = defineStore('branding', () => {
    */
   function updateConfig(newConfig: BrandingConfig): void {
     config.value = newConfig
+    saveBrandingCache(newConfig)
     applyBrandingToDocument()
   }
 
@@ -133,6 +168,12 @@ export const useBrandingStore = defineStore('branding', () => {
       favicon_url: null,
       primary_color: null,
       updated_at: null
+    }
+    // Clear the cache
+    try {
+      localStorage.removeItem(BRANDING_CACHE_KEY)
+    } catch (e) {
+      // Ignore storage errors
     }
     brandingService.resetFavicon()
   }

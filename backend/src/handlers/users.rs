@@ -13,6 +13,7 @@ use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword, UserProfil
 use crate::repository;
 use crate::repository::user_emails as user_emails_repo;
 use crate::utils;
+use crate::utils::email_branding::get_email_branding;
 use crate::db::DbConnection;
 
 /// Result type for invitation sending operations
@@ -72,12 +73,15 @@ async fn send_user_invitation(
         Err(e) => return SendInvitationResult::EmailServiceError(format!("{:?}", e)),
     };
 
+    // Get branding for email
+    let branding = get_email_branding(conn, &base_url);
+
     // Send invitation email
     if let Err(e) = email_service.send_invitation_email(
         user_email,
         user_name,
         &invitation_token.raw_token,
-        &base_url,
+        &branding,
         admin_name,
     ).await {
         return SendInvitationResult::EmailSendError(format!("{:?}", e));

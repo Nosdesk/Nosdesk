@@ -4,6 +4,7 @@ use serde_json::json;
 
 use crate::db::Pool;
 use crate::utils::email::{EmailService, EmailConfig};
+use crate::utils::email_branding::get_email_branding;
 
 /// Test email request
 #[derive(Deserialize)]
@@ -116,8 +117,12 @@ pub async fn send_test_email(
         }
     };
 
+    // Get branding for test email
+    let base_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let branding = get_email_branding(&mut conn, &base_url);
+
     // Send test email
-    match email_service.send_test_email(&request.to).await {
+    match email_service.send_test_email(&request.to, &branding).await {
         Ok(_) => HttpResponse::Ok().json(json!({
             "status": "success",
             "message": format!("Test email sent successfully to {}", request.to)

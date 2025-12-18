@@ -8,7 +8,8 @@ use crate::models::{PasswordResetRequest, PasswordResetResponse, PasswordResetCo
 use crate::repository;
 use crate::utils::auth::hash_password;
 use crate::utils::reset_tokens::{TokenType, ResetTokenUtils};
-use crate::utils::email::EmailService;
+use crate::utils::email::{EmailService, EmailBranding};
+use crate::utils::email_branding::get_email_branding;
 
 /// Rate limiting: Maximum password reset requests per user within time window
 const MAX_RESET_REQUESTS_PER_HOUR: i64 = 3;
@@ -144,12 +145,15 @@ pub async fn request_password_reset(
         }
     };
 
+    // Get branding for email
+    let branding = get_email_branding(&mut conn, &base_url);
+
     // Send the email asynchronously
     match email_service.send_password_reset_email(
         &user_email,
         &user.name,
         &reset_token.raw_token,
-        &base_url,
+        &branding,
     ).await {
         Ok(_) => {
             info!("Password reset email sent to: {} (user_uuid={})", user_email, user.uuid);

@@ -8,6 +8,7 @@ use crate::models::{MfaResetRequest, MfaResetResponse, MfaResetCompleteRequest};
 use crate::repository;
 use crate::utils::reset_tokens::{ResetTokenUtils, TokenType};
 use crate::utils::email::EmailService;
+use crate::utils::email_branding::get_email_branding;
 use crate::db::DbConnection;
 
 /// Maximum MFA reset requests per user per hour (rate limiting)
@@ -177,12 +178,15 @@ pub async fn request_mfa_reset(
         }
     };
 
+    // Get branding for email
+    let branding = get_email_branding(&mut conn, &base_url);
+
     // Send MFA reset email
     if let Err(e) = email_service.send_mfa_reset_email(
         &primary_email,
         &user.name,
         &reset_token_data.raw_token,
-        &base_url,
+        &branding,
     ).await {
         tracing::error!("Failed to send MFA reset email: {}", e);
         return HttpResponse::InternalServerError().json(json!({

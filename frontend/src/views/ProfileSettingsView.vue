@@ -606,27 +606,6 @@ const cancelDelete = () => {
 
               <div class="p-4 sm:p-6">
                 <div class="flex flex-col gap-5">
-                  <!-- Current role display -->
-                  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-default">
-                    <div>
-                      <p class="text-sm text-secondary mb-1">
-                        Control what <span class="text-primary font-medium">{{ targetUser.name }}</span> can access and manage.
-                      </p>
-                    </div>
-                    <div class="flex items-center gap-3">
-                      <span class="text-sm text-tertiary">Current role:</span>
-                      <span
-                        class="px-3 py-1.5 rounded-lg text-sm font-medium"
-                        :class="getRoleColorClass(targetUser.role)"
-                      >
-                        {{ targetUser.role.charAt(0).toUpperCase() + targetUser.role.slice(1) }}
-                      </span>
-                      <div v-if="updatingRole" class="flex items-center gap-2 text-blue-500">
-                        <div class="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-                      </div>
-                    </div>
-                  </div>
-
                   <!-- Role selection grid -->
                   <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button

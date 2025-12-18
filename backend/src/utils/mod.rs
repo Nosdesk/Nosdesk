@@ -6,6 +6,7 @@ pub mod sse;
 pub mod mfa;
 pub mod storage;
 pub mod email;
+pub mod email_branding;
 pub mod reset_tokens;
 pub mod csrf;
 pub mod cookies;
