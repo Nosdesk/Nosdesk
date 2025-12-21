@@ -28,8 +28,8 @@
           <div class="p-6">
             <!-- Success State -->
             <div v-if="emailSent" class="flex flex-col items-center gap-4 text-center">
-              <div class="bg-green-600/20 rounded-full p-3">
-                <svg class="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div class="bg-status-success/20 rounded-full p-3">
+                <svg class="w-8 h-8 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
                 </svg>
               </div>
@@ -40,8 +40,8 @@
                   <span class="text-primary font-medium">{{ email }}</span>
                 </p>
               </div>
-              <div class="bg-amber-600/10 border border-amber-600/20 rounded-lg p-4 text-sm text-secondary">
-                <p class="mb-2"><strong class="text-amber-400">Important:</strong></p>
+              <div class="bg-status-warning/10 border border-status-warning/20 rounded-lg p-4 text-sm text-secondary">
+                <p class="mb-2"><strong class="text-status-warning">Important:</strong></p>
                 <ul class="space-y-1 text-xs">
                   <li>• The recovery link will expire in <strong>15 minutes</strong></li>
                   <li>• You'll be able to disable or reconfigure MFA</li>
@@ -51,7 +51,7 @@
               </div>
               <button
                 @click="close"
-                class="w-full px-4 py-2 bg-brand-blue hover:opacity-90 text-white rounded-lg transition-colors font-medium"
+                class="w-full px-4 py-2 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium"
               >
                 Done
               </button>
@@ -66,7 +66,7 @@
               <!-- Error Message -->
               <div
                 v-if="errorMessage"
-                class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-lg text-sm"
+                class="bg-status-error/50 border border-status-error text-status-error px-4 py-3 rounded-lg text-sm"
               >
                 {{ errorMessage }}
               </div>
@@ -83,7 +83,7 @@
                   required
                   autocomplete="email"
                   placeholder="you@example.com"
-                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue transition-colors"
+                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
                   :disabled="loading"
                 />
               </div>
@@ -100,15 +100,15 @@
                   required
                   autocomplete="current-password"
                   placeholder="Enter your password"
-                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue transition-colors"
+                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
                   :disabled="loading"
                 />
               </div>
 
               <!-- Security Notice -->
-              <div class="bg-blue-600/10 border border-blue-600/20 rounded-lg p-3 text-xs text-secondary">
+              <div class="bg-accent/10 border border-accent/20 rounded-lg p-3 text-xs text-secondary">
                 <p class="flex items-start gap-2">
-                  <svg class="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-4 h-4 text-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                   </svg>
                   <span>This will send a secure recovery link to your email. The link can only be used once and expires in 15 minutes.</span>
@@ -127,7 +127,7 @@
                 </button>
                 <button
                   type="submit"
-                  class="flex-1 px-4 py-2 bg-brand-blue hover:opacity-90 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  class="flex-1 px-4 py-2 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   :disabled="loading || !email || !password"
                 >
                   <svg

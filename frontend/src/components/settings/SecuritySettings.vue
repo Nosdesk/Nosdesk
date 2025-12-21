@@ -84,7 +84,7 @@ const changePassword = async () => {
               v-model="currentPassword"
               type="password"
               autocomplete="current-password"
-              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-brand-blue focus:outline-none"
+              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
               placeholder="Enter your current password"
               required
             />
@@ -99,7 +99,7 @@ const changePassword = async () => {
               v-model="newPassword"
               type="password"
               autocomplete="new-password"
-              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-brand-blue focus:outline-none"
+              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
               placeholder="Enter your new password"
               minlength="8"
               required
@@ -116,12 +116,12 @@ const changePassword = async () => {
               v-model="confirmPassword"
               type="password"
               autocomplete="new-password"
-              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-brand-blue focus:outline-none"
+              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
               placeholder="Confirm your new password"
               required
             />
           </div>
-          <p v-if="confirmPassword && !passwordsMatch" class="text-xs text-red-400">
+          <p v-if="confirmPassword && !passwordsMatch" class="text-xs text-status-error">
             Passwords do not match
           </p>
         </div>
@@ -131,7 +131,7 @@ const changePassword = async () => {
           <button
             type="submit"
             :disabled="!isFormValid || loading"
-            class="px-6 py-2 bg-brand-blue text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-brand-blue disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+            class="px-6 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
           >
             <span v-if="loading" class="animate-spin h-4 w-4 mr-2">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

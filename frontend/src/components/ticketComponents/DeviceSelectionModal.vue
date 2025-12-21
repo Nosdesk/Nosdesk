@@ -4,6 +4,7 @@ import { ref, watch, computed, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
+import EmptyState from '@/components/common/EmptyState.vue';
 import { getPaginatedDevices } from '@/services/deviceService';
 import { getUserDevices, getPaginatedDevicesExcluding } from '@/services/deviceService';
 import type { Device } from '@/types/device';
@@ -358,7 +359,7 @@ const formatLastUpdated = (dateString: string): string => {
         <input
           type="text"
           v-model="searchQuery"
-          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20 transition-colors"
+          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-accent focus:ring-2 focus:ring-accent/20 transition-colors"
           placeholder="Search devices by name, hostname, serial number, manufacturer, or user..."
         >
         <div v-if="loading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
@@ -370,17 +371,13 @@ const formatLastUpdated = (dateString: string): string => {
       </div>
 
       <!-- Search hint -->
-      <div v-if="!searchQuery && !loading && devices.length === 0" class="text-center py-12 text-tertiary">
-        <div class="inline-flex flex-col items-center gap-3">
-          <svg class="w-12 h-12 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <div class="text-center">
-            <p class="text-lg font-medium text-secondary">Search for devices</p>
-            <p class="text-sm">Start typing to find devices by name, serial number, or user</p>
-          </div>
-        </div>
-      </div>
+      <EmptyState
+        v-if="!searchQuery && !loading && devices.length === 0"
+        icon="search"
+        title="Search for devices"
+        description="Start typing to find devices by name, serial number, or user"
+        variant="compact"
+      />
 
       <!-- Loading state (initial load) -->
       <div v-else-if="loading && devices.length === 0" class="text-center py-8 text-tertiary">
@@ -412,17 +409,13 @@ const formatLastUpdated = (dateString: string): string => {
       </div>
 
       <!-- No results -->
-      <div v-else-if="!loading && allDevicesForDisplay.length === 0 && searchQuery" class="text-center py-8 text-tertiary">
-        <div class="inline-flex flex-col items-center gap-3">
-          <svg class="w-12 h-12 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-          <div class="text-center">
-            <p class="text-lg font-medium text-secondary">No devices found</p>
-            <p class="text-sm">Try adjusting your search criteria</p>
-          </div>
-        </div>
-      </div>
+      <EmptyState
+        v-else-if="!loading && allDevicesForDisplay.length === 0 && searchQuery"
+        icon="device"
+        title="No devices found"
+        description="Try adjusting your search criteria"
+        variant="compact"
+      />
 
       <!-- Devices list with virtual scrolling -->
       <div 

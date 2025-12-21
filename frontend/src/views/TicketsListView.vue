@@ -11,8 +11,11 @@ import { IdCell, TextCell, StatusBadgeCell, UserAvatarCell, DateCell } from "@/c
 import StatusBadge from "@/components/StatusBadge.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import { useListManagement } from "@/composables/useListManagement";
+import { useThemeStore } from "@/stores/theme";
 import { parseDate } from "@/utils/dateUtils";
 import type { Ticket } from "@/services/ticketService";
+
+const themeStore = useThemeStore();
 
 // Compact date/time format for mobile
 const formatCompactDateTime = (dateString: string): string => {
@@ -272,7 +275,7 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
             <select
               :value="filter.value"
               @change="e => listManager.handleFilterUpdate(filter.name, (e.target as HTMLSelectElement).value)"
-              class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-brand-blue focus:border-brand-blue block w-full py-1 px-2"
+              class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-accent focus:border-accent block w-full py-1 px-2"
             >
               <option
                 v-for="option in filter.options"
@@ -286,7 +289,7 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
 
           <button
             @click="listManager.resetFilters"
-            class="px-2 py-1 text-xs font-medium text-white bg-brand-blue rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-brand-blue"
+            class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
           >
             Reset
           </button>
@@ -301,12 +304,13 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
     <!-- Main content -->
     <div class="flex-1 flex flex-col overflow-hidden">
       <BaseListView
-        title=""
-        :search-query="''"
+        title="Tickets"
         :is-loading="listManager.loading.value"
         :is-empty="listManager.items.value.length === 0 && !listManager.loading.value"
         :error="listManager.error.value"
-        :filters="[]"
+        empty-icon="ticket"
+        :empty-message="listManager.searchQuery.value ? 'No tickets match your search' : 'No tickets found'"
+        :empty-description="listManager.searchQuery.value ? 'Try adjusting your search or filters' : 'Create your first ticket to get started'"
         :results-count="listManager.totalItems.value"
         :selected-items="listManager.selectedItems.value"
         :visible-items="listManager.items.value"
@@ -315,7 +319,6 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
         :sort-field="listManager.sortField.value"
         :sort-direction="listManager.sortDirection.value"
         :columns="[]"
-        :show-add-button="false"
         @retry="listManager.fetchItems"
       >
         <!-- Desktop Table View -->
@@ -379,17 +382,36 @@ const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_min
             <div
               v-for="ticket in listManager.items.value"
               :key="ticket.id"
-              v-memo="[ticket.id, ticket.title, ticket.status, ticket.priority, ticket.created, ticket.requester, ticket.assignee]"
+              v-memo="[ticket.id, ticket.title, ticket.status, ticket.priority, ticket.created, ticket.requester, ticket.assignee, themeStore.colorBlindMode]"
               @click="listManager.navigateToItem(ticket)"
               class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer"
             >
-              <!-- Status indicator -->
+              <!-- Status indicator bar - theme-aware with color blind mode support -->
+              <!-- Color blind mode: use border styles to distinguish (hollow, half, solid) -->
               <div
+                v-if="themeStore.colorBlindMode"
+                class="w-2 self-stretch rounded-full flex-shrink-0 relative box-border"
+                :class="{
+                  'border-2 border-status-open bg-transparent': ticket.status === 'open',
+                  'border-2 border-status-in-progress bg-transparent': ticket.status === 'in-progress',
+                  'bg-status-closed': ticket.status === 'closed'
+                }"
+              >
+                <!-- In Progress: bottom half filled -->
+                <div
+                  v-if="ticket.status === 'in-progress'"
+                  class="absolute inset-x-0 bottom-0 h-1/2 bg-status-in-progress rounded-b-full"
+                  style="left: -2px; right: -2px; bottom: -2px;"
+                ></div>
+              </div>
+              <!-- Standard mode: solid color bars -->
+              <div
+                v-else
                 class="w-1.5 self-stretch rounded-full flex-shrink-0"
                 :class="{
-                  'bg-amber-500': ticket.status === 'open',
-                  'bg-blue-500': ticket.status === 'in-progress',
-                  'bg-emerald-500': ticket.status === 'closed'
+                  'bg-status-open': ticket.status === 'open',
+                  'bg-status-in-progress': ticket.status === 'in-progress',
+                  'bg-status-closed': ticket.status === 'closed'
                 }"
               ></div>
 

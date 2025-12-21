@@ -82,10 +82,6 @@ const props = withDefaults(defineProps<Props>(), {
 // Get auth store for user info
 const authStore = useAuthStore();
 
-// Computed property for connection status
-const connectionStatus = computed(() => {
-    return isConnected.value ? "Connected" : "Disconnected";
-});
 
 // Refs for template
 const editorElement = ref<HTMLElement | null>(null);
@@ -1972,7 +1968,7 @@ defineExpose({
                 v-if="connectedUsers.length > 0"
                 class="flex items-center gap-1 mr-2"
             >
-                <div class="text-xs text-slate-300 mr-1">Editing with:</div>
+                <div class="text-xs text-tertiary mr-1">Editing with:</div>
                 <div class="flex">
                     <div
                         v-for="(connectedUser, index) in connectedUsers"
@@ -2004,9 +2000,9 @@ defineExpose({
                 </div>
             </div>
 
-            <!-- Connection status indicator only -->
-            <div class="connection-status" :class="{ connected: isConnected }">
-                {{ connectionStatus }}
+            <!-- Connection status indicator - only shown when disconnected -->
+            <div v-if="!isConnected" class="connection-status-disconnected">
+                Disconnected
             </div>
         </div>
 
@@ -2086,7 +2082,7 @@ defineExpose({
 }
 
 .toolbar-button.active {
-    color: rgb(59 130 246); /* text-blue-500 */
+    color: var(--color-accent);
 }
 
 .toolbar-divider {
@@ -2130,17 +2126,14 @@ defineExpose({
     color: var(--color-primary);
 }
 
-.connection-status {
-    font-size: 0.875rem;
-    color: rgb(239 68 68); /* text-red-500 */
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.25rem;
-    background-color: rgb(127 29 29 / 0.2); /* bg-red-900/20 */
-}
-
-.connection-status.connected {
-    color: rgb(34 197 94); /* text-green-500 */
-    background-color: rgb(20 83 45 / 0.2); /* bg-green-900/20 */
+.connection-status-disconnected {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-status-error);
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.375rem;
+    background-color: var(--color-status-error-bg, rgba(239, 68, 68, 0.15));
+    border: 1px solid var(--color-status-error-border, rgba(239, 68, 68, 0.3));
 }
 
 .editor-container {
@@ -2221,7 +2214,7 @@ defineExpose({
 
 /* Style for the editor container when active and there are users connected */
 .collaboration-active {
-    border: 1px solid rgb(79 70 229); /* border-indigo-600 */
+    border: 1px solid var(--color-accent);
     border-radius: 0.5rem;
 }
 
@@ -2230,10 +2223,10 @@ defineExpose({
     position: sticky;
     top: 0;
     z-index: 10;
-    background-color: rgb(30 41 59); /* bg-slate-800 */
+    background-color: var(--color-surface-alt);
     border-top-left-radius: 0.5rem;
     border-top-right-radius: 0.5rem;
-    border-bottom: 1px solid rgb(51 65 85); /* border-slate-700 */
+    border-bottom: 1px solid var(--color-default);
     padding: 0.5rem;
     display: flex;
     flex-wrap: wrap;
@@ -2273,7 +2266,7 @@ defineExpose({
 }
 
 .ProseMirror blockquote {
-    border-left: 4px solid rgb(59 130 246); /* border-blue-500 */
+    border-left: 4px solid var(--color-accent);
     padding-left: 1rem;
     padding-right: 1rem;
     padding-top: 0.5rem;
@@ -2308,8 +2301,8 @@ defineExpose({
     top: 0;
     right: 0;
     padding: 0.25rem 0.5rem;
-    background-color: rgb(51 65 85 / 0.5);
-    color: rgb(148 163 184);
+    background-color: var(--color-surface-alt);
+    color: var(--color-secondary);
     font-size: 0.75rem;
     border-bottom-left-radius: 0.25rem;
     font-family:
@@ -2328,7 +2321,7 @@ defineExpose({
     background-color: transparent;
     padding: 0;
     border-radius: 0;
-    color: rgb(226 232 240); /* text-slate-200 */
+    color: var(--color-primary);
     display: block;
     overflow-x: auto;
     white-space: pre;
@@ -2354,7 +2347,7 @@ defineExpose({
 
 .ProseMirror pre code.language-css,
 .ProseMirror pre code.language-scss {
-    color: rgb(147 197 253); /* text-blue-300 */
+    color: var(--color-accent);
 }
 
 .ProseMirror pre code.language-bash,
@@ -2425,12 +2418,12 @@ defineExpose({
 }
 
 .ProseMirror a {
-    color: rgb(59 130 246); /* text-blue-500 */
+    color: var(--color-accent);
     text-decoration: underline;
 }
 
 .ProseMirror a:hover {
-    color: rgb(96 165 250); /* text-blue-400 */
+    color: var(--color-accent-hover, var(--color-accent));
 }
 
 .ProseMirror strong {
@@ -2449,12 +2442,7 @@ defineExpose({
     border-right: 2px solid;
     pointer-events: none;
     opacity: 0.5;
-    background-color: rgba(
-        59,
-        130,
-        246,
-        0.2
-    ); /* Add a subtle background for selection */
+    background-color: var(--color-accent-bg, rgba(59, 130, 246, 0.2));
 }
 
 .ProseMirror .yRemoteSelectionHead {
@@ -2546,7 +2534,7 @@ defineExpose({
     width: 1rem;
     height: 1rem;
     border: 2px solid var(--color-default);
-    border-top-color: rgb(59 130 246);
+    border-top-color: var(--color-accent);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
 }

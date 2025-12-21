@@ -19,6 +19,7 @@ import { gruvboxLightTheme, gruvboxDarkTheme } from './presets/gruvbox'
 import { everforestLightTheme, everforestDarkTheme } from './presets/everforest'
 import { catppuccinLatteTheme, catppuccinMochaTheme } from './presets/catppuccin'
 import { oneDarkTheme } from './presets/one-dark'
+import { ePaperTheme } from './presets/epaper'
 
 // Re-export types
 export * from './types'
@@ -44,6 +45,7 @@ export const themeRegistry: Map<string, Theme> = new Map([
   ['catppuccin-latte', catppuccinLatteTheme],
   ['catppuccin-mocha', catppuccinMochaTheme],
   ['one-dark', oneDarkTheme],
+  ['epaper', ePaperTheme],
 ])
 
 /**

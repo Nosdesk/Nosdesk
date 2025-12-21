@@ -242,7 +242,7 @@ onMounted(() => {
         </div>
 
         <!-- Error State -->
-        <div v-if="error" class="text-red-400 text-sm mb-4">
+        <div v-if="error" class="text-status-error text-sm mb-4">
             {{ error }}
         </div>
 

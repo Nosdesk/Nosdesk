@@ -76,7 +76,7 @@ const handleConfirm = () => {
           <button
             type="button"
             @click="handleConfirm"
-            class="px-3 py-1.5 text-xs font-medium text-white bg-brand-blue hover:opacity-90 rounded-md transition-colors"
+            class="px-3 py-1.5 text-xs font-medium text-white bg-accent hover:opacity-90 rounded-md transition-colors"
           >
             Add
           </button>

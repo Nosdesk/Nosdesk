@@ -158,11 +158,11 @@ onUnmounted(() => {
     @touchstart.stop="handleTouchStart"
   >
     <div
-      class="absolute inset-y-0 left-0 bg-blue-500 rounded-full"
+      class="absolute inset-y-0 left-0 bg-accent rounded-full"
       :style="{ width: `${indicatorPosition}%` }"
     ></div>
     <div
-      class="absolute w-3 h-3 bg-blue-500 rounded-full shadow-lg -translate-x-1/2 -translate-y-1/2 transition-transform"
+      class="absolute w-3 h-3 bg-accent rounded-full shadow-lg -translate-x-1/2 -translate-y-1/2 transition-transform"
       :style="{ left: `${indicatorPosition}%`, top: '50%' }"
       :class="{ 'scale-125': isDragging }"
     ></div>

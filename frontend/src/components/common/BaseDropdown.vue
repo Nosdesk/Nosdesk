@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 
 export interface DropdownOption {
   value: string
@@ -25,7 +25,7 @@ const emit = defineEmits<{
 }>()
 
 const isOpen = ref(false)
-const dropdownRef = ref<HTMLElement | null>(null)
+const triggerRef = ref<HTMLElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
 const highlightedIndex = ref(-1)
 
@@ -57,41 +57,52 @@ const sizeClasses = computed(() => {
   }
 })
 
-// Dropdown position computed with viewport awareness
-const dropdownPosition = computed(() => {
-  if (!dropdownRef.value || !isOpen.value) {
-    return { top: '0px', left: '0px', width: '0px' }
-  }
+// Reactive position tracking for scroll updates
+const menuPosition = ref({ top: 0, left: 0, width: 0 })
 
-  const rect = dropdownRef.value.getBoundingClientRect()
+// Update position based on trigger element
+const updatePosition = () => {
+  if (!triggerRef.value) return
+
+  const rect = triggerRef.value.getBoundingClientRect()
   const viewportHeight = window.innerHeight
   const spaceBelow = viewportHeight - rect.bottom
-  const menuHeight = Math.min(props.options.length * 44 + 8, 264) // Estimate menu height
+  const menuHeight = Math.min(props.options.length * 44 + 8, 264)
 
   // Open upward if not enough space below
   const openUpward = spaceBelow < menuHeight && rect.top > menuHeight
 
-  return {
-    top: openUpward
-      ? `${rect.top + window.scrollY - menuHeight - 4}px`
-      : `${rect.bottom + window.scrollY + 4}px`,
-    left: `${rect.left + window.scrollX}px`,
-    width: `${Math.max(rect.width, 180)}px`
+  menuPosition.value = {
+    // Align with top of trigger, offset by menu height if opening upward
+    top: openUpward ? rect.top - menuHeight : rect.top,
+    left: rect.left,
+    width: Math.max(rect.width, 180)
   }
-})
+}
+
+const openDropdown = async () => {
+  if (props.disabled) return
+  isOpen.value = true
+  highlightedIndex.value = props.options.findIndex(o => o.value === props.modelValue)
+  await nextTick()
+  updatePosition()
+}
+
+const closeDropdown = () => {
+  isOpen.value = false
+}
 
 const toggleDropdown = () => {
-  if (props.disabled) return
-  isOpen.value = !isOpen.value
   if (isOpen.value) {
-    // Set highlight to current selection
-    highlightedIndex.value = props.options.findIndex(o => o.value === props.modelValue)
+    closeDropdown()
+  } else {
+    openDropdown()
   }
 }
 
 const selectOption = (option: DropdownOption) => {
   emit('update:modelValue', option.value)
-  isOpen.value = false
+  closeDropdown()
 }
 
 // Keyboard navigation
@@ -99,8 +110,7 @@ const handleKeydown = (event: KeyboardEvent) => {
   if (!isOpen.value) {
     if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
       event.preventDefault()
-      isOpen.value = true
-      highlightedIndex.value = props.options.findIndex(o => o.value === props.modelValue)
+      openDropdown()
     }
     return
   }
@@ -123,17 +133,46 @@ const handleKeydown = (event: KeyboardEvent) => {
       break
     case 'Escape':
       event.preventDefault()
-      isOpen.value = false
+      closeDropdown()
       break
   }
 }
 
-// Close dropdown when clicking outside
+// Close dropdown when clicking outside - use mousedown for better UX
 const handleClickOutside = (event: MouseEvent) => {
+  if (!isOpen.value) return
+
   const target = event.target as Node
-  if (dropdownRef.value && !dropdownRef.value.contains(target) &&
-      menuRef.value && !menuRef.value.contains(target)) {
-    isOpen.value = false
+
+  // Check if click is on trigger
+  if (triggerRef.value?.contains(target)) return
+
+  // Check if click is on menu
+  const menu = document.querySelector('.base-dropdown-menu')
+  if (menu?.contains(target)) return
+
+  closeDropdown()
+}
+
+// Update position on scroll using requestAnimationFrame for smooth performance
+let rafId: number | null = null
+const handleScroll = () => {
+  if (!isOpen.value) return
+
+  if (rafId) {
+    cancelAnimationFrame(rafId)
+  }
+
+  rafId = requestAnimationFrame(() => {
+    updatePosition()
+    rafId = null
+  })
+}
+
+// Handle resize
+const handleResize = () => {
+  if (isOpen.value) {
+    updatePosition()
   }
 }
 
@@ -146,16 +185,24 @@ watch(highlightedIndex, (index) => {
 })
 
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
+  document.addEventListener('mousedown', handleClickOutside)
+  window.addEventListener('scroll', handleScroll, true)
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('mousedown', handleClickOutside)
+  window.removeEventListener('scroll', handleScroll, true)
+  window.removeEventListener('resize', handleResize)
+
+  if (rafId) {
+    cancelAnimationFrame(rafId)
+  }
 })
 </script>
 
 <template>
-  <div class="relative" ref="dropdownRef">
+  <div class="relative" ref="triggerRef">
     <!-- Dropdown trigger button -->
     <button
       type="button"
@@ -169,8 +216,8 @@ onUnmounted(() => {
         sizeClasses.button,
         disabled
           ? 'opacity-50 cursor-not-allowed'
-          : 'hover:border-strong focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer',
-        isOpen && !disabled ? 'border-blue-500 ring-1 ring-blue-500' : ''
+          : 'hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent cursor-pointer',
+        isOpen && !disabled ? 'border-accent ring-1 ring-accent' : ''
       ]"
     >
       <span
@@ -201,14 +248,16 @@ onUnmounted(() => {
         leave-to-class="opacity-0 scale-95"
       >
         <div
-          v-if="isOpen && dropdownRef"
+          v-if="isOpen"
           ref="menuRef"
           role="listbox"
-          class="fixed bg-surface border border-default rounded-lg shadow-xl overflow-hidden"
+          class="base-dropdown-menu fixed bg-surface border border-default rounded-lg shadow-xl overflow-hidden"
           :class="sizeClasses.menu"
           :style="{
-            ...dropdownPosition,
-            zIndex: 9999,
+            top: `${menuPosition.top}px`,
+            left: `${menuPosition.left}px`,
+            width: `${menuPosition.width}px`,
+            zIndex: 50,
             maxHeight: '264px'
           }"
         >
@@ -224,7 +273,7 @@ onUnmounted(() => {
               :class="[
                 sizeClasses.option,
                 option.value === modelValue
-                  ? 'bg-blue-500/10 text-blue-500'
+                  ? 'bg-accent/10 text-accent'
                   : highlightedIndex === index
                     ? 'bg-surface-hover'
                     : 'hover:bg-surface-hover'
@@ -233,7 +282,7 @@ onUnmounted(() => {
               <!-- Check mark for selected item -->
               <svg
                 v-if="option.value === modelValue"
-                class="w-4 h-4 text-blue-500 flex-shrink-0"
+                class="w-4 h-4 text-accent flex-shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"

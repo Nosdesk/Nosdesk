@@ -9,6 +9,7 @@ import { useThemeStore } from "@/stores/theme";
 import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
 import MFARecoveryModal from "@/components/auth/MFARecoveryModal.vue";
+import Checkbox from "@/components/common/Checkbox.vue";
 import authService from "@/services/authService";
 import defaultLogo from "@/assets/logo.svg";
 
@@ -308,7 +309,7 @@ const handleOidcLogoutClick = async () => {
       <!-- Success Message -->
       <div
         v-if="successMessage"
-        class="bg-green-900/50 border border-green-700 text-green-200 px-4 py-3 rounded-lg text-sm"
+        class="bg-status-success/10 border border-status-success/50 text-status-success px-4 py-3 rounded-lg text-sm"
       >
         <div class="flex items-center gap-2">
           <svg
@@ -333,9 +334,9 @@ const handleOidcLogoutClick = async () => {
         <!-- Header Section -->
         <div class="text-center">
           <div class="mb-4">
-            <div class="inline-flex items-center justify-center w-12 h-12 bg-blue-600/10 rounded-full mb-4">
+            <div class="inline-flex items-center justify-center w-12 h-12 bg-accent/10 rounded-full mb-4">
               <svg
-                class="w-6 h-6 text-blue-500"
+                class="w-6 h-6 text-accent"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -360,10 +361,10 @@ const handleOidcLogoutClick = async () => {
         <!-- Error Message -->
         <div
           v-if="errorMessage"
-          class="bg-red-900/20 border border-red-700/50 text-red-200 px-4 py-3 rounded-lg text-sm flex items-center gap-2"
+          class="bg-status-error/10 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm flex items-center gap-2"
         >
           <svg
-            class="w-4 h-4 text-red-400 flex-shrink-0"
+            class="w-4 h-4 text-status-error flex-shrink-0"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -396,7 +397,7 @@ const handleOidcLogoutClick = async () => {
                 required
                 autocomplete="one-time-code"
                 placeholder="000000"
-                class="w-full px-4 py-3 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-center text-xl tracking-[0.5em] font-mono"
+                class="w-full px-4 py-3 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent text-center text-xl tracking-[0.5em] font-mono"
                 maxlength="8"
                 @input="handleMfaInput"
                 @paste="handleMfaPaste"
@@ -430,14 +431,14 @@ const handleOidcLogoutClick = async () => {
             <button
               type="button"
               @click="handleBackToLogin"
-              class="flex-1 py-3 px-4 border border-default rounded-lg text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900 transition-colors"
+              class="flex-1 py-3 px-4 border border-default rounded-lg text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent transition-colors"
             >
               Back
             </button>
             <button
               type="submit"
               :disabled="isLoading || !mfaToken.trim()"
-              class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               <svg
                 v-if="isLoading"
@@ -469,7 +470,7 @@ const handleOidcLogoutClick = async () => {
             <button
               type="button"
               @click="showMFARecoveryModal = true"
-              class="text-sm text-blue-500 hover:text-blue-400 transition-colors"
+              class="text-sm text-accent hover:text-accent transition-colors"
             >
               Lost access to your authenticator?
             </button>
@@ -482,7 +483,7 @@ const handleOidcLogoutClick = async () => {
         <!-- Error Message within login form -->
         <div
           v-if="errorMessage && !authStore.mfaSetupRequired && !authStore.mfaRequired"
-          class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-lg text-sm"
+          class="bg-status-error/10 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm"
         >
           {{ errorMessage }}
         </div>
@@ -497,7 +498,7 @@ const handleOidcLogoutClick = async () => {
             type="email"
             required
             autocomplete="email"
-            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             placeholder="Enter your email"
           />
         </div>
@@ -512,28 +513,22 @@ const handleOidcLogoutClick = async () => {
             type="password"
             required
             autocomplete="current-password"
-            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             placeholder="Enter your password"
           />
         </div>
 
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5">
-            <input
-              id="remember-me"
-              v-model="rememberMe"
-              type="checkbox"
-              class="h-4 w-4 rounded border-default bg-surface text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900"
-            />
-            <label for="remember-me" class="ml-2 block text-sm text-secondary"
-              >Remember me</label
-            >
-          </div>
+          <Checkbox
+            id="remember-me"
+            v-model="rememberMe"
+            label="Remember me"
+          />
 
           <button
             type="button"
             @click="showForgotPasswordModal = true"
-            class="text-sm text-blue-500 hover:text-blue-400 transition-colors"
+            class="text-sm text-accent hover:text-accent transition-colors"
           >
             Forgot password?
           </button>
@@ -542,7 +537,7 @@ const handleOidcLogoutClick = async () => {
         <button
           type="submit"
           :disabled="isLoading"
-          class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <span v-if="isLoading">Signing in...</span>
           <span v-else>Sign in</span>
@@ -561,7 +556,7 @@ const handleOidcLogoutClick = async () => {
             <button
               type="button"
               @click="handleMicrosoftLoginClick"
-              class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
+              class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -582,7 +577,7 @@ const handleOidcLogoutClick = async () => {
               type="button"
               @click="handleMicrosoftLogoutClick"
               title="Sign out of Microsoft account"
-              class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
+              class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -605,7 +600,7 @@ const handleOidcLogoutClick = async () => {
               type="button"
               @click="handleOidcLoginClick"
               :disabled="isLoading"
-              class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
+              class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -628,7 +623,7 @@ const handleOidcLogoutClick = async () => {
               type="button"
               @click="handleOidcLogoutClick"
               :title="`Sign out of ${oidcDisplayName} account`"
-              class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 focus:ring-offset-slate-900"
+              class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"

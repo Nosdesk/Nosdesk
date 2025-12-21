@@ -8,6 +8,8 @@ import ProjectForm from '@/components/projectComponents/ProjectForm.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import { projectService } from '@/services/projectService'
 import { formatRelativeTime } from '@/utils/dateUtils'
+import EmptyState from '@/components/common/EmptyState.vue'
+import ErrorBanner from '@/components/common/ErrorBanner.vue'
 
 const projects = ref<Project[]>([])
 const router = useRouter()
@@ -177,7 +179,7 @@ defineExpose({
         <!-- Status filter -->
         <select
           v-model="statusFilter"
-          class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-brand-blue focus:border-brand-blue py-1 px-2 w-[120px]"
+          class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-accent focus:border-accent py-1 px-2 w-[120px]"
         >
           <option
             v-for="option in statusOptions"
@@ -192,7 +194,7 @@ defineExpose({
         <button
           v-if="searchQuery || statusFilter !== 'all'"
           @click="resetFilters"
-          class="px-2 py-1 text-xs font-medium text-primary bg-brand-blue rounded-md hover:bg-brand-blue/80 focus:ring-2 focus:outline-none focus:ring-brand-blue/50"
+          class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:bg-accent-hover focus:ring-2 focus:outline-none focus:ring-accent/50"
         >
           Reset
         </button>
@@ -207,17 +209,13 @@ defineExpose({
     <!-- Main content -->
     <div class="flex-1 overflow-y-auto p-4">
       <!-- Error message -->
-      <div v-if="error" class="mb-4 bg-status-error-muted border border-status-error/30 text-status-error px-4 py-3 rounded-lg flex items-center gap-3">
-        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <span>{{ error }}</span>
-        <button @click="error = null" class="ml-auto text-status-error hover:opacity-80">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+      <ErrorBanner
+        v-if="error"
+        :message="error"
+        :dismissible="true"
+        class="mb-4"
+        @dismiss="error = null"
+      />
 
       <!-- Loading State -->
       <div v-if="isLoading" class="flex justify-center items-center py-16">
@@ -228,29 +226,14 @@ defineExpose({
       </div>
 
       <!-- Empty State -->
-      <div v-else-if="filteredProjects.length === 0" class="flex flex-col items-center justify-center py-16">
-        <div class="w-16 h-16 bg-surface-alt rounded-full flex items-center justify-center mb-4">
-          <svg class="w-8 h-8 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-          </svg>
-        </div>
-        <p class="text-secondary font-medium mb-1">
-          {{ searchQuery || statusFilter !== 'all' ? 'No projects match your filters' : 'No projects found' }}
-        </p>
-        <p class="text-tertiary text-sm mb-4">
-          {{ searchQuery || statusFilter !== 'all' ? 'Try adjusting your search or filters' : 'Create your first project to get started' }}
-        </p>
-        <button
-          v-if="!searchQuery && statusFilter === 'all'"
-          @click="openCreateModal"
-          class="px-2 py-1 text-xs font-medium text-primary bg-brand-blue rounded-md hover:bg-brand-blue/80 focus:ring-2 focus:outline-none focus:ring-brand-blue/50 flex items-center gap-1"
-        >
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-          </svg>
-          Create Project
-        </button>
-      </div>
+      <EmptyState
+        v-else-if="filteredProjects.length === 0"
+        icon="folder"
+        :title="searchQuery || statusFilter !== 'all' ? 'No projects match your filters' : 'No projects found'"
+        :description="searchQuery || statusFilter !== 'all' ? 'Try adjusting your search or filters' : 'Create your first project to get started'"
+        :action-label="!searchQuery && statusFilter === 'all' ? 'Create Project' : undefined"
+        @action="openCreateModal"
+      />
 
       <!-- Projects Grid -->
       <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

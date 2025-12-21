@@ -59,19 +59,35 @@ watch(() => [props.modelValue, props.currentUser] as const, async ([newValue, cu
   }
 }, { immediate: true });
 
-// Computed position for the dropdown
-const dropdownPosition = computed(() => {
-  if (!containerRef.value || !isDropdownOpen.value) {
-    return { top: '0px', left: '0px', width: '0px' }
-  }
-  
+// Reactive position tracking
+const menuPosition = ref({ top: 0, left: 0, width: 0 })
+
+// Update position based on container element
+const updatePosition = () => {
+  if (!containerRef.value || !isDropdownOpen.value) return
+
   const rect = containerRef.value.getBoundingClientRect()
-  return {
-    top: `${rect.bottom + window.scrollY + 4}px`,
-    left: `${rect.left + window.scrollX}px`,
-    width: `${rect.width}px`
+  const viewportHeight = window.innerHeight
+  const spaceBelow = viewportHeight - rect.bottom
+  const menuHeight = 240 // max-h-56 = 224px + some padding
+
+  // Open upward if not enough space below
+  const openUpward = spaceBelow < menuHeight && rect.top > menuHeight
+
+  menuPosition.value = {
+    // Align with top of trigger, offset by menu height if opening upward
+    top: openUpward ? rect.top - menuHeight : rect.top,
+    left: rect.left,
+    width: Math.max(rect.width, 200)
   }
-})
+}
+
+// Computed position style for templates
+const dropdownPosition = computed(() => ({
+  top: `${menuPosition.value.top}px`,
+  left: `${menuPosition.value.left}px`,
+  width: `${menuPosition.value.width}px`
+}))
 
 // Search users via API with backend role filtering
 const searchUsers = async (query: string) => {
@@ -183,6 +199,7 @@ const clearSelection = () => {
 // Handle input focus
 const handleFocus = async (event: Event) => {
   isDropdownOpen.value = true;
+  updatePosition(); // Update position when opening
 
   // Select all text when input receives focus
   const input = event.target as HTMLInputElement;
@@ -227,26 +244,61 @@ const handleBlur = () => {
   }, 200);
 };
 
-// Handle clicks outside
+// Handle clicks outside - use mousedown for better UX
 const handleClickOutside = (event: MouseEvent) => {
+  if (!isDropdownOpen.value) return;
+
+  const target = event.target as Node;
+
+  // Check if click is on container
+  if (containerRef.value?.contains(target)) return;
+
+  // Check if click is on dropdown menu
   const dropdown = document.querySelector('.user-autocomplete-dropdown');
-  
-  if (containerRef.value && !containerRef.value.contains(event.target as Node) && 
-      dropdown && !dropdown.contains(event.target as Node)) {
-    isDropdownOpen.value = false;
-    searchResults.value = [];
+  if (dropdown?.contains(target)) return;
+
+  isDropdownOpen.value = false;
+  searchResults.value = [];
+};
+
+// Update position on scroll using requestAnimationFrame for smooth performance
+let rafId: number | null = null;
+const handleScroll = () => {
+  if (!isDropdownOpen.value) return;
+
+  if (rafId) {
+    cancelAnimationFrame(rafId);
+  }
+
+  rafId = requestAnimationFrame(() => {
+    updatePosition();
+    rafId = null;
+  });
+};
+
+// Handle resize
+const handleResize = () => {
+  if (isDropdownOpen.value) {
+    updatePosition();
   }
 };
 
 // Cleanup
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside);
+  document.addEventListener('mousedown', handleClickOutside);
+  window.addEventListener('scroll', handleScroll, true);
+  window.addEventListener('resize', handleResize);
 });
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside);
+  document.removeEventListener('mousedown', handleClickOutside);
+  window.removeEventListener('scroll', handleScroll, true);
+  window.removeEventListener('resize', handleResize);
   if (searchTimeout) {
     clearTimeout(searchTimeout);
+  }
+  if (rafId) {
+    cancelAnimationFrame(rafId);
   }
 });
 </script>
@@ -322,7 +374,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="isDropdownOpen && searchResults.length > 0 && containerRef"
-        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-[9999] overflow-hidden"
+        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-50 overflow-hidden"
         :style="dropdownPosition"
       >
         <div class="py-1 max-h-56 overflow-y-auto">
@@ -346,20 +398,16 @@ onUnmounted(() => {
               <div class="flex items-center gap-2">
                 <div class="text-xs text-tertiary truncate">{{ user.email }}</div>
                 <div v-if="user.role && props.type === 'assignee'" class="flex-shrink-0">
-                  <span class="px-1.5 py-0.5 text-xs font-medium rounded-md"
-                    :class="{
-                      'bg-red-900/30 text-red-300 border border-red-700/50': user.role === 'admin',
-                      'bg-blue-900/30 text-blue-300 border border-blue-700/50': user.role === 'technician'
-                    }">
+                  <span class="px-1.5 py-0.5 text-xs font-medium rounded-md bg-accent/10 text-accent border border-accent/30">
                     {{ user.role === 'admin' ? 'Admin' : 'Technician' }}
                   </span>
                 </div>
               </div>
             </div>
-            <svg 
-              v-if="modelValue === user.id" 
-              class="w-3 h-3 text-blue-400 flex-shrink-0" 
-              fill="currentColor" 
+            <svg
+              v-if="modelValue === user.id"
+              class="w-3 h-3 text-accent flex-shrink-0"
+              fill="currentColor"
               viewBox="0 0 20 20"
             >
               <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
@@ -373,7 +421,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="isDropdownOpen && isSearching && containerRef"
-        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-[9999]"
+        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-50"
         :style="dropdownPosition"
       >
         <div class="p-3 flex items-center justify-center gap-2 text-tertiary">
@@ -387,7 +435,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="isDropdownOpen && !isSearching && searchResults.length === 0 && inputValue && inputValue.length >= 2 && containerRef"
-        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-[9999]"
+        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-50"
         :style="dropdownPosition"
       >
         <div class="p-3 text-center text-tertiary">
@@ -402,7 +450,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="isDropdownOpen && !isSearching && inputValue && inputValue.length < 2 && !modelValue && containerRef"
-        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-[9999]"
+        class="user-autocomplete-dropdown fixed bg-surface-alt rounded-lg shadow-xl border border-default min-w-max z-50"
         :style="dropdownPosition"
       >
         <div class="p-3 text-center text-tertiary">

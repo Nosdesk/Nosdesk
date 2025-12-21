@@ -47,6 +47,28 @@ const formattedDate = (dateString?: string): string => {
   return formatDate(dateString, "MMM d, yyyy");
 };
 
+// Helper to get CSS variable value
+const getCSSVar = (name: string): string => {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+};
+
+// Parse color to RGB for gradient creation
+const parseColor = (color: string): { r: number; g: number; b: number } => {
+  if (color.startsWith('#')) {
+    const hex = color.slice(1);
+    return {
+      r: parseInt(hex.slice(0, 2), 16),
+      g: parseInt(hex.slice(2, 4), 16),
+      b: parseInt(hex.slice(4, 6), 16)
+    };
+  }
+  const match = color.match(/(\d+)/g);
+  if (match && match.length >= 3) {
+    return { r: parseInt(match[0]), g: parseInt(match[1]), b: parseInt(match[2]) };
+  }
+  return { r: 44, g: 128, b: 255 };
+};
+
 const drawWaveform = () => {
   if (!waveformCanvasRef.value || !audioData.value) return;
 
@@ -65,15 +87,10 @@ const drawWaveform = () => {
   const height = rect.height;
   const centerY = height / 2;
 
-  // Brand colors
-  const brandBlue = '#2C80FF';
-  const brandPink = '#FF66B3';
-  const brandPurple = '#8B5CF6';
-
-  // Check theme
+  // Get theme colors from CSS variables
+  const accentColor = getCSSVar('--color-accent') || '#2C80FF';
   const isDark = document.documentElement.classList.contains('dark');
-  const bgColor = isDark ? '#1a1f2e' : '#f1f5f9';
-  const unplayedColor = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)';
+  const bgColor = getCSSVar('--color-surface') || (isDark ? '#1a1f2e' : '#f1f5f9');
 
   // Clear background
   ctx.fillStyle = bgColor;
@@ -85,106 +102,170 @@ const drawWaveform = () => {
     : 0;
   const progressX = progress * width;
 
-  // Bar configuration - responsive bar count based on width
-  const numBars = Math.max(30, Math.min(80, Math.floor(width / 6)));
-  const barWidth = width / numBars;
-  const gap = Math.max(1, barWidth * 0.15);
-  const maxBarHeight = height * 0.4;
+  // Number of points for smooth flowing waveform
+  const numPoints = Math.max(60, Math.min(120, Math.floor(width / 4)));
+  const step = width / (numPoints - 1);
+  const maxAmplitude = height * 0.38;
 
-  // Helper: blend two hex colors
-  const blendColors = (color1: string, color2: string, t: number): string => {
-    const r1 = parseInt(color1.slice(1, 3), 16);
-    const g1 = parseInt(color1.slice(3, 5), 16);
-    const b1 = parseInt(color1.slice(5, 7), 16);
-    const r2 = parseInt(color2.slice(1, 3), 16);
-    const g2 = parseInt(color2.slice(3, 5), 16);
-    const b2 = parseInt(color2.slice(5, 7), 16);
-    const r = Math.round(r1 + (r2 - r1) * t);
-    const g = Math.round(g1 + (g2 - g1) * t);
-    const b = Math.round(b1 + (b2 - b1) * t);
-    return `rgb(${r}, ${g}, ${b})`;
-  };
-
-  // Helper: draw rounded rectangle
-  const drawRoundedRect = (x: number, y: number, w: number, h: number, r: number) => {
-    const radius = Math.min(r, w / 2, Math.abs(h) / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + w - radius, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-    ctx.lineTo(x + w, y + h - radius);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-    ctx.lineTo(x + radius, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-    ctx.closePath();
-  };
-
-  // Draw bars
-  for (let i = 0; i < numBars; i++) {
-    const x = i * barWidth;
-    const barCenterX = x + barWidth / 2;
-
-    // Sample audio data for this bar
-    const dataIndex = Math.floor((i / numBars) * audioData.value.length);
-    const amplitude = Math.pow(audioData.value[dataIndex] || 0, 0.8);
-    const barHeight = Math.max(2, amplitude * maxBarHeight);
-
-    // Determine if this bar is played
-    const isPlayed = barCenterX <= progressX;
-
-    // Color based on frequency position (purple -> pink -> blue)
-    const t = i / numBars;
-    let playedColor: string;
-    if (t < 0.33) {
-      playedColor = blendColors(brandPurple, brandPink, t / 0.33);
-    } else if (t < 0.66) {
-      playedColor = blendColors(brandPink, brandBlue, (t - 0.33) / 0.33);
-    } else {
-      playedColor = brandBlue;
+  // Sample audio data at each point with smoothing
+  const getAmplitude = (index: number): number => {
+    const dataIndex = Math.floor((index / numPoints) * audioData.value!.length);
+    // Get surrounding samples for smoothing
+    const samples = [];
+    for (let offset = -2; offset <= 2; offset++) {
+      const idx = Math.max(0, Math.min(audioData.value!.length - 1, dataIndex + offset));
+      samples.push(audioData.value![idx] || 0);
     }
+    // Weighted average for smoother curves
+    const weights = [0.1, 0.2, 0.4, 0.2, 0.1];
+    let smoothed = 0;
+    for (let i = 0; i < samples.length; i++) {
+      smoothed += samples[i] * weights[i];
+    }
+    return Math.pow(smoothed, 0.75);
+  };
 
-    const color = isPlayed ? playedColor : unplayedColor;
+  // Catmull-Rom spline interpolation for ultra-smooth curves
+  const getInterpolatedAmplitude = (index: number): number => {
+    const i = Math.floor(index);
+    const t = index - i;
+    const p0 = getAmplitude(Math.max(0, i - 1));
+    const p1 = getAmplitude(i);
+    const p2 = getAmplitude(Math.min(numPoints - 1, i + 1));
+    const p3 = getAmplitude(Math.min(numPoints - 1, i + 2));
+
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return 0.5 * (
+      (2 * p1) +
+      (-p0 + p2) * t +
+      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+      (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+    );
+  };
+
+  const rgb = parseColor(accentColor);
+  const unplayedRgb = isDark ? { r: 255, g: 255, b: 255 } : { r: 0, g: 0, b: 0 };
+
+  // Helper to draw a smooth filled waveform section
+  const drawWaveSection = (startX: number, endX: number, isPlayed: boolean) => {
+    if (endX <= startX) return;
+
+    const color = isPlayed ? rgb : unplayedRgb;
+    const baseAlpha = isPlayed ? 0.7 : (isDark ? 0.12 : 0.08);
+
+    // Create vertical gradient for depth
+    const gradient = ctx.createLinearGradient(0, centerY - maxAmplitude, 0, centerY + maxAmplitude);
+    gradient.addColorStop(0, `rgba(${color.r}, ${color.g}, ${color.b}, ${baseAlpha * 0.7})`);
+    gradient.addColorStop(0.5, `rgba(${color.r}, ${color.g}, ${color.b}, ${baseAlpha})`);
+    gradient.addColorStop(1, `rgba(${color.r}, ${color.g}, ${color.b}, ${baseAlpha * 0.7})`);
 
     ctx.save();
-    ctx.fillStyle = color;
-    ctx.globalAlpha = isPlayed ? 0.9 : 0.6;
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
 
-    // Draw top bar
-    drawRoundedRect(x + gap / 2, centerY - barHeight, barWidth - gap, barHeight, 2);
+    // Find start and end point indices
+    const startIndex = Math.floor((startX / width) * (numPoints - 1));
+    const endIndex = Math.ceil((endX / width) * (numPoints - 1));
+
+    // Start from bottom-left of section
+    ctx.moveTo(startX, centerY);
+
+    // Draw top edge with smooth Bezier curves
+    for (let i = startIndex; i <= endIndex; i++) {
+      const x = i * step;
+      if (x < startX || x > endX) continue;
+
+      const amplitude = getInterpolatedAmplitude(i);
+      const y = centerY - amplitude * maxAmplitude;
+
+      if (i === startIndex || x === startX) {
+        ctx.lineTo(x, y);
+      } else {
+        const prevX = (i - 1) * step;
+        const prevAmplitude = getInterpolatedAmplitude(i - 1);
+        const prevY = centerY - prevAmplitude * maxAmplitude;
+        const cpX = (prevX + x) / 2;
+        ctx.quadraticCurveTo(prevX, prevY, cpX, (prevY + y) / 2);
+      }
+    }
+
+    // Connect to right edge at center
+    ctx.lineTo(endX, centerY);
+
+    // Draw bottom edge (mirrored) going backwards
+    for (let i = endIndex; i >= startIndex; i--) {
+      const x = i * step;
+      if (x < startX || x > endX) continue;
+
+      const amplitude = getInterpolatedAmplitude(i);
+      const y = centerY + amplitude * maxAmplitude;
+
+      if (i === endIndex || x === endX) {
+        ctx.lineTo(x, y);
+      } else {
+        const nextX = (i + 1) * step;
+        const nextAmplitude = getInterpolatedAmplitude(i + 1);
+        const nextY = centerY + nextAmplitude * maxAmplitude;
+        const cpX = (nextX + x) / 2;
+        ctx.quadraticCurveTo(nextX, nextY, cpX, (nextY + y) / 2);
+      }
+    }
+
+    ctx.closePath();
     ctx.fill();
+    ctx.restore();
+  };
 
-    // Draw bottom bar (mirrored)
-    drawRoundedRect(x + gap / 2, centerY, barWidth - gap, barHeight, 2);
+  // Draw unplayed portion (full width, will be overlaid)
+  drawWaveSection(0, width, false);
+
+  // Draw played portion on top
+  if (progressX > 0) {
+    drawWaveSection(0, progressX, true);
+  }
+
+  // Draw elegant playhead
+  if (progress > 0 && progress < 1) {
+    // Get amplitude at playhead position for dynamic height
+    const playheadIndex = (progressX / width) * (numPoints - 1);
+    const playheadAmplitude = getInterpolatedAmplitude(playheadIndex);
+    const playheadHeight = Math.max(height * 0.3, playheadAmplitude * maxAmplitude + 4);
+
+    ctx.save();
+    // Glowing line
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = accentColor;
+    ctx.shadowBlur = 8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(progressX, centerY - playheadHeight);
+    ctx.lineTo(progressX, centerY + playheadHeight);
+    ctx.stroke();
+
+    // Small dot at center
+    ctx.fillStyle = accentColor;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(progressX, centerY, 3, 0, Math.PI * 2);
     ctx.fill();
-
     ctx.restore();
   }
 
-  // Draw playhead line
-  if (progress > 0 && progress < 1) {
+  // Subtle center line when no audio
+  const avgAmplitude = audioData.value.reduce((a, b) => a + b, 0) / audioData.value.length;
+  if (avgAmplitude < 0.05) {
     ctx.save();
-    ctx.strokeStyle = brandBlue;
-    ctx.lineWidth = 2;
-    ctx.shadowColor = brandBlue;
-    ctx.shadowBlur = 6;
+    ctx.strokeStyle = getCSSVar('--color-tertiary') || (isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)');
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.5;
     ctx.beginPath();
-    ctx.moveTo(progressX, 2);
-    ctx.lineTo(progressX, height - 2);
+    ctx.moveTo(0, centerY);
+    ctx.lineTo(width, centerY);
     ctx.stroke();
     ctx.restore();
   }
-
-  // Subtle center line
-  ctx.save();
-  ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, centerY);
-  ctx.lineTo(width, centerY);
-  ctx.stroke();
-  ctx.restore();
 };
 
 const initAudioContext = () => {
@@ -411,7 +492,7 @@ onUnmounted(() => {
         type="button"
         @click="togglePlayPause"
         :disabled="isLoading || !!error"
-        class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-brand-blue hover:opacity-90 disabled:bg-surface-hover disabled:cursor-not-allowed transition-colors"
+        class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-accent hover:opacity-90 disabled:bg-surface-hover disabled:cursor-not-allowed transition-colors"
         :aria-label="isPlaying ? 'Pause' : 'Play'"
       >
         <template v-if="isLoading">
@@ -448,7 +529,7 @@ onUnmounted(() => {
           <span class="text-xs text-tertiary">Loading...</span>
         </div>
         <div v-else-if="error" class="absolute inset-0 flex items-center justify-center">
-          <span class="text-xs text-red-400 px-2 text-center truncate">{{ error }}</span>
+          <span class="text-xs text-status-error px-2 text-center truncate">{{ error }}</span>
         </div>
         <canvas
           v-else

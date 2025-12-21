@@ -49,13 +49,13 @@ onMounted(() => {
 const getStatusClass = (status: string) => {
   switch (status) {
     case 'active':
-      return 'bg-green-500/20 text-green-400 border-green-500/30';
+      return 'bg-status-success/20 text-status-success border-status-success/30';
     case 'completed':
-      return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+      return 'bg-accent/20 text-accent border-accent/30';
     case 'archived':
-      return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+      return 'bg-surface-alt text-secondary border-default';
     default:
-      return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+      return 'bg-surface-alt text-secondary border-default';
   }
 };
 </script>
@@ -89,7 +89,7 @@ const getStatusClass = (status: string) => {
           </button>
           <button
             @click="emit('remove')"
-            class="p-1.5 text-tertiary hover:text-red-400 hover:bg-red-900/20 rounded-md transition-colors"
+            class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors"
             title="Remove from project"
           >
             <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">

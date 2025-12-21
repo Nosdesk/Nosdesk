@@ -100,15 +100,15 @@ const getProviderIcon = (providerType: string) => {
 const getProviderIconBgClass = (providerType: string) => {
   switch (providerType) {
     case 'microsoft':
-      return 'bg-blue-500/20 text-blue-400';
+      return 'bg-accent/20 text-accent';
     case 'google':
       return 'bg-surface-alt';
     case 'local':
-      return 'bg-purple-500/20 text-purple-500';
+      return 'bg-accent/20 text-accent';
     case 'oidc':
-      return 'bg-amber-500/20 text-amber-500';
+      return 'bg-status-warning/20 text-status-warning';
     default:
-      return 'bg-purple-500/20 text-purple-500';
+      return 'bg-accent/20 text-accent';
   }
 };
 
@@ -208,7 +208,7 @@ onMounted(async () => {
               <div class="flex-1 flex items-center gap-2 flex-wrap">
                 <span class="font-medium text-primary">{{ provider.name }}</span>
                 <span v-if="provider.is_default"
-                      class="px-1.5 py-0.5 text-xs bg-brand-blue/20 text-brand-blue rounded-full border border-brand-blue/50">
+                      class="px-1.5 py-0.5 text-xs bg-accent/20 text-accent rounded-full border border-accent/50">
                   Default
                 </span>
                 <span
@@ -219,7 +219,7 @@ onMounted(async () => {
                 </span>
                 <span
                   v-if="provider.enabled"
-                  class="px-1.5 py-0.5 text-xs rounded-full border bg-brand-blue/20 text-brand-blue border-brand-blue/50"
+                  class="px-1.5 py-0.5 text-xs rounded-full border bg-accent/20 text-accent border-accent/50"
                 >
                   Enabled
                 </span>

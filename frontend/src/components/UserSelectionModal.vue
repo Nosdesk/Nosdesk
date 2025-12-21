@@ -97,7 +97,7 @@ const clearUser = () => {
           @input="handleSearchInput"
           type="text"
           placeholder="Search users by name or email..."
-          class="w-full px-4 py-2.5 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-brand-blue transition-colors"
+          class="w-full px-4 py-2.5 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent transition-colors"
         />
         <svg
           class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-tertiary pointer-events-none"
@@ -123,7 +123,7 @@ const clearUser = () => {
 
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-8">
-        <div class="w-8 h-8 border-2 border-brand-blue border-t-transparent rounded-full animate-spin"></div>
+        <div class="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
       </div>
 
       <!-- Error State -->
@@ -139,7 +139,7 @@ const clearUser = () => {
           @click="selectUser(user)"
           class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-alt transition-colors text-left group"
           :class="{
-            'bg-surface-alt ring-1 ring-brand-blue': currentUserId === user.uuid
+            'bg-surface-alt ring-1 ring-accent': currentUserId === user.uuid
           }"
         >
           <!-- Avatar -->
@@ -161,9 +161,9 @@ const clearUser = () => {
           <span
             class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium flex-shrink-0"
             :class="{
-              'bg-purple-500/20 text-purple-400 border border-purple-500/30': user.role === 'admin',
-              'bg-blue-500/20 text-blue-400 border border-blue-500/30': user.role === 'technician',
-              'bg-slate-500/20 text-slate-400 border border-slate-500/30': user.role === 'user'
+              'bg-accent/20 text-accent border border-accent/30': user.role === 'admin',
+              'bg-accent/20 text-accent border border-accent/30': user.role === 'technician',
+              'bg-surface-alt text-secondary border border-default': user.role === 'user'
             }"
           >
             {{ user.role.charAt(0).toUpperCase() + user.role.slice(1) }}
@@ -172,7 +172,7 @@ const clearUser = () => {
           <!-- Selected Indicator -->
           <svg
             v-if="currentUserId === user.uuid"
-            class="w-5 h-5 text-brand-blue flex-shrink-0"
+            class="w-5 h-5 text-accent flex-shrink-0"
             fill="currentColor"
             viewBox="0 0 20 20"
           >

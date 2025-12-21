@@ -13,7 +13,7 @@
       <!-- Error Message -->
       <div
         v-if="errorMessage"
-        class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-lg text-sm"
+        class="bg-status-error/10 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm"
       >
         {{ errorMessage }}
       </div>
@@ -25,8 +25,8 @@
       >
         <div class="p-8">
           <div class="flex flex-col items-center gap-4 text-center">
-            <div class="bg-green-600/20 rounded-full p-4">
-              <svg class="w-12 h-12 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="bg-status-success/20 rounded-full p-4">
+              <svg class="w-12 h-12 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
               </svg>
             </div>
@@ -38,7 +38,7 @@
             </div>
             <button
               @click="goToLogin"
-              class="w-full px-6 py-3 bg-brand-blue hover:opacity-90 text-white rounded-lg transition-colors font-medium mt-2"
+              class="w-full px-6 py-3 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium mt-2"
             >
               Go to Login
             </button>
@@ -66,7 +66,7 @@
                   required
                   autocomplete="new-password"
                   placeholder="Enter new password"
-                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue transition-colors pr-12"
+                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors pr-12"
                   :disabled="loading"
                   @input="validatePassword"
                 />
@@ -90,7 +90,7 @@
               <div class="mt-2 text-xs space-y-1">
                 <p
                   class="flex items-center gap-2 transition-colors"
-                  :class="passwordValidation.length ? 'text-green-400' : 'text-tertiary'"
+                  :class="passwordValidation.length ? 'text-status-success' : 'text-tertiary'"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -118,7 +118,7 @@
                   required
                   autocomplete="new-password"
                   placeholder="Confirm new password"
-                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue transition-colors pr-12"
+                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors pr-12"
                   :disabled="loading"
                   @input="validatePasswordMatch"
                 />
@@ -142,7 +142,7 @@
               <p
                 v-if="confirmPassword"
                 class="mt-2 text-xs flex items-center gap-2 transition-colors"
-                :class="passwordsMatch ? 'text-green-400' : 'text-red-400'"
+                :class="passwordsMatch ? 'text-status-success' : 'text-status-error'"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -159,7 +159,7 @@
             <!-- Submit Button -->
             <button
               type="submit"
-              class="w-full px-6 py-3 bg-brand-blue hover:opacity-90 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
+              class="w-full px-6 py-3 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
               :disabled="loading || !isFormValid"
             >
               <svg

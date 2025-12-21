@@ -199,7 +199,7 @@ watch(
                             {{ isConnected ? "Live updates" : "Connecting..." }}
                         </span>
                         <span v-if="activeViewerCount > 0" class="text-secondary ml-2">
-                            <span class="text-brand-blue">{{ activeViewerCount }}</span> viewing
+                            <span class="text-accent">{{ activeViewerCount }}</span> viewing
                         </span>
                     </div>
                 </div>
@@ -242,7 +242,7 @@ watch(
                                 <a
                                     href="#"
                                     @click.prevent="showDeviceModal = true"
-                                    class="text-brand-blue hover:text-brand-blue/80 text-sm hover:underline"
+                                    class="text-accent hover:text-accent/80 text-sm hover:underline"
                                 >
                                     + Add device
                                 </a>
@@ -309,7 +309,7 @@ watch(
                             <a
                                 href="#"
                                 @click.prevent="showDeviceModal = true"
-                                class="block text-brand-blue hover:underline"
+                                class="block text-accent hover:underline"
                             >
                                 + Add device
                             </a>
@@ -329,7 +329,7 @@ watch(
                                     @click.prevent="
                                         showLinkedTicketModal = true
                                     "
-                                    class="text-brand-blue hover:text-brand-blue/80 text-sm hover:underline"
+                                    class="text-accent hover:text-accent/80 text-sm hover:underline"
                                 >
                                     + Add linked ticket
                                 </a>
@@ -349,7 +349,7 @@ watch(
                             <a
                                 href="#"
                                 @click.prevent="showLinkedTicketModal = true"
-                                class="block text-brand-blue hover:underline"
+                                class="block text-accent hover:underline"
                             >
                                 + Add linked ticket
                             </a>
@@ -367,7 +367,7 @@ watch(
                                 <a
                                     href="#"
                                     @click.prevent="showProjectModal = true"
-                                    class="text-brand-blue hover:text-brand-blue/80 text-sm hover:underline"
+                                    class="text-accent hover:text-accent/80 text-sm hover:underline"
                                 >
                                     + Add to project
                                 </a>
@@ -386,7 +386,7 @@ watch(
                             <a
                                 href="#"
                                 @click.prevent="showProjectModal = true"
-                                class="block text-brand-blue hover:underline"
+                                class="block text-accent hover:underline"
                             >
                                 + Add to project
                             </a>

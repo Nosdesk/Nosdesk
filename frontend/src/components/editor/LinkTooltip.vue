@@ -149,12 +149,12 @@ onBeforeUnmount(() => {
         v-model="linkUrl"
         type="text"
         placeholder="Enter URL..."
-        class="flex-1 px-3 py-1.5 bg-surface border border-default rounded-lg text-sm text-primary focus:ring-2 focus:ring-brand-blue focus:border-brand-blue focus:outline-none"
+        class="flex-1 px-3 py-1.5 bg-surface border border-default rounded-lg text-sm text-primary focus:ring-2 focus:ring-accent focus:border-accent focus:outline-none"
         @keydown="handleKeydown"
       />
       <button
         @click="handleApply"
-        class="px-3 py-1.5 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium"
+        class="px-3 py-1.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium"
         title="Apply link"
       >
         Apply
@@ -176,7 +176,7 @@ onBeforeUnmount(() => {
         :href="linkUrl"
         target="_blank"
         rel="noopener noreferrer"
-        class="flex-1 px-2 py-1 text-sm text-blue-400 hover:text-blue-300 truncate max-w-xs"
+        class="flex-1 px-2 py-1 text-sm text-accent hover:text-accent truncate max-w-xs"
         @click.prevent="handleOpenLink"
         :title="linkUrl"
       >
@@ -193,7 +193,7 @@ onBeforeUnmount(() => {
       </button>
       <button
         @click="handleRemove"
-        class="p-1.5 text-secondary hover:text-red-400 hover:bg-surface-hover rounded transition-colors"
+        class="p-1.5 text-secondary hover:text-status-error hover:bg-surface-hover rounded transition-colors"
         title="Remove link"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">

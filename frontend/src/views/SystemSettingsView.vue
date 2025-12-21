@@ -19,7 +19,7 @@
           <!-- Header row with icon -->
           <div class="flex items-center gap-3">
             <!-- Storage icon -->
-            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-red-500/20 flex items-center justify-center text-red-400">
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-status-error/20 flex items-center justify-center text-status-error">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
@@ -34,7 +34,7 @@
             <button
               @click="cleanupStaleImages"
               :disabled="isCleaningUp"
-              class="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/50 rounded-lg text-sm hover:bg-red-500/30 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
+              class="px-3 py-1.5 bg-status-error/20 text-status-error border border-status-error/50 rounded-lg text-sm hover:bg-status-error/30 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
             >
               <svg v-if="isCleaningUp" class="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -72,16 +72,16 @@
             <div><span class="text-tertiary">Banners:</span> <span class="text-primary">{{ cleanupResults.stats.banners_removed }}</span></div>
             <div><span class="text-tertiary">Thumbnails:</span> <span class="text-primary">{{ cleanupResults.stats.thumbnails_removed || 0 }}</span></div>
             <div><span class="text-tertiary">Checked:</span> <span class="text-primary">{{ cleanupResults.stats.total_files_checked }}</span></div>
-            <div><span class="text-tertiary">Errors:</span> <span :class="cleanupResults.stats.errors.length > 0 ? 'text-amber-400' : 'text-primary'">{{ cleanupResults.stats.errors.length }}</span></div>
+            <div><span class="text-tertiary">Errors:</span> <span :class="cleanupResults.stats.errors.length > 0 ? 'text-status-warning' : 'text-primary'">{{ cleanupResults.stats.errors.length }}</span></div>
           </div>
 
           <!-- Show errors if any -->
           <div v-if="cleanupResults.success && cleanupResults.stats?.errors.length > 0" class="mt-3">
             <details class="text-sm">
-              <summary class="cursor-pointer text-amber-400 hover:text-amber-300">
+              <summary class="cursor-pointer text-status-warning hover:text-status-warning/80">
                 View Errors ({{ cleanupResults.stats.errors.length }})
               </summary>
-              <div class="mt-2 pl-4 border-l-2 border-amber-500/50 text-secondary">
+              <div class="mt-2 pl-4 border-l-2 border-status-warning/50 text-secondary">
                 <div v-for="(error, index) in cleanupResults.stats.errors" :key="index" class="mb-1">
                   {{ error }}
                 </div>

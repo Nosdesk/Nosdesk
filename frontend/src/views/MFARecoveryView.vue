@@ -5,7 +5,7 @@
       <div v-if="loading" class="bg-surface rounded-xl border border-default shadow-2xl p-8">
         <div class="flex flex-col items-center gap-4">
           <svg
-            class="w-12 h-12 animate-spin text-brand-blue"
+            class="w-12 h-12 animate-spin text-accent"
             fill="none"
             viewBox="0 0 24 24"
           >
@@ -27,13 +27,13 @@
         <!-- Content -->
         <div class="p-6 space-y-6">
           <!-- Session Timer Warning -->
-          <div class="bg-amber-600/10 border border-amber-600/20 rounded-lg p-4">
+          <div class="bg-status-warning/10 border border-status-warning/20 rounded-lg p-4">
             <div class="flex items-start gap-3">
-              <svg class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-5 h-5 text-status-warning flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
               </svg>
               <div class="text-sm text-secondary">
-                <p class="font-medium text-amber-400 mb-1">Limited Recovery Session</p>
+                <p class="font-medium text-status-warning mb-1">Limited Recovery Session</p>
                 <p>This session will expire in {{ formatTime(timeRemaining) }}. You can only manage your MFA settings during this session.</p>
               </div>
             </div>
@@ -42,7 +42,7 @@
           <!-- User Info -->
           <div v-if="user" class="bg-surface-alt rounded-lg p-4">
             <div class="flex items-center gap-3">
-              <div class="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center text-white font-medium text-lg">
+              <div class="w-12 h-12 rounded-full bg-accent flex items-center justify-center text-white font-medium text-lg">
                 {{ user.name.charAt(0).toUpperCase() }}
               </div>
               <div>
@@ -60,7 +60,7 @@
             <button
               @click="showDisableConfirm = true"
               :disabled="disabling"
-              class="w-full px-4 py-3 bg-red-600/10 hover:bg-red-600/20 border border-red-600/30 text-red-400 rounded-lg transition-colors font-medium text-left flex items-center justify-between group disabled:opacity-50 disabled:cursor-not-allowed"
+              class="w-full px-4 py-3 bg-status-error/10 hover:bg-status-error/20 border border-status-error/30 text-status-error rounded-lg transition-colors font-medium text-left flex items-center justify-between group disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div class="flex items-center gap-3">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -103,10 +103,10 @@
       </div>
 
       <!-- Error State -->
-      <div v-else-if="error" class="bg-surface rounded-xl border border-red-700 shadow-2xl p-8">
+      <div v-else-if="error" class="bg-surface rounded-xl border border-status-error/50 shadow-2xl p-8">
         <div class="flex flex-col items-center gap-4 text-center">
-          <div class="bg-red-600/20 rounded-full p-3">
-            <svg class="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div class="bg-status-error/10 rounded-full p-3">
+            <svg class="w-8 h-8 text-status-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
             </svg>
           </div>
@@ -116,7 +116,7 @@
           </div>
           <button
             @click="backToLogin"
-            class="px-6 py-2 bg-brand-blue hover:opacity-90 text-white rounded-lg transition-colors font-medium"
+            class="px-6 py-2 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium"
           >
             Back to Login
           </button>
@@ -137,8 +137,8 @@
             @click.stop
           >
             <!-- Header -->
-            <div class="px-6 py-4 bg-red-600/10 border-b border-red-700/50 flex items-center gap-3">
-              <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="px-6 py-4 bg-status-error/10 border-b border-status-error/50 flex items-center gap-3">
+              <svg class="w-6 h-6 text-status-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
               </svg>
               <h2 class="text-lg font-semibold text-primary">Disable Multi-Factor Authentication</h2>
@@ -150,16 +150,16 @@
                 Are you sure you want to disable MFA? This will make your account less secure.
               </p>
 
-              <div class="bg-amber-600/10 border border-amber-600/20 rounded-lg p-4">
+              <div class="bg-status-warning/10 border border-status-warning/20 rounded-lg p-4">
                 <p class="text-sm text-secondary">
-                  <strong class="text-amber-400">Important:</strong> After disabling MFA, you can set up a new authenticator by logging in and going to your security settings.
+                  <strong class="text-status-warning">Important:</strong> After disabling MFA, you can set up a new authenticator by logging in and going to your security settings.
                 </p>
               </div>
 
               <!-- Error Message -->
               <div
                 v-if="disableError"
-                class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-lg text-sm"
+                class="bg-status-error/20 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm"
               >
                 {{ disableError }}
               </div>
@@ -177,7 +177,7 @@
                 <button
                   type="button"
                   @click="disableMFA"
-                  class="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  class="flex-1 px-4 py-2 bg-status-error hover:opacity-90 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   :disabled="disabling"
                 >
                   <svg

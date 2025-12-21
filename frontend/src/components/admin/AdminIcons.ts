@@ -44,31 +44,13 @@ export const isBrandIcon = (iconName: string): boolean => {
 };
 
 // Get icon background color class based on icon type
+// Uses theme-aware colors for consistency across all themes
 export const getIconBgClass = (iconName: string): string => {
   switch (iconName) {
     case 'google':
-      return 'bg-surface-alt'; // Neutral for brand icons
-    case 'microsoft':
-      return 'bg-blue-500/20 text-blue-400';
-    case 'mail':
-      return 'bg-brand-blue/20 text-brand-blue';
-    case 'lock':
-    case 'key':
-      return 'bg-purple-500/20 text-purple-500';
-    case 'cog':
-      return 'bg-slate-500/20 text-slate-400';
-    case 'paint':
-      return 'bg-pink-500/20 text-pink-500';
-    case 'database':
-    case 'file':
-      return 'bg-emerald-500/20 text-emerald-500';
-    case 'api':
-      return 'bg-amber-500/20 text-amber-500';
-    case 'directory':
-      return 'bg-blue-500/20 text-blue-400';
-    case 'user':
-      return 'bg-purple-500/20 text-purple-500';
+      return 'bg-surface-alt text-secondary'; // Neutral for brand icons
     default:
-      return 'bg-brand-blue/20 text-brand-blue';
+      // All admin icons use the same theme-aware styling
+      return 'bg-accent/15 text-accent';
   }
 };

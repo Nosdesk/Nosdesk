@@ -7,7 +7,7 @@
         :key="i"
         class="w-10 sm:w-11 h-12 sm:h-14 bg-surface-alt border rounded-lg flex items-center justify-center text-primary text-lg sm:text-xl font-mono transition-colors"
         :class="[
-          isFocused && modelValue.length === i - 1 ? 'border-blue-500 ring-2 ring-blue-500/50' :
+          isFocused && modelValue.length === i - 1 ? 'border-accent ring-2 ring-accent/50' :
           modelValue.length >= i ? 'border-strong' : 'border-subtle'
         ]"
       >

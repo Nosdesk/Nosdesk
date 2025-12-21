@@ -19,12 +19,13 @@ pub fn get_primary_email(user_uuid: &Uuid, conn: &mut DbConnection) -> Option<St
 /// Get user by email address (looks up in user_emails table)
 /// SECURITY: Only matches PRIMARY emails - secondary emails cannot be used for login
 /// This follows industry best practices (Google, Microsoft, GitHub, etc.)
+/// NOTE: Email comparison is case-insensitive per RFC 5321
 pub fn get_user_by_email(email: &str, conn: &mut DbConnection) -> Result<User, diesel::result::Error> {
     use crate::schema::{users, user_emails};
 
     users::table
         .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
-        .filter(user_emails::email.eq(email))
+        .filter(user_emails::email.ilike(email)) // Case-insensitive match
         .filter(user_emails::is_primary.eq(true)) // Only allow login with primary email
         .select(users::all_columns)
         .first::<User>(conn)

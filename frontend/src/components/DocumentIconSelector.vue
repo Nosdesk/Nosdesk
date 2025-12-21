@@ -977,7 +977,7 @@ onUnmounted(() => {
     <button
       ref="triggerRef"
       @click="toggleDropdown"
-      class="flex items-center justify-center rounded-lg transition-all duration-150 hover:bg-surface-hover active:scale-95 focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
+      class="flex items-center justify-center rounded-lg transition-all duration-150 hover:bg-surface-hover active:scale-95 focus:outline-none focus:ring-2 focus:ring-accent/50"
       :class="sizeClasses.button"
       aria-label="Select document icon"
       type="button"
@@ -1009,7 +1009,7 @@ onUnmounted(() => {
               v-model="searchQuery"
               type="text"
               placeholder="Search icons..."
-              class="w-full pl-10 pr-4 py-2 text-sm bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-brand-blue/50 focus:border-brand-blue"
+              class="w-full pl-10 pr-4 py-2 text-sm bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent"
               @click.stop
             />
           </div>
@@ -1032,7 +1032,7 @@ onUnmounted(() => {
             @click.stop="activeCategory = key"
             class="px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition-colors flex-shrink-0"
             :class="activeCategory === key
-              ? 'bg-brand-blue text-white'
+              ? 'bg-accent text-white'
               : 'text-secondary hover:text-primary hover:bg-surface-hover'"
           >
             {{ category.label }}
@@ -1050,7 +1050,7 @@ onUnmounted(() => {
               :key="icon"
               @click.stop="selectIcon(icon)"
               class="flex items-center justify-center w-8 h-8 text-xl rounded-md transition-all duration-100 hover:bg-surface-hover hover:scale-110 active:scale-95"
-              :class="currentIcon === icon ? 'bg-brand-blue/20 ring-2 ring-brand-blue' : ''"
+              :class="currentIcon === icon ? 'bg-accent/20 ring-2 ring-accent' : ''"
             >
               <span class="select-none">{{ icon }}</span>
             </button>

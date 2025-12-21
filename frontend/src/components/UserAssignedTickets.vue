@@ -159,7 +159,7 @@ watch(
                 </h2>
                 <router-link
                     :to="seeAllLink"
-                    class="text-xs px-3 py-1.5 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors font-medium"
+                    class="text-xs px-3 py-1.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors font-medium"
                 >
                     See All
                 </router-link>
@@ -170,7 +170,7 @@ watch(
                 <div class="relative">
                     <select
                         v-model="sortBy"
-                        class="bg-surface border border-default text-sm rounded-lg focus:ring-2 focus:ring-brand-blue/50 focus:border-brand-blue focus:outline-none block w-full px-3 py-2 text-primary transition-colors hover:bg-surface-hover"
+                        class="bg-surface border border-default text-sm rounded-lg focus:ring-2 focus:ring-accent/50 focus:border-accent focus:outline-none block w-full px-3 py-2 text-primary transition-colors hover:bg-surface-hover"
                     >
                         <option
                             v-for="option in sortOptions"
@@ -186,7 +186,7 @@ watch(
                 <div class="relative">
                     <select
                         v-model="selectedStatus"
-                        class="bg-surface border border-default text-sm rounded-lg focus:ring-2 focus:ring-brand-blue/50 focus:border-brand-blue focus:outline-none block w-full px-3 py-2 text-primary transition-colors hover:bg-surface-hover"
+                        class="bg-surface border border-default text-sm rounded-lg focus:ring-2 focus:ring-accent/50 focus:border-accent focus:outline-none block w-full px-3 py-2 text-primary transition-colors hover:bg-surface-hover"
                     >
                         <option
                             v-for="option in statusOptions"
@@ -230,7 +230,7 @@ watch(
         <div v-else-if="error" class="px-4 py-8 text-center">
             <div class="flex flex-col items-center gap-3">
                 <svg
-                    class="w-10 h-10 text-red-400"
+                    class="w-10 h-10 text-status-error"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -242,7 +242,7 @@ watch(
                         d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                     ></path>
                 </svg>
-                <p class="text-red-400 font-medium">{{ error }}</p>
+                <p class="text-status-error font-medium">{{ error }}</p>
                 <button
                     @click="fetchTickets"
                     class="px-4 py-2 bg-surface-alt border border-default rounded-lg text-primary hover:bg-surface-hover transition-colors text-sm font-medium"
@@ -294,7 +294,7 @@ watch(
                         <!-- Title and ID -->
                         <div class="flex items-start gap-2">
                             <h3
-                                class="text-primary font-medium group-hover:text-brand-blue transition-colors flex-1 leading-snug"
+                                class="text-primary font-medium group-hover:text-accent transition-colors flex-1 leading-snug"
                             >
                                 {{ ticket.title }}
                             </h3>

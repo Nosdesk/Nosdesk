@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount, shallowRef } from 'vue'
+import EmptyState from './EmptyState.vue'
+import ErrorBanner from './ErrorBanner.vue'
+import Checkbox from './Checkbox.vue'
 
 // Debounce utility for resize events
 function debounce<T extends (...args: any[]) => void>(fn: T, delay: number): T {
@@ -15,6 +18,9 @@ const props = defineProps<{
   isLoading: boolean
   isEmpty: boolean
   emptyMessage?: string
+  emptyDescription?: string
+  emptyIcon?: 'folder' | 'document' | 'users' | 'device' | 'ticket' | 'search'
+  emptyActionLabel?: string
   error?: string | null
   // Results count
   resultsCount?: number
@@ -54,6 +60,7 @@ const emit = defineEmits<{
   'toggle-all': [event: Event, checked: boolean]
   'import': []
   'retry': []
+  'empty-action': []
   // Legacy emits (kept for backward compatibility but not used)
   'update:searchQuery': [value: string]
   'update:filter': [name: string, value: string]
@@ -137,21 +144,27 @@ onBeforeUnmount(() => {
     <div class="flex-1 flex flex-col overflow-hidden">
       <!-- Loading state -->
       <div v-if="isLoading" class="flex justify-center items-center h-64">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-brand-blue"></div>
+        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-accent"></div>
       </div>
 
       <!-- Error state -->
-      <div v-else-if="error" class="flex flex-col items-center gap-4 justify-center p-8 text-center text-status-error">
-        {{ error }}
-        <button @click="emit('retry')" class="mt-4 px-4 py-2 bg-brand-blue text-white rounded hover:opacity-90 transition-colors">
-          Try Again
-        </button>
+      <div v-else-if="error" class="p-4">
+        <ErrorBanner
+          :message="error"
+          :show-retry="true"
+          @retry="emit('retry')"
+        />
       </div>
 
       <!-- Empty state -->
-      <div v-else-if="isEmpty" class="p-8 text-center text-secondary">
-        {{ emptyMessage || defaultEmptyMessage }}
-      </div>
+      <EmptyState
+        v-else-if="isEmpty"
+        :icon="emptyIcon"
+        :title="emptyMessage || defaultEmptyMessage"
+        :description="emptyDescription"
+        :action-label="emptyActionLabel"
+        @action="emit('empty-action')"
+      />
 
       <!-- Content -->
       <div v-else class="flex-1 flex flex-col overflow-hidden">
@@ -162,10 +175,8 @@ onBeforeUnmount(() => {
             <div class="flex min-w-[800px] gap-1">
               <!-- Selection checkbox in header -->
               <div v-if="enableSelection" class="p-3 py-4 w-10 flex-shrink-0">
-                <input
-                  type="checkbox"
-                  class="w-4 h-4 rounded border-default bg-surface-alt text-brand-blue focus:ring-brand-blue"
-                  :checked="allSelected && visibleItems && visibleItems.length > 0"
+                <Checkbox
+                  :model-value="allSelected && visibleItems && visibleItems.length > 0"
                   :indeterminate="selectedItems && selectedItems.length > 0 && !allSelected"
                   @change="toggleAllItems"
                 />

@@ -162,26 +162,26 @@ const goToTicket = (ticketId: number) => {
 const getStatusClass = (status: string) => {
   switch (status) {
     case 'active':
-      return 'bg-green-500/20 text-green-400 border-green-500/30'
+      return 'bg-status-success/20 text-status-success border-status-success/30'
     case 'completed':
-      return 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+      return 'bg-accent/20 text-accent border-accent/30'
     case 'archived':
-      return 'bg-gray-500/20 text-gray-400 border-gray-500/30'
+      return 'bg-surface-alt/20 text-secondary border-surface-alt/30'
     default:
-      return 'bg-gray-500/20 text-gray-400 border-gray-500/30'
+      return 'bg-surface-alt/20 text-secondary border-surface-alt/30'
   }
 }
 
 const getPriorityClass = (priority: string) => {
   switch (priority) {
     case 'high':
-      return 'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200 border-red-400/40 dark:border-red-500/30'
+      return 'bg-status-error/20 text-status-error border-status-error/30'
     case 'medium':
-      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30'
+      return 'bg-status-warning/20 text-status-warning border-status-warning/30'
     case 'low':
-      return 'bg-blue-400/20 dark:bg-blue-500/20 [color:#1e3a8a] dark:text-blue-200 border-blue-400/40 dark:border-blue-500/30'
+      return 'bg-accent/15 text-accent border-accent/30'
     default:
-      return 'bg-gray-400/20 dark:bg-gray-500/20 text-gray-900 dark:text-gray-200 border-gray-400/40 dark:border-gray-500/30'
+      return 'bg-surface-alt/20 text-secondary border-surface-alt/30'
   }
 }
 
@@ -255,13 +255,13 @@ watch(() => route.query.view, (newValue) => {
       <BackButton fallbackRoute="/projects" label="Back to Projects" />
 
       <!-- Error message -->
-      <div v-if="error" class="bg-status-error/20 border border-status-error/50 text-red-200 px-4 py-3 rounded-lg mb-4">
+      <div v-if="error" class="bg-status-error/20 border border-status-error/50 text-status-error px-4 py-3 rounded-lg mb-4">
         {{ error }}
       </div>
 
       <!-- Loading state -->
       <div v-if="isLoading" class="flex justify-center items-center py-8">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-blue"></div>
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
       </div>
 
       <!-- Project details -->
@@ -306,22 +306,22 @@ watch(() => route.query.view, (newValue) => {
             <button
               @click="setActiveTab('kanban')"
               class="py-2 px-4 border-b-2 font-medium text-sm"
-              :class="activeTab === 'kanban' ? 'border-brand-blue text-brand-blue' : 'border-transparent text-secondary hover:text-primary'"
+              :class="activeTab === 'kanban' ? 'border-accent text-accent' : 'border-transparent text-secondary hover:text-primary'"
             >
               Kanban Board
             </button>
             <button
               @click="setActiveTab('list')"
               class="py-2 px-4 border-b-2 font-medium text-sm"
-              :class="activeTab === 'list' ? 'border-brand-blue text-brand-blue' : 'border-transparent text-secondary hover:text-primary'"
+              :class="activeTab === 'list' ? 'border-accent text-accent' : 'border-transparent text-secondary hover:text-primary'"
             >
               List View
             </button>
             <!-- Gantt Planner to be implemented in a future release -->
-            <!-- <button 
+            <!-- <button
               @click="setActiveTab('gantt')"
               class="py-2 px-4 border-b-2 font-medium text-sm"
-              :class="activeTab === 'gantt' ? 'border-blue-500 text-blue-500' : 'border-transparent text-slate-400 hover:text-slate-300'"
+              :class="activeTab === 'gantt' ? 'border-accent text-accent' : 'border-transparent text-tertiary hover:text-secondary'"
             >
               Gantt Planner
             </button> -->
@@ -344,7 +344,7 @@ watch(() => route.query.view, (newValue) => {
             <h2 class="text-xl font-medium text-white">Tickets</h2>
             <button 
               @click="showAddTicketModal = true"
-              class="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm rounded-lg hover:opacity-90 transition-colors"
+              class="flex items-center gap-2 px-4 py-2 bg-accent text-white text-sm rounded-lg hover:opacity-90 transition-colors"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -374,7 +374,7 @@ watch(() => route.query.view, (newValue) => {
               </div>
               <button 
                 @click="showAddTicketModal = true"
-                class="mt-2 px-6 py-2 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors"
+                class="mt-2 px-6 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors"
               >
                 Add Your First Ticket
               </button>
@@ -471,14 +471,14 @@ watch(() => route.query.view, (newValue) => {
                       <div class="flex items-center justify-end gap-1">
                         <button 
                           @click="goToTicket(ticket.id)"
-                          class="text-blue-400 hover:text-blue-300 text-xs font-medium px-2 py-1 rounded hover:bg-blue-900/20 transition-colors"
+                          class="text-accent hover:text-accent text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors"
                           title="View ticket"
                         >
                           View
                         </button>
-                        <button 
+                        <button
                           @click="handleRemoveTicket(ticket.id)"
-                          class="text-red-400 hover:text-red-300 text-xs font-medium px-2 py-1 rounded hover:bg-red-900/20 transition-colors"
+                          class="text-status-error hover:text-status-error text-xs font-medium px-2 py-1 rounded hover:bg-status-error/20 transition-colors"
                           title="Remove from project"
                         >
                           <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">

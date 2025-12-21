@@ -29,17 +29,17 @@ const isSameAsCurrentTicket = computed(() => {
 
 // Computed property to get status colors for the ticket badge
 const ticketBadgeColors = computed(() => {
-  if (!linkedTicket.value) return 'bg-slate-600/20 text-slate-700 dark:text-slate-300 border-slate-500/30';
+  if (!linkedTicket.value) return 'bg-surface-alt text-secondary border-default';
 
   switch (linkedTicket.value.status) {
     case 'open':
-      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30';
+      return 'bg-status-warning/20 text-status-warning border-status-warning/30';
     case 'in-progress':
-      return 'bg-blue-400/20 dark:bg-blue-500/20 [color:#1e3a8a] dark:text-blue-200 border-blue-400/40 dark:border-blue-500/30';
+      return 'bg-accent/15 dark:bg-accent/20 [color:#1e3a8a] dark:text-accent border-accent/30 dark:border-accent/30';
     case 'closed':
-      return 'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200 border-green-400/40 dark:border-green-500/30';
+      return 'bg-status-success/20 text-status-success border-status-success/30';
     default:
-      return 'bg-slate-600/20 text-slate-700 dark:text-slate-300 border-slate-500/30';
+      return 'bg-surface-alt text-secondary border-default';
   }
 });
 
@@ -159,7 +159,7 @@ const formattedDate = (dateString: string) => {
         <button
           @click="emit('unlink')"
           :disabled="isNavigating"
-          class="p-1.5 text-tertiary hover:text-red-400 hover:bg-red-900/20 rounded-md transition-colors disabled:opacity-50"
+          class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors disabled:opacity-50"
           title="Unlink ticket"
         >
           <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">

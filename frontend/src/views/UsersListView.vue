@@ -111,7 +111,7 @@ defineExpose({
             <select
               :value="filter.value"
               @change="e => listManager.handleFilterUpdate(filter.name, (e.target as HTMLSelectElement).value)"
-              class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-brand-blue focus:border-brand-blue block w-full py-1 px-2"
+              class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-accent focus:border-accent block w-full py-1 px-2"
             >
               <option
                 v-for="option in filter.options"
@@ -125,7 +125,7 @@ defineExpose({
 
           <button
             @click="listManager.resetFilters"
-            class="px-2 py-1 text-xs font-medium text-white bg-brand-blue rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-brand-blue"
+            class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
           >
             Reset
           </button>
@@ -141,12 +141,14 @@ defineExpose({
     <!-- Main content -->
     <div class="flex-1 flex flex-col overflow-hidden">
       <BaseListView
-        title=""
-        :search-query="''"
+        title="Users"
         :is-loading="listManager.loading.value"
         :is-empty="listManager.items.value.length === 0 && !listManager.loading.value"
         :error="listManager.error.value"
-        :filters="[]"
+        empty-icon="users"
+        :empty-message="listManager.searchQuery.value ? 'No users match your search' : 'No users found'"
+        :empty-description="listManager.searchQuery.value ? 'Try adjusting your search criteria' : 'Invite users to get started'"
+        :empty-action-label="!listManager.searchQuery.value ? 'Invite User' : undefined"
         :results-count="listManager.totalItems.value"
         :sort-field="listManager.sortField.value"
         :sort-direction="listManager.sortDirection.value"
@@ -155,8 +157,8 @@ defineExpose({
         :visible-items="listManager.items.value"
         :item-id-field="'uuid'"
         :enable-selection="false"
-        :show-add-button="false"
         @retry="listManager.fetchItems"
+        @empty-action="navigateToCreateUser"
       >
         <!-- Desktop Table View -->
         <template #default>
@@ -223,11 +225,11 @@ defineExpose({
                 <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
                   <span v-if="user.email" class="text-tertiary truncate max-w-[200px]">{{ user.email }}</span>
                   <span
-                    class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border"
+                    class="inline-flex items-center px-1.5 py-0.5 rounded font-medium capitalize"
                     :class="{
-                      'bg-[rgba(139,92,246,0.15)] text-brand-purple border-brand-purple/30': user.role === 'admin',
-                      'bg-accent-muted text-accent border-accent/30': user.role === 'technician',
-                      'bg-surface-alt text-secondary border-default': user.role === 'user'
+                      'bg-status-error/20 text-status-error': user.role === 'admin',
+                      'bg-accent/20 text-accent': user.role === 'technician',
+                      'bg-surface-alt text-secondary': user.role === 'user'
                     }"
                   >
                     {{ user.role }}

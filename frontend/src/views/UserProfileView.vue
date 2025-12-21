@@ -346,7 +346,7 @@ onMounted(() => {
                     <RouterLink
                         v-if="isOwnProfile"
                         to="/profile/settings"
-                        class="px-4 py-2 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium flex items-center gap-1"
+                        class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium flex items-center gap-1"
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -375,7 +375,7 @@ onMounted(() => {
                     <RouterLink
                         v-else-if="canEditRole && userProfile && !isOwnProfile"
                         :to="`/users/${userProfile.uuid}/settings`"
-                        class="px-4 py-2 bg-brand-purple text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium flex items-center gap-2"
+                        class="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors text-sm font-medium flex items-center gap-2"
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -421,8 +421,8 @@ onMounted(() => {
                         <!-- Card Header -->
                         <div class="px-6 py-4 bg-surface-alt border-b border-default">
                             <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <div class="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                                     </svg>
                                 </div>
@@ -456,7 +456,7 @@ onMounted(() => {
                                                 v-model="editValues.name"
                                                 type="text"
                                                 placeholder="Enter full name"
-                                                class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                                                class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
                                             />
                                         </div>
                                     </div>
@@ -471,7 +471,7 @@ onMounted(() => {
                                                 v-model="editValues.email"
                                                 type="email"
                                                 placeholder="user@example.com"
-                                                class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                                                class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
                                             />
                                         </div>
                                     </div>
@@ -493,7 +493,7 @@ onMounted(() => {
                                             v-model="editValues.pronouns"
                                             type="text"
                                             placeholder="e.g., he/him, she/her, they/them"
-                                            class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                                            class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
                                         />
                                     </div>
                                 </div>
@@ -510,14 +510,14 @@ onMounted(() => {
                                     <!-- SMTP Warning Banner -->
                                     <div
                                         v-if="!smtpConfigured"
-                                        class="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg"
+                                        class="flex items-start gap-3 p-4 bg-status-warning/10 border border-status-warning/20 rounded-lg"
                                     >
-                                        <svg class="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg class="w-5 h-5 text-status-warning flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                         </svg>
                                         <div class="flex flex-col gap-1">
-                                            <span class="text-sm font-medium text-amber-500">Email not configured</span>
-                                            <span class="text-xs text-amber-500/80">You must set a password manually since email invitations are unavailable.</span>
+                                            <span class="text-sm font-medium text-status-warning">Email not configured</span>
+                                            <span class="text-xs text-status-warning/80">You must set a password manually since email invitations are unavailable.</span>
                                         </div>
                                     </div>
 
@@ -532,14 +532,14 @@ onMounted(() => {
                                             @click="sendInvitation = true"
                                             class="relative flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left"
                                             :class="sendInvitation
-                                                ? 'border-blue-500 bg-blue-500/5'
+                                                ? 'border-accent bg-accent/5'
                                                 : 'border-default bg-surface-alt hover:border-strong'"
                                         >
                                             <div
                                                 class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
-                                                :class="sendInvitation ? 'bg-blue-500/20' : 'bg-surface-hover'"
+                                                :class="sendInvitation ? 'bg-accent/20' : 'bg-surface-hover'"
                                             >
-                                                <svg class="w-5 h-5" :class="sendInvitation ? 'text-blue-500' : 'text-tertiary'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <svg class="w-5 h-5" :class="sendInvitation ? 'text-accent' : 'text-tertiary'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                                                 </svg>
                                             </div>
@@ -555,14 +555,14 @@ onMounted(() => {
                                             @click="sendInvitation = false"
                                             class="relative flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left"
                                             :class="!sendInvitation
-                                                ? 'border-blue-500 bg-blue-500/5'
+                                                ? 'border-accent bg-accent/5'
                                                 : 'border-default bg-surface-alt hover:border-strong'"
                                         >
                                             <div
                                                 class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
-                                                :class="!sendInvitation ? 'bg-blue-500/20' : 'bg-surface-hover'"
+                                                :class="!sendInvitation ? 'bg-accent/20' : 'bg-surface-hover'"
                                             >
-                                                <svg class="w-5 h-5" :class="!sendInvitation ? 'text-blue-500' : 'text-tertiary'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <svg class="w-5 h-5" :class="!sendInvitation ? 'text-accent' : 'text-tertiary'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                                                 </svg>
                                             </div>
@@ -591,10 +591,10 @@ onMounted(() => {
                                                     autocomplete="new-password"
                                                     class="w-full px-4 py-3 pr-12 bg-surface-alt border rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-1 transition-colors"
                                                     :class="manualPassword && manualPassword.length < 8
-                                                        ? 'border-amber-500 focus:border-amber-500 focus:ring-amber-500'
+                                                        ? 'border-status-warning focus:border-status-warning focus:ring-status-warning'
                                                         : manualPassword.length >= 8
                                                             ? 'border-status-success focus:border-status-success focus:ring-status-success'
-                                                            : 'border-default focus:border-blue-500 focus:ring-blue-500'"
+                                                            : 'border-default focus:border-accent focus:ring-accent'"
                                                 />
                                                 <button
                                                     type="button"
@@ -616,7 +616,7 @@ onMounted(() => {
                                                 <div class="flex-1 h-1 bg-surface-alt rounded-full overflow-hidden">
                                                     <div
                                                         class="h-full transition-all duration-300"
-                                                        :class="manualPassword.length >= 8 ? 'bg-status-success' : manualPassword.length >= 4 ? 'bg-amber-500' : 'bg-status-error'"
+                                                        :class="manualPassword.length >= 8 ? 'bg-status-success' : manualPassword.length >= 4 ? 'bg-status-warning' : 'bg-status-error'"
                                                         :style="{ width: `${Math.min(100, (manualPassword.length / 8) * 100)}%` }"
                                                     />
                                                 </div>
@@ -644,7 +644,7 @@ onMounted(() => {
                                                     ? 'border-status-error focus:border-status-error focus:ring-status-error'
                                                     : confirmPassword && manualPassword === confirmPassword && manualPassword.length >= 8
                                                         ? 'border-status-success focus:border-status-success focus:ring-status-success'
-                                                        : 'border-default focus:border-blue-500 focus:ring-blue-500'"
+                                                        : 'border-default focus:border-accent focus:ring-accent'"
                                             />
                                             <!-- Match indicator -->
                                             <p
@@ -693,7 +693,7 @@ onMounted(() => {
                                         !editValues.email ||
                                         (!sendInvitation && (manualPassword.length < 8 || manualPassword !== confirmPassword))
                                     "
-                                    class="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                    class="px-5 py-2.5 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
                                     <svg
                                         v-if="isSaving"
@@ -845,7 +845,7 @@ onMounted(() => {
             class="flex justify-center items-center min-h-[200px]"
         >
             <div
-                class="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-blue"
+                class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"
             ></div>
         </div>
 

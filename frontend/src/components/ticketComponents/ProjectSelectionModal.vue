@@ -3,6 +3,7 @@
 import { formatDate as formatDateUtil, formatDateTime } from '@/utils/dateUtils';
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import Modal from '@/components/Modal.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import type { Project } from '@/types/project'
 import { projectService } from '@/services/projectService'
 
@@ -99,13 +100,13 @@ watch(searchQuery, (newQuery) => {
 const getStatusClass = (status: string) => {
   switch (status) {
     case 'active':
-      return 'bg-green-900/30 text-green-400 border-green-700/30'
+      return 'bg-status-success/30 text-status-success border-status-success/30'
     case 'completed':
-      return 'bg-blue-900/30 text-blue-400 border-blue-700/30'
+      return 'bg-accent/15 text-accent border-accent/30'
     case 'archived':
-      return 'bg-gray-900/30 text-gray-400 border-gray-700/30'
+      return 'bg-surface-alt/30 text-secondary border-subtle/30'
     default:
-      return 'bg-slate-700/30 text-slate-400 border-slate-600/30'
+      return 'bg-surface-alt/30 text-tertiary border-subtle/30'
   }
 }
 
@@ -151,7 +152,7 @@ const formatDate = (dateString: string): string => {
       <!-- Search -->
       <div class="relative">
         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <svg class="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="h-5 w-5 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
@@ -159,10 +160,10 @@ const formatDate = (dateString: string): string => {
           v-model="searchQuery"
           type="text"
           placeholder="Search projects by name or description..."
-          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20 transition-colors"
+          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-accent focus:ring-2 focus:ring-accent/20 transition-colors"
         />
         <div v-if="isLoading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
-          <svg class="w-5 h-5 animate-spin text-slate-400" fill="none" viewBox="0 0 24 24">
+          <svg class="w-5 h-5 animate-spin text-tertiary" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
@@ -182,16 +183,16 @@ const formatDate = (dateString: string): string => {
 
       <!-- Error state -->
       <div v-else-if="error" class="text-center py-8">
-        <div class="bg-red-900/20 border border-red-700/30 rounded-lg p-4">
-          <p class="text-red-400 flex items-center justify-center gap-2">
+        <div class="bg-status-error/20 border border-status-error/30 rounded-lg p-4">
+          <p class="text-status-error flex items-center justify-center gap-2">
             <svg class="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
             </svg>
             {{ error }}
           </p>
-          <button 
+          <button
             @click="fetchProjects()"
-            class="mt-3 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm"
+            class="mt-3 px-4 py-2 bg-status-error/80 text-white rounded-md hover:bg-status-error transition-colors text-sm"
           >
             Try Again
           </button>
@@ -199,30 +200,22 @@ const formatDate = (dateString: string): string => {
       </div>
 
       <!-- No results -->
-      <div v-else-if="!isLoading && filteredProjects.length === 0 && searchQuery" class="text-center py-8 text-tertiary">
-        <div class="inline-flex flex-col items-center gap-3">
-          <svg class="w-12 h-12 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-          <div class="text-center">
-            <p class="text-lg font-medium text-secondary">No projects found</p>
-            <p class="text-sm">Try adjusting your search criteria</p>
-          </div>
-        </div>
-      </div>
+      <EmptyState
+        v-else-if="!isLoading && filteredProjects.length === 0 && searchQuery"
+        icon="search"
+        title="No projects found"
+        description="Try adjusting your search criteria"
+        variant="compact"
+      />
 
       <!-- No projects available -->
-      <div v-else-if="!isLoading && filteredProjects.length === 0 && !searchQuery" class="text-center py-8 text-tertiary">
-        <div class="inline-flex flex-col items-center gap-3">
-          <svg class="w-12 h-12 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-          <div class="text-center">
-            <p class="text-lg font-medium text-secondary">No projects available</p>
-            <p class="text-sm">Create a project to get started</p>
-          </div>
-        </div>
-      </div>
+      <EmptyState
+        v-else-if="!isLoading && filteredProjects.length === 0 && !searchQuery"
+        icon="folder"
+        title="No projects available"
+        description="Create a project to get started"
+        variant="compact"
+      />
 
       <!-- Projects list -->
       <div 
@@ -248,12 +241,12 @@ const formatDate = (dateString: string): string => {
               v-for="project in filteredProjects"
               :key="project.id"
               class="group relative hover:bg-surface-hover transition-colors duration-150 cursor-pointer"
-              :class="{ 'bg-blue-900/20 border-l-4 border-blue-500': existingProjectIds?.includes(project.id) }"
+              :class="{ 'bg-accent/10 border-l-4 border-accent': existingProjectIds?.includes(project.id) }"
               @click="selectProject(project)"
             >
               <!-- Already added indicator -->
               <div v-if="existingProjectIds?.includes(project.id)" class="absolute -top-1 right-2 z-10">
-                <div class="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-b-md shadow-sm">
+                <div class="bg-accent text-white text-xs px-2 py-0.5 rounded-b-md shadow-sm">
                   Already Added
                 </div>
               </div>
@@ -298,7 +291,7 @@ const formatDate = (dateString: string): string => {
                   <div class="col-span-1 text-right">
                     <button
                       v-if="!existingProjectIds?.includes(project.id)"
-                      class="text-blue-400 hover:text-blue-300 text-xs font-medium px-2 py-1 rounded hover:bg-blue-900/20 transition-colors"
+                      class="text-accent hover:text-accent text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors"
                     >
                       Select
                     </button>

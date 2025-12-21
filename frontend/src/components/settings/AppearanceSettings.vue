@@ -22,6 +22,7 @@ const emit = defineEmits<{
 
 // Local reactive state
 const selectedTheme = ref<ThemeMode>(themeStore.currentTheme)
+const colorBlindMode = ref(themeStore.colorBlindMode)
 const compactView = ref(false)
 const isUpdating = ref(false)
 
@@ -65,6 +66,12 @@ const selectTheme = async (themeId: ThemeMode) => {
   }
 
   isUpdating.value = false
+}
+
+// Handle color blind mode toggle
+const handleColorBlindModeToggle = () => {
+  themeStore.setColorBlindMode(colorBlindMode.value)
+  emit('success', `Color blind friendly mode ${colorBlindMode.value ? 'enabled' : 'disabled'}`)
 }
 
 // Handle compact view toggle
@@ -173,6 +180,22 @@ const handleCompactViewToggle = () => {
             />
           </div>
         </div>
+      </div>
+
+      <!-- Accessibility Options -->
+      <div class="flex flex-col gap-4 pt-2 border-t border-default">
+        <div>
+          <h3 class="text-sm font-medium text-primary">Accessibility</h3>
+          <p class="text-xs text-tertiary mt-0.5">Improve readability and visual distinction</p>
+        </div>
+
+        <!-- Color Blind Friendly Mode Toggle -->
+        <ToggleSwitch
+          v-model="colorBlindMode"
+          label="Color blind friendly mode"
+          description="Use distinct shapes for status indicators instead of relying only on colors"
+          @update:modelValue="handleColorBlindModeToggle"
+        />
       </div>
 
       <!-- Display Options -->

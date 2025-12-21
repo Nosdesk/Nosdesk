@@ -11,12 +11,12 @@
       </div>
 
       <!-- Error Message -->
-      <div v-if="errorMessage" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-lg text-sm">
+      <div v-if="errorMessage" class="bg-status-error/50 border border-status-error/70 text-status-error px-4 py-3 rounded-lg text-sm">
         {{ errorMessage }}
       </div>
 
       <!-- Success Message -->
-      <div v-if="successMessage" class="bg-green-900/50 border border-green-700 text-green-200 px-4 py-3 rounded-lg text-sm">
+      <div v-if="successMessage" class="bg-status-success/50 border border-status-success/70 text-status-success px-4 py-3 rounded-lg text-sm">
         {{ successMessage }}
       </div>
 

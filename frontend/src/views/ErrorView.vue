@@ -3,6 +3,7 @@
 import { useRoute, useRouter } from "vue-router";
 import { onMounted, onUnmounted, ref, reactive, watchEffect, watch, computed, nextTick } from "vue";
 import { useThemeStore } from "@/stores/theme";
+import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 
 // Type definition for the direction of a glitch spike.
 // 'vertical' = vertical glitch, 'horizontal' = horizontal glitch, null = no glitch
@@ -1183,7 +1184,7 @@ const debugMeta = computed(() => ({
           </button>
           <button
             @click="goHome"
-            class="px-4 py-2 text-sm font-medium bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors"
+            class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:opacity-90 transition-colors"
           >
             Go to Dashboard
           </button>
@@ -1196,12 +1197,11 @@ const debugMeta = computed(() => ({
     <h3 class="font-semibold mb-2">Debug Controls (press 'd' to toggle)</h3>
     
     <!-- Master Toggle -->
-    <div class="flex items-center justify-between mb-4 border-b border-slate-600 pb-2">
-      <span class="font-semibold">Master Effects Toggle</span>
-      <input
-        type="checkbox"
+    <div class="mb-4 border-b border-default pb-2">
+      <ToggleSwitch
         v-model="debugControls.masterEffectEnabled"
-        class="w-4 h-4"
+        label="Master Effects Toggle"
+        size="sm"
       />
     </div>
     

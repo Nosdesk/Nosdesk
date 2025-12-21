@@ -18,7 +18,7 @@ pub fn get_user_emails_by_uuid(
         .load::<UserEmail>(conn)
 }
 
-/// Find a user by any of their email addresses
+/// Find a user by any of their email addresses (case-insensitive)
 pub fn find_user_by_any_email(
     conn: &mut DbConnection,
     email: &str,
@@ -27,7 +27,7 @@ pub fn find_user_by_any_email(
 
     users::table
         .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
-        .filter(user_emails::email.eq(email))
+        .filter(user_emails::email.ilike(email)) // Case-insensitive match
         .select(users::all_columns)
         .first::<crate::models::User>(conn)
 }
@@ -81,7 +81,7 @@ pub fn cleanup_obsolete_emails(
     ).execute(conn)
 }
 
-/// Check if any of the provided emails belong to an existing user
+/// Check if any of the provided emails belong to an existing user (case-insensitive)
 pub fn find_user_by_any_of_emails(
     conn: &mut DbConnection,
     emails: &[String],
@@ -92,9 +92,12 @@ pub fn find_user_by_any_of_emails(
         return Ok(None);
     }
 
+    // Normalize emails to lowercase for case-insensitive matching
+    let normalized_emails: Vec<String> = emails.iter().map(|e| e.to_lowercase()).collect();
+
     let result = users::table
         .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
-        .filter(user_emails::email.eq_any(emails))
+        .filter(user_emails::email.eq_any(&normalized_emails))
         .select(users::all_columns)
         .first::<crate::models::User>(conn)
         .optional()?;

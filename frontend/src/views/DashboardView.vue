@@ -128,25 +128,25 @@ onMounted(() => {
         <!-- Total Tickets -->
         <router-link to="/tickets" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
           <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">Total</h3>
-          <p class="text-xl font-semibold text-primary mt-1 group-hover:text-blue-400 transition-colors">{{ ticketStats.total }}</p>
+          <p class="text-xl font-semibold text-primary mt-1 group-hover:text-accent transition-colors">{{ ticketStats.total }}</p>
         </router-link>
 
         <!-- Open Tickets -->
         <router-link to="/tickets?status=open" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
           <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">Open</h3>
-          <p class="text-xl font-semibold text-status-success mt-1 group-hover:text-blue-400 transition-colors">{{ ticketStats.open }}</p>
+          <p class="text-xl font-semibold text-status-open mt-1 group-hover:text-accent transition-colors">{{ ticketStats.open }}</p>
         </router-link>
 
         <!-- In Progress -->
         <router-link to="/tickets?status=in-progress" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
           <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">In Progress</h3>
-          <p class="text-xl font-semibold text-brand-blue mt-1 group-hover:text-blue-400 transition-colors">{{ ticketStats.inProgress }}</p>
+          <p class="text-xl font-semibold text-status-in-progress mt-1 group-hover:text-accent transition-colors">{{ ticketStats.inProgress }}</p>
         </router-link>
 
         <!-- Closed -->
         <router-link to="/tickets?status=closed" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
           <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">Closed</h3>
-          <p class="text-xl font-semibold text-tertiary mt-1 group-hover:text-blue-400 transition-colors">{{ ticketStats.closed }}</p>
+          <p class="text-xl font-semibold text-tertiary mt-1 group-hover:text-accent transition-colors">{{ ticketStats.closed }}</p>
         </router-link>
       </div>
 

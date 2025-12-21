@@ -6,6 +6,7 @@ import apiClient from "@/services/apiConfig";
 import BackButton from "@/components/common/BackButton.vue";
 import Modal from "@/components/Modal.vue";
 import AlertMessage from "@/components/common/AlertMessage.vue";
+import Checkbox from "@/components/common/Checkbox.vue";
 import EnvConfigNotice from "@/components/admin/EnvConfigNotice.vue";
 import { AdminIcons } from "@/components/admin/AdminIcons";
 import type {
@@ -298,27 +299,27 @@ const getStatusDisplay = (status: string) => {
     case "connected":
       return {
         text: "Connected",
-        class: "bg-green-900/50 text-green-400 border-green-700",
+        class: "bg-status-success/20 text-status-success border-status-success/50",
       };
     case "disconnected":
       return {
         text: "Not Connected",
-        class: "bg-slate-900/50 text-slate-400 border-slate-700",
+        class: "bg-surface-alt text-tertiary border-default",
       };
     case "connecting":
       return {
         text: "Connecting...",
-        class: "bg-blue-900/50 text-blue-400 border-blue-700",
+        class: "bg-accent/20 text-accent border-accent",
       };
     case "error":
       return {
         text: "Connection Error",
-        class: "bg-red-900/50 text-red-400 border-red-700",
+        class: "bg-status-error/20 text-status-error border-status-error/50",
       };
     default:
       return {
         text: "Unknown",
-        class: "bg-slate-900/50 text-slate-400 border-slate-700",
+        class: "bg-surface-alt text-tertiary border-default",
       };
   }
 };
@@ -471,7 +472,7 @@ onMounted(async () => {
           <!-- Header row with icon -->
           <div class="flex items-center gap-3">
             <!-- Microsoft icon -->
-            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400">
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="AdminIcons.microsoft"></svg>
             </div>
 
@@ -483,7 +484,7 @@ onMounted(async () => {
                 :class="{
                   'bg-status-success/20 text-status-success border-status-success/50': connectionStatus === 'connected',
                   'bg-surface-alt text-tertiary border-default': connectionStatus === 'disconnected',
-                  'bg-brand-blue/20 text-brand-blue border-brand-blue/50': connectionStatus === 'connecting',
+                  'bg-accent/20 text-accent border-accent/50': connectionStatus === 'connecting',
                   'bg-status-error/20 text-status-error border-status-error/50': connectionStatus === 'error'
                 }"
               >
@@ -524,7 +525,7 @@ onMounted(async () => {
           <!-- Header row with icon -->
           <div class="flex items-center gap-3">
             <!-- Config icon -->
-            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-slate-500/20 flex items-center justify-center text-slate-400">
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-surface-alt flex items-center justify-center text-tertiary">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="AdminIcons.cog"></svg>
             </div>
 
@@ -591,7 +592,7 @@ onMounted(async () => {
           <!-- Header row with icon -->
           <div class="flex items-center gap-3">
             <!-- Database icon -->
-            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-500">
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-status-success/20 flex items-center justify-center text-status-success">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="AdminIcons.database"></svg>
             </div>
 
@@ -609,7 +610,7 @@ onMounted(async () => {
               @click="toggleEntity(entity.id)"
               class="p-3 rounded-lg border cursor-pointer transition-colors"
               :class="selectedEntities.includes(entity.id)
-                ? 'bg-brand-blue/10 border-brand-blue/50'
+                ? 'bg-accent/10 border-accent/50'
                 : 'bg-surface-alt border-default hover:border-strong'"
             >
               <div class="flex items-center justify-between mb-1">
@@ -617,7 +618,7 @@ onMounted(async () => {
                 <span
                   class="px-1.5 py-0.5 text-xs rounded-full border"
                   :class="selectedEntities.includes(entity.id)
-                    ? 'bg-brand-blue/20 text-brand-blue border-brand-blue/50'
+                    ? 'bg-accent/20 text-accent border-accent/50'
                     : 'bg-surface-alt text-tertiary border-default'"
                 >
                   {{ selectedEntities.includes(entity.id) ? 'Selected' : 'Select' }}
@@ -639,7 +640,7 @@ onMounted(async () => {
           <!-- Header row with icon -->
           <div class="flex items-center gap-3">
             <!-- Sync icon -->
-            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-brand-blue/20 flex items-center justify-center text-brand-blue">
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
               <svg class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -652,11 +653,10 @@ onMounted(async () => {
               <span
                 class="px-1.5 py-0.5 text-xs rounded-full border"
                 :class="{
-                  'bg-brand-blue/20 text-brand-blue border-brand-blue/50': syncProgress.status === 'running' || syncProgress.status === 'starting',
+                  'bg-accent/20 text-accent border-accent/50': syncProgress.status === 'running' || syncProgress.status === 'starting',
                   'bg-status-success/20 text-status-success border-status-success/50': syncProgress.status === 'completed',
-                  'bg-amber-500/20 text-amber-400 border-amber-500/50': syncProgress.status === 'completed_with_errors',
+                  'bg-status-warning/20 text-status-warning border-status-warning/50': syncProgress.status === 'completed_with_errors' || syncProgress.status === 'cancelling',
                   'bg-status-error/20 text-status-error border-status-error/50': syncProgress.status === 'error',
-                  'bg-amber-500/20 text-amber-400 border-amber-500/50': syncProgress.status === 'cancelling',
                   'bg-surface-alt text-tertiary border-default': syncProgress.status === 'cancelled'
                 }"
               >
@@ -668,7 +668,7 @@ onMounted(async () => {
             <button
               v-if="(syncProgress.status === 'running' || syncProgress.status === 'starting') && currentSessionId"
               @click="cancelSync(currentSessionId!)"
-              class="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/50 rounded-lg text-sm hover:bg-red-500/30 font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap"
+              class="px-3 py-1.5 bg-status-error/20 text-status-error border border-status-error/50 rounded-lg text-sm hover:bg-status-error/30 font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap"
             >
               Cancel
             </button>
@@ -685,12 +685,11 @@ onMounted(async () => {
             <div
               class="h-2 rounded-full transition-all duration-300"
               :class="{
-                'bg-brand-blue': syncProgress.status === 'running' || syncProgress.status === 'starting',
+                'bg-accent': syncProgress.status === 'running' || syncProgress.status === 'starting',
                 'bg-status-success': syncProgress.status === 'completed',
-                'bg-amber-500': syncProgress.status === 'completed_with_errors',
+                'bg-status-warning': syncProgress.status === 'completed_with_errors' || syncProgress.status === 'cancelling',
                 'bg-status-error': syncProgress.status === 'error',
-                'bg-amber-500': syncProgress.status === 'cancelling',
-                'bg-slate-500': syncProgress.status === 'cancelled'
+                'bg-surface-hover': syncProgress.status === 'cancelled'
               }"
               :style="{
                 width: syncProgress.total > 0
@@ -706,7 +705,7 @@ onMounted(async () => {
           <!-- Header row with icon -->
           <div class="flex items-center gap-3">
             <!-- Sync icon -->
-            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-brand-blue/20 flex items-center justify-center text-brand-blue">
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
@@ -755,10 +754,9 @@ onMounted(async () => {
                     <span
                       class="px-1.5 py-0.5 text-xs rounded-full border"
                       :class="{
-                        'bg-brand-blue/20 text-brand-blue border-brand-blue/50': sync.status === 'running' || sync.status === 'starting',
-                        'bg-amber-500/20 text-amber-400 border-amber-500/50': sync.status === 'cancelling',
+                        'bg-accent/20 text-accent border-accent/50': sync.status === 'running' || sync.status === 'starting',
+                        'bg-status-warning/20 text-status-warning border-status-warning/50': sync.status === 'cancelling' || sync.status === 'completed_with_errors',
                         'bg-status-success/20 text-status-success border-status-success/50': sync.status === 'completed',
-                        'bg-amber-500/20 text-amber-400 border-amber-500/50': sync.status === 'completed_with_errors',
                         'bg-status-error/20 text-status-error border-status-error/50': sync.status === 'error'
                       }"
                     >
@@ -775,10 +773,9 @@ onMounted(async () => {
                     <div
                       class="h-1.5 rounded-full transition-all duration-300"
                       :class="{
-                        'bg-brand-blue': sync.status === 'running' || sync.status === 'starting',
-                        'bg-amber-500': sync.status === 'cancelling',
+                        'bg-accent': sync.status === 'running' || sync.status === 'starting',
+                        'bg-status-warning': sync.status === 'cancelling' || sync.status === 'completed_with_errors',
                         'bg-status-success': sync.status === 'completed',
-                        'bg-amber-500': sync.status === 'completed_with_errors',
                         'bg-status-error': sync.status === 'error'
                       }"
                       :style="{
@@ -794,14 +791,14 @@ onMounted(async () => {
                   <button
                     v-if="currentSessionId !== sync.session_id && (sync.status === 'running' || sync.status === 'starting')"
                     @click="resumeSync(sync.session_id)"
-                    class="px-2 py-1 bg-brand-blue/20 text-brand-blue border border-brand-blue/50 rounded text-xs hover:bg-brand-blue/30 transition-colors"
+                    class="px-2 py-1 bg-accent/20 text-accent border border-accent/50 rounded text-xs hover:bg-accent/30 transition-colors"
                   >
                     Monitor
                   </button>
                   <button
                     v-if="sync.status === 'running' || sync.status === 'starting'"
                     @click="cancelSync(sync.session_id)"
-                    class="px-2 py-1 bg-red-500/20 text-red-400 border border-red-500/50 rounded text-xs hover:bg-red-500/30 transition-colors"
+                    class="px-2 py-1 bg-status-error/20 text-status-error border border-status-error/50 rounded text-xs hover:bg-status-error/30 transition-colors"
                   >
                     Cancel
                   </button>
@@ -821,7 +818,7 @@ onMounted(async () => {
           <!-- Header row with icon -->
           <div class="flex items-center gap-3">
             <!-- History icon -->
-            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-purple-500/20 flex items-center justify-center text-purple-400">
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -835,7 +832,7 @@ onMounted(async () => {
                 class="px-1.5 py-0.5 text-xs rounded-full border"
                 :class="{
                   'bg-status-success/20 text-status-success border-status-success/50': lastSyncDetails.status === 'completed',
-                  'bg-amber-500/20 text-amber-400 border-amber-500/50': lastSyncDetails.status === 'completed_with_errors',
+                  'bg-status-warning/20 text-status-warning border-status-warning/50': lastSyncDetails.status === 'completed_with_errors',
                   'bg-status-error/20 text-status-error border-status-error/50': lastSyncDetails.status === 'error',
                   'bg-surface-alt text-tertiary border-default': lastSyncDetails.status === 'cancelled'
                 }"
@@ -890,9 +887,9 @@ onMounted(async () => {
                 class="h-2 rounded-full transition-all duration-300"
                 :class="{
                   'bg-status-success': lastSyncDetails.status === 'completed',
-                  'bg-amber-500': lastSyncDetails.status === 'completed_with_errors',
+                  'bg-status-warning': lastSyncDetails.status === 'completed_with_errors',
                   'bg-status-error': lastSyncDetails.status === 'error',
-                  'bg-gray-500': lastSyncDetails.status === 'cancelled'
+                  'bg-tertiary': lastSyncDetails.status === 'cancelled'
                 }"
                 :style="{
                   width: lastSyncDetails.total > 0
@@ -935,26 +932,23 @@ onMounted(async () => {
         </p>
 
         <div class="flex flex-col gap-2">
-          <label
+          <div
             v-for="entity in availableEntities"
             :key="entity.id"
-            :for="`sync-${entity.id}`"
             class="flex items-center gap-3 p-3 rounded-lg border border-default bg-surface hover:border-strong cursor-pointer transition-colors"
-            :class="{ 'border-brand-blue bg-brand-blue/5': selectedEntities.includes(entity.id) }"
+            :class="{ 'border-accent bg-accent/5': selectedEntities.includes(entity.id) }"
+            @click="toggleEntity(entity.id)"
           >
-            <input
-              type="checkbox"
+            <Checkbox
               :id="`sync-${entity.id}`"
-              :checked="selectedEntities.includes(entity.id)"
-              @change="toggleEntity(entity.id)"
-              class="w-4 h-4 text-brand-blue bg-surface border-default rounded focus:ring-brand-blue focus:ring-2"
+              :model-value="selectedEntities.includes(entity.id)"
+              :label="entity.name"
             />
-            <span class="text-primary text-sm">{{ entity.name }}</span>
-          </label>
+          </div>
         </div>
 
         <!-- Info notice -->
-        <div class="p-3 bg-brand-blue/10 border border-brand-blue/30 rounded-lg text-sm text-brand-blue flex items-start gap-2">
+        <div class="p-3 bg-accent/10 border border-accent/30 rounded-lg text-sm text-accent flex items-start gap-2">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
@@ -972,7 +966,7 @@ onMounted(async () => {
               class="p-3 rounded-lg border"
               :class="{
                 'bg-status-success/10 border-status-success/30': result.status === 'completed',
-                'bg-amber-500/10 border-amber-500/30': result.status === 'completed_with_errors',
+                'bg-status-warning/10 border-status-warning/30': result.status === 'completed_with_errors',
                 'bg-status-error/10 border-status-error/30': result.status === 'error'
               }"
             >
@@ -990,7 +984,7 @@ onMounted(async () => {
                   <svg v-if="result.status === 'completed'" class="w-4 h-4 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                   </svg>
-                  <svg v-else-if="result.status === 'completed_with_errors'" class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg v-else-if="result.status === 'completed_with_errors'" class="w-4 h-4 text-status-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.864-.833-2.634 0l-5.898 8.5c-.77.833.192 2.5 1.732 2.5z"></path>
                   </svg>
                   <svg v-else class="w-4 h-4 text-status-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -2,7 +2,8 @@
 import { RouterLink } from 'vue-router'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
 import { onMounted, computed } from 'vue'
-import { formatRelativeTime, parseDate } from '@/utils/dateUtils'
+import { parseDate } from '@/utils/dateUtils'
+import StatusIndicator from '@/components/common/StatusIndicator.vue'
 
 const recentTicketsStore = useRecentTicketsStore()
 
@@ -17,14 +18,6 @@ onMounted(async () => {
     await recentTicketsStore.fetchRecentTickets()
   }
 })
-
-// Status colors using semantic tokens
-const statusColors: Record<string, string> = {
-  open: 'bg-status-open',
-  'in-progress': 'bg-status-in-progress',
-  closed: 'bg-status-closed'
-}
-
 
 // Compact relative time using app's date utilities
 const relativeTime = (dateString: string | null | undefined): string => {
@@ -62,12 +55,8 @@ const relativeTime = (dateString: string | null | undefined): string => {
           :to="{ path: `/tickets/${ticket.id}`, query: { fromRecent: 'true' } }"
           class="group flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded hover:bg-surface-hover transition-colors"
         >
-          <!-- Status dot -->
-          <span
-            class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-            :class="statusColors[ticket.status] || statusColors.open"
-            :title="ticket.status"
-          ></span>
+          <!-- Status indicator -->
+          <StatusIndicator :status="ticket.status" size="xs" />
 
           <!-- ID -->
           <span class="text-xs text-secondary font-medium flex-shrink-0">#{{ ticket.id }}</span>

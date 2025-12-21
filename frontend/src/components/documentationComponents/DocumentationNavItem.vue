@@ -149,7 +149,7 @@ const handleDrop = (event: DragEvent) => {
           ? 'bg-surface text-primary font-medium'
           : 'text-secondary hover:text-primary hover:bg-surface-hover',
         isDragging && 'opacity-40 scale-[0.98]',
-        (dragPosition === 'inside' || isDropTarget) && 'bg-blue-500/10 ring-1 ring-blue-500/30',
+        (dragPosition === 'inside' || isDropTarget) && 'bg-accent/10 ring-1 ring-accent/30',
       ]"
       :style="indentStyle"
       draggable="true"

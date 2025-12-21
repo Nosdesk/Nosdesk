@@ -117,7 +117,7 @@ watch(() => props.userUuid, () => {
       <button
         v-if="canEdit && !showAddForm"
         @click="showAddForm = true"
-        class="px-3 py-1.5 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors text-sm flex items-center gap-2"
+        class="px-3 py-1.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors text-sm flex items-center gap-2"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -136,14 +136,14 @@ watch(() => props.userUuid, () => {
             v-model="newEmailAddress"
             type="email"
             placeholder="email@example.com"
-            class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-brand-blue focus:outline-none"
+            class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-accent focus:outline-none"
             @keyup.enter="addEmail"
           />
           <div class="flex gap-2">
             <button
               @click="addEmail"
               :disabled="addingEmail"
-              class="px-4 py-2.5 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              class="px-4 py-2.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {{ addingEmail ? 'Adding...' : 'Add' }}
             </button>
@@ -159,7 +159,7 @@ watch(() => props.userUuid, () => {
 
       <!-- Loading state -->
       <div v-if="loading" class="flex justify-center py-8">
-        <div class="animate-spin h-8 w-8 border-4 border-brand-blue border-t-transparent rounded-full"></div>
+        <div class="animate-spin h-8 w-8 border-4 border-accent border-t-transparent rounded-full"></div>
       </div>
 
       <!-- Empty state -->
@@ -184,7 +184,7 @@ watch(() => props.userUuid, () => {
                 </span>
                 <span
                   v-if="email.is_primary"
-                  class="text-xs px-2 py-0.5 rounded-full bg-blue-600/20 text-blue-400 flex-shrink-0"
+                  class="text-xs px-2 py-0.5 rounded-full bg-accent/20 text-accent flex-shrink-0"
                 >
                   Primary
                 </span>
@@ -207,8 +207,8 @@ watch(() => props.userUuid, () => {
               <span
                 class="text-xs px-2 py-1 rounded-full"
                 :class="{
-                  'text-green-400 bg-green-600/20': email.is_verified,
-                  'text-yellow-400 bg-yellow-600/20': !email.is_verified
+                  'text-status-success bg-status-success/20': email.is_verified,
+                  'text-status-warning bg-status-warning/20': !email.is_verified
                 }"
               >
                 {{ email.is_verified ? 'Verified' : 'Unverified' }}
@@ -220,13 +220,13 @@ watch(() => props.userUuid, () => {
           <div v-if="canEdit && email.id !== 0 && !email.is_primary" class="mt-3 flex flex-wrap gap-2">
             <button
               @click="setAsPrimary(email.id, email.email)"
-              class="text-xs px-3 py-1.5 bg-blue-600/20 text-blue-400 rounded-lg hover:bg-blue-600/30 transition-colors"
+              class="text-xs px-3 py-1.5 bg-accent/20 text-accent rounded-lg hover:bg-accent/30 transition-colors"
             >
               Set as Primary
             </button>
             <button
               @click="deleteEmail(email.id, email.email)"
-              class="text-xs px-3 py-1.5 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/30 transition-colors"
+              class="text-xs px-3 py-1.5 bg-status-error/20 text-status-error rounded-lg hover:bg-status-error/30 transition-colors"
             >
               Remove
             </button>

@@ -444,7 +444,7 @@ onMounted(() => {
 
           <!-- Read-only indicator for Microsoft Graph synced devices -->
           <div v-if="device && !device.is_editable" class="flex items-center gap-2 text-sm">
-            <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+            <div class="w-2 h-2 rounded-full bg-accent"></div>
             <span class="text-secondary">Read-only</span>
           </div>
         </div>
@@ -489,7 +489,7 @@ onMounted(() => {
                       v-model="editValues.name"
                       type="text"
                       placeholder="Enter device name"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                     />
                   </div>
                 </div>
@@ -502,7 +502,7 @@ onMounted(() => {
                       v-model="editValues.manufacturer"
                       type="text"
                       placeholder="e.g., Dell, HP, Apple"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                     />
                   </div>
                 </div>
@@ -515,7 +515,7 @@ onMounted(() => {
                       v-model="editValues.model"
                       type="text"
                       placeholder="Enter device model"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                     />
                   </div>
                 </div>
@@ -541,7 +541,7 @@ onMounted(() => {
                       v-model="editValues.hostname"
                       type="text"
                       placeholder="Enter hostname (optional)"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                     />
                   </div>
                 </div>
@@ -554,7 +554,7 @@ onMounted(() => {
                       v-model="editValues.serial_number"
                       type="text"
                       placeholder="Enter serial number (optional)"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                     />
                   </div>
                 </div>
@@ -565,7 +565,7 @@ onMounted(() => {
                   <div class="bg-surface-alt rounded-lg border border-default hover:border-strong transition-colors">
                     <select
                       v-model="editValues.warranty_status"
-                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
+                      class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-accent/50"
                     >
                       <option value="Active" class="bg-surface-alt">Active</option>
                       <option value="Expired" class="bg-surface-alt">Expired</option>
@@ -654,7 +654,7 @@ onMounted(() => {
                         <select
                           v-model="editValues.warranty_status"
                           @change="() => saveField('warranty_status')"
-                          class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-brand-blue/50 text-sm"
+                          class="w-full bg-transparent border-none rounded-lg px-3 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm"
                         >
                           <option value="Active" class="bg-surface-alt">Active</option>
                           <option value="Expired" class="bg-surface-alt">Expired</option>
@@ -696,11 +696,11 @@ onMounted(() => {
                           v-if="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
                           :src="device.primary_user.avatar_thumb || device.primary_user.avatar_url || ''"
                           :alt="device.primary_user.name"
-                          class="w-16 h-16 rounded-full object-cover ring-2 ring-surface-alt group-hover:ring-brand-blue transition-all"
+                          class="w-16 h-16 rounded-full object-cover ring-2 ring-surface-alt group-hover:ring-accent transition-all"
                         />
                         <div
                           v-else
-                          class="w-16 h-16 rounded-full bg-surface-alt flex items-center justify-center ring-2 ring-surface-alt group-hover:ring-brand-blue transition-all"
+                          class="w-16 h-16 rounded-full bg-surface-alt flex items-center justify-center ring-2 ring-surface-alt group-hover:ring-accent transition-all"
                         >
                           <span class="text-2xl font-semibold text-secondary">
                             {{ device.primary_user.name.charAt(0).toUpperCase() }}
@@ -713,7 +713,7 @@ onMounted(() => {
                     <div class="flex-1 min-w-0">
                       <router-link
                         :to="`/users/${device.primary_user.uuid}`"
-                        class="text-lg font-semibold text-primary hover:text-brand-blue transition-colors block truncate"
+                        class="text-lg font-semibold text-primary hover:text-accent transition-colors block truncate"
                       >
                         {{ device.primary_user.name }}
                       </router-link>
@@ -721,9 +721,9 @@ onMounted(() => {
                       <div class="mt-2">
                         <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium"
                               :class="{
-                                'bg-purple-500/20 text-purple-400 border border-purple-500/30': device.primary_user.role === 'admin',
-                                'bg-blue-500/20 text-blue-400 border border-blue-500/30': device.primary_user.role === 'technician',
-                                'bg-slate-500/20 text-slate-400 border border-slate-500/30': device.primary_user.role === 'user'
+                                'bg-accent/20 text-accent border border-accent/30': device.primary_user.role === 'admin',
+                                'bg-accent/20 text-accent border border-accent/30': device.primary_user.role === 'technician',
+                                'bg-surface-alt text-secondary border border-default': device.primary_user.role === 'user'
                               }">
                           {{ device.primary_user.role.charAt(0).toUpperCase() + device.primary_user.role.slice(1) }}
                         </span>
@@ -735,7 +735,7 @@ onMounted(() => {
                   <button
                     v-if="device.is_editable"
                     @click="showUserSelectionModal = true"
-                    class="w-full mt-4 px-4 py-2.5 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                    class="w-full mt-4 px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -757,7 +757,7 @@ onMounted(() => {
                   <button
                     v-if="device.is_editable"
                     @click="showUserSelectionModal = true"
-                    class="px-4 py-2.5 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors text-sm font-medium flex items-center gap-2"
+                    class="px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -838,7 +838,7 @@ onMounted(() => {
                 <div v-if="device.last_sync_time" class="flex flex-col gap-2 pt-4 border-t border-default">
                   <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Synchronized</h4>
                   <div class="flex items-center gap-2">
-                    <svg class="w-4 h-4 text-brand-blue flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-4 h-4 text-accent flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                     <p class="text-primary text-sm">{{ formatDate(device.last_sync_time) }}</p>
@@ -852,7 +852,7 @@ onMounted(() => {
                     <button
                       v-if="device.intune_device_id"
                       @click="openInIntune"
-                      class="flex-1 min-w-[200px] flex items-center justify-center gap-3 px-4 py-3 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors duration-200 text-sm font-medium"
+                      class="flex-1 min-w-[200px] flex items-center justify-center gap-3 px-4 py-3 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors duration-200 text-sm font-medium"
                     >
                       <IntuneIcon size="18" class="text-white flex-shrink-0" />
                       <span>Open in Intune</span>
@@ -981,11 +981,11 @@ onMounted(() => {
                         v-if="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
                         :src="device.primary_user.avatar_thumb || device.primary_user.avatar_url || ''"
                         :alt="device.primary_user.name"
-                        class="w-16 h-16 rounded-full object-cover ring-2 ring-surface-alt group-hover:ring-brand-blue transition-all"
+                        class="w-16 h-16 rounded-full object-cover ring-2 ring-surface-alt group-hover:ring-accent transition-all"
                       />
                       <div
                         v-else
-                        class="w-16 h-16 rounded-full bg-surface-alt flex items-center justify-center ring-2 ring-surface-alt group-hover:ring-brand-blue transition-all"
+                        class="w-16 h-16 rounded-full bg-surface-alt flex items-center justify-center ring-2 ring-surface-alt group-hover:ring-accent transition-all"
                       >
                         <span class="text-2xl font-semibold text-secondary">
                           {{ device.primary_user.name.charAt(0).toUpperCase() }}
@@ -998,7 +998,7 @@ onMounted(() => {
                   <div class="flex-1 min-w-0">
                     <router-link
                       :to="`/users/${device.primary_user.uuid}`"
-                      class="text-lg font-semibold text-primary hover:text-brand-blue transition-colors block truncate"
+                      class="text-lg font-semibold text-primary hover:text-accent transition-colors block truncate"
                     >
                       {{ device.primary_user.name }}
                     </router-link>
@@ -1006,9 +1006,9 @@ onMounted(() => {
                     <div class="mt-2">
                       <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium"
                             :class="{
-                              'bg-purple-500/20 text-purple-400 border border-purple-500/30': device.primary_user.role === 'admin',
-                              'bg-blue-500/20 text-blue-400 border border-blue-500/30': device.primary_user.role === 'technician',
-                              'bg-slate-500/20 text-slate-400 border border-slate-500/30': device.primary_user.role === 'user'
+                              'bg-accent/20 text-accent border border-accent/30': device.primary_user.role === 'admin',
+                              'bg-accent/20 text-accent border border-accent/30': device.primary_user.role === 'technician',
+                              'bg-surface-alt text-secondary border border-default': device.primary_user.role === 'user'
                             }">
                         {{ device.primary_user.role.charAt(0).toUpperCase() + device.primary_user.role.slice(1) }}
                       </span>
@@ -1020,7 +1020,7 @@ onMounted(() => {
                 <button
                   v-if="device.is_editable"
                   @click="showUserSelectionModal = true"
-                  class="w-full mt-4 px-4 py-2.5 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                  class="w-full mt-4 px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -1042,7 +1042,7 @@ onMounted(() => {
                 <button
                   v-if="device.is_editable"
                   @click="showUserSelectionModal = true"
-                  class="px-4 py-2.5 bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80 transition-colors text-sm font-medium flex items-center gap-2"
+                  class="px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -1082,7 +1082,7 @@ onMounted(() => {
     </div>
 
     <div v-else-if="loading" class="flex justify-center items-center min-h-[200px]">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-blue"></div>
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
     </div>
 
     <div v-else class="p-6 text-center text-secondary">

@@ -119,7 +119,7 @@ const handleClose = () => {
           v-model="searchQuery"
           type="text"
           placeholder="Search icons..."
-          class="w-full px-3 py-2 bg-surface text-primary rounded-md placeholder-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-blue"
+          class="w-full px-3 py-2 bg-surface text-primary rounded-md placeholder-text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
         />
       </div>
 
@@ -128,35 +128,35 @@ const handleClose = () => {
         <button
           @click="activeTab = 'document'"
           class="px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'document' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary hover:text-secondary'"
+          :class="activeTab === 'document' ? 'text-accent border-b-2 border-accent' : 'text-tertiary hover:text-secondary'"
         >
           Documents
         </button>
         <button
           @click="activeTab = 'ui'"
           class="px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'ui' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary hover:text-secondary'"
+          :class="activeTab === 'ui' ? 'text-accent border-b-2 border-accent' : 'text-tertiary hover:text-secondary'"
         >
           UI
         </button>
         <button
           @click="activeTab = 'status'"
           class="px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'status' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary hover:text-secondary'"
+          :class="activeTab === 'status' ? 'text-accent border-b-2 border-accent' : 'text-tertiary hover:text-secondary'"
         >
           Status
         </button>
         <button
           @click="activeTab = 'people'"
           class="px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'people' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary hover:text-secondary'"
+          :class="activeTab === 'people' ? 'text-accent border-b-2 border-accent' : 'text-tertiary hover:text-secondary'"
         >
           People
         </button>
         <button
           @click="activeTab = 'svg'"
           class="px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'svg' ? 'text-brand-blue border-b-2 border-brand-blue' : 'text-tertiary hover:text-secondary'"
+          :class="activeTab === 'svg' ? 'text-accent border-b-2 border-accent' : 'text-tertiary hover:text-secondary'"
         >
           SVG
         </button>
@@ -182,7 +182,7 @@ const handleClose = () => {
           :key="emoji"
           @click="selectEmoji(emoji)"
           class="flex items-center justify-center p-2 hover:bg-surface-hover rounded-md transition-colors"
-          :class="{ 'bg-surface ring-2 ring-brand-blue': selectedIcon === emoji }"
+          :class="{ 'bg-surface ring-2 ring-accent': selectedIcon === emoji }"
         >
           <span class="text-xl select-none">{{ emoji }}</span>
         </button>
@@ -195,7 +195,7 @@ const handleClose = () => {
           :key="icon.id"
           @click="selectSvgIcon(icon.svg)"
           class="flex items-center justify-center p-2 hover:bg-surface-hover rounded-md transition-colors"
-          :class="{ 'bg-surface ring-2 ring-brand-blue': selectedIcon === icon.svg }"
+          :class="{ 'bg-surface ring-2 ring-accent': selectedIcon === icon.svg }"
         >
           <span v-safe-html.svg="icon.svg" class="w-6 h-6 text-primary"></span>
         </button>
@@ -211,7 +211,7 @@ const handleClose = () => {
         </button>
         <button
           @click="emit('update:icon', selectedIcon); emit('close');"
-          class="px-4 py-2 bg-brand-blue text-white rounded-md hover:opacity-90 transition-colors"
+          class="px-4 py-2 bg-accent text-white rounded-md hover:opacity-90 transition-colors"
         >
           Select
         </button>

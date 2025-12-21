@@ -41,8 +41,10 @@ const ALLOWED_MIME_TYPES: &[&str] = &[
     "audio/ogg",
     "audio/mpeg",
     "audio/mp4",
+    "audio/aac",
     "audio/wav",
     "audio/x-wav",
+    "audio/x-m4a",
     // Video/WebM (browser may detect voice notes as video/webm)
     "video/webm",
 ];

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Ref } from 'vue'
+import Checkbox from './Checkbox.vue'
 
 const props = defineProps<{
   items: any[]
@@ -35,12 +35,10 @@ const isSelected = (item: any) => {
       <thead>
         <tr>
           <th v-if="selectable !== false" scope="col" class="p-4 w-10">
-            <input
-              type="checkbox"
-              class="w-4 h-4 rounded border-default bg-surface-alt text-blue-600 focus:ring-blue-500"
-              :checked="allSelected"
+            <Checkbox
+              :model-value="allSelected"
               @change="(e) => emit('toggle-all', e)"
-            >
+            />
           </th>
           <th
             v-for="column in columns"
@@ -69,14 +67,11 @@ const isSelected = (item: any) => {
             :class="['hover:bg-surface-hover transition-colors cursor-pointer', isSelected(item) ? 'bg-surface-hover' : '']"
             @click="emit('row-click', item)"
           >
-            <td v-if="selectable !== false" class="px-4 py-1">
-              <input
-                type="checkbox"
-                class="w-4 h-4 rounded border-default bg-surface-alt text-blue-600 focus:ring-blue-500"
-                :checked="isSelected(item)"
+            <td v-if="selectable !== false" class="px-4 py-1" @click.stop>
+              <Checkbox
+                :model-value="isSelected(item)"
                 @change="(e) => emit('toggle-selection', e, item)"
-                @click.stop
-              >
+              />
             </td>
             <slot
               name="cell"

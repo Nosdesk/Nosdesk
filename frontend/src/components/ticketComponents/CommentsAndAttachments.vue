@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { formatDate, formatDateTime } from '@/utils/dateUtils';
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref } from "vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
 import AttachmentPreview from "@/components/ticketComponents/AttachmentPreview.vue";
@@ -35,10 +35,7 @@ const props = defineProps<{
 
 const newCommentContent = ref<string>("");
 const newAttachments = ref<File[]>([]); // Store File objects initially
-const showAttachmentMenu = ref(false);
-const attachmentButtonRef = ref<HTMLElement | null>(null);
-const attachmentMenuRef = ref<HTMLElement | null>(null);
-const shouldShowAbove = ref(false);
+const fileInputRef = ref<HTMLInputElement | null>(null);
 const showRecordingInterface = ref(false);
 const showPreviewInterface = ref(false);
 const currentRecording = ref<{ blob: Blob; duration: number } | null>(null);
@@ -139,34 +136,17 @@ const handleFileUpload = async (event: Event) => {
         // Process other files - convert HEIC images if needed
         const processedFiles = await processFiles(otherFiles);
         newAttachments.value.push(...processedFiles);
-        showAttachmentMenu.value = false;
     }
+    // Reset input so the same file can be selected again
+    if (input) input.value = '';
 };
 
-const handleClickOutside = (event: MouseEvent) => {
-    if (!attachmentButtonRef.value || !attachmentMenuRef.value) return;
-    const target = event.target as Node;
-    if (
-        !attachmentButtonRef.value.contains(target) &&
-        !attachmentMenuRef.value.contains(target)
-    ) {
-        showAttachmentMenu.value = false;
-    }
-};
-
-const toggleAttachmentMenu = () => {
-    showAttachmentMenu.value = !showAttachmentMenu.value;
-    if (showAttachmentMenu.value && attachmentButtonRef.value) {
-        const buttonRect = attachmentButtonRef.value.getBoundingClientRect();
-        const windowHeight = window.innerHeight;
-        const spaceBelow = windowHeight - buttonRect.bottom;
-        shouldShowAbove.value = spaceBelow < 200;
-    }
+const triggerFileUpload = () => {
+    fileInputRef.value?.click();
 };
 
 const startVoiceRecording = () => {
     showRecordingInterface.value = true;
-    showAttachmentMenu.value = false;
 };
 
 const handleRecordingComplete = (recording: {
@@ -228,13 +208,6 @@ const deleteComment = (commentId: number) => {
     emit("deleteComment", commentId);
 };
 
-onMounted(() => {
-    document.addEventListener("mousedown", handleClickOutside);
-});
-
-onUnmounted(() => {
-    document.removeEventListener("mousedown", handleClickOutside);
-});
 
 const formattedDate = (dateString: string): string => {
     const date = new Date(dateString);
@@ -301,7 +274,7 @@ const handleDrop = async (event: DragEvent) => {
                 <!-- Conversion Status Message -->
                 <div
                     v-if="conversionMessage"
-                    class="bg-blue-600/20 border border-blue-500/50 text-blue-300 px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                    class="bg-accent/20 border border-accent/50 text-accent px-4 py-2 rounded-lg text-sm flex items-center gap-2"
                 >
                     <svg
                         v-if="conversionMessage.includes('Converting')"
@@ -349,11 +322,11 @@ const handleDrop = async (event: DragEvent) => {
                     <!-- Drag overlay with pointer-events-none to avoid capturing mouse events -->
                     <div
                         v-if="isDraggingFile"
-                        class="absolute inset-0 bg-blue-500/10 border-2 border-blue-500 border-dashed rounded-lg flex items-center justify-center pointer-events-none"
+                        class="absolute inset-0 bg-accent/10 border-2 border-accent border-dashed rounded-lg flex items-center justify-center pointer-events-none"
                         style="z-index: 30"
                     >
                         <div
-                            class="bg-surface-alt rounded-lg px-4 py-2 text-blue-500 flex items-center gap-2"
+                            class="bg-surface-alt rounded-lg px-4 py-2 text-accent flex items-center gap-2"
                         >
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
@@ -377,7 +350,7 @@ const handleDrop = async (event: DragEvent) => {
                         <div class="relative">
                             <textarea
                                 v-model="newCommentContent"
-                                class="w-full bg-surface-alt text-primary border border-default rounded-md p-3 placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                                class="w-full bg-surface-alt text-primary border border-default rounded-md p-3 placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent resize-none"
                                 placeholder="Add a new comment..."
                                 rows="3"
                             ></textarea>
@@ -425,88 +398,65 @@ const handleDrop = async (event: DragEvent) => {
                             @cancel="cancelPreview"
                         />
 
+                        <!-- Hidden file input -->
+                        <input
+                            ref="fileInputRef"
+                            type="file"
+                            @change="handleFileUpload"
+                            multiple
+                            class="hidden"
+                        />
+
                         <div class="flex gap-2">
                             <button
                                 type="submit"
-                                class="flex-1 bg-brand-blue text-white h-10 px-4 rounded-md hover:opacity-90 transition-colors text-sm font-medium"
+                                class="flex-1 bg-accent text-white h-10 px-4 rounded-md hover:opacity-90 transition-colors text-sm font-medium"
                             >
                                 Add
                             </button>
-                            <div class="relative">
-                                <button
-                                    ref="attachmentButtonRef"
-                                    type="button"
-                                    @click="toggleAttachmentMenu"
-                                    class="h-10 px-4 bg-surface-alt text-primary rounded-md hover:bg-surface-hover transition-colors flex items-center justify-center"
-                                    aria-label="Add attachment"
+                            <!-- Voice Recording Button -->
+                            <button
+                                type="button"
+                                @click="startVoiceRecording"
+                                class="h-10 px-3 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center gap-2"
+                                :class="{ 'text-error': showRecordingInterface }"
+                                aria-label="Record voice note"
+                                title="Record voice note"
+                            >
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    class="h-5 w-5"
+                                    viewBox="0 0 20 20"
+                                    fill="currentColor"
                                 >
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        class="h-5 w-5"
-                                        viewBox="0 0 20 20"
-                                        fill="currentColor"
-                                    >
-                                        <path
-                                            fill-rule="evenodd"
-                                            d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                                            clip-rule="evenodd"
-                                        />
-                                    </svg>
-                                </button>
-                                <div
-                                    v-if="showAttachmentMenu"
-                                    ref="attachmentMenuRef"
-                                    class="absolute w-48 bg-surface-alt border border-default rounded-lg shadow-lg py-1 z-50"
-                                    :class="[
-                                        shouldShowAbove
-                                            ? 'bottom-full right-0 mb-2'
-                                            : 'top-full right-0 mt-2',
-                                    ]"
+                                    <path
+                                        fill-rule="evenodd"
+                                        d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z"
+                                        clip-rule="evenodd"
+                                    />
+                                </svg>
+                            </button>
+                            <!-- File Upload Button -->
+                            <button
+                                type="button"
+                                @click="triggerFileUpload"
+                                class="h-10 px-3 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center gap-2"
+                                aria-label="Upload file"
+                                title="Upload file"
+                            >
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    class="h-5 w-5"
+                                    viewBox="0 0 20 20"
+                                    fill="currentColor"
                                 >
-                                    <label
-                                        class="flex items-center px-4 py-2 text-sm text-secondary hover:bg-surface-hover cursor-pointer transition-colors"
-                                    >
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            class="h-5 w-5 mr-2"
-                                            viewBox="0 0 20 20"
-                                            fill="currentColor"
-                                        >
-                                            <path
-                                                d="M5.5 13a3.5 3.5 0 01-.369-6.98 4 4 0 117.753-1.977A4.5 4.5 0 1113.5 13H11V9.413l1.293 1.293a1 1 0 001.414-1.414l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13H5.5z"
-                                            />
-                                            <path
-                                                d="M9 13h2v5a1 1 0 11-2 0v-5z"
-                                            />
-                                        </svg>
-                                        Upload File
-                                        <input
-                                            type="file"
-                                            @change="handleFileUpload"
-                                            multiple
-                                            class="hidden"
-                                        />
-                                    </label>
-                                    <button
-                                        @click="startVoiceRecording"
-                                        class="w-full flex items-center px-4 py-2 text-sm text-secondary hover:bg-surface-hover transition-colors"
-                                    >
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            class="h-5 w-5 mr-2"
-                                            viewBox="0 0 20 20"
-                                            fill="currentColor"
-                                        >
-                                            <path
-                                                fill-rule="evenodd"
-                                                d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z"
-                                                clip-rule="evenodd"
-                                            />
-                                        </svg>
-                                        Voice Note
-                                    </button>
-                                </div>
-                            </div>
+                                    <path
+                                        fill-rule="evenodd"
+                                        d="M8 4a3 3 0 00-3 3v4a5 5 0 0010 0V7a1 1 0 112 0v4a7 7 0 11-14 0V7a5 5 0 0110 0v4a3 3 0 11-6 0V7a1 1 0 012 0v4a1 1 0 102 0V7a3 3 0 00-3-3z"
+                                        clip-rule="evenodd"
+                                    />
+                                </svg>
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -522,7 +472,7 @@ const handleDrop = async (event: DragEvent) => {
                         class="flex flex-col gap-3 p-3 rounded-lg border transition-all duration-300"
                         :class="[
                             props.recentlyAddedCommentIds?.has(comment.id)
-                                ? 'bg-blue-600/20 border-blue-500/50 animate-pulse'
+                                ? 'bg-accent/20 border-accent/50 animate-pulse'
                                 : 'bg-surface-alt border-subtle',
                         ]"
                     >
@@ -598,22 +548,3 @@ const handleDrop = async (event: DragEvent) => {
     </SectionCard>
 </template>
 
-<style scoped>
-.attachment-menu-enter-active,
-.attachment-menu-leave-active {
-    transition:
-        opacity 0.15s ease-in-out,
-        transform 0.15s ease-in-out;
-}
-
-.attachment-menu-enter-from,
-.attachment-menu-leave-to {
-    opacity: 0;
-    transform: translateY(-0.25rem);
-}
-
-.attachment-menu-enter-from[data-position="above"],
-.attachment-menu-leave-to[data-position="above"] {
-    transform: translateY(0.25rem);
-}
-</style>

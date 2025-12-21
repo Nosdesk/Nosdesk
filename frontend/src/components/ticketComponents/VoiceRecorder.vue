@@ -72,145 +72,199 @@ const drawWaveform = () => {
   const bufferLength = analyser.value.frequencyBinCount;
   const dataArray = new Uint8Array(bufferLength);
 
-  // Smoothed values for organic motion
-  const numBars = 48;
-  let smoothedValues = new Array(numBars).fill(0);
+  // Number of sample points for the flowing wave
+  const numPoints = 64;
+  let smoothedValues = new Array(numPoints).fill(0);
 
-  // Colors from design system
-  const brandBlue = '#2C80FF';
-  const brandPink = '#FF66B3';
-  const brandPurple = '#8B5CF6';
+  // Get theme colors from CSS variables
+  const accentColor = getCSSVar('--color-accent') || '#2C80FF';
+
+  // Parse accent color to RGB for gradient creation
+  const parseColor = (color: string): { r: number; g: number; b: number } => {
+    if (color.startsWith('#')) {
+      const hex = color.slice(1);
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16)
+      };
+    }
+    // Fallback for rgb() format
+    const match = color.match(/(\d+)/g);
+    if (match && match.length >= 3) {
+      return { r: parseInt(match[0]), g: parseInt(match[1]), b: parseInt(match[2]) };
+    }
+    return { r: 44, g: 128, b: 255 }; // Default blue
+  };
 
   const draw = () => {
     animationFrameId.value = requestAnimationFrame(draw);
     analyser.value!.getByteFrequencyData(dataArray);
 
-    // Get background color based on theme
-    const bgColor = isDarkMode.value ? '#1a1f2e' : '#f8fafc';
+    // Get background color from CSS variables
+    const bgColor = getCSSVar('--color-surface') || (isDarkMode.value ? '#1a1f2e' : '#f8fafc');
 
     // Clear canvas
     ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, width, height);
 
-    // Calculate smoothed amplitude values - pure audio, no artificial animation
-    for (let i = 0; i < numBars; i++) {
-      // Sample from different frequency ranges for each bar
-      const dataIndex = Math.floor((i / numBars) * bufferLength * 0.85);
+    // Calculate smoothed amplitude values
+    // Voice frequencies are concentrated in the lower-mid range
+    // We map the full waveform width to the first 50% of frequency bins
+    const voiceFrequencyRatio = 0.5;
+    for (let i = 0; i < numPoints; i++) {
+      const dataIndex = Math.floor((i / numPoints) * bufferLength * voiceFrequencyRatio);
       const rawValue = dataArray[dataIndex] / 255;
-      // Boost quieter sounds with power curve
-      const boostedValue = Math.pow(rawValue, 0.6) * 1.4;
+      const boostedValue = Math.pow(rawValue, 0.5) * 1.5;
       const targetValue = Math.min(1, boostedValue);
-      // Smooth transitions
-      smoothedValues[i] += (targetValue - smoothedValues[i]) * 0.25;
+      // Smooth transitions for organic motion
+      smoothedValues[i] += (targetValue - smoothedValues[i]) * 0.2;
     }
 
-    const barWidth = width / numBars;
-    const gap = 2;
-    const maxBarHeight = height * 0.42;
+    const maxAmplitude = height * 0.4;
+    const rgb = parseColor(accentColor);
 
-    // Draw abstract frequency bars - mirrored from center
-    for (let i = 0; i < numBars; i++) {
-      const x = i * barWidth;
-      const amplitude = smoothedValues[i];
-      const barHeight = amplitude * maxBarHeight;
+    // Create gradient for the filled area
+    const gradient = ctx.createLinearGradient(0, centerY - maxAmplitude, 0, centerY + maxAmplitude);
+    gradient.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.6)`);
+    gradient.addColorStop(0.5, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.8)`);
+    gradient.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.6)`);
 
-      // Color interpolation based on frequency position
-      // Low frequencies: purple, mid: pink, high: blue
-      const t = i / numBars;
-      let color: string;
-      let glowColor: string;
+    // Helper: get smooth Y value using cubic interpolation
+    const getY = (index: number): number => {
+      const i = Math.floor(index);
+      const t = index - i;
+      const p0 = smoothedValues[Math.max(0, i - 1)] || 0;
+      const p1 = smoothedValues[i] || 0;
+      const p2 = smoothedValues[Math.min(numPoints - 1, i + 1)] || 0;
+      const p3 = smoothedValues[Math.min(numPoints - 1, i + 2)] || 0;
 
-      if (t < 0.33) {
-        // Purple to pink
-        const blend = t / 0.33;
-        color = blendColors(brandPurple, brandPink, blend);
-        glowColor = brandPurple;
-      } else if (t < 0.66) {
-        // Pink to blue
-        const blend = (t - 0.33) / 0.33;
-        color = blendColors(brandPink, brandBlue, blend);
-        glowColor = brandPink;
-      } else {
-        // Blue
-        color = brandBlue;
-        glowColor = brandBlue;
-      }
+      // Catmull-Rom spline interpolation for smooth curves
+      const t2 = t * t;
+      const t3 = t2 * t;
+      return 0.5 * (
+        (2 * p1) +
+        (-p0 + p2) * t +
+        (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+        (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+      );
+    };
 
-      // Draw top bar (above center)
-      ctx.save();
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.7 + amplitude * 0.3;
-
-      // Add glow based on amplitude
-      if (amplitude > 0.3) {
-        ctx.shadowColor = glowColor;
-        ctx.shadowBlur = amplitude * 12;
-      }
-
-      // Rounded rectangle for each bar
-      const cornerRadius = Math.min(barWidth - gap, 4);
-      drawRoundedRect(ctx, x + gap / 2, centerY - barHeight, barWidth - gap, barHeight, cornerRadius);
-      ctx.fill();
-      ctx.restore();
-
-      // Draw bottom bar (below center) - mirrored
-      ctx.save();
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.7 + amplitude * 0.3;
-
-      if (amplitude > 0.3) {
-        ctx.shadowColor = glowColor;
-        ctx.shadowBlur = amplitude * 12;
-      }
-
-      drawRoundedRect(ctx, x + gap / 2, centerY, barWidth - gap, barHeight, cornerRadius);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Subtle center line
+    // Draw flowing filled area (mirrored from center)
     ctx.save();
-    ctx.strokeStyle = brandBlue;
-    ctx.lineWidth = 1;
-    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+
+    // Start from left center
+    ctx.moveTo(0, centerY);
+
+    // Draw top edge with smooth curve
+    const step = width / (numPoints - 1);
+    for (let i = 0; i < numPoints; i++) {
+      const x = i * step;
+      const amplitude = getY(i);
+      const y = centerY - amplitude * maxAmplitude;
+
+      if (i === 0) {
+        ctx.lineTo(x, y);
+      } else {
+        // Use quadratic curves for smoother lines
+        const prevX = (i - 1) * step;
+        const prevAmplitude = getY(i - 1);
+        const prevY = centerY - prevAmplitude * maxAmplitude;
+        const cpX = (prevX + x) / 2;
+        ctx.quadraticCurveTo(prevX, prevY, cpX, (prevY + y) / 2);
+      }
+    }
+
+    // Connect to right edge
+    ctx.lineTo(width, centerY);
+
+    // Draw bottom edge (mirrored)
+    for (let i = numPoints - 1; i >= 0; i--) {
+      const x = i * step;
+      const amplitude = getY(i);
+      const y = centerY + amplitude * maxAmplitude;
+
+      if (i === numPoints - 1) {
+        ctx.lineTo(x, y);
+      } else {
+        const nextX = (i + 1) * step;
+        const nextAmplitude = getY(i + 1);
+        const nextY = centerY + nextAmplitude * maxAmplitude;
+        const cpX = (nextX + x) / 2;
+        ctx.quadraticCurveTo(nextX, nextY, cpX, (nextY + y) / 2);
+      }
+    }
+
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Draw glowing center line that pulses with audio
+    const avgAmplitude = smoothedValues.reduce((a, b) => a + b, 0) / numPoints;
+    ctx.save();
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 1.5 + avgAmplitude * 2;
+    ctx.globalAlpha = 0.4 + avgAmplitude * 0.4;
+
+    if (avgAmplitude > 0.1) {
+      ctx.shadowColor = accentColor;
+      ctx.shadowBlur = avgAmplitude * 15;
+    }
+
     ctx.beginPath();
     ctx.moveTo(0, centerY);
-    ctx.lineTo(width, centerY);
+
+    // Draw flowing center line
+    for (let i = 0; i < numPoints; i++) {
+      const x = i * step;
+      const amplitude = getY(i);
+      // Subtle wave on the center line
+      const waveOffset = amplitude * 3;
+
+      if (i === 0) {
+        ctx.moveTo(x, centerY + waveOffset);
+      } else {
+        const prevX = (i - 1) * step;
+        const prevAmplitude = getY(i - 1);
+        const prevWaveOffset = prevAmplitude * 3;
+        const cpX = (prevX + x) / 2;
+        ctx.quadraticCurveTo(prevX, centerY + prevWaveOffset, cpX, centerY + (prevWaveOffset + waveOffset) / 2);
+      }
+    }
+
     ctx.stroke();
     ctx.restore();
   };
 
-  // Helper: blend two hex colors
-  const blendColors = (color1: string, color2: string, t: number): string => {
-    const r1 = parseInt(color1.slice(1, 3), 16);
-    const g1 = parseInt(color1.slice(3, 5), 16);
-    const b1 = parseInt(color1.slice(5, 7), 16);
-    const r2 = parseInt(color2.slice(1, 3), 16);
-    const g2 = parseInt(color2.slice(3, 5), 16);
-    const b2 = parseInt(color2.slice(5, 7), 16);
-    const r = Math.round(r1 + (r2 - r1) * t);
-    const g = Math.round(g1 + (g2 - g1) * t);
-    const b = Math.round(b1 + (b2 - b1) * t);
-    return `rgb(${r}, ${g}, ${b})`;
-  };
-
-  // Helper: draw rounded rectangle
-  const drawRoundedRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-  };
-
   draw();
 };
+
+// Get the best supported audio MIME type for recording
+const getSupportedMimeType = (): string => {
+  // Prefer formats in order of compatibility and quality
+  const types = [
+    'audio/webm;codecs=opus',  // Best quality, Chrome/Firefox/Edge
+    'audio/webm',               // Fallback WebM
+    'audio/mp4',                // iOS Safari
+    'audio/aac',                // iOS fallback
+    'audio/mpeg',               // Broad compatibility
+    'audio/ogg;codecs=opus',    // Firefox
+  ];
+
+  for (const type of types) {
+    if (MediaRecorder.isTypeSupported(type)) {
+      return type;
+    }
+  }
+
+  // Return empty string to let browser choose default
+  return '';
+};
+
+// Track the MIME type used for recording
+const recordingMimeType = ref<string>('');
 
 // Start recording
 const startRecording = async () => {
@@ -223,7 +277,17 @@ const startRecording = async () => {
       }
     });
 
-    mediaRecorder.value = new MediaRecorder(stream);
+    // Detect and use the best supported MIME type
+    recordingMimeType.value = getSupportedMimeType();
+    const recorderOptions: MediaRecorderOptions = {};
+    if (recordingMimeType.value) {
+      recorderOptions.mimeType = recordingMimeType.value;
+    }
+
+    mediaRecorder.value = new MediaRecorder(stream, recorderOptions);
+    // Store the actual MIME type being used (browser may adjust it)
+    recordingMimeType.value = mediaRecorder.value.mimeType || recordingMimeType.value || 'audio/webm';
+
     audioChunks.value = [];
     isRecording.value = true;
     recordingTime.value = 0;
@@ -239,7 +303,8 @@ const startRecording = async () => {
     };
 
     mediaRecorder.value.onstop = () => {
-      const audioBlob = new Blob(audioChunks.value, { type: "audio/webm" });
+      // Use the actual MIME type from recording, not hardcoded
+      const audioBlob = new Blob(audioChunks.value, { type: recordingMimeType.value });
 
       if (audioBlob.size < 100) {
         console.error("Recording too small");
@@ -463,7 +528,7 @@ onUnmounted(() => {
   font-size: 0.875rem;
   font-weight: 500;
   color: white;
-  background: var(--color-brand-blue);
+  background: var(--color-accent);
   border: none;
   border-radius: 0.5rem;
   cursor: pointer;
@@ -479,8 +544,5 @@ onUnmounted(() => {
   transform: translateY(0);
 }
 
-/* Dark mode adjustments */
-:global(.dark) .waveform-container {
-  background: #1a1f2e;
-}
+/* Waveform container uses theme surface color automatically */
 </style>

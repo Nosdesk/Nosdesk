@@ -1652,12 +1652,12 @@ pub async fn update_user_by_uuid(
         }
     }
 
-    // Validate theme if provided
+    // Validate theme if provided (allow any non-empty string as theme ID)
     if let Some(ref theme) = user_data.theme {
-        if theme != "system" && theme != "light" && theme != "dark" {
+        if theme.is_empty() || theme.len() > 50 {
             return HttpResponse::BadRequest().json(json!({
                 "status": "error",
-                "message": "Theme must be 'system', 'light', or 'dark'"
+                "message": "Theme must be a non-empty string up to 50 characters"
             }));
         }
     }

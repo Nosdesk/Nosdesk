@@ -14,6 +14,7 @@ import { useDocumentationNavStore } from "@/stores/documentationNav";
 import DocumentationTocItem from '@/components/documentationComponents/DocumentationTocItem.vue';
 import { docsEmitter } from "@/services/docsEmitter";
 import RevisionHistory from '@/components/editor/RevisionHistory.vue';
+import EmptyState from '@/components/common/EmptyState.vue';
 import apiClient from '@/services/apiConfig';
 import { useSSE } from '@/services/sseService';
 import { useAuthStore } from '@/stores/auth';
@@ -845,7 +846,7 @@ defineExpose({
         <div class="flex-1"></div>
 
         <!-- Saving indicator -->
-        <span v-if="isSaving && !isMainDocumentationPage" class="text-brand-blue flex items-center gap-1 text-xs">
+        <span v-if="isSaving && !isMainDocumentationPage" class="text-accent flex items-center gap-1 text-xs">
           <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -871,7 +872,7 @@ defineExpose({
            class="absolute left-0 right-0 mt-1 mx-2 bg-surface border border-default rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto">
         <div class="p-2 border-b border-default flex justify-between items-center">
           <h2 class="text-sm font-medium text-primary flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-brand-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             Search Results
@@ -930,7 +931,7 @@ defineExpose({
         <!-- Recent Pages Section -->
         <div class="flex flex-col gap-4">
           <div class="flex items-center gap-2 pb-2 border-b border-default">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-brand-blue" viewBox="0 0 20 20" fill="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
             </svg>
             <h2 class="text-lg font-medium text-primary">Recent Pages</h2>
@@ -942,13 +943,13 @@ defineExpose({
               v-for="page in sortedPages"
               :key="page.id"
               :to="`/documentation/${page.id}`"
-              class="bg-surface rounded-lg overflow-hidden border border-default transition-all duration-200 hover:border-brand-blue/30 hover:-translate-y-0.5 group focus:outline-none focus:ring-2 focus:ring-brand-blue/50"
+              class="bg-surface rounded-lg overflow-hidden border border-default transition-all duration-200 hover:border-accent/30 hover:-translate-y-0.5 group focus:outline-none focus:ring-2 focus:ring-accent/50"
             >
               <div class="p-4">
                 <div class="flex items-center gap-3">
                   <div class="text-2xl flex-shrink-0">{{ page.icon || '📄' }}</div>
                   <div class="flex-1 min-w-0">
-                    <h3 class="text-primary font-medium group-hover:text-brand-blue transition-colors">
+                    <h3 class="text-primary font-medium group-hover:text-accent transition-colors">
                       {{ page.title }}
                     </h3>
                     <p v-if="page.description" class="text-secondary text-sm mt-1 line-clamp-2">
@@ -967,24 +968,15 @@ defineExpose({
         </div>
 
         <!-- Empty state for no pages -->
-        <div v-if="pages.length === 0" class="text-center p-10 bg-surface rounded-xl shadow-lg border border-default mt-4">
-          <div class="flex flex-col items-center gap-4">
-            <div class="text-5xl mb-4">📝</div>
-            <h3 class="text-xl font-semibold text-primary mb-2">No documentation yet</h3>
-            <p class="text-secondary mb-6 max-w-md mx-auto">
-              Create your first documentation page to start building a knowledge base.
-            </p>
-            <button
-              @click="createNewPage"
-              class="px-2 py-1 text-xs font-medium text-primary bg-brand-blue rounded-md hover:bg-brand-blue/80 focus:ring-2 focus:outline-none focus:ring-brand-blue/50 flex items-center gap-1"
-            >
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-              </svg>
-              Create your first page
-            </button>
-          </div>
-        </div>
+        <EmptyState
+          v-if="pages.length === 0"
+          icon="document"
+          title="No documentation yet"
+          description="Create your first documentation page to start building a knowledge base."
+          action-label="Create Page"
+          variant="card"
+          @action="createNewPage"
+        />
       </div>
 
       <!-- Document Content View - Full width container with centered content -->
@@ -1001,7 +993,7 @@ defineExpose({
                 contenteditable="true"
                 @blur="updateTitle(($event.target as HTMLElement).textContent || '')"
                 @keydown.enter.prevent="($event.target as HTMLElement).blur()"
-                class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-brand-blue/30 rounded px-1 -mx-1"
+                class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-accent/30 rounded px-1 -mx-1"
               >
                 {{ editTitle || (page || article)?.title || 'Untitled' }}
               </h1>
@@ -1103,8 +1095,8 @@ defineExpose({
         class="flex justify-center items-center h-full"
       >
         <div class="flex flex-col items-center gap-4">
-          <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-blue"></div>
-          <div class="text-brand-blue animate-pulse">Loading content...</div>
+          <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
+          <div class="text-accent animate-pulse">Loading content...</div>
         </div>
       </div>
 
@@ -1118,7 +1110,7 @@ defineExpose({
             type="number"
             id="ticketId"
             v-model="selectedTicketId"
-            class="w-full px-4 py-2 bg-surface-alt text-primary rounded-md focus:outline-none focus:ring-2 focus:ring-brand-blue border border-default"
+            class="w-full px-4 py-2 bg-surface-alt text-primary rounded-md focus:outline-none focus:ring-2 focus:ring-accent border border-default"
             placeholder="Enter ticket ID"
           />
         </div>
@@ -1126,7 +1118,7 @@ defineExpose({
         <div class="flex justify-end">
           <button
             @click="createFromTicket"
-            class="px-6 py-3 bg-brand-blue text-white rounded-md hover:bg-brand-blue/80 focus:outline-none focus:ring-2 focus:ring-brand-blue transform transition-all duration-200 hover:scale-105 shadow-lg flex items-center gap-2"
+            class="px-6 py-3 bg-accent text-white rounded-md hover:bg-accent/80 focus:outline-none focus:ring-2 focus:ring-accent transform transition-all duration-200 hover:scale-105 shadow-lg flex items-center gap-2"
             :disabled="!selectedTicketId"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -1144,7 +1136,7 @@ defineExpose({
         </svg>
         <h2 class="text-xl font-semibold text-primary">Document not found</h2>
         <p class="text-secondary max-w-md">The document you're looking for doesn't exist or has been moved.</p>
-        <RouterLink to="/documentation" class="mt-4 text-brand-blue hover:text-brand-blue/80">
+        <RouterLink to="/documentation" class="mt-4 text-accent hover:text-accent/80">
           Go to Documentation Home
         </RouterLink>
       </div>

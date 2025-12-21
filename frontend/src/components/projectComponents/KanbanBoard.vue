@@ -7,6 +7,7 @@ import ticketService from '@/services/ticketService'
 import { STATUS_OPTIONS, type TicketStatus } from '@/constants/ticketOptions'
 import UserAvatar from '@/components/UserAvatar.vue'
 import AddTicketToProjectModal from './AddTicketToProjectModal.vue'
+import StatusIndicator from '@/components/common/StatusIndicator.vue'
 
 interface KanbanTicket {
   id: number;
@@ -353,14 +354,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
           <div class="px-4 py-3 bg-surface border-b border-default sticky top-0" style="z-index: 1;">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3">
-                <div
-                  class="w-2 h-2 rounded-full flex-shrink-0"
-                  :class="{
-                    'bg-status-open': column.id === 'open',
-                    'bg-status-in-progress': column.id === 'in-progress',
-                    'bg-status-closed': column.id === 'closed'
-                  }"
-                ></div>
+                <StatusIndicator :status="column.id as 'open' | 'in-progress' | 'closed'" size="sm" />
                 <h3 class="font-medium text-primary">{{ column.title }}</h3>
               </div>
               <span class="text-xs text-tertiary bg-surface-hover px-2 py-1 rounded-md">{{ column.tickets.length }}</span>

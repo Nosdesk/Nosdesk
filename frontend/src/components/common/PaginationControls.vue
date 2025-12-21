@@ -170,7 +170,7 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
           type="number"
           :min="1"
           :max="totalPagesDisplay"
-          class="w-10 px-1 py-0.5 text-xs bg-surface-alt border border-default text-primary rounded focus:ring-brand-blue focus:border-brand-blue [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
+          class="w-10 px-1 py-0.5 text-xs bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
           ref="pageInput"
         />
         <span>/{{ totalPagesDisplay }}</span>
@@ -181,7 +181,7 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
         <select
           :value="pageSize"
           @change="changePageSize"
-          class="bg-surface-alt border border-default text-primary text-xs rounded focus:ring-brand-blue focus:border-brand-blue py-0.5 px-1"
+          class="bg-surface-alt border border-default text-primary text-xs rounded focus:ring-accent focus:border-accent py-0.5 px-1"
         >
           <option
             v-for="size in (pageSizeOptions || defaultPageSizeOptions)"
@@ -236,7 +236,7 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
         <select
           :value="pageSize"
           @change="changePageSize"
-          class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-brand-blue focus:border-brand-blue py-1 px-2"
+          class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-accent focus:border-accent py-1 px-2"
         >
           <option
             v-for="size in (pageSizeOptions || defaultPageSizeOptions)"
@@ -276,7 +276,7 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
               :class="[
                 'py-1 text-sm rounded-md transition-colors flex-shrink-0 w-10 text-center',
                 page === currentPageDisplay
-                  ? 'bg-brand-blue text-white'
+                  ? 'bg-accent text-white'
                   : 'bg-surface-alt text-primary hover:bg-surface-hover'
               ]"
             >
@@ -322,7 +322,7 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
               type="number"
               :min="1"
               :max="totalPagesDisplay"
-              class="px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-brand-blue focus:border-brand-blue [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
+              class="px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
               ref="pageInput"
             />
             <span>of {{ totalPagesDisplay }}</span>
@@ -333,7 +333,7 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
         <button
           v-if="showImport"
           @click="emit('import')"
-          class="px-3 py-1 text-xs font-medium text-white bg-brand-blue rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-brand-blue flex items-center gap-1 transition-colors"
+          class="px-3 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent flex items-center gap-1 transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" />

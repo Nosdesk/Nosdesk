@@ -404,9 +404,9 @@ const getRoleBadgeClass = (role: string) => {
 
     switch (role) {
         case "admin":
-            return "bg-red-600/20 text-red-400";
+            return "bg-status-error/20 text-status-error";
         case "technician":
-            return "bg-blue-600/20 text-blue-400";
+            return "bg-accent/20 text-accent";
         case "user":
         default:
             return "bg-surface-hover/20 text-secondary";
@@ -442,7 +442,7 @@ const getRoleDisplayName = (role: string) => {
         <!-- Cover/Banner Image -->
         <div
             v-if="showBanner"
-            class="bg-gradient-to-r from-blue-600 to-purple-600 relative"
+            class="bg-accent relative"
             :class="bannerHeight"
             :style="
                 formData.banner_url
@@ -494,7 +494,7 @@ const getRoleDisplayName = (role: string) => {
             <RouterLink
                 v-if="enableAvatarNavigation && !isEditable && displayUser?.uuid"
                 :to="`/users/${displayUser.uuid}`"
-                class="block rounded-full overflow-hidden border-4 border-surface shadow-lg hover:ring-2 hover:ring-blue-500 transition-all"
+                class="block rounded-full overflow-hidden border-4 border-surface shadow-lg hover:ring-2 hover:ring-accent transition-all"
                 :class="[
                     avatarSize,
                     showBanner ? `absolute ${avatarOffset} left-3 sm:left-4` : 'mx-auto mt-4'
@@ -571,9 +571,10 @@ const getRoleDisplayName = (role: string) => {
             <!-- EDITABLE MODE -->
             <template v-if="isEditable">
                 <!-- Name and role badge - positioned to the right of avatar -->
+                <!-- On mobile (flex-col), add bottom padding when content wraps; on desktop, vertical padding handles alignment -->
                 <div
                     class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-                    :class="showBanner ? 'pt-16 sm:py-6 sm:pl-[9.5rem]' : 'pt-4'"
+                    :class="showBanner ? 'pt-16 pb-4 sm:pb-0 sm:py-6 sm:pl-[9.5rem]' : 'pt-4 pb-4 sm:pb-0'"
                 >
                     <!-- Left: Name with inline edit -->
                     <div class="flex flex-col gap-1 min-w-0 flex-1">
@@ -610,13 +611,13 @@ const getRoleDisplayName = (role: string) => {
                             <input
                                 v-model="formData.pronouns"
                                 type="text"
-                                class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-brand-blue focus:outline-none"
+                                class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-accent focus:outline-none"
                                 placeholder="Add pronouns (e.g., he/him, she/her, they/them)"
                             />
                             <button
                                 @click="updatePronouns"
                                 :disabled="!pronounsModified || loading"
-                                class="px-4 py-2.5 bg-brand-blue text-white rounded-lg hover:opacity-90 focus:ring-2 focus:ring-brand-blue disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="px-4 py-2.5 bg-accent text-white rounded-lg hover:opacity-90 focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 Save
                             </button>
@@ -628,9 +629,10 @@ const getRoleDisplayName = (role: string) => {
             <!-- READ-ONLY MODE -->
             <template v-else>
                 <!-- Content area - uses same padding top as avatar offset to align vertically -->
+                <!-- On mobile (flex-col), add bottom padding when content wraps; on desktop, vertical padding handles alignment -->
                 <div
                     class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-                    :class="showBanner ? 'pt-16 sm:py-6 sm:pl-[9.5rem]' : 'pt-4'"
+                    :class="showBanner ? 'pt-16 pb-4 sm:py-6 sm:pl-[9.5rem]' : 'pt-4 pb-4 sm:pb-0'"
                 >
                     <!-- Left: Name, email, pronouns -->
                     <div class="flex flex-col gap-1 min-w-0">

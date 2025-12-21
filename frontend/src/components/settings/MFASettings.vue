@@ -707,7 +707,7 @@ defineExpose({
                             class="flex items-start gap-3"
                         >
                             <span
-                                class="bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5 flex-shrink-0"
+                                class="bg-accent text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5 flex-shrink-0"
                                 >{{ index + 1 }}</span
                             >
                             <span>{{ step }}</span>
@@ -788,7 +788,7 @@ defineExpose({
                                         class="flex items-center justify-between gap-3"
                                     >
                                         <code
-                                            class="text-sm font-mono text-green-400 select-all flex-1 break-all"
+                                            class="text-sm font-mono text-status-success select-all flex-1 break-all"
                                             >{{
                                                 formatSecret(
                                                     mfa.mfaSecret.value,
@@ -801,7 +801,7 @@ defineExpose({
                                             class="px-3 py-1 text-xs rounded transition-all duration-200 flex-shrink-0"
                                             :class="
                                                 secretCopied
-                                                    ? 'bg-green-600 text-white cursor-default'
+                                                    ? 'bg-status-success text-white cursor-default'
                                                     : 'bg-surface-hover text-primary hover:bg-surface cursor-pointer'
                                             "
                                             :title="
@@ -855,7 +855,7 @@ defineExpose({
                                         verificationCode.length !== 6 ||
                                         mfa.verifying.value
                                     "
-                                    class="w-full lg:w-auto px-6 h-12 lg:h-14 bg-brand-blue text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-brand-blue disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-surface-hover flex items-center justify-center transition-colors active:scale-[0.98]"
+                                    class="w-full lg:w-auto px-6 h-12 lg:h-14 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-surface-hover flex items-center justify-center transition-colors active:scale-[0.98]"
                                 >
                                     <span
                                         v-if="mfa.verifying.value"
@@ -913,7 +913,7 @@ defineExpose({
                     <div class="flex flex-col gap-6 justify-center">
                         <div class="flex items-center justify-center py-8">
                             <div class="flex flex-col items-center gap-4">
-                                <div class="bg-blue-600 rounded-full p-4">
+                                <div class="bg-accent rounded-full p-4">
                                     <svg
                                         class="w-8 h-8 text-white animate-spin"
                                         fill="none"
@@ -975,11 +975,11 @@ defineExpose({
                         <div class="flex-shrink-0">
                             <button
                                 @click="downloadBackupCodes"
-                                class="px-4 py-2 bg-surface hover:bg-surface-hover border border-amber-500 text-primary rounded-lg transition-colors flex items-center"
+                                class="px-4 py-2 bg-surface hover:bg-surface-hover border border-status-warning text-primary rounded-lg transition-colors flex items-center"
                                 title="Download backup codes as text file"
                             >
                                 <svg
-                                    class="w-4 h-4 mr-2 text-amber-500"
+                                    class="w-4 h-4 mr-2 text-status-warning"
                                     fill="none"
                                     stroke="currentColor"
                                     viewBox="0 0 24 24"
@@ -1013,11 +1013,11 @@ defineExpose({
                 <!-- Success State (for login setup) -->
                 <div
                     v-if="mfa.showSuccessState.value"
-                    class="bg-green-600/10 border border-green-600/20 rounded-lg p-6"
+                    class="bg-status-success-muted border border-status-success/20 rounded-lg p-6"
                 >
                     <div class="flex flex-col gap-4">
                         <div class="flex items-center gap-3">
-                            <div class="bg-green-600 rounded-full p-2">
+                            <div class="bg-status-success rounded-full p-2">
                                 <svg
                                     xmlns="http://www.w3.org/2000/svg"
                                     class="h-6 w-6 text-white"
@@ -1034,7 +1034,7 @@ defineExpose({
                                 </svg>
                             </div>
                             <div>
-                                <h3 class="text-lg font-medium text-green-400">
+                                <h3 class="text-lg font-medium text-status-success">
                                     Two-Factor Authentication Enabled!
                                 </h3>
                                 <p class="text-sm text-secondary">
@@ -1049,7 +1049,7 @@ defineExpose({
                         <div class="flex justify-center pt-2">
                             <button
                                 @click="completeSetup"
-                                class="w-full sm:w-auto px-8 py-3 bg-brand-blue text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-brand-blue transition-colors font-medium min-h-[52px] active:scale-[0.98]"
+                                class="w-full sm:w-auto px-8 py-3 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent transition-colors font-medium min-h-[52px] active:scale-[0.98]"
                             >
                                 Start Using Nosdesk!
                             </button>
@@ -1060,13 +1060,13 @@ defineExpose({
                 <!-- Enabled State -->
                 <div
                     v-if="mfa.showEnabledState.value"
-                    class="bg-green-600/10 border border-green-600/20 rounded-lg p-4"
+                    class="bg-status-success-muted border border-status-success/20 rounded-lg p-4"
                 >
                     <div class="flex flex-col gap-1">
                         <div class="flex items-center gap-1">
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
-                                class="h-5 w-5 text-green-400 flex-shrink-0"
+                                class="h-5 w-5 text-status-success flex-shrink-0"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -1078,7 +1078,7 @@ defineExpose({
                                     d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
                                 />
                             </svg>
-                            <h3 class="text-sm font-medium text-green-400">
+                            <h3 class="text-sm font-medium text-status-success">
                                 2FA is enabled
                             </h3>
                         </div>

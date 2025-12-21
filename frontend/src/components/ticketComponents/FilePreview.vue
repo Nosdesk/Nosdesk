@@ -70,15 +70,15 @@ const fileIcon = computed(() => {
 const fileColor = computed(() => {
   switch (fileType.value) {
     case 'pdf':
-      return 'text-red-400';
+      return 'text-status-error';
     case 'word':
-      return 'text-blue-400';
+      return 'text-accent';
     case 'excel':
-      return 'text-green-400';
+      return 'text-status-success';
     case 'powerpoint':
-      return 'text-orange-400';
+      return 'text-status-warning';
     case 'archive':
-      return 'text-yellow-400';
+      return 'text-status-warning';
     default:
       return 'text-tertiary';
   }
@@ -277,9 +277,9 @@ onMounted(async () => {
         >
 
         <!-- Animation badge for GIF/APNG -->
-        <div 
-          v-if="isAnimatedImage" 
-          class="absolute top-3 left-3 bg-indigo-700/80 px-2 py-1 rounded text-xs text-white font-medium animate-pulse z-20"
+        <div
+          v-if="isAnimatedImage"
+          class="absolute top-3 left-3 bg-accent/80 px-2 py-1 rounded text-xs text-white font-medium animate-pulse z-20"
         >
           ANIMATED
         </div>
@@ -331,7 +331,7 @@ onMounted(async () => {
           <a
             :href="src"
             target="_blank"
-            class="px-3 py-1.5 bg-brand-blue text-white text-sm rounded hover:opacity-90 transition-colors flex items-center gap-2"
+            class="px-3 py-1.5 bg-accent text-white text-sm rounded hover:opacity-90 transition-colors flex items-center gap-2"
             :download="filename"
           >
             <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -348,7 +348,7 @@ onMounted(async () => {
 <style scoped>
 /* Add styles for animated images (GIF, APNG) */
 .animated-image {
-  border: 2px solid rgba(99, 102, 241, 0.5); /* Indigo color to indicate animation */
+  border: 2px solid rgb(var(--color-accent) / 0.5);
 }
 
 /* Animation for the pulse effect */
@@ -368,10 +368,10 @@ onMounted(async () => {
 /* Add a pulsing border animation */
 @keyframes pulse-border {
   0%, 100% {
-    border-color: rgba(99, 102, 241, 0.8);
+    border-color: rgb(var(--color-accent) / 0.8);
   }
   50% {
-    border-color: rgba(96, 165, 250, 0.4);
+    border-color: rgb(var(--color-accent) / 0.4);
   }
 }
 </style> 

@@ -261,7 +261,7 @@ onUnmounted(() => {
           <!-- Play/Pause Button -->
           <button
             @click="togglePlay"
-            class="text-primary hover:text-blue-500 transition-colors"
+            class="text-primary hover:text-accent transition-colors"
             type="button"
           >
             <svg v-if="!isPlaying" class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
@@ -276,7 +276,7 @@ onUnmounted(() => {
           <div class="flex items-center gap-2">
             <button
               @click="toggleMute"
-              class="text-primary hover:text-blue-500 transition-colors"
+              class="text-primary hover:text-accent transition-colors"
               type="button"
             >
               <!-- Muted icon -->
@@ -299,7 +299,7 @@ onUnmounted(() => {
               step="0.1"
               :value="volume"
               @input="updateVolume"
-              class="w-20 h-1 accent-blue-500"
+              class="w-20 h-1 accent-accent"
             />
           </div>
 
@@ -312,7 +312,7 @@ onUnmounted(() => {
         <!-- Fullscreen Button -->
         <button
           @click="toggleFullscreen"
-          class="text-primary hover:text-blue-500 transition-colors"
+          class="text-primary hover:text-accent transition-colors"
           type="button"
         >
           <svg v-if="!isFullscreen" class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">

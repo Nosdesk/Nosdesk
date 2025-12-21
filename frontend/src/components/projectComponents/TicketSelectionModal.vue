@@ -115,7 +115,7 @@ const getPriorityClass = (priority: string) => {
           v-model="searchQuery"
           type="text"
           placeholder="Search tickets..."
-          class="w-full px-4 py-2 bg-surface border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent"
+          class="w-full px-4 py-2 bg-surface border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
         />
         <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-tertiary" viewBox="0 0 20 20" fill="currentColor">
@@ -131,7 +131,7 @@ const getPriorityClass = (priority: string) => {
 
       <!-- Loading state -->
       <div v-if="isLoading" class="flex justify-center items-center py-8">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-blue"></div>
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
       </div>
 
       <!-- No tickets found -->
@@ -179,7 +179,7 @@ const getPriorityClass = (priority: string) => {
                 <td class="px-6 py-4 whitespace-nowrap">
                   <button 
                     @click="handleSelectTicket(ticket.id)"
-                    class="px-3 py-1 bg-brand-blue text-white text-xs rounded-lg hover:opacity-90 transition-colors"
+                    class="px-3 py-1 bg-accent text-white text-xs rounded-lg hover:opacity-90 transition-colors"
                   >
                     Add
                   </button>

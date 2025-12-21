@@ -168,7 +168,7 @@ defineExpose({
             <select
               :value="filter.value"
               @change="e => listManager.handleFilterUpdate(filter.name, (e.target as HTMLSelectElement).value)"
-              class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-brand-blue focus:border-brand-blue block w-full py-1 px-2"
+              class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-accent focus:border-accent block w-full py-1 px-2"
             >
               <option
                 v-for="option in filter.options"
@@ -182,7 +182,7 @@ defineExpose({
 
           <button
             @click="listManager.resetFilters"
-            class="px-2 py-1 text-xs font-medium text-white bg-brand-blue rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-brand-blue"
+            class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
           >
             Reset
           </button>
@@ -197,12 +197,14 @@ defineExpose({
     <!-- Main content -->
     <div class="flex-1 flex flex-col overflow-hidden">
       <BaseListView
-        title=""
-        :search-query="''"
+        title="Devices"
         :is-loading="listManager.loading.value"
         :is-empty="listManager.items.value.length === 0 && !listManager.loading.value"
         :error="listManager.error.value"
-        :filters="[]"
+        empty-icon="device"
+        :empty-message="listManager.searchQuery.value ? 'No devices match your search' : 'No devices found'"
+        :empty-description="listManager.searchQuery.value ? 'Try adjusting your search or filters' : 'Add your first device to get started'"
+        :empty-action-label="!listManager.searchQuery.value ? 'Add Device' : undefined"
         :results-count="listManager.totalItems.value"
         :selected-items="listManager.selectedItems.value"
         :visible-items="listManager.items.value"
@@ -211,8 +213,8 @@ defineExpose({
         :sort-field="listManager.sortField.value"
         :sort-direction="listManager.sortDirection.value"
         :columns="[]"
-        :show-add-button="false"
         @retry="listManager.fetchItems"
+        @empty-action="navigateToCreateDevice"
       >
         <!-- Desktop Table View -->
         <template #default>

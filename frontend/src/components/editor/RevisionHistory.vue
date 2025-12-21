@@ -120,7 +120,7 @@
           v-if="selectedRevision?.id === revision.id"
           @click.stop="confirmRestore(revision)"
           :disabled="isRestoring"
-          class="mt-2 w-full px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
+          class="mt-2 w-full px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
         >
           {{ isRestoring ? 'Restoring...' : 'Restore This Version' }}
         </button>
@@ -152,7 +152,7 @@
           <button
             @click="executeRestore"
             :disabled="isRestoring"
-            class="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
+            class="flex-1 px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:opacity-50"
           >
             {{ isRestoring ? 'Restoring...' : 'Restore' }}
           </button>

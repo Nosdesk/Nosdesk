@@ -458,13 +458,13 @@ const hideTooltip = () => {
 <template>
   <div class="h-full flex flex-col relative">
     <!-- Error message -->
-    <div v-if="error" class="bg-red-500/20 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg mb-4">
+    <div v-if="error" class="bg-status-error/20 border border-status-error/50 text-status-error px-4 py-3 rounded-lg mb-4">
       {{ error }}
     </div>
     
     <!-- Loading state -->
     <div v-if="isLoading" class="flex justify-center items-center py-8">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
     </div>
     
     <div v-else class="flex-1 flex flex-col gap-2">
@@ -474,21 +474,21 @@ const hideTooltip = () => {
           <button 
             @click="setTimeScale('day')" 
             class="px-2 py-0.5 text-xs rounded-md transition-colors"
-            :class="timeScale === 'day' ? 'bg-brand-blue text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
+            :class="timeScale === 'day' ? 'bg-accent text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
           >
             Day
           </button>
           <button 
             @click="setTimeScale('week')" 
             class="px-2 py-0.5 text-xs rounded-md transition-colors"
-            :class="timeScale === 'week' ? 'bg-brand-blue text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
+            :class="timeScale === 'week' ? 'bg-accent text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
           >
             Week
           </button>
           <button 
             @click="setTimeScale('month')" 
             class="px-2 py-0.5 text-xs rounded-md transition-colors"
-            :class="timeScale === 'month' ? 'bg-brand-blue text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
+            :class="timeScale === 'month' ? 'bg-accent text-white' : 'bg-surface text-secondary hover:bg-surface-hover'"
           >
             Month
           </button>
@@ -585,7 +585,7 @@ const hideTooltip = () => {
                 class="gantt-timeline-unit"
               >
                 <span 
-                  :class="{'text-blue-400 font-medium': isSameDay(unit, today)}"
+                  :class="{'text-accent font-medium': isSameDay(unit, today)}"
                   class="whitespace-nowrap"
                 >
                   {{ formatHeaderDate(unit) }}
@@ -616,9 +616,9 @@ const hideTooltip = () => {
                   <span
                     class="text-[10px] px-1.5 py-0.5 rounded-sm font-medium uppercase tracking-wide"
                     :class="{
-                      'bg-blue-400/20 dark:bg-blue-500/20 [color:#1e3a8a] dark:text-blue-200': ticket.status === 'in-progress',
-                      'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200': ticket.status === 'closed',
-                      'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200': ticket.status === 'open'
+                      'bg-accent/15 dark:bg-accent/20 text-accent': ticket.status === 'in-progress',
+                      'bg-status-success/20 text-status-success': ticket.status === 'closed',
+                      'bg-status-warning/20 text-status-warning': ticket.status === 'open'
                     }"
                   >
                     {{ ticket.status }}
@@ -628,9 +628,9 @@ const hideTooltip = () => {
                   <span
                     class="text-[10px] px-1.5 py-0.5 rounded-sm font-medium uppercase tracking-wide"
                     :class="{
-                      'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200': ticket.priority === 'high',
-                      'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200': ticket.priority === 'medium',
-                      'bg-blue-400/20 dark:bg-blue-500/20 [color:#1e3a8a] dark:text-blue-200': ticket.priority === 'low'
+                      'bg-status-error/20 text-status-error': ticket.priority === 'high',
+                      'bg-status-warning/20 text-status-warning': ticket.priority === 'medium',
+                      'bg-accent/15 dark:bg-accent/20 text-accent': ticket.priority === 'low'
                     }"
                   >
                     {{ ticket.priority }}
@@ -864,7 +864,7 @@ const hideTooltip = () => {
   top: 0;
   bottom: 0;
   width: 2px;
-  background-color: #ef4444; /* red-500 */
+  background-color: var(--color-status-error);
   z-index: 15;
   pointer-events: none;
 }
@@ -874,7 +874,7 @@ const hideTooltip = () => {
   top: 0;
   bottom: 0;
   width: 2px;
-  background-color: #ef4444; /* red-500 */
+  background-color: var(--color-status-error);
   z-index: 10;
   pointer-events: none;
 }
@@ -884,7 +884,7 @@ const hideTooltip = () => {
   top: 0;
   bottom: 0;
   width: 2px;
-  background-color: #ef4444; /* red-500 */
+  background-color: var(--color-status-error);
   z-index: 20;
   pointer-events: none;
 }
@@ -894,7 +894,7 @@ const hideTooltip = () => {
   top: 8px;
   left: 50%;
   transform: translateX(-50%);
-  background-color: #ef4444; /* red-500 */
+  background-color: var(--color-status-error);
   color: white;
   font-size: 10px;
   padding: 2px 6px;

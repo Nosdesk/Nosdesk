@@ -168,20 +168,20 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="h-screen flex items-center justify-center bg-slate-900 p-4">
-    <div class="bg-slate-800 p-8 rounded-xl shadow-lg max-w-md w-full border border-slate-700/50">
+  <div class="h-screen flex items-center justify-center bg-surface p-4">
+    <div class="bg-surface-alt p-8 rounded-xl shadow-lg max-w-md w-full border border-default/50">
       <div v-if="loading" class="flex flex-col items-center justify-center gap-4">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-accent"></div>
         <h2 class="text-xl font-medium text-white">{{ message }}</h2>
-        <p class="text-slate-400 text-center">Please wait while we complete your authentication</p>
+        <p class="text-tertiary text-center">Please wait while we complete your authentication</p>
       </div>
 
       <div v-else-if="error && errorInfo" class="flex flex-col items-center justify-center gap-6">
         <!-- Error Icon -->
         <div class="rounded-full p-4" :class="{
-          'bg-red-500': errorInfo.icon === 'error',
-          'bg-orange-500': errorInfo.icon === 'warning',
-          'bg-blue-500': errorInfo.icon === 'link'
+          'bg-status-error': errorInfo.icon === 'error',
+          'bg-status-warning': errorInfo.icon === 'warning',
+          'bg-accent': errorInfo.icon === 'link'
         }">
           <!-- Link Icon for already connected -->
           <svg v-if="errorInfo.icon === 'link'" xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -200,8 +200,8 @@ onMounted(async () => {
         <!-- Error Title and Message -->
         <div class="text-center">
           <h2 class="text-xl font-medium text-white mb-2">{{ errorInfo.title }}</h2>
-          <p class="text-slate-300 mb-3">{{ errorInfo.message }}</p>
-          <p class="text-sm text-slate-400">{{ errorInfo.suggestion }}</p>
+          <p class="text-secondary mb-3">{{ errorInfo.message }}</p>
+          <p class="text-sm text-tertiary">{{ errorInfo.suggestion }}</p>
         </div>
 
         <!-- Action Buttons -->
@@ -210,7 +210,7 @@ onMounted(async () => {
             v-for="action in errorInfo.actions"
             :key="action.action"
             @click="handleAction(action.action)"
-            class="px-4 py-2 rounded-lg transition-colors text-sm font-medium bg-brand-blue hover:opacity-90 text-white"
+            class="px-4 py-2 rounded-lg transition-colors text-sm font-medium bg-accent hover:opacity-90 text-white"
           >
             {{ action.label }}
           </button>
@@ -220,7 +220,7 @@ onMounted(async () => {
         <div v-if="detailedError" class="w-full">
           <button
             @click="showTechnicalDetails = !showTechnicalDetails"
-            class="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-300 transition-colors"
+            class="flex items-center gap-2 text-sm text-tertiary hover:text-secondary transition-colors"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -235,8 +235,8 @@ onMounted(async () => {
             Technical Details
           </button>
 
-          <div v-if="showTechnicalDetails" class="mt-2 overflow-auto max-h-40 bg-slate-900 p-3 rounded-lg border border-slate-700">
-            <pre class="text-xs text-slate-300 font-mono whitespace-pre-wrap">{{ detailedError }}</pre>
+          <div v-if="showTechnicalDetails" class="mt-2 overflow-auto max-h-40 bg-surface p-3 rounded-lg border border-default">
+            <pre class="text-xs text-secondary font-mono whitespace-pre-wrap">{{ detailedError }}</pre>
           </div>
         </div>
       </div>

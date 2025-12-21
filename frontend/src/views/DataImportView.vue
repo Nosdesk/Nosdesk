@@ -50,9 +50,9 @@ const getStatusBadge = (status: string) => {
     case 'available':
       return { text: 'Available', class: 'bg-status-success/20 text-status-success border-status-success/50' };
     case 'coming-soon':
-      return { text: 'Coming Soon', class: 'bg-brand-blue/20 text-brand-blue border-brand-blue/50' };
+      return { text: 'Coming Soon', class: 'bg-accent/20 text-accent border-accent/50' };
     case 'beta':
-      return { text: 'Beta', class: 'bg-purple-500/20 text-purple-400 border-purple-500/50' };
+      return { text: 'Beta', class: 'bg-accent/20 text-accent border-accent/50' };
     default:
       return { text: status, class: 'bg-surface-alt text-tertiary border-default' };
   }
@@ -120,8 +120,8 @@ const getIcon = (iconName: string) => {
       <div class="flex flex-col gap-2 bg-surface border border-default rounded-lg p-6 mb-8">
         <h2 class="text-xl font-medium text-primary mb-4">Import Guidelines</h2>
         <div class="flex flex-col gap-4 text-sm text-secondary">
-          <div class="bg-blue-900/20 border border-blue-800/50 rounded-md p-4">
-            <h3 class="font-medium text-blue-300 mb-2 flex items-center gap-1">
+          <div class="bg-accent/10 border border-accent/30 rounded-md p-4">
+            <h3 class="font-medium text-accent mb-2 flex items-center gap-1">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -135,8 +135,8 @@ const getIcon = (iconName: string) => {
             </ul>
           </div>
           
-          <div class="bg-amber-900/20 border border-amber-800/50 rounded-md p-4">
-            <h3 class="font-medium text-amber-300 mb-2 flex items-center gap-1">
+          <div class="bg-status-warning/20 border border-status-warning/50 rounded-md p-4">
+            <h3 class="font-medium text-status-warning mb-2 flex items-center gap-1">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>

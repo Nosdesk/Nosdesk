@@ -130,14 +130,14 @@ onMounted(() => {
 
       <!-- Email configuration display -->
       <div v-else class="flex flex-col gap-4">
-        <div class="bg-surface border border-default rounded-xl hover:border-strong transition-colors">
+        <div class="bg-surface border border-default rounded-xl hover:border-strong transition-colors overflow-hidden">
 
           <!-- Configuration Header -->
           <div class="p-4 flex flex-col gap-3">
             <!-- Header row with icon -->
             <div class="flex items-center gap-3">
               <!-- Email icon -->
-              <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-brand-blue/20 flex items-center justify-center text-brand-blue">
+              <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
@@ -154,7 +154,7 @@ onMounted(() => {
                 </span>
                 <span
                   v-if="emailConfig?.enabled"
-                  class="px-1.5 py-0.5 text-xs rounded-full border bg-brand-blue/20 text-brand-blue border-brand-blue/50"
+                  class="px-1.5 py-0.5 text-xs rounded-full border bg-accent/20 text-accent border-accent/50"
                 >
                   Enabled
                 </span>
@@ -212,20 +212,20 @@ onMounted(() => {
 
           <!-- Test Email Section -->
           <div v-if="emailConfig?.is_configured" class="border-t border-default p-4 bg-surface-alt">
-            <div class="flex items-center gap-3">
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
               <span class="text-sm text-secondary whitespace-nowrap">Send test:</span>
               <input
                 v-model="testEmailAddress"
                 type="email"
                 placeholder="recipient@example.com"
-                class="flex-1 px-2.5 py-1.5 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent text-sm"
+                class="flex-1 px-2.5 py-1.5 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent text-sm"
                 :disabled="sendingTest"
                 @keyup.enter="sendTestEmail"
               />
               <button
                 @click="sendTestEmail"
                 :disabled="sendingTest || !testEmailAddress"
-                class="px-3 py-1.5 bg-brand-blue text-white rounded-lg text-sm hover:opacity-90 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
+                class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:opacity-90 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 whitespace-nowrap"
               >
                 <svg v-if="sendingTest" class="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>

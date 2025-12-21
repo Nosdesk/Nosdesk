@@ -89,50 +89,46 @@ watch(activeTab, (newTab) => {
 
 // Settings tabs
 const settingsTabs = [
-  { 
-    id: 'profile', 
-    label: 'Profile', 
-    icon: 'user',
-    color: '#FF66B3'
+  {
+    id: 'profile',
+    label: 'Profile',
+    icon: 'user'
   },
-  { 
-    id: 'appearance', 
-    label: 'Appearance', 
-    icon: 'palette',
-    color: '#8B5CF6'
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    icon: 'palette'
   },
-  { 
-    id: 'notifications', 
-    label: 'Notifications', 
-    icon: 'bell',
-    color: '#FDBD10'
+  {
+    id: 'notifications',
+    label: 'Notifications',
+    icon: 'bell'
   },
-  { 
-    id: 'security', 
-    label: 'Security', 
-    icon: 'shield',
-    color: '#00C951'
+  {
+    id: 'security',
+    label: 'Security',
+    icon: 'shield'
   }
 ];
 
 // Available roles for admin management
 const availableRoles = [
-  { 
-    value: 'user', 
-    label: 'User', 
-    color: '#64748B',
+  {
+    value: 'user',
+    label: 'User',
+    colorClass: 'bg-surface-hover',
     description: 'Can create tickets and view assigned resources'
   },
-  { 
-    value: 'technician', 
-    label: 'Technician', 
-    color: '#3B82F6',
+  {
+    value: 'technician',
+    label: 'Technician',
+    colorClass: 'bg-accent',
     description: 'Can manage tickets, devices, and assist other users'
   },
-  { 
-    value: 'admin', 
-    label: 'Administrator', 
-    color: '#EF4444',
+  {
+    value: 'admin',
+    label: 'Administrator',
+    colorClass: 'bg-status-error',
     description: 'Full access to all system features and user management'
   }
 ];
@@ -287,15 +283,15 @@ const getRoleColorClass = (role: string) => {
   if (roleConfig) {
     switch (role) {
       case 'admin':
-        return 'bg-red-600 text-red-100';
+        return 'bg-status-error text-white';
       case 'technician':
-        return 'bg-blue-600 text-blue-100';
+        return 'bg-accent text-white';
       case 'user':
       default:
-        return 'bg-slate-600 text-slate-200';
+        return 'bg-surface-hover text-secondary';
     }
   }
-  return 'bg-slate-600 text-slate-200';
+  return 'bg-surface-hover text-secondary';
 };
 
 // Update user role function
@@ -459,7 +455,7 @@ const cancelDelete = () => {
       <!-- Page Header -->
       <div class="mb-2 sm:mb-6">
         <div v-if="loadingTargetUser" class="flex items-center gap-3">
-          <div class="animate-spin h-5 w-5 border-2 border-brand-blue border-t-transparent rounded-full"></div>
+          <div class="animate-spin h-5 w-5 border-2 border-accent border-t-transparent rounded-full"></div>
           <h1 class="text-xl sm:text-2xl font-bold text-primary">Loading User Settings...</h1>
         </div>
         <div v-else-if="isManagingOtherUser && targetUser">
@@ -483,7 +479,7 @@ const cancelDelete = () => {
             <div class="min-w-0 flex-1">
               <h1 class="text-xl sm:text-2xl font-bold text-primary">Managing User Settings</h1>
               <p class="text-sm sm:text-base text-secondary truncate">
-                Managing settings for <span class="text-brand-blue font-medium">{{ targetUser.name }}</span> ({{ targetUser.email }})
+                Managing settings for <span class="text-accent font-medium">{{ targetUser.name }}</span> ({{ targetUser.email }})
               </p>
             </div>
           </div>
@@ -511,20 +507,16 @@ const cancelDelete = () => {
             class="relative flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all whitespace-nowrap flex-shrink-0 min-h-[44px]"
             :class="[
               activeTab === tab.id
-                ? 'bg-surface-alt border border-default text-primary font-medium'
+                ? 'bg-accent/10 border border-accent text-accent font-medium'
                 : 'bg-surface border border-subtle text-secondary hover:bg-surface-hover hover:text-primary active:scale-95'
             ]"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
             <span class="text-sm">{{ tab.label }}</span>
-            <!-- Fancy underline indicator -->
+            <!-- Active indicator bar -->
             <div
               v-if="activeTab === tab.id"
-              class="absolute bottom-1.5 left-2 right-2 h-0.5 rounded-full transition-all duration-300"
-              :style="{
-                backgroundColor: tab.color,
-                boxShadow: `0 0 8px ${tab.color}40, 0 0 4px ${tab.color}60`
-              }"
+              class="absolute bottom-1.5 left-2 right-2 h-0.5 bg-accent rounded-full transition-all duration-300"
             ></div>
           </button>
         </div>
@@ -543,18 +535,17 @@ const cancelDelete = () => {
               v-for="tab in settingsTabs"
               :key="tab.id"
               @click="activeTab = tab.id"
-              class="rounded-lg transition-colors duration-200 text-primary flex items-center gap-3 relative overflow-hidden px-3 py-2.5"
+              class="rounded-lg transition-colors duration-200 flex items-center gap-3 relative overflow-hidden px-3 py-2.5"
               :class="[
                 activeTab === tab.id
-                    ? 'bg-surface-hover border border-default text-primary font-medium'
+                    ? 'bg-accent/10 border border-accent text-accent font-medium'
                     : 'text-secondary hover:bg-surface-hover hover:text-primary border border-transparent'
               ]"
             >
               <!-- Active indicator bar -->
               <div
                 v-if="activeTab === tab.id"
-                  class="absolute left-0 top-0 bottom-0 w-1 rounded-r"
-                :style="{ backgroundColor: tab.color }"
+                class="absolute left-0 top-0 bottom-0 w-1 bg-accent rounded-r"
               ></div>
 
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
@@ -590,8 +581,8 @@ const cancelDelete = () => {
               <div class="px-4 sm:px-6 py-4 bg-surface-alt border-b border-default">
                 <div class="flex items-center justify-between gap-3">
                   <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 bg-amber-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div class="w-8 h-8 bg-status-warning/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-status-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                       </svg>
                     </div>
@@ -600,7 +591,7 @@ const cancelDelete = () => {
                       <p class="text-xs text-secondary hidden sm:block">Control user access permissions</p>
                     </div>
                   </div>
-                  <span class="text-xs px-2.5 py-1 bg-amber-500/20 text-amber-500 rounded-full font-medium">Admin Only</span>
+                  <span class="text-xs px-2.5 py-1 bg-status-warning/20 text-status-warning rounded-full font-medium">Admin Only</span>
                 </div>
               </div>
 
@@ -616,7 +607,7 @@ const cancelDelete = () => {
                       class="group p-4 rounded-xl border-2 transition-all text-left"
                       :class="[
                         targetUser.role === role.value
-                          ? 'border-blue-500 bg-blue-500/10'
+                          ? 'border-accent bg-accent/10'
                           : 'border-transparent bg-surface-alt hover:bg-surface-hover hover:border-default',
                         updatingRole ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
                       ]"
@@ -625,14 +616,14 @@ const cancelDelete = () => {
                         <div class="flex items-center gap-2.5">
                           <div
                             class="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                            :style="{ backgroundColor: role.color }"
+                            :class="role.colorClass"
                           ></div>
                           <span class="font-semibold text-primary text-sm">{{ role.label }}</span>
                         </div>
                         <svg
                           v-if="targetUser.role === role.value"
                           xmlns="http://www.w3.org/2000/svg"
-                          class="h-5 w-5 text-blue-500 flex-shrink-0"
+                          class="h-5 w-5 text-accent flex-shrink-0"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
@@ -645,8 +636,8 @@ const cancelDelete = () => {
                   </div>
 
                   <!-- Warning notice -->
-                  <div class="flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <div class="flex items-start gap-3 p-3 bg-status-warning/10 border border-status-warning/30 rounded-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-status-warning flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <p class="text-sm text-secondary">
@@ -702,8 +693,8 @@ const cancelDelete = () => {
               <div class="px-4 sm:px-6 py-4 bg-surface-alt border-b border-default">
                 <div class="flex items-center justify-between gap-3">
                   <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div class="w-8 h-8 bg-accent/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                       </svg>
                     </div>
@@ -712,20 +703,20 @@ const cancelDelete = () => {
                       <p class="text-xs text-secondary hidden sm:block">User has not completed account setup</p>
                     </div>
                   </div>
-                  <span class="text-xs px-2.5 py-1 bg-amber-500/20 text-amber-500 rounded-full font-medium">Pending</span>
+                  <span class="text-xs px-2.5 py-1 bg-status-warning/20 text-status-warning rounded-full font-medium">Pending</span>
                 </div>
               </div>
 
               <div class="p-4 sm:p-6">
                 <div class="flex flex-col gap-4">
                   <!-- Status banner -->
-                  <div class="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <div class="flex items-start gap-3 p-4 bg-status-warning/10 border border-status-warning/30 rounded-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-status-warning flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <div>
-                      <p class="text-sm font-medium text-amber-500">Invitation pending</p>
-                      <p class="text-xs text-amber-500/80 mt-1">
+                      <p class="text-sm font-medium text-status-warning">Invitation pending</p>
+                      <p class="text-xs text-status-warning/80 mt-1">
                         {{ targetUser.name }} has not yet set up their account. You can resend the invitation email with a new setup link.
                       </p>
                     </div>
@@ -742,7 +733,7 @@ const cancelDelete = () => {
                     <button
                       @click="resendInvitation"
                       :disabled="resendingInvitation"
-                      class="px-4 py-2 bg-brand-blue text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-brand-blue transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <svg v-if="resendingInvitation" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -791,7 +782,7 @@ const cancelDelete = () => {
                   </div>
                   <button
                     @click="openDeleteModal"
-                    class="px-4 py-2 bg-status-error text-primary rounded-lg hover:bg-status-error/80 focus:outline-none focus:ring-2 focus:ring-status-error transition-colors flex items-center gap-2 whitespace-nowrap"
+                    class="px-4 py-2 bg-status-error text-white rounded-lg hover:bg-status-error/80 focus:outline-none focus:ring-2 focus:ring-status-error transition-colors flex items-center gap-2 whitespace-nowrap"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -886,7 +877,7 @@ const cancelDelete = () => {
           <button
             @click="deleteAccount"
             :disabled="(adminMfaEnabled ? (!deleteMfaCode || deleteMfaCode.length < 6) : !deletePassword) || isDeleting"
-            class="px-4 py-2 bg-status-error text-primary rounded-lg hover:bg-status-error/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            class="px-4 py-2 bg-status-error text-white rounded-lg hover:bg-status-error/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <span v-if="isDeleting" class="animate-spin h-4 w-4">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -903,16 +894,6 @@ const cancelDelete = () => {
 </template>
 
 <style scoped>
-/* Custom toggle switch styling */
-.peer:checked ~ div {
-  background-color: rgb(37 99 235);
-}
-
-.peer:checked ~ div:after {
-  transform: translateX(100%);
-  border-color: white;
-}
-
 /* Smooth transitions for theme selection */
 .theme-option {
   transition: all 0.2s ease-in-out;
@@ -920,24 +901,5 @@ const cancelDelete = () => {
 
 .theme-option:hover {
   transform: translateY(-1px);
-}
-
-/* Custom scrollbar for long content */
-.overflow-y-auto::-webkit-scrollbar {
-  width: 6px;
-}
-
-.overflow-y-auto::-webkit-scrollbar-track {
-  background: rgb(51 65 85);
-  border-radius: 3px;
-}
-
-.overflow-y-auto::-webkit-scrollbar-thumb {
-  background: rgb(100 116 139);
-  border-radius: 3px;
-}
-
-.overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background: rgb(148 163 184);
 }
 </style> 

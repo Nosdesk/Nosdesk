@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import Checkbox from './Checkbox.vue'
 
 interface Column {
   field: string
@@ -87,11 +88,9 @@ const getColumnVisibility = (column: Column) => {
       <div class="contents sticky top-0 z-10">
         <!-- Checkbox Header -->
         <div class="px-4 py-3 flex items-center font-semibold text-primary bg-surface border-b-1 border-default sticky top-0 z-10">
-          <input
-            type="checkbox"
-            class="w-4 h-4 rounded border-default bg-surface text-brand-blue focus:ring-brand-blue"
-            :checked="allSelected && data.length > 0"
-            @click="emit('toggle-all', $event)"
+          <Checkbox
+            :model-value="allSelected && data.length > 0"
+            @change="(e) => emit('toggle-all', e)"
           />
         </div>
 
@@ -119,12 +118,10 @@ const getColumnVisibility = (column: Column) => {
       <template v-for="(item, index) in data" :key="item[itemIdField]">
         <div class="contents group cursor-pointer" @click="emit('row-click', item)">
           <!-- Checkbox Cell -->
-          <div class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover transition-colors border-b border-default">
-            <input
-              type="checkbox"
-              class="w-4 h-4 rounded border-default bg-surface text-brand-blue focus:ring-brand-blue"
-              :checked="selectedItems.includes(item[itemIdField].toString())"
-              @click.stop="emit('toggle-selection', $event, item[itemIdField].toString())"
+          <div class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover transition-colors border-b border-default" @click.stop>
+            <Checkbox
+              :model-value="selectedItems.includes(item[itemIdField].toString())"
+              @change="(e) => emit('toggle-selection', e, item[itemIdField].toString())"
             />
           </div>
 

@@ -99,9 +99,9 @@ onUnmounted(() => {
         v-if="updateInfo?.update_available && updateInfo?.release_url"
         :href="updateInfo.release_url"
         target="_blank"
-        class="px-3 py-1.5 bg-surface hover:bg-surface-hover border border-green-500 text-primary rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+        class="px-3 py-1.5 bg-surface hover:bg-surface-hover border border-status-success/50 text-primary rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
       >
-        <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-4 h-4 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
         </svg>
         Update to {{ updateInfo.latest_version }}

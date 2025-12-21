@@ -237,13 +237,13 @@ const handleKeydown = (event: KeyboardEvent, field: string) => {
 const warrantyStatusClass = computed(() => {
   switch (editableWarrantyStatus.value) {
     case 'Active':
-      return 'bg-green-400/20 dark:bg-green-500/20 [color:#14532d] dark:text-green-200 border-green-400/40 dark:border-green-500/30';
+      return 'bg-status-success/20 text-status-success border-status-success/40';
     case 'Warning':
-      return 'bg-amber-400/20 dark:bg-amber-500/20 [color:#78350f] dark:text-amber-200 border-amber-400/40 dark:border-amber-500/30';
+      return 'bg-status-warning/20 text-status-warning border-status-warning/40';
     case 'Expired':
-      return 'bg-red-400/20 dark:bg-red-500/20 [color:#7f1d1d] dark:text-red-200 border-red-400/40 dark:border-red-500/30';
+      return 'bg-status-error/20 text-status-error border-status-error/40';
     default:
-      return 'bg-gray-400/20 dark:bg-gray-500/20 text-gray-900 dark:text-gray-200 border-gray-400/40 dark:border-gray-500/30';
+      return 'bg-surface-alt text-secondary border-default';
   }
 });
 
@@ -257,7 +257,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
     <div class="px-4 py-3 bg-surface-alt border-b border-default">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3 min-w-0 flex-1">
-          <div class="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0"></div>
+          <div class="w-2 h-2 bg-accent rounded-full flex-shrink-0"></div>
 
           <!-- Editable device name (title) -->
           <div v-if="editingName" class="flex-1">
@@ -265,14 +265,14 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
               v-model="editableName"
               @blur="stopEditing('name')"
               @keydown="handleKeydown($event, 'name')"
-              class="w-full bg-surface text-primary rounded px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              class="w-full bg-surface text-primary rounded px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-accent/50"
               placeholder="Enter device name..."
             />
           </div>
           <h3
             v-else
             @click="startEditing('name')"
-            class="text-md font-medium text-primary truncate cursor-pointer hover:text-blue-300 transition-colors"
+            class="text-md font-medium text-primary truncate cursor-pointer hover:text-accent transition-colors"
             :title="editableName || 'Click to edit device name'"
           >
             {{ editableName || 'Unnamed Device' }}
@@ -284,7 +284,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
               v-model="editableWarrantyStatus"
               @blur="stopEditing('warranty_status')"
               @keydown="handleKeydown($event, 'warranty_status')"
-              class="px-2 py-1 rounded-md text-xs font-medium border bg-surface text-primary focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              class="px-2 py-1 rounded-md text-xs font-medium border bg-surface text-primary focus:outline-none focus:ring-2 focus:ring-accent/50"
             >
               <option v-for="status in warrantyStatusOptions" :key="status" :value="status">
                 {{ status }}
@@ -316,7 +316,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
           </button>
           <button
             @click="emit('remove')"
-            class="p-1.5 text-tertiary hover:text-red-400 hover:bg-red-900/20 rounded-md transition-colors"
+            class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors"
             title="Remove device"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -340,14 +340,14 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
                 v-model="editableSerialNumber"
                 @blur="stopEditing('serial_number')"
                 @keydown="handleKeydown($event, 'serial_number')"
-                class="w-full bg-surface text-secondary rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                class="w-full bg-surface text-secondary rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-accent/50"
                 placeholder="Enter serial number..."
               />
             </div>
             <span
               v-else
               @click="startEditing('serial_number')"
-              class="text-secondary font-mono text-sm cursor-pointer hover:text-blue-300 transition-colors"
+              class="text-secondary font-mono text-sm cursor-pointer hover:text-accent transition-colors"
               :title="'Click to edit: ' + (editableSerialNumber || 'N/A')"
             >
               {{ editableSerialNumber || 'N/A' }}
@@ -362,14 +362,14 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
                 v-model="editableModel"
                 @blur="stopEditing('model')"
                 @keydown="handleKeydown($event, 'model')"
-                class="w-full bg-surface text-secondary rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                class="w-full bg-surface text-secondary rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent/50"
                 placeholder="Enter model..."
               />
             </div>
             <span
               v-else
               @click="startEditing('model')"
-              class="text-secondary text-sm truncate cursor-pointer hover:text-blue-300 transition-colors"
+              class="text-secondary text-sm truncate cursor-pointer hover:text-accent transition-colors"
               :title="'Click to edit: ' + (editableModel || 'Unknown')"
             >
               {{ editableModel || 'Unknown' }}
@@ -387,14 +387,14 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
                 v-model="editableManufacturer"
                 @blur="stopEditing('manufacturer')"
                 @keydown="handleKeydown($event, 'manufacturer')"
-                class="w-full bg-surface text-secondary rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                class="w-full bg-surface text-secondary rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent/50"
                 placeholder="Enter manufacturer..."
               />
             </div>
             <span
               v-else
               @click="startEditing('manufacturer')"
-              class="text-secondary text-sm truncate cursor-pointer hover:text-blue-300 transition-colors"
+              class="text-secondary text-sm truncate cursor-pointer hover:text-accent transition-colors"
               :title="'Click to edit: ' + (editableManufacturer || 'Unknown')"
             >
               {{ editableManufacturer || 'Unknown' }}
@@ -409,14 +409,14 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
                 v-model="editableHostname"
                 @blur="stopEditing('hostname')"
                 @keydown="handleKeydown($event, 'hostname')"
-                class="w-full bg-surface text-secondary rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                class="w-full bg-surface text-secondary rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-accent/50"
                 placeholder="Enter hostname..."
               />
             </div>
             <span
               v-else
               @click="startEditing('hostname')"
-              class="text-secondary font-mono text-sm truncate cursor-pointer hover:text-blue-300 transition-colors"
+              class="text-secondary font-mono text-sm truncate cursor-pointer hover:text-accent transition-colors"
               :title="'Click to edit: ' + (editableHostname || 'N/A')"
             >
               {{ editableHostname || 'N/A' }}
@@ -428,7 +428,7 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
         <div class="pt-2 border-t border-default">
           <button
             @click="handleViewClick"
-            class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600/10 text-blue-400 rounded-lg hover:bg-blue-600/20 transition-colors text-sm font-medium"
+            class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-accent/10 text-accent rounded-lg hover:bg-accent/20 transition-colors text-sm font-medium"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />

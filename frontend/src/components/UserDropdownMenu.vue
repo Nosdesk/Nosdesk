@@ -119,7 +119,7 @@ const handleLogout = () => {
       />
       <div class="min-w-0 flex-1">
         <div class="text-sm font-medium text-primary truncate">{{ user.name }}</div>
-        <div class="text-xs text-brand-blue mt-1">View Profile</div>
+        <div class="text-xs text-accent mt-1">View Profile</div>
       </div>
     </div>
 

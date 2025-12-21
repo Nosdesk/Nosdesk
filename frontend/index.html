@@ -2,14 +2,7 @@
 <html lang="">
   <head>
     <meta charset="UTF-8">
-    <script>
-      (function() {
-        var b = {favicon_url: '/favicon.svg', app_name: 'Nosdesk'};
-        try { Object.assign(b, JSON.parse(localStorage.getItem('nosdesk_branding_cache') || '{}')); } catch (e) {}
-        document.write('<link rel="icon" href="' + b.favicon_url + '">');
-        document.title = b.app_name;
-      })();
-    </script>
+    <script src="/branding-init.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover">
     <meta name="HandheldFriendly" content="true">
     <meta name="mobile-web-app-capable" content="yes">

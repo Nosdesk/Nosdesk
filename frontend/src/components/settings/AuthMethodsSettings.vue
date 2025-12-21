@@ -179,9 +179,9 @@ const revokeAllSessions = async () => {
 const getAuthMethodIcon = (type: string) => {
   switch (type) {
     case 'microsoft':
-      return '🔷';
+      return 'microsoft';
     default:
-      return '📧';
+      return 'email';
   }
 };
 </script>
@@ -202,11 +202,25 @@ const getAuthMethodIcon = (type: string) => {
           <div class="flex flex-col gap-2">
             <div v-for="method in authMethods" :key="method.id" class="flex items-center justify-between p-3 bg-surface-alt rounded-lg">
               <div class="flex items-center gap-3">
-                <span class="text-xl">{{ getAuthMethodIcon(method.type) }}</span>
+                <!-- Email Icon -->
+                <div v-if="getAuthMethodIcon(method.type) === 'email'" class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <!-- Microsoft Icon (4-square grid pattern) -->
+                <div v-else-if="getAuthMethodIcon(method.type) === 'microsoft'" class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none">
+                    <rect x="4" y="4" width="7" height="7" class="fill-accent" />
+                    <rect x="13" y="4" width="7" height="7" class="fill-accent" />
+                    <rect x="4" y="13" width="7" height="7" class="fill-accent" />
+                    <rect x="13" y="13" width="7" height="7" class="fill-accent" />
+                  </svg>
+                </div>
                 <div>
                   <div class="text-sm font-medium text-primary">
                     {{ method.identifier }}
-                    <span v-if="method.isPrimary" class="ml-2 px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs">Primary</span>
+                    <span v-if="method.isPrimary" class="ml-2 px-2 py-1 bg-accent/20 text-accent rounded text-xs">Primary</span>
                   </div>
                   <div class="text-xs text-tertiary">
                     Added {{ formatDate(method.createdAt, 'MMM d, yyyy') }}
@@ -217,7 +231,7 @@ const getAuthMethodIcon = (type: string) => {
                 v-if="!method.isPrimary && authMethods.length > 1"
                 @click="removeAuthMethod(method.id, method.type)"
                 :disabled="loading"
-                class="text-red-400 hover:text-red-300 text-sm font-medium disabled:opacity-50"
+                class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50"
               >
                 Remove
               </button>
@@ -234,7 +248,14 @@ const getAuthMethodIcon = (type: string) => {
               :disabled="loading || hasMicrosoftConnection"
               class="flex items-center gap-3 p-3 bg-surface-alt hover:bg-surface-alt rounded-lg border border-subtle hover:border-strong transition-colors disabled:opacity-50 max-w-sm"
             >
-              <span class="text-xl">🔷</span>
+              <div class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none">
+                  <rect x="4" y="4" width="7" height="7" class="fill-accent" />
+                  <rect x="13" y="4" width="7" height="7" class="fill-accent" />
+                  <rect x="4" y="13" width="7" height="7" class="fill-accent" />
+                  <rect x="13" y="13" width="7" height="7" class="fill-accent" />
+                </svg>
+              </div>
               <div class="flex flex-col items-start">
                 <span class="text-sm font-medium text-primary">Microsoft</span>
                 <span class="text-xs text-tertiary">
@@ -262,7 +283,7 @@ const getAuthMethodIcon = (type: string) => {
             <button
               @click="revokeAllSessions"
               :disabled="loading || activeSessions.length <= 1"
-              class="text-red-400 hover:text-red-300 text-sm font-medium disabled:opacity-50"
+              class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50"
             >
               Revoke All Others
             </button>
@@ -279,7 +300,7 @@ const getAuthMethodIcon = (type: string) => {
                 <div>
                   <div class="text-sm font-medium text-primary">
                     {{ session.device_name || session.user_agent || 'Unknown Device' }}
-                    <span v-if="session.is_current" class="ml-2 px-2 py-1 bg-green-600/20 text-green-400 rounded text-xs">Current</span>
+                    <span v-if="session.is_current" class="ml-2 px-2 py-1 bg-status-success/20 text-status-success rounded text-xs">Current</span>
                   </div>
                   <div class="text-xs text-tertiary">
                     {{ session.location || session.ip_address || 'Unknown location' }} • Last active {{ formatDate(session.last_active, 'MMM d, yyyy') }}
@@ -290,7 +311,7 @@ const getAuthMethodIcon = (type: string) => {
                 v-if="!session.is_current"
                 @click="revokeSession(session.id)"
                 :disabled="loading"
-                class="text-red-400 hover:text-red-300 text-sm font-medium disabled:opacity-50"
+                class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50"
               >
                 Revoke
               </button>

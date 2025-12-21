@@ -16,7 +16,7 @@
         class="bg-surface rounded-xl border border-default shadow-xl overflow-hidden"
       >
         <div class="p-8 flex flex-col items-center gap-4">
-          <svg class="w-8 h-8 animate-spin text-brand-blue" fill="none" viewBox="0 0 24 24">
+          <svg class="w-8 h-8 animate-spin text-accent" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
@@ -31,8 +31,8 @@
       >
         <div class="p-8">
           <div class="flex flex-col items-center gap-4 text-center">
-            <div class="bg-red-600/20 rounded-full p-4">
-              <svg class="w-12 h-12 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="bg-status-error/20 rounded-full p-4">
+              <svg class="w-12 h-12 text-status-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
               </svg>
             </div>
@@ -44,7 +44,7 @@
             </div>
             <button
               @click="goToLogin"
-              class="w-full px-6 py-3 bg-brand-blue hover:opacity-90 text-white rounded-lg transition-colors font-medium mt-2"
+              class="w-full px-6 py-3 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium mt-2"
             >
               Go to Login
             </button>
@@ -59,8 +59,8 @@
       >
         <div class="p-8">
           <div class="flex flex-col items-center gap-4 text-center">
-            <div class="bg-green-600/20 rounded-full p-4">
-              <svg class="w-12 h-12 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="bg-status-success/20 rounded-full p-4">
+              <svg class="w-12 h-12 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
               </svg>
             </div>
@@ -72,7 +72,7 @@
             </div>
             <button
               @click="goToLogin"
-              class="w-full px-6 py-3 bg-brand-blue hover:opacity-90 text-white rounded-lg transition-colors font-medium mt-2"
+              class="w-full px-6 py-3 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium mt-2"
             >
               Go to Login
             </button>
@@ -107,7 +107,7 @@
                   required
                   autocomplete="new-password"
                   placeholder="Enter your password"
-                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue transition-colors pr-12"
+                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors pr-12"
                   :disabled="loading"
                   @input="validatePassword"
                 />
@@ -131,7 +131,7 @@
               <div class="mt-2 text-xs space-y-1">
                 <p
                   class="flex items-center gap-2 transition-colors"
-                  :class="passwordValidation.length ? 'text-green-400' : 'text-tertiary'"
+                  :class="passwordValidation.length ? 'text-status-success' : 'text-tertiary'"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -159,7 +159,7 @@
                   required
                   autocomplete="new-password"
                   placeholder="Confirm your password"
-                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue transition-colors pr-12"
+                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors pr-12"
                   :disabled="loading"
                   @input="validatePasswordMatch"
                 />
@@ -183,7 +183,7 @@
               <p
                 v-if="confirmPassword"
                 class="mt-2 text-xs flex items-center gap-2 transition-colors"
-                :class="passwordsMatch ? 'text-green-400' : 'text-red-400'"
+                :class="passwordsMatch ? 'text-status-success' : 'text-status-error'"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -200,7 +200,7 @@
             <!-- Submission Error -->
             <div
               v-if="submitError"
-              class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-lg text-sm"
+              class="bg-status-error/10 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm"
             >
               {{ submitError }}
             </div>
@@ -208,7 +208,7 @@
             <!-- Submit Button -->
             <button
               type="submit"
-              class="w-full px-6 py-3 bg-brand-blue hover:opacity-90 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
+              class="w-full px-6 py-3 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
               :disabled="loading || !isFormValid"
             >
               <svg

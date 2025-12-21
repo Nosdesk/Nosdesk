@@ -31,6 +31,10 @@ export const useThemeStore = defineStore('theme', () => {
   const savedAccent = localStorage.getItem('accentColor')
   const accentColorOverride = ref<string | null>(savedAccent || null)
 
+  // Color blind friendly mode - uses shapes instead of colors for status indicators
+  const savedColorBlindMode = localStorage.getItem('colorBlindMode') === 'true'
+  const colorBlindMode = ref<boolean>(savedColorBlindMode)
+
   // Syncing state
   const isSyncing = ref<boolean>(false)
 
@@ -94,6 +98,12 @@ export const useThemeStore = defineStore('theme', () => {
     currentTheme.value = themeId
     localStorage.setItem('theme', themeId)
     applyCurrentTheme()
+
+    // E-Paper theme should automatically enable color blind mode
+    // since it's monochromatic and relies on shapes for distinction
+    if (themeId === 'epaper') {
+      setColorBlindMode(true)
+    }
   }
 
   /**
@@ -107,6 +117,19 @@ export const useThemeStore = defineStore('theme', () => {
       localStorage.removeItem('accentColor')
     }
     applyCurrentTheme()
+  }
+
+  /**
+   * Set color blind friendly mode
+   * When enabled, status indicators use shapes instead of relying solely on colors
+   */
+  function setColorBlindMode(enabled: boolean): void {
+    colorBlindMode.value = enabled
+    if (enabled) {
+      localStorage.setItem('colorBlindMode', 'true')
+    } else {
+      localStorage.removeItem('colorBlindMode')
+    }
   }
 
   /**
@@ -171,6 +194,7 @@ export const useThemeStore = defineStore('theme', () => {
     effectiveTheme,
     isDarkMode,
     accentColorOverride,
+    colorBlindMode,
     isSyncing,
 
     // Theme lists for UI
@@ -181,6 +205,7 @@ export const useThemeStore = defineStore('theme', () => {
     // Actions
     setTheme,
     setAccentColor,
+    setColorBlindMode,
     toggleTheme,
     syncThemeToBackend,
     loadThemeFromUser,

@@ -161,7 +161,7 @@ onUnmounted(() => {
       class="absolute inset-0 bg-surface-alt flex items-center justify-center"
     >
       <svg
-        class="w-6 h-6 text-red-400"
+        class="w-6 h-6 text-status-error"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"

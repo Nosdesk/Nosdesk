@@ -153,16 +153,16 @@ const showTemplateDialog = () => {
       </div>
       
       <!-- Status Messages -->
-      <div 
-        v-if="successMessage" 
-        class="p-4 bg-green-900/50 text-green-400 rounded-lg border border-green-700"
+      <div
+        v-if="successMessage"
+        class="p-4 bg-status-success/20 text-status-success rounded-lg border border-status-success/50"
       >
         {{ successMessage }}
       </div>
-      
-      <div 
-        v-if="errorMessage" 
-        class="p-4 bg-red-900/50 text-red-400 rounded-lg border border-red-700"
+
+      <div
+        v-if="errorMessage"
+        class="p-4 bg-status-error/20 text-status-error rounded-lg border border-status-error/50"
       >
         {{ errorMessage }}
       </div>
@@ -171,7 +171,7 @@ const showTemplateDialog = () => {
       <div class="flex flex-wrap gap-3 mb-4">
         <button 
           @click="showImportDialog"
-          class="px-4 py-2 bg-brand-blue text-white rounded-lg hover:opacity-90 transition-colors flex items-center gap-2"
+          class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors flex items-center gap-2"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -196,19 +196,19 @@ const showTemplateDialog = () => {
           <div>
             <h2 class="text-xl font-medium text-primary mb-2">Import Status</h2>
             <div class="flex items-center">
-              <span 
+              <span
                 :class="[
                   'px-3 py-1 rounded-full text-sm inline-flex items-center border',
-                  importStatus === 'success' ? 'bg-green-900/50 text-green-400 border-green-700' : 
-                  importStatus === 'in-progress' ? 'bg-blue-900/50 text-blue-400 border-blue-700' :
-                  'bg-red-900/50 text-red-400 border-red-700'
+                  importStatus === 'success' ? 'bg-status-success/20 text-status-success border-status-success/50' :
+                  importStatus === 'in-progress' ? 'bg-accent/20 text-accent border-accent' :
+                  'bg-status-error/20 text-status-error border-status-error/50'
                 ]"
               >
-                <span class="h-2 w-2 rounded-full mr-2" 
-                      :class="{ 
-                        'bg-green-400': importStatus === 'success',
-                        'bg-blue-400': importStatus === 'in-progress',
-                        'bg-red-400': importStatus === 'error'
+                <span class="h-2 w-2 rounded-full mr-2"
+                      :class="{
+                        'bg-status-success': importStatus === 'success',
+                        'bg-accent': importStatus === 'in-progress',
+                        'bg-status-error': importStatus === 'error'
                       }"></span>
                 {{ 
                   importStatus === 'success' ? 'Import Completed' : 
@@ -229,11 +229,11 @@ const showTemplateDialog = () => {
             </div>
             <div class="flex justify-between mt-3">
               <div class="text-center px-3">
-                <div class="text-green-400">{{ importResults.success }}</div>
+                <div class="text-status-success">{{ importResults.success }}</div>
                 <div class="text-xs text-secondary">Successful</div>
               </div>
               <div class="text-center px-3">
-                <div class="text-red-400">{{ importResults.errors }}</div>
+                <div class="text-status-error">{{ importResults.errors }}</div>
                 <div class="text-xs text-secondary">Failed</div>
               </div>
             </div>
@@ -245,8 +245,8 @@ const showTemplateDialog = () => {
       <div class="bg-surface border border-default rounded-lg p-6 mb-4">
         <h2 class="text-xl font-medium text-primary mb-4">CSV Import Guidelines</h2>
         <div class="flex flex-col gap-4 text-sm text-secondary">
-          <div class="bg-blue-900/20 border border-blue-800/50 rounded-md p-4">
-            <h3 class="font-medium text-blue-300 mb-2 flex items-center">
+          <div class="bg-accent/10 border border-accent/30 rounded-md p-4">
+            <h3 class="font-medium text-accent mb-2 flex items-center">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -261,8 +261,8 @@ const showTemplateDialog = () => {
             </ul>
           </div>
           
-          <div class="bg-amber-900/20 border border-amber-800/50 rounded-md p-4">
-            <h3 class="font-medium text-amber-300 mb-2 flex items-center">
+          <div class="bg-status-warning/20 border border-status-warning/50 rounded-md p-4">
+            <h3 class="font-medium text-status-warning mb-2 flex items-center">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
@@ -302,7 +302,7 @@ const showTemplateDialog = () => {
               <div>
                 <button 
                   @click="downloadTemplate(template.type)"
-                  class="px-3 py-2 text-sm bg-brand-blue text-white rounded-md hover:opacity-90 transition-colors flex items-center gap-2"
+                  class="px-3 py-2 text-sm bg-accent text-white rounded-md hover:opacity-90 transition-colors flex items-center gap-2"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -330,7 +330,7 @@ const showTemplateDialog = () => {
           </label>
           <select
             v-model="selectedFileType"
-            class="w-full rounded-md bg-surface-alt border-subtle text-primary py-2 px-3 focus:border-brand-blue focus:ring focus:ring-brand-blue focus:ring-opacity-50"
+            class="w-full rounded-md bg-surface-alt border-subtle text-primary py-2 px-3 focus:border-accent focus:ring focus:ring-accent focus:ring-opacity-50"
           >
             <option value="users">Users</option>
             <option value="devices">Devices</option>
@@ -359,7 +359,7 @@ const showTemplateDialog = () => {
                   stroke-linejoin="round"
                 />
               </svg>
-              <div v-if="fileUploaded" class="text-blue-400 text-center mx-auto">
+              <div v-if="fileUploaded" class="text-accent text-center mx-auto">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -368,7 +368,7 @@ const showTemplateDialog = () => {
               <div v-else class="flex text-sm text-tertiary">
                 <label
                   for="file-upload"
-                  class="relative cursor-pointer bg-surface-alt rounded-md font-medium text-blue-400 hover:text-blue-300 focus-within:outline-none"
+                  class="relative cursor-pointer bg-surface-alt rounded-md font-medium text-accent hover:text-accent focus-within:outline-none"
                 >
                   <span class="px-3 py-2 inline-block">Upload a file</span>
                   <input
@@ -401,7 +401,7 @@ const showTemplateDialog = () => {
             :disabled="!fileUploaded || isLoading"
             :class="[
               'px-4 py-2 text-white rounded-lg transition-colors flex items-center gap-2',
-              !fileUploaded || isLoading ? 'bg-brand-blue/50 cursor-not-allowed' : 'bg-brand-blue hover:opacity-90'
+              !fileUploaded || isLoading ? 'bg-accent/50 cursor-not-allowed' : 'bg-accent hover:opacity-90'
             ]"
           >
             <svg v-if="isLoading" class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -435,7 +435,7 @@ const showTemplateDialog = () => {
             </div>
             <button 
               @click="downloadTemplate(template.type)"
-              class="px-3 py-1 text-sm bg-brand-blue text-white rounded-md hover:opacity-90 transition-colors flex items-center gap-1"
+              class="px-3 py-1 text-sm bg-accent text-white rounded-md hover:opacity-90 transition-colors flex items-center gap-1"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
