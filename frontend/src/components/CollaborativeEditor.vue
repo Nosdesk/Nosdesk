@@ -44,6 +44,8 @@ import {
     createParagraphNear,
     liftEmptyBlock,
     splitBlock,
+    baseKeymap,
+    newlineInCode,
 } from "prosemirror-commands";
 import {
     wrapInList,
@@ -55,7 +57,6 @@ import "prosemirror-view/style/prosemirror.css";
 import { Schema } from "prosemirror-model";
 
 // Import individual components instead of exampleSetup
-import { baseKeymap } from "prosemirror-commands";
 import { dropCursor } from "prosemirror-dropcursor";
 // gapCursor removed - causes errors with empty Yjs documents in Chrome
 import {
@@ -67,6 +68,7 @@ import {
     ellipsis,
 } from "prosemirror-inputrules";
 import { createImageUploadPlugin } from "./editor/imageUploadPlugin";
+import { syntaxHighlightPlugin } from "./editor/syntaxHighlightPlugin";
 
 // Props
 interface Props {
@@ -547,16 +549,103 @@ const initEditor = async () => {
                             }
                             return false;
                         },
-                        // Better Enter handling in code blocks
-                        Enter: (state, dispatch) => {
+                        // Mod-Enter to exit code block (standard ProseMirror pattern)
+                        "Mod-Enter": exitCode,
+                        // Enter handling in code blocks - exit on empty trailing line
+                        Enter: (state, dispatch, view) => {
                             const { $from } = state.selection;
-                            if ($from.parent.type === schema.nodes.code_block) {
-                                if (dispatch) {
-                                    dispatch(state.tr.insertText("\n"));
+                            if ($from.parent.type !== schema.nodes.code_block) {
+                                return false;
+                            }
+
+                            // Use view.endOfTextblock for accurate position detection
+                            const atEnd = view
+                                ? view.endOfTextblock("forward")
+                                : $from.parentOffset === $from.parent.content.size;
+
+                            // Check if the last line is empty (content ends with newline or is empty)
+                            const content = $from.parent.textContent;
+                            const lastLineEmpty = content.length === 0 || content.endsWith("\n");
+
+                            if (atEnd && lastLineEmpty && dispatch) {
+                                // Exit the code block and create a paragraph after it
+                                const after = $from.after();
+                                let tr = state.tr;
+
+                                // Remove the trailing newline if present
+                                if (content.endsWith("\n")) {
+                                    tr = tr.delete($from.pos - 1, $from.pos);
                                 }
+
+                                // Insert a new paragraph after the code block
+                                // Use insert instead of replaceWith - works better at end of document
+                                const insertPos = tr.mapping.map(after);
+                                tr = tr.insert(insertPos, schema.nodes.paragraph.createAndFill()!);
+
+                                // Move cursor into the new paragraph
+                                tr.setSelection(Selection.near(tr.doc.resolve(insertPos + 1)));
+                                dispatch(tr);
+                                return true;
+                            }
+
+                            // Otherwise, insert a newline within the code block
+                            if (dispatch) {
+                                dispatch(state.tr.insertText("\n"));
+                            }
+                            return true;
+                        },
+                        // ArrowUp at start of code block at document start - insert paragraph above
+                        ArrowUp: (state, dispatch, view) => {
+                            const { $from } = state.selection;
+                            if ($from.parent.type !== schema.nodes.code_block) {
+                                return false;
+                            }
+
+                            // Use view.endOfTextblock for accurate position detection
+                            const atStart = view
+                                ? view.endOfTextblock("backward")
+                                : $from.parentOffset === 0;
+
+                            // Check if code block is at the start of the document
+                            const before = $from.before();
+                            const isFirstBlock = before === 1;
+
+                            if (atStart && isFirstBlock && dispatch) {
+                                // Insert a paragraph before the code block
+                                const tr = state.tr.insert(
+                                    before,
+                                    schema.nodes.paragraph.createAndFill()!
+                                );
+                                tr.setSelection(Selection.near(tr.doc.resolve(before)));
+                                dispatch(tr);
                                 return true;
                             }
                             return false;
+                        },
+                        // Backspace in empty code block - delete it and replace with paragraph
+                        Backspace: (state, dispatch) => {
+                            const { $from } = state.selection;
+                            if ($from.parent.type !== schema.nodes.code_block) {
+                                return false;
+                            }
+
+                            // Only handle empty code blocks
+                            if ($from.parent.content.size !== 0) {
+                                return false;
+                            }
+
+                            if (dispatch) {
+                                const before = $from.before();
+                                const after = $from.after();
+                                const tr = state.tr.replaceWith(
+                                    before,
+                                    after,
+                                    schema.nodes.paragraph.createAndFill()!
+                                );
+                                tr.setSelection(Selection.near(tr.doc.resolve(before + 1)));
+                                dispatch(tr);
+                            }
+                            return true;
                         },
                     }),
                     // Add list handling keymap - this is crucial for proper list behavior
@@ -572,6 +661,7 @@ const initEditor = async () => {
                         onUploadEnd: () => log.debug('Image upload completed'),
                         onUploadError: (error) => log.error('Image upload failed:', error)
                     }),
+                    syntaxHighlightPlugin,
                 ],
             }),
         });
@@ -2327,41 +2417,108 @@ defineExpose({
     white-space: pre;
 }
 
-/* Better syntax highlighting colors for common languages */
-.ProseMirror pre code.language-javascript,
-.ProseMirror pre code.language-js,
-.ProseMirror pre code.language-typescript,
-.ProseMirror pre code.language-ts {
-    color: rgb(125 211 252); /* text-sky-300 */
+/* Responsive code blocks - wrap on mobile for better readability */
+@media (max-width: 768px) {
+    .ProseMirror pre code {
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-x: visible;
+    }
 }
 
-.ProseMirror pre code.language-python,
-.ProseMirror pre code.language-py {
-    color: rgb(134 239 172); /* text-green-300 */
+/* Syntax highlighting using theme variables (via prosemirror-highlight + lowlight) */
+.ProseMirror pre code .hljs-comment,
+.ProseMirror pre code .hljs-quote {
+    color: var(--color-syntax-comment, #6a737d);
+    font-style: italic;
 }
 
-.ProseMirror pre code.language-html,
-.ProseMirror pre code.language-xml {
-    color: rgb(251 146 60); /* text-orange-400 */
+.ProseMirror pre code .hljs-keyword,
+.ProseMirror pre code .hljs-selector-tag,
+.ProseMirror pre code .hljs-meta {
+    color: var(--color-syntax-keyword, #d73a49);
 }
 
-.ProseMirror pre code.language-css,
-.ProseMirror pre code.language-scss {
-    color: var(--color-accent);
+.ProseMirror pre code .hljs-string,
+.ProseMirror pre code .hljs-attr,
+.ProseMirror pre code .hljs-selector-attr,
+.ProseMirror pre code .hljs-selector-pseudo {
+    color: var(--color-syntax-string, #22863a);
 }
 
-.ProseMirror pre code.language-bash,
-.ProseMirror pre code.language-sh,
-.ProseMirror pre code.language-shell {
-    color: rgb(163 230 53); /* text-lime-400 */
+.ProseMirror pre code .hljs-number,
+.ProseMirror pre code .hljs-literal,
+.ProseMirror pre code .hljs-symbol,
+.ProseMirror pre code .hljs-bullet {
+    color: var(--color-syntax-number, #005cc5);
 }
 
-.ProseMirror pre code.language-json {
-    color: rgb(252 211 77); /* text-amber-300 */
+.ProseMirror pre code .hljs-title,
+.ProseMirror pre code .hljs-title.function_,
+.ProseMirror pre code .hljs-section {
+    color: var(--color-syntax-function, #6f42c1);
 }
 
-.ProseMirror pre code.language-sql {
-    color: rgb(196 181 253); /* text-violet-300 */
+.ProseMirror pre code .hljs-variable,
+.ProseMirror pre code .hljs-variable.language_,
+.ProseMirror pre code .hljs-variable.constant_,
+.ProseMirror pre code .hljs-params {
+    color: var(--color-syntax-variable, #e36209);
+}
+
+.ProseMirror pre code .hljs-type,
+.ProseMirror pre code .hljs-title.class_,
+.ProseMirror pre code .hljs-built_in {
+    color: var(--color-syntax-type, #22863a);
+}
+
+.ProseMirror pre code .hljs-operator,
+.ProseMirror pre code .hljs-punctuation {
+    color: var(--color-syntax-operator, #6a737d);
+}
+
+.ProseMirror pre code .hljs-property,
+.ProseMirror pre code .hljs-attribute {
+    color: var(--color-syntax-variable, #e36209);
+}
+
+.ProseMirror pre code .hljs-regexp {
+    color: var(--color-syntax-string, #22863a);
+}
+
+.ProseMirror pre code .hljs-tag {
+    color: var(--color-syntax-keyword, #d73a49);
+}
+
+.ProseMirror pre code .hljs-name {
+    color: var(--color-syntax-type, #22863a);
+}
+
+.ProseMirror pre code .hljs-selector-id,
+.ProseMirror pre code .hljs-selector-class {
+    color: var(--color-syntax-function, #6f42c1);
+}
+
+.ProseMirror pre code .hljs-emphasis {
+    font-style: italic;
+}
+
+.ProseMirror pre code .hljs-strong {
+    font-weight: bold;
+}
+
+.ProseMirror pre code .hljs-link {
+    text-decoration: underline;
+}
+
+.ProseMirror pre code .hljs-addition {
+    color: var(--color-syntax-string, #22863a);
+    background-color: rgba(34, 134, 58, 0.1);
+}
+
+.ProseMirror pre code .hljs-deletion {
+    color: var(--color-syntax-keyword, #d73a49);
+    background-color: rgba(215, 58, 73, 0.1);
 }
 
 .ProseMirror code {

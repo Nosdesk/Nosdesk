@@ -261,14 +261,17 @@ defineExpose({
             <TransitionGroup
               name="list-stagger"
               tag="div"
-              class="flex flex-col divide-y divide-default"
+              class="flex flex-col"
             >
             <div
               v-for="(device, index) in listManager.items.value"
               :key="device.id"
               :style="getStyle(index)"
               @click="listManager.navigateToItem(device)"
-              class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer"
+              :class="[
+                'flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer',
+                index > 0 ? 'border-t border-default' : ''
+              ]"
             >
               <!-- Device icon -->
               <div class="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center flex-shrink-0">

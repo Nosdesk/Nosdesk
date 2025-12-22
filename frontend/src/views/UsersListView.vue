@@ -204,14 +204,17 @@ defineExpose({
             <TransitionGroup
               name="list-stagger"
               tag="div"
-              class="flex flex-col divide-y divide-default"
+              class="flex flex-col"
             >
             <div
               v-for="(user, index) in listManager.items.value"
               :key="user.uuid"
               :style="getStyle(index)"
               @click="listManager.navigateToItem(user)"
-              class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer"
+              :class="[
+                'flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer',
+                index > 0 ? 'border-t border-default' : ''
+              ]"
             >
               <!-- Avatar -->
               <UserAvatar

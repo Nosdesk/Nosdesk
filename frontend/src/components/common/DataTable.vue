@@ -131,8 +131,11 @@ const getColumnVisibility = (column: Column) => {
         >
           <!-- Checkbox Cell -->
           <div
-            class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover border-b border-default"
-            :class="loading ? 'opacity-60 pointer-events-none' : 'transition-colors'"
+            class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover"
+            :class="[
+              loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
+              index > 0 ? 'border-t border-default' : ''
+            ]"
             @click.stop
           >
             <Checkbox
@@ -146,9 +149,10 @@ const getColumnVisibility = (column: Column) => {
             v-for="column in columns"
             :key="column.field"
             :class="[
-              'px-2 py-3 flex items-center bg-app group-hover:bg-surface-hover text-sm border-b border-default min-w-0',
+              'px-2 py-3 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
               getColumnVisibility(column),
-              loading ? 'opacity-60 pointer-events-none' : 'transition-colors'
+              loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
+              index > 0 ? 'border-t border-default' : ''
             ]"
           >
             <!-- Slot for custom cell content -->

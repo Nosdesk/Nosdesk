@@ -340,14 +340,14 @@ const { getStyle } = useStaggeredList();
             </DataTable>
 
             <!-- Loading indicator for infinite scroll -->
-            <div v-if="listManager.loadingMore.value" class="py-4 flex justify-center">
+            <div v-if="listManager.loadingMore.value" class="py-4 flex justify-center bg-app">
               <div class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-accent"></div>
             </div>
           </div>
         </template>
 
         <!-- Mobile Card View -->
-        <template #mobile>
+        <template #mobile-view>
           <div
             ref="mobileScrollContainer"
             class="flex-1 overflow-y-auto"
@@ -355,7 +355,7 @@ const { getStyle } = useStaggeredList();
             <TransitionGroup
               name="list-stagger"
               tag="div"
-              class="flex flex-col divide-y divide-default"
+              class="flex flex-col"
             >
               <div
                 v-for="(ticket, index) in listManager.items.value"
@@ -363,7 +363,10 @@ const { getStyle } = useStaggeredList();
                 :style="getStyle(index)"
                 v-memo="[ticket.id, ticket.title, ticket.status, ticket.priority, ticket.created, ticket.requester, ticket.assignee, themeStore.colorBlindMode]"
                 @click="listManager.navigateToItem(ticket)"
-                class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer"
+                :class="[
+                  'flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer',
+                  index > 0 ? 'border-t border-default' : ''
+                ]"
               >
                 <!-- Status indicator bar -->
                 <div
@@ -453,7 +456,7 @@ const { getStyle } = useStaggeredList();
             </TransitionGroup>
 
             <!-- Loading indicator for infinite scroll -->
-            <div v-if="listManager.loadingMore.value" class="py-4 flex justify-center">
+            <div v-if="listManager.loadingMore.value" class="py-4 flex justify-center bg-app">
               <div class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-accent"></div>
             </div>
           </div>
