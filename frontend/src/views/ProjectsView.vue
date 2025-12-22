@@ -8,6 +8,7 @@ import ProjectForm from '@/components/projectComponents/ProjectForm.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import { projectService } from '@/services/projectService'
 import { formatRelativeTime } from '@/utils/dateUtils'
+import { useStaggeredList } from '@/composables/useStaggeredList'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 
@@ -49,6 +50,9 @@ const filteredProjects = computed(() => {
 
   return result
 })
+
+// Staggered fade-in animation
+const { getStyle } = useStaggeredList()
 
 // Status badge classes using semantic tokens
 const statusClasses: Record<ProjectStatus, string> = {
@@ -217,17 +221,9 @@ defineExpose({
         @dismiss="error = null"
       />
 
-      <!-- Loading State -->
-      <div v-if="isLoading" class="flex justify-center items-center py-16">
-        <div class="flex items-center gap-3 text-secondary">
-          <div class="animate-spin rounded-full h-8 w-8 border-2 border-accent border-t-transparent"></div>
-          <span class="text-sm font-medium">Loading projects...</span>
-        </div>
-      </div>
-
       <!-- Empty State -->
       <EmptyState
-        v-else-if="filteredProjects.length === 0"
+        v-if="!isLoading && filteredProjects.length === 0"
         icon="folder"
         :title="searchQuery || statusFilter !== 'all' ? 'No projects match your filters' : 'No projects found'"
         :description="searchQuery || statusFilter !== 'all' ? 'Try adjusting your search or filters' : 'Create your first project to get started'"
@@ -236,10 +232,16 @@ defineExpose({
       />
 
       <!-- Projects Grid -->
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <TransitionGroup
+        v-else
+        name="list-stagger"
+        tag="div"
+        class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+      >
         <div
-          v-for="project in filteredProjects"
+          v-for="(project, index) in filteredProjects"
           :key="project.id"
+          :style="getStyle(index)"
           @click="openProject(project.id)"
           class="bg-surface rounded-xl border border-default overflow-hidden hover:border-strong hover:shadow-lg transition-all cursor-pointer group"
         >
@@ -326,7 +328,7 @@ defineExpose({
             </div>
           </div>
         </div>
-      </div>
+      </TransitionGroup>
     </div>
 
     <!-- Create Project Modal -->
@@ -360,3 +362,4 @@ defineExpose({
     </Modal>
   </div>
 </template>
+

@@ -1,33 +1,35 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { ref } from "vue";
 import { useRouter } from "vue-router";
 import BaseListView from "@/components/common/BaseListView.vue";
 import DataTable from "@/components/common/DataTable.vue";
 import DebouncedSearchInput from "@/components/common/DebouncedSearchInput.vue";
 import PaginationControls from "@/components/common/PaginationControls.vue";
-import { IdCell, TextCell, StatusBadgeCell, UserInfoCell } from "@/components/common/cells";
+import { StatusBadgeCell, UserInfoCell, DateCell } from "@/components/common/cells";
 import UserAvatar from "@/components/UserAvatar.vue";
 import { useListManagement } from "@/composables/useListManagement";
+import { useStaggeredList } from "@/composables/useStaggeredList";
+import { useMobileDetection } from "@/composables/useMobileDetection";
 import { useDataStore } from "@/stores/dataStore";
-import { useOptimisticUpdates } from "@/composables/useOptimisticUpdates";
-import type { User } from "@/services/userService";
-
-// Extended user interface for UI display
-interface UIUser extends User {
-  department?: string;
-}
+import type { User } from "@/types/user";
 
 const router = useRouter();
 const dataStore = useDataStore();
-const optimisticUpdates = useOptimisticUpdates();
+
+// Mobile detection for conditional infinite scroll
+const { isMobile } = useMobileDetection();
+
+// Default page size: 0 (infinite scroll) on mobile, 25 on desktop
+const defaultPageSize = isMobile.value ? 0 : 25;
 
 // Use the composable for all common functionality
-const listManager = useListManagement<UIUser>({
+const listManager = useListManagement<User>({
+  defaultPageSize,
   itemIdField: 'uuid',
   defaultSortField: 'name',
   defaultSortDirection: 'asc',
   fetchFunction: async (params) => {
-    const response = await dataStore.getPaginatedUsers({
+    return await dataStore.getPaginatedUsers({
       page: params.page,
       pageSize: params.pageSize,
       sortField: params.sortField,
@@ -35,50 +37,50 @@ const listManager = useListManagement<UIUser>({
       search: params.search,
       role: params.role !== 'all' ? params.role : undefined
     });
-
-    // Transform backend users to UI users with additional properties
-    const transformedData = response.data.map(user => ({
-      ...user,
-      department: "IT Support", // Default department (could be added to backend later)
-    }));
-
-    return {
-      data: transformedData,
-      total: response.total,
-      totalPages: response.totalPages
-    };
   },
   routeBuilder: (user) => `/users/${user.uuid}`
 });
 
 // Define table columns with responsive behavior
+// Backend sortable fields: name, role (created_at not supported)
 const columns = [
-  { field: 'user', label: 'User', width: '1fr', sortable: false, responsive: 'always' as const },
-  { field: 'role', label: 'Role', width: 'minmax(120px,auto)', sortable: true, responsive: 'md' as const },
-  { field: 'department', label: 'Department', width: 'minmax(120px,auto)', sortable: false, responsive: 'lg' as const }
+  { field: 'user', label: 'User', width: '1fr', sortable: true, sortKey: 'name', responsive: 'always' as const },
+  { field: 'role', label: 'Role', width: 'minmax(100px,auto)', sortable: true, responsive: 'md' as const },
+  { field: 'created_at', label: 'Joined', width: 'minmax(140px,auto)', sortable: false, responsive: 'lg' as const }
 ];
 
-// Get available filter options
-const availableRoles = computed(() => {
-  return ['admin', 'user', 'technician'];
+// Build filter options - role is the only available filter from the API
+const filterOptions = listManager.buildFilterOptions({
+  role: {
+    options: [
+      { value: 'admin', label: 'Admin' },
+      { value: 'technician', label: 'Technician' },
+      { value: 'user', label: 'User' }
+    ],
+    width: 'w-[140px]',
+    allLabel: 'All Roles'
+  }
 });
 
-// Build filter options
-const filterOptions = computed(() => {
-  return listManager.buildFilterOptions({
-    role: {
-      options: availableRoles.value.map(role => ({ 
-        value: role.toLowerCase(), 
-        label: role.charAt(0).toUpperCase() + role.slice(1)
-      })),
-      width: 'w-[150px]',
-      allLabel: 'All Roles'
-    }
-  });
-});
+// Custom grid template for responsive layout (includes checkbox column with auto width)
+const gridClass = "grid-cols-[auto_1fr_minmax(100px,auto)] lg:grid-cols-[auto_1fr_minmax(100px,auto)_minmax(140px,auto)]";
 
-// Custom grid template for responsive layout
-const gridClass = "grid-cols-[auto_1fr_minmax(120px,auto)] md:grid-cols-[auto_1fr_minmax(120px,auto)] lg:grid-cols-[auto_1fr_minmax(120px,auto)_minmax(120px,auto)]";
+// Staggered fade-in animation
+const { getStyle } = useStaggeredList();
+
+// Track if we're currently loading more (to prevent duplicate requests)
+const isLoadingMore = ref(false);
+
+// Handle load more from BaseListView's scroll event
+const handleLoadMore = async () => {
+  if (isLoadingMore.value) return;
+  isLoadingMore.value = true;
+  try {
+    await listManager.loadMore();
+  } finally {
+    isLoadingMore.value = false;
+  }
+};
 
 // Navigate to user creation
 const navigateToCreateUser = () => {
@@ -97,7 +99,8 @@ defineExpose({
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2 flex-wrap">
         <DebouncedSearchInput
-          v-model="listManager.searchQuery.value"
+          :model-value="listManager.searchQuery.value"
+          @update:model-value="listManager.handleSearchUpdate"
           placeholder="Search users..."
         />
 
@@ -145,64 +148,68 @@ defineExpose({
         :is-loading="listManager.loading.value"
         :is-empty="listManager.items.value.length === 0 && !listManager.loading.value"
         :error="listManager.error.value"
+        :is-mobile="isMobile"
         empty-icon="users"
         :empty-message="listManager.searchQuery.value ? 'No users match your search' : 'No users found'"
         :empty-description="listManager.searchQuery.value ? 'Try adjusting your search criteria' : 'Invite users to get started'"
         :empty-action-label="!listManager.searchQuery.value ? 'Invite User' : undefined"
-        :results-count="listManager.totalItems.value"
-        :sort-field="listManager.sortField.value"
-        :sort-direction="listManager.sortDirection.value"
-        :columns="[]"
-        :selected-items="listManager.selectedItems.value"
-        :visible-items="listManager.items.value"
-        :item-id-field="'uuid'"
-        :enable-selection="false"
+        :is-loading-more="isLoadingMore"
         @retry="listManager.fetchItems"
         @empty-action="navigateToCreateUser"
+        @load-more="handleLoadMore"
       >
         <!-- Desktop Table View -->
         <template #default>
-          <DataTable
-            :columns="columns"
-            :data="listManager.items.value"
-            :selected-items="listManager.selectedItems.value"
-            :item-id-field="'uuid'"
-            :sort-field="listManager.sortField.value"
-            :sort-direction="listManager.sortDirection.value"
-            :grid-class="gridClass"
-            @update:sort="listManager.handleSortUpdate"
-            @toggle-selection="listManager.toggleSelection"
-            @toggle-all="listManager.toggleAllItems"
-            @row-click="listManager.navigateToItem"
-          >
+          <div class="flex-1 overflow-y-auto">
+            <DataTable
+              :columns="columns"
+              :data="listManager.items.value"
+              :selected-items="listManager.selectedItems.value"
+              :item-id-field="'uuid'"
+              :sort-field="listManager.sortField.value"
+              :sort-direction="listManager.sortDirection.value"
+              :grid-class="gridClass"
+              @update:sort="listManager.handleSortUpdate"
+              @toggle-selection="listManager.toggleSelection"
+              @toggle-all="listManager.toggleAllItems"
+              @row-click="listManager.navigateToItem"
+            >
             <!-- Custom cell templates -->
             <template #cell-user="{ item }">
-              <UserInfoCell 
+              <UserInfoCell
                 :user-id="item.uuid"
                 :user-name="item.name"
                 :user-email="item.email"
+                :avatar="item.avatar_thumb || item.avatar_url"
                 :show-avatar="true"
                 :show-name="true"
                 :show-email="true"
               />
             </template>
-            
+
             <template #cell-role="{ value }">
               <StatusBadgeCell type="role" :value="value" />
             </template>
-            
-            <template #cell-department="{ value }">
-              <TextCell :value="value || 'N/A'" />
+
+            <template #cell-created_at="{ value }">
+              <DateCell :value="value" format="relative" />
             </template>
-          </DataTable>
+            </DataTable>
+          </div>
         </template>
 
         <!-- Mobile/Tablet Card View -->
         <template #mobile-view>
-          <div class="flex flex-col divide-y divide-default">
+          <div class="flex-1 overflow-y-auto">
+            <TransitionGroup
+              name="list-stagger"
+              tag="div"
+              class="flex flex-col divide-y divide-default"
+            >
             <div
-              v-for="user in listManager.items.value"
+              v-for="(user, index) in listManager.items.value"
               :key="user.uuid"
+              :style="getStyle(index)"
               @click="listManager.navigateToItem(user)"
               class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer"
             >
@@ -210,6 +217,7 @@ defineExpose({
               <UserAvatar
                 :name="user.uuid"
                 :userName="user.name"
+                :avatar="user.avatar_thumb || user.avatar_url"
                 size="sm"
                 :clickable="false"
                 :show-name="false"
@@ -221,20 +229,19 @@ defineExpose({
                 <!-- Name -->
                 <div class="text-sm text-primary font-medium truncate">{{ user.name }}</div>
 
-                <!-- Meta row: email, role, department - responsive layout -->
+                <!-- Meta row: email and role -->
                 <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
                   <span v-if="user.email" class="text-tertiary truncate max-w-[200px]">{{ user.email }}</span>
                   <span
                     class="inline-flex items-center px-1.5 py-0.5 rounded font-medium capitalize"
                     :class="{
-                      'bg-status-error/20 text-status-error': user.role === 'admin',
-                      'bg-accent/20 text-accent': user.role === 'technician',
+                      'bg-status-error-muted text-status-error': user.role === 'admin',
+                      'bg-accent-muted text-accent': user.role === 'technician',
                       'bg-surface-alt text-secondary': user.role === 'user'
                     }"
                   >
                     {{ user.role }}
                   </span>
-                  <span class="text-secondary">{{ user.department || 'N/A' }}</span>
                 </div>
               </div>
 
@@ -243,13 +250,15 @@ defineExpose({
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
               </svg>
             </div>
+            </TransitionGroup>
           </div>
         </template>
       </BaseListView>
     </div>
 
-    <!-- Pagination Controls -->
+    <!-- Pagination Controls (hidden on mobile when using infinite scroll) -->
     <PaginationControls
+      v-if="!isMobile"
       :current-page="listManager.currentPage.value"
       :total-pages="listManager.totalPages.value"
       :page-size="listManager.pageSize.value"
@@ -273,7 +282,7 @@ defineExpose({
 
 .overflow-y-auto::-webkit-scrollbar-track,
 .overflow-x-auto::-webkit-scrollbar-track {
-  background: var(--color-bg-app);
+  background: var(--color-bg-surface);
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb,
@@ -288,6 +297,6 @@ defineExpose({
 }
 
 .overflow-x-auto::-webkit-scrollbar-corner {
-  background: var(--color-bg-app);
+  background: var(--color-bg-surface);
 }
 </style>

@@ -12,6 +12,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import userService from '@/services/userService'
 import type { User } from '@/services/userService'
+import { useBrandingStore } from '@/stores/branding'
 import {
   getTheme,
   getAllThemes,
@@ -21,6 +22,9 @@ import {
   applyTheme,
 } from '@/themes'
 import type { Theme, ThemeMode } from '@/themes'
+
+// Base theme IDs that should use branding colors
+const BASE_THEME_IDS = ['system', 'light', 'dark', 'pure-black']
 
 export const useThemeStore = defineStore('theme', () => {
   // Current theme selection (theme ID or 'system')
@@ -82,7 +86,20 @@ export const useThemeStore = defineStore('theme', () => {
    * Apply the current theme to the DOM
    */
   function applyCurrentTheme(): void {
-    applyTheme(effectiveTheme.value, accentColorOverride.value ?? undefined)
+    // Determine effective accent color:
+    // 1. User's explicit accent color override takes priority
+    // 2. For base themes (system/light/dark), use branding primary color if set
+    // 3. Otherwise, use the theme's default accent
+    let effectiveAccent = accentColorOverride.value ?? undefined
+
+    if (!effectiveAccent && BASE_THEME_IDS.includes(currentTheme.value)) {
+      const brandingStore = useBrandingStore()
+      if (brandingStore.primaryColor) {
+        effectiveAccent = brandingStore.primaryColor
+      }
+    }
+
+    applyTheme(effectiveTheme.value, effectiveAccent)
   }
 
   /**
@@ -99,9 +116,9 @@ export const useThemeStore = defineStore('theme', () => {
     localStorage.setItem('theme', themeId)
     applyCurrentTheme()
 
-    // E-Paper theme should automatically enable color blind mode
-    // since it's monochromatic and relies on shapes for distinction
-    if (themeId === 'epaper') {
+    // Monochromatic themes should automatically enable color blind mode
+    // since they rely on shapes for distinction rather than color
+    if (themeId === 'epaper' || themeId === 'red-horizon') {
       setColorBlindMode(true)
     }
   }

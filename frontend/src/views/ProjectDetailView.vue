@@ -443,7 +443,7 @@ watch(() => route.query.view, (newValue) => {
                       <div v-if="ticket.assignee" class="flex items-center gap-2">
                         <UserAvatar 
                           :name="ticket.assignee" 
-                          :avatarUrl="ticket.assignee_avatar"
+                          :avatar="ticket.assignee_avatar"
                           size="sm" 
                           :show-name="true"
                           :clickable="false"

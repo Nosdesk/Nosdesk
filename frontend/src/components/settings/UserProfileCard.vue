@@ -437,12 +437,12 @@ const getRoleDisplayName = (role: string) => {
 
 <template>
     <div
-        class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
+        class="profile-card-themed bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
     >
         <!-- Cover/Banner Image -->
         <div
             v-if="showBanner"
-            class="bg-accent relative"
+            class="profile-banner bg-accent relative"
             :class="bannerHeight"
             :style="
                 formData.banner_url
@@ -577,7 +577,7 @@ const getRoleDisplayName = (role: string) => {
                     :class="showBanner ? 'pt-16 pb-4 sm:pb-0 sm:py-6 sm:pl-[9.5rem]' : 'pt-4 pb-4 sm:pb-0'"
                 >
                     <!-- Left: Name with inline edit -->
-                    <div class="flex flex-col gap-1 min-w-0 flex-1">
+                    <div class="flex flex-col gap-1 min-w-0 flex-1 name-input-field">
                         <InlineEdit
                             v-model="formData.name"
                             :placeholder="
@@ -599,7 +599,7 @@ const getRoleDisplayName = (role: string) => {
                 </div>
 
                 <!-- Editable fields - full width below avatar -->
-                <div v-if="showPronouns" class="pt-4 pb-6">
+                <div v-if="showPronouns" class="pt-2 pb-6 sm:pl-[9.5rem]">
                     <!-- Pronouns -->
                     <div class="flex flex-col gap-1.5">
                         <h3
@@ -673,6 +673,18 @@ const getRoleDisplayName = (role: string) => {
 </template>
 
 <style scoped>
+/* Style the InlineEdit component within the name field to have input field appearance */
+.name-input-field :deep(.relative > div),
+.name-input-field :deep(.relative > input) {
+    background-color: var(--color-surface-alt);
+    border: 1px solid var(--color-border-subtle);
+    padding: 0.5rem 1rem;
+}
+
+.name-input-field :deep(.relative > input:focus) {
+    border-color: var(--color-accent);
+}
+
 .developer-badge {
     position: relative;
     overflow: hidden;

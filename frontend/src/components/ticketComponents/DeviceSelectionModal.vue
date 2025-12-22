@@ -359,7 +359,7 @@ const formatLastUpdated = (dateString: string): string => {
         <input
           type="text"
           v-model="searchQuery"
-          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-accent focus:ring-2 focus:ring-accent/20 transition-colors"
+          class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-default bg-surface-alt text-primary placeholder-tertiary transition-colors duration-200 hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           placeholder="Search devices by name, hostname, serial number, manufacturer, or user..."
         >
         <div v-if="loading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
@@ -417,153 +417,181 @@ const formatLastUpdated = (dateString: string): string => {
         variant="compact"
       />
 
-      <!-- Devices list with virtual scrolling -->
-      <div 
+      <!-- Devices list -->
+      <div
         v-else-if="hasDevicesToShow"
         ref="scrollContainer"
         @scroll="handleScroll"
-        class="max-h-[500px] overflow-y-auto"
+        class="-mx-4 sm:mx-0"
       >
-        <div class="bg-surface-alt rounded-lg border border-default overflow-hidden">
-          <!-- Table header -->
-          <div class="bg-surface px-4 py-3 border-b border-default sticky top-0 z-10">
-            <div class="grid grid-cols-12 gap-3 text-xs font-medium text-secondary uppercase tracking-wide">
-              <div class="col-span-3">Device</div>
-              <div class="col-span-2">Type & Status</div>
-              <div class="col-span-2">Serial Number</div>
-              <div class="col-span-3">Primary User</div>
-              <div class="col-span-1">Updated</div>
-              <div class="col-span-1 text-right">Action</div>
-            </div>
-          </div>
-          
-          <!-- Device rows -->
-          <div class="divide-y divide-subtle">
-            <div
-              v-for="device in allDevicesForDisplay"
-              :key="device.id"
-              class="group relative hover:bg-surface-hover transition-colors duration-150 cursor-pointer"
-              :class="{ 'bg-accent-muted border-l-4 border-accent': device.isRequesterDevice }"
-              @click="selectDevice(device)"
-            >
-              <!-- Priority indicator -->
-              <div v-if="device.isRequesterDevice" class="absolute -top-1 right-2 z-10">
-                <div class="bg-accent text-white text-xs px-2 py-0.5 rounded-b-md shadow-sm">
-                  Requester's Device
-                </div>
+        <!-- Mobile: Card list -->
+        <div class="divide-y divide-default sm:hidden">
+          <div
+            v-for="device in allDevicesForDisplay"
+            :key="device.id"
+            class="p-4 active:bg-surface-hover transition-colors cursor-pointer"
+            :class="{ 'bg-accent/5 border-l-4 border-accent': device.isRequesterDevice }"
+            @click="selectDevice(device)"
+          >
+            <!-- Header: Name + Badge -->
+            <div class="flex items-start justify-between gap-2 mb-2">
+              <div class="min-w-0 flex-1">
+                <div class="font-medium text-primary truncate">{{ device.name }}</div>
+                <div class="text-xs text-tertiary truncate">{{ device.hostname }}</div>
               </div>
-
-              <div class="px-4 py-3">
-                <div class="grid grid-cols-12 gap-3 items-center">
-                  <!-- Device Name & Info -->
-                  <div class="col-span-3 min-w-0">
-                    <div class="flex flex-col gap-1">
-                      <div class="font-medium text-primary truncate text-sm">{{ device.name }}</div>
-                      <div class="text-xs text-tertiary truncate">{{ device.hostname }}</div>
-                      <div class="text-xs text-tertiary truncate">{{ device.manufacturer || 'Unknown' }} {{ device.model }}</div>
-                    </div>
-                  </div>
-
-                  <!-- Type & Status -->
-                  <div class="col-span-2 min-w-0">
-                    <div class="flex flex-wrap gap-1">
-                      <span 
-                        class="text-xs px-2 py-1 rounded-full border"
-                        :class="getDeviceTypeClass(device)"
-                      >
-                        {{ getDeviceType(device) }}
-                      </span>
-                      <span 
-                        class="text-xs px-2 py-1 rounded-full border"
-                        :class="getWarrantyStatusClass(device.warranty_status)"
-                      >
-                        {{ device.warranty_status }}
-                      </span>
-                      <span v-if="device.intune_device_id" class="text-xs px-2 py-1 rounded-full bg-status-info-muted text-status-info border border-status-info/30">
-                        Intune
-                      </span>
-                    </div>
-                  </div>
-
-                  <!-- Serial Number -->
-                  <div class="col-span-2 min-w-0">
-                    <span class="text-sm text-secondary font-mono truncate block">{{ device.serial_number }}</span>
-                  </div>
-
-                  <!-- Primary User -->
-                  <div class="col-span-3 min-w-0">
-                    <div v-if="device.primary_user" class="flex items-center gap-2">
-                      <UserAvatar :name="device.primary_user.uuid" size="sm" :show-name="false" />
-                      <div class="flex-1 min-w-0">
-                        <div class="text-sm font-medium text-secondary truncate">{{ device.primary_user.name }}</div>
-                        <div class="text-xs text-tertiary truncate">{{ device.primary_user.email }}</div>
-                      </div>
-                    </div>
-                    <div v-else class="flex items-center gap-2 text-tertiary">
-                      <div class="w-6 h-6 rounded-full bg-surface-alt flex items-center justify-center">
-                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                          <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
-                        </svg>
-                      </div>
-                      <span class="text-xs">Unassigned</span>
-                    </div>
-                  </div>
-
-                  <!-- Last Updated -->
-                  <div class="col-span-1 min-w-0">
-                    <span class="text-xs text-tertiary">{{ formatLastUpdated(device.updated_at) }}</span>
-                  </div>
-
-                  <!-- Action Button -->
-                  <div class="col-span-1 text-right">
-                    <button class="text-accent hover:opacity-80 text-xs font-medium px-2 py-1 rounded hover:bg-accent-muted transition-colors">
-                      Select
-                    </button>
-                  </div>
-                </div>
+              <div v-if="device.isRequesterDevice" class="flex-shrink-0">
+                <span class="text-xs bg-accent text-white px-2 py-0.5 rounded-full">Owner</span>
               </div>
             </div>
-          </div>
-          
-          <!-- Load more indicator -->
-          <div v-if="loadingMore" class="p-4 text-center border-t border-default">
-            <div class="inline-flex items-center gap-3 text-tertiary">
-              <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <span>Loading more devices...</span>
+
+            <!-- Badges row -->
+            <div class="flex flex-wrap gap-1.5 mb-3">
+              <span
+                class="text-xs px-2 py-0.5 rounded-full border"
+                :class="getDeviceTypeClass(device)"
+              >
+                {{ getDeviceType(device) }}
+              </span>
+              <span
+                class="text-xs px-2 py-0.5 rounded-full border capitalize"
+                :class="getWarrantyStatusClass(device.warranty_status)"
+              >
+                {{ device.warranty_status }}
+              </span>
+              <span v-if="device.intune_device_id" class="text-xs px-2 py-0.5 rounded-full bg-status-info/20 text-status-info border border-status-info/30">
+                Intune
+              </span>
+            </div>
+
+            <!-- Details -->
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <span class="text-tertiary">Serial:</span>
+                <span class="text-secondary font-mono ml-1">{{ device.serial_number || '—' }}</span>
+              </div>
+              <div>
+                <span class="text-tertiary">Model:</span>
+                <span class="text-secondary ml-1">{{ device.model || '—' }}</span>
+              </div>
+            </div>
+
+            <!-- User + Updated -->
+            <div class="flex items-center justify-between mt-3 pt-3 border-t border-subtle">
+              <div v-if="device.primary_user" class="flex items-center gap-2">
+                <UserAvatar
+                  :name="device.primary_user.uuid"
+                  :userName="device.primary_user.name"
+                  :avatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                  size="xs"
+                  :showName="true"
+                  :clickable="false"
+                />
+              </div>
+              <span v-else class="text-xs text-tertiary">Unassigned</span>
+              <span class="text-xs text-tertiary">{{ formatLastUpdated(device.updated_at) }}</span>
             </div>
           </div>
-          
-          <!-- End of results indicator -->
-          <div v-else-if="!hasMore && allDevicesForDisplay.length > 0" class="p-3 text-center border-t border-default">
-            <span class="text-xs text-tertiary">End of results</span>
+        </div>
+
+        <!-- Desktop: Table layout -->
+        <div class="hidden sm:block rounded-lg border border-default overflow-hidden">
+          <table class="w-full">
+            <thead class="bg-surface-alt text-xs font-medium text-secondary uppercase tracking-wide">
+              <tr>
+                <th class="px-4 py-3 text-left">Device</th>
+                <th class="px-4 py-3 text-left w-44">Status</th>
+                <th class="px-4 py-3 text-left w-32">Serial</th>
+                <th class="px-4 py-3 text-left w-40">User</th>
+                <th class="px-4 py-3 text-right w-20"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-subtle">
+              <tr
+                v-for="device in allDevicesForDisplay"
+                :key="device.id"
+                class="group hover:bg-surface-hover transition-colors cursor-pointer"
+                :class="{ 'bg-accent/5': device.isRequesterDevice }"
+                @click="selectDevice(device)"
+              >
+                <td class="px-4 py-3">
+                  <div class="flex items-center gap-3">
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium text-primary truncate">{{ device.name }}</span>
+                        <span v-if="device.isRequesterDevice" class="text-xs bg-accent text-white px-1.5 py-0.5 rounded">Owner</span>
+                      </div>
+                      <div class="text-xs text-tertiary truncate">{{ device.manufacturer }} {{ device.model }}</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="px-4 py-3">
+                  <div class="flex flex-wrap gap-1">
+                    <span class="text-xs px-2 py-0.5 rounded-full border" :class="getDeviceTypeClass(device)">
+                      {{ getDeviceType(device) }}
+                    </span>
+                    <span class="text-xs px-2 py-0.5 rounded-full border capitalize" :class="getWarrantyStatusClass(device.warranty_status)">
+                      {{ device.warranty_status }}
+                    </span>
+                  </div>
+                </td>
+                <td class="px-4 py-3">
+                  <span class="text-xs text-secondary font-mono">{{ device.serial_number || '—' }}</span>
+                </td>
+                <td class="px-4 py-3">
+                  <UserAvatar
+                    v-if="device.primary_user"
+                    :name="device.primary_user.uuid"
+                    :userName="device.primary_user.name"
+                    :avatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                    size="sm"
+                    :showName="true"
+                    :clickable="false"
+                  />
+                  <span v-else class="text-xs text-tertiary">—</span>
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <button class="text-accent text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors">
+                    Select
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Load more indicator -->
+        <div v-if="loadingMore" class="p-4 text-center">
+          <div class="inline-flex items-center gap-2 text-tertiary text-sm">
+            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Loading...</span>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Footer -->
-    <div class="mt-6 flex justify-between items-center pt-4 border-t border-default">
+    <div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 mt-4">
       <button
         type="button"
-        class="flex items-center gap-2 px-4 py-2 text-sm text-accent hover:opacity-80 hover:bg-accent-muted rounded-md transition-colors"
+        class="flex items-center justify-center gap-2 px-4 py-2 text-sm text-accent hover:bg-accent/10 rounded-lg transition-colors"
         @click="$router.push('/devices/new')"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
         </svg>
-        Create New Device
+        New Device
       </button>
 
-      <div class="flex items-center gap-3">
-        <span class="text-sm text-tertiary">
+      <div class="flex items-center justify-between sm:justify-end gap-3">
+        <span class="text-xs text-tertiary">
           {{ totalDevicesCount }} device{{ totalDevicesCount !== 1 ? 's' : '' }}
         </span>
         <button
           type="button"
-          class="px-4 py-2 text-sm text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+          class="px-4 py-2 text-sm text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
           @click="emit('close')"
         >
           Cancel

@@ -178,7 +178,7 @@ const formattedDate = (dateString: string) => {
       <div class="flex flex-col gap-3">
         <!-- Details grid -->
         <div class="grid grid-cols-2 gap-3 text-sm">
-          <div class="flex flex-col gap-1">
+          <div class="flex flex-col gap-1 items-start">
             <span class="text-xs text-tertiary uppercase tracking-wide">Priority</span>
             <StatusBadge type="priority" :value="linkedTicket.priority" short />
           </div>
@@ -189,32 +189,28 @@ const formattedDate = (dateString: string) => {
             }}</span>
           </div>
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-tertiary uppercase tracking-wide">Assignee</span>
-            <div class="flex items-center gap-2">
-              <UserAvatar
-                v-if="linkedTicket.assignee_user || linkedTicket.assignee"
-                :name="linkedTicket.assignee_user?.name || linkedTicket.assignee"
-                :avatarUrl="linkedTicket.assignee_user?.avatar_thumb"
-                :userUuid="linkedTicket.assignee_user?.uuid"
-                size="xs"
-                :showName="true"
-              />
-              <span v-else class="text-secondary">Unassigned</span>
-            </div>
+            <span class="text-xs text-tertiary uppercase tracking-wide">Requester</span>
+            <UserAvatar
+              v-if="linkedTicket.requester_user || linkedTicket.requester"
+              :name="linkedTicket.requester_user?.name || linkedTicket.requester"
+              :avatar="linkedTicket.requester_user?.avatar_thumb"
+              :userUuid="linkedTicket.requester_user?.uuid"
+              size="xs"
+              :showName="true"
+            />
+            <span v-else class="text-tertiary text-sm">Unassigned</span>
           </div>
           <div class="flex flex-col gap-1">
-            <span class="text-xs text-tertiary uppercase tracking-wide">Requester</span>
-            <div class="flex items-center gap-2">
-              <UserAvatar
-                v-if="linkedTicket.requester_user || linkedTicket.requester"
-                :name="linkedTicket.requester_user?.name || linkedTicket.requester"
-                :avatarUrl="linkedTicket.requester_user?.avatar_thumb"
-                :userUuid="linkedTicket.requester_user?.uuid"
-                size="xs"
-                :showName="true"
-              />
-              <span v-else class="text-secondary">None</span>
-            </div>
+            <span class="text-xs text-tertiary uppercase tracking-wide">Assignee</span>
+            <UserAvatar
+              v-if="linkedTicket.assignee_user || linkedTicket.assignee"
+              :name="linkedTicket.assignee_user?.name || linkedTicket.assignee"
+              :avatar="linkedTicket.assignee_user?.avatar_thumb"
+              :userUuid="linkedTicket.assignee_user?.uuid"
+              size="xs"
+              :showName="true"
+            />
+            <span v-else class="text-tertiary text-sm">Unassigned</span>
           </div>
         </div>
       </div>

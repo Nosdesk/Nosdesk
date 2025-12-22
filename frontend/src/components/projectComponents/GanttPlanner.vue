@@ -641,7 +641,7 @@ const hideTooltip = () => {
                     <UserAvatar
                       v-if="ticket.assignee && ticket.assignee !== 'Unassigned'"
                       :name="ticket.assignee"
-                      :avatarUrl="ticket.assignee_avatar"
+                      :avatar="ticket.assignee_avatar"
                       size="xs"
                       :show-name="false"
                       :clickable="false"

@@ -3,6 +3,8 @@ import { RouterLink, useRoute, useRouter } from "vue-router";
 import DocumentationNav from "@/components/documentationComponents/DocumentationNav.vue";
 import RecentTickets from "@/components/RecentTickets.vue";
 import CollapsibleSection from "@/components/common/CollapsibleSection.vue";
+import LogoIcon from "@/components/icons/LogoIcon.vue";
+import FaviconIcon from "@/components/icons/FaviconIcon.vue";
 import {
     ref,
     watch,
@@ -23,11 +25,6 @@ const themeStore = useThemeStore();
 const logoUrl = computed(() => {
     const customLogo = brandingStore.getLogoUrl(themeStore.isDarkMode);
     return customLogo || null;
-});
-
-// Computed favicon URL for collapsed state
-const faviconUrl = computed(() => {
-    return brandingStore.faviconUrl || '/favicon.svg';
 });
 
 const route = useRoute();
@@ -270,7 +267,7 @@ const isRouteActive = (path: string, exact = false) => {
         <div class="flex flex-col p-2 px-2 flex-shrink-0 gap-1">
             <RouterLink
                 to="/"
-                class="flex items-center justify-center h-12 mb-5 hover:opacity-80 transition-opacity select-none"
+                class="sidebar-logo flex items-center justify-center h-12 mb-5 hover:opacity-80 transition-opacity select-none"
             >
                 <!-- Full logo when expanded -->
                 <img
@@ -279,14 +276,23 @@ const isRouteActive = (path: string, exact = false) => {
                     class="h-8 max-w-full object-contain"
                     :src="logoUrl"
                 />
-                <img
+                <LogoIcon
                     v-else-if="!isCollapsed"
-                    alt="Nosdesk Logo"
-                    class="h-8"
-                    src="@/assets/logo.svg"
+                    class="h-8 text-accent"
+                    aria-label="Nosdesk Logo"
                 />
                 <!-- Favicon/icon when collapsed -->
-                <img v-else :alt="brandingStore.appName" class="h-8 w-8 object-contain" :src="faviconUrl" />
+                <img
+                    v-else-if="brandingStore.faviconUrl"
+                    :alt="brandingStore.appName"
+                    class="h-6 w-6 object-contain"
+                    :src="brandingStore.faviconUrl"
+                />
+                <FaviconIcon
+                    v-else
+                    class="text-accent"
+                    aria-label="Nosdesk"
+                />
             </RouterLink>
 
             <div
@@ -491,16 +497,16 @@ const isRouteActive = (path: string, exact = false) => {
     touch-action: none;
     position: relative;
     z-index: 1;
-    height: 4px;
+    height: 5px;
     margin: 0;
     cursor: ns-resize;
-    background-color: var(--color-border-subtle);
+    background-color: var(--color-surface);
     border-top: 1px solid var(--color-border-default);
     border-bottom: 1px solid var(--color-border-default);
 }
 
 .resizer-handle:hover {
-    background-color: var(--color-border-default);
+    background-color: var(--color-surface-hover);
 }
 
 .resizer-handle:active,

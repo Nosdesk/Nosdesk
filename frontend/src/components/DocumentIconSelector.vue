@@ -1,6 +1,7 @@
 <!-- DocumentIconSelector.vue - Professional Notion-style icon picker -->
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue';
+import { useHorizontalScroll } from '@/composables/useHorizontalScroll';
 
 interface Props {
   initialIcon?: string;
@@ -21,6 +22,10 @@ const activeCategory = ref('suggested');
 const dropdownRef = ref<HTMLElement | null>(null);
 const triggerRef = ref<HTMLElement | null>(null);
 const categoryTabsRef = ref<HTMLElement | null>(null);
+
+// Horizontal scroll state for category tabs (3 dots for progress)
+const DOT_COUNT = 3
+const { canScrollLeft, canScrollRight, isOverflowing, activeDotIndex } = useHorizontalScroll(categoryTabsRef, DOT_COUNT);
 
 // Drag-to-scroll state for category tabs
 const isDragging = ref(false);
@@ -902,8 +907,11 @@ const toggleDropdown = () => {
   }
 };
 
-// Close dropdown when clicking outside
+// Close dropdown when clicking outside (but not if we're dragging)
 const handleClickOutside = (event: MouseEvent) => {
+  // Don't close if we were dragging
+  if (hasDragged.value) return;
+
   if (
     dropdownRef.value &&
     triggerRef.value &&
@@ -921,43 +929,66 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 };
 
+// Track if actual dragging occurred (vs just a click)
+const hasDragged = ref(false);
+
 // Drag-to-scroll handlers for category tabs
 const handleMouseDown = (e: MouseEvent) => {
   if (!categoryTabsRef.value) return;
   isDragging.value = true;
+  hasDragged.value = false;
   startX.value = e.clientX;
   scrollLeft.value = categoryTabsRef.value.scrollLeft;
   categoryTabsRef.value.style.cursor = 'grabbing';
+
+  // Add global listeners for mouseup outside container
+  document.addEventListener('mouseup', handleGlobalMouseUp);
+  document.addEventListener('mousemove', handleGlobalMouseMove);
 };
 
-const handleMouseUp = () => {
-  isDragging.value = false;
-  if (categoryTabsRef.value) {
-    categoryTabsRef.value.style.cursor = 'grab';
+const handleGlobalMouseUp = () => {
+  if (isDragging.value) {
+    isDragging.value = false;
+    if (categoryTabsRef.value) {
+      categoryTabsRef.value.style.cursor = 'grab';
+    }
   }
+  document.removeEventListener('mouseup', handleGlobalMouseUp);
+  document.removeEventListener('mousemove', handleGlobalMouseMove);
+
+  // Reset hasDragged after a short delay
+  setTimeout(() => {
+    hasDragged.value = false;
+  }, 0);
 };
 
-const handleMouseMove = (e: MouseEvent) => {
+const handleGlobalMouseMove = (e: MouseEvent) => {
   if (!isDragging.value || !categoryTabsRef.value) return;
   e.preventDefault();
   const walk = startX.value - e.clientX;
-  categoryTabsRef.value.scrollLeft = scrollLeft.value + walk;
-};
-
-const handleMouseLeave = () => {
-  isDragging.value = false;
-  if (categoryTabsRef.value) {
-    categoryTabsRef.value.style.cursor = 'grab';
+  // Only mark as dragged if moved more than a few pixels
+  if (Math.abs(walk) > 3) {
+    hasDragged.value = true;
   }
+  categoryTabsRef.value.scrollLeft = scrollLeft.value + walk;
 };
 
 // Handle wheel scrolling on category tabs (both vertical and horizontal wheel)
 const handleWheel = (e: WheelEvent) => {
-  if (!categoryTabsRef.value) return;
+  if (!categoryTabsRef.value || !isOverflowing.value) return;
   e.preventDefault();
   // Use deltaY for vertical scroll wheels, deltaX for horizontal (trackpads)
   const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
   categoryTabsRef.value.scrollLeft += delta;
+};
+
+// Click on dot to scroll to position
+const scrollToDot = (dotIndex: number) => {
+  if (!categoryTabsRef.value) return;
+  const { scrollWidth, clientWidth } = categoryTabsRef.value;
+  const maxScroll = scrollWidth - clientWidth;
+  const targetScroll = (dotIndex / (DOT_COUNT - 1)) * maxScroll;
+  categoryTabsRef.value.scrollTo({ left: targetScroll, behavior: 'smooth' });
 };
 
 onMounted(() => {
@@ -968,6 +999,8 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside);
   document.removeEventListener('keydown', handleKeydown);
+  document.removeEventListener('mouseup', handleGlobalMouseUp);
+  document.removeEventListener('mousemove', handleGlobalMouseMove);
 });
 </script>
 
@@ -1016,27 +1049,50 @@ onUnmounted(() => {
         </div>
 
         <!-- Category tabs (hidden when searching) -->
-        <div
-          v-if="!searchQuery"
-          ref="categoryTabsRef"
-          class="flex gap-1 px-3 py-2 border-b border-default overflow-x-auto scrollbar-hide cursor-grab select-none"
-          @mousedown="handleMouseDown"
-          @mouseup="handleMouseUp"
-          @mousemove="handleMouseMove"
-          @mouseleave="handleMouseLeave"
-          @wheel="handleWheel"
-        >
-          <button
-            v-for="(category, key) in iconCategories"
-            :key="key"
-            @click.stop="activeCategory = key"
-            class="px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition-colors flex-shrink-0"
-            :class="activeCategory === key
-              ? 'bg-accent text-white'
-              : 'text-secondary hover:text-primary hover:bg-surface-hover'"
+        <div v-if="!searchQuery" class="relative border-b border-default">
+          <!-- Left fade indicator -->
+          <div
+            class="absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-surface to-transparent pointer-events-none z-10 transition-opacity duration-200"
+            :class="canScrollLeft ? 'opacity-100' : 'opacity-0'"
+          />
+
+          <div
+            ref="categoryTabsRef"
+            class="category-tabs flex gap-1 px-3 py-2 overflow-x-auto cursor-grab select-none"
+            @mousedown="handleMouseDown"
+            @wheel="handleWheel"
           >
-            {{ category.label }}
-          </button>
+            <button
+              v-for="(category, key) in iconCategories"
+              :key="key"
+              @click.stop="!hasDragged && (activeCategory = key)"
+              class="px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition-colors flex-shrink-0"
+              :class="activeCategory === key
+                ? 'bg-accent text-white'
+                : 'text-secondary hover:text-primary hover:bg-surface-hover'"
+            >
+              {{ category.label }}
+            </button>
+          </div>
+
+          <!-- Right fade indicator -->
+          <div
+            class="absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-surface to-transparent pointer-events-none z-10 transition-opacity duration-200"
+            :class="canScrollRight ? 'opacity-100' : 'opacity-0'"
+          />
+
+          <!-- Scroll hint dots -->
+          <div v-if="isOverflowing" class="flex justify-center gap-1.5 py-1.5 bg-surface-alt">
+            <button
+              v-for="i in DOT_COUNT"
+              :key="i"
+              type="button"
+              class="w-1.5 h-1.5 p-0 border-0 rounded-full bg-tertiary transition-all duration-200 cursor-pointer hover:scale-125"
+              :class="(i - 1) === activeDotIndex ? 'opacity-100' : 'opacity-30 hover:opacity-60'"
+              @click.stop="scrollToDot(i - 1)"
+              :aria-label="`Scroll to section ${i}`"
+            />
+          </div>
         </div>
 
         <!-- Icons grid -->
@@ -1079,5 +1135,19 @@ onUnmounted(() => {
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+/* Hide scrollbar on category tabs */
+.category-tabs {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.category-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Buttons inside category tabs should show pointer cursor */
+.category-tabs button {
+  cursor: pointer;
 }
 </style>

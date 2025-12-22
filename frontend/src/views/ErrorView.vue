@@ -20,6 +20,8 @@ const router = useRouter();
 // Theme store for light/dark mode detection
 const themeStore = useThemeStore();
 const isDarkMode = computed(() => themeStore.isDarkMode);
+const isEpaperTheme = computed(() => themeStore.effectiveTheme?.meta?.id === 'epaper');
+const isRedHorizonTheme = computed(() => themeStore.effectiveTheme?.meta?.id === 'red-horizon');
 
 // Navigation functions.
 const goBack = () => router.back();
@@ -119,7 +121,7 @@ const debugControls = reactive({
   distortionScale: 1.0, // Controls the scale of the displacement map
   glitchFrequency: 0.15, // How often glitches occur (0-1)
   glitchIntensity: 1.0, // How strong the glitches are
-  cursorInfluence: 0.1, // Combined parameter for all cursor interactions
+  cursorInfluence: 0.05, // Combined parameter for all cursor interactions (reduced for subtlety)
   
   // Toggle for advanced parameters (hidden by default)
   showAdvanced: false
@@ -127,12 +129,13 @@ const debugControls = reactive({
 
 // Sync debugControls -> mutable params
 watchEffect(() => {
-  masterEffectEnabled = debugControls.masterEffectEnabled;
+  // E-Paper theme forces effects off for static display
+  masterEffectEnabled = isEpaperTheme.value ? false : debugControls.masterEffectEnabled;
   globalEffectIntensity = debugControls.globalEffectIntensity;
-  
+
   // Map simplified controls to core parameters
   baseGlitchIntensity = 0.25 * debugControls.glitchIntensity;
-  cursorInfluence = 0.8 * debugControls.cursorInfluence;
+  cursorInfluence = 0.4 * debugControls.cursorInfluence; // Reduced multiplier for subtler cursor effect
   channelSeparation = 1.5 * debugControls.channelSeparation;
   distortionScale = 15.0 * debugControls.distortionScale;
 });
@@ -492,9 +495,9 @@ const animate = () => {
         const directionY = distFromCursorY > 0 ? 1 : -1;
 
         // Displacement increases with distance from cursor (parabolic)
-        // Minimal at cursor, maximum at edges
-        const scanlineBendX = directionX * axisParabolaX * scanlineEmanation * 2.0 * (i * 0.1 + 0.9);
-        const scanlineBendY = directionY * axisParabolaY * scanlineEmanation * 1.0 * (i * 0.1 + 0.9);
+        // Minimal at cursor, maximum at edges - reduced for subtlety
+        const scanlineBendX = directionX * axisParabolaX * scanlineEmanation * 0.8 * (i * 0.1 + 0.9);
+        const scanlineBendY = directionY * axisParabolaY * scanlineEmanation * 0.4 * (i * 0.1 + 0.9);
 
         // Apply with reduced influence for subtlety
         finalDX += scanlineBendX * cursorDisplacementInfluence;
@@ -549,17 +552,17 @@ const animate = () => {
           currentScale = (12 + (horizontalScaleMouseInfluence * centerProximityFactor) + 
                          (centerProximityFactor * (6 + i)) + (cursorFocusFactor * 8)) * 0.6;
                            
-          // Add localized displacement if in cursor focus area
+          // Add localized displacement if in cursor focus area (reduced intensity)
         if (cursorFocusFactor > 0) {
-            finalDX += Math.random() * 4 * cursorFocusFactor * centerProximityFactor;
+            finalDX += Math.random() * 1.5 * cursorFocusFactor * centerProximityFactor;
           }
         } else {
-          currentScale = (12 + effectiveMouseY * 20 * centerProximityFactor + 
+          currentScale = (12 + effectiveMouseY * 20 * centerProximityFactor +
                          (centerProximityFactor * (6 + i)) + (cursorFocusFactor * 8)) * 0.6;
-                           
-          // Add localized displacement if in cursor focus area
+
+          // Add localized displacement if in cursor focus area (reduced intensity)
         if (cursorFocusFactor > 0) {
-            finalDY += Math.random() * 4 * cursorFocusFactor * centerProximityFactor;
+            finalDY += Math.random() * 1.5 * cursorFocusFactor * centerProximityFactor;
           }
         }
         
@@ -913,7 +916,7 @@ const debugMeta = computed(() => ({
 
 <template>
   <div
-    class="min-h-screen w-full flex items-center justify-center bg-app p-4 select-none"
+    class="error-page-container min-h-screen w-full flex items-center justify-center bg-app p-4 select-none"
   >
     <div class="flex flex-col text-center">
       <svg ref="svg" class="error-svg" :width="svgWidth" :height="svgHeight">

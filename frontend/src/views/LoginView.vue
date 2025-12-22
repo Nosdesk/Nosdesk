@@ -11,16 +11,15 @@ import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
 import MFARecoveryModal from "@/components/auth/MFARecoveryModal.vue";
 import Checkbox from "@/components/common/Checkbox.vue";
 import authService from "@/services/authService";
-import defaultLogo from "@/assets/logo.svg";
+import LogoIcon from "@/components/icons/LogoIcon.vue";
 
 // Get branding and theme stores
 const brandingStore = useBrandingStore();
 const themeStore = useThemeStore();
 
-// Computed logo URL - use custom logo if available, else default
-const logoSrc = computed(() => {
-  const customLogo = brandingStore.getLogoUrl(themeStore.isDarkMode);
-  return customLogo || defaultLogo;
+// Computed logo URL - use custom logo if available
+const customLogoUrl = computed(() => {
+  return brandingStore.getLogoUrl(themeStore.isDarkMode);
 });
 
 const router = useRouter();
@@ -302,7 +301,13 @@ const handleOidcLogoutClick = async () => {
     <div class="flex flex-col gap-4 w-full max-w-md p-8">
       <!-- Logo/Brand -->
       <div class="flex flex-col gap-2 items-center">
-        <img :src="logoSrc" :alt="brandingStore.appName + ' Logo'" class="h-12 max-w-full px-4 object-contain" />
+        <img
+          v-if="customLogoUrl"
+          :src="customLogoUrl"
+          :alt="brandingStore.appName + ' Logo'"
+          class="h-12 max-w-full px-4 object-contain"
+        />
+        <LogoIcon v-else class="h-8 px-4 text-accent" aria-label="Nosdesk Logo" />
         <p class="text-secondary mt-2">Sign in to your account</p>
       </div>
 

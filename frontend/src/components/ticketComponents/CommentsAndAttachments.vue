@@ -479,9 +479,8 @@ const handleDrop = async (event: DragEvent) => {
                         <div class="flex flex-row gap-2 justify-between">
                             <div class="flex gap-2 justify-center items-center">
                                 <UserAvatar
-                                    :name="
-                                        comment.user?.uuid || comment.user_uuid
-                                    "
+                                    :name="comment.user?.uuid || comment.user_uuid"
+                                    :userName="comment.user?.name"
                                     :showName="false"
                                     size="md"
                                 />

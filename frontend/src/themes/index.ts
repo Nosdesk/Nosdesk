@@ -20,6 +20,10 @@ import { everforestLightTheme, everforestDarkTheme } from './presets/everforest'
 import { catppuccinLatteTheme, catppuccinMochaTheme } from './presets/catppuccin'
 import { oneDarkTheme } from './presets/one-dark'
 import { ePaperTheme } from './presets/epaper'
+import { pureBlackTheme } from './presets/pure-black'
+import { solarizedLightTheme, solarizedDarkTheme } from './presets/solarized'
+import { nossalDarkTheme } from './presets/nossal'
+import { redHorizonTheme } from './presets/red-horizon'
 
 // Re-export types
 export * from './types'
@@ -45,7 +49,12 @@ export const themeRegistry: Map<string, Theme> = new Map([
   ['catppuccin-latte', catppuccinLatteTheme],
   ['catppuccin-mocha', catppuccinMochaTheme],
   ['one-dark', oneDarkTheme],
+  ['solarized-light', solarizedLightTheme],
+  ['solarized-dark', solarizedDarkTheme],
+  ['nossal-dark', nossalDarkTheme],
   ['epaper', ePaperTheme],
+  ['pure-black', pureBlackTheme],
+  ['red-horizon', redHorizonTheme],
 ])
 
 /**

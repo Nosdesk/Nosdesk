@@ -1,9 +1,9 @@
 <template>
-  <div class="min-h-screen w-full flex items-start justify-center bg-app overflow-y-auto py-8 sm:py-12">
-    <div class="flex flex-col gap-6 w-full max-w-4xl px-4 sm:px-8 my-auto">
+  <div class="fixed inset-0 bg-app overflow-y-auto">
+    <div class="flex flex-col gap-6 w-full max-w-4xl px-4 sm:px-8 py-8 sm:py-12 mx-auto">
       <!-- Header -->
       <div class="flex flex-col gap-2 items-center">
-        <img :src="logo" alt="Nosdesk Logo" class="px-4 max-w-md" />
+        <LogoIcon class="h-8 px-4 text-accent" aria-label="Nosdesk Logo" />
         <h1 class="text-2xl font-bold text-primary mt-4 text-center">Complete Your Account Setup</h1>
         <p class="text-secondary text-center">
           Your account type requires multi-factor authentication for security
@@ -55,7 +55,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
 import MFASettings from '@/components/settings/MFASettings.vue';
-import logo from '@/assets/logo.svg';
+import LogoIcon from '@/components/icons/LogoIcon.vue';
 
 const router = useRouter();
 const route = useRoute();

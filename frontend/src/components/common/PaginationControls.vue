@@ -1,207 +1,176 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import BaseDropdown from './BaseDropdown.vue'
+import { useMobileDetection } from '@/composables/useMobileDetection'
 
-// Debounce utility for resize events
-function debounce<T extends (...args: any[]) => void>(fn: T, delay: number): T {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null
-  return ((...args: Parameters<T>) => {
-    if (timeoutId) clearTimeout(timeoutId)
-    timeoutId = setTimeout(() => fn(...args), delay)
-  }) as T
-}
-
-const props = defineProps<{
-  currentPage?: number
-  totalPages?: number
-  pageSize?: number
-  pageSizeOptions?: number[]
-  showImport?: boolean
-}>()
+const props = withDefaults(defineProps<{
+  currentPage: number
+  totalPages: number
+  totalItems: number
+  pageSize: number
+  pageSizeOptions: number[]
+  /** Whether infinite scroll mode is active (pageSize === 0) */
+  isInfiniteMode: boolean
+}>(), {
+  currentPage: 1,
+  totalPages: 1,
+  totalItems: 0,
+  pageSize: 25,
+  isInfiniteMode: false
+})
 
 const emit = defineEmits<{
   'update:currentPage': [page: number]
   'update:pageSize': [size: number]
-  'import': []
+  'go-to-item': [itemId: number]
 }>()
 
-// Add isMobile ref to track screen size
-const isMobile = ref(false)
-const pageInputValue = ref('')
+// Use shared mobile detection (md breakpoint = 768px for pagination)
+const { isMobile } = useMobileDetection('md')
+
+// Page input state
+const pageInputValue = ref(props.currentPage.toString())
 const pageInput = ref<HTMLInputElement | null>(null)
 
-// Function to check screen size
-const checkScreenSize = () => {
-  isMobile.value = window.innerWidth < 768 // md breakpoint
-}
-
-// Debounced version - only updates after resize stops for 150ms
-const debouncedCheckScreenSize = debounce(checkScreenSize, 150)
-
-// Initialize on mount
-onMounted(() => {
-  checkScreenSize() // Initial check (immediate)
-  window.addEventListener('resize', debouncedCheckScreenSize)
-})
-
-// Clean up on unmount
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', debouncedCheckScreenSize)
-})
+// Go-to-item input state
+const goToItemValue = ref('')
+const goToItemInput = ref<HTMLInputElement | null>(null)
 
 // Watch for currentPage changes to update input value
 watch(() => props.currentPage, (newPage) => {
-  if (newPage) {
-    pageInputValue.value = newPage.toString()
-  }
+  pageInputValue.value = newPage.toString()
 }, { immediate: true })
 
 // Pagination methods
 const changePage = (page: number) => {
-  if (page >= 1 && page <= (props.totalPages || 1)) {
+  if (page >= 1 && page <= props.totalPages) {
     emit('update:currentPage', page)
   }
 }
 
-const changePageSize = (event: Event) => {
-  const select = event.target as HTMLSelectElement
-  emit('update:pageSize', parseInt(select.value))
+const handlePageSizeChange = (value: string) => {
+  emit('update:pageSize', parseInt(value))
 }
 
 // Handle direct page input
 const handlePageInput = () => {
   const page = parseInt(pageInputValue.value)
-  if (!isNaN(page) && page >= 1 && page <= (props.totalPages || 1)) {
+  if (!isNaN(page) && page >= 1 && page <= props.totalPages) {
     changePage(page)
   } else {
-    // Reset to current page if invalid
-    pageInputValue.value = (props.currentPage || 1).toString()
+    pageInputValue.value = props.currentPage.toString()
   }
 }
 
 const handlePageInputKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Enter') {
     handlePageInput()
-    // Blur the input to remove focus after Enter
-    if (pageInput.value) {
-      pageInput.value.blur()
-    }
+    pageInput.value?.blur()
   } else if (event.key === 'Escape') {
-    pageInputValue.value = (props.currentPage || 1).toString()
-    if (pageInput.value) {
-      pageInput.value.blur()
-    }
+    pageInputValue.value = props.currentPage.toString()
+    pageInput.value?.blur()
   }
 }
 
-// Auto-select content when focused for easy replacement
-const handlePageInputFocus = (event: FocusEvent) => {
-  const input = event.target as HTMLInputElement
-  input.select()
+// Handle go-to-item input
+const handleGoToItem = () => {
+  const itemId = parseInt(goToItemValue.value)
+  if (!isNaN(itemId) && itemId > 0) {
+    emit('go-to-item', itemId)
+    goToItemValue.value = ''
+  }
 }
 
-// Generate smart page numbers for pagination
+const handleGoToItemKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Enter') {
+    handleGoToItem()
+    goToItemInput.value?.blur()
+  } else if (event.key === 'Escape') {
+    goToItemValue.value = ''
+    goToItemInput.value?.blur()
+  }
+}
+
+const handleInputFocus = (event: FocusEvent) => {
+  (event.target as HTMLInputElement).select()
+}
+
+// Page numbers for pagination mode
 const pageNumbers = computed(() => {
-  if (!props.totalPages || props.totalPages <= 1) return []
-  
-  const currentPage = props.currentPage || 1
-  const totalPages = props.totalPages
-  
-  // For mobile, show fewer pages
+  if (props.totalPages <= 1) return []
+
   const maxVisible = isMobile.value ? 3 : 5
-  
-  if (totalPages <= maxVisible + 2) {
-    // Show all pages if total is small
-    return Array.from({ length: totalPages }, (_, i) => i + 1)
+
+  if (props.totalPages <= maxVisible + 2) {
+    return Array.from({ length: props.totalPages }, (_, i) => i + 1)
   }
-  
-  const pages: (number | string)[] = []
-  
-  // Always show first page
-  pages.push(1)
-  
-  // Calculate range around current page
-  const start = Math.max(2, currentPage - Math.floor(maxVisible / 2))
-  const end = Math.min(totalPages - 1, currentPage + Math.floor(maxVisible / 2))
-  
-  // Add ellipsis after first page if needed
-  if (start > 2) {
-    pages.push('...')
-  }
-  
-  // Add pages around current
-  for (let i = start; i <= end; i++) {
-    pages.push(i)
-  }
-  
-  // Add ellipsis before last page if needed
-  if (end < totalPages - 1) {
-    pages.push('...')
-  }
-  
-  // Always show last page if it's not already included
-  if (totalPages > 1) {
-    pages.push(totalPages)
-  }
-  
+
+  const pages: (number | string)[] = [1]
+  const start = Math.max(2, props.currentPage - Math.floor(maxVisible / 2))
+  const end = Math.min(props.totalPages - 1, props.currentPage + Math.floor(maxVisible / 2))
+
+  if (start > 2) pages.push('...')
+  for (let i = start; i <= end; i++) pages.push(i)
+  if (end < props.totalPages - 1) pages.push('...')
+  if (props.totalPages > 1) pages.push(props.totalPages)
+
   return pages
 })
 
-// Default page size options if not provided
-const defaultPageSizeOptions = [10, 25, 50, 100]
+// Page size dropdown options
+const pageSizeDropdownOptions = computed(() => {
+  return props.pageSizeOptions.map(size => ({
+    value: size.toString(),
+    label: size === 0 ? 'All' : size.toString()
+  }))
+})
 
-// Computed values for better UX
-const currentPageDisplay = computed(() => props.currentPage || 1)
-const totalPagesDisplay = computed(() => props.totalPages || 1)
-const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
+// Display helpers
+const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPages > 1)
 </script>
 
 <template>
   <div class="flex-shrink-0 bg-surface border-t border-default">
-    <!-- Mobile Layout - Single condensed row -->
+    <!-- Mobile Layout -->
     <div v-if="isMobile" class="flex items-center justify-between gap-2 p-2">
-      <!-- Left: Page info with input -->
+      <!-- Left: Position info -->
       <div class="flex items-center gap-1 text-xs text-secondary">
-        <span>Page</span>
-        <input
-          v-model="pageInputValue"
-          @blur="handlePageInput"
-          @keydown="handlePageInputKeydown"
-          @focus="handlePageInputFocus"
-          type="number"
-          :min="1"
-          :max="totalPagesDisplay"
-          class="w-10 px-1 py-0.5 text-xs bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
-          ref="pageInput"
-        />
-        <span>/{{ totalPagesDisplay }}</span>
+        <template v-if="isInfiniteMode">
+          <span>{{ totalItems }} items</span>
+        </template>
+        <template v-else>
+          <span>Page</span>
+          <input
+            v-model="pageInputValue"
+            @blur="handlePageInput"
+            @keydown="handlePageInputKeydown"
+            @focus="handleInputFocus"
+            type="number"
+            :min="1"
+            :max="totalPages"
+            class="w-10 px-1 py-0.5 text-xs bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
+            ref="pageInput"
+          />
+          <span>/{{ totalPages }}</span>
+        </template>
       </div>
 
       <!-- Center: Per page selector -->
-      <div class="flex items-center gap-1 text-xs text-secondary">
-        <select
-          :value="pageSize"
-          @change="changePageSize"
-          class="bg-surface-alt border border-default text-primary text-xs rounded focus:ring-accent focus:border-accent py-0.5 px-1"
-        >
-          <option
-            v-for="size in (pageSizeOptions || defaultPageSizeOptions)"
-            :key="size"
-            :value="size"
-          >
-            {{ size }}
-          </option>
-        </select>
-        <span>/pg</span>
-      </div>
+      <BaseDropdown
+        :model-value="pageSize.toString()"
+        :options="pageSizeDropdownOptions"
+        size="sm"
+        @update:model-value="handlePageSizeChange"
+      />
 
-      <!-- Right: Navigation buttons -->
+      <!-- Right: Navigation buttons (pagination mode only) -->
       <div v-if="hasMultiplePages" class="flex items-center gap-1">
         <button
-          @click="changePage(currentPageDisplay - 1)"
-          :disabled="currentPageDisplay <= 1"
+          @click="changePage(currentPage - 1)"
+          :disabled="currentPage <= 1"
           :class="[
             'p-1.5 rounded text-xs transition-colors',
-            currentPageDisplay <= 1
+            currentPage <= 1
               ? 'bg-surface-alt text-tertiary cursor-not-allowed'
               : 'bg-surface-alt text-primary hover:bg-surface-hover'
           ]"
@@ -210,13 +179,12 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-
         <button
-          @click="changePage(currentPageDisplay + 1)"
-          :disabled="currentPageDisplay >= totalPagesDisplay"
+          @click="changePage(currentPage + 1)"
+          :disabled="currentPage >= totalPages"
           :class="[
             'p-1.5 rounded text-xs transition-colors',
-            currentPageDisplay >= totalPagesDisplay
+            currentPage >= totalPages
               ? 'bg-surface-alt text-tertiary cursor-not-allowed'
               : 'bg-surface-alt text-primary hover:bg-surface-hover'
           ]"
@@ -229,118 +197,118 @@ const hasMultiplePages = computed(() => totalPagesDisplay.value > 1)
     </div>
 
     <!-- Desktop Layout -->
-    <div v-else class="flex items-center justify-between p-3">
+    <div v-else class="flex items-center justify-between p-3 gap-4">
       <!-- Left: Page size selector -->
-      <div class="flex items-center gap-2 text-sm text-secondary min-w-0 flex-shrink-0">
+      <div class="flex items-center gap-2 text-sm text-secondary flex-shrink-0">
         <span>Show</span>
-        <select
-          :value="pageSize"
-          @change="changePageSize"
-          class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-accent focus:border-accent py-1 px-2"
-        >
-          <option
-            v-for="size in (pageSizeOptions || defaultPageSizeOptions)"
-            :key="size"
-            :value="size"
-          >
-            {{ size }}
-          </option>
-        </select>
+        <BaseDropdown
+          :model-value="pageSize.toString()"
+          :options="pageSizeDropdownOptions"
+          size="sm"
+          @update:model-value="handlePageSizeChange"
+        />
         <span>per page</span>
       </div>
 
-      <!-- Center: Page navigation (fixed width container) -->
-      <div v-if="hasMultiplePages" class="flex items-center gap-4 min-w-0 flex-1 justify-center">
-        <!-- Previous page button -->
-        <button
-          @click="changePage(currentPageDisplay - 1)"
-          :disabled="currentPageDisplay <= 1"
-          :class="[
-            'p-2 rounded-md text-sm transition-colors flex-shrink-0',
-            currentPageDisplay <= 1
-              ? 'bg-surface-alt text-tertiary cursor-not-allowed'
-              : 'bg-surface-alt text-primary hover:bg-surface-hover'
-          ]"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
+      <!-- Center: Pagination controls -->
+      <div class="flex-1 flex items-center justify-center min-w-0">
+        <!-- Infinite scroll mode: Just show total -->
+        <template v-if="isInfiniteMode">
+          <span class="text-sm text-secondary">{{ totalItems }} items</span>
+        </template>
 
-        <!-- Page numbers container with FIXED width to prevent layout shifts -->
-        <div class="flex items-center gap-1 w-96 justify-center">
-          <template v-for="page in pageNumbers" :key="page">
+        <!-- Pagination mode: Page numbers -->
+        <template v-else-if="hasMultiplePages">
+          <div class="flex items-center gap-2">
             <button
-              v-if="typeof page === 'number'"
-              @click="changePage(page)"
+              @click="changePage(currentPage - 1)"
+              :disabled="currentPage <= 1"
               :class="[
-                'py-1 text-sm rounded-md transition-colors flex-shrink-0 w-10 text-center',
-                page === currentPageDisplay
-                  ? 'bg-accent text-white'
+                'p-2 rounded-md text-sm transition-colors flex-shrink-0',
+                currentPage <= 1
+                  ? 'bg-surface-alt text-tertiary cursor-not-allowed'
                   : 'bg-surface-alt text-primary hover:bg-surface-hover'
               ]"
             >
-              {{ page }}
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+              </svg>
             </button>
-            <span
-              v-else
-              class="py-1 text-sm text-secondary flex-shrink-0 w-10 text-center"
-            >
-              ...
-            </span>
-          </template>
-        </div>
 
-        <!-- Next page button -->
-        <button
-          @click="changePage(currentPageDisplay + 1)"
-          :disabled="currentPageDisplay >= totalPagesDisplay"
-          :class="[
-            'p-2 rounded-md text-sm transition-colors flex-shrink-0',
-            currentPageDisplay >= totalPagesDisplay
-              ? 'bg-surface-alt text-tertiary cursor-not-allowed'
-              : 'bg-surface-alt text-primary hover:bg-surface-hover'
-          ]"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
+            <div class="flex items-center gap-1">
+              <template v-for="page in pageNumbers" :key="page">
+                <button
+                  v-if="typeof page === 'number'"
+                  @click="changePage(page)"
+                  :class="[
+                    'py-1 text-sm rounded-md transition-colors w-10 text-center',
+                    page === currentPage
+                      ? 'bg-accent text-white'
+                      : 'bg-surface-alt text-primary hover:bg-surface-hover'
+                  ]"
+                >
+                  {{ page }}
+                </button>
+                <span v-else class="py-1 text-sm text-secondary w-10 text-center">...</span>
+              </template>
+            </div>
+
+            <button
+              @click="changePage(currentPage + 1)"
+              :disabled="currentPage >= totalPages"
+              :class="[
+                'p-2 rounded-md text-sm transition-colors flex-shrink-0',
+                currentPage >= totalPages
+                  ? 'bg-surface-alt text-tertiary cursor-not-allowed'
+                  : 'bg-surface-alt text-primary hover:bg-surface-hover'
+              ]"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        </template>
       </div>
 
-      <!-- Right: Page info and Import button -->
-      <div class="flex items-center gap-3 min-w-0 flex-shrink-0">
-        <!-- Page info with direct input -->
-        <div class="flex items-center gap-2 text-sm text-secondary">
-          <span>Page</span>
-          <div class="flex items-center gap-1">
+      <!-- Right: Go to item (infinite) or page info (pagination) -->
+      <div class="flex items-center gap-3 flex-shrink-0">
+        <template v-if="isInfiniteMode">
+          <!-- Go to ticket input -->
+          <div class="flex items-center gap-2 text-sm text-secondary">
+            <span>Go to #</span>
+            <input
+              v-model="goToItemValue"
+              @keydown="handleGoToItemKeydown"
+              @focus="handleInputFocus"
+              type="number"
+              min="1"
+              placeholder="ID"
+              class="w-16 px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
+              ref="goToItemInput"
+            />
+          </div>
+        </template>
+
+        <template v-else>
+          <!-- Page info with direct input -->
+          <div class="flex items-center gap-2 text-sm text-secondary">
+            <span>Page</span>
             <input
               v-model="pageInputValue"
               @blur="handlePageInput"
               @keydown="handlePageInputKeydown"
-              @focus="handlePageInputFocus"
+              @focus="handleInputFocus"
               type="number"
               :min="1"
-              :max="totalPagesDisplay"
-              class="px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
+              :max="totalPages"
+              class="w-12 px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
               ref="pageInput"
             />
-            <span>of {{ totalPagesDisplay }}</span>
+            <span>of {{ totalPages }}</span>
           </div>
-        </div>
-
-        <!-- Import button -->
-        <button
-          v-if="showImport"
-          @click="emit('import')"
-          class="px-3 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent flex items-center gap-1 transition-colors"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" />
-          </svg>
-          Import
-        </button>
+        </template>
       </div>
     </div>
   </div>
-</template> 
+</template>

@@ -50,15 +50,12 @@ export const getPaginatedTickets = async (params: TicketPaginationParams, reques
   try {
     // Create cancellable request
     const controller = requestManager.createRequest(requestKey);
-    
-    const response = await apiClient.get('/tickets/paginated', { 
+
+    const response = await apiClient.get('/tickets/paginated', {
       params,
-      signal: controller.signal 
+      signal: controller.signal
     });
-    
-    // Remove from active requests on success
-    requestManager.cancelRequest(requestKey);
-    
+
     return response.data;
   } catch (error: any) {
     // Don't throw if request was cancelled

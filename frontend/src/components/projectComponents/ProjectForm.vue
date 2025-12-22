@@ -39,45 +39,54 @@ const statusOptions = [
   { value: 'completed', label: 'Completed' },
   { value: 'archived', label: 'Archived' }
 ]
+
+// Common input classes
+const inputClasses = 'w-full px-3 py-2.5 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
 </script>
 
 <template>
-  <form @submit.prevent="handleSubmit" class="flex flex-col gap-6">
+  <form @submit.prevent="handleSubmit" class="flex flex-col gap-5">
     <!-- Project Name -->
-    <div class="flex flex-col gap-2">
-      <label for="name" class="text-sm font-medium text-secondary">Project Name</label>
+    <div class="flex flex-col gap-1.5">
+      <label for="name" class="text-sm font-medium text-primary">
+        Project Name <span class="text-status-error">*</span>
+      </label>
       <input
         id="name"
         v-model="formData.name"
         type="text"
         required
         :disabled="disabled"
-        class="px-3 py-2 bg-surface rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
+        :class="inputClasses"
         placeholder="Enter project name"
+        autocomplete="off"
       />
     </div>
 
     <!-- Project Description -->
-    <div class="flex flex-col gap-2">
-      <label for="description" class="text-sm font-medium text-secondary">Description (optional)</label>
+    <div class="flex flex-col gap-1.5">
+      <label for="description" class="text-sm font-medium text-primary">
+        Description
+        <span class="text-tertiary font-normal">(optional)</span>
+      </label>
       <textarea
         id="description"
         v-model="formData.description"
         rows="3"
         :disabled="disabled"
-        class="px-3 py-2 bg-surface rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent resize-none disabled:opacity-50"
-        placeholder="Enter project description (optional)"
+        :class="[inputClasses, 'resize-none']"
+        placeholder="Brief description of the project"
       ></textarea>
     </div>
 
     <!-- Project Status (only show in edit mode) -->
-    <div v-if="mode === 'edit'" class="flex flex-col gap-2">
-      <label for="status" class="text-sm font-medium text-secondary">Status</label>
+    <div v-if="mode === 'edit'" class="flex flex-col gap-1.5">
+      <label for="status" class="text-sm font-medium text-primary">Status</label>
       <select
         id="status"
         v-model="formData.status"
         :disabled="disabled"
-        class="px-3 py-2 bg-surface rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
+        :class="inputClasses"
       >
         <option
           v-for="option in statusOptions"
@@ -90,19 +99,19 @@ const statusOptions = [
     </div>
 
     <!-- Form Actions -->
-    <div class="flex justify-end gap-3">
+    <div class="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-2">
       <button
         type="button"
         @click="emit('cancel')"
         :disabled="disabled"
-        class="px-4 py-2 text-sm font-medium text-secondary hover:text-primary transition-colors disabled:opacity-50"
+        class="px-4 py-2.5 text-sm font-medium text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors disabled:opacity-50"
       >
         Cancel
       </button>
       <button
         type="submit"
-        :disabled="disabled"
-        class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
+        :disabled="disabled || !formData.name"
+        class="px-4 py-2.5 text-sm font-medium bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {{ mode === 'create' ? 'Create Project' : 'Save Changes' }}
       </button>

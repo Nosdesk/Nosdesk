@@ -1,11 +1,13 @@
-import type { Theme, ThemeColors } from '../types'
+import type { Theme } from '../types'
 
 /**
  * CSS Variable Injector
  *
- * Applies theme colors as CSS custom properties to the document root.
+ * Applies theme colors as CSS custom properties via a <style> element.
  * This enables dynamic theme switching without page reload.
  */
+
+const STYLE_ID = 'theme-variables'
 
 /**
  * Converts theme colors to CSS variables and injects them into the DOM
@@ -20,67 +22,78 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
     colors.accentMuted = hexToRgba(accentOverride, 0.2)
   }
 
-  const root = document.documentElement
+  // Build CSS variables
+  const cssVars = `
+:root {
+  /* Background colors */
+  --color-app: ${colors.app};
+  --color-surface: ${colors.surface};
+  --color-surface-alt: ${colors.surfaceAlt};
+  --color-surface-hover: ${colors.surfaceHover};
 
-  // Background colors
-  root.style.setProperty('--color-app', colors.app)
-  root.style.setProperty('--color-surface', colors.surface)
-  root.style.setProperty('--color-surface-alt', colors.surfaceAlt)
-  root.style.setProperty('--color-surface-hover', colors.surfaceHover)
+  /* Border colors */
+  --color-default: ${colors.default};
+  --color-subtle: ${colors.subtle};
+  --color-strong: ${colors.strong};
 
-  // Border colors
-  root.style.setProperty('--color-default', colors.default)
-  root.style.setProperty('--color-subtle', colors.subtle)
-  root.style.setProperty('--color-strong', colors.strong)
+  /* Text colors */
+  --color-primary: ${colors.primary};
+  --color-secondary: ${colors.secondary};
+  --color-tertiary: ${colors.tertiary};
 
-  // Text colors
-  root.style.setProperty('--color-primary', colors.primary)
-  root.style.setProperty('--color-secondary', colors.secondary)
-  root.style.setProperty('--color-tertiary', colors.tertiary)
+  /* Accent colors */
+  --color-accent: ${colors.accent};
+  --color-accent-hover: ${colors.accentHover};
+  --color-accent-muted: ${colors.accentMuted};
 
-  // Accent colors
-  root.style.setProperty('--color-accent', colors.accent)
-  root.style.setProperty('--color-accent-hover', colors.accentHover)
-  root.style.setProperty('--color-accent-muted', colors.accentMuted)
+  /* Status colors */
+  --color-status-success: ${colors.success};
+  --color-status-success-muted: ${colors.successMuted};
+  --color-status-error: ${colors.error};
+  --color-status-error-muted: ${colors.errorMuted};
+  --color-status-warning: ${colors.warning};
+  --color-status-warning-muted: ${colors.warningMuted};
+  --color-status-info: ${colors.info};
+  --color-status-info-muted: ${colors.infoMuted};
 
-  // Status colors
-  root.style.setProperty('--color-status-success', colors.success)
-  root.style.setProperty('--color-status-success-muted', colors.successMuted)
-  root.style.setProperty('--color-status-error', colors.error)
-  root.style.setProperty('--color-status-error-muted', colors.errorMuted)
-  root.style.setProperty('--color-status-warning', colors.warning)
-  root.style.setProperty('--color-status-warning-muted', colors.warningMuted)
-  root.style.setProperty('--color-status-info', colors.info)
-  root.style.setProperty('--color-status-info-muted', colors.infoMuted)
+  /* Ticket status colors */
+  --color-status-open: ${colors.statusOpen};
+  --color-status-open-muted: ${colors.statusOpenMuted};
+  --color-status-in-progress: ${colors.statusInProgress};
+  --color-status-in-progress-muted: ${colors.statusInProgressMuted};
+  --color-status-closed: ${colors.statusClosed};
+  --color-status-closed-muted: ${colors.statusClosedMuted};
 
-  // Ticket status colors
-  root.style.setProperty('--color-status-open', colors.statusOpen)
-  root.style.setProperty('--color-status-open-muted', colors.statusOpenMuted)
-  root.style.setProperty('--color-status-in-progress', colors.statusInProgress)
-  root.style.setProperty('--color-status-in-progress-muted', colors.statusInProgressMuted)
-  root.style.setProperty('--color-status-closed', colors.statusClosed)
-  root.style.setProperty('--color-status-closed-muted', colors.statusClosedMuted)
+  /* Priority colors */
+  --color-priority-high: ${colors.priorityHigh};
+  --color-priority-high-muted: ${colors.priorityHighMuted};
+  --color-priority-medium: ${colors.priorityMedium};
+  --color-priority-medium-muted: ${colors.priorityMediumMuted};
+  --color-priority-low: ${colors.priorityLow};
+  --color-priority-low-muted: ${colors.priorityLowMuted};
 
-  // Priority colors
-  root.style.setProperty('--color-priority-high', colors.priorityHigh)
-  root.style.setProperty('--color-priority-high-muted', colors.priorityHighMuted)
-  root.style.setProperty('--color-priority-medium', colors.priorityMedium)
-  root.style.setProperty('--color-priority-medium-muted', colors.priorityMediumMuted)
-  root.style.setProperty('--color-priority-low', colors.priorityLow)
-  root.style.setProperty('--color-priority-low-muted', colors.priorityLowMuted)
+  /* Shadows */
+  --shadow-inset-dark: ${colors.shadowDark};
+  --shadow-inset-light: ${colors.shadowLight};
+${colors.syntax ? Object.entries(colors.syntax).map(([key, value]) => `
+  /* Syntax: ${key} */
+  --color-syntax-${key}: ${value};`).join('') : ''}
+}
+`.trim()
 
-  // Shadows
-  root.style.setProperty('--shadow-inset-dark', colors.shadowDark)
-  root.style.setProperty('--shadow-inset-light', colors.shadowLight)
-
-  // Syntax colors (if defined)
-  if (colors.syntax) {
-    Object.entries(colors.syntax).forEach(([key, value]) => {
-      root.style.setProperty(`--color-syntax-${key}`, value)
-    })
+  // Get or create style element
+  let styleEl = document.getElementById(STYLE_ID) as HTMLStyleElement | null
+  if (!styleEl) {
+    styleEl = document.createElement('style')
+    styleEl.id = STYLE_ID
+    document.head.appendChild(styleEl)
   }
 
+  // Update styles
+  styleEl.textContent = cssVars
+
   // Update dark class for Tailwind compatibility
+  const root = document.documentElement
   if (theme.meta.isDark) {
     root.classList.add('dark')
   } else {
@@ -95,24 +108,18 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
  * Adjusts a hex color by a percentage (positive = lighter, negative = darker)
  */
 function adjustColor(hex: string, percent: number): string {
-  // Remove # if present
   const cleanHex = hex.replace('#', '')
-
-  // Parse RGB components
   const num = parseInt(cleanHex, 16)
   const r = (num >> 16) & 0xff
   const g = (num >> 8) & 0xff
   const b = num & 0xff
 
-  // Calculate adjustment
   const amt = Math.round(2.55 * percent)
 
-  // Apply adjustment with clamping
   const newR = Math.max(0, Math.min(255, r + amt))
   const newG = Math.max(0, Math.min(255, g + amt))
   const newB = Math.max(0, Math.min(255, b + amt))
 
-  // Convert back to hex
   return `#${((1 << 24) + (newR << 16) + (newG << 8) + newB).toString(16).slice(1)}`
 }
 

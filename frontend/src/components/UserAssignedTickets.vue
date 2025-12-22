@@ -320,7 +320,7 @@ watch(
                                 <span class="text-tertiary">From:</span>
                                 <UserAvatar
                                     :name="ticket.requester_user.name"
-                                    :avatarUrl="
+                                    :avatar="
                                         ticket.requester_user.avatar_thumb
                                     "
                                     :userUuid="ticket.requester_user.uuid"

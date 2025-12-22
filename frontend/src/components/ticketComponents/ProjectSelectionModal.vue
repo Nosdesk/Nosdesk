@@ -160,7 +160,7 @@ const formatDate = (dateString: string): string => {
           v-model="searchQuery"
           type="text"
           placeholder="Search projects by name or description..."
-          class="w-full pl-10 pr-4 py-3 rounded-lg border border-default bg-surface text-primary placeholder-tertiary focus:border-accent focus:ring-2 focus:ring-accent/20 transition-colors"
+          class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-default bg-surface-alt text-primary placeholder-tertiary transition-colors duration-200 hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
         />
         <div v-if="isLoading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
           <svg class="w-5 h-5 animate-spin text-tertiary" fill="none" viewBox="0 0 24 24">
@@ -225,7 +225,7 @@ const formatDate = (dateString: string): string => {
       >
         <div class="bg-surface-alt rounded-lg border border-default overflow-hidden">
           <!-- Table header -->
-          <div class="bg-surface px-4 py-3 border-b border-default sticky top-0 z-10">
+          <div class="bg-surface-alt px-4 py-3 border-b border-default sticky top-0 z-10">
             <div class="grid grid-cols-12 gap-3 text-xs font-medium text-secondary uppercase tracking-wide">
               <div class="col-span-4">Project Name</div>
               <div class="col-span-4">Description</div>
@@ -311,7 +311,7 @@ const formatDate = (dateString: string): string => {
     </div>
 
     <!-- Footer -->
-    <div class="mt-6 flex justify-between items-center pt-4 border-t border-default">
+    <div class="mt-6 flex justify-between items-center pt-4">
       <div class="flex items-center gap-2 text-sm text-tertiary">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />

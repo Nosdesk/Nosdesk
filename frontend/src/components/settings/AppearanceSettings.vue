@@ -22,9 +22,21 @@ const emit = defineEmits<{
 
 // Local reactive state
 const selectedTheme = ref<ThemeMode>(themeStore.currentTheme)
-const colorBlindMode = ref(themeStore.colorBlindMode)
 const compactView = ref(false)
 const isUpdating = ref(false)
+
+// Use computed with getter/setter for two-way binding with store
+const colorBlindMode = computed({
+  get: () => themeStore.colorBlindMode,
+  set: (value) => themeStore.setColorBlindMode(value)
+})
+
+// Monochromatic themes that require colorblind mode
+const MONOCHROMATIC_THEMES = ['epaper', 'red-horizon']
+const isMonochromaticTheme = computed(() => {
+  const effectiveId = themeStore.effectiveTheme?.meta?.id
+  return MONOCHROMATIC_THEMES.includes(effectiveId)
+})
 
 // Watch theme store changes
 watch(
@@ -70,7 +82,6 @@ const selectTheme = async (themeId: ThemeMode) => {
 
 // Handle color blind mode toggle
 const handleColorBlindModeToggle = () => {
-  themeStore.setColorBlindMode(colorBlindMode.value)
   emit('success', `Color blind friendly mode ${colorBlindMode.value ? 'enabled' : 'disabled'}`)
 }
 
@@ -89,11 +100,11 @@ const handleCompactViewToggle = () => {
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <div
-            class="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center flex-shrink-0"
+            class="w-8 h-8 bg-accent-muted rounded-lg flex items-center justify-center flex-shrink-0"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4 text-purple-500"
+              class="h-4 w-4 text-accent"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -193,7 +204,10 @@ const handleCompactViewToggle = () => {
         <ToggleSwitch
           v-model="colorBlindMode"
           label="Color blind friendly mode"
-          description="Use distinct shapes for status indicators instead of relying only on colors"
+          :description="isMonochromaticTheme
+            ? 'Always enabled for monochromatic themes like E-Paper and Red Horizon'
+            : 'Use distinct shapes for status indicators instead of relying only on colors'"
+          :disabled="isMonochromaticTheme"
           @update:modelValue="handleColorBlindModeToggle"
         />
       </div>

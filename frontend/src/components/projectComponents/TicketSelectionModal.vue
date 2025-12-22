@@ -143,13 +143,13 @@ const getPriorityClass = (priority: string) => {
       <div v-else class="max-h-96 overflow-y-auto">
         <div class="bg-surface-alt rounded-lg overflow-hidden">
           <table class="w-full">
-            <thead>
+            <thead class="bg-surface-alt text-xs font-medium text-secondary uppercase tracking-wide sticky top-0">
               <tr class="border-b border-default">
-                <th class="px-6 py-3 text-left text-xs font-medium text-tertiary uppercase tracking-wider">ID</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-tertiary uppercase tracking-wider">Title</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-tertiary uppercase tracking-wider">Status</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-tertiary uppercase tracking-wider">Priority</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-tertiary uppercase tracking-wider">Action</th>
+                <th class="px-4 py-3 text-left">ID</th>
+                <th class="px-4 py-3 text-left">Title</th>
+                <th class="px-4 py-3 text-left">Status</th>
+                <th class="px-4 py-3 text-left">Priority</th>
+                <th class="px-4 py-3 text-left">Action</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-default">

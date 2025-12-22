@@ -41,7 +41,7 @@ export const useDataStore = defineStore('data', () => {
   // Users cache
   const usersCache = ref(new Map<string, PaginatedCacheEntry>())
   const individualUsersCache = ref(new Map<string, CacheEntry<User>>())
-  
+
   // Global loading states
   const globalLoading = ref(false)
   
@@ -339,33 +339,15 @@ export const useDataStore = defineStore('data', () => {
     return cached.data.name || null
   }
   
-  // Get user avatar from cache with cache busting
+  // Get user avatar from cache
   const getUserAvatar = (uuid: string, preferThumb = true): string | null => {
     const cached = individualUsersCache.value.get(uuid)
     if (!cached?.data) return null
-    
-    // Get the base URL
-    let baseUrl: string | null = null
+
     if (preferThumb && cached.data.avatar_thumb) {
-      baseUrl = cached.data.avatar_thumb
-    } else {
-      baseUrl = cached.data.avatar_url || null
+      return cached.data.avatar_thumb
     }
-    
-    // Ensure the URL starts with /uploads/ for proper routing
-    if (baseUrl && !baseUrl.startsWith('/uploads/')) {
-      logger.warn(`UserAvatar: Invalid avatar URL format for ${uuid}:`, baseUrl)
-      return null
-    }
-    
-    // Add cache busting parameter using updated_at timestamp
-    if (baseUrl && cached.data.updated_at) {
-      const timestamp = new Date(cached.data.updated_at).getTime()
-      const separator = baseUrl.includes('?') ? '&' : '?'
-      return `${baseUrl}${separator}v=${timestamp}`
-    }
-    
-    return baseUrl
+    return cached.data.avatar_url || null
   }
   
   // Invalidate cache for specific user (old method - just clears cache)

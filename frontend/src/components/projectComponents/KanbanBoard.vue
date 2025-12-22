@@ -406,7 +406,7 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
                     <UserAvatar 
                       v-if="ticket.assignee && ticket.assignee !== 'Unassigned'" 
                       :name="ticket.assignee" 
-                      :avatarUrl="ticket.assignee_avatar"
+                      :avatar="ticket.assignee_avatar"
                       size="xs" 
                       :showName="true"
                       :clickable="false"

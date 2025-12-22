@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
-import logo from '@/assets/logo.svg';
+import LogoIcon from '@/components/icons/LogoIcon.vue';
 import authService, { type AdminSetupRequest } from '@/services/authService';
 
 const router = useRouter();
@@ -234,7 +234,7 @@ onUnmounted(() => {
     <div class="flex flex-col gap-6 w-full max-w-lg p-8">
       <!-- Logo/Brand -->
       <div class="flex flex-col gap-2 items-center">
-        <img :src="logo" alt="Nosdesk Logo" class="px-4" />
+        <LogoIcon class="h-8 px-4 text-accent" aria-label="Nosdesk Logo" />
         <h1 class="text-2xl font-bold text-primary mt-4">Welcome to Nosdesk</h1>
         <p class="text-secondary text-center">
           Let's get started by creating your administrator account

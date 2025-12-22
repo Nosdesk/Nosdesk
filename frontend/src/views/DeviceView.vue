@@ -6,6 +6,7 @@ import BackButton from '@/components/common/BackButton.vue';
 import DeleteButton from '@/components/common/DeleteButton.vue';
 import InlineEdit from '@/components/common/InlineEdit.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
+import UserCard from '@/components/UserCard.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import { getDeviceById, updateDevice, createDevice, deleteDevice, unmanageDevice } from '@/services/deviceService';
 import MicrosoftGraphService from '@/services/MicrosoftGraphService';
@@ -685,51 +686,7 @@ onMounted(() => {
 
                 <div v-if="device.primary_user" class="flex flex-col gap-4">
                   <!-- User Profile Section -->
-                  <div class="flex items-start gap-4">
-                    <!-- Avatar -->
-                    <router-link
-                      :to="`/users/${device.primary_user.uuid}`"
-                      class="flex-shrink-0 group"
-                    >
-                      <div class="relative">
-                        <img
-                          v-if="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
-                          :src="device.primary_user.avatar_thumb || device.primary_user.avatar_url || ''"
-                          :alt="device.primary_user.name"
-                          class="w-16 h-16 rounded-full object-cover ring-2 ring-surface-alt group-hover:ring-accent transition-all"
-                        />
-                        <div
-                          v-else
-                          class="w-16 h-16 rounded-full bg-surface-alt flex items-center justify-center ring-2 ring-surface-alt group-hover:ring-accent transition-all"
-                        >
-                          <span class="text-2xl font-semibold text-secondary">
-                            {{ device.primary_user.name.charAt(0).toUpperCase() }}
-                          </span>
-                        </div>
-                      </div>
-                    </router-link>
-
-                    <!-- User Details -->
-                    <div class="flex-1 min-w-0">
-                      <router-link
-                        :to="`/users/${device.primary_user.uuid}`"
-                        class="text-lg font-semibold text-primary hover:text-accent transition-colors block truncate"
-                      >
-                        {{ device.primary_user.name }}
-                      </router-link>
-                      <p class="text-sm text-secondary truncate mt-1">{{ device.primary_user.email }}</p>
-                      <div class="mt-2">
-                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium"
-                              :class="{
-                                'bg-accent/20 text-accent border border-accent/30': device.primary_user.role === 'admin',
-                                'bg-accent/20 text-accent border border-accent/30': device.primary_user.role === 'technician',
-                                'bg-surface-alt text-secondary border border-default': device.primary_user.role === 'user'
-                              }">
-                          {{ device.primary_user.role.charAt(0).toUpperCase() + device.primary_user.role.slice(1) }}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                  <UserCard :user="device.primary_user" avatar-size="md" />
 
                   <!-- Change User Button (only for editable devices) -->
                   <button
@@ -970,51 +927,7 @@ onMounted(() => {
 
               <div v-if="device.primary_user" class="flex flex-col gap-4">
                 <!-- User Profile Section -->
-                <div class="flex items-start gap-4">
-                  <!-- Avatar -->
-                  <router-link
-                    :to="`/users/${device.primary_user.uuid}`"
-                    class="flex-shrink-0 group"
-                  >
-                    <div class="relative">
-                      <img
-                        v-if="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
-                        :src="device.primary_user.avatar_thumb || device.primary_user.avatar_url || ''"
-                        :alt="device.primary_user.name"
-                        class="w-16 h-16 rounded-full object-cover ring-2 ring-surface-alt group-hover:ring-accent transition-all"
-                      />
-                      <div
-                        v-else
-                        class="w-16 h-16 rounded-full bg-surface-alt flex items-center justify-center ring-2 ring-surface-alt group-hover:ring-accent transition-all"
-                      >
-                        <span class="text-2xl font-semibold text-secondary">
-                          {{ device.primary_user.name.charAt(0).toUpperCase() }}
-                        </span>
-                      </div>
-                    </div>
-                  </router-link>
-
-                  <!-- User Details -->
-                  <div class="flex-1 min-w-0">
-                    <router-link
-                      :to="`/users/${device.primary_user.uuid}`"
-                      class="text-lg font-semibold text-primary hover:text-accent transition-colors block truncate"
-                    >
-                      {{ device.primary_user.name }}
-                    </router-link>
-                    <p class="text-sm text-secondary truncate mt-1">{{ device.primary_user.email }}</p>
-                    <div class="mt-2">
-                      <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium"
-                            :class="{
-                              'bg-accent/20 text-accent border border-accent/30': device.primary_user.role === 'admin',
-                              'bg-accent/20 text-accent border border-accent/30': device.primary_user.role === 'technician',
-                              'bg-surface-alt text-secondary border border-default': device.primary_user.role === 'user'
-                            }">
-                        {{ device.primary_user.role.charAt(0).toUpperCase() + device.primary_user.role.slice(1) }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                <UserCard :user="device.primary_user" avatar-size="md" />
 
                 <!-- Change User Button (only for editable devices) -->
                 <button

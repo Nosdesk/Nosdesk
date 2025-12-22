@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import BackButton from '@/components/common/BackButton.vue';
 import Modal from '@/components/Modal.vue';
+import HorizontalScrollContainer from '@/components/common/HorizontalScrollContainer.vue';
 import {
   UserProfileCard,
   AppearanceSettings,
@@ -499,7 +500,7 @@ const cancelDelete = () => {
 
       <!-- Mobile Tab Navigation (horizontal scroll) -->
       <div class="lg:hidden -mx-4 sm:-mx-6 px-4 sm:px-6 mb-4">
-        <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+        <HorizontalScrollContainer container-class="gap-2 pb-2" fade-background="bg-app">
           <button
             v-for="tab in settingsTabs"
             :key="tab.id"
@@ -519,7 +520,7 @@ const cancelDelete = () => {
               class="absolute bottom-1.5 left-2 right-2 h-0.5 bg-accent rounded-full transition-all duration-300"
             ></div>
           </button>
-        </div>
+        </HorizontalScrollContainer>
       </div>
 
       <!-- Main content -->

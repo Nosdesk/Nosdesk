@@ -75,8 +75,8 @@ const updatePosition = () => {
   const openUpward = spaceBelow < menuHeight && rect.top > menuHeight
 
   menuPosition.value = {
-    // Align with top of trigger, offset by menu height if opening upward
-    top: openUpward ? rect.top - menuHeight : rect.top,
+    // Position below trigger (rect.bottom) or above if opening upward
+    top: openUpward ? rect.top - menuHeight - 4 : rect.bottom + 4,
     left: rect.left,
     width: Math.max(rect.width, 200)
   }
@@ -313,7 +313,7 @@ onUnmounted(() => {
           v-if="modelValue && inputValue && !isDropdownOpen"
           :name="modelValue"
           :userName="currentUser?.uuid === modelValue ? currentUser.name : undefined"
-          :avatarUrl="currentUser?.uuid === modelValue ? (currentUser.avatar_thumb || currentUser.avatar_url) : undefined"
+          :avatar="currentUser?.uuid === modelValue ? (currentUser.avatar_thumb || currentUser.avatar_url) : undefined"
           :showName="false"
           size="sm"
         />

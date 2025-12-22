@@ -31,10 +31,10 @@ export const lightTheme: Theme = {
     secondary: '#4b5563',
     tertiary: '#6b7280',
 
-    // Accent (brand blue)
-    accent: '#2C80FF',
-    accentHover: '#1a6ee0',
-    accentMuted: 'rgba(44, 128, 255, 0.15)',
+    // Accent (default orange - can be overridden by branding)
+    accent: '#EE9902',
+    accentHover: '#d68800',
+    accentMuted: 'rgba(238, 153, 2, 0.18)',
 
     // Status
     success: '#00C951',

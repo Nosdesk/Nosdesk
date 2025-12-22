@@ -146,7 +146,7 @@ const clearUser = () => {
           <UserAvatar
             :name="user.uuid"
             :userName="user.name"
-            :avatarUrl="user.avatar_thumb || user.avatar_url"
+            :avatar="user.avatar_thumb || user.avatar_url"
             :showName="false"
             size="md"
           />

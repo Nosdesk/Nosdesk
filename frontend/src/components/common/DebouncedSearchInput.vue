@@ -22,7 +22,7 @@
       type="text"
       v-model="localValue"
       @input="handleInput"
-      class="block w-full py-1 pl-8 pr-2 text-sm border rounded-md bg-surface border-default placeholder-tertiary text-primary focus:ring-accent focus:border-accent"
+      class="block w-full py-1.5 pl-8 pr-2 text-sm rounded-lg bg-surface-alt border border-default text-primary placeholder-tertiary transition-colors duration-200 hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
       :placeholder="placeholder"
     />
   </div>

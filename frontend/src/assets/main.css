@@ -25,10 +25,10 @@
   --color-secondary: #4b5563;
   --color-tertiary: #6b7280;
 
-  /* Accent colors */
-  --color-accent: #2C80FF;
-  --color-accent-hover: #1a6ee0;
-  --color-accent-muted: rgba(44, 128, 255, 0.15);
+  /* Accent colors (default orange - can be overridden by branding) */
+  --color-accent: #EE9902;
+  --color-accent-hover: #d68800;
+  --color-accent-muted: rgba(238, 153, 2, 0.18);
 
   /* Brand colors */
   --color-brand-gold: #FDBD10;
@@ -88,10 +88,10 @@
     --color-secondary: #4b5563;
     --color-tertiary: #6b7280;
 
-    /* Accent colors */
-    --color-accent: #2C80FF;
-    --color-accent-hover: #1a6ee0;
-    --color-accent-muted: rgba(44, 128, 255, 0.15);
+    /* Accent colors (default orange - can be overridden by branding) */
+    --color-accent: #EE9902;
+    --color-accent-hover: #d68800;
+    --color-accent-muted: rgba(238, 153, 2, 0.18);
 
     /* Status colors */
     --color-status-success: #00C951;
@@ -160,10 +160,10 @@
     --color-secondary: #cbd5e1;
     --color-tertiary: #94a3b8;
 
-    /* Accent colors */
-    --color-accent: #2C80FF;
-    --color-accent-hover: #4d9aff;
-    --color-accent-muted: rgba(44, 128, 255, 0.2);
+    /* Accent colors (default orange - can be overridden by branding) */
+    --color-accent: #EE9902;
+    --color-accent-hover: #ffaa22;
+    --color-accent-muted: rgba(238, 153, 2, 0.22);
 
     /* Status colors - brighter for dark mode */
     --color-status-success: #00C951;
@@ -321,4 +321,300 @@ body {
 
 a {
   text-decoration: none;
+}
+
+/* ============================================
+   LIST STAGGER ANIMATIONS
+   Used by list views for staggered fade-in effects
+   ============================================ */
+.list-stagger-enter-active {
+  transition: opacity var(--animation-duration, 150ms) ease-out,
+              transform var(--animation-duration, 150ms) ease-out;
+  transition-delay: var(--stagger-delay, 0ms);
+}
+
+.list-stagger-enter-from {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.list-stagger-leave-active {
+  transition: opacity 100ms ease-in;
+}
+
+.list-stagger-leave-to {
+  opacity: 0;
+}
+
+.list-stagger-move {
+  transition: transform 150ms ease-out;
+}
+
+/* ============================================
+   THEME-SPECIFIC AVATAR EFFECTS (Easter Eggs)
+   ============================================ */
+
+/* E-Paper Theme: Dithering effect on avatars and profile banners */
+[data-theme="epaper"] .avatar-themed {
+  filter: grayscale(1) contrast(1.3);
+  position: relative;
+}
+
+/* E-Paper: Override avatar fallback backgrounds to white/light gray */
+[data-theme="epaper"] .avatar-themed > div:first-child {
+  background-color: #e8e8e8 !important;
+  color: #1a1a1a !important;
+}
+
+[data-theme="epaper"] .profile-banner {
+  filter: grayscale(1) contrast(1.2);
+  position: relative;
+}
+
+/* Dithering overlay using CSS pattern */
+[data-theme="epaper"] .avatar-themed::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 4 4' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23000' fill-opacity='0.15'/%3E%3Crect x='2' y='2' width='1' height='1' fill='%23000' fill-opacity='0.15'/%3E%3C/svg%3E");
+  background-size: 3px 3px;
+  mix-blend-mode: multiply;
+  border-radius: inherit;
+}
+
+[data-theme="epaper"] .profile-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 4 4' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23000' fill-opacity='0.12'/%3E%3Crect x='2' y='2' width='1' height='1' fill='%23000' fill-opacity='0.12'/%3E%3C/svg%3E");
+  background-size: 3px 3px;
+  mix-blend-mode: multiply;
+  z-index: 1;
+}
+
+/* Red Horizon Theme: Deep red/black CRT plasma display effect */
+[data-theme="red-horizon"] .avatar-themed {
+  position: relative;
+}
+
+/* Red Horizon: Override avatar fallback backgrounds to deep blood red */
+[data-theme="red-horizon"] .avatar-themed > div:first-child {
+  background-color: #2a0000 !important;
+  color: #ff0000 !important;
+}
+
+[data-theme="red-horizon"] .profile-banner {
+  position: relative;
+}
+
+/* Fully saturated red filter - strip all other colors */
+[data-theme="red-horizon"] .avatar-themed img,
+[data-theme="red-horizon"] .avatar-themed > div:first-child {
+  filter: grayscale(1) sepia(1) saturate(5) hue-rotate(-50deg) brightness(0.6) contrast(1.4);
+}
+
+[data-theme="red-horizon"] .profile-banner {
+  filter: grayscale(1) sepia(1) saturate(5) hue-rotate(-50deg) brightness(0.5) contrast(1.3);
+}
+
+/* Scanline overlay for avatars - dark red scanlines */
+[data-theme="red-horizon"] .avatar-themed::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 1px,
+    rgba(0, 0, 0, 0.4) 1px,
+    rgba(0, 0, 0, 0.4) 2px
+  );
+  z-index: 1;
+  border-radius: inherit;
+}
+
+/* Scanline overlay for profile banner - dark red scanlines */
+[data-theme="red-horizon"] .profile-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.3) 2px,
+    rgba(0, 0, 0, 0.3) 4px
+  );
+  z-index: 1;
+}
+
+/* Deep red phosphor glow for avatars */
+[data-theme="red-horizon"] .avatar-themed::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 25px rgba(180, 0, 0, 0.6);
+  z-index: 2;
+  border-radius: inherit;
+}
+
+/* Deep red phosphor glow for profile banner */
+[data-theme="red-horizon"] .profile-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 50px rgba(150, 0, 0, 0.5);
+  z-index: 2;
+}
+
+/* ============================================
+   THEME-SPECIFIC ERROR PAGE EFFECTS
+   ============================================ */
+
+/* E-Paper Theme: Static error page - no animation */
+[data-theme="epaper"] .error-svg {
+  animation: none !important;
+}
+
+[data-theme="epaper"] .error-svg:hover {
+  transform: none !important;
+}
+
+[data-theme="epaper"] .error-text {
+  fill: #1a1a1a !important;
+  filter: none !important;
+}
+
+/* Red Horizon Theme: Deep saturated red error page */
+[data-theme="red-horizon"] .error-text {
+  fill: #ff0000 !important;
+}
+
+/* Red Horizon: Scanlines over the error page - between SVG and text */
+[data-theme="red-horizon"] .error-page-container {
+  position: relative;
+}
+
+[data-theme="red-horizon"] .error-page-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.25) 2px,
+    rgba(0, 0, 0, 0.25) 4px
+  );
+  z-index: 1;
+}
+
+/* Red Horizon: Deep red glow on error SVG (behind scanlines) */
+[data-theme="red-horizon"] .error-svg {
+  position: relative;
+  z-index: 0;
+  filter: drop-shadow(0 0 15px rgba(255, 0, 0, 0.7)) drop-shadow(0 0 30px rgba(150, 0, 0, 0.5));
+}
+
+/* Red Horizon: Text and buttons sit above scanlines */
+[data-theme="red-horizon"] .error-page-container > div > .flex {
+  position: relative;
+  z-index: 2;
+}
+
+/* Red Horizon: Subtle CRT glow for sidebar logo
+   Exponential falloff layers - restrained for legibility
+*/
+[data-theme="red-horizon"] .sidebar-logo {
+  position: relative;
+  filter:
+    drop-shadow(0 0 1px rgba(200, 0, 0, 0.6))
+    drop-shadow(0 0 3px rgba(180, 0, 0, 0.3))
+    drop-shadow(0 0 8px rgba(150, 0, 0, 0.15))
+    drop-shadow(0 0 16px rgba(120, 0, 0, 0.08));
+  animation: red-horizon-logo-pulse 4s ease-in-out infinite;
+}
+
+/* Subtle scanlines overlay */
+[data-theme="red-horizon"] .sidebar-logo::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 2px,
+    rgba(0, 0, 0, 0.08) 3px
+  );
+  pointer-events: none;
+  border-radius: 4px;
+}
+
+@keyframes red-horizon-logo-pulse {
+  0%, 100% {
+    filter:
+      drop-shadow(0 0 1px rgba(200, 0, 0, 0.6))
+      drop-shadow(0 0 3px rgba(180, 0, 0, 0.3))
+      drop-shadow(0 0 8px rgba(150, 0, 0, 0.15))
+      drop-shadow(0 0 16px rgba(120, 0, 0, 0.08));
+  }
+  50% {
+    filter:
+      drop-shadow(0 0 1px rgba(220, 0, 0, 0.7))
+      drop-shadow(0 0 4px rgba(200, 0, 0, 0.35))
+      drop-shadow(0 0 10px rgba(170, 0, 0, 0.18))
+      drop-shadow(0 0 20px rgba(140, 0, 0, 0.1));
+  }
+}
+
+/* Red Horizon: Button styling - red text on dark with glow */
+[data-theme="red-horizon"] .bg-accent {
+  background-color: #1a0404 !important;
+  border: 1px solid #660000 !important;
+  box-shadow: 0 0 8px rgba(200, 0, 0, 0.4), inset 0 0 20px rgba(100, 0, 0, 0.2);
+}
+
+[data-theme="red-horizon"] .bg-accent.text-white,
+[data-theme="red-horizon"] .bg-accent .text-white {
+  color: #ff2a2a !important;
+  text-shadow: 0 0 6px rgba(255, 0, 0, 0.6);
+}
+
+[data-theme="red-horizon"] .bg-accent:hover {
+  background-color: #2a0808 !important;
+  border-color: #880000 !important;
+  box-shadow: 0 0 12px rgba(255, 0, 0, 0.5), inset 0 0 25px rgba(120, 0, 0, 0.3);
+}
+
+/* Red Horizon: Secondary/outline buttons */
+[data-theme="red-horizon"] .border-accent {
+  border-color: #660000 !important;
+}
+
+[data-theme="red-horizon"] .text-accent {
+  text-shadow: 0 0 4px rgba(200, 0, 0, 0.4);
+}
+
+/* Red Horizon: Danger/delete buttons - brighter red glow */
+[data-theme="red-horizon"] .bg-status-error,
+[data-theme="red-horizon"] .bg-red-600,
+[data-theme="red-horizon"] .bg-red-500 {
+  background-color: #2a0000 !important;
+  border: 1px solid #880000 !important;
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.5), inset 0 0 15px rgba(150, 0, 0, 0.3);
+}
+
+[data-theme="red-horizon"] .bg-status-error:hover,
+[data-theme="red-horizon"] .bg-red-600:hover,
+[data-theme="red-horizon"] .bg-red-500:hover {
+  background-color: #3a0000 !important;
+  box-shadow: 0 0 15px rgba(255, 0, 0, 0.7), inset 0 0 20px rgba(180, 0, 0, 0.4);
 }

@@ -324,25 +324,25 @@ defineExpose({
 }
 
 .horizontal-resizer {
-  height: 4px;
+  height: 5px;
   width: 100%;
   cursor: ns-resize;
-  background-color: var(--border-subtle);
-  border-top: 1px solid var(--border-default);
-  border-bottom: 1px solid var(--border-default);
+  background-color: var(--color-surface);
+  border-top: 1px solid var(--color-border-default);
+  border-bottom: 1px solid var(--color-border-default);
 }
 
 .vertical-resizer {
-  width: 4px;
+  width: 5px;
   height: 100%;
   cursor: ew-resize;
-  background-color: var(--border-subtle);
-  border-left: 1px solid var(--border-default);
-  border-right: 1px solid var(--border-default);
+  background-color: var(--color-surface);
+  border-left: 1px solid var(--color-border-default);
+  border-right: 1px solid var(--color-border-default);
 }
 
 .resizer-handle:hover {
-  background-color: var(--border-default);
+  background-color: var(--color-surface-hover);
 }
 
 .resizer-handle.active {

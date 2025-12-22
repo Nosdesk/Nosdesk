@@ -57,7 +57,7 @@ const getStatusClasses = (value: string, type: string) => {
   if (type === 'role') {
     switch (value?.toLowerCase()) {
       case 'admin':
-        return `${baseClasses} bg-[rgba(139,92,246,0.15)] text-brand-purple border-brand-purple/30`
+        return `${baseClasses} bg-status-error-muted text-status-error border-status-error/30`
       case 'technician':
         return `${baseClasses} bg-accent-muted text-accent border-accent/30`
       default:

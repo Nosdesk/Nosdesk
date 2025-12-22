@@ -116,6 +116,15 @@ export const useBrandingStore = defineStore('branding', () => {
       // Apply branding to the document
       applyBrandingToDocument()
 
+      // Re-apply theme to pick up branding color changes
+      // Import dynamically to avoid circular dependency
+      import('@/stores/theme').then(({ useThemeStore }) => {
+        const themeStore = useThemeStore()
+        // Trigger theme reapplication by calling setTheme with current theme
+        const currentTheme = themeStore.currentTheme
+        themeStore.setTheme(currentTheme)
+      })
+
       logger.debug('Branding loaded:', brandingConfig)
     } catch (error) {
       logger.error('Failed to load branding:', error)

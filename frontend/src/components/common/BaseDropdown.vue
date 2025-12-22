@@ -60,32 +60,36 @@ const sizeClasses = computed(() => {
 // Reactive position tracking for scroll updates
 const menuPosition = ref({ top: 0, left: 0, width: 0 })
 
-// Update position based on trigger element
+// Update position based on trigger and menu elements
 const updatePosition = () => {
-  if (!triggerRef.value) return
+  if (!triggerRef.value || !menuRef.value) return
 
-  const rect = triggerRef.value.getBoundingClientRect()
+  const triggerRect = triggerRef.value.getBoundingClientRect()
+  const menuHeight = menuRef.value.offsetHeight
   const viewportHeight = window.innerHeight
-  const spaceBelow = viewportHeight - rect.bottom
-  const menuHeight = Math.min(props.options.length * 44 + 8, 264)
+  const spaceBelow = viewportHeight - triggerRect.bottom
 
   // Open upward if not enough space below
-  const openUpward = spaceBelow < menuHeight && rect.top > menuHeight
+  const openUpward = spaceBelow < menuHeight && triggerRect.top > menuHeight
 
   menuPosition.value = {
-    // Align with top of trigger, offset by menu height if opening upward
-    top: openUpward ? rect.top - menuHeight : rect.top,
-    left: rect.left,
-    width: Math.max(rect.width, 180)
+    top: openUpward ? triggerRect.top - menuHeight - 2 : triggerRect.bottom + 2,
+    left: triggerRect.left,
+    width: Math.max(triggerRect.width, 180)
   }
 }
 
-const openDropdown = async () => {
+// Watch for menu ref to be set, then position
+watch(menuRef, (menu) => {
+  if (menu) {
+    updatePosition()
+  }
+})
+
+const openDropdown = () => {
   if (props.disabled) return
   isOpen.value = true
   highlightedIndex.value = props.options.findIndex(o => o.value === props.modelValue)
-  await nextTick()
-  updatePosition()
 }
 
 const closeDropdown = () => {

@@ -319,7 +319,7 @@ defineExpose({
               :showName="false"
               :name="user.name"
               :avatar="user.avatar"
-              size="md" 
+              size="md"
               :clickable="false"
               ref="headerAvatarRef"
             />

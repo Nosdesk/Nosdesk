@@ -1,80 +1,78 @@
 <!-- Modal.vue -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { computed, watch, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps<{
-  show: boolean;
-  title: string;
-  contentClass?: string;
-  headerClass?: string;
-  removePadding?: boolean;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  show: boolean
+  title: string
+  contentClass?: string
+  headerClass?: string
+  removePadding?: boolean
+  size?: 'sm' | 'md' | 'lg' | 'xl'
 }>()
-
-// Compute size classes
-const sizeClasses = computed(() => {
-  switch (props.size) {
-    case 'sm': return 'max-w-md';
-    case 'lg': return 'max-w-6xl';
-    case 'xl': return 'max-w-7xl';
-    default: return 'max-w-4xl';
-  }
-})
 
 const emit = defineEmits<{
-  (e: 'close'): void;
+  close: []
 }>()
 
-// Refs for DOM elements
-const backdropRef = ref<HTMLElement | null>(null)
-const modalContentRef = ref<HTMLElement | null>(null)
-
-const handleEscape = (e: KeyboardEvent) => {
-  if (e.key === 'Escape') {
-    emit('close')
+const sizeClasses = computed(() => {
+  switch (props.size) {
+    case 'sm': return 'sm:max-w-md'
+    case 'lg': return 'sm:max-w-xl md:max-w-3xl lg:max-w-5xl'
+    case 'xl': return 'sm:max-w-2xl md:max-w-4xl lg:max-w-6xl'
+    default: return 'sm:max-w-lg md:max-w-2xl lg:max-w-4xl'
   }
-}
-
-// Standard Vue approach for closing on backdrop click
-const handleClick = (e: MouseEvent) => {
-  // Only close if clicked on backdrop directly (not inside the modal content)
-  // We use the element references to check this directly
-  if (backdropRef.value && e.target instanceof Node && backdropRef.value.contains(e.target) && 
-      modalContentRef.value && !modalContentRef.value.contains(e.target)) {
-    emit('close')
-  }
-}
-
-onMounted(() => {
-  document.addEventListener('keydown', handleEscape)
-  // Add click listener to document to ensure proper event capture
-  document.addEventListener('click', handleClick)
 })
 
+// Lock body scroll when modal is open
+watch(() => props.show, (isOpen) => {
+  document.body.style.overflow = isOpen ? 'hidden' : ''
+}, { immediate: true })
+
+// Handle escape key globally
+const onEscape = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && props.show) emit('close')
+}
+
+onMounted(() => document.addEventListener('keydown', onEscape))
 onUnmounted(() => {
-  document.removeEventListener('keydown', handleEscape)
-  document.removeEventListener('click', handleClick)
+  document.removeEventListener('keydown', onEscape)
+  document.body.style.overflow = ''
 })
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="show" class="fixed inset-0 z-[9999] overflow-y-auto">
-      <!-- Backdrop - no click handler here -->
-      <div ref="backdropRef" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[9999]"></div>
-
-      <!-- Modal -->
-      <div class="relative flex min-h-full items-center justify-center p-4 z-[10000]">
+    <Transition name="modal" appear>
+      <div
+        v-if="show"
+        class="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center"
+      >
+        <!-- Backdrop -->
         <div
-          ref="modalContentRef"
-          :class="['relative bg-surface rounded-xl shadow-xl w-full', sizeClasses, contentClass]"
+          class="absolute inset-0 bg-black/50"
+          @click="emit('close')"
+        />
+
+        <!-- Modal -->
+        <div
+          :class="[
+            'modal-content relative w-full bg-surface shadow-xl flex flex-col pointer-events-auto',
+            'max-h-[90vh] sm:max-h-[85vh]',
+            'rounded-t-2xl sm:rounded-xl',
+            'sm:mx-4',
+            sizeClasses,
+            contentClass
+          ]"
         >
           <!-- Header -->
-          <div :class="['flex items-center justify-between p-4 border-b border-default', headerClass]">
-            <h3 class="text-lg font-semibold text-primary">{{ title }}</h3>
+          <div :class="['flex items-center justify-between p-4 bg-surface-alt border-b border-default flex-shrink-0 rounded-t-2xl sm:rounded-t-xl', headerClass]">
+            <h3 class="text-lg font-semibold text-primary truncate pr-4">{{ title }}</h3>
             <button
+              type="button"
               @click="emit('close')"
-              class="text-tertiary hover:text-primary transition-colors"
+              class="p-1 -mr-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors flex-shrink-0"
+              aria-label="Close modal"
             >
               <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -83,11 +81,45 @@ onUnmounted(() => {
           </div>
 
           <!-- Content -->
-          <div :class="[removePadding ? '' : 'p-6']">
-            <slot></slot>
+          <div :class="['flex-1 overflow-y-auto', removePadding ? '' : 'p-4 sm:p-6']">
+            <slot />
           </div>
         </div>
       </div>
-    </div>
+    </Transition>
   </Teleport>
-</template> 
+</template>
+
+<style scoped>
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-enter-active .modal-content,
+.modal-leave-active .modal-content {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .modal-content {
+  opacity: 0;
+  transform: translateY(1rem);
+}
+
+.modal-leave-to .modal-content {
+  opacity: 0;
+  transform: translateY(1rem);
+}
+
+@media (min-width: 640px) {
+  .modal-enter-from .modal-content,
+  .modal-leave-to .modal-content {
+    transform: scale(0.95);
+  }
+}
+</style>

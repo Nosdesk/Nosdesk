@@ -31,10 +31,10 @@ export const darkTheme: Theme = {
     secondary: '#cbd5e1',
     tertiary: '#94a3b8',
 
-    // Accent (brand blue)
-    accent: '#2C80FF',
-    accentHover: '#4d9aff',
-    accentMuted: 'rgba(44, 128, 255, 0.2)',
+    // Accent (default orange - can be overridden by branding)
+    accent: '#EE9902',
+    accentHover: '#ffaa22',
+    accentMuted: 'rgba(238, 153, 2, 0.22)',
 
     // Status
     success: '#00C951',

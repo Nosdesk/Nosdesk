@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue'
 import UserAvatar from './UserAvatar.vue'
-import { useUserLookup } from '@/services/userLookupService'
+import { useDataStore } from '@/stores/dataStore'
 
 interface TicketDetails {
   title: string
@@ -37,19 +37,17 @@ const tooltipVisible = ref(false)
 const hoverTimer = ref<number | null>(null)
 const hideTimer = ref<number | null>(null)
 
-// Use the user lookup service for efficient user name resolution
-const { getUserName } = useUserLookup()
+// Use the data store for user name lookups
+const dataStore = useDataStore()
 
-// Get user name from UUID using the lookup service
+// Get user name from UUID
 const getDisplayName = (uuid: string | undefined) => {
   if (!uuid) return 'Unassigned'
-  
-  // Check if it looks like a UUID
+
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-  if (!uuidPattern.test(uuid)) return uuid // If not a UUID, return as is
-  
-  const cachedName = getUserName(uuid)
-  return cachedName || uuid // Return UUID if name not cached yet
+  if (!uuidPattern.test(uuid)) return uuid
+
+  return dataStore.getUserName(uuid) || uuid
 }
 
 // Computed properties for user names
@@ -156,14 +154,14 @@ watch(tooltipVisible, (newValue) => {
           </div>
           <div v-if="details.requester || details.assignee" class="flex flex-col gap-1.5">
             <div v-if="details.requester" class="flex items-center gap-2">
-              <UserAvatar :name="details.requester" :avatarUrl="details.requester_avatar" :showName="false" size="xs" />
+              <UserAvatar :name="details.requester" :avatar="details.requester_avatar" :showName="false" size="xs" />
               <span class="flex flex-row gap-1 truncate">
                 <span class="text-tertiary">Requester:</span>
                 <span>{{ requesterName }}</span>
               </span>
             </div>
             <div v-if="details.assignee" class="flex items-center gap-2">
-              <UserAvatar :name="details.assignee" :avatarUrl="details.assignee_avatar" :showName="false" size="xs" />
+              <UserAvatar :name="details.assignee" :avatar="details.assignee_avatar" :showName="false" size="xs" />
               <span class="flex flex-row gap-1 truncate">
                 <span class="text-tertiary">Assignee:</span>
                 <span>{{ assigneeName }}</span>

@@ -7,6 +7,7 @@ interface Column {
   label: string
   width?: string
   sortable?: boolean
+  sortKey?: string // Optional different field name for API sorting (defaults to field)
   responsive?: 'always' | 'md' | 'lg' // Show only on certain breakpoints
 }
 
@@ -43,15 +44,23 @@ const allSelected = computed(() => {
 })
 
 // Handle sort toggle
-const toggleSort = (field: string) => {
-  if (!props.columns.find(col => col.field === field)?.sortable) return
-  
-  if (props.sortField === field) {
+const toggleSort = (column: Column) => {
+  if (!column.sortable) return
+
+  const sortKey = column.sortKey || column.field
+
+  if (props.sortField === sortKey) {
     const newDirection = props.sortDirection === 'asc' ? 'desc' : 'asc'
-    emit('update:sort', field, newDirection)
+    emit('update:sort', sortKey, newDirection)
   } else {
-    emit('update:sort', field, 'asc')
+    emit('update:sort', sortKey, 'asc')
   }
+}
+
+// Helper to check if column is currently sorted
+const isColumnSorted = (column: Column) => {
+  const sortKey = column.sortKey || column.field
+  return props.sortField === sortKey
 }
 
 // Generate responsive grid classes
@@ -103,11 +112,11 @@ const getColumnVisibility = (column: Column) => {
             getColumnVisibility(column),
             column.sortable ? 'cursor-pointer hover:bg-surface-hover' : ''
           ]"
-          @click="toggleSort(column.field)"
+          @click="toggleSort(column)"
         >
           <div class="flex items-center gap-1">
             {{ column.label }}
-            <span v-if="column.sortable && sortField === column.field" class="text-primary">
+            <span v-if="column.sortable && isColumnSorted(column)" class="text-primary">
               {{ sortDirection === 'asc' ? '↑' : '↓' }}
             </span>
           </div>
@@ -116,9 +125,16 @@ const getColumnVisibility = (column: Column) => {
 
       <!-- Data Rows -->
       <template v-for="(item, index) in data" :key="item[itemIdField]">
-        <div class="contents group cursor-pointer" @click="emit('row-click', item)">
+        <div
+          class="contents group cursor-pointer"
+          @click="emit('row-click', item)"
+        >
           <!-- Checkbox Cell -->
-          <div class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover transition-colors border-b border-default" @click.stop>
+          <div
+            class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover border-b border-default"
+            :class="loading ? 'opacity-60 pointer-events-none' : 'transition-colors'"
+            @click.stop
+          >
             <Checkbox
               :model-value="selectedItems.includes(item[itemIdField].toString())"
               @change="(e) => emit('toggle-selection', e, item[itemIdField].toString())"
@@ -130,8 +146,9 @@ const getColumnVisibility = (column: Column) => {
             v-for="column in columns"
             :key="column.field"
             :class="[
-              'px-2 py-3 flex items-center bg-app group-hover:bg-surface-hover transition-colors text-sm border-b border-default min-w-0',
-              getColumnVisibility(column)
+              'px-2 py-3 flex items-center bg-app group-hover:bg-surface-hover text-sm border-b border-default min-w-0',
+              getColumnVisibility(column),
+              loading ? 'opacity-60 pointer-events-none' : 'transition-colors'
             ]"
           >
             <!-- Slot for custom cell content -->

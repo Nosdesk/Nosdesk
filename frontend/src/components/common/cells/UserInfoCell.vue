@@ -5,6 +5,7 @@ interface Props {
   userId: string
   userName: string
   email?: string
+  avatar?: string | null
   avatarSize?: 'xs' | 'sm' | 'md' | 'lg'
   showAvatar?: boolean
 }
@@ -21,6 +22,7 @@ const props = withDefaults(defineProps<Props>(), {
       v-if="showAvatar"
       :name="userId"
       :userName="userName"
+      :avatar="avatar"
       :size="avatarSize"
       :clickable="false"
       :show-name="false"

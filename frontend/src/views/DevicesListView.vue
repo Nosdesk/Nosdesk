@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { formatDate as formatDateUtil, formatDateTime } from '@/utils/dateUtils';
-import { computed, ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseListView from '@/components/common/BaseListView.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
 
-import { IdCell, TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
-import UserAvatar from '@/components/UserAvatar.vue'
+import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
 import { useListManagement } from '@/composables/useListManagement'
+import { useStaggeredList } from '@/composables/useStaggeredList'
+import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useDataStore } from '@/stores/dataStore'
 import { getPaginatedDevices } from '@/services/deviceService'
 import type { Device } from '@/types/device'
@@ -17,12 +17,21 @@ import type { Device } from '@/types/device'
 const router = useRouter()
 const dataStore = useDataStore()
 
+// Mobile detection for conditional infinite scroll
+const { isMobile } = useMobileDetection()
+
+// Default page size: 0 (infinite scroll) on mobile, 25 on desktop
+const defaultPageSize = isMobile.value ? 0 : 25
+
 // Use the composable for all common functionality
 const listManager = useListManagement<Device>({
+  defaultPageSize,
   itemIdField: 'id',
   defaultSortField: 'name',
   defaultSortDirection: 'asc',
   fetchFunction: async (params) => {
+    // Use unique request key per page to prevent cancellation during infinite scroll
+    const requestKey = `paginated-devices-page-${params.page}`;
     const response = await getPaginatedDevices({
       page: params.page,
       pageSize: params.pageSize,
@@ -31,11 +40,11 @@ const listManager = useListManagement<Device>({
       search: params.search,
       type: params.type,
       warranty: params.warranty
-    });
-    
+    }, requestKey);
+
     // Pre-warm user cache for efficient avatar loading
     preWarmUserCache(response.data);
-    
+
     return response;
   },
   routeBuilder: (device) => `/devices/${device.id}`
@@ -79,67 +88,52 @@ const preWarmUserCache = async (devices: Device[]) => {
 };
 
 // Define table columns with responsive behavior
+// Available sortable fields: id, name, hostname, serial_number, model, warranty_status, manufacturer, created_at, updated_at, last_sync_time
 const columns = [
-  { field: 'id', label: 'ID', width: 'minmax(60px,auto)', sortable: true, responsive: 'md' as const },
-  { field: 'name', label: 'Device Name', width: '1fr', sortable: true, responsive: 'always' as const },
-  { field: 'serial_number', label: 'Serial Number', width: 'minmax(120px,auto)', sortable: true, responsive: 'md' as const },
-  { field: 'manufacturer', label: 'Manufacturer', width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
-  { field: 'model', label: 'Model', width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
-  { field: 'primary_user', label: 'Primary User', width: 'minmax(120px,auto)', sortable: false, responsive: 'md' as const },
+  { field: 'name', label: 'Device', width: '1fr', sortable: true, responsive: 'always' as const },
+  { field: 'serial_number', label: 'Serial', width: 'minmax(140px,auto)', sortable: true, responsive: 'md' as const },
+  { field: 'model', label: 'Model', width: 'minmax(140px,auto)', sortable: true, responsive: 'lg' as const },
+  { field: 'primary_user', label: 'User', width: 'minmax(140px,auto)', sortable: false, responsive: 'md' as const },
   { field: 'warranty_status', label: 'Warranty', width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const }
 ];
 
-// Get available filter options
-const availableManufacturers = computed(() => {
-  return ['Microsoft Corporation', 'Dell Inc.', 'HP Inc.', 'Lenovo', 'Apple Inc.', 'ASUS', 'Acer'];
+// Build filter options - warranty is the reliable filter from the API
+const filterOptions = listManager.buildFilterOptions({
+  warranty: {
+    options: [
+      { value: 'active', label: 'Active' },
+      { value: 'warning', label: 'Warning' },
+      { value: 'expired', label: 'Expired' },
+      { value: 'unknown', label: 'Unknown' }
+    ],
+    width: 'w-[140px]',
+    allLabel: 'All Warranties'
+  }
 });
 
-const availableWarrantyStatuses = computed(() => {
-  return ['Active', 'Warning', 'Expired', 'Unknown'];
-});
+// Custom grid template for responsive layout (includes checkbox column with auto width)
+const gridClass = "grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(140px,auto)_minmax(100px,auto)] lg:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(140px,auto)_minmax(140px,auto)_minmax(100px,auto)]";
 
-// Build filter options
-const filterOptions = computed(() => {
-  return listManager.buildFilterOptions({
-    type: {
-      options: availableManufacturers.value.map(manufacturer => ({ 
-        value: manufacturer.toLowerCase(), 
-        label: manufacturer 
-      })),
-      width: 'w-[160px]',
-      allLabel: 'All Manufacturers'
-    },
-    warranty: {
-      options: availableWarrantyStatuses.value.map(status => ({ 
-        value: status.toLowerCase(), 
-        label: status 
-      })),
-      width: 'w-[120px]',
-      allLabel: 'All Warranties'
-    }
-  });
-});
+// Staggered fade-in animation
+const { getStyle } = useStaggeredList();
 
-// Custom grid template for responsive layout
-const gridClass = "grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_minmax(60px,auto)_1fr_minmax(120px,auto)_minmax(120px,auto)_minmax(100px,auto)] lg:grid-cols-[auto_minmax(60px,auto)_1fr_minmax(120px,auto)_minmax(120px,auto)_minmax(120px,auto)_minmax(120px,auto)_minmax(100px,auto)]";
+// Track if we're currently loading more (to prevent duplicate requests)
+const isLoadingMore = ref(false);
 
-
+// Handle load more from BaseListView's scroll event
+const handleLoadMore = async () => {
+  if (isLoadingMore.value) return;
+  isLoadingMore.value = true;
+  try {
+    await listManager.loadMore();
+  } finally {
+    isLoadingMore.value = false;
+  }
+};
 
 // Navigate to create device
 const navigateToCreateDevice = () => {
   router.push('/devices/new');
-};
-
-// Format date function
-const formatDate = (dateString: string) => {
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'Unknown';
-    return formatDateTime(dateString);
-  } catch (error) {
-    console.error("Error formatting date:", error);
-    return 'Unknown';
-  }
 };
 
 // Expose method for parent (App.vue) to call from header button
@@ -154,7 +148,8 @@ defineExpose({
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2 flex-wrap">
         <DebouncedSearchInput
-          v-model="listManager.searchQuery.value"
+          :model-value="listManager.searchQuery.value"
+          @update:model-value="listManager.handleSearchUpdate"
           placeholder="Search devices..."
         />
 
@@ -201,79 +196,77 @@ defineExpose({
         :is-loading="listManager.loading.value"
         :is-empty="listManager.items.value.length === 0 && !listManager.loading.value"
         :error="listManager.error.value"
+        :is-mobile="isMobile"
         empty-icon="device"
         :empty-message="listManager.searchQuery.value ? 'No devices match your search' : 'No devices found'"
         :empty-description="listManager.searchQuery.value ? 'Try adjusting your search or filters' : 'Add your first device to get started'"
         :empty-action-label="!listManager.searchQuery.value ? 'Add Device' : undefined"
-        :results-count="listManager.totalItems.value"
-        :selected-items="listManager.selectedItems.value"
-        :visible-items="listManager.items.value"
-        :item-id-field="'id'"
-        :enable-selection="false"
-        :sort-field="listManager.sortField.value"
-        :sort-direction="listManager.sortDirection.value"
-        :columns="[]"
+        :is-loading-more="isLoadingMore"
         @retry="listManager.fetchItems"
         @empty-action="navigateToCreateDevice"
+        @load-more="handleLoadMore"
       >
         <!-- Desktop Table View -->
         <template #default>
-          <DataTable
-            :columns="columns"
-            :data="listManager.items.value"
-            :selected-items="listManager.selectedItems.value"
-            :sort-field="listManager.sortField.value"
-            :sort-direction="listManager.sortDirection.value"
-            :grid-class="gridClass"
-            @update:sort="listManager.handleSortUpdate"
-            @toggle-selection="listManager.toggleSelection"
-            @toggle-all="listManager.toggleAllItems"
-            @row-click="listManager.navigateToItem"
-          >
+          <div class="flex-1 overflow-y-auto">
+            <DataTable
+              :columns="columns"
+              :data="listManager.items.value"
+              :selected-items="listManager.selectedItems.value"
+              :sort-field="listManager.sortField.value"
+              :sort-direction="listManager.sortDirection.value"
+              :grid-class="gridClass"
+              @update:sort="listManager.handleSortUpdate"
+              @toggle-selection="listManager.toggleSelection"
+              @toggle-all="listManager.toggleAllItems"
+              @row-click="listManager.navigateToItem"
+            >
             <!-- Custom cell templates -->
-            <template #cell-id="{ value }">
-              <IdCell :id="value" />
+            <template #cell-name="{ item }">
+              <div class="flex flex-col">
+                <TextCell :value="item.name" font-weight="medium" />
+                <span v-if="item.manufacturer" class="text-xs text-tertiary">{{ item.manufacturer }}</span>
+              </div>
             </template>
-            
-            <template #cell-name="{ value }">
-              <TextCell :value="value" font-weight="medium" />
-            </template>
-            
+
             <template #cell-serial_number="{ value }">
-              <TextCell :value="value" />
+              <span class="text-xs font-mono text-secondary">{{ value }}</span>
             </template>
-            
-            <template #cell-manufacturer="{ value }">
+
+            <template #cell-model="{ value }">
               <TextCell :value="value || 'Unknown'" />
             </template>
-            
-            <template #cell-model="{ value }">
-              <TextCell :value="value" />
-            </template>
-            
+
             <template #cell-primary_user="{ item }">
-              <UserAvatarCell 
+              <UserAvatarCell
                 v-if="item.primary_user"
-                :user-id="item.primary_user.uuid" 
+                :user-id="item.primary_user.uuid"
                 :user-name="item.primary_user.name"
                 :avatar="item.primary_user.avatar_thumb || item.primary_user.avatar_url"
-                :show-name="true" 
+                :show-name="true"
               />
               <span v-else class="text-xs text-tertiary">Unassigned</span>
             </template>
-            
+
             <template #cell-warranty_status="{ value }">
               <StatusBadgeCell type="warranty" :value="value" />
             </template>
-          </DataTable>
+            </DataTable>
+          </div>
         </template>
 
         <!-- Mobile/Tablet Card View -->
         <template #mobile-view>
-          <div class="flex flex-col divide-y divide-default">
+          <div class="flex-1 overflow-y-auto">
+            <TransitionGroup
+              name="list-stagger"
+              tag="div"
+              class="flex flex-col divide-y divide-default"
+            >
             <div
-              v-for="device in listManager.items.value"
+              v-for="(device, index) in listManager.items.value"
               :key="device.id"
+              :style="getStyle(index)"
               @click="listManager.navigateToItem(device)"
               class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer"
             >
@@ -286,51 +279,34 @@ defineExpose({
 
               <!-- Main content -->
               <div class="flex-1 min-w-0">
-                <!-- Name and ID -->
-                <div class="flex items-center gap-2">
-                  <span class="text-xs text-secondary font-medium flex-shrink-0">#{{ device.id }}</span>
-                  <span class="text-sm text-primary font-medium truncate">{{ device.name }}</span>
-                </div>
+                <!-- Name -->
+                <div class="text-sm text-primary font-medium truncate">{{ device.name }}</div>
 
-                <!-- Meta row: manufacturer, model, serial, warranty, user - responsive layout -->
-                <div class="flex flex-wrap items-center gap-2 mt-1.5 text-xs">
-                  <!-- Manufacturer & Model -->
-                  <span class="text-secondary flex-shrink-0">{{ device.manufacturer || 'Unknown' }} {{ device.model }}</span>
+                <!-- Meta row -->
+                <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
+                  <!-- Model -->
+                  <span class="text-secondary">{{ device.model || 'Unknown model' }}</span>
 
-                  <!-- Serial Number -->
-                  <span class="text-tertiary font-mono flex-shrink-0">SN: {{ device.serial_number }}</span>
+                  <!-- Serial -->
+                  <span class="text-tertiary font-mono">{{ device.serial_number }}</span>
 
                   <!-- Warranty Status -->
                   <span
-                    class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border flex-shrink-0"
+                    class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border"
                     :class="{
                       'bg-status-success-muted text-status-success border-status-success/30': device.warranty_status === 'Active',
                       'bg-status-warning-muted text-status-warning border-status-warning/30': device.warranty_status === 'Warning',
                       'bg-status-error-muted text-status-error border-status-error/30': device.warranty_status === 'Expired',
-                      'bg-surface-alt text-secondary border-default': device.warranty_status === 'Unknown'
+                      'bg-surface-alt text-secondary border-default': !device.warranty_status || device.warranty_status === 'Unknown'
                     }"
                   >
-                    {{ device.warranty_status }}
+                    {{ device.warranty_status || 'Unknown' }}
                   </span>
 
                   <!-- Primary User -->
-                  <div class="flex items-center gap-1 min-w-0 flex-shrink-0">
-                    <span class="text-tertiary">User:</span>
-                    <template v-if="device.primary_user">
-                      <div class="[&>div]:!w-4 [&>div]:!h-4 [&>div>*]:!w-4 [&>div>*]:!h-4 [&>div>*]:!text-[8px]">
-                        <UserAvatar
-                          :name="device.primary_user.uuid"
-                          :user-name="device.primary_user.name"
-                          :avatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
-                          :show-name="false"
-                          :clickable="false"
-                          size="xs"
-                        />
-                      </div>
-                      <span class="text-secondary truncate max-w-[100px]">{{ device.primary_user.name }}</span>
-                    </template>
-                    <span v-else class="text-tertiary italic">Unassigned</span>
-                  </div>
+                  <template v-if="device.primary_user">
+                    <span class="text-secondary truncate max-w-[120px]">{{ device.primary_user.name }}</span>
+                  </template>
                 </div>
               </div>
 
@@ -339,13 +315,15 @@ defineExpose({
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
               </svg>
             </div>
+            </TransitionGroup>
           </div>
         </template>
       </BaseListView>
     </div>
 
-    <!-- Pagination Controls -->
+    <!-- Pagination Controls (hidden on mobile when using infinite scroll) -->
     <PaginationControls
+      v-if="!isMobile"
       :current-page="listManager.currentPage.value"
       :total-pages="listManager.totalPages.value"
       :page-size="listManager.pageSize.value"
@@ -355,7 +333,6 @@ defineExpose({
       @update:page-size="listManager.handlePageSizeChange"
       @import="() => {}"
     />
-
 
   </div>
 </template>
@@ -370,21 +347,21 @@ defineExpose({
 
 .overflow-y-auto::-webkit-scrollbar-track,
 .overflow-x-auto::-webkit-scrollbar-track {
-  background: var(--bg-app);
+  background: var(--color-bg-surface);
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb,
 .overflow-x-auto::-webkit-scrollbar-thumb {
-  background: var(--border-default);
+  background: var(--color-border-default);
   border-radius: 4px;
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb:hover,
 .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-  background: var(--border-strong);
+  background: var(--color-border-strong);
 }
 
 .overflow-x-auto::-webkit-scrollbar-corner {
-  background: var(--bg-app);
+  background: var(--color-bg-surface);
 }
 </style> 
