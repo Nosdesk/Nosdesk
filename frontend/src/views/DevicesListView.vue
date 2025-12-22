@@ -8,6 +8,7 @@ import PaginationControls from '@/components/common/PaginationControls.vue'
 
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
 import { useListManagement } from '@/composables/useListManagement'
+import { useListSSE } from '@/composables/useListSSE'
 import { useStaggeredList } from '@/composables/useStaggeredList'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useDataStore } from '@/stores/dataStore'
@@ -22,6 +23,11 @@ const { isMobile } = useMobileDetection()
 
 // Default page size: 0 (infinite scroll) on mobile, 25 on desktop
 const defaultPageSize = isMobile.value ? 0 : 25
+
+// Navigate to create device (used by both header button and mobile search bar)
+const navigateToCreateDevice = () => {
+  router.push('/devices/new');
+};
 
 // Use the composable for all common functionality
 const listManager = useListManagement<Device>({
@@ -47,7 +53,21 @@ const listManager = useListManagement<Device>({
 
     return response;
   },
-  routeBuilder: (device) => `/devices/${device.id}`
+  routeBuilder: (device) => `/devices/${device.id}`,
+  mobileSearch: {
+    placeholder: 'Search devices...',
+    onCreate: navigateToCreateDevice
+  }
+});
+
+// SSE integration for real-time updates
+useListSSE<Device>({
+  hasItem: listManager.hasItem,
+  updateItemField: listManager.updateItemField,
+  removeItem: listManager.removeItem,
+  prependItem: listManager.prependItem,
+  eventTypes: { updated: 'device-updated' },
+  getEventItemId: (data) => (data.data || data).device_id
 });
 
 // Pre-warm user cache with all primary users from devices
@@ -131,11 +151,6 @@ const handleLoadMore = async () => {
   }
 };
 
-// Navigate to create device
-const navigateToCreateDevice = () => {
-  router.push('/devices/new');
-};
-
 // Expose method for parent (App.vue) to call from header button
 defineExpose({
   navigateToCreateDevice
@@ -147,10 +162,12 @@ defineExpose({
     <!-- Search and filter bar -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2 flex-wrap">
+        <!-- Search input - hidden on mobile (shown in MobileSearchBar) -->
         <DebouncedSearchInput
           :model-value="listManager.searchQuery.value"
           @update:model-value="listManager.handleSearchUpdate"
           placeholder="Search devices..."
+          class="hidden sm:block"
         />
 
         <!-- Filters -->

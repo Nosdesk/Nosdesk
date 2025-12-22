@@ -298,6 +298,7 @@ pub struct CreateUserRequest {
 
 pub async fn create_user(
     db_pool: web::Data<crate::db::Pool>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
     user_data: web::Json<CreateUserRequest>,
     req: HttpRequest,
 ) -> impl Responder {
@@ -503,11 +504,20 @@ pub async fn create_user(
                     } else {
                         println!("✅ New user created successfully: {} (password set)", user.name);
                     }
-                    let mut response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+                    let user_uuid_str = user.uuid.to_string();
+                    let response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+
+                    // Broadcast user creation via SSE
+                    crate::utils::sse::SseBroadcaster::broadcast_user_created(
+                        &sse_state,
+                        &user_uuid_str,
+                        serde_json::to_value(&response).unwrap_or_default(),
+                    ).await;
+
                     // Add invitation_sent flag to response
-                    if let serde_json::Value::Object(ref mut map) = serde_json::to_value(&response).unwrap_or_default() {
+                    if let serde_json::Value::Object(mut map) = serde_json::to_value(&response).unwrap_or_default() {
                         map.insert("invitation_sent".to_string(), serde_json::Value::Bool(invitation_sent));
-                        return HttpResponse::Created().json(map.clone());
+                        return HttpResponse::Created().json(map);
                     }
                     HttpResponse::Created().json(response)
                 },
@@ -570,6 +580,7 @@ pub struct DeleteUserRequest {
 pub async fn delete_user(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
     req: HttpRequest,
     body: web::Json<DeleteUserRequest>,
 ) -> impl Responder {
@@ -733,6 +744,13 @@ pub async fn delete_user(
     match repository::delete_user(&target_user.uuid, &mut conn) {
         Ok(count) if count > 0 => {
             info!("User deleted successfully: {} (uuid={})", target_user.name, target_user.uuid);
+
+            // Broadcast user deletion via SSE
+            crate::utils::sse::SseBroadcaster::broadcast_user_deleted(
+                &sse_state,
+                &user_uuid,
+            ).await;
+
             HttpResponse::NoContent().finish()
         },
         Ok(_) => HttpResponse::NotFound().json(json!({
@@ -1523,6 +1541,7 @@ fn should_keep_file(filename: &str, valid_uuids: &HashSet<String>, valid_suffixe
 
 pub async fn update_user_by_uuid(
     db_pool: web::Data<crate::db::Pool>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
     req: HttpRequest,
     path: web::Path<String>,
     user_data: web::Json<UserUpdateWithPassword>,
@@ -1677,9 +1696,63 @@ pub async fn update_user_by_uuid(
     };
 
     match repository::update_user(&user.uuid, user_update, &mut conn) {
-        Ok(user) => {
+        Ok(updated_user) => {
+            // Broadcast SSE events for changed fields
+            let updated_by = claims.sub.clone();
+
+            if user_data.name.is_some() {
+                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
+                    &sse_state,
+                    &user_uuid,
+                    "name",
+                    json!(updated_user.name.clone()),
+                    &updated_by,
+                ).await;
+            }
+            if user_data.role.is_some() {
+                let role_str = match updated_user.role {
+                    crate::models::UserRole::Admin => "admin",
+                    crate::models::UserRole::Technician => "technician",
+                    crate::models::UserRole::User => "user",
+                };
+                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
+                    &sse_state,
+                    &user_uuid,
+                    "role",
+                    json!(role_str),
+                    &updated_by,
+                ).await;
+            }
+            if user_data.pronouns.is_some() {
+                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
+                    &sse_state,
+                    &user_uuid,
+                    "pronouns",
+                    json!(updated_user.pronouns.clone()),
+                    &updated_by,
+                ).await;
+            }
+            if user_data.avatar_url.is_some() {
+                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
+                    &sse_state,
+                    &user_uuid,
+                    "avatar_url",
+                    json!(updated_user.avatar_url.clone()),
+                    &updated_by,
+                ).await;
+            }
+            if user_data.avatar_thumb.is_some() {
+                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
+                    &sse_state,
+                    &user_uuid,
+                    "avatar_thumb",
+                    json!(updated_user.avatar_thumb.clone()),
+                    &updated_by,
+                ).await;
+            }
+
             // Use helper function to fetch primary email from user_emails table
-            let user_response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+            let user_response = repository::user_helpers::get_user_with_primary_email(updated_user, &mut conn);
             HttpResponse::Ok().json(user_response)
         },
         Err(_) => HttpResponse::InternalServerError().json(json!({

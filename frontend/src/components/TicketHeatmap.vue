@@ -53,6 +53,9 @@ const generateDateRange = () => {
     return dates;
 };
 
+// Generate skeleton grid structure (53 weeks x 7 days)
+const skeletonWeeks = Array.from({ length: 53 }, () => Array(7).fill(null));
+
 // Fetch ticket data and populate the heatmap
 const fetchTicketData = async () => {
     isLoading.value = true;
@@ -220,7 +223,7 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="bg-surface rounded-lg p-6 w-full">
+    <div class="bg-surface rounded-lg px-3 py-4 sm:p-6 w-full">
         <!-- Header -->
         <div class="flex justify-between items-center mb-4">
             <h3 class="text-secondary text-sm font-medium">
@@ -246,38 +249,8 @@ onMounted(() => {
             {{ error }}
         </div>
 
-        <!-- Loading State -->
-        <div
-            v-else-if="isLoading"
-            class="flex justify-center items-center h-32 text-secondary"
-        >
-            <div class="flex flex-col items-center gap-2">
-                <svg
-                    class="w-6 h-6 animate-spin"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                >
-                    <circle
-                        class="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        stroke-width="4"
-                    ></circle>
-                    <path
-                        class="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                </svg>
-                <span class="text-sm">Loading ticket data...</span>
-            </div>
-        </div>
-
-        <!-- Heatmap -->
-        <div v-else class="w-full">
-            <!-- Responsive container with flexible layout -->
+        <!-- Heatmap Container -->
+        <div class="w-full">
             <div class="flex flex-col gap-2 w-full">
                 <!-- Main heatmap grid -->
                 <div class="flex gap-1.5 w-full">
@@ -294,13 +267,29 @@ onMounted(() => {
                         <span class="h-2.5 flex items-center">Sat</span>
                     </div>
 
-                    <!-- Heatmap container that fills remaining space -->
-                    <div class="flex-1 min-w-0">
+                    <!-- Skeleton grid while loading -->
+                    <div v-if="isLoading" class="flex-1 min-w-0">
+                        <div
+                            class="grid w-full animate-pulse"
+                            :style="{ gridTemplateColumns: `repeat(${skeletonWeeks.length}, minmax(0, 1fr))` }"
+                        >
+                            <div
+                                v-for="(week, weekIndex) in skeletonWeeks"
+                                :key="weekIndex"
+                                class="flex flex-col"
+                            >
+                                <div v-for="dayIndex in 7" :key="dayIndex" class="p-[1px]">
+                                    <div class="w-full h-2.5 rounded-[1px] bg-surface-alt border border-subtle" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Real heatmap data -->
+                    <div v-else class="flex-1 min-w-0">
                         <div
                             class="grid w-full"
-                            :style="{
-                                gridTemplateColumns: `repeat(${weeklyData.length}, minmax(0, 1fr))`,
-                            }"
+                            :style="{ gridTemplateColumns: `repeat(${weeklyData.length}, minmax(0, 1fr))` }"
                         >
                             <div
                                 v-for="(week, weekIndex) in weeklyData"
@@ -315,13 +304,10 @@ onMounted(() => {
                                 >
                                     <div class="p-[1px]">
                                         <div
-                                            class="w-full h-2.5 rounded-[1px] transition-transform duration-75 hover:scale-110 hover:z-10 border border-subtle"
+                                            class="w-full h-2.5 rounded-[1px] transition-colors duration-300 hover:scale-110 hover:z-10 border border-subtle"
                                             :class="[
                                                 getColorClass(day.count),
-                                                {
-                                                    'cursor-pointer hover:border-default': day.count > 0,
-                                                    'cursor-default': day.count === 0,
-                                                }
+                                                day.count > 0 ? 'cursor-pointer hover:border-default' : 'cursor-default'
                                             ]"
                                             @click="handleDayClick(day)"
                                         />
@@ -335,14 +321,14 @@ onMounted(() => {
                 <!-- Legend and info -->
                 <div class="flex justify-between items-center">
                     <div class="text-[10px] text-secondary">
-                        {{ heatmapData.filter((d) => d.count > 0).length }} days
-                        with activity
+                        <template v-if="!isLoading">
+                            {{ heatmapData.filter((d) => d.count > 0).length }} days with activity
+                        </template>
+                        <span v-else class="invisible">0 days with activity</span>
                     </div>
 
                     <!-- Legend -->
-                    <div
-                        class="flex items-center gap-2 text-[10px] text-secondary"
-                    >
+                    <div class="flex items-center gap-2 text-[10px] text-secondary">
                         <span>Less</span>
                         <div class="flex gap-0.5">
                             <div

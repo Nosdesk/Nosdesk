@@ -23,6 +23,15 @@ pub enum TicketEvent {
         updated_by: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    TicketCreated {
+        ticket_id: i32,
+        ticket: serde_json::Value,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+    TicketDeleted {
+        ticket_id: i32,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     CommentAdded {
         ticket_id: i32,
         comment: serde_json::Value,
@@ -92,6 +101,22 @@ pub enum TicketEvent {
     ViewerCountChanged {
         ticket_id: i32,
         count: usize,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+    UserUpdated {
+        user_uuid: String,
+        field: String,
+        value: serde_json::Value,
+        updated_by: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+    UserCreated {
+        user_uuid: String,
+        user: serde_json::Value,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+    UserDeleted {
+        user_uuid: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
     Heartbeat {
@@ -220,6 +245,8 @@ impl Stream for SseStream {
                 // Got event - determine event type and serialize
                 let event_type = match &event {
                     TicketEvent::TicketUpdated { .. } => "ticket-updated",
+                    TicketEvent::TicketCreated { .. } => "ticket-created",
+                    TicketEvent::TicketDeleted { .. } => "ticket-deleted",
                     TicketEvent::CommentAdded { .. } => "comment-added",
                     TicketEvent::CommentDeleted { .. } => "comment-deleted",
                     TicketEvent::AttachmentAdded { .. } => "attachment-added",
@@ -233,6 +260,9 @@ impl Stream for SseStream {
                     TicketEvent::TicketUnlinked { .. } => "ticket-unlinked",
                     TicketEvent::DocumentationUpdated { .. } => "documentation-updated",
                     TicketEvent::ViewerCountChanged { .. } => "viewer-count-changed",
+                    TicketEvent::UserUpdated { .. } => "user-updated",
+                    TicketEvent::UserCreated { .. } => "user-created",
+                    TicketEvent::UserDeleted { .. } => "user-deleted",
                     TicketEvent::Heartbeat { .. } => "heartbeat",
                 };
 

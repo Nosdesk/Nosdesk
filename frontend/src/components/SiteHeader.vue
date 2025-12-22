@@ -289,12 +289,12 @@ defineExpose({
 
       <!-- Right side -->
       <div class="flex items-center gap-2 md:gap-4 flex-shrink-0">
-        <!-- Create Button (generic - can be ticket, project, etc.) -->
+        <!-- Create Button (generic - can be ticket, project, etc.) - hidden on mobile (shown in MobileSearchBar) -->
         <button
           v-if="props.showCreateButton"
           @click="handleCreateClick"
           :disabled="isCreating"
-          class="create-button px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          class="hidden sm:flex create-button px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed items-center gap-2"
           :aria-label="isCreating ? `Creating...` : `Create ${props.createButtonText}`"
         >
           <!-- Always show icon -->

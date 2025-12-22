@@ -22,6 +22,34 @@ impl SseBroadcaster {
         Self::broadcast_event(state, event).await;
     }
 
+    /// Broadcast a ticket creation to all connected clients
+    pub async fn broadcast_ticket_created(
+        state: &web::Data<SseState>,
+        ticket_id: i32,
+        ticket: serde_json::Value,
+    ) {
+        Self::broadcast_generic_event(state, |timestamp| {
+            TicketEvent::TicketCreated {
+                ticket_id,
+                ticket,
+                timestamp,
+            }
+        }).await;
+    }
+
+    /// Broadcast a ticket deletion to all connected clients
+    pub async fn broadcast_ticket_deleted(
+        state: &web::Data<SseState>,
+        ticket_id: i32,
+    ) {
+        Self::broadcast_generic_event(state, |timestamp| {
+            TicketEvent::TicketDeleted {
+                ticket_id,
+                timestamp,
+            }
+        }).await;
+    }
+
     /// Broadcast a ticket field update to all connected clients
     pub async fn broadcast_ticket_updated(
         state: &web::Data<SseState>,
@@ -209,6 +237,53 @@ impl SseBroadcaster {
             TicketEvent::ViewerCountChanged {
                 ticket_id,
                 count,
+                timestamp,
+            }
+        }).await;
+    }
+
+    /// Broadcast a user field update to all connected clients
+    pub async fn broadcast_user_updated(
+        state: &web::Data<SseState>,
+        user_uuid: &str,
+        field: &str,
+        value: serde_json::Value,
+        updated_by: &str,
+    ) {
+        Self::broadcast_generic_event(state, |timestamp| {
+            TicketEvent::UserUpdated {
+                user_uuid: user_uuid.to_string(),
+                field: field.to_string(),
+                value,
+                updated_by: updated_by.to_string(),
+                timestamp,
+            }
+        }).await;
+    }
+
+    /// Broadcast a user creation to all connected clients
+    pub async fn broadcast_user_created(
+        state: &web::Data<SseState>,
+        user_uuid: &str,
+        user: serde_json::Value,
+    ) {
+        Self::broadcast_generic_event(state, |timestamp| {
+            TicketEvent::UserCreated {
+                user_uuid: user_uuid.to_string(),
+                user,
+                timestamp,
+            }
+        }).await;
+    }
+
+    /// Broadcast a user deletion to all connected clients
+    pub async fn broadcast_user_deleted(
+        state: &web::Data<SseState>,
+        user_uuid: &str,
+    ) {
+        Self::broadcast_generic_event(state, |timestamp| {
+            TicketEvent::UserDeleted {
+                user_uuid: user_uuid.to_string(),
                 timestamp,
             }
         }).await;

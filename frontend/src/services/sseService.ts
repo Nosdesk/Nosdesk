@@ -29,6 +29,8 @@ type EventHandler = (data: any) => void;
 // SSE Event types
 type SSEEventType =
   | "ticket-updated"
+  | "ticket-created"
+  | "ticket-deleted"
   | "comment-added"
   | "comment-deleted"
   | "device-linked"
@@ -39,6 +41,9 @@ type SSEEventType =
   | "project-assigned"
   | "project-unassigned"
   | "documentation-updated"
+  | "user-updated"
+  | "user-created"
+  | "user-deleted"
   | "heartbeat"
   | "reconnect";
 
@@ -142,6 +147,8 @@ class SSEService {
     // Register the generic handler for all event types
     const eventTypes: SSEEventType[] = [
       "ticket-updated",
+      "ticket-created",
+      "ticket-deleted",
       "comment-added",
       "comment-deleted",
       "device-linked",
@@ -152,6 +159,9 @@ class SSEService {
       "project-assigned",
       "project-unassigned",
       "documentation-updated",
+      "user-updated",
+      "user-created",
+      "user-deleted",
       "heartbeat",
       "reconnect",
     ];

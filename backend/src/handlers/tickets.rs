@@ -327,6 +327,7 @@ pub async fn get_ticket(
 // Create a new ticket
 pub async fn create_ticket(
     pool: web::Data<crate::db::Pool>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
     ticket: web::Json<NewTicket>,
 ) -> impl Responder {
     let mut conn = match get_db_conn(&pool).await {
@@ -343,7 +344,16 @@ pub async fn create_ticket(
     }
 
     match repository::create_ticket(&mut conn, new_ticket) {
-        Ok(ticket) => HttpResponse::Created().json(ticket),
+        Ok(ticket) => {
+            // Broadcast ticket creation via SSE
+            crate::utils::sse::SseBroadcaster::broadcast_ticket_created(
+                &sse_state,
+                ticket.id,
+                serde_json::to_value(&ticket).unwrap_or_default(),
+            ).await;
+
+            HttpResponse::Created().json(ticket)
+        },
         Err(_) => HttpResponse::InternalServerError().json("Failed to create ticket"),
     }
 }

@@ -8,6 +8,7 @@ import PaginationControls from "@/components/common/PaginationControls.vue";
 import { StatusBadgeCell, UserInfoCell, DateCell } from "@/components/common/cells";
 import UserAvatar from "@/components/UserAvatar.vue";
 import { useListManagement } from "@/composables/useListManagement";
+import { useListSSE } from "@/composables/useListSSE";
 import { useStaggeredList } from "@/composables/useStaggeredList";
 import { useMobileDetection } from "@/composables/useMobileDetection";
 import { useDataStore } from "@/stores/dataStore";
@@ -21,6 +22,11 @@ const { isMobile } = useMobileDetection();
 
 // Default page size: 0 (infinite scroll) on mobile, 25 on desktop
 const defaultPageSize = isMobile.value ? 0 : 25;
+
+// Navigate to user creation (used by both header button and mobile search bar)
+const navigateToCreateUser = () => {
+  router.push('/users/new');
+};
 
 // Use the composable for all common functionality
 const listManager = useListManagement<User>({
@@ -38,7 +44,22 @@ const listManager = useListManagement<User>({
       role: params.role !== 'all' ? params.role : undefined
     });
   },
-  routeBuilder: (user) => `/users/${user.uuid}`
+  routeBuilder: (user) => `/users/${user.uuid}`,
+  mobileSearch: {
+    placeholder: 'Search users...',
+    onCreate: navigateToCreateUser
+  }
+});
+
+// SSE integration for real-time updates
+useListSSE<User>({
+  hasItem: listManager.hasItem,
+  updateItemField: listManager.updateItemField,
+  removeItem: listManager.removeItem,
+  prependItem: listManager.prependItem,
+  eventTypes: { updated: 'user-updated', created: 'user-created', deleted: 'user-deleted' },
+  getEventItemId: (data) => (data.data || data).user_uuid,
+  itemKey: 'user'
 });
 
 // Define table columns with responsive behavior
@@ -82,11 +103,6 @@ const handleLoadMore = async () => {
   }
 };
 
-// Navigate to user creation
-const navigateToCreateUser = () => {
-  router.push('/users/new');
-};
-
 // Expose method for parent (App.vue) to call from header button
 defineExpose({
   navigateToCreateUser
@@ -98,10 +114,12 @@ defineExpose({
     <!-- Search and filter bar -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2 flex-wrap">
+        <!-- Search input - hidden on mobile (shown in MobileSearchBar) -->
         <DebouncedSearchInput
           :model-value="listManager.searchQuery.value"
           @update:model-value="listManager.handleSearchUpdate"
           placeholder="Search users..."
+          class="hidden sm:block"
         />
 
         <!-- Filters -->

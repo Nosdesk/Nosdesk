@@ -1,6 +1,6 @@
 <!-- ProjectsView.vue -->
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Project, ProjectStatus } from '@/types/project'
 import Modal from '@/components/Modal.vue'
@@ -9,6 +9,7 @@ import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import { projectService } from '@/services/projectService'
 import { formatRelativeTime } from '@/utils/dateUtils'
 import { useStaggeredList } from '@/composables/useStaggeredList'
+import { useMobileSearch } from '@/composables/useMobileSearch'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 
@@ -167,6 +168,31 @@ const openCreateModal = () => {
 defineExpose({
   openCreateModal
 })
+
+// Mobile search bar integration
+const { registerMobileSearch, deregisterMobileSearch, updateSearchQuery } = useMobileSearch()
+
+const handleSearchUpdate = (value: string) => {
+  searchQuery.value = value
+}
+
+const setupMobileSearch = () => {
+  registerMobileSearch({
+    searchQuery: searchQuery.value,
+    placeholder: 'Search projects...',
+    showCreateButton: true,
+    onSearchUpdate: handleSearchUpdate,
+    onCreate: openCreateModal
+  })
+}
+
+onMounted(setupMobileSearch)
+onActivated(setupMobileSearch)
+onDeactivated(deregisterMobileSearch)
+onUnmounted(deregisterMobileSearch)
+
+// Sync search query changes to mobile search bar
+watch(searchQuery, updateSearchQuery)
 </script>
 
 <template>
@@ -174,10 +200,11 @@ defineExpose({
     <!-- Header bar with search, filters, and actions -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2 flex-wrap">
-        <!-- Search -->
+        <!-- Search - hidden on mobile (shown in MobileSearchBar) -->
         <DebouncedSearchInput
           v-model="searchQuery"
           placeholder="Search projects..."
+          class="hidden sm:block"
         />
 
         <!-- Status filter -->

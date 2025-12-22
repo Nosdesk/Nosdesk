@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { formatDate, formatDateTime } from '@/utils/dateUtils';
-import { ref, onMounted, watch, computed, onUnmounted, nextTick } from "vue";
+import { ref, onMounted, onActivated, onDeactivated, watch, computed, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import CollaborativeEditor from "@/components/CollaborativeEditor.vue";
 import { useTitleManager } from "@/composables/useTitleManager";
@@ -18,6 +18,7 @@ import EmptyState from '@/components/common/EmptyState.vue';
 import apiClient from '@/services/apiConfig';
 import { useSSE } from '@/services/sseService';
 import { useAuthStore } from '@/stores/auth';
+import { useMobileSearch } from '@/composables/useMobileSearch';
 
 const route = useRoute();
 const router = useRouter();
@@ -147,6 +148,11 @@ const emit = defineEmits<{
 // Add a computed property to determine if we should show the page URL
 const isMainDocumentationPage = computed(() => {
   return isIndexPage.value;
+});
+
+// Route-based detection for mobile search (doesn't depend on loading state)
+const isDocumentationIndexRoute = computed(() => {
+  return !route.params.path || route.params.path === '';
 });
 
 // Add a function to load the main documentation page
@@ -822,6 +828,43 @@ onUnmounted(() => {
 defineExpose({
   createNewPage
 });
+
+// Mobile search bar integration (only on documentation index route)
+const { registerMobileSearch, deregisterMobileSearch, updateSearchQuery: updateMobileSearchQuery } = useMobileSearch()
+
+const setupMobileSearch = () => {
+  // Use route-based detection so search shows immediately (not after loading)
+  if (isDocumentationIndexRoute.value) {
+    registerMobileSearch({
+      searchQuery: searchQuery.value,
+      placeholder: 'Search documentation...',
+      showCreateButton: true,
+      onSearchUpdate: (value: string) => {
+        searchQuery.value = value
+        handleSearch(value)
+      },
+      onCreate: createNewPage
+    })
+  } else {
+    deregisterMobileSearch()
+  }
+}
+
+// Standard lifecycle hooks (matches other views)
+onMounted(setupMobileSearch)
+onActivated(setupMobileSearch)
+onDeactivated(deregisterMobileSearch)
+onUnmounted(deregisterMobileSearch)
+
+// Watch for route changes within documentation (e.g., navigating from index to article)
+watch(() => route.params.path, setupMobileSearch)
+
+// Sync search query changes to mobile search bar (only when on index route)
+watch(searchQuery, (value) => {
+  if (isDocumentationIndexRoute.value) {
+    updateMobileSearchQuery(value)
+  }
+})
 </script>
 
 <template>
@@ -832,13 +875,14 @@ defineExpose({
         <!-- Back button -->
         <BackButton :fallbackRoute="fallbackRoute" :label="backButtonLabel" />
 
-        <!-- Search bar (only on index page) -->
+        <!-- Search bar (only on index page) - hidden on mobile (shown in MobileSearchBar) -->
         <template v-if="isMainDocumentationPage">
           <DebouncedSearchInput
             v-model="searchQuery"
             placeholder="Search documentation..."
             @update:modelValue="handleSearch"
             @focus="searchDropdownVisible = searchQuery.length > 0"
+            class="hidden sm:block"
           />
         </template>
 

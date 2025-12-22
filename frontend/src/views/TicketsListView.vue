@@ -15,6 +15,7 @@ import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import { useListManagement } from "@/composables/useListManagement";
+import { useListSSE } from "@/composables/useListSSE";
 import { useStaggeredList } from "@/composables/useStaggeredList";
 import { useMobileDetection } from "@/composables/useMobileDetection";
 import { useInfiniteScroll } from "@/composables/useInfiniteScroll";
@@ -89,6 +90,16 @@ const initialPageSize = (urlParams.pageSize && typeof urlParams.pageSize === 'st
 const initialSortField = (urlParams.sortField && typeof urlParams.sortField === 'string') ? urlParams.sortField : 'id';
 const initialSortDirection = (urlParams.sortDirection && typeof urlParams.sortDirection === 'string') ? urlParams.sortDirection as 'asc' | 'desc' : 'desc';
 
+// Create ticket handler for mobile search bar
+const handleCreateTicket = async () => {
+  try {
+    const newTicket = await ticketService.createEmptyTicket();
+    router.push(`/tickets/${newTicket.id}`);
+  } catch (error) {
+    console.error('Failed to create empty ticket:', error);
+  }
+};
+
 // List management composable
 const listManager = useListManagement<Ticket>({
   itemIdField: 'id',
@@ -112,7 +123,11 @@ const listManager = useListManagement<Ticket>({
       modifiedOn: params.modifiedOn
     }, requestKey);
   },
-  routeBuilder: (ticket) => `/tickets/${ticket.id}`
+  routeBuilder: (ticket) => `/tickets/${ticket.id}`,
+  mobileSearch: {
+    placeholder: 'Search tickets...',
+    onCreate: handleCreateTicket
+  }
 });
 
 // Set initial values
@@ -120,6 +135,27 @@ listManager.searchQuery.value = initialSearchQuery;
 listManager.filters.value = initialFilters;
 listManager.currentPage.value = initialPage;
 listManager.pageSize.value = initialPageSize;
+
+// SSE integration for real-time updates
+useListSSE<Ticket>({
+  hasItem: listManager.hasItem,
+  updateItemField: listManager.updateItemField,
+  removeItem: listManager.removeItem,
+  prependItem: listManager.prependItem,
+  eventTypes: { updated: 'ticket-updated', created: 'ticket-created', deleted: 'ticket-deleted' },
+  getEventItemId: (data) => (data.data || data).ticket_id,
+  itemKey: 'ticket',
+  onItemUpdated: (data) => {
+    const { ticket_id, field, value } = data.data || data;
+    // Handle user fields that include nested user_info
+    if ((field === 'assignee' || field === 'requester') && value?.user_info) {
+      listManager.updateItemField(ticket_id, field, value.uuid || value);
+      listManager.updateItemField(ticket_id, `${field}_user` as keyof Ticket, value.user_info);
+    } else {
+      listManager.updateItemField(ticket_id, field, value);
+    }
+  }
+});
 
 // Determine which scroll container to use based on viewport
 const activeScrollContainer = computed(() =>
@@ -221,10 +257,12 @@ const { getStyle } = useStaggeredList();
     <!-- Search and filter bar -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2 flex-wrap">
+        <!-- Search input - hidden on mobile (shown in MobileSearchBar) -->
         <DebouncedSearchInput
           :model-value="listManager.searchQuery.value"
           @update:model-value="listManager.handleSearchUpdate"
           placeholder="Search tickets..."
+          class="hidden sm:block"
         />
 
         <!-- Filters -->

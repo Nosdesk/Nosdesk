@@ -4,7 +4,9 @@ import { RouterView, useRoute, useRouter } from 'vue-router'
 import { computed, ref, onMounted } from 'vue'
 import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
+import MobileSearchBar from './components/MobileSearchBar.vue'
 import { useTitleManager } from '@/composables/useTitleManager'
+import { useMobileSearch } from '@/composables/useMobileSearch'
 import authService from '@/services/authService'
 import { useBrandingStore } from '@/stores/branding'
 
@@ -22,6 +24,9 @@ const handleNavCollapse = (collapsed: boolean) => {
 
 // Use the centralized title manager
 const titleManager = useTitleManager();
+
+// Mobile search bar state - used for conditional padding
+const { isActive: isMobileSearchActive } = useMobileSearch();
 
 // Handle route-based ticket information
 const ticketInfo = computed(() => {
@@ -139,8 +144,14 @@ onMounted(async () => {
         @create="handleCreateClick"
       />
 
-      <!-- Scrollable content with bottom padding for mobile nav (h-12 = 48px + safe area) -->
-      <main class="flex-1 overflow-hidden pb-[calc(3rem+env(safe-area-inset-bottom))] sm:pb-0">
+      <!-- Mobile Search Bar (positioned above bottom nav) -->
+      <MobileSearchBar />
+
+      <!-- Scrollable content with bottom padding for mobile nav (+ search bar when active) -->
+      <main
+        class="flex-1 overflow-hidden sm:pb-0"
+        :class="isMobileSearchActive ? 'pb-[calc(6.5rem+env(safe-area-inset-bottom))]' : 'pb-[calc(3rem+env(safe-area-inset-bottom))]'"
+      >
         <RouterView
           v-slot="{ Component }"
           @update:ticket="titleManager.setTicket"
@@ -148,16 +159,9 @@ onMounted(async () => {
           @update:document="titleManager.setDocument"
           @update:title="titleManager.setCustomTitle"
         >
-          <Transition
-            name="fade"
-            mode="out-in"
-            @before-enter="titleManager.startTransition"
-            @after-enter="titleManager.endTransition"
-            @before-leave="titleManager.startTransition"
-            @after-leave="titleManager.endTransition"
-          >
-            <component :is="Component" :key="$route.fullPath" ref="currentViewComponent" class="h-full overflow-auto" />
-          </Transition>
+          <KeepAlive :include="['TicketsListView', 'UsersListView', 'DevicesListView', 'ProjectsView']">
+            <component :is="Component" :key="$route.name" ref="currentViewComponent" class="h-full overflow-auto" />
+          </KeepAlive>
         </RouterView>
       </main>
     </div>

@@ -1,5 +1,6 @@
-import { shallowRef, ref, computed, onMounted } from 'vue'
+import { shallowRef, ref, computed, onMounted, onActivated, onDeactivated, onUnmounted, triggerRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useMobileSearch } from './useMobileSearch'
 
 interface ListOptions<T> {
   itemIdField?: string
@@ -8,6 +9,12 @@ interface ListOptions<T> {
   defaultSortDirection?: 'asc' | 'desc'
   fetchFunction: (params: any) => Promise<{ data: T[], total: number, totalPages: number }>
   routeBuilder?: (item: T) => string
+  // Mobile search bar options
+  mobileSearch?: {
+    placeholder?: string
+    showCreateButton?: boolean
+    onCreate?: () => void
+  }
 }
 
 export function useListManagement<T extends Record<string, any>>(options: ListOptions<T>) {
@@ -217,7 +224,69 @@ export function useListManagement<T extends Record<string, any>>(options: ListOp
     selectedItems.value = items.value.map(i => i[itemIdField].toString())
   }
 
+  // Item mutation methods for SSE real-time updates
+  const getItem = (id: string | number): T | undefined => {
+    return items.value.find(item => item[itemIdField].toString() === id.toString())
+  }
+
+  const hasItem = (id: string | number): boolean => {
+    return items.value.some(item => item[itemIdField].toString() === id.toString())
+  }
+
+  const updateItemField = <K extends keyof T>(id: string | number, field: K, value: T[K]): boolean => {
+    const item = getItem(id)
+    if (!item) return false
+    ;(item as any)[field] = value
+    triggerRef(items)
+    return true
+  }
+
+  const removeItem = (id: string | number): boolean => {
+    const index = items.value.findIndex(item => item[itemIdField].toString() === id.toString())
+    if (index === -1) return false
+    items.value.splice(index, 1)
+    totalItems.value = Math.max(0, totalItems.value - 1)
+    triggerRef(items)
+    return true
+  }
+
+  const prependItem = (item: T): void => {
+    items.value.unshift(item)
+    totalItems.value += 1
+    triggerRef(items)
+  }
+
   onMounted(fetchItems)
+
+  // Refresh on reactivation (KeepAlive) to catch changes while cached
+  onActivated(() => {
+    if (items.value.length > 0) {
+      refresh()
+    }
+  })
+
+  // Mobile search bar integration
+  if (options.mobileSearch) {
+    const { registerMobileSearch, deregisterMobileSearch, updateSearchQuery } = useMobileSearch()
+
+    const setupMobileSearch = () => {
+      registerMobileSearch({
+        searchQuery: searchQuery.value,
+        placeholder: options.mobileSearch!.placeholder || 'Search...',
+        showCreateButton: options.mobileSearch!.showCreateButton ?? true,
+        onSearchUpdate: handleSearchUpdate,
+        onCreate: options.mobileSearch!.onCreate
+      })
+    }
+
+    onMounted(setupMobileSearch)
+    onActivated(setupMobileSearch)
+    onDeactivated(deregisterMobileSearch)
+    onUnmounted(deregisterMobileSearch)
+
+    // Sync search query changes to mobile search bar
+    watch(searchQuery, updateSearchQuery)
+  }
 
   return {
     // State
@@ -235,5 +304,8 @@ export function useListManagement<T extends Record<string, any>>(options: ListOp
     toggleSelection, toggleAllItems, navigateToItem,
     clearSelection, selectAll,
     buildFilterOptions,
+
+    // Item mutation methods for SSE
+    getItem, hasItem, updateItemField, removeItem, prependItem,
   }
 }
