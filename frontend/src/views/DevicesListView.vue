@@ -56,6 +56,7 @@ const listManager = useListManagement<Device>({
   routeBuilder: (device) => `/devices/${device.id}`,
   mobileSearch: {
     placeholder: 'Search devices...',
+    createIcon: 'device',
     onCreate: navigateToCreateDevice
   }
 });

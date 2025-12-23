@@ -839,6 +839,7 @@ const setupMobileSearch = () => {
       searchQuery: searchQuery.value,
       placeholder: 'Search documentation...',
       showCreateButton: true,
+      createIcon: 'document',
       onSearchUpdate: (value: string) => {
         searchQuery.value = value
         handleSearch(value)

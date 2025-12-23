@@ -1,6 +1,6 @@
 import { shallowRef, ref, computed, onMounted, onActivated, onDeactivated, onUnmounted, triggerRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMobileSearch } from './useMobileSearch'
+import { useMobileSearch, type CreateButtonIcon } from './useMobileSearch'
 
 interface ListOptions<T> {
   itemIdField?: string
@@ -13,6 +13,7 @@ interface ListOptions<T> {
   mobileSearch?: {
     placeholder?: string
     showCreateButton?: boolean
+    createIcon?: CreateButtonIcon
     onCreate?: () => void
   }
 }
@@ -274,6 +275,7 @@ export function useListManagement<T extends Record<string, any>>(options: ListOp
         searchQuery: searchQuery.value,
         placeholder: options.mobileSearch!.placeholder || 'Search...',
         showCreateButton: options.mobileSearch!.showCreateButton ?? true,
+        createIcon: options.mobileSearch!.createIcon,
         onSearchUpdate: handleSearchUpdate,
         onCreate: options.mobileSearch!.onCreate
       })

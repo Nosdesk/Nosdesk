@@ -181,6 +181,7 @@ const setupMobileSearch = () => {
     searchQuery: searchQuery.value,
     placeholder: 'Search projects...',
     showCreateButton: true,
+    createIcon: 'folder',
     onSearchUpdate: handleSearchUpdate,
     onCreate: openCreateModal
   })

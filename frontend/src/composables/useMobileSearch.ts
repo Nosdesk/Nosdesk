@@ -1,10 +1,14 @@
 import { ref, readonly } from 'vue'
 
+// Icon types for the create button
+export type CreateButtonIcon = 'plus' | 'ticket' | 'user' | 'device' | 'folder' | 'document'
+
 // Global state for mobile search bar
 const searchQuery = ref('')
 const placeholder = ref('Search...')
 const showCreateButton = ref(true)
 const createButtonLoading = ref(false)
+const createButtonIcon = ref<CreateButtonIcon>('plus')
 const isActive = ref(false)
 
 // Callbacks registered by the current view
@@ -24,12 +28,14 @@ export function useMobileSearch() {
     searchQuery: string
     placeholder?: string
     showCreateButton?: boolean
+    createIcon?: CreateButtonIcon
     onSearchUpdate: (value: string) => void
     onCreate?: () => void
   }) => {
     searchQuery.value = options.searchQuery
     placeholder.value = options.placeholder || 'Search...'
     showCreateButton.value = options.showCreateButton ?? true
+    createButtonIcon.value = options.createIcon || 'plus'
     onSearchUpdate = options.onSearchUpdate
     onCreate = options.onCreate || null
     isActive.value = true
@@ -83,6 +89,7 @@ export function useMobileSearch() {
     placeholder: readonly(placeholder),
     showCreateButton: readonly(showCreateButton),
     createButtonLoading: readonly(createButtonLoading),
+    createButtonIcon: readonly(createButtonIcon),
     isActive: readonly(isActive),
 
     // Methods

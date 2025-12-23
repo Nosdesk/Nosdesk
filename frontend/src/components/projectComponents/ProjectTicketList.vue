@@ -146,6 +146,7 @@ onMounted(() => {
     searchQuery: searchQuery.value,
     placeholder: 'Search project tickets...',
     showCreateButton: true,
+    createIcon: 'ticket',
     onSearchUpdate: (value: string) => {
       handleSearch(value)
     },

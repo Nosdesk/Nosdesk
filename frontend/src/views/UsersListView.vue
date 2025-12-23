@@ -47,6 +47,7 @@ const listManager = useListManagement<User>({
   routeBuilder: (user) => `/users/${user.uuid}`,
   mobileSearch: {
     placeholder: 'Search users...',
+    createIcon: 'user',
     onCreate: navigateToCreateUser
   }
 });

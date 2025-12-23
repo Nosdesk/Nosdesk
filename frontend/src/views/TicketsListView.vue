@@ -126,6 +126,7 @@ const listManager = useListManagement<Ticket>({
   routeBuilder: (ticket) => `/tickets/${ticket.id}`,
   mobileSearch: {
     placeholder: 'Search tickets...',
+    createIcon: 'ticket',
     onCreate: handleCreateTicket
   }
 });
