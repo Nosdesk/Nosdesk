@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { ref } from 'vue';
+import { useRouter } from 'vue-router';
 
 const props = defineProps<{
   // Default fallback route if no previous route exists
@@ -11,9 +11,10 @@ const props = defineProps<{
   context?: string;
   // Optional ID for context-based navigation (e.g., projectId)
   contextId?: number | string;
+  // Compact mode - smaller text, tighter spacing
+  compact?: boolean;
 }>();
 
-const route = useRoute();
 const router = useRouter();
 const canGoBack = ref(window.history.length > 1);
 
@@ -49,9 +50,18 @@ const handleBack = () => {
 <template>
   <button
     @click="handleBack"
-    class="text-secondary hover:text-primary text-sm flex items-center gap-1 group"
+    class="text-secondary hover:text-primary flex items-center gap-1 group"
+    :class="compact ? 'text-xs' : 'text-sm'"
   >
-    <span class="text-xs group-hover:-translate-x-0.5 transition-transform">←</span>
+    <svg
+      class="group-hover:-translate-x-0.5 transition-transform"
+      :class="compact ? 'w-3 h-3' : 'w-3.5 h-3.5'"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+    </svg>
     {{ label || 'Go back' }}
   </button>
 </template> 
