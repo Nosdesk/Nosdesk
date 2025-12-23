@@ -147,12 +147,32 @@ pub fn remove_ticket_from_project(conn: &mut DbConnection, project_id: i32, tick
     ).execute(conn)
 }
 
-pub fn get_project_tickets(conn: &mut DbConnection, project_id: i32) -> QueryResult<Vec<Ticket>> {
-    project_tickets::table
+pub fn get_project_tickets(conn: &mut DbConnection, project_id: i32) -> QueryResult<Vec<TicketListItem>> {
+    let raw_tickets: Vec<Ticket> = project_tickets::table
         .filter(project_tickets::project_id.eq(project_id))
         .inner_join(tickets::table)
         .select(tickets::all_columns)
-        .load::<Ticket>(conn)
+        .load::<Ticket>(conn)?;
+
+    // Enrich tickets with user information
+    let mut ticket_list_items = Vec::new();
+    for ticket in raw_tickets {
+        let requester_user = ticket.requester_uuid.as_ref()
+            .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
+            .map(UserInfoWithAvatar::from);
+
+        let assignee_user = ticket.assignee_uuid.as_ref()
+            .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
+            .map(UserInfoWithAvatar::from);
+
+        ticket_list_items.push(TicketListItem {
+            ticket,
+            requester_user,
+            assignee_user,
+        });
+    }
+
+    Ok(ticket_list_items)
 }
 
 // Get projects for a ticket

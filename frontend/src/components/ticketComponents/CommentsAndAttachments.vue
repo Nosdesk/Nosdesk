@@ -4,13 +4,17 @@ import { ref } from "vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
 import AttachmentPreview from "@/components/ticketComponents/AttachmentPreview.vue";
+import AudioPlayer from "@/components/ticketComponents/AudioPlayer.vue";
 import AudioPreview from "@/components/ticketComponents/AudioPreview.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import uploadService from "@/services/uploadService";
+import { convertToAuthenticatedPath } from '@/services/fileService';
 
 interface UserInfo {
     uuid: string;
     name: string;
+    avatar_url?: string | null;
+    avatar_thumb?: string | null;
 }
 
 interface CommentWithAttachments {
@@ -212,6 +216,23 @@ const deleteComment = (commentId: number) => {
 const formattedDate = (dateString: string): string => {
     const date = new Date(dateString);
     return formatDate(dateString, "MMM d, yyyy");
+};
+
+// Check if comment has real text content (not just placeholder)
+const hasRealContent = (comment: CommentWithAttachments): boolean => {
+    const content = comment.content?.trim() || '';
+    return content !== '' && content.toLowerCase() !== 'attachment added';
+};
+
+// File type helpers
+const isAudioFile = (filename: string): boolean => {
+    const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.webm', '.aac'];
+    return audioExtensions.some(ext => filename.toLowerCase().endsWith(ext)) ||
+           filename.toLowerCase().includes('voice note');
+};
+
+const getAuthenticatedUrl = (url: string): string => {
+    return convertToAuthenticatedPath(url);
 };
 
 const handleDragEnter = (event: DragEvent) => {
@@ -477,16 +498,24 @@ const handleDrop = async (event: DragEvent) => {
                         ]"
                     >
                         <div class="flex flex-row gap-2 justify-between">
-                            <div class="flex gap-2 justify-center items-center">
+                            <div class="flex gap-2 items-start flex-1 min-w-0">
                                 <UserAvatar
                                     :name="comment.user?.uuid || comment.user_uuid"
                                     :userName="comment.user?.name"
+                                    :avatar="comment.user?.avatar_thumb || comment.user?.avatar_url"
                                     :showName="false"
                                     size="md"
+                                    class="flex-shrink-0"
                                 />
-                                <div class="flex flex-col flex-grow">
+                                <div class="flex flex-col flex-1 min-w-0">
+                                    <!-- Show text content if present, or filename(s) for attachment-only comments -->
                                     <p class="text-primary">
-                                        {{ comment.content }}
+                                        <template v-if="hasRealContent(comment)">
+                                            {{ comment.content }}
+                                        </template>
+                                        <template v-else-if="comment.attachments && comment.attachments.length > 0">
+                                            {{ comment.attachments.map(a => a.name).join(', ') }}
+                                        </template>
                                     </p>
                                     <small class="text-secondary"
                                         >{{
@@ -500,45 +529,74 @@ const handleDrop = async (event: DragEvent) => {
                                     >
                                 </div>
                             </div>
-                            <button
-                                type="button"
-                                @click="deleteComment(comment.id)"
-                                class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-                                title="Delete comment"
-                            >
-                                <svg
-                                    class="w-4 h-4"
-                                    viewBox="0 0 20 20"
-                                    fill="currentColor"
+                            <div class="flex items-center gap-1 flex-shrink-0 self-start">
+                                <!-- Download button for attachment-only comments -->
+                                <a
+                                    v-if="!hasRealContent(comment) && comment.attachments && comment.attachments.length > 0"
+                                    :href="getAuthenticatedUrl(comment.attachments[0].url)"
+                                    :download="comment.attachments[0].name"
+                                    target="_blank"
+                                    class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                                    title="Download"
+                                    @click.stop
                                 >
-                                    <path
-                                        fill-rule="evenodd"
-                                        d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                                        clip-rule="evenodd"
-                                    />
-                                </svg>
-                            </button>
+                                    <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
+                                </a>
+                                <!-- Delete button -->
+                                <button
+                                    type="button"
+                                    @click="deleteComment(comment.id)"
+                                    class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                                    title="Delete comment"
+                                >
+                                    <svg
+                                        class="w-4 h-4"
+                                        viewBox="0 0 20 20"
+                                        fill="currentColor"
+                                    >
+                                        <path
+                                            fill-rule="evenodd"
+                                            d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                                            clip-rule="evenodd"
+                                        />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
+                        <!-- Attachment previews section -->
                         <div
-                            v-if="
-                                comment.attachments &&
-                                comment.attachments.length > 0
-                            "
-                            class="flex items-center justify-center flex-wrap gap-2 bg-surface-alt rounded-lg p-2"
+                            v-if="comment.attachments && comment.attachments.length > 0"
+                            class="flex flex-col gap-2"
                         >
-                            <AttachmentPreview
-                                v-for="(
-                                    attachment, index
-                                ) in comment.attachments"
-                                :key="attachment.url"
-                                :attachment="attachment"
-                                :author="
-                                    comment.user?.name || comment.user_uuid
-                                "
-                                :timestamp="formattedDate(comment.createdAt)"
-                                :show-delete="true"
-                                @delete="deleteAttachment(comment.id, index)"
-                            />
+                            <template v-for="(attachment, index) in comment.attachments" :key="attachment.url">
+                                <!-- Audio files: render player directly -->
+                                <template v-if="isAudioFile(attachment.name)">
+                                    <AudioPlayer
+                                        v-if="!hasRealContent(comment)"
+                                        :src="getAuthenticatedUrl(attachment.url)"
+                                    />
+                                    <!-- For mixed comments with audio, use full preview -->
+                                    <AttachmentPreview
+                                        v-else
+                                        :attachment="attachment"
+                                        :author="comment.user?.name || comment.user_uuid"
+                                        :timestamp="formattedDate(comment.createdAt)"
+                                        :show-delete="true"
+                                        @delete="deleteAttachment(comment.id, index)"
+                                    />
+                                </template>
+                                <!-- Non-audio files: use AttachmentPreview for mixed comments only -->
+                                <AttachmentPreview
+                                    v-else-if="hasRealContent(comment)"
+                                    :attachment="attachment"
+                                    :author="comment.user?.name || comment.user_uuid"
+                                    :timestamp="formattedDate(comment.createdAt)"
+                                    :show-delete="true"
+                                    @delete="deleteAttachment(comment.id, index)"
+                                />
+                            </template>
                         </div>
                     </div>
                 </div>

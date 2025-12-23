@@ -79,7 +79,7 @@ const currentSize = computed(() => sizeClasses[props.size])
       <span
         aria-hidden="true"
         :class="[
-          'pointer-events-none inline-block rounded-full shadow-lg transition-transform duration-200 ease-in-out',
+          'toggle-thumb pointer-events-none inline-block rounded-full shadow-lg transition-transform duration-200 ease-in-out',
           currentSize.thumb,
           'bg-white',
           modelValue ? currentSize.translateOn : currentSize.translateOff

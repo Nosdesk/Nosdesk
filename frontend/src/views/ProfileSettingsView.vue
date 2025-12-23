@@ -461,26 +461,26 @@ const cancelDelete = () => {
         </div>
         <div v-else-if="isManagingOtherUser && targetUser">
           <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-2">
-            <div class="w-8 h-8 bg-brand-purple/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-brand-purple" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-accent/15 text-accent">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                stroke-width="2"
                 d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
               />
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                stroke-width="2"
                 d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
               />
               </svg>
             </div>
-            <div class="min-w-0 flex-1">
-              <h1 class="text-xl sm:text-2xl font-bold text-primary">Managing User Settings</h1>
-              <p class="text-sm sm:text-base text-secondary truncate">
-                Managing settings for <span class="text-accent font-medium">{{ targetUser.name }}</span> ({{ targetUser.email }})
+            <div class="min-w-0 flex-1 overflow-hidden">
+              <h1 class="text-xl sm:text-2xl font-bold text-primary">User Settings</h1>
+              <p class="text-sm sm:text-base text-secondary">
+                <span class="block sm:inline">Managing settings for </span>
+                <span class="text-accent font-medium break-all">{{ targetUser.name }}</span>
+                <span class="text-tertiary break-all"> ({{ targetUser.email }})</span>
               </p>
             </div>
           </div>
@@ -580,19 +580,16 @@ const cancelDelete = () => {
             <!-- Admin Role Management Card -->
             <div v-if="isManagingOtherUser && authStore.isAdmin && targetUser" class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
               <div class="px-4 sm:px-6 py-4 bg-surface-alt border-b border-default">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 bg-status-warning/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-status-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h2 class="text-base sm:text-lg font-semibold text-primary">Role Management</h2>
-                      <p class="text-xs text-secondary hidden sm:block">Control user access permissions</p>
-                    </div>
+                <div class="flex items-center gap-3">
+                  <div class="w-8 h-8 bg-status-warning/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-status-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
                   </div>
-                  <span class="text-xs px-2.5 py-1 bg-status-warning/20 text-status-warning rounded-full font-medium">Admin Only</span>
+                  <div>
+                    <h2 class="text-base sm:text-lg font-semibold text-primary">Role Management</h2>
+                    <p class="text-xs text-secondary hidden sm:block">Control user access permissions</p>
+                  </div>
                 </div>
               </div>
 
@@ -783,7 +780,7 @@ const cancelDelete = () => {
                   </div>
                   <button
                     @click="openDeleteModal"
-                    class="px-4 py-2 bg-status-error text-white rounded-lg hover:bg-status-error/80 focus:outline-none focus:ring-2 focus:ring-status-error transition-colors flex items-center gap-2 whitespace-nowrap"
+                    class="btn-danger px-4 py-2 bg-status-error text-white rounded-lg hover:bg-status-error/80 focus:outline-none focus:ring-2 focus:ring-status-error transition-colors flex items-center gap-2 whitespace-nowrap"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -878,7 +875,7 @@ const cancelDelete = () => {
           <button
             @click="deleteAccount"
             :disabled="(adminMfaEnabled ? (!deleteMfaCode || deleteMfaCode.length < 6) : !deletePassword) || isDeleting"
-            class="px-4 py-2 bg-status-error text-white rounded-lg hover:bg-status-error/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            class="btn-danger px-4 py-2 bg-status-error text-white rounded-lg hover:bg-status-error/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <span v-if="isDeleting" class="animate-spin h-4 w-4">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

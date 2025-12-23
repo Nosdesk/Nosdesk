@@ -955,21 +955,14 @@ impl YjsAppState {
         match doc_type {
             DocumentType::Ticket(ticket_id) => {
                 // Save ticket article content Yjs snapshot to PostgreSQL (snapshot-based persistence)
-                let sse_state = self.sse_state.clone();
+                // Note: This does NOT update the ticket's modified timestamp - that only happens
+                // when revisions are created (indicating actual content changes)
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
                             match repository::update_article_yjs_state(&mut conn, ticket_id, content) {
                                 Ok(_) => {
                                     println!("✅ Successfully saved Yjs snapshot for ticket {}", ticket_id);
-                                    // Broadcast SSE event for ticket modified date update
-                                    crate::utils::sse::SseBroadcaster::broadcast_ticket_updated(
-                                        &sse_state,
-                                        ticket_id,
-                                        "modified",
-                                        serde_json::json!(chrono::Utc::now()),
-                                        "system", // Article edits are tracked by the system
-                                    ).await;
                                 },
                                 Err(e) => println!("❌ Failed to save Yjs snapshot for ticket {}: {:?}", ticket_id, e),
                             }
@@ -1092,6 +1085,11 @@ impl YjsAppState {
                                         Ok(_) => {
                                             println!("✅ Snapshot created: ticket {} revision {} ({} contributors)",
                                                 ticket_id, revision.revision_number, contributor_vec.len());
+
+                                            // Update ticket's modified timestamp since content actually changed
+                                            if let Err(e) = repository::update_ticket_modified_timestamp(&mut conn, ticket_id) {
+                                                println!("⚠️ Failed to update ticket modified timestamp: {:?}", e);
+                                            }
                                         },
                                         Err(e) => println!("❌ Failed to increment revision number: {:?}", e),
                                     }
@@ -1485,7 +1483,12 @@ pub async fn ws_handler(
 
     println!("WebSocket authentication successful for document: {} (user: {})", doc_id, user_uuid);
     let actor = YjsWebSocket::new(doc_id, app_state.get_ref().clone(), user_uuid);
-    ws::start(actor, &req, stream)
+
+    // Use WsResponseBuilder to configure larger frame size for Yjs documents
+    // Default is 64KB, but Yjs documents with history can grow larger
+    ws::WsResponseBuilder::new(actor, &req, stream)
+        .frame_size(1024 * 1024)  // 1MB max frame size
+        .start()
 }
 
 // ============= Revision History API Endpoints =============

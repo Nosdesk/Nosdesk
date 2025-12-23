@@ -1,28 +1,14 @@
 <!-- KanbanBoard.vue -->
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { projectService } from '@/services/projectService'
-import ticketService from '@/services/ticketService'
-import { STATUS_OPTIONS, type TicketStatus } from '@/constants/ticketOptions'
 import UserAvatar from '@/components/UserAvatar.vue'
 import AddTicketToProjectModal from './AddTicketToProjectModal.vue'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
-
-interface KanbanTicket {
-  id: number;
-  title: string;
-  assignee: string;
-  assignee_avatar?: string | null;
-  priority: 'low' | 'medium' | 'high';
-  status: string;
-}
-
-interface KanbanColumn {
-  id: string;
-  title: string;
-  tickets: KanbanTicket[];
-}
+import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
+import { useKanbanDragDrop, type KanbanColumn } from '@/composables/useKanbanDragDrop'
+import { formatCompactRelativeTime } from '@/utils/dateUtils'
 
 const props = defineProps<{
   projectId: number;
@@ -34,89 +20,48 @@ const error = ref<string | null>(null)
 
 // Initialize columns with empty arrays
 const columns = ref<KanbanColumn[]>([
-  {
-    id: 'open',
-    title: 'Open',
-    tickets: []
-  },
-  {
-    id: 'in-progress',
-    title: 'In Progress',
-    tickets: []
-  },
-  {
-    id: 'closed',
-    title: 'Closed',
-    tickets: []
-  }
+  { id: 'open', title: 'Open', tickets: [] },
+  { id: 'in-progress', title: 'In Progress', tickets: [] },
+  { id: 'closed', title: 'Closed', tickets: [] }
 ])
-
-// Enhanced drag state with intelligent column-based positioning
-const dragState = ref<{
-  draggedTicket: { columnId: string; ticketId: number; ticket: KanbanTicket } | null;
-  dragOverColumn: string | null;
-  insertIndex: number;
-  isDragging: boolean;
-}>({
-  draggedTicket: null,
-  dragOverColumn: null,
-  insertIndex: -1,
-  isDragging: false
-})
 
 const showAddTicketModal = ref(false)
 const currentColumnId = ref<string | null>(null)
 const projectTicketIds = ref<number[]>([])
 
 // Fetch project tickets
-const fetchProjectTickets = async () => {
+async function fetchProjectTickets() {
   if (!props.projectId) return
-  
+
   try {
     isLoading.value = true
     error.value = null
-    
-    // Fetch tickets for the project
+
     const tickets = await projectService.getProjectTickets(props.projectId)
-    
-    // Store all ticket IDs for the project to avoid duplicates
     projectTicketIds.value = tickets.map(ticket => ticket.id)
-    
-    // Reset all columns
-    columns.value.forEach(column => {
-      column.tickets = []
-    })
-    
-    // Distribute tickets to appropriate columns based on status
+
+    // Reset and distribute tickets to columns
+    columns.value.forEach(column => { column.tickets = [] })
+
     tickets.forEach(ticket => {
-      const kanbanTicket: KanbanTicket = {
-        id: ticket.id,
-        title: ticket.title,
-        assignee: ticket.assignee || 'Unassigned',
-        assignee_avatar: ticket.assignee_avatar,
-        priority: ticket.priority as 'low' | 'medium' | 'high',
-        status: ticket.status
-      }
-      
-      // Map ticket status to column
-      let columnId: string
-      switch (ticket.status) {
-        case 'in-progress':
-          columnId = 'in-progress'
-          break
-        case 'closed':
-          columnId = 'closed'
-          break
-        case 'open':
-        default:
-          columnId = 'open'
-          break
-      }
-      
-      // Find the column and add the ticket
+      const columnId = ticket.status === 'in-progress' ? 'in-progress'
+        : ticket.status === 'closed' ? 'closed' : 'open'
+
       const column = columns.value.find(col => col.id === columnId)
       if (column) {
-        column.tickets.push(kanbanTicket)
+        column.tickets.push({
+          id: ticket.id,
+          title: ticket.title,
+          assignee_uuid: ticket.assignee_user?.uuid || null,
+          assignee_name: ticket.assignee_user?.name || ticket.assignee || null,
+          assignee_avatar: ticket.assignee_user?.avatar_thumb || null,
+          requester_uuid: ticket.requester_user?.uuid || null,
+          requester_name: ticket.requester_user?.name || ticket.requester || null,
+          requester_avatar: ticket.requester_user?.avatar_thumb || null,
+          priority: ticket.priority as 'low' | 'medium' | 'high',
+          status: ticket.status,
+          modified: ticket.modified
+        })
       }
     })
   } catch (err) {
@@ -127,146 +72,50 @@ const fetchProjectTickets = async () => {
   }
 }
 
-// Watch for changes to projectId
-watch(() => props.projectId, (newProjectId) => {
-  if (newProjectId) {
-    fetchProjectTickets()
+// Handle external ticket drop (from recent tickets sidebar)
+async function handleExternalTicketDrop(ticketId: number, targetColumnId: string) {
+  // Check if ticket is already in project
+  if (projectTicketIds.value.includes(ticketId)) {
+    console.log(`Ticket ${ticketId} is already in this project`)
+    return
   }
+
+  try {
+    // Add ticket to project
+    await projectService.addTicketToProject(props.projectId, ticketId)
+    console.log(`Added ticket ${ticketId} to project ${props.projectId}`)
+
+    // Refresh to get the updated ticket list
+    await fetchProjectTickets()
+  } catch (err) {
+    console.error('Failed to add ticket to project:', err)
+    error.value = 'Failed to add ticket to project. Please try again.'
+  }
+}
+
+// Use drag-drop composable (after fetchProjectTickets is defined)
+const {
+  dragState,
+  handleDragStart,
+  handleDragEnd,
+  handleColumnDragOver,
+  handleColumnDragLeave,
+  handleColumnDrop,
+  handleTouchStart,
+  handleTouchMove,
+  handleTouchEnd,
+  handleTouchCancel,
+  isDraggedTicket,
+  isColumnDragOver
+} = useKanbanDragDrop(columns, fetchProjectTickets, handleExternalTicketDrop)
+
+watch(() => props.projectId, (newProjectId) => {
+  if (newProjectId) fetchProjectTickets()
 }, { immediate: true })
 
-// Fetch tickets on component mount
 onMounted(() => {
-  if (props.projectId) {
-    fetchProjectTickets()
-  }
+  if (props.projectId) fetchProjectTickets()
 })
-
-// Enhanced drag start handler
-const handleDragStart = (columnId: string, ticket: KanbanTicket, dragEvent: DragEvent) => {
-  dragState.value.draggedTicket = { columnId, ticketId: ticket.id, ticket }
-  dragState.value.isDragging = true
-  
-  if (dragEvent.dataTransfer) {
-    dragEvent.dataTransfer.effectAllowed = 'move'
-    dragEvent.dataTransfer.setData('text/plain', ticket.id.toString())
-  }
-}
-
-// Enhanced drag end handler
-const handleDragEnd = () => {
-  dragState.value.draggedTicket = null
-  dragState.value.dragOverColumn = null
-  dragState.value.insertIndex = -1
-  dragState.value.isDragging = false
-}
-
-// Intelligent column drag over handler
-const handleColumnDragOver = (columnId: string, dragEvent: DragEvent) => {
-  dragEvent.preventDefault()
-  
-  if (!dragState.value.draggedTicket) return
-  
-  dragState.value.dragOverColumn = columnId
-  
-  // Calculate insertion index based on cursor position
-  const column = columns.value.find(col => col.id === columnId)
-  if (!column || column.tickets.length === 0) {
-    dragState.value.insertIndex = 0
-    return
-  }
-  
-  // Get the column container element
-  const columnElement = dragEvent.currentTarget as HTMLElement
-  const columnRect = columnElement.getBoundingClientRect()
-  const cursorY = dragEvent.clientY
-  
-  // Find all ticket elements within this column
-  const ticketElements = columnElement.querySelectorAll('[data-ticket-id]')
-  let insertIndex = column.tickets.length // Default to end
-  
-  for (let i = 0; i < ticketElements.length; i++) {
-    const ticketElement = ticketElements[i] as HTMLElement
-    const ticketRect = ticketElement.getBoundingClientRect()
-    const ticketCenter = ticketRect.top + ticketRect.height / 2
-    
-    if (cursorY < ticketCenter) {
-      insertIndex = i
-      break
-    }
-  }
-  
-  // Adjust for dragging within the same column
-  if (dragState.value.draggedTicket.columnId === columnId) {
-    const draggedTicketIndex = column.tickets.findIndex(t => t.id === dragState.value.draggedTicket?.ticketId)
-    if (draggedTicketIndex !== -1 && draggedTicketIndex < insertIndex) {
-      insertIndex--
-    }
-  }
-  
-  dragState.value.insertIndex = insertIndex
-}
-
-// Handle drop on columns
-const handleColumnDrop = async (targetColumnId: string, dragEvent: DragEvent) => {
-  dragEvent.preventDefault()
-  
-  if (!dragState.value.draggedTicket) return
-
-  const sourceColumnId = dragState.value.draggedTicket.columnId
-  const draggedTicketId = dragState.value.draggedTicket.ticketId
-  const insertIndex = dragState.value.insertIndex
-  
-  const sourceColumn = columns.value.find(col => col.id === sourceColumnId)
-  const targetColumn = columns.value.find(col => col.id === targetColumnId)
-  
-  if (!sourceColumn || !targetColumn) {
-    handleDragEnd()
-    return
-  }
-
-  // Remove ticket from source column
-  const sourceTicketIndex = sourceColumn.tickets.findIndex(t => t.id === draggedTicketId)
-  if (sourceTicketIndex === -1) {
-    handleDragEnd()
-    return
-  }
-
-  const [ticket] = sourceColumn.tickets.splice(sourceTicketIndex, 1)
-  
-  // Insert at calculated position
-  const finalInsertIndex = Math.max(0, Math.min(insertIndex, targetColumn.tickets.length))
-  targetColumn.tickets.splice(finalInsertIndex, 0, ticket)
-
-  // Update ticket status if moving to a different column
-  if (sourceColumnId !== targetColumnId) {
-    let newStatus: TicketStatus
-    switch (targetColumnId) {
-      case 'in-progress':
-        newStatus = 'in-progress'
-        break
-      case 'closed':
-        newStatus = 'closed'
-        break
-      case 'open':
-      default:
-        newStatus = 'open'
-        break
-    }
-    
-    try {
-      await ticketService.updateTicket(ticket.id, { 
-        status: newStatus,
-        modified: new Date().toISOString()
-      })
-      console.log(`Updated ticket ${ticket.id} status to ${newStatus}`)
-    } catch (err) {
-      console.error(`Failed to update ticket status:`, err)
-      await fetchProjectTickets()
-    }
-  }
-  
-  handleDragEnd()
-}
 
 const openTicket = (ticketId: number) => {
   if (!dragState.value.isDragging) {
@@ -283,55 +132,12 @@ const handleAddTicket = (ticketId: number) => {
   console.log(`Ticket ${ticketId} added to project ${props.projectId}`)
   fetchProjectTickets()
 }
-
-const getPriorityColor = (priority: string) => {
-  switch (priority) {
-    case 'high':
-      return 'bg-priority-high-muted text-priority-high'
-    case 'medium':
-      return 'bg-priority-medium-muted text-priority-medium'
-    case 'low':
-      return 'bg-priority-low-muted text-priority-low'
-    default:
-      return 'bg-surface-alt text-secondary'
-  }
-}
-
-// Helper to get visual feedback for insertion position
-const getInsertionLinePosition = (columnId: string, insertIndex: number): 'top' | 'bottom' | { after: number } | null => {
-  if (dragState.value.dragOverColumn !== columnId || !dragState.value.isDragging) {
-    return null
-  }
-  
-  const column = columns.value.find(col => col.id === columnId)
-  if (!column) return null
-  
-  if (insertIndex === 0) {
-    return 'top'
-  } else if (insertIndex >= column.tickets.length) {
-    return 'bottom'
-  } else {
-    return { after: insertIndex - 1 }
-  }
-}
-
-// Helper to check if insertion indicator should show after a specific ticket
-const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolean => {
-  if (dragState.value.dragOverColumn !== columnId || !dragState.value.isDragging) {
-    return false
-  }
-  
-  const column = columns.value.find(col => col.id === columnId)
-  if (!column) return false
-  
-  return dragState.value.insertIndex === ticketIndex + 1
-}
 </script>
 
 <template>
-  <div class="h-full flex flex-col relative">
+  <div>
     <!-- Error message -->
-    <div v-if="error" class="bg-status-error-muted border border-status-error/30 text-status-error px-4 py-3 rounded-lg mb-4">
+    <div v-if="error" class="bg-status-error-muted border border-status-error/30 text-status-error px-4 py-3 rounded-lg m-4">
       {{ error }}
     </div>
 
@@ -339,118 +145,128 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
     <div v-if="isLoading" class="flex justify-center items-center py-8">
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
     </div>
-    
-    <div v-else class="flex-1 overflow-x-auto">
-      <div class="flex gap-6 p-6 min-w-max h-full">
-        <div
-          v-for="column in columns"
-          :key="column.id"
-          class="w-80 flex flex-col bg-surface-alt rounded-xl border border-default h-full overflow-hidden"
-          :class="{
-            'ring-2 ring-accent/50': dragState.dragOverColumn === column.id && dragState.isDragging
-          }"
-        >
+
+    <!-- Kanban Board - horizontal scroll on parent, fixed width columns -->
+    <div v-else class="flex gap-4 p-4 h-full">
+      <div
+        v-for="column in columns"
+        :key="column.id"
+        class="w-72 flex-shrink-0 flex flex-col bg-surface rounded-xl border border-default h-full min-h-[400px]"
+        :class="{ 'ring-2 ring-accent/50': isColumnDragOver(column.id) }"
+      >
           <!-- Column Header -->
-          <div class="px-4 py-3 bg-surface border-b border-default sticky top-0" style="z-index: 1;">
+          <div class="px-4 py-3 bg-surface-alt border-b border-default flex-shrink-0 rounded-t-xl">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3">
                 <StatusIndicator :status="column.id as 'open' | 'in-progress' | 'closed'" size="sm" />
                 <h3 class="font-medium text-primary">{{ column.title }}</h3>
               </div>
-              <span class="text-xs text-tertiary bg-surface-hover px-2 py-1 rounded-md">{{ column.tickets.length }}</span>
+              <span class="text-xs text-tertiary bg-surface-hover px-2 py-1 rounded-md">
+                {{ column.tickets.length }}
+              </span>
             </div>
           </div>
 
-          <!-- Column Content -->
+          <!-- Column Content - full height drop zone -->
           <div
-            class="flex-1 flex flex-col gap-3 p-4 overflow-y-auto hide-vertical-scrollbar relative"
+            class="flex-1 flex flex-col gap-2 p-3 relative overflow-y-auto"
+            :data-column-id="column.id"
             @dragover="handleColumnDragOver(column.id, $event)"
+            @dragleave="handleColumnDragLeave"
             @drop="handleColumnDrop(column.id, $event)"
           >
-            <!-- Insertion indicator at top -->
+            <!-- Single global drop indicator for this column -->
             <div
-              v-if="getInsertionLinePosition(column.id, dragState.insertIndex) === 'top'"
-              class="absolute top-4 left-4 right-4 h-0.5 bg-accent rounded-full z-20 transition-all duration-200"
-            ></div>
-            
+              v-if="isColumnDragOver(column.id) && dragState.dropIndicatorY !== null"
+              class="drop-indicator"
+              :style="{ top: `${dragState.dropIndicatorY}px` }"
+            />
+
             <!-- Tickets -->
             <div
-              v-for="(ticket, index) in column.tickets"
+              v-for="ticket in column.tickets"
               :key="ticket.id"
               :data-ticket-id="ticket.id"
-              class="relative bg-surface rounded-lg border border-subtle p-3 cursor-move hover:border-default hover:bg-surface-hover transition-all duration-200 group"
-              :class="{
-                'opacity-50 scale-95': dragState.draggedTicket?.ticketId === ticket.id,
-              }"
+              class="bg-surface rounded-lg border border-default p-3
+                     cursor-grab hover:border-strong hover:shadow-sm transition-all group
+                     select-none flex-shrink-0"
+              :class="[
+                { 'opacity-50 scale-95': isDraggedTicket(ticket.id) },
+                { 'touch-none': dragState.isDragging }
+              ]"
               draggable="true"
               @dragstart="handleDragStart(column.id, ticket, $event)"
               @dragend="handleDragEnd"
+              @touchstart="handleTouchStart(column.id, ticket, $event)"
+              @touchmove="handleTouchMove"
+              @touchend="handleTouchEnd"
+              @touchcancel="handleTouchCancel"
               @click="openTicket(ticket.id)"
             >
-              <!-- Insertion indicator after this ticket -->
-              <div
-                v-if="shouldShowInsertionAfter(column.id, index)"
-                class="absolute -bottom-1.5 left-0 right-0 h-0.5 bg-accent rounded-full z-20 transition-all duration-200"
-              ></div>
-              
-              <div class="flex flex-col gap-3">
-                <!-- Ticket Title -->
-                <h4 class="text-sm font-medium text-primary group-hover:text-accent transition-colors line-clamp-2">
-                  {{ ticket.title }}
-                </h4>
-                
-                <!-- Ticket Details -->
-                <div class="flex items-center justify-between">
-                  <!-- Assignee -->
-                  <div class="flex items-center gap-2 min-w-0 flex-1">
-                    <UserAvatar 
-                      v-if="ticket.assignee && ticket.assignee !== 'Unassigned'" 
-                      :name="ticket.assignee" 
+              <!-- Header: ID + Priority -->
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <span class="text-xs text-tertiary font-mono">#{{ ticket.id }}</span>
+                <PriorityIndicator :priority="ticket.priority" size="xs" />
+              </div>
+
+              <!-- Title -->
+              <h4 class="text-sm font-medium text-primary line-clamp-2
+                         group-hover:text-accent transition-colors leading-snug">
+                {{ ticket.title }}
+              </h4>
+
+              <!-- Requester -->
+              <div v-if="ticket.requester_name" class="flex items-center gap-1 mt-2 text-[11px] text-tertiary">
+                <span>From:</span>
+                <UserAvatar
+                  :name="ticket.requester_name"
+                  :avatar="ticket.requester_avatar"
+                  size="xxs"
+                  :showName="true"
+                  :clickable="false"
+                />
+              </div>
+
+              <!-- Footer: Assignee + Modified -->
+              <div class="flex items-center justify-between mt-2.5 pt-2 border-t border-subtle">
+                <div class="flex items-center gap-1 min-w-0">
+                  <template v-if="ticket.assignee_name">
+                    <UserAvatar
+                      :name="ticket.assignee_name"
                       :avatar="ticket.assignee_avatar"
-                      size="xs" 
-                      :showName="true"
+                      size="xxs"
+                      :showName="false"
                       :clickable="false"
-                      class="text-xs"
                     />
-                    <span v-else class="text-xs text-tertiary">Unassigned</span>
-                  </div>
-                  
-                  <!-- Priority Badge -->
-                  <div
-                    class="px-2 py-1 rounded-md text-xs font-medium border flex-shrink-0"
-                    :class="{
-                      'bg-priority-high-muted text-priority-high border-priority-high/30': ticket.priority === 'high',
-                      'bg-priority-medium-muted text-priority-medium border-priority-medium/30': ticket.priority === 'medium',
-                      'bg-priority-low-muted text-priority-low border-priority-low/30': ticket.priority === 'low'
-                    }"
-                  >
-                    {{ ticket.priority }}
-                  </div>
+                    <span class="text-[11px] text-secondary truncate">{{ ticket.assignee_name }}</span>
+                  </template>
+                  <span v-else class="text-[11px] text-tertiary italic">Unassigned</span>
                 </div>
+                <span v-if="ticket.modified" class="text-[10px] text-tertiary flex-shrink-0">
+                  {{ formatCompactRelativeTime(ticket.modified) }}
+                </span>
               </div>
             </div>
 
-            <!-- Insertion indicator at bottom -->
-            <div
-              v-if="getInsertionLinePosition(column.id, dragState.insertIndex) === 'bottom'"
-              class="h-0.5 bg-accent rounded-full transition-all duration-200"
-            ></div>
-
-            <!-- Empty state indicator -->
+            <!-- Empty state / Drop zone filler -->
             <div
               v-if="column.tickets.length === 0"
-              class="flex-1 flex items-center justify-center text-tertiary text-sm border-2 border-dashed border-subtle rounded-lg py-8"
-              :class="{
-                'border-accent/50 bg-accent-muted': dragState.dragOverColumn === column.id && dragState.isDragging
-              }"
+              class="flex-1 flex items-center justify-center text-tertiary text-sm
+                     border-2 border-dashed border-subtle rounded-lg min-h-[200px]"
+              :class="{ 'border-accent/50 bg-accent-muted': isColumnDragOver(column.id) }"
             >
               Drop tickets here
             </div>
 
+            <!-- Spacer to push add button to bottom when there are tickets -->
+            <div v-else class="flex-1 min-h-[40px]"></div>
+
             <!-- Add Ticket Button -->
             <button
               @click="createTicket(column.id)"
-              class="w-full mt-4 p-3 bg-surface border border-subtle rounded-lg text-sm text-tertiary hover:text-accent hover:bg-accent-muted hover:border-accent/30 transition-all duration-200 flex items-center justify-center gap-2"
+              class="w-full mt-auto p-2 text-sm text-tertiary
+                     hover:text-accent transition-colors
+                     flex items-center justify-center gap-1.5 flex-shrink-0"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -460,10 +276,32 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
           </div>
         </div>
       </div>
+
+    <!-- Floating drag preview for touch -->
+    <div
+      v-if="dragState.isDragging && dragState.touchDragPosition && dragState.draggedTicket"
+      class="fixed pointer-events-none z-50 w-48"
+      :style="{
+        left: `${dragState.touchDragPosition.x}px`,
+        top: `${dragState.touchDragPosition.y}px`,
+        transform: 'translate(-50%, -50%)'
+      }"
+    >
+      <div class="bg-surface-alt rounded-md border border-accent shadow-lg px-2.5 py-2">
+        <div class="flex items-start gap-2">
+          <div class="flex items-center gap-1.5 flex-shrink-0">
+            <span class="text-[11px] text-tertiary font-mono">#{{ dragState.draggedTicket.ticket.id }}</span>
+            <PriorityIndicator :priority="dragState.draggedTicket.ticket.priority" size="xs" />
+          </div>
+          <h4 class="text-xs font-medium text-primary line-clamp-2 flex-1">
+            {{ dragState.draggedTicket.ticket.title }}
+          </h4>
+        </div>
+      </div>
     </div>
-    
+
     <!-- Add Ticket Modal -->
-    <AddTicketToProjectModal 
+    <AddTicketToProjectModal
       :show="showAddTicketModal"
       :project-id="props.projectId"
       :existing-tickets="projectTicketIds"
@@ -475,41 +313,6 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
 </template>
 
 <style scoped>
-/* Only hide vertical scrollbars for ticket columns */
-.hide-vertical-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
-.hide-vertical-scrollbar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
-}
-
-/* Style horizontal scrollbar */
-.overflow-x-auto::-webkit-scrollbar {
-  height: 12px;
-  display: block;
-}
-
-.overflow-x-auto::-webkit-scrollbar-track {
-  background: var(--bg-surface-alt);
-  border-radius: 6px;
-}
-
-.overflow-x-auto::-webkit-scrollbar-thumb {
-  background: var(--bg-surface);
-  border-radius: 6px;
-}
-
-.overflow-x-auto::-webkit-scrollbar-thumb:hover {
-  background: var(--bg-surface-hover);
-}
-
-/* Ensure kanban content stays below main header */
-.relative {
-  z-index: 0;
-}
-
 /* Line clamp utility for ticket titles */
 .line-clamp-2 {
   display: -webkit-box;
@@ -521,14 +324,46 @@ const shouldShowInsertionAfter = (columnId: string, ticketIndex: number): boolea
 /* Enhanced drag feedback */
 [draggable="true"] {
   cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 [draggable="true"]:active {
   cursor: grabbing;
 }
 
-/* Smooth transitions for drag states */
-.transition-all {
-  transition: all 0.2s ease-in-out;
+/* Single global drop indicator */
+.drop-indicator {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  height: 2px;
+  background-color: var(--color-accent);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 50;
+  transform: translateY(-1px);
+  transition: top 0.1s ease-out;
+}
+
+/* Prevent text selection and context menu during touch drag */
+.touch-none {
+  touch-action: none;
+}
+
+/* Floating drag preview animation */
+@keyframes drag-pickup {
+  from {
+    transform: translate(-50%, -50%) scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
+.fixed.pointer-events-none {
+  animation: drag-pickup 0.15s ease-out forwards;
 }
 </style> 

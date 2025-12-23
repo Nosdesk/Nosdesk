@@ -6,24 +6,24 @@ import type { Project } from '@/types/project'
 import { projectService } from '@/services/projectService'
 import Modal from '@/components/Modal.vue'
 import ProjectForm from '@/components/projectComponents/ProjectForm.vue'
-import TicketSelectionModal from '@/components/projectComponents/TicketSelectionModal.vue'
+import AddTicketToProjectModal from '@/components/projectComponents/AddTicketToProjectModal.vue'
 import KanbanBoard from '@/components/projectComponents/KanbanBoard.vue'
-import StatusBadge from '@/components/StatusBadge.vue'
-import UserAvatar from '@/components/UserAvatar.vue'
+import ProjectTicketList from '@/components/projectComponents/ProjectTicketList.vue'
 import BackButton from '@/components/common/BackButton.vue'
 import GanttPlanner from '@/components/projectComponents/GanttPlanner.vue'
+import InlineEdit from '@/components/common/InlineEdit.vue'
 
 const route = useRoute()
 const router = useRouter()
 const projectId = computed(() => Number(route.params.id))
 
 const project = ref<Project | null>(null)
-const tickets = ref<any[]>([])
 const isLoading = ref(true)
-const isTicketsLoading = ref(false)
 const error = ref<string | null>(null)
 const showEditModal = ref(false)
 const showAddTicketModal = ref(false)
+const ticketListRef = ref<InstanceType<typeof ProjectTicketList> | null>(null)
+const existingTicketIds = ref<number[]>([])
 const activeTab = computed(() => {
   if (route.query.view === 'list') return 'list'
   if (route.query.view === 'gantt') return 'gantt'
@@ -36,16 +36,16 @@ onMounted(async () => {
     router.push('/projects')
     return
   }
-  
+
   try {
     isLoading.value = true
     error.value = null
-    
+
     // Fetch project details
     project.value = await projectService.getProject(projectId.value)
-    
-    // Fetch project tickets
-    await fetchProjectTickets()
+
+    // Fetch existing ticket IDs for the modal filter
+    await fetchExistingTicketIds()
   } catch (err) {
     console.error('Failed to fetch project details:', err)
     error.value = 'Failed to load project details. Please try again later.'
@@ -54,32 +54,28 @@ onMounted(async () => {
   }
 })
 
-const fetchProjectTickets = async () => {
+const fetchExistingTicketIds = async () => {
   if (!projectId.value) return
-  
   try {
-    isTicketsLoading.value = true
-    tickets.value = await projectService.getProjectTickets(projectId.value)
+    const tickets = await projectService.getProjectTickets(projectId.value)
+    existingTicketIds.value = tickets.map((t: any) => t.id)
   } catch (err) {
-    console.error('Failed to fetch project tickets:', err)
-    error.value = 'Failed to load project tickets. Please try again later.'
-  } finally {
-    isTicketsLoading.value = false
+    console.error('Failed to fetch existing tickets:', err)
   }
 }
 
 const handleEditProject = async (projectData: Omit<Project, 'id' | 'ticketCount'> & { id?: number }) => {
   if (!project.value) return
-  
+
   try {
     isLoading.value = true
     error.value = null
-    
+
     const updatedProject = await projectService.updateProject(
       project.value.id,
       projectData
     )
-    
+
     project.value = updatedProject
     showEditModal.value = false
   } catch (err) {
@@ -87,6 +83,22 @@ const handleEditProject = async (projectData: Omit<Project, 'id' | 'ticketCount'
     error.value = 'Failed to update project. Please try again.'
   } finally {
     isLoading.value = false
+  }
+}
+
+const handleTitleUpdate = async (newTitle: string) => {
+  if (!project.value || newTitle === project.value.name) return
+
+  try {
+    error.value = null
+    const updatedProject = await projectService.updateProject(
+      project.value.id,
+      { ...project.value, name: newTitle }
+    )
+    project.value = updatedProject
+  } catch (err) {
+    console.error('Failed to update project title:', err)
+    error.value = 'Failed to update title. Please try again.'
   }
 }
 
@@ -111,43 +123,33 @@ const handleDeleteProject = async () => {
   }
 }
 
-const handleAddTicket = async (ticketId: number) => {
-  if (!project.value) return
-  
-  try {
-    error.value = null
-    
-    await projectService.addTicketToProject(project.value.id, ticketId)
-    
-    // Refresh the ticket list
-    await fetchProjectTickets()
-    
-    // Update the project to get the new ticket count
+const handleAddTicketComplete = async () => {
+  // Refresh the ticket list and existing IDs
+  ticketListRef.value?.refresh()
+  await fetchExistingTicketIds()
+
+  // Update project to get new ticket count
+  if (project.value) {
     project.value = await projectService.getProject(project.value.id)
-    
-    showAddTicketModal.value = false
-  } catch (err) {
-    console.error('Failed to add ticket to project:', err)
-    error.value = 'Failed to add ticket to project. Please try again.'
   }
 }
 
 const handleRemoveTicket = async (ticketId: number) => {
   if (!project.value) return
-  
+
   if (!confirm('Are you sure you want to remove this ticket from the project?')) {
     return
   }
-  
+
   try {
     error.value = null
-    
     await projectService.removeTicketFromProject(project.value.id, ticketId)
-    
+
     // Refresh the ticket list
-    await fetchProjectTickets()
-    
-    // Update the project to get the new ticket count
+    ticketListRef.value?.refresh()
+    await fetchExistingTicketIds()
+
+    // Update project to get new ticket count
     project.value = await projectService.getProject(project.value.id)
   } catch (err) {
     console.error('Failed to remove ticket from project:', err)
@@ -155,8 +157,10 @@ const handleRemoveTicket = async (ticketId: number) => {
   }
 }
 
-const goToTicket = (ticketId: number) => {
-  router.push(`/tickets/${ticketId}`)
+const handleTicketCountChange = (count: number) => {
+  if (project.value) {
+    project.value = { ...project.value, ticketCount: count }
+  }
 }
 
 const getStatusClass = (status: string) => {
@@ -172,64 +176,6 @@ const getStatusClass = (status: string) => {
   }
 }
 
-const getPriorityClass = (priority: string) => {
-  switch (priority) {
-    case 'high':
-      return 'bg-status-error/20 text-status-error border-status-error/30'
-    case 'medium':
-      return 'bg-status-warning/20 text-status-warning border-status-warning/30'
-    case 'low':
-      return 'bg-accent/15 text-accent border-accent/30'
-    default:
-      return 'bg-surface-alt/20 text-secondary border-surface-alt/30'
-  }
-}
-
-// Get existing ticket IDs for filtering in the ticket selection modal
-const existingTicketIds = computed(() => tickets.value.map(ticket => ticket.id))
-
-// Format date helper function
-const formatDate = (dateString: string): string => {
-  try {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = now.getTime() - date.getTime();
-    const diffMinutes = Math.floor(diffTime / (1000 * 60));
-
-    if (diffMinutes < 1) {
-      return 'just now';
-    } else if (diffMinutes < 60) {
-      return `${diffMinutes}m ago`;
-    } else if (diffMinutes < 1440) {
-      const hours = Math.floor(diffMinutes / 60);
-      return `${hours}h ago`;
-    } else {
-      const days = Math.floor(diffMinutes / 1440);
-      return `${days}d ago`;
-    }
-  } catch (e) {
-    return 'unknown';
-  }
-}
-
-// Get ticket updated date from various possible field names
-const getTicketUpdatedDate = (ticket: any): string => {
-  const possibleFields = ['updated_at', 'updatedAt', 'updated', 'lastUpdated', 'modifiedAt'];
-  
-  for (const field of possibleFields) {
-    if (ticket[field]) {
-      return formatDate(ticket[field]);
-    }
-  }
-  
-  // Fallback to created date if available
-  if (ticket.created_at || ticket.createdAt || ticket.created) {
-    const dateField = ticket.created_at || ticket.createdAt || ticket.created;
-    return formatDate(dateField);
-  }
-  
-  return 'N/A';
-}
 
 // Update URL when view changes
 const setActiveTab = (tab: string) => {
@@ -250,38 +196,49 @@ watch(() => route.query.view, (newValue) => {
 
 <template>
   <div class="flex flex-col h-full">
-    <div class="flex flex-col gap-4 p-6">
+    <!-- Header section with compact padding -->
+    <div class="flex-shrink-0 flex flex-col gap-2 sm:gap-3 p-2 sm:p-4">
       <!-- Back button -->
       <BackButton fallbackRoute="/projects" label="Back to Projects" />
 
       <!-- Error message -->
-      <div v-if="error" class="bg-status-error/20 border border-status-error/50 text-status-error px-4 py-3 rounded-lg mb-4">
+      <div v-if="error" class="bg-status-error/20 border border-status-error/50 text-status-error px-3 py-2 rounded-lg text-sm">
         {{ error }}
       </div>
 
       <!-- Loading state -->
-      <div v-if="isLoading" class="flex justify-center items-center py-8">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+      <div v-if="isLoading" class="flex justify-center items-center py-6">
+        <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-accent"></div>
       </div>
 
       <!-- Project details -->
-      <div v-else-if="project" class="flex flex-col gap-4">
-        <!-- Project header -->
-        <div class="flex justify-between items-start">
-          <div>
-            <h1 class="text-2xl font-semibold text-primary">{{ project.name }}</h1>
-            <p class="text-secondary mt-2">{{ project.description }}</p>
+      <template v-else-if="project">
+        <!-- Project header - responsive layout -->
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <InlineEdit
+                :modelValue="project.name"
+                placeholder="Project name..."
+                text-size="xl"
+                :show-edit-hint="false"
+                :truncate="true"
+                @update:modelValue="handleTitleUpdate"
+              />
+              <span
+                :class="getStatusClass(project.status)"
+                class="px-2 py-0.5 rounded-full text-xs border flex-shrink-0 capitalize"
+              >
+                {{ project.status }}
+              </span>
+            </div>
+            <p v-if="project.description" class="text-sm text-secondary mt-1 line-clamp-2">{{ project.description }}</p>
           </div>
-          <div class="flex items-center gap-2">
-            <span 
-              :class="getStatusClass(project.status)"
-              class="px-3 py-1 rounded-full text-sm border"
-            >
-              {{ project.status }}
-            </span>
+          <!-- Action buttons - always inline -->
+          <div class="flex items-center gap-1 flex-shrink-0">
             <button
               @click="showEditModal = true"
-              class="p-2 text-secondary hover:text-primary transition-colors"
+              class="p-2 text-secondary hover:text-primary transition-colors rounded-lg hover:bg-surface-hover"
               title="Edit project"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -290,7 +247,7 @@ watch(() => route.query.view, (newValue) => {
             </button>
             <button
               @click="handleDeleteProject"
-              class="p-2 text-secondary hover:text-status-error transition-colors"
+              class="p-2 text-secondary hover:text-status-error transition-colors rounded-lg hover:bg-surface-hover"
               title="Delete project"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -300,207 +257,45 @@ watch(() => route.query.view, (newValue) => {
           </div>
         </div>
 
-        <!-- Project view tabs -->
-        <div class="border-b border-default">
-          <div class="flex gap-4">
-            <button
-              @click="setActiveTab('kanban')"
-              class="py-2 px-4 border-b-2 font-medium text-sm"
-              :class="activeTab === 'kanban' ? 'border-accent text-accent' : 'border-transparent text-secondary hover:text-primary'"
-            >
-              Kanban Board
-            </button>
-            <button
-              @click="setActiveTab('list')"
-              class="py-2 px-4 border-b-2 font-medium text-sm"
-              :class="activeTab === 'list' ? 'border-accent text-accent' : 'border-transparent text-secondary hover:text-primary'"
-            >
-              List View
-            </button>
-            <!-- Gantt Planner to be implemented in a future release -->
-            <!-- <button
-              @click="setActiveTab('gantt')"
-              class="py-2 px-4 border-b-2 font-medium text-sm"
-              :class="activeTab === 'gantt' ? 'border-accent text-accent' : 'border-transparent text-tertiary hover:text-secondary'"
-            >
-              Gantt Planner
-            </button> -->
-          </div>
+        <!-- Project view tabs - compact, no margin hack -->
+        <div class="flex gap-1 border-b border-default -mb-px">
+          <button
+            @click="setActiveTab('kanban')"
+            class="py-1.5 px-3 border-b-2 font-medium text-sm transition-colors"
+            :class="activeTab === 'kanban' ? 'border-accent text-accent' : 'border-transparent text-tertiary hover:text-secondary'"
+          >
+            Kanban
+          </button>
+          <button
+            @click="setActiveTab('list')"
+            class="py-1.5 px-3 border-b-2 font-medium text-sm transition-colors"
+            :class="activeTab === 'list' ? 'border-accent text-accent' : 'border-transparent text-tertiary hover:text-secondary'"
+          >
+            List
+          </button>
         </div>
+      </template>
+    </div>
 
-        <!-- Kanban Board View -->
-        <div v-if="activeTab === 'kanban'" class="flex-1 min-h-[500px]">
-          <KanbanBoard :project-id="project.id" />
-        </div>
+    <!-- Kanban Board View - fills remaining height with horizontal scroll -->
+    <div v-if="!isLoading && project && activeTab === 'kanban'" class="flex-1 min-h-0 overflow-auto">
+      <KanbanBoard :project-id="project.id" />
+    </div>
 
-        <!-- Gantt Planner View -->
-        <div v-else-if="activeTab === 'gantt'" class="flex-1 min-h-[500px]">
-          <GanttPlanner v-if="project" :project-id="project.id" :tickets="tickets" />
-        </div>
+    <!-- Gantt Planner View -->
+    <div v-else-if="!isLoading && project && activeTab === 'gantt'" class="flex-1 min-h-[500px] px-4 md:px-6">
+      <GanttPlanner :project-id="project.id" :tickets="[]" />
+    </div>
 
-        <!-- List View -->
-        <div v-else class="flex flex-col gap-4">
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-medium text-white">Tickets</h2>
-            <button 
-              @click="showAddTicketModal = true"
-              class="flex items-center gap-2 px-4 py-2 bg-accent text-white text-sm rounded-lg hover:opacity-90 transition-colors"
-            >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-              Add Ticket
-            </button>
-          </div>
-          
-          <div v-if="isTicketsLoading" class="text-center py-8 text-secondary">
-            <div class="inline-flex items-center gap-3">
-              <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <span>Loading tickets...</span>
-            </div>
-          </div>
-          
-          <div v-else-if="tickets.length === 0" class="text-center py-12 text-secondary">
-            <div class="inline-flex flex-col items-center gap-4">
-              <svg class="w-16 h-16 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-              <div class="text-center">
-                <p class="text-lg font-medium text-primary">No tickets in this project</p>
-                <p class="text-sm text-tertiary mt-1">Add tickets to get started with project management</p>
-              </div>
-              <button 
-                @click="showAddTicketModal = true"
-                class="mt-2 px-6 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors"
-              >
-                Add Your First Ticket
-              </button>
-            </div>
-          </div>
-          
-          <div v-else class="bg-surface rounded-lg border border-default overflow-hidden">
-            <!-- Table header -->
-            <div class="bg-surface-alt px-4 py-3 border-b border-default sticky top-0 z-10">
-              <div class="grid grid-cols-12 gap-3 text-xs font-medium text-primary uppercase tracking-wide">
-                <div class="col-span-1">ID</div>
-                <div class="col-span-3">Title</div>
-                <div class="col-span-1">Status</div>
-                <div class="col-span-1">Priority</div>
-                <div class="col-span-3">Assignee</div>
-                <div class="col-span-1">Updated</div>
-                <div class="col-span-2 text-right">Actions</div>
-              </div>
-            </div>
-            
-            <!-- Ticket rows -->
-            <div class="divide-y divide-subtle">
-              <div
-                v-for="ticket in tickets"
-                :key="ticket.id"
-                class="group relative hover:bg-surface-hover transition-colors duration-150"
-              >
-                <div class="px-4 py-3">
-                  <div class="grid grid-cols-12 gap-3 items-center">
-                    <!-- Ticket ID -->
-                    <div class="col-span-1 min-w-0">
-                      <span class="text-sm font-mono text-secondary">#{{ ticket.id }}</span>
-                    </div>
-
-                    <!-- Title -->
-                    <div class="col-span-3 min-w-0">
-                      <div 
-                        @click="goToTicket(ticket.id)"
-                        class="cursor-pointer hover:underline"
-                      >
-                        <div class="font-medium text-primary truncate text-sm">{{ ticket.title }}</div>
-                        <div v-if="ticket.description" class="text-xs text-secondary truncate mt-1">{{ ticket.description }}</div>
-                      </div>
-                    </div>
-
-                    <!-- Status -->
-                    <div class="col-span-1 min-w-0">
-                      <StatusBadge 
-                        type="status" 
-                        :value="ticket.status"
-                      />
-                    </div>
-
-                    <!-- Priority -->
-                    <div class="col-span-1 min-w-0">
-                      <StatusBadge 
-                        type="priority"
-                        class="text-sm"
-                        :value="ticket.priority"
-                        short
-                      />
-                    </div>
-
-                    <!-- Assignee -->
-                    <div class="col-span-3 min-w-0">
-                      <div v-if="ticket.assignee" class="flex items-center gap-2">
-                        <UserAvatar 
-                          :name="ticket.assignee" 
-                          :avatar="ticket.assignee_avatar"
-                          size="sm" 
-                          :show-name="true"
-                          :clickable="false"
-                        />
-                      </div>
-                      <div v-else class="flex items-center gap-2 text-tertiary">
-                        <div class="w-6 h-6 rounded-full bg-surface-alt flex items-center justify-center">
-                          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
-                          </svg>
-                        </div>
-                        <span class="text-xs">Unassigned</span>
-                      </div>
-                    </div>
-
-                    <!-- Updated -->
-                    <div class="col-span-1 min-w-0">
-                      <span class="text-xs text-secondary">
-                        {{ getTicketUpdatedDate(ticket) }}
-                      </span>
-                    </div>
-
-                    <!-- Actions -->
-                    <div class="col-span-2 text-right">
-                      <div class="flex items-center justify-end gap-1">
-                        <button 
-                          @click="goToTicket(ticket.id)"
-                          class="text-accent hover:text-accent text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors"
-                          title="View ticket"
-                        >
-                          View
-                        </button>
-                        <button
-                          @click="handleRemoveTicket(ticket.id)"
-                          class="text-status-error hover:text-status-error text-xs font-medium px-2 py-1 rounded hover:bg-status-error/20 transition-colors"
-                          title="Remove from project"
-                        >
-                          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <!-- Footer -->
-            <div class="p-3 text-center border-t border-subtle bg-surface-alt">
-              <span class="text-xs text-tertiary">
-                {{ tickets.length }} ticket{{ tickets.length !== 1 ? 's' : '' }} in this project
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
+    <!-- List View -->
+    <div v-else-if="!isLoading && project && activeTab === 'list'" class="flex-1 flex flex-col min-h-0 sm:px-4 sm:pb-4">
+      <ProjectTicketList
+        ref="ticketListRef"
+        :project-id="project.id"
+        @add-ticket="showAddTicketModal = true"
+        @remove-ticket="handleRemoveTicket"
+        @ticket-count-change="handleTicketCountChange"
+      />
     </div>
 
     <!-- Edit Project Modal -->
@@ -520,13 +315,14 @@ watch(() => route.query.view, (newValue) => {
     </Modal>
 
     <!-- Add Ticket Modal -->
-    <TicketSelectionModal
+    <AddTicketToProjectModal
       v-if="project"
       :show="showAddTicketModal"
       :project-id="project.id"
-      :existing-ticket-ids="existingTicketIds"
+      :existing-tickets="existingTicketIds"
       @close="showAddTicketModal = false"
-      @select-ticket="handleAddTicket"
+      @add-ticket="handleAddTicketComplete"
+      @refresh="handleAddTicketComplete"
     />
   </div>
 </template> 

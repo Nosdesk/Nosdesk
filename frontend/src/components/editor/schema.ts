@@ -152,6 +152,38 @@ export const nodes: {[key: string]: NodeSpec} = {
     parseDOM: [{ tag: 'br' }],
     toDOM() { return brDOM; }
   },
+
+  // A ticket link card - renders as an inline preview card
+  ticket_link: {
+    inline: true,
+    attrs: {
+      ychange: { default: null },
+      ticketId: {},
+      href: {}
+    },
+    group: 'inline',
+    draggable: true,
+    atom: true, // Treated as a single unit, not editable
+    parseDOM: [{
+      tag: 'span[data-ticket-link]',
+      getAttrs(dom: HTMLElement) {
+        return {
+          ticketId: dom.getAttribute('data-ticket-id'),
+          href: dom.getAttribute('data-href')
+        };
+      }
+    }],
+    toDOM(node) {
+      const domAttrs = calcYchangeDomAttrs(node.attrs, {
+        'data-ticket-link': 'true',
+        'data-ticket-id': node.attrs.ticketId,
+        'data-href': node.attrs.href,
+        'class': 'ticket-link-card',
+        'contenteditable': 'false'
+      });
+      return ['span', domAttrs];
+    }
+  },
   
   // For lists
   bullet_list: {

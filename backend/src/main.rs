@@ -69,9 +69,29 @@ async fn serve_spa(req: HttpRequest) -> impl Responder {
         },
         Err(_) => {
             // Fallback if index.html doesn't exist
-            HttpResponse::NotFound()
-                .content_type("text/plain")
-                .body("Frontend not found")
+            let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
+            if environment != "production" {
+                HttpResponse::NotFound()
+                    .content_type("text/html")
+                    .body(r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>Building...</title>
+    <meta http-equiv="refresh" content="3">
+</head>
+<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1a2e;font-family:system-ui,sans-serif;">
+    <div style="text-align:center;color:#fff;">
+        <div style="width:40px;height:40px;border:3px solid #333;border-top-color:#6366f1;border-radius:50%;margin:0 auto 16px;animation:spin 1s linear infinite;"></div>
+        <p style="margin:0;font-size:16px;opacity:0.8;">Frontend is rebuilding...</p>
+    </div>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+</body>
+</html>"#)
+            } else {
+                HttpResponse::NotFound()
+                    .content_type("text/plain")
+                    .body("Frontend not found")
+            }
         }
     }
 }

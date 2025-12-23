@@ -26,6 +26,7 @@ pub fn get_paginated_tickets(
     status: Option<String>,
     priority: Option<String>,
     assignee: Option<String>,
+    requester: Option<String>,
     created_after: Option<String>,
     created_before: Option<String>,
     created_on: Option<String>,
@@ -122,7 +123,7 @@ pub fn get_paginated_tickets(
         }
     }
     
-    // Handle assignee filter for count query  
+    // Handle assignee filter for count query
     if let Some(assignee_filter) = &assignee {
         if assignee_filter != "all" {
             // Parse the UUID string
@@ -132,7 +133,18 @@ pub fn get_paginated_tickets(
             }
         }
     }
-    
+
+    // Handle requester filter
+    if let Some(requester_filter) = &requester {
+        if requester_filter != "all" {
+            // Parse the UUID string
+            if let Ok(requester_uuid) = uuid::Uuid::parse_str(requester_filter) {
+                count_query = count_query.filter(tickets::requester_uuid.eq(Some(requester_uuid)));
+                query = query.filter(tickets::requester_uuid.eq(Some(requester_uuid)));
+            }
+        }
+    }
+
     // Handle date filtering
     // Created date filters
     if let Some(created_after_str) = &created_after {
@@ -255,6 +267,7 @@ pub fn get_paginated_tickets_with_users(
     status: Option<String>,
     priority: Option<String>,
     assignee: Option<String>,
+    requester: Option<String>,
     created_after: Option<String>,
     created_before: Option<String>,
     created_on: Option<String>,
@@ -267,8 +280,8 @@ pub fn get_paginated_tickets_with_users(
 ) -> Result<(Vec<crate::models::TicketListItem>, i64), Error> {
     // First get the basic tickets and total count
     let (tickets, total) = get_paginated_tickets(
-        conn, page, page_size, sort_field, sort_direction, 
-        search, status, priority, assignee,
+        conn, page, page_size, sort_field, sort_direction,
+        search, status, priority, assignee, requester,
         created_after, created_before, created_on,
         modified_after, modified_before, modified_on,
         closed_after, closed_before, closed_on

@@ -10,7 +10,7 @@ interface Props {
   /** Show name text next to avatar */
   showName?: boolean
   /** Avatar size */
-  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'full'
+  size?: 'xxs' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'full'
   /** Avatar image URL */
   avatar?: string | null
   /** Whether clicking navigates to user profile */
@@ -66,6 +66,7 @@ const getBackgroundColor = (name: string) => {
 // Size classes
 const sizeClasses = computed(() => {
   const sizes = {
+    xxs: { base: 'h-4 w-4', text: 'text-[8px]' },
     xs: { base: 'h-5 w-5', text: 'text-[10px]' },
     sm: { base: 'h-6 w-6', text: 'text-xs' },
     md: { base: 'h-8 w-8', text: 'text-sm' },

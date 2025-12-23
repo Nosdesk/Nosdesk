@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "@/components/UserAvatar.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
+import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import ticketService, { type Ticket } from "@/services/ticketService";
 
 const props = withDefaults(defineProps<{
@@ -37,6 +38,9 @@ const sortBy = ref("date"); // default sort by date
 
 // Computed: target user UUID (prop or current user)
 const targetUserUuid = computed(() => props.userUuid || authStore.user?.uuid || "");
+
+// Computed: whether we're showing data for the current user
+const isCurrentUser = computed(() => !props.userUuid || props.userUuid === authStore.user?.uuid);
 
 // Computed: display title
 const displayTitle = computed(() => {
@@ -167,36 +171,18 @@ watch(
 
             <div v-if="showFilters" class="flex flex-col sm:flex-row gap-2">
                 <!-- Sort dropdown -->
-                <div class="relative">
-                    <select
-                        v-model="sortBy"
-                        class="bg-surface border border-default text-sm rounded-lg focus:ring-2 focus:ring-accent/50 focus:border-accent focus:outline-none block w-full px-3 py-2 text-primary transition-colors hover:bg-surface-hover"
-                    >
-                        <option
-                            v-for="option in sortOptions"
-                            :key="option.value"
-                            :value="option.value"
-                        >
-                            {{ option.label }}
-                        </option>
-                    </select>
-                </div>
+                <BaseDropdown
+                    v-model="sortBy"
+                    :options="sortOptions"
+                    size="sm"
+                />
 
                 <!-- Filter dropdown -->
-                <div class="relative">
-                    <select
-                        v-model="selectedStatus"
-                        class="bg-surface border border-default text-sm rounded-lg focus:ring-2 focus:ring-accent/50 focus:border-accent focus:outline-none block w-full px-3 py-2 text-primary transition-colors hover:bg-surface-hover"
-                    >
-                        <option
-                            v-for="option in statusOptions"
-                            :key="option.value"
-                            :value="option.value"
-                        >
-                            {{ option.label }}
-                        </option>
-                    </select>
-                </div>
+                <BaseDropdown
+                    v-model="selectedStatus"
+                    :options="statusOptions"
+                    size="sm"
+                />
             </div>
         </div>
 
@@ -271,9 +257,9 @@ watch(
                 </svg>
                 <div>
                     <p class="text-secondary font-medium">
-                        No assigned tickets found
+                        No {{ props.ticketType === 'requested' ? 'requested' : 'assigned' }} tickets
                     </p>
-                    <p class="text-tertiary text-sm mt-1">
+                    <p v-if="isCurrentUser" class="text-tertiary text-sm mt-1">
                         You're all caught up!
                     </p>
                 </div>

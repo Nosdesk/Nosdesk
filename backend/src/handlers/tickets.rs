@@ -182,6 +182,7 @@ pub struct PaginationParams {
     status: Option<String>,
     priority: Option<String>,
     assignee: Option<String>,
+    requester: Option<String>,
     // Date filtering parameters
     #[serde(rename = "createdAfter")]
     created_after: Option<String>,
@@ -252,6 +253,7 @@ pub async fn get_paginated_tickets(
         query.status.clone(),
         query.priority.clone(),
         query.assignee.clone(),
+        query.requester.clone(),
         query.created_after.clone(),
         query.created_before.clone(),
         query.created_on.clone(),

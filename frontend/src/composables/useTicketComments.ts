@@ -19,10 +19,7 @@ export function useTicketComments(
       return;
     }
 
-    // Set placeholder content if only files
-    if (!data.content.trim() && data.files?.length > 0) {
-      data.content = 'Attachment added';
-    }
+    // Keep content as-is (empty string if no text, allows attachment-only comments)
 
     // Generate a temporary negative ID for optimistic update
     const tempId = -Date.now();
@@ -145,24 +142,33 @@ export function useTicketComments(
         return;
       }
 
-      // Optimistic update - use splice to preserve array reference
-      if (ticket.value.commentsAndAttachments) {
-        const commentIndex = ticket.value.commentsAndAttachments.findIndex(
-          (c: any) => c.id === data.commentId,
-        );
+      // Check if this is the last attachment on an attachment-only comment
+      // (no text content or just placeholder text like "Attachment added")
+      const hasNoRealContent = !comment.content ||
+        comment.content.trim() === '' ||
+        comment.content.trim().toLowerCase() === 'attachment added';
+      const isLastAttachment = comment.attachments.length === 1;
+      const shouldDeleteComment = isLastAttachment && hasNoRealContent;
 
-        if (commentIndex !== -1) {
-          // Directly mutate the attachments array to preserve references
-          comment.attachments.splice(data.attachmentIndex, 1);
-        }
-      }
-
-      // Delete from backend
-      await ticketService.deleteAttachment(attachment.id);
-
-      // Delete comment if it was the last attachment and has no content
-      if (comment.attachments.length === 1 && (!comment.content || comment.content.trim() === '')) {
+      if (shouldDeleteComment) {
+        // Delete the entire comment (which will also delete attachments on backend)
         await deleteComment(comment.id);
+      } else {
+        // Just delete the attachment
+        // Optimistic update - use splice to preserve array reference
+        if (ticket.value.commentsAndAttachments) {
+          const commentIndex = ticket.value.commentsAndAttachments.findIndex(
+            (c: any) => c.id === data.commentId,
+          );
+
+          if (commentIndex !== -1) {
+            // Directly mutate the attachments array to preserve references
+            comment.attachments.splice(data.attachmentIndex, 1);
+          }
+        }
+
+        // Delete from backend
+        await ticketService.deleteAttachment(attachment.id);
       }
     } catch (err) {
       console.error('Error deleting attachment:', err);

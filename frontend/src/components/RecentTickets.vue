@@ -4,8 +4,29 @@ import { useRecentTicketsStore } from '@/stores/recentTickets'
 import { onMounted, computed } from 'vue'
 import { parseDate } from '@/utils/dateUtils'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
+import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
+import { useTicketDrag, type DraggableTicket } from '@/composables/useTicketDrag'
 
 const recentTicketsStore = useRecentTicketsStore()
+const {
+  dragState,
+  handleDragStart,
+  handleDrag,
+  handleDragEnd,
+  handleTouchStart,
+  handleTouchMove,
+  handleTouchEnd,
+  handleTouchCancel
+} = useTicketDrag()
+
+// Convert store ticket to draggable ticket format
+const toDraggableTicket = (ticket: any): DraggableTicket => ({
+  id: ticket.id,
+  title: ticket.title,
+  status: ticket.status,
+  priority: ticket.priority,
+  assignee: ticket.assignee || ticket.assignee_user?.display_name || null
+})
 
 // Only show loading skeleton on initial load (when we have no data yet)
 const showLoading = computed(() =>
@@ -53,7 +74,16 @@ const relativeTime = (dateString: string | null | undefined): string => {
           v-for="ticket in recentTicketsStore.recentTickets"
           :key="ticket.id"
           :to="{ path: `/tickets/${ticket.id}`, query: { fromRecent: 'true' } }"
-          class="group flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded hover:bg-surface-hover transition-colors"
+          class="group flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded hover:bg-surface-hover transition-colors cursor-grab select-none"
+          :class="{ 'opacity-50': dragState.isDragging && dragState.ticket?.id === ticket.id }"
+          draggable="true"
+          @dragstart="handleDragStart(toDraggableTicket(ticket), 'recent-tickets', $event)"
+          @drag="handleDrag"
+          @dragend="handleDragEnd"
+          @touchstart="handleTouchStart(toDraggableTicket(ticket), 'recent-tickets', $event)"
+          @touchmove="handleTouchMove"
+          @touchend="handleTouchEnd"
+          @touchcancel="handleTouchCancel"
         >
           <!-- Status indicator -->
           <StatusIndicator :status="ticket.status" size="xs" />
@@ -78,17 +108,31 @@ const relativeTime = (dateString: string | null | undefined): string => {
     <div v-else class="flex-1 flex items-center justify-center p-2">
       <p class="text-xs text-tertiary">No recent tickets</p>
     </div>
+
+    <!-- Drag Preview (uses Teleport, doesn't affect layout) -->
+    <TicketDragPreview
+      v-if="dragState.isDragging && dragState.source === 'recent-tickets' && dragState.ticket && dragState.position"
+      :ticket="dragState.ticket"
+      :position="dragState.position"
+    />
   </div>
 </template>
 
 <style scoped>
+/* Thin scrollbar using theme colors */
 .overflow-y-auto {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-surface-hover) transparent;
+  scrollbar-color: var(--color-text-tertiary) transparent;
 }
-.overflow-y-auto::-webkit-scrollbar { width: 3px; }
+.overflow-y-auto::-webkit-scrollbar { width: 4px; }
 .overflow-y-auto::-webkit-scrollbar-track { background: transparent; }
-.overflow-y-auto::-webkit-scrollbar-thumb { background-color: var(--color-surface-hover); border-radius: 2px; }
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background-color: var(--color-text-tertiary);
+  border-radius: 2px;
+}
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-secondary);
+}
 
 /* FLIP animation for list reordering */
 .ticket-list-move,

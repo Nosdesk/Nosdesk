@@ -44,7 +44,8 @@ const ALLOWED_MIME_TYPES: &[&str] = &[
     "audio/aac",
     "audio/wav",
     "audio/x-wav",
-    "audio/x-m4a",
+    "audio/m4a",      // infer crate returns this for m4a files
+    "audio/x-m4a",    // alternative m4a MIME type
     // Video/WebM (browser may detect voice notes as video/webm)
     "video/webm",
 ];

@@ -8,6 +8,7 @@
 // - To disable: localStorage.removeItem('editor-verbose-logging')
 
 import { ref, onMounted, onBeforeUnmount, watch, computed } from "vue";
+import { useRouter } from "vue-router";
 import * as Y from "yjs";
 import { PermanentUserData } from "yjs";
 import { WebsocketProvider } from "y-websocket";
@@ -26,6 +27,7 @@ import {
     removeLink,
     type LinkTooltipState,
 } from "./editor/linkTooltipPlugin";
+import { createTicketLinkPlugin, setTicketNavigationHandler } from "./editor/ticketLinkPlugin";
 import {
     ySyncPlugin,
     ySyncPluginKey,
@@ -83,6 +85,12 @@ const props = withDefaults(defineProps<Props>(), {
 
 // Get auth store for user info
 const authStore = useAuthStore();
+
+// Set up Vue Router navigation for ticket link cards
+const router = useRouter();
+setTicketNavigationHandler((ticketId: number) => {
+    router.push(`/tickets/${ticketId}`);
+});
 
 
 // Refs for template
@@ -450,6 +458,7 @@ const initEditor = async () => {
                 name: getUserDisplayName(),
                 color: getRandomColor(),
                 uuid: authStore.user?.uuid || undefined,
+                avatar: authStore.user?.avatar_thumb || authStore.user?.avatar_url || undefined,
             },
         });
 
@@ -519,6 +528,7 @@ const initEditor = async () => {
                             linkTooltipState.value = state;
                         },
                     }),
+                    createTicketLinkPlugin(),
                     keymap({
                         "Mod-z": undo,
                         "Mod-y": redo,
@@ -1217,6 +1227,12 @@ const cleanup = () => {
         reinitializeTimeout = null;
     }
 
+    // CRITICAL: Clear visibility timeout to prevent disconnect after unmount
+    if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+        visibilityTimeout = null;
+    }
+
     // CRITICAL: Clean up in the correct order to prevent race conditions
     // 1. First disconnect the provider to stop new messages
     if (provider) {
@@ -1315,6 +1331,7 @@ watch(
                 user: {
                     ...currentState?.user,
                     name: getUserDisplayName(),
+                    avatar: authStore.user?.avatar_thumb || authStore.user?.avatar_url || undefined,
                 },
             });
             log.debug(`Updated user name to: ${getUserDisplayName()}`);
@@ -2082,6 +2099,8 @@ defineExpose({
                                 connectedUser.user.uuid ||
                                 connectedUser.user.name
                             "
+                            :userName="connectedUser.user.name"
+                            :avatar="connectedUser.user.avatar"
                             :showName="false"
                             size="xs"
                             :clickable="!!connectedUser.user.uuid"
@@ -2356,7 +2375,7 @@ defineExpose({
 }
 
 .ProseMirror blockquote {
-    border-left: 4px solid var(--color-accent);
+    border-left: 3px solid var(--color-border-subtle);
     padding-left: 1rem;
     padding-right: 1rem;
     padding-top: 0.5rem;
@@ -2366,7 +2385,7 @@ defineExpose({
     color: var(--color-secondary);
     margin-top: 1rem;
     margin-bottom: 1rem;
-    background-color: var(--color-surface);
+    background-color: var(--color-surface-alt);
     border-radius: 0.375rem;
 }
 
@@ -2581,6 +2600,181 @@ defineExpose({
 
 .ProseMirror a:hover {
     color: var(--color-accent-hover, var(--color-accent));
+}
+
+/* Ticket Link Card Styles - Full width card layout */
+.ProseMirror .ticket-link-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    margin: 8px 0;
+    background: var(--color-surface-alt);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    width: 100%;
+    max-width: 100%;
+}
+
+.ProseMirror .ticket-link-card:hover {
+    border-color: var(--color-accent);
+    background: var(--color-surface-hover);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.ProseMirror .ticket-link-loading {
+    opacity: 0.7;
+}
+
+.ProseMirror .ticket-link-error {
+    border-color: var(--color-status-error);
+}
+
+/* Header with ticket ID and title */
+.ProseMirror .ticket-link-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ProseMirror .ticket-link-id {
+    font-weight: 600;
+    color: var(--color-text-secondary, #888);
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.ProseMirror .ticket-link-title {
+    color: var(--color-text-primary, #fff);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+/* Meta row with people and badges inline */
+.ProseMirror .ticket-link-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 11px;
+}
+
+.ProseMirror .ticket-link-person {
+    color: var(--color-text-secondary, #aaa);
+}
+
+.ProseMirror .ticket-link-label {
+    color: var(--color-text-tertiary, #666);
+}
+
+/* Status badge */
+.ProseMirror .ticket-link-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.ProseMirror .ticket-link-status-open {
+    background: var(--color-status-open-muted, rgba(59, 130, 246, 0.15));
+    color: var(--color-status-open, #3b82f6);
+}
+
+.ProseMirror .ticket-link-status-in-progress {
+    background: var(--color-status-in-progress-muted, rgba(245, 158, 11, 0.15));
+    color: var(--color-status-in-progress, #f59e0b);
+}
+
+.ProseMirror .ticket-link-status-closed {
+    background: var(--color-status-closed-muted, rgba(34, 197, 94, 0.15));
+    color: var(--color-status-closed, #22c55e);
+}
+
+/* Priority badge */
+.ProseMirror .ticket-link-priority {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.ProseMirror .ticket-link-priority-high {
+    background: var(--color-priority-high-muted, rgba(239, 68, 68, 0.15));
+    color: var(--color-priority-high, #ef4444);
+}
+
+.ProseMirror .ticket-link-priority-medium {
+    background: var(--color-priority-medium-muted, rgba(245, 158, 11, 0.15));
+    color: var(--color-priority-medium, #f59e0b);
+}
+
+.ProseMirror .ticket-link-priority-low {
+    background: var(--color-priority-low-muted, rgba(34, 197, 94, 0.15));
+    color: var(--color-priority-low, #22c55e);
+}
+
+/* Colorblind mode indicator icons */
+.ProseMirror .ticket-link-status .indicator-icon,
+.ProseMirror .ticket-link-priority .indicator-icon {
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+}
+
+/* Status indicator colors for colorblind mode */
+.ProseMirror .text-status-open {
+    color: var(--color-status-open, #3b82f6);
+}
+
+.ProseMirror .text-status-in-progress {
+    color: var(--color-status-in-progress, #f59e0b);
+}
+
+.ProseMirror .text-status-closed {
+    color: var(--color-status-closed, #22c55e);
+}
+
+/* Priority indicator colors for colorblind mode */
+.ProseMirror .text-priority-low {
+    color: var(--color-priority-low, #22c55e);
+}
+
+.ProseMirror .text-priority-medium {
+    color: var(--color-priority-medium, #f59e0b);
+}
+
+.ProseMirror .text-priority-high {
+    color: var(--color-priority-high, #ef4444);
+}
+
+/* Loading spinner */
+.ProseMirror .ticket-link-loader {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--color-border-default, #333);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: ticket-link-spin 0.8s linear infinite;
+}
+
+@keyframes ticket-link-spin {
+    to { transform: rotate(360deg); }
 }
 
 .ProseMirror strong {

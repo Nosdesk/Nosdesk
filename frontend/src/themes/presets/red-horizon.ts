@@ -3,79 +3,80 @@ import type { Theme } from '../types'
 /**
  * Red Horizon Theme
  *
- * Mars colony terminal aesthetic - red/orange plasma CRT display
- * with that warm phosphor glow of a dusty red planet outpost.
+ * Inspired by the Toshiba T3100e gas-plasma display.
+ * Warm amber/orange monochrome on deep black - that classic
+ * 80s/90s portable workstation aesthetic.
  */
 export const redHorizonTheme: Theme = {
   meta: {
     id: 'red-horizon',
     name: 'Red Horizon',
-    description: 'Mars terminal plasma display',
+    description: 'Reddish-orange gas-plasma display',
     isDark: true,
     category: 'builtin',
   },
   colors: {
-    // Backgrounds - true blacks with subtle red tint
-    app: '#080101',
-    surface: '#0f0303',
-    surfaceAlt: '#180606',
-    surfaceHover: '#220909',
+    // Backgrounds - deep blacks with warm red undertone
+    app: '#080200',
+    surface: '#0c0400',
+    surfaceAlt: '#140a00',
+    surfaceHover: '#1c0e00',
 
-    // Borders - dark blood red
-    default: '#3a0a0a',
-    subtle: '#280707',
-    strong: '#4c0d0d',
+    // Borders - dark burnt orange
+    default: '#3d1800',
+    subtle: '#2a1000',
+    strong: '#502200',
 
-    // Text - bright red for contrast on dark backgrounds
-    primary: '#ff1a1a',
-    secondary: '#cc1111',
-    tertiary: '#881010',
+    // Text - reddish-orange for that warm plasma glow
+    primary: '#ff8844',      // Bright reddish-orange - main text
+    secondary: '#dd6622',    // Medium burnt orange
+    tertiary: '#aa4400',     // Dim reddish-orange
 
-    // Accent - vivid red
-    accent: '#ee0000',
-    accentHover: '#ff2222',
-    accentMuted: 'rgba(220, 0, 0, 0.25)',
+    // Accent - vivid red-orange
+    accent: '#ff6622',
+    accentHover: '#ff8844',
+    accentMuted: 'rgba(255, 102, 34, 0.25)',
 
-    // Status colors - deep reds
-    success: '#cc2200',
-    successMuted: 'rgba(180, 30, 0, 0.3)',
-    error: '#ff0000',
-    errorMuted: 'rgba(180, 0, 0, 0.4)',
-    warning: '#dd4400',
-    warningMuted: 'rgba(200, 60, 0, 0.3)',
-    info: '#cc1100',
-    infoMuted: 'rgba(180, 15, 0, 0.3)',
+    // Status colors - red-orange spectrum
+    success: '#dd7700',
+    successMuted: 'rgba(220, 119, 0, 0.3)',
+    error: '#ff4400',
+    errorMuted: 'rgba(255, 68, 0, 0.4)',
+    warning: '#ffaa22',
+    warningMuted: 'rgba(255, 170, 34, 0.3)',
+    info: '#ee6600',
+    infoMuted: 'rgba(238, 102, 0, 0.3)',
 
-    // Ticket status - blood red spectrum
-    statusOpen: '#dd3300',
-    statusOpenMuted: 'rgba(200, 45, 0, 0.3)',
-    statusInProgress: '#cc1100',
-    statusInProgressMuted: 'rgba(180, 15, 0, 0.3)',
-    statusClosed: '#660000',
-    statusClosedMuted: 'rgba(80, 0, 0, 0.4)',
+    // Ticket status - red-orange intensity levels
+    statusOpen: '#ff9933',
+    statusOpenMuted: 'rgba(255, 153, 51, 0.3)',
+    statusInProgress: '#ee6600',
+    statusInProgressMuted: 'rgba(238, 102, 0, 0.3)',
+    statusClosed: '#884400',
+    statusClosedMuted: 'rgba(136, 68, 0, 0.4)',
 
-    // Priority - intensity of red
-    priorityHigh: '#ff0000',
-    priorityHighMuted: 'rgba(200, 0, 0, 0.35)',
-    priorityMedium: '#cc2200',
-    priorityMediumMuted: 'rgba(180, 30, 0, 0.3)',
-    priorityLow: '#992200',
-    priorityLowMuted: 'rgba(140, 30, 0, 0.3)',
+    // Priority - red-orange brightness levels
+    priorityHigh: '#ff7733',
+    priorityHighMuted: 'rgba(255, 119, 51, 0.35)',
+    priorityMedium: '#dd5522',
+    priorityMediumMuted: 'rgba(220, 85, 34, 0.3)',
+    priorityLow: '#aa4400',
+    priorityLowMuted: 'rgba(170, 68, 0, 0.3)',
 
-    // Shadows - deep red glow
+    // Shadows - warm red-orange glow
     shadowDark: 'rgba(0, 0, 0, 0.7)',
-    shadowLight: 'rgba(200, 0, 0, 0.15)',
+    shadowLight: 'rgba(255, 102, 34, 0.15)',
 
-    // Syntax highlighting - red monochrome
+    // Syntax highlighting - red-orange monochrome
     syntax: {
-      comment: '#661010',
-      keyword: '#ff1a1a',
-      string: '#cc3333',
-      number: '#dd4400',
-      function: '#ee1111',
-      variable: '#cc1111',
-      type: '#dd2222',
-      operator: '#881010',
+      comment: '#884400',
+      keyword: '#ff8844',
+      string: '#dd7744',
+      number: '#ffaa44',
+      function: '#ff6622',
+      variable: '#dd5522',
+      type: '#ee7733',
+      operator: '#aa5500',
     },
   },
 }

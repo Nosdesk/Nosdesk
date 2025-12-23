@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Theme } from '@/themes'
+import { useThemeStore } from '@/stores/theme'
 
 const props = defineProps<{
   theme?: Theme
@@ -7,6 +9,14 @@ const props = defineProps<{
   selected?: boolean
   disabled?: boolean
 }>()
+
+const themeStore = useThemeStore()
+
+// Check if we should apply the CRT scanline effect (when current theme is red-horizon)
+const showCrtEffect = computed(() => {
+  const currentThemeId = themeStore.effectiveTheme?.meta?.id
+  return currentThemeId === 'red-horizon' && !props.selected
+})
 
 const emit = defineEmits<{
   select: []
@@ -49,6 +59,7 @@ const colors = getPreviewColors()
     <!-- Preview Box -->
     <div
       class="w-full aspect-[4/3] rounded-md overflow-hidden border border-subtle shadow-sm"
+      :class="{ 'crt-effect': showCrtEffect }"
     >
       <!-- System Theme - Split Preview -->
       <template v-if="isSystem">
