@@ -152,6 +152,16 @@ const showTypeMenu = ref(false);
 const showInsertMenu = ref(false);
 const showMoreMenu = ref(false);
 
+// Dropdown position state (for viewport-aware positioning)
+import { useDropdownPosition } from '@/composables/useDropdownPosition';
+
+const { position: typeMenuPosition, updatePosition: updateTypeMenuPosition } =
+    useDropdownPosition(typeButtonRef, showTypeMenu, { preferredWidth: 160 });
+const { position: insertMenuPosition, updatePosition: updateInsertMenuPosition } =
+    useDropdownPosition(insertButtonRef, showInsertMenu, { preferredWidth: 180 });
+const { position: moreMenuPosition, updatePosition: updateMoreMenuPosition } =
+    useDropdownPosition(moreButtonRef, showMoreMenu, { preferredWidth: 160 });
+
 // Link tooltip state
 const linkTooltipState = ref<LinkTooltipState>({
     visible: false,
@@ -1204,6 +1214,29 @@ const handleLinkOpen = (url: string) => {
     window.open(url, "_blank", "noopener,noreferrer");
 };
 
+// Handle link tooltip reposition request (on scroll)
+const handleLinkReposition = () => {
+    if (!editorView || !linkTooltipState.value.visible) return;
+
+    // Recalculate position based on the link's current position in viewport
+    const { from, to } = linkTooltipState.value;
+    if (from === 0 && to === 0) return;
+
+    try {
+        const start = editorView.coordsAtPos(from);
+        const end = editorView.coordsAtPos(to);
+
+        linkTooltipState.value = {
+            ...linkTooltipState.value,
+            x: (start.left + end.left) / 2,
+            y: end.bottom + 8,
+        };
+    } catch (e) {
+        // Position might be invalid if doc changed, just hide
+        hideLinkTooltip()(editorView.state, editorView.dispatch);
+    }
+};
+
 // Show link tooltip (for toolbar button)
 const insertLink = () => {
     if (!editorView) return;
@@ -1759,74 +1792,83 @@ defineExpose({
                 </button>
 
                 <!-- Type Menu Dropdown -->
-                <div
-                    v-if="showTypeMenu"
-                    ref="typeMenuRef"
-                    class="dropdown-menu"
-                    role="menu"
-                    tabindex="-1"
-                >
-                    <button
-                        @click="
-                            setParagraph();
-                            showTypeMenu = false;
-                        "
-                        class="dropdown-item"
-                        role="menuitem"
+                <Teleport to="body">
+                    <div
+                        v-if="showTypeMenu"
+                        ref="typeMenuRef"
+                        class="dropdown-menu-fixed"
+                        :class="{ 'open-up': typeMenuPosition.openDirection === 'up' }"
+                        :style="{
+                            top: typeMenuPosition.openDirection === 'up' ? 'auto' : `${typeMenuPosition.top}px`,
+                            bottom: typeMenuPosition.openDirection === 'up' ? `${typeMenuPosition.bottom}px` : 'auto',
+                            left: `${typeMenuPosition.left}px`,
+                            maxWidth: typeMenuPosition.maxWidth ? `${typeMenuPosition.maxWidth}px` : undefined
+                        }"
+                        role="menu"
+                        tabindex="-1"
                     >
-                        Plain
-                    </button>
-                    <button
-                        @click="
-                            setHeading(1);
-                            showTypeMenu = false;
-                        "
-                        class="dropdown-item"
-                        role="menuitem"
-                    >
-                        Heading 1
-                    </button>
-                    <button
-                        @click="
-                            setHeading(2);
-                            showTypeMenu = false;
-                        "
-                        class="dropdown-item"
-                        role="menuitem"
-                    >
-                        Heading 2
-                    </button>
-                    <button
-                        @click="
-                            setHeading(3);
-                            showTypeMenu = false;
-                        "
-                        class="dropdown-item"
-                        role="menuitem"
-                    >
-                        Heading 3
-                    </button>
-                    <button
-                        @click="
-                            toggleBlockquote();
-                            showTypeMenu = false;
-                        "
-                        class="dropdown-item"
-                        role="menuitem"
-                    >
-                        Blockquote
-                    </button>
-                    <button
-                        @click="
-                            toggleCodeBlock();
-                            showTypeMenu = false;
-                        "
-                        class="dropdown-item"
-                        role="menuitem"
-                    >
-                        Code Block
-                    </button>
-                </div>
+                        <button
+                            @click="
+                                setParagraph();
+                                showTypeMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Plain
+                        </button>
+                        <button
+                            @click="
+                                setHeading(1);
+                                showTypeMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Heading 1
+                        </button>
+                        <button
+                            @click="
+                                setHeading(2);
+                                showTypeMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Heading 2
+                        </button>
+                        <button
+                            @click="
+                                setHeading(3);
+                                showTypeMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Heading 3
+                        </button>
+                        <button
+                            @click="
+                                toggleBlockquote();
+                                showTypeMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Blockquote
+                        </button>
+                        <button
+                            @click="
+                                toggleCodeBlock();
+                                showTypeMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Code Block
+                        </button>
+                    </div>
+                </Teleport>
             </div>
 
             <div class="toolbar-divider"></div>
@@ -1947,64 +1989,73 @@ defineExpose({
                 </button>
 
                 <!-- Insert Menu Dropdown -->
-                <div
-                    v-if="showInsertMenu"
-                    ref="insertMenuRef"
-                    class="dropdown-menu"
-                    role="menu"
-                    tabindex="-1"
-                >
-                    <button
-                        @click="
-                            toggleBulletList();
-                            showInsertMenu = false;
-                        "
-                        class="dropdown-item"
-                        role="menuitem"
+                <Teleport to="body">
+                    <div
+                        v-if="showInsertMenu"
+                        ref="insertMenuRef"
+                        class="dropdown-menu-fixed"
+                        :class="{ 'open-up': insertMenuPosition.openDirection === 'up' }"
+                        :style="{
+                            top: insertMenuPosition.openDirection === 'up' ? 'auto' : `${insertMenuPosition.top}px`,
+                            bottom: insertMenuPosition.openDirection === 'up' ? `${insertMenuPosition.bottom}px` : 'auto',
+                            left: `${insertMenuPosition.left}px`,
+                            maxWidth: insertMenuPosition.maxWidth ? `${insertMenuPosition.maxWidth}px` : undefined
+                        }"
+                        role="menu"
+                        tabindex="-1"
                     >
-                        Bullet List
-                    </button>
-                    <button
-                        @click="
-                            toggleOrderedList();
-                            showInsertMenu = false;
-                        "
-                        class="dropdown-item"
-                        role="menuitem"
-                    >
-                        Numbered List
-                    </button>
-                    <button
-                        @click="
-                            toggleBlockquote();
-                            showInsertMenu = false;
-                        "
-                        class="dropdown-item"
-                        role="menuitem"
-                    >
-                        Blockquote
-                    </button>
-                    <button
-                        @click="
-                            toggleCodeBlock();
-                            showInsertMenu = false;
-                        "
-                        class="dropdown-item"
-                        role="menuitem"
-                    >
-                        Code Block
-                    </button>
-                    <button
-                        @click="
-                            insertLink();
-                            showInsertMenu = false;
-                        "
-                        class="dropdown-item"
-                        role="menuitem"
-                    >
-                        Link
-                    </button>
-                </div>
+                        <button
+                            @click="
+                                toggleBulletList();
+                                showInsertMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Bullet List
+                        </button>
+                        <button
+                            @click="
+                                toggleOrderedList();
+                                showInsertMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Numbered List
+                        </button>
+                        <button
+                            @click="
+                                toggleBlockquote();
+                                showInsertMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Blockquote
+                        </button>
+                        <button
+                            @click="
+                                toggleCodeBlock();
+                                showInsertMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Code Block
+                        </button>
+                        <button
+                            @click="
+                                insertLink();
+                                showInsertMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Link
+                        </button>
+                    </div>
+                </Teleport>
             </div>
 
             <div class="toolbar-divider"></div>
@@ -2134,6 +2185,7 @@ defineExpose({
             @remove="handleLinkRemove"
             @close="handleLinkClose"
             @open-link="handleLinkOpen"
+            @request-reposition="handleLinkReposition"
         />
 
         <!-- Revision History Sidebar -->
@@ -2215,6 +2267,25 @@ defineExpose({
         0 4px 6px -2px rgba(0, 0, 0, 0.05);
     z-index: 50;
     overflow: hidden;
+}
+
+/* Fixed positioned dropdown for Teleport usage (viewport-aware) */
+.dropdown-menu-fixed {
+    position: fixed;
+    width: 12rem;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-default);
+    border-radius: 0.5rem;
+    box-shadow:
+        0 10px 15px -3px rgba(0, 0, 0, 0.1),
+        0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    z-index: 9999;
+    overflow: hidden;
+    transform-origin: top left;
+}
+
+.dropdown-menu-fixed.open-up {
+    transform-origin: bottom left;
 }
 
 .dropdown-item {

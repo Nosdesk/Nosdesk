@@ -276,14 +276,18 @@ const saveUser = async () => {
             }
 
             const newUser = await userService.createUser(userData);
+            console.log('✅ User created successfully:', newUser);
 
-            if (!newUser) {
-                error.value = "Failed to create user. Please try again.";
+            if (!newUser?.uuid) {
+                console.error('User created but no UUID returned:', newUser);
+                error.value = "User created but navigation failed. Please go to Users list.";
                 return;
             }
 
             // Navigate to the newly created user (replace history so back button goes to users list)
-            router.replace(`/users/${newUser.uuid}`);
+            console.log('🔄 Navigating to user:', `/users/${newUser.uuid}`);
+            await router.replace(`/users/${newUser.uuid}`);
+            console.log('✅ Navigation complete');
         } else {
             // Update existing user
             if (!userProfile.value) return;
@@ -309,7 +313,12 @@ const saveUser = async () => {
         }
     } catch (err) {
         console.error("Error saving user:", err);
-        error.value = "Failed to save user. Please try again.";
+        // Extract error message - handles both Error objects and other types
+        if (err instanceof Error) {
+            error.value = err.message;
+        } else {
+            error.value = "Failed to save user. Please try again.";
+        }
     } finally {
         isSaving.value = false;
     }
@@ -333,6 +342,22 @@ const handleDeleteUser = async () => {
 onMounted(() => {
     fetchUserData();
 });
+
+// Re-fetch user data when route params change (e.g., after creating a new user)
+watch(
+    () => route.params.uuid,
+    (newUuid, oldUuid) => {
+        if (newUuid !== oldUuid) {
+            // Reset state when navigating to a different user
+            isCreationMode.value = false;
+            isNewUser.value = false;
+            editingEmail.value = false;
+            editingRole.value = false;
+            editingPronouns.value = false;
+            fetchUserData();
+        }
+    }
+);
 </script>
 
 <template>

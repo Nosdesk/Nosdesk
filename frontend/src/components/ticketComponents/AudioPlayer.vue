@@ -3,6 +3,7 @@
 import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import UserAvatar from "@/components/UserAvatar.vue";
+import { useAudioPlayer } from '@/composables/useAudioPlayer';
 
 const props = defineProps<{
   src: string;
@@ -11,6 +12,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'delete'): void;
 }>();
+
+// Global audio player management - ensures only one plays at a time
+const { playerId, onPauseOthers, notifyPlayStarted } = useAudioPlayer();
+let cleanupPauseListener: (() => void) | null = null;
 
 const audioRef = ref<HTMLAudioElement | null>(null);
 const waveformCanvasRef = ref<HTMLCanvasElement | null>(null);
@@ -24,6 +29,7 @@ const isLoading = ref(true);
 const error = ref<string | null>(null);
 const isDragging = ref(false);
 const durationLoaded = ref(false);
+const isTouchDragging = ref(false);
 
 const formatTime = (seconds: number): string => {
   if (!seconds || isNaN(seconds) || !isFinite(seconds)) return "0:00";
@@ -102,46 +108,35 @@ const drawWaveform = () => {
     : 0;
   const progressX = progress * width;
 
-  // Number of points for smooth flowing waveform
-  const numPoints = Math.max(60, Math.min(120, Math.floor(width / 4)));
+  // More points for detailed waveform that reflects actual audio
+  const numPoints = Math.max(100, Math.min(200, Math.floor(width / 2)));
   const step = width / (numPoints - 1);
-  const maxAmplitude = height * 0.38;
+  const maxAmplitude = height * 0.42;
 
-  // Sample audio data at each point with smoothing
+  // Sample audio data with minimal smoothing to preserve detail
   const getAmplitude = (index: number): number => {
     const dataIndex = Math.floor((index / numPoints) * audioData.value!.length);
-    // Get surrounding samples for smoothing
-    const samples = [];
-    for (let offset = -2; offset <= 2; offset++) {
-      const idx = Math.max(0, Math.min(audioData.value!.length - 1, dataIndex + offset));
-      samples.push(audioData.value![idx] || 0);
-    }
-    // Weighted average for smoother curves
-    const weights = [0.1, 0.2, 0.4, 0.2, 0.1];
-    let smoothed = 0;
-    for (let i = 0; i < samples.length; i++) {
-      smoothed += samples[i] * weights[i];
-    }
-    return Math.pow(smoothed, 0.75);
+    // Light 3-point smoothing to reduce harsh spikes while keeping detail
+    const idx0 = Math.max(0, dataIndex - 1);
+    const idx1 = dataIndex;
+    const idx2 = Math.min(audioData.value!.length - 1, dataIndex + 1);
+
+    const smoothed = (
+      (audioData.value![idx0] || 0) * 0.2 +
+      (audioData.value![idx1] || 0) * 0.6 +
+      (audioData.value![idx2] || 0) * 0.2
+    );
+    // Slight boost to quieter parts while preserving peaks
+    return Math.pow(smoothed, 0.85);
   };
 
-  // Catmull-Rom spline interpolation for ultra-smooth curves
+  // Simple linear interpolation - less smoothing than Catmull-Rom
   const getInterpolatedAmplitude = (index: number): number => {
     const i = Math.floor(index);
     const t = index - i;
-    const p0 = getAmplitude(Math.max(0, i - 1));
     const p1 = getAmplitude(i);
     const p2 = getAmplitude(Math.min(numPoints - 1, i + 1));
-    const p3 = getAmplitude(Math.min(numPoints - 1, i + 2));
-
-    const t2 = t * t;
-    const t3 = t2 * t;
-    return 0.5 * (
-      (2 * p1) +
-      (-p0 + p2) * t +
-      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-      (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-    );
+    return p1 + (p2 - p1) * t;
   };
 
   const rgb = parseColor(accentColor);
@@ -346,16 +341,21 @@ const loadAudioData = async () => {
   }
 };
 
-const updateProgress = (event: MouseEvent) => {
+// Update progress from a clientX position
+const updateProgressFromX = (clientX: number) => {
   if (!progressBarRef.value || !audioRef.value || !durationLoaded.value || !duration.value) return;
-  
+
   const rect = progressBarRef.value.getBoundingClientRect();
-  const x = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
+  const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
   const percentage = x / rect.width;
-  
+
   audioRef.value.currentTime = percentage * duration.value;
   currentTime.value = audioRef.value.currentTime;
   drawWaveform();
+};
+
+const updateProgress = (event: MouseEvent) => {
+  updateProgressFromX(event.clientX);
 };
 
 const handleMouseDown = (event: MouseEvent) => {
@@ -375,13 +375,51 @@ const handleMouseUp = (event: MouseEvent) => {
   updateProgress(event);
 };
 
+// Touch event handlers for mobile scrubbing
+const handleTouchStart = (event: TouchEvent) => {
+  if (!audioRef.value || isLoading.value || error.value) return;
+  // Prevent scroll while scrubbing
+  event.preventDefault();
+  isTouchDragging.value = true;
+
+  const touch = event.touches[0];
+  if (touch) {
+    updateProgressFromX(touch.clientX);
+  }
+};
+
+const handleTouchMove = (event: TouchEvent) => {
+  if (!isTouchDragging.value) return;
+  // Prevent scroll while scrubbing
+  event.preventDefault();
+
+  const touch = event.touches[0];
+  if (touch) {
+    updateProgressFromX(touch.clientX);
+  }
+};
+
+const handleTouchEnd = (event: TouchEvent) => {
+  if (!isTouchDragging.value) return;
+  isTouchDragging.value = false;
+
+  // Use changedTouches for the final position
+  const touch = event.changedTouches[0];
+  if (touch) {
+    updateProgressFromX(touch.clientX);
+  }
+};
+
 const togglePlayPause = async () => {
   if (!audioRef.value || isLoading.value || error.value) return;
-  
+
   try {
     if (isPlaying.value) {
       audioRef.value.pause();
     } else {
+      // Notify other players to pause before we start
+      notifyPlayStarted();
+
       if (audioContext.value?.state === 'suspended') {
         await audioContext.value.resume();
       }
@@ -405,6 +443,13 @@ const checkAndUpdateDuration = () => {
 onMounted(async () => {
   if (!audioRef.value) return;
 
+  // Listen for pause events from other players
+  cleanupPauseListener = onPauseOthers(() => {
+    if (audioRef.value && isPlaying.value) {
+      audioRef.value.pause();
+    }
+  });
+
   // Initialize audio context on mount
   initAudioContext();
 
@@ -415,16 +460,20 @@ onMounted(async () => {
   audioRef.value.addEventListener('timeupdate', () => {
     if (!audioRef.value) return;
     currentTime.value = audioRef.value.currentTime;
-    
+
     // Check duration on timeupdate as well (helps with some browsers/formats)
     if (!durationLoaded.value) {
       checkAndUpdateDuration();
     }
-    
+
     drawWaveform();
   });
-  audioRef.value.addEventListener('play', () => isPlaying.value = true);
-  audioRef.value.addEventListener('pause', () => isPlaying.value = false);
+  audioRef.value.addEventListener('play', () => {
+    isPlaying.value = true;
+  });
+  audioRef.value.addEventListener('pause', () => {
+    isPlaying.value = false;
+  });
   audioRef.value.addEventListener('ended', () => {
     isPlaying.value = false;
     currentTime.value = 0;
@@ -435,11 +484,11 @@ onMounted(async () => {
   audioRef.value.addEventListener('loadedmetadata', () => {
     checkAndUpdateDuration();
   });
-  
+
   audioRef.value.addEventListener('durationchange', () => {
     checkAndUpdateDuration();
   });
-  
+
   audioRef.value.addEventListener('canplaythrough', () => {
     checkAndUpdateDuration();
   });
@@ -447,7 +496,12 @@ onMounted(async () => {
   // Add global mouse event listeners
   document.addEventListener('mousemove', handleMouseMove);
   document.addEventListener('mouseup', handleMouseUp);
-  
+
+  // Add global touch event listeners for scrubbing outside the element
+  document.addEventListener('touchmove', handleTouchMove, { passive: false });
+  document.addEventListener('touchend', handleTouchEnd);
+  document.addEventListener('touchcancel', handleTouchEnd);
+
   // Try to get duration after a short delay as a fallback
   setTimeout(() => {
     checkAndUpdateDuration();
@@ -462,6 +516,11 @@ watch(() => props.src, () => {
 });
 
 onUnmounted(() => {
+  // Clean up pause listener
+  if (cleanupPauseListener) {
+    cleanupPauseListener();
+  }
+
   if (audioRef.value) {
     audioRef.value.pause();
     audioRef.value.src = '';
@@ -469,9 +528,15 @@ onUnmounted(() => {
   if (audioContext.value) {
     audioContext.value.close();
   }
+
   // Remove global mouse event listeners
   document.removeEventListener('mousemove', handleMouseMove);
   document.removeEventListener('mouseup', handleMouseUp);
+
+  // Remove global touch event listeners
+  document.removeEventListener('touchmove', handleTouchMove);
+  document.removeEventListener('touchend', handleTouchEnd);
+  document.removeEventListener('touchcancel', handleTouchEnd);
 });
 </script>
 
@@ -523,7 +588,8 @@ onUnmounted(() => {
       <div
         ref="progressBarRef"
         @mousedown="handleMouseDown"
-        class="flex-1 h-10 bg-surface rounded-lg cursor-pointer overflow-hidden relative select-none min-w-0"
+        @touchstart="handleTouchStart"
+        class="flex-1 h-10 bg-surface rounded-lg cursor-pointer overflow-hidden relative select-none min-w-0 touch-none"
       >
         <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center">
           <span class="text-xs text-tertiary">Loading...</span>

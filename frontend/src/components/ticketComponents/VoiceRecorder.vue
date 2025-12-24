@@ -142,12 +142,23 @@ const drawWaveform = () => {
       // Catmull-Rom spline interpolation for smooth curves
       const t2 = t * t;
       const t3 = t2 * t;
-      return 0.5 * (
+      let amplitude = 0.5 * (
         (2 * p1) +
         (-p0 + p2) * t +
         (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
         (-p0 + 3 * p1 - 3 * p2 + p3) * t3
       );
+
+      // Fade edges to zero for smooth left/right transitions
+      const edgeFadeWidth = 4; // Number of points to fade over
+      const actualIndex = i + t;
+      if (actualIndex < edgeFadeWidth) {
+        amplitude *= actualIndex / edgeFadeWidth;
+      } else if (actualIndex > numPoints - 1 - edgeFadeWidth) {
+        amplitude *= (numPoints - 1 - actualIndex) / edgeFadeWidth;
+      }
+
+      return amplitude;
     };
 
     // Draw flowing filled area (mirrored from center)
@@ -155,47 +166,52 @@ const drawWaveform = () => {
     ctx.fillStyle = gradient;
     ctx.beginPath();
 
-    // Start from left center
-    ctx.moveTo(0, centerY);
-
-    // Draw top edge with smooth curve
     const step = width / (numPoints - 1);
-    for (let i = 0; i < numPoints; i++) {
+
+    // Start at top-left corner with first amplitude
+    const firstAmplitude = getY(0);
+    const firstY = centerY - firstAmplitude * maxAmplitude;
+    ctx.moveTo(0, firstY);
+
+    // Draw top edge with smooth curves
+    for (let i = 1; i < numPoints; i++) {
       const x = i * step;
       const amplitude = getY(i);
       const y = centerY - amplitude * maxAmplitude;
 
-      if (i === 0) {
-        ctx.lineTo(x, y);
-      } else {
-        // Use quadratic curves for smoother lines
-        const prevX = (i - 1) * step;
-        const prevAmplitude = getY(i - 1);
-        const prevY = centerY - prevAmplitude * maxAmplitude;
-        const cpX = (prevX + x) / 2;
-        ctx.quadraticCurveTo(prevX, prevY, cpX, (prevY + y) / 2);
-      }
+      // Use quadratic curves for smoother lines
+      const prevX = (i - 1) * step;
+      const prevAmplitude = getY(i - 1);
+      const prevY = centerY - prevAmplitude * maxAmplitude;
+      const cpX = (prevX + x) / 2;
+      ctx.quadraticCurveTo(prevX, prevY, cpX, (prevY + y) / 2);
     }
 
-    // Connect to right edge
-    ctx.lineTo(width, centerY);
+    // Finish the last segment to the right edge
+    const lastAmplitude = getY(numPoints - 1);
+    const lastTopY = centerY - lastAmplitude * maxAmplitude;
+    ctx.lineTo(width, lastTopY);
 
-    // Draw bottom edge (mirrored)
-    for (let i = numPoints - 1; i >= 0; i--) {
+    // Draw bottom edge (mirrored) - start from right
+    const lastBottomY = centerY + lastAmplitude * maxAmplitude;
+    ctx.lineTo(width, lastBottomY);
+
+    // Draw bottom edge going left
+    for (let i = numPoints - 2; i >= 0; i--) {
       const x = i * step;
       const amplitude = getY(i);
       const y = centerY + amplitude * maxAmplitude;
 
-      if (i === numPoints - 1) {
-        ctx.lineTo(x, y);
-      } else {
-        const nextX = (i + 1) * step;
-        const nextAmplitude = getY(i + 1);
-        const nextY = centerY + nextAmplitude * maxAmplitude;
-        const cpX = (nextX + x) / 2;
-        ctx.quadraticCurveTo(nextX, nextY, cpX, (nextY + y) / 2);
-      }
+      const nextX = (i + 1) * step;
+      const nextAmplitude = getY(i + 1);
+      const nextY = centerY + nextAmplitude * maxAmplitude;
+      const cpX = (nextX + x) / 2;
+      ctx.quadraticCurveTo(nextX, nextY, cpX, (nextY + y) / 2);
     }
+
+    // Close back to start
+    const firstBottomY = centerY + firstAmplitude * maxAmplitude;
+    ctx.lineTo(0, firstBottomY);
 
     ctx.closePath();
     ctx.fill();
@@ -214,25 +230,27 @@ const drawWaveform = () => {
     }
 
     ctx.beginPath();
-    ctx.moveTo(0, centerY);
+
+    // Start at left edge with first amplitude's wave offset
+    const firstWaveOffset = getY(0) * 3;
+    ctx.moveTo(0, centerY + firstWaveOffset);
 
     // Draw flowing center line
-    for (let i = 0; i < numPoints; i++) {
+    for (let i = 1; i < numPoints; i++) {
       const x = i * step;
       const amplitude = getY(i);
-      // Subtle wave on the center line
       const waveOffset = amplitude * 3;
 
-      if (i === 0) {
-        ctx.moveTo(x, centerY + waveOffset);
-      } else {
-        const prevX = (i - 1) * step;
-        const prevAmplitude = getY(i - 1);
-        const prevWaveOffset = prevAmplitude * 3;
-        const cpX = (prevX + x) / 2;
-        ctx.quadraticCurveTo(prevX, centerY + prevWaveOffset, cpX, centerY + (prevWaveOffset + waveOffset) / 2);
-      }
+      const prevX = (i - 1) * step;
+      const prevAmplitude = getY(i - 1);
+      const prevWaveOffset = prevAmplitude * 3;
+      const cpX = (prevX + x) / 2;
+      ctx.quadraticCurveTo(prevX, centerY + prevWaveOffset, cpX, centerY + (prevWaveOffset + waveOffset) / 2);
     }
+
+    // Finish to right edge
+    const lastWaveOffset = getY(numPoints - 1) * 3;
+    ctx.lineTo(width, centerY + lastWaveOffset);
 
     ctx.stroke();
     ctx.restore();

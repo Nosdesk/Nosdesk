@@ -21,7 +21,6 @@ const emit = defineEmits<{
 const router = useRouter();
 const linkedTicket = ref<Ticket | null>(null);
 const isNavigating = ref(false);
-const isHovered = ref(false);
 
 const isSameAsCurrentTicket = computed(() => {
   return props.currentTicketId && props.linkedTicketId === props.currentTicketId;
@@ -42,14 +41,6 @@ const ticketBadgeColors = computed(() => {
       return 'bg-surface-alt text-secondary border-default';
   }
 });
-
-const handleMouseEnter = () => {
-  isHovered.value = true;
-};
-
-const handleMouseLeave = () => {
-  isHovered.value = false;
-};
 
 const fetchLinkedTicket = async () => {
   if (isSameAsCurrentTicket.value) {
@@ -114,9 +105,7 @@ const formattedDate = (dateString: string) => {
 <template>
   <div
     v-if="linkedTicket && !isSameAsCurrentTicket"
-    class="bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors"
-    @mouseenter="handleMouseEnter"
-    @mouseleave="handleMouseLeave"
+    class="group bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors"
   >
     <!-- Header with status and actions -->
     <div class="px-4 py-3 bg-surface-alt border-b border-default flex items-center">
@@ -136,10 +125,9 @@ const formattedDate = (dateString: string) => {
         </div>
       </div>
       
-      <!-- Action buttons - only render when hovering -->
-      <div 
-        v-if="isHovered"
-        class="flex items-center gap-1 ml-3 flex-shrink-0 animate-in fade-in duration-200"
+      <!-- Action buttons - always visible on mobile, show on hover on desktop -->
+      <div
+        class="flex items-center gap-1 ml-3 flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-200"
       >
         <button
           @click="viewTicket"

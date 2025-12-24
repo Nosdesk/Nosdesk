@@ -687,6 +687,33 @@ impl YjsAppState {
         }
     }
 
+    /// Replace the document with a new one (used for restoring revisions)
+    /// This creates a new Awareness with the new Doc and replaces the existing one
+    async fn replace_document(&self, doc_id: &str, new_doc: Doc) {
+        let mut documents = self.documents.write().await;
+
+        // Create new Awareness with the new Doc
+        let mut awareness = Awareness::new(new_doc);
+
+        // Initialize awareness with basic server info
+        let local_state = r#"{"server": true, "name": "Server"}"#;
+        let _ = awareness.set_local_state(local_state);
+
+        let awareness = Arc::new(awareness);
+
+        if let Some(doc_state) = documents.get_mut(doc_id) {
+            // Replace the awareness with the new one
+            doc_state.awareness = Arc::clone(&awareness);
+            doc_state.mark_changed();
+            println!("📝 Replaced document {} with restored revision", doc_id);
+        } else {
+            // Document doesn't exist in memory, create it
+            let doc_state = DocumentState::new(Arc::clone(&awareness));
+            documents.insert(doc_id.to_string(), doc_state);
+            println!("📝 Created new document {} from restored revision", doc_id);
+        }
+    }
+
     // Track contributor for version history
     async fn add_contributor(&self, doc_id: &str, user_uuid: Uuid) {
         let mut documents = self.documents.write().await;
@@ -1586,14 +1613,10 @@ pub async fn restore_ticket_revision(
         Err(_) => return HttpResponse::NotFound().json("Revision not found"),
     };
 
-    // Get the in-memory document for this ticket (if it exists)
+    // Get the document ID
     let doc_id = format!("ticket-{}", ticket_id);
-    let awareness = app_state.get_or_create_awareness(&doc_id).await;
 
-    // Apply the revision content to the document
-    let doc = awareness.doc();
-
-    // Decode the stored Yjs update
+    // Decode the stored Yjs update (this is the full document state at that revision)
     use yrs::updates::decoder::Decode;
     let update = match Update::decode_v1(&revision.yjs_document_content) {
         Ok(upd) => upd,
@@ -1603,32 +1626,62 @@ pub async fn restore_ticket_revision(
         }
     };
 
-    // Clear the document and apply the revision
-    // Note: This is a destructive operation that replaces the entire document state
-    // We create a new document with the revision content
-    {
-        let mut txn = doc.transact_mut();
-        if let Err(e) = txn.apply_update(update) {
-            println!("Error applying revision update: {:?}", e);
-            return HttpResponse::InternalServerError().json("Error applying revision");
+    // To properly restore to a previous revision, we need to replace the document entirely.
+    // Yjs CRDTs merge updates - they don't support "reverting". So we must:
+    // 1. Create a new document with the revision content
+    // 2. Replace the existing document with the new one
+    // 3. Broadcast the new state to all clients
+
+    // Create a new document with the revision content
+    let new_doc = {
+        use yrs::{Doc, Options};
+
+        let options = Options {
+            client_id: rand::random(),
+            skip_gc: false,
+            ..Options::default()
+        };
+
+        let doc = Doc::with_options(options);
+
+        // Initialize the prosemirror fragment first
+        {
+            let mut txn = doc.transact_mut();
+            let _ = txn.get_or_insert_xml_fragment("prosemirror");
         }
-    }
+
+        // Apply the revision update
+        {
+            let mut txn = doc.transact_mut();
+            if let Err(e) = txn.apply_update(update) {
+                println!("Error applying revision update to new doc: {:?}", e);
+                return HttpResponse::InternalServerError().json("Error applying revision");
+            }
+        }
+
+        doc
+    };
+
+    // Get the full state from the new document
+    let full_state = {
+        let txn = new_doc.transact();
+        txn.encode_state_as_update_v1(&StateVector::default())
+    };
+
+    // Replace the document in app_state with the new one
+    // This creates a new Awareness with the restored document
+    app_state.replace_document(&doc_id, new_doc).await;
 
     // Mark document as changed to trigger save
     app_state.mark_document_changed(&doc_id).await;
 
-    // Broadcast the change to all connected clients
-    // Encode the full document state
-    let full_state = {
-        let txn = doc.transact();
-        txn.encode_state_as_update_v1(&StateVector::default())
-    };
-
-    // Broadcast to all sessions
+    // Broadcast the full restored state to all connected clients
     use yrs::sync::Message;
     let sync_message = Message::Sync(yrs::sync::SyncMessage::Update(full_state.into()));
     let encoded = sync_message.encode_v1();
     app_state.broadcast(&doc_id, "", &encoded).await;
+
+    println!("✅ Restored ticket {} to revision {}", ticket_id, revision_number);
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -1711,14 +1764,10 @@ pub async fn restore_doc_revision(
         Err(_) => return HttpResponse::NotFound().json("Revision not found"),
     };
 
-    // Get the in-memory document for this documentation page
+    // Get the document ID string
     let doc_id_str = format!("doc-{}", doc_id);
-    let awareness = app_state.get_or_create_awareness(&doc_id_str).await;
 
-    // Apply the revision content to the document
-    let doc = awareness.doc();
-
-    // Decode the stored Yjs update
+    // Decode the stored Yjs update (this is the full document state at that revision)
     use yrs::updates::decoder::Decode;
     let update = match Update::decode_v1(&revision.yjs_document_snapshot) {
         Ok(upd) => upd,
@@ -1728,29 +1777,61 @@ pub async fn restore_doc_revision(
         }
     };
 
-    // Clear the document and apply the revision
-    {
-        let mut txn = doc.transact_mut();
-        if let Err(e) = txn.apply_update(update) {
-            println!("Error applying revision update: {:?}", e);
-            return HttpResponse::InternalServerError().json("Error applying revision");
+    // To properly restore to a previous revision, we need to replace the document entirely.
+    // Yjs CRDTs merge updates - they don't support "reverting". So we must:
+    // 1. Create a new document with the revision content
+    // 2. Replace the existing document with the new one
+    // 3. Broadcast the new state to all clients
+
+    // Create a new document with the revision content
+    let new_doc = {
+        use yrs::{Doc, Options};
+
+        let options = Options {
+            client_id: rand::random(),
+            skip_gc: false,
+            ..Options::default()
+        };
+
+        let doc = Doc::with_options(options);
+
+        // Initialize the prosemirror fragment first
+        {
+            let mut txn = doc.transact_mut();
+            let _ = txn.get_or_insert_xml_fragment("prosemirror");
         }
-    }
+
+        // Apply the revision update
+        {
+            let mut txn = doc.transact_mut();
+            if let Err(e) = txn.apply_update(update) {
+                println!("Error applying revision update to new doc: {:?}", e);
+                return HttpResponse::InternalServerError().json("Error applying revision");
+            }
+        }
+
+        doc
+    };
+
+    // Get the full state from the new document
+    let full_state = {
+        let txn = new_doc.transact();
+        txn.encode_state_as_update_v1(&StateVector::default())
+    };
+
+    // Replace the document in app_state with the new one
+    app_state.replace_document(&doc_id_str, new_doc).await;
 
     // Mark document as changed to trigger save
     app_state.mark_document_changed(&doc_id_str).await;
 
-    // Broadcast the change to all connected clients
-    let full_state = {
-        let txn = doc.transact();
-        txn.encode_state_as_update_v1(&StateVector::default())
-    };
-
-    // Broadcast to all sessions
+    // Broadcast the full restored state to all connected clients
     use yrs::sync::Message;
     let sync_message = Message::Sync(yrs::sync::SyncMessage::Update(full_state.into()));
     let encoded = sync_message.encode_v1();
     app_state.broadcast(&doc_id_str, "", &encoded).await;
+
+    println!("✅ Restored documentation page {} to revision {}", doc_id, revision_number);
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

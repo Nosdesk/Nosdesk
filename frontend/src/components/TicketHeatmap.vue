@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { formatDate, formatDateTime } from '@/utils/dateUtils';
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, onActivated } from "vue";
 import { useRouter } from "vue-router";
 import { getTickets } from "@/services/ticketService";
 import type { Ticket } from "@/services/ticketService";
@@ -220,28 +220,20 @@ const handleDayClick = (day: DayData) => {
 onMounted(() => {
     fetchTicketData();
 });
+
+// Refetch data when component is activated (e.g., navigating back to dashboard)
+onActivated(() => {
+    fetchTicketData();
+});
 </script>
 
 <template>
     <div class="bg-surface rounded-lg px-3 py-4 sm:p-6 w-full">
         <!-- Header -->
-        <div class="flex justify-between items-center mb-4">
+        <div class="mb-4">
             <h3 class="text-secondary text-sm font-medium">
-                {{
-                    props.ticketStatus === "closed"
-                        ? "Closed Tickets"
-                        : "Ticket Activity"
-                }}
-                Heatmap
+                {{ props.ticketStatus === "closed" ? "Closed Tickets" : "Ticket Activity" }}
             </h3>
-            <button
-                @click="fetchTicketData"
-                class="text-xs text-secondary hover:text-primary transition-colors disabled:opacity-50"
-                :disabled="isLoading"
-            >
-                <span v-if="isLoading">Loading...</span>
-                <span v-else>Refresh</span>
-            </button>
         </div>
 
         <!-- Error State -->

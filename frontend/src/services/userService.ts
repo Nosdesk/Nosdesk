@@ -162,33 +162,36 @@ const userService = {
     pronouns?: string;
     password?: string;
     send_invitation?: boolean;
-  }): Promise<User | null> {
+  }): Promise<User> {
+    // Send user data - backend generates UUID and sets all defaults
+    // If send_invitation is true, backend will send email invite
+    // If password is provided, user can log in immediately
+    const payload: Record<string, unknown> = {
+      name: user.name.trim(),
+      email: user.email.trim().toLowerCase(),
+      role: user.role,
+      pronouns: user.pronouns || null,
+    };
+
+    // Include password if provided (for when SMTP is not configured)
+    if (user.password) {
+      payload.password = user.password;
+    }
+
+    // Include send_invitation flag
+    if (user.send_invitation !== undefined) {
+      payload.send_invitation = user.send_invitation;
+    }
+
     try {
-      // Send user data - backend generates UUID and sets all defaults
-      // If send_invitation is true, backend will send email invite
-      // If password is provided, user can log in immediately
-      const payload: Record<string, unknown> = {
-        name: user.name.trim(),
-        email: user.email.trim().toLowerCase(),
-        role: user.role,
-        pronouns: user.pronouns || null,
-      };
-
-      // Include password if provided (for when SMTP is not configured)
-      if (user.password) {
-        payload.password = user.password;
-      }
-
-      // Include send_invitation flag
-      if (user.send_invitation !== undefined) {
-        payload.send_invitation = user.send_invitation;
-      }
-
       const response = await apiClient.post(`/users`, payload);
       return response.data;
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('Failed to create user', { error, email: user.email });
-      return null;
+      // Extract error message from backend response
+      const axiosError = error as { response?: { data?: { message?: string } } };
+      const message = axiosError.response?.data?.message || 'Failed to create user';
+      throw new Error(message);
     }
   },
 

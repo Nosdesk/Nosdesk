@@ -24,6 +24,7 @@ const emit = defineEmits<{
   (e: 'remove'): void;
   (e: 'close'): void;
   (e: 'open-link', url: string): void;
+  (e: 'request-reposition'): void;
 }>();
 
 // State
@@ -31,16 +32,79 @@ const tooltipRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
 const linkUrl = ref('');
 const showInput = ref(false);
+const adjustedPosition = ref({ x: 0, y: 0, openUp: false });
 
-// Computed style - keep it simple
+// Update adjusted position when props change
+watch([() => props.x, () => props.y, () => props.visible], () => {
+  if (props.visible) {
+    updateAdjustedPosition();
+  }
+}, { immediate: true });
+
+// Calculate viewport-constrained position
+const updateAdjustedPosition = () => {
+  if (!props.visible) return;
+
+  const tooltipWidth = 350; // approximate max width
+  const tooltipHeight = 60; // approximate height
+  const margin = 8;
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  let x = props.x;
+  let y = props.y;
+  let openUp = false;
+
+  // Check if tooltip would overflow right edge
+  if (x + tooltipWidth > viewportWidth - margin) {
+    x = Math.max(margin, viewportWidth - tooltipWidth - margin);
+  }
+
+  // Check if tooltip would overflow left edge
+  if (x < margin) {
+    x = margin;
+  }
+
+  // Check if tooltip would overflow bottom edge - open upward if needed
+  if (y + tooltipHeight > viewportHeight - margin) {
+    // Position above the anchor instead
+    y = props.y - tooltipHeight - 16; // Move above with some gap
+    openUp = true;
+  }
+
+  // Ensure we're not off the top
+  if (y < margin) {
+    y = margin;
+    openUp = false;
+  }
+
+  adjustedPosition.value = { x, y, openUp };
+};
+
+// Handle scroll events to request repositioning from parent
+let scrollRafId: number | null = null;
+const handleScroll = () => {
+  if (!props.visible) return;
+
+  if (scrollRafId) {
+    cancelAnimationFrame(scrollRafId);
+  }
+
+  scrollRafId = requestAnimationFrame(() => {
+    emit('request-reposition');
+    scrollRafId = null;
+  });
+};
+
+// Computed style with viewport awareness
 const tooltipStyle = computed(() => {
   if (!props.visible) return { display: 'none' };
 
   return {
     position: 'fixed' as const,
-    left: `${props.x}px`,
-    top: `${props.y}px`,
-    zIndex: 1000,
+    left: `${adjustedPosition.value.x}px`,
+    top: `${adjustedPosition.value.y}px`,
+    zIndex: 9999,
   };
 });
 
@@ -128,10 +192,17 @@ const handleClickOutside = (event: MouseEvent) => {
 
 onMounted(() => {
   document.addEventListener('mousedown', handleClickOutside);
+  window.addEventListener('scroll', handleScroll, true);
+  window.addEventListener('resize', updateAdjustedPosition);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleClickOutside);
+  window.removeEventListener('scroll', handleScroll, true);
+  window.removeEventListener('resize', updateAdjustedPosition);
+  if (scrollRafId) {
+    cancelAnimationFrame(scrollRafId);
+  }
 });
 </script>
 

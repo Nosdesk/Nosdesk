@@ -443,7 +443,7 @@ const cancelDelete = () => {
 </script>
 
 <template>
-  <div class="flex-1">
+  <div class="flex-1 flex flex-col">
     <!-- Navigation and actions bar -->
     <div class="pt-4 px-4 sm:px-6 flex justify-between items-center">
       <BackButton
@@ -452,7 +452,29 @@ const cancelDelete = () => {
       />
     </div>
 
-    <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-7xl">
+    <!-- Mobile Tab Navigation (horizontal scroll) - sticky full-width on mobile -->
+    <div class="lg:hidden sticky top-0 z-20 bg-app border-b border-default">
+      <div class="px-4 sm:px-6 py-2">
+        <HorizontalScrollContainer container-class="gap-2" fade-background="bg-app" :show-dots="false">
+          <button
+            v-for="tab in settingsTabs"
+            :key="tab.id"
+            @click="activeTab = tab.id"
+            class="flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all whitespace-nowrap flex-shrink-0 min-h-[44px]"
+            :class="[
+              activeTab === tab.id
+                ? 'bg-accent/10 border border-accent text-accent font-medium'
+                : 'bg-surface border border-subtle text-secondary hover:bg-surface-hover hover:text-primary active:scale-95'
+            ]"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
+            <span class="text-sm">{{ tab.label }}</span>
+          </button>
+        </HorizontalScrollContainer>
+      </div>
+    </div>
+
+    <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-7xl flex-1">
       <!-- Page Header -->
       <div class="mb-2 sm:mb-6">
         <div v-if="loadingTargetUser" class="flex items-center gap-3">
@@ -496,31 +518,6 @@ const cancelDelete = () => {
       <!-- Error messages only -->
       <div v-if="error" class="p-3 sm:p-4 bg-status-error/50 text-status-error rounded-lg text-sm sm:text-base border border-status-error/50">
         {{ error }}
-      </div>
-
-      <!-- Mobile Tab Navigation (horizontal scroll) -->
-      <div class="lg:hidden -mx-4 sm:-mx-6 px-4 sm:px-6 mb-4">
-        <HorizontalScrollContainer container-class="gap-2 pb-2" fade-background="bg-app">
-          <button
-            v-for="tab in settingsTabs"
-            :key="tab.id"
-            @click="activeTab = tab.id"
-            class="relative flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all whitespace-nowrap flex-shrink-0 min-h-[44px]"
-            :class="[
-              activeTab === tab.id
-                ? 'bg-accent/10 border border-accent text-accent font-medium'
-                : 'bg-surface border border-subtle text-secondary hover:bg-surface-hover hover:text-primary active:scale-95'
-            ]"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
-            <span class="text-sm">{{ tab.label }}</span>
-            <!-- Active indicator bar -->
-            <div
-              v-if="activeTab === tab.id"
-              class="absolute bottom-1.5 left-2 right-2 h-0.5 bg-accent rounded-full transition-all duration-300"
-            ></div>
-          </button>
-        </HorizontalScrollContainer>
       </div>
 
       <!-- Main content -->

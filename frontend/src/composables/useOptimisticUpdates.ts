@@ -42,15 +42,13 @@ export const useOptimisticUpdates = () => {
   const createUser = async (userData: { name: string; email: string; role: string }) => {
     try {
       const newUser = await userService.createUser(userData)
-      
-      if (newUser) {
-        // Add to cache
-        dataStore.addUserToCache(newUser)
-        
-        // Invalidate paginated caches to trigger refresh
-        dataStore.invalidateAllUsers()
-      }
-      
+
+      // Add to cache
+      dataStore.addUserToCache(newUser)
+
+      // Invalidate paginated caches to trigger refresh
+      dataStore.invalidateAllUsers()
+
       return newUser
     } catch (error) {
       console.error('Failed to create user:', error)
