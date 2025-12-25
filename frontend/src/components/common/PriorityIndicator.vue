@@ -28,7 +28,7 @@ const clipPathId = `halfFill-${Math.random().toString(36).substr(2, 9)}`
 
 // Size classes for the indicator - larger when in color blind mode
 const sizeClasses = computed(() => {
-  if (themeStore.colorBlindMode) {
+  if (themeStore.effectiveColorBlindMode) {
     switch (props.size) {
       case 'xs':
         return 'w-2.5 h-2.5'
@@ -85,7 +85,7 @@ const priorityLabel = computed(() => {
 <template>
   <!-- Color blind mode: distinct shapes -->
   <span
-    v-if="themeStore.colorBlindMode"
+    v-if="themeStore.effectiveColorBlindMode"
     class="inline-flex items-center justify-center flex-shrink-0"
     :class="sizeClasses"
     :title="priorityLabel"

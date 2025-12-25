@@ -24,7 +24,7 @@ const themeStore = useThemeStore()
 
 // Size classes for the indicator - larger when in color blind mode for better visibility
 const sizeClasses = computed(() => {
-  if (themeStore.colorBlindMode) {
+  if (themeStore.effectiveColorBlindMode) {
     // Larger sizes for color blind mode to make shapes more visible
     switch (props.size) {
       case 'xs':
@@ -82,7 +82,7 @@ const statusLabel = computed(() => {
 <template>
   <!-- Color blind friendly mode: use shapes -->
   <span
-    v-if="themeStore.colorBlindMode"
+    v-if="themeStore.effectiveColorBlindMode"
     class="inline-flex items-center justify-center flex-shrink-0"
     :class="sizeClasses"
     :title="statusLabel"

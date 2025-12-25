@@ -7,6 +7,8 @@ import PageHeader from './components/SiteHeader.vue'
 import MobileSearchBar from './components/MobileSearchBar.vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useMobileSearch } from '@/composables/useMobileSearch'
+import { useCursorScanlines } from '@/composables/useCursorScanlines'
+import { useCrtEffect } from '@/composables/useCrtEffect'
 import authService from '@/services/authService'
 import { useBrandingStore } from '@/stores/branding'
 
@@ -27,6 +29,10 @@ const titleManager = useTitleManager();
 
 // Mobile search bar state - used for conditional padding
 const { isActive: isMobileSearchActive } = useMobileSearch();
+
+// Red-horizon theme effects
+useCursorScanlines();  // Crosshair lines following cursor
+useCrtEffect();        // Full-screen CRT monitor effect
 
 // Handle route-based ticket information
 const ticketInfo = computed(() => {

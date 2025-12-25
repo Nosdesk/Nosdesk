@@ -26,8 +26,9 @@ const compactView = ref(false)
 const isUpdating = ref(false)
 
 // Use computed with getter/setter for two-way binding with store
+// Shows effective state (on for monochromatic themes) but sets user preference
 const colorBlindMode = computed({
-  get: () => themeStore.colorBlindMode,
+  get: () => themeStore.effectiveColorBlindMode,
   set: (value) => themeStore.setColorBlindMode(value)
 })
 

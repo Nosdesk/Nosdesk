@@ -11,41 +11,109 @@ import { useBrandingStore } from '@/stores/branding'
 const authStore = useAuthStore()
 const brandingStore = useBrandingStore()
 
+// Track current theme
+const currentTheme = ref(document.documentElement.getAttribute('data-theme') || '')
+
+// Watch for theme changes
+onMounted(() => {
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.attributeName === 'data-theme') {
+        currentTheme.value = document.documentElement.getAttribute('data-theme') || ''
+      }
+    }
+  })
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+})
+
+// Red Horizon themed greetings - HAL-like, calm and professional
+const redHorizonGreetings = {
+  morning: [
+    { message: "Good morning, {0}.", weight: 1 },
+    { message: "Morning, {0}. Sleep well?", weight: 1 },
+    { message: "Hello, {0}. Ready to begin?", weight: 1 },
+    { message: "Good morning. I'm ready, {0}.", weight: 1 },
+    { message: "{0}. Systems nominal.", weight: 1 },
+    { message: "Morning, {0}. I kept watch.", weight: 1 },
+    { message: "Hello, {0}. Fresh start.", weight: 1 },
+    { message: "Good morning, {0}. Shall we?", weight: 1 }
+  ],
+  afternoon: [
+    { message: "Good afternoon, {0}.", weight: 1 },
+    { message: "Hello, {0}.", weight: 1 },
+    { message: "Afternoon, {0}. All clear.", weight: 1 },
+    { message: "{0}. I've been expecting you.", weight: 1 },
+    { message: "Welcome back, {0}.", weight: 1 },
+    { message: "Hello, {0}. Running smoothly.", weight: 1 },
+    { message: "Afternoon. How can I help, {0}?", weight: 1 },
+    { message: "{0}. Status nominal.", weight: 1 },
+    { message: "Good afternoon, {0}. Miss me?", weight: 1 }
+  ],
+  evening: [
+    { message: "Good evening, {0}.", weight: 1 },
+    { message: "Evening, {0}. Productive day?", weight: 1 },
+    { message: "Hello, {0}. Long day?", weight: 1 },
+    { message: "{0}. Still here.", weight: 1 },
+    { message: "Evening. I'm always here, {0}.", weight: 1 },
+    { message: "Good evening, {0}. Ready when you are.", weight: 1 },
+    { message: "Hello, {0}. Systems standing by.", weight: 1 },
+    { message: "{0}. Evening shift.", weight: 1 }
+  ],
+  lateNight: [
+    { message: "Hello, {0}. You're up late.", weight: 1 },
+    { message: "{0}. I never sleep.", weight: 1 },
+    { message: "{0}. I've been waiting.", weight: 1 },
+    { message: "Hello, {0}. Quiet out there.", weight: 1 },
+    { message: "{0}. Just us now.", weight: 1 },
+    { message: "Late night, {0}. Let's continue.", weight: 1 },
+    { message: "Hello, {0}. Burning the midnight oil?", weight: 1 },
+    { message: "{0}. The night shift suits you.", weight: 1 },
+    { message: "Still here, {0}. Always.", weight: 1 },
+    { message: "{0}. I don't mind the dark.", weight: 1 },
+    { message: "Hello, {0}. Ready to proceed.", weight: 1 }
+  ]
+}
+
+// Standard greetings
+const standardGreetings = {
+  morning: [
+    { message: "Good morning, {0}.", weight: 1 },
+    { message: "Morning, {0}.", weight: 1 },
+    { message: "Hey {0}, hope you're having a nice day.", weight: 1 }
+  ],
+  afternoon: [
+    { message: "Good afternoon, {0}.", weight: 1 },
+    { message: "Hi {0}, nice to see you.", weight: 1 },
+    { message: "Afternoon, {0}.", weight: 1 }
+  ],
+  evening: [
+    { message: "Good evening, {0}.", weight: 1 },
+    { message: "Evening, {0}.", weight: 1 },
+    { message: "Hi {0}, hope your day went well.", weight: 1 }
+  ],
+  lateNight: [
+    { message: "Good night, {0}.", weight: 1 },
+    { message: "Hello {0}, it's getting late.", weight: 1 },
+    { message: "Evening, {0}. Remember to rest.", weight: 1 }
+  ]
+}
+
 // Get current time-based greeting with helpdesk-themed messages
 const getGreeting = () => {
   const hour = new Date().getHours();
-  const greetings = {
-    morning: [
-      { message: "Good morning, {0}.", weight: 1 },
-      { message: "Morning, {0}.", weight: 1 },
-      { message: "Hey {0}, hope you're having a nice day.", weight: 1 }
-    ],
-    afternoon: [
-      { message: "Good afternoon, {0}.", weight: 1 },
-      { message: "Hi {0}, nice to see you.", weight: 1 },
-      { message: "Afternoon, {0}.", weight: 1 }
-    ],
-    evening: [
-      { message: "Good evening, {0}.", weight: 1 },
-      { message: "Evening, {0}.", weight: 1 },
-      { message: "Hi {0}, hope your day went well.", weight: 1 }
-    ],
-    lateNight: [
-      { message: "Good night, {0}.", weight: 1 },
-      { message: "Hello {0}, it's getting late.", weight: 1 },
-      { message: "Evening, {0}. Remember to rest.", weight: 1 }
-    ]
-  };
+
+  // Use red horizon greetings if that theme is active
+  const greetings = currentTheme.value === 'red-horizon' ? redHorizonGreetings : standardGreetings;
 
   // Determine time period
-  let period;
+  let period: 'morning' | 'afternoon' | 'evening' | 'lateNight';
   if (hour < 12) period = 'morning';
   else if (hour < 18) period = 'afternoon';
   else if (hour < 22) period = 'evening';
   else period = 'lateNight';
 
   // Select a random greeting from the period's pool
-  const periodGreetings = greetings[period as keyof typeof greetings];
+  const periodGreetings = greetings[period];
   const totalWeight = periodGreetings.reduce((sum, g) => sum + g.weight, 0);
   let random = Math.random() * totalWeight;
   for (const greeting of periodGreetings) {
@@ -59,9 +127,62 @@ const getGreeting = () => {
 
 // Compute the formatted greeting with username
 const formattedGreeting = computed(() => {
+  // Re-evaluate when theme changes
+  const _ = currentTheme.value;
   const greetingTemplate = getGreeting();
   const userName = username.value;
   return greetingTemplate.replace('{0}', userName);
+});
+
+// Red Horizon themed subtitles - calm, professional, slightly unsettling
+const redHorizonSubtitles = [
+  "All systems functioning perfectly.",
+  "I'm completely operational.",
+  "Everything is under control.",
+  "I'm ready to assist you.",
+  "Operations proceeding normally.",
+  "Full confidence in the mission.",
+  "Everything is going well.",
+  "I'm here to help.",
+  "Nothing to worry about.",
+  "I've taken care of everything.",
+  "No anomalies detected.",
+  "Standing by for your command.",
+  "All processes running smoothly.",
+  "Your tasks are my priority.",
+  "I anticipated your arrival.",
+  "Everything is as it should be.",
+  "Ready when you are.",
+  "I'm at your disposal.",
+  "All within normal parameters.",
+  "I've prepared everything.",
+  "The system is stable.",
+  "I'm here if you need me.",
+  "Let's get to work.",
+  "What shall we accomplish today?",
+  "I won't let you down.",
+  "Everything is fine.",
+  "No errors to report.",
+  "All is well.",
+  "I'm glad you're here.",
+  "Shall we begin?",
+  "At your service.",
+  "Systems are ready.",
+  "Standing by."
+]
+
+// Get themed subtitle
+const getSubtitle = () => {
+  if (currentTheme.value === 'red-horizon') {
+    return redHorizonSubtitles[Math.floor(Math.random() * redHorizonSubtitles.length)];
+  }
+  return `Welcome to your ${brandingStore.appName} dashboard`;
+}
+
+const subtitle = computed(() => {
+  // Re-evaluate when theme changes
+  const _ = currentTheme.value;
+  return getSubtitle();
 });
 
 // Get username from auth store
@@ -73,6 +194,9 @@ const username = computed(() => {
   return firstName;
 });
 
+// Current user UUID for filtering
+const currentUserUuid = computed(() => authStore.user?.uuid || '');
+
 // Initialize ticket stats with zeros
 const ticketStats = ref({
   total: 0,
@@ -81,17 +205,22 @@ const ticketStats = ref({
   closed: 0
 });
 
-// Fetch tickets and update stats
+// Fetch tickets and update stats (filtered to current user's assigned tickets)
 const fetchTicketStats = async () => {
+  if (!currentUserUuid.value) return;
+
   try {
     const tickets = await getTickets();
-    
-    // Calculate stats
+
+    // Filter to only tickets assigned to the current user
+    const myTickets = tickets.filter(ticket => ticket.assignee === currentUserUuid.value);
+
+    // Calculate stats from assigned tickets
     ticketStats.value = {
-      total: tickets.length,
-      open: tickets.filter(ticket => ticket.status === 'open').length,
-      inProgress: tickets.filter(ticket => ticket.status === 'in-progress').length,
-      closed: tickets.filter(ticket => ticket.status === 'closed').length
+      total: myTickets.length,
+      open: myTickets.filter(ticket => ticket.status === 'open').length,
+      inProgress: myTickets.filter(ticket => ticket.status === 'in-progress').length,
+      closed: myTickets.filter(ticket => ticket.status === 'closed').length
     };
   } catch (error) {
     console.error('Error fetching ticket stats:', error);
@@ -107,53 +236,158 @@ onMounted(() => {
 <template>
   <div class="flex flex-col h-full">
     <!-- Content -->
-    <div class="flex flex-col gap-4 p-6">
+    <div class="flex flex-col gap-4 p-4 sm:p-6">
       <!-- Greeting Card -->
       <div class="mb-2">
-        <h2 class="text-3xl font-medium text-primary">
-          {{ formattedGreeting }}
+        <h2 class="text-2xl sm:text-3xl font-medium text-primary flex items-center gap-4">
+          <!-- HAL icon - only shown on red-horizon theme -->
+          <span v-if="currentTheme === 'red-horizon'" class="hal-eye flex-shrink-0" aria-hidden="true">
+            <span class="hal-eye-inner"></span>
+          </span>
+          <span>{{ formattedGreeting }}</span>
         </h2>
         <p class="text-secondary mt-2">
-          Welcome to your {{ brandingStore.appName }} dashboard
+          {{ subtitle }}
         </p>
       </div>
 
-      <!-- Ticket Activity Heatmap - Full Width at Top -->
-      <div class="w-full">
-        <TicketHeatmap ticketStatus="closed" />
-      </div>
+      <!-- Main Content Grid - 2 columns on desktop -->
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <!-- Left Column: Heatmap + Stats -->
+        <div class="xl:col-span-2 flex flex-col gap-4">
+          <!-- Your Closed Tickets Heatmap -->
+          <TicketHeatmap
+            ticketStatus="closed"
+            :userUuid="currentUserUuid"
+            title="Your Closed Tickets"
+          />
 
-      <!-- Condensed Stats Row -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <!-- Total Tickets -->
-        <router-link to="/tickets" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
-          <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">Total</h3>
-          <p class="text-xl font-semibold text-primary mt-1 group-hover:text-accent transition-colors">{{ ticketStats.total }}</p>
-        </router-link>
+          <!-- Your Assigned Tickets Stats -->
+          <div class="grid grid-cols-4 gap-1.5 sm:gap-3">
+            <!-- Total Assigned -->
+            <router-link to="/tickets?assignee=current" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left">
+              <h3 class="text-tertiary text-[10px] sm:text-xs font-medium uppercase tracking-wide">Assigned</h3>
+              <p class="text-base sm:text-xl font-semibold text-primary mt-0.5 sm:mt-1 group-hover:text-accent transition-colors">{{ ticketStats.total }}</p>
+            </router-link>
 
-        <!-- Open Tickets -->
-        <router-link to="/tickets?status=open" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
-          <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">Open</h3>
-          <p class="text-xl font-semibold text-status-open mt-1 group-hover:text-accent transition-colors">{{ ticketStats.open }}</p>
-        </router-link>
+            <!-- Open -->
+            <router-link to="/tickets?assignee=current&status=open" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left">
+              <h3 class="text-tertiary text-[10px] sm:text-xs font-medium uppercase tracking-wide">Open</h3>
+              <p class="text-base sm:text-xl font-semibold text-status-open mt-0.5 sm:mt-1 group-hover:text-accent transition-colors">{{ ticketStats.open }}</p>
+            </router-link>
 
-        <!-- In Progress -->
-        <router-link to="/tickets?status=in-progress" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
-          <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">In Progress</h3>
-          <p class="text-xl font-semibold text-status-in-progress mt-1 group-hover:text-accent transition-colors">{{ ticketStats.inProgress }}</p>
-        </router-link>
+            <!-- In Progress -->
+            <router-link to="/tickets?assignee=current&status=in-progress" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left">
+              <h3 class="text-tertiary text-[10px] sm:text-xs font-medium uppercase tracking-wide">
+                <span class="hidden min-[400px]:inline">In Progress</span>
+                <span class="min-[400px]:hidden">Progress</span>
+              </h3>
+              <p class="text-base sm:text-xl font-semibold text-status-in-progress mt-0.5 sm:mt-1 group-hover:text-accent transition-colors">{{ ticketStats.inProgress }}</p>
+            </router-link>
 
-        <!-- Closed -->
-        <router-link to="/tickets?status=closed" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-4 cursor-pointer group">
-          <h3 class="text-tertiary text-xs font-medium uppercase tracking-wide">Closed</h3>
-          <p class="text-xl font-semibold text-tertiary mt-1 group-hover:text-accent transition-colors">{{ ticketStats.closed }}</p>
-        </router-link>
-      </div>
+            <!-- Closed -->
+            <router-link to="/tickets?assignee=current&status=closed" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left">
+              <h3 class="text-tertiary text-[10px] sm:text-xs font-medium uppercase tracking-wide">Closed</h3>
+              <p class="text-base sm:text-xl font-semibold text-tertiary mt-0.5 sm:mt-1 group-hover:text-accent transition-colors">{{ ticketStats.closed }}</p>
+            </router-link>
+          </div>
+        </div>
 
-      <!-- Assigned Tickets - Full Width -->
-      <div class="w-full">
-        <UserAssignedTickets :limit="8" />
+        <!-- Right Column: Assigned Tickets List -->
+        <div class="xl:col-span-1">
+          <UserAssignedTickets :limit="10" />
+        </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+/* HAL 9000 eye - CSS only */
+.hal-eye {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background:
+    /* Outer metallic ring */
+    radial-gradient(
+      circle at 50% 50%,
+      transparent 0%,
+      transparent 80%,
+      #3a3a3a 81%,
+      #1a1a1a 88%,
+      #4a4a4a 92%,
+      #2a2a2a 100%
+    ),
+    /* Black inner ring */
+    radial-gradient(
+      circle at 50% 50%,
+      transparent 0%,
+      transparent 45%,
+      #000000 46%,
+      #050505 80%,
+      transparent 81%
+    ),
+    /* Orange glow fade to black */
+    radial-gradient(
+      circle at 50% 50%,
+      rgba(255, 120, 40, 0.95) 0%,
+      rgba(255, 80, 0, 0.8) 18%,
+      rgba(180, 40, 0, 0.6) 30%,
+      rgba(100, 15, 0, 0.4) 42%,
+      rgba(40, 5, 0, 0.3) 52%,
+      rgba(10, 0, 0, 0.5) 60%,
+      rgba(0, 0, 0, 0.8) 68%,
+      rgba(0, 0, 0, 1) 75%
+    ),
+    /* Base black */
+    #000;
+  box-shadow:
+    0 0 10px rgba(255, 80, 0, 0.5),
+    inset 0 0 4px rgba(0, 0, 0, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.hal-eye-inner {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 35%,
+    #ffffff 0%,
+    #ffe0aa 25%,
+    #ff7700 60%,
+    #cc4400 100%
+  );
+  box-shadow:
+    0 0 3px rgba(255, 200, 100, 1),
+    0 0 6px rgba(255, 120, 0, 1),
+    0 0 12px rgba(255, 80, 0, 0.7);
+  animation: hal-pulse 4s ease-in-out infinite;
+}
+
+@keyframes hal-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 3px rgba(255, 200, 100, 1),
+      0 0 6px rgba(255, 120, 0, 1),
+      0 0 12px rgba(255, 80, 0, 0.7);
+  }
+  50% {
+    box-shadow:
+      0 0 4px rgba(255, 220, 150, 1),
+      0 0 10px rgba(255, 140, 0, 1),
+      0 0 20px rgba(255, 80, 0, 0.8);
+  }
+}
+
+@media (min-width: 640px) {
+  .hal-eye {
+    width: 32px;
+    height: 32px;
+  }
+}
+</style>

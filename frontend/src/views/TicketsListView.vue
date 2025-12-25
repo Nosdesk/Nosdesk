@@ -1,6 +1,6 @@
 // views/TicketsListView.vue
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onActivated } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ticketService from "@/services/ticketService";
 import BaseListView from "@/components/common/BaseListView.vue";
@@ -21,6 +21,7 @@ import { useStaggeredList } from "@/composables/useStaggeredList";
 import { useMobileDetection } from "@/composables/useMobileDetection";
 import { useInfiniteScroll } from "@/composables/useInfiniteScroll";
 import { useThemeStore } from "@/stores/theme";
+import { useAuthStore } from "@/stores/auth";
 import { parseDate } from "@/utils/dateUtils";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
 import type { Ticket } from "@/services/ticketService";
@@ -137,12 +138,20 @@ const initialFilters: Record<string, string | string[]> = {};
 // Define which filters support multiple values
 const multiSelectFilters = ['status'];
 
+// Get current user UUID for 'current' filter value
+const authStore = useAuthStore();
+const currentUserUuid = computed(() => authStore.user?.uuid || '');
+
 // Set initial values from URL
-const filterKeys = ['status', 'priority', 'createdOn', 'createdAfter', 'createdBefore',
+const filterKeys = ['status', 'priority', 'assignee', 'requester', 'createdOn', 'createdAfter', 'createdBefore',
                     'modifiedOn', 'modifiedAfter', 'modifiedBefore', 'closedOn', 'closedAfter', 'closedBefore'];
 filterKeys.forEach(key => {
   if (urlParams[key] && typeof urlParams[key] === 'string') {
-    const value = urlParams[key] as string;
+    let value = urlParams[key] as string;
+    // Handle 'current' as a special value meaning current user
+    if ((key === 'assignee' || key === 'requester') && value === 'current') {
+      value = currentUserUuid.value;
+    }
     // Parse comma-separated values for multi-select filters
     if (multiSelectFilters.includes(key) && value.includes(',')) {
       initialFilters[key] = value.split(',');
@@ -198,12 +207,17 @@ const listManager = useListManagement<Ticket>({
       search: params.search,
       status: params.status,
       priority: params.priority,
+      assignee: params.assignee,
+      requester: params.requester,
       createdAfter: params.createdAfter,
       createdBefore: params.createdBefore,
       createdOn: params.createdOn,
       modifiedAfter: params.modifiedAfter,
       modifiedBefore: params.modifiedBefore,
-      modifiedOn: params.modifiedOn
+      modifiedOn: params.modifiedOn,
+      closedAfter: params.closedAfter,
+      closedBefore: params.closedBefore,
+      closedOn: params.closedOn
     }, requestKey);
   },
   routeBuilder: (ticket) => `/tickets/${ticket.id}`,
@@ -219,6 +233,67 @@ listManager.searchQuery.value = initialSearchQuery;
 listManager.filters.value = initialFilters;
 listManager.currentPage.value = initialPage;
 listManager.pageSize.value = initialPageSize;
+
+// Helper to parse URL query into filters
+const parseUrlFilters = (query: typeof route.query): Record<string, string | string[]> => {
+  const filters: Record<string, string | string[]> = {};
+  filterKeys.forEach(key => {
+    if (query[key] && typeof query[key] === 'string') {
+      let value = query[key] as string;
+      // Handle 'current' as a special value meaning current user
+      if ((key === 'assignee' || key === 'requester') && value === 'current') {
+        value = currentUserUuid.value;
+      }
+      if (multiSelectFilters.includes(key) && value.includes(',')) {
+        filters[key] = value.split(',');
+      } else if (multiSelectFilters.includes(key)) {
+        filters[key] = [value];
+      } else {
+        filters[key] = value;
+      }
+    }
+  });
+  return filters;
+};
+
+// Watch for route query changes (e.g., clicking dashboard stats)
+watch(() => route.query, (newQuery) => {
+  const newFilters = parseUrlFilters(newQuery);
+  const newSearch = (newQuery.search && typeof newQuery.search === 'string') ? newQuery.search : '';
+
+  const filtersChanged = JSON.stringify(newFilters) !== JSON.stringify(listManager.filters.value);
+  const searchChanged = newSearch !== listManager.searchQuery.value;
+
+  // Update state and refresh if anything changed
+  if (filtersChanged) {
+    listManager.filters.value = newFilters;
+  }
+  if (searchChanged) {
+    listManager.searchQuery.value = newSearch;
+  }
+  if (filtersChanged || searchChanged) {
+    listManager.refresh();
+  }
+}, { deep: true });
+
+// Re-apply URL filters when component is activated from KeepAlive cache
+onActivated(() => {
+  const currentFilters = parseUrlFilters(route.query);
+  const currentSearch = (route.query.search && typeof route.query.search === 'string') ? route.query.search : '';
+
+  const filtersChanged = JSON.stringify(currentFilters) !== JSON.stringify(listManager.filters.value);
+  const searchChanged = currentSearch !== listManager.searchQuery.value;
+
+  if (filtersChanged) {
+    listManager.filters.value = currentFilters;
+  }
+  if (searchChanged) {
+    listManager.searchQuery.value = currentSearch;
+  }
+  if (filtersChanged || searchChanged) {
+    listManager.refresh();
+  }
+});
 
 // SSE integration for real-time updates
 useListSSE<Ticket>({
@@ -489,7 +564,7 @@ const { getStyle } = useStaggeredList();
                 v-for="(ticket, index) in listManager.items.value"
                 :key="ticket.id"
                 :style="getStyle(index)"
-                v-memo="[ticket.id, ticket.title, ticket.status, ticket.priority, ticket.created, ticket.requester, ticket.assignee, themeStore.colorBlindMode]"
+                v-memo="[ticket.id, ticket.title, ticket.status, ticket.priority, ticket.created, ticket.requester, ticket.assignee, themeStore.effectiveColorBlindMode]"
                 @click="listManager.navigateToItem(ticket)"
                 :class="[
                   'flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer',
@@ -498,7 +573,7 @@ const { getStyle } = useStaggeredList();
               >
                 <!-- Status indicator bar -->
                 <div
-                  v-if="themeStore.colorBlindMode"
+                  v-if="themeStore.effectiveColorBlindMode"
                   class="w-2 self-stretch rounded-full flex-shrink-0 relative box-border"
                   :class="{
                     'border-2 border-status-open bg-transparent': ticket.status === 'open',

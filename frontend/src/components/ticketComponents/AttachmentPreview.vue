@@ -332,7 +332,7 @@ const generatePdfThumbnail = async (url: string) => {
     </template>
     <template v-else-if="attachmentType === 'image'">
       <!-- Image container -->
-      <div class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-surface-alt">
+      <div class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-surface-alt attachment-container">
         <button
           v-if="showDelete"
           type="button"
@@ -362,7 +362,7 @@ const generatePdfThumbnail = async (url: string) => {
           v-else
           :src="authenticatedUrl"
           :alt="attachment.name"
-          class="w-full h-full object-cover bg-transparent"
+          class="w-full h-full object-cover bg-transparent attachment-image"
           :class="{
             'animated-preview': isAnimatedImage(attachment.name)
           }"
@@ -411,7 +411,7 @@ const generatePdfThumbnail = async (url: string) => {
       </div>
     </template>
     <template v-else-if="attachmentType === 'pdf'">
-      <div class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-surface-alt">
+      <div class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-surface-alt attachment-container">
         <!-- Delete button -->
         <button
           v-if="showDelete"
@@ -442,7 +442,7 @@ const generatePdfThumbnail = async (url: string) => {
           <img
             :src="pdfThumbnailSrc"
             :alt="attachment.name"
-            class="w-full h-full object-contain"
+            class="w-full h-full object-contain attachment-image"
           />
         </div>
 
@@ -554,10 +554,10 @@ const generatePdfThumbnail = async (url: string) => {
           
           <!-- Image Preview (Non-PDF) -->
           <div v-else class="relative">
-            <img 
-              :src="previewImageSrc" 
-              :alt="attachment.name" 
-              class="max-w-full max-h-[70vh] object-contain bg-transparent"
+            <img
+              :src="previewImageSrc"
+              :alt="attachment.name"
+              class="max-w-full max-h-[70vh] object-contain bg-transparent attachment-image"
               :class="{
                 'animated-preview-modal': isAnimatedImage(attachment.name)
               }"

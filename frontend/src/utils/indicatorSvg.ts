@@ -77,9 +77,17 @@ export function getPriorityIndicatorSvg(priority: TicketPriority, colorClass?: s
 }
 
 /**
+ * Themes that always require colorblind mode due to limited color palette
+ */
+const COLORBLIND_REQUIRED_THEMES = ['epaper', 'red-horizon']
+
+/**
  * Check if colorblind mode is enabled
  * Uses localStorage for non-reactive contexts (like ProseMirror plugins)
+ * Returns true if user enabled it OR current theme requires it
  */
 export function isColorBlindMode(): boolean {
-  return localStorage.getItem('colorBlindMode') === 'true'
+  const userPreference = localStorage.getItem('colorBlindMode') === 'true'
+  const currentTheme = document.documentElement.getAttribute('data-theme') || ''
+  return userPreference || COLORBLIND_REQUIRED_THEMES.includes(currentTheme)
 }

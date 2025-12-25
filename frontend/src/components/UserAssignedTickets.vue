@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { formatRelativeTime } from '@/utils/dateUtils';
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "@/components/UserAvatar.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
-import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import ticketService, { type Ticket } from "@/services/ticketService";
 
 const props = withDefaults(defineProps<{
@@ -34,7 +33,7 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 // When filters are hidden, default to showing all tickets; otherwise default to active
 const selectedStatus = ref(props.filterStatus || (props.showFilters ? "active" : ""));
-const sortBy = ref("date"); // default sort by date
+const sortBy = ref("priority-date"); // default sort by priority first, then date
 
 // Computed: target user UUID (prop or current user)
 const targetUserUuid = computed(() => props.userUuid || authStore.user?.uuid || "");
@@ -67,9 +66,82 @@ const statusOptions = [
 
 // Sort options
 const sortOptions = [
-    { value: "date", label: "Latest Modified" },
+    { value: "priority-date", label: "Priority, then Date" },
     { value: "priority", label: "Highest Priority" },
+    { value: "date", label: "Latest Modified" },
 ];
+
+// Dropdown menu state
+const showSortMenu = ref(false);
+const showFilterMenu = ref(false);
+const sortButtonRef = ref<HTMLElement | null>(null);
+const filterButtonRef = ref<HTMLElement | null>(null);
+const sortMenuRef = ref<HTMLElement | null>(null);
+const filterMenuRef = ref<HTMLElement | null>(null);
+const sortMenuStyle = ref({ top: '0px', left: '0px' });
+const filterMenuStyle = ref({ top: '0px', left: '0px' });
+
+const updateMenuPosition = (buttonRef: HTMLElement | null, setStyle: (style: { top: string; left: string }) => void) => {
+    if (!buttonRef) return;
+    const rect = buttonRef.getBoundingClientRect();
+    setStyle({
+        top: `${rect.bottom + 4}px`,
+        left: `${Math.max(8, rect.right - 144)}px` // Align right edge, min 8px from left
+    });
+};
+
+const toggleSortMenu = () => {
+    showFilterMenu.value = false;
+    showSortMenu.value = !showSortMenu.value;
+    if (showSortMenu.value) {
+        nextTick(() => updateMenuPosition(sortButtonRef.value, (s) => sortMenuStyle.value = s));
+    }
+};
+
+const toggleFilterMenu = () => {
+    showSortMenu.value = false;
+    showFilterMenu.value = !showFilterMenu.value;
+    if (showFilterMenu.value) {
+        nextTick(() => updateMenuPosition(filterButtonRef.value, (s) => filterMenuStyle.value = s));
+    }
+};
+
+const selectSort = (value: string) => {
+    sortBy.value = value;
+    showSortMenu.value = false;
+};
+
+const selectFilter = (value: string) => {
+    selectedStatus.value = value;
+    showFilterMenu.value = false;
+};
+
+// Close menus on click outside
+const handleClickOutside = (event: MouseEvent) => {
+    const target = event.target as Node;
+    if (showSortMenu.value && sortMenuRef.value && !sortMenuRef.value.contains(target) && !sortButtonRef.value?.contains(target)) {
+        showSortMenu.value = false;
+    }
+    if (showFilterMenu.value && filterMenuRef.value && !filterMenuRef.value.contains(target) && !filterButtonRef.value?.contains(target)) {
+        showFilterMenu.value = false;
+    }
+};
+
+onMounted(() => {
+    document.addEventListener('click', handleClickOutside);
+});
+
+onUnmounted(() => {
+    document.removeEventListener('click', handleClickOutside);
+});
+
+// Priority order for sorting (higher priority = lower number)
+const PRIORITY_ORDER: Record<string, number> = {
+    'critical': 0,
+    'high': 1,
+    'medium': 2,
+    'low': 3,
+};
 
 // Get tickets for the target user (assigned or requested based on ticketType)
 const fetchTickets = async () => {
@@ -84,11 +156,15 @@ const fetchTickets = async () => {
             ? selectedStatus.value
             : undefined;
 
+        // For multi-level sort (priority-date), fetch by priority first
+        // For single-level sorts, use the appropriate field
+        const sortField = sortBy.value === "date" ? "modified" : "priority";
+
         // Build query params based on ticket type
         const queryParams: Parameters<typeof ticketService.getPaginatedTickets>[0] = {
             page: 1,
-            pageSize: props.limit * 2, // Fetch more to account for client-side filtering
-            sortField: sortBy.value === "priority" ? "priority" : "modified",
+            pageSize: props.limit * 3, // Fetch more to account for client-side filtering/sorting
+            sortField,
             sortDirection: "desc",
             status: statusFilter,
         };
@@ -111,6 +187,20 @@ const fetchTickets = async () => {
                 (ticket) =>
                     ticket.status === "open" || ticket.status === "in-progress",
             );
+        }
+
+        // Apply client-side sorting for multi-level sort (priority, then date)
+        if (sortBy.value === "priority-date") {
+            filteredTickets.sort((a, b) => {
+                // First sort by priority (critical > high > medium > low)
+                const priorityA = PRIORITY_ORDER[a.priority] ?? 4;
+                const priorityB = PRIORITY_ORDER[b.priority] ?? 4;
+                if (priorityA !== priorityB) {
+                    return priorityA - priorityB;
+                }
+                // Then sort by modified date (newest first)
+                return new Date(b.modified).getTime() - new Date(a.modified).getTime();
+            });
         }
 
         // Limit to the requested number
@@ -155,36 +245,96 @@ watch(
     >
         <!-- Header with title and filter -->
         <div
-            class="px-4 py-3 bg-surface-alt border-b border-default flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3"
+            class="px-3 sm:px-4 py-3 bg-surface-alt border-b border-default flex items-center justify-between gap-2"
         >
-            <div v-if="showTitle" class="flex items-center gap-3">
-                <h2 class="text-lg font-medium text-primary">
+            <div v-if="showTitle" class="flex items-center gap-2 min-w-0 flex-shrink">
+                <h2 class="text-base sm:text-lg font-medium text-primary truncate">
                     {{ displayTitle }}
                 </h2>
                 <router-link
                     :to="seeAllLink"
-                    class="text-xs px-3 py-1.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors font-medium"
+                    class="text-xs px-2 py-1 sm:px-3 sm:py-1.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors font-medium flex-shrink-0"
                 >
-                    See All
+                    All
                 </router-link>
             </div>
 
-            <div v-if="showFilters" class="flex flex-col sm:flex-row gap-2">
-                <!-- Sort dropdown -->
-                <BaseDropdown
-                    v-model="sortBy"
-                    :options="sortOptions"
-                    size="sm"
-                />
+            <div v-if="showFilters" class="flex gap-1 flex-shrink-0">
+                <!-- Sort button -->
+                <div class="relative" ref="sortButtonRef">
+                    <button
+                        @click="toggleSortMenu"
+                        class="p-1.5 sm:p-2 rounded-lg border border-default hover:border-strong hover:bg-surface-hover transition-colors"
+                        :class="sortBy !== 'priority-date' ? 'text-accent border-accent' : 'text-secondary'"
+                        title="Sort"
+                    >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                        </svg>
+                    </button>
+                </div>
 
-                <!-- Filter dropdown -->
-                <BaseDropdown
-                    v-model="selectedStatus"
-                    :options="statusOptions"
-                    size="sm"
-                />
+                <!-- Filter button -->
+                <div class="relative" ref="filterButtonRef">
+                    <button
+                        @click="toggleFilterMenu"
+                        class="p-1.5 sm:p-2 rounded-lg border border-default hover:border-strong hover:bg-surface-hover transition-colors"
+                        :class="selectedStatus !== 'active' ? 'text-accent border-accent' : 'text-secondary'"
+                        title="Filter"
+                    >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
+
+        <!-- Sort dropdown menu -->
+        <Teleport to="body">
+            <div
+                v-if="showSortMenu"
+                ref="sortMenuRef"
+                class="fixed z-50 bg-surface border border-default rounded-lg shadow-lg py-1 min-w-36"
+                :style="sortMenuStyle"
+            >
+                <button
+                    v-for="option in sortOptions"
+                    :key="option.value"
+                    @click="selectSort(option.value)"
+                    class="w-full px-3 py-2 text-left text-sm hover:bg-surface-hover transition-colors flex items-center gap-2"
+                    :class="sortBy === option.value ? 'text-accent' : 'text-primary'"
+                >
+                    <svg v-if="sortBy === option.value" class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span :class="sortBy !== option.value ? 'ml-6' : ''">{{ option.label }}</span>
+                </button>
+            </div>
+        </Teleport>
+
+        <!-- Filter dropdown menu -->
+        <Teleport to="body">
+            <div
+                v-if="showFilterMenu"
+                ref="filterMenuRef"
+                class="fixed z-50 bg-surface border border-default rounded-lg shadow-lg py-1 min-w-32"
+                :style="filterMenuStyle"
+            >
+                <button
+                    v-for="option in statusOptions"
+                    :key="option.value"
+                    @click="selectFilter(option.value)"
+                    class="w-full px-3 py-2 text-left text-sm hover:bg-surface-hover transition-colors flex items-center gap-2"
+                    :class="selectedStatus === option.value ? 'text-accent' : 'text-primary'"
+                >
+                    <svg v-if="selectedStatus === option.value" class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span :class="selectedStatus !== option.value ? 'ml-6' : ''">{{ option.label }}</span>
+                </button>
+            </div>
+        </Teleport>
 
         <!-- Loading state -->
         <div v-if="loading" class="px-4 py-12 flex justify-center items-center">

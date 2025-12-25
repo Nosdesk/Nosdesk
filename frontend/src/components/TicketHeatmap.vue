@@ -8,10 +8,14 @@ import HeatmapTooltip from "@/components/HeatmapTooltip.vue";
 
 interface Props {
     ticketStatus?: "open" | "in-progress" | "closed";
+    userUuid?: string;
+    title?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
     ticketStatus: "closed",
+    userUuid: "",
+    title: "",
 });
 
 interface DayData {
@@ -78,6 +82,11 @@ const fetchTicketData = async () => {
 
         tickets.forEach((ticket) => {
             if (ticket.status === props.ticketStatus) {
+                // Filter by user if specified (match assignee for closed tickets)
+                if (props.userUuid && ticket.assignee !== props.userUuid) {
+                    return;
+                }
+
                 const dateStr =
                     ticket.status === "closed" && ticket.closed_at
                         ? ticket.closed_at.split("T")[0]
@@ -232,7 +241,7 @@ onActivated(() => {
         <!-- Header -->
         <div class="mb-4">
             <h3 class="text-secondary text-sm font-medium">
-                {{ props.ticketStatus === "closed" ? "Closed Tickets" : "Ticket Activity" }}
+                {{ props.title || (props.ticketStatus === "closed" ? "Closed Tickets" : "Ticket Activity") }}
             </h3>
         </div>
 

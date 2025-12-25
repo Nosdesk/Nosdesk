@@ -39,6 +39,9 @@ export const useThemeStore = defineStore('theme', () => {
   const savedColorBlindMode = localStorage.getItem('colorBlindMode') === 'true'
   const colorBlindMode = ref<boolean>(savedColorBlindMode)
 
+  // Themes that require colorblind mode due to limited color palette
+  const COLORBLIND_REQUIRED_THEMES = ['epaper', 'red-horizon']
+
   // Syncing state
   const isSyncing = ref<boolean>(false)
 
@@ -74,6 +77,15 @@ export const useThemeStore = defineStore('theme', () => {
    * Whether the current effective theme is dark
    */
   const isDarkMode = computed(() => effectiveTheme.value.meta.isDark)
+
+  /**
+   * Effective colorblind mode - true if user enabled it OR theme requires it
+   * Monochromatic themes like epaper and red-horizon always use colorblind mode
+   * since they rely on shapes for distinction rather than color
+   */
+  const effectiveColorBlindMode = computed(() => {
+    return colorBlindMode.value || COLORBLIND_REQUIRED_THEMES.includes(effectiveTheme.value.meta.id)
+  })
 
   /**
    * Available themes for UI display
@@ -115,12 +127,6 @@ export const useThemeStore = defineStore('theme', () => {
     currentTheme.value = themeId
     localStorage.setItem('theme', themeId)
     applyCurrentTheme()
-
-    // Monochromatic themes should automatically enable color blind mode
-    // since they rely on shapes for distinction rather than color
-    if (themeId === 'epaper' || themeId === 'red-horizon') {
-      setColorBlindMode(true)
-    }
   }
 
   /**
@@ -212,6 +218,7 @@ export const useThemeStore = defineStore('theme', () => {
     isDarkMode,
     accentColorOverride,
     colorBlindMode,
+    effectiveColorBlindMode,
     isSyncing,
 
     // Theme lists for UI

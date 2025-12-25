@@ -383,9 +383,9 @@ a {
   filter: grayscale(100%) contrast(1.3) brightness(0.9);
 }
 
-/* Red Horizon Theme: Amber/orange monochrome emojis */
+/* Red Horizon Theme: High contrast dark red-orange emojis matching theme */
 [data-theme="red-horizon"] .twemoji {
-  filter: grayscale(100%) sepia(100%) saturate(400%) hue-rotate(-5deg) brightness(0.95) contrast(1.1);
+  filter: grayscale(100%) sepia(100%) saturate(300%) hue-rotate(-10deg) brightness(0.6) contrast(1.5);
 }
 
 /* ============================================
@@ -439,9 +439,14 @@ a {
   letter-spacing: 0.02em;
 }
 
-/* Red Horizon: Reddish-orange crosshair cursor for ALL elements */
+/* Red Horizon: Reddish-orange crosshair cursor for ALL elements
+   Apply to html/body explicitly and use ::before/::after to ensure persistence */
+html[data-theme="red-horizon"],
+html[data-theme="red-horizon"] body,
 [data-theme="red-horizon"],
-[data-theme="red-horizon"] * {
+[data-theme="red-horizon"] *,
+[data-theme="red-horizon"] *::before,
+[data-theme="red-horizon"] *::after {
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cline x1='12' y1='0' x2='12' y2='10' stroke='%23ff8844' stroke-width='2'/%3E%3Cline x1='12' y1='14' x2='12' y2='24' stroke='%23ff8844' stroke-width='2'/%3E%3Cline x1='0' y1='12' x2='10' y2='12' stroke='%23ff8844' stroke-width='2'/%3E%3Cline x1='14' y1='12' x2='24' y2='12' stroke='%23ff8844' stroke-width='2'/%3E%3Ccircle cx='12' cy='12' r='3' stroke='%23ff8844' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") 12 12, crosshair !important;
 }
 
@@ -620,50 +625,212 @@ a {
   z-index: 2;
 }
 
-/* Red Horizon: Subtle CRT glow for sidebar logo
-   Exponential falloff layers - restrained for legibility
-*/
-[data-theme="red-horizon"] .sidebar-logo {
-  position: relative;
-  filter:
-    drop-shadow(0 0 1px rgba(255, 136, 68, 0.6))
-    drop-shadow(0 0 3px rgba(220, 100, 34, 0.3))
-    drop-shadow(0 0 8px rgba(180, 70, 0, 0.15))
-    drop-shadow(0 0 16px rgba(140, 50, 0, 0.08));
-  animation: red-horizon-logo-pulse 4s ease-in-out infinite;
+/* Red Horizon: Sidebar navigation styling */
+[data-theme="red-horizon"] nav {
+  border-color: rgba(255, 100, 50, 0.2);
+  background:
+    linear-gradient(180deg, rgba(20, 8, 0, 0.4) 0%, transparent 100%),
+    var(--color-bg-surface);
 }
 
-/* Subtle scanlines overlay */
+/* Red Horizon: Sidebar nav link base state */
+[data-theme="red-horizon"] nav:not(.fixed) a {
+  transition: all 0.25s ease;
+  position: relative;
+}
+
+/* Red Horizon: Sidebar nav link hover - inward glow effect */
+[data-theme="red-horizon"] nav:not(.fixed) a:hover {
+  text-shadow: 0 0 8px rgba(255, 100, 50, 0.6);
+  background:
+    radial-gradient(ellipse at left center, rgba(255, 80, 30, 0.12) 0%, transparent 70%);
+  box-shadow:
+    inset 2px 0 12px rgba(255, 100, 50, 0.15),
+    inset 0 0 20px rgba(255, 80, 30, 0.05);
+}
+
+/* Red Horizon: Sidebar nav icon glow on hover */
+[data-theme="red-horizon"] nav:not(.fixed) a:hover svg {
+  filter: drop-shadow(0 0 4px rgba(255, 100, 50, 0.7));
+  color: #ff9955;
+}
+
+/* Red Horizon: Sidebar active nav link - terminal selected state */
+[data-theme="red-horizon"] nav:not(.fixed) a.router-link-active,
+[data-theme="red-horizon"] nav:not(.fixed) a.router-link-exact-active {
+  text-shadow:
+    0 0 10px rgba(255, 100, 50, 0.7),
+    0 0 20px rgba(255, 60, 20, 0.3);
+  background:
+    linear-gradient(90deg, rgba(255, 80, 30, 0.2) 0%, rgba(255, 60, 20, 0.08) 60%, transparent 100%);
+  border-left: 1px solid rgba(255, 100, 50, 0.4);
+  margin-left: -1px;
+}
+
+/* Red Horizon: Sidebar active nav - data stream effect */
+[data-theme="red-horizon"] nav:not(.fixed) a.router-link-active::before,
+[data-theme="red-horizon"] nav:not(.fixed) a.router-link-exact-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(255, 136, 68, 0.8) 20%,
+    rgba(255, 100, 50, 1) 50%,
+    rgba(255, 136, 68, 0.8) 80%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 8px rgba(255, 100, 50, 0.8),
+    0 0 16px rgba(255, 80, 30, 0.5);
+  animation: data-pulse 2s ease-in-out infinite;
+}
+
+@keyframes data-pulse {
+  0%, 100% {
+    opacity: 0.7;
+    box-shadow: 0 0 8px rgba(255, 100, 50, 0.6), 0 0 16px rgba(255, 80, 30, 0.3);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 12px rgba(255, 100, 50, 1), 0 0 24px rgba(255, 80, 30, 0.6);
+  }
+}
+
+/* Red Horizon: Sidebar active nav icon - powered on */
+[data-theme="red-horizon"] nav:not(.fixed) a.router-link-active svg,
+[data-theme="red-horizon"] nav:not(.fixed) a.router-link-exact-active svg {
+  filter:
+    drop-shadow(0 0 3px rgba(255, 136, 68, 0.9))
+    drop-shadow(0 0 8px rgba(255, 100, 50, 0.6));
+  color: #ff8844;
+}
+
+/* Red Horizon: Sidebar active indicator bar - hidden, replaced by border effect */
+[data-theme="red-horizon"] nav:not(.fixed) a .bg-accent {
+  opacity: 0;
+}
+
+/* Red Horizon: Mobile bottom nav - command console */
+[data-theme="red-horizon"] nav.fixed {
+  border-color: rgba(255, 100, 50, 0.3);
+  background:
+    linear-gradient(0deg, rgba(20, 8, 0, 0.6) 0%, transparent 100%),
+    var(--color-bg-surface-alt);
+  box-shadow:
+    0 -2px 20px rgba(255, 80, 30, 0.15),
+    inset 0 1px 0 rgba(255, 100, 50, 0.1);
+}
+
+/* Red Horizon: Mobile nav icons */
+[data-theme="red-horizon"] nav.fixed a {
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+/* Red Horizon: Mobile nav hover - inward glow from bottom */
+[data-theme="red-horizon"] nav.fixed a:hover,
+[data-theme="red-horizon"] nav.fixed a:active {
+  background:
+    radial-gradient(ellipse at center bottom, rgba(255, 80, 30, 0.15) 0%, transparent 70%);
+  box-shadow:
+    inset 0 -2px 12px rgba(255, 100, 50, 0.2),
+    inset 0 0 20px rgba(255, 80, 30, 0.05);
+}
+
+[data-theme="red-horizon"] nav.fixed a:hover svg,
+[data-theme="red-horizon"] nav.fixed a:active svg {
+  filter: drop-shadow(0 0 6px rgba(255, 100, 50, 0.7));
+}
+
+/* Red Horizon: Mobile nav active - glow from bottom */
+[data-theme="red-horizon"] nav.fixed a.router-link-active,
+[data-theme="red-horizon"] nav.fixed a.router-link-exact-active {
+  background:
+    radial-gradient(ellipse at center bottom, rgba(255, 80, 30, 0.2) 0%, transparent 70%);
+  box-shadow:
+    inset 0 -2px 15px rgba(255, 100, 50, 0.25),
+    inset 0 0 25px rgba(255, 80, 30, 0.08);
+}
+
+[data-theme="red-horizon"] nav.fixed a.router-link-active svg,
+[data-theme="red-horizon"] nav.fixed a.router-link-exact-active svg {
+  filter:
+    drop-shadow(0 0 4px rgba(255, 136, 68, 0.9))
+    drop-shadow(0 0 10px rgba(255, 100, 50, 0.5));
+  color: #ff8844;
+}
+
+/* Red Horizon: Mobile nav active - data stream from bottom */
+[data-theme="red-horizon"] nav.fixed a.router-link-active::after,
+[data-theme="red-horizon"] nav.fixed a.router-link-exact-active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 136, 68, 0.8) 20%,
+    rgba(255, 100, 50, 1) 50%,
+    rgba(255, 136, 68, 0.8) 80%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 8px rgba(255, 100, 50, 0.8),
+    0 0 16px rgba(255, 80, 30, 0.5);
+  animation: data-pulse 2s ease-in-out infinite;
+}
+
+/* Red Horizon: Sidebar logo - holographic projection */
+[data-theme="red-horizon"] .sidebar-logo {
+  position: relative;
+}
+
+[data-theme="red-horizon"] .sidebar-logo img,
+[data-theme="red-horizon"] .sidebar-logo svg {
+  filter:
+    drop-shadow(0 0 2px rgba(255, 136, 68, 0.7))
+    drop-shadow(0 0 8px rgba(255, 100, 50, 0.4))
+    drop-shadow(0 0 20px rgba(255, 80, 30, 0.2));
+  animation: logo-breathe 4s ease-in-out infinite;
+}
+
+@keyframes logo-breathe {
+  0%, 100% {
+    filter:
+      drop-shadow(0 0 2px rgba(255, 136, 68, 0.6))
+      drop-shadow(0 0 8px rgba(255, 100, 50, 0.3))
+      drop-shadow(0 0 20px rgba(255, 80, 30, 0.15));
+  }
+  50% {
+    filter:
+      drop-shadow(0 0 3px rgba(255, 136, 68, 0.8))
+      drop-shadow(0 0 12px rgba(255, 100, 50, 0.5))
+      drop-shadow(0 0 25px rgba(255, 80, 30, 0.25));
+  }
+}
+
+/* Red Horizon: Logo scanline overlay */
 [data-theme="red-horizon"] .sidebar-logo::after {
   content: '';
   position: absolute;
-  inset: -4px;
+  inset: 0;
   background: repeating-linear-gradient(
     0deg,
     transparent 0px,
     transparent 2px,
-    rgba(0, 0, 0, 0.08) 2px,
-    rgba(0, 0, 0, 0.08) 3px
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
   );
   pointer-events: none;
-  border-radius: 4px;
-}
-
-@keyframes red-horizon-logo-pulse {
-  0%, 100% {
-    filter:
-      drop-shadow(0 0 1px rgba(255, 136, 68, 0.6))
-      drop-shadow(0 0 3px rgba(220, 100, 34, 0.3))
-      drop-shadow(0 0 8px rgba(180, 70, 0, 0.15))
-      drop-shadow(0 0 16px rgba(140, 50, 0, 0.08));
-  }
-  50% {
-    filter:
-      drop-shadow(0 0 1px rgba(255, 153, 85, 0.7))
-      drop-shadow(0 0 4px rgba(238, 119, 51, 0.35))
-      drop-shadow(0 0 10px rgba(200, 85, 17, 0.18))
-      drop-shadow(0 0 20px rgba(160, 60, 0, 0.1));
-  }
+  border-radius: inherit;
 }
 
 /* Red Horizon: Button styling - reddish-orange text on dark with glow */
@@ -796,4 +963,57 @@ a {
     box-shadow: inset 0 0 25px rgba(255, 136, 68, 0.8);
     background: radial-gradient(ellipse at center, transparent 35%, rgba(100, 40, 0, 0.5) 100%);
   }
+}
+
+/* Red Horizon: Monospace font for collaborative editor */
+[data-theme="red-horizon"] .ProseMirror {
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', 'Monaco', ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}
+
+/* Red Horizon: CRT effect for images in editor and attachments */
+[data-theme="red-horizon"] .ProseMirror img,
+[data-theme="red-horizon"] .attachment-image,
+[data-theme="red-horizon"] .comment-attachment img {
+  filter: grayscale(1) sepia(1) saturate(4) hue-rotate(-10deg) brightness(0.8) contrast(1.2);
+}
+
+/* Wrapper for CRT scanline effect on images */
+[data-theme="red-horizon"] .ProseMirror img {
+  position: relative;
+}
+
+/* Red Horizon: Scanlines for editor images and attachment containers */
+[data-theme="red-horizon"] .crt-image-wrapper,
+[data-theme="red-horizon"] .attachment-container {
+  position: relative;
+}
+
+[data-theme="red-horizon"] .crt-image-wrapper::before,
+[data-theme="red-horizon"] .attachment-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.3) 2px,
+    rgba(0, 0, 0, 0.3) 4px
+  );
+  z-index: 10;
+  border-radius: inherit;
+}
+
+[data-theme="red-horizon"] .crt-image-wrapper::after,
+[data-theme="red-horizon"] .attachment-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 15px rgba(200, 80, 0, 0.5);
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(80, 30, 0, 0.3) 100%);
+  z-index: 11;
+  border-radius: inherit;
 }

@@ -264,7 +264,7 @@ const getPriorityClass = (priority: TicketPriority) => {
         >
           <!-- Status indicator bar -->
           <div
-            v-if="themeStore.colorBlindMode"
+            v-if="themeStore.effectiveColorBlindMode"
             class="w-2 self-stretch rounded-full flex-shrink-0 relative box-border"
             :class="{
               'border-2 border-status-open bg-transparent': ticket.status === 'open',
