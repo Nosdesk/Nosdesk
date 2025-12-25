@@ -146,12 +146,12 @@ const handleAddTicket = (ticketId: number) => {
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
     </div>
 
-    <!-- Kanban Board - horizontal scroll on parent, fixed width columns -->
-    <div v-else class="flex gap-4 p-4 h-full">
+    <!-- Kanban Board - horizontal scroll on smaller screens, fills width on large screens -->
+    <div v-else class="flex gap-4 p-4 h-full xl:justify-center">
       <div
         v-for="column in columns"
         :key="column.id"
-        class="w-72 flex-shrink-0 flex flex-col bg-surface rounded-xl border border-default h-full min-h-[400px]"
+        class="w-72 flex-shrink-0 xl:flex-shrink xl:flex-grow xl:max-w-md flex flex-col bg-surface rounded-xl border border-default h-full min-h-[400px]"
         :class="{ 'ring-2 ring-accent/50': isColumnDragOver(column.id) }"
       >
           <!-- Column Header -->

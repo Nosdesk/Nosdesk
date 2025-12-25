@@ -37,6 +37,12 @@ const adminMenuItems = [
     description: 'Import data from Intune, CSV files, and other external sources',
     icon: 'database',
     route: '/admin/data-import'
+  },
+  {
+    title: 'Backup & Restore',
+    description: 'Export and restore system data and attachments',
+    icon: 'archive',
+    route: '/admin/backup-restore'
   }
 ];
 

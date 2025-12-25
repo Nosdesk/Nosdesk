@@ -54,15 +54,24 @@ pub fn get_paginated_tickets(
         }
     }
     
-    // Handle enum status filter
+    // Handle enum status filter (supports comma-separated values for multi-select)
     if let Some(status_filter) = status.clone() {
         if status_filter != "all" {
-            // Convert string to enum
-            match status_filter.as_str() {
-                "open" => query = query.filter(tickets::status.eq(crate::models::TicketStatus::Open)),
-                "in-progress" => query = query.filter(tickets::status.eq(crate::models::TicketStatus::InProgress)),
-                "closed" => query = query.filter(tickets::status.eq(crate::models::TicketStatus::Closed)),
-                _ => {} // Ignore invalid status values
+            // Parse comma-separated values
+            let status_values: Vec<&str> = status_filter.split(',').collect();
+            let mut status_enums: Vec<crate::models::TicketStatus> = Vec::new();
+
+            for status_val in status_values {
+                match status_val.trim() {
+                    "open" => status_enums.push(crate::models::TicketStatus::Open),
+                    "in-progress" => status_enums.push(crate::models::TicketStatus::InProgress),
+                    "closed" => status_enums.push(crate::models::TicketStatus::Closed),
+                    _ => {} // Ignore invalid status values
+                }
+            }
+
+            if !status_enums.is_empty() {
+                query = query.filter(tickets::status.eq_any(status_enums));
             }
         }
     }
@@ -97,15 +106,24 @@ pub fn get_paginated_tickets(
         }
     }
     
-    // Handle enum status filter for count query
+    // Handle enum status filter for count query (supports comma-separated values)
     if let Some(status_filter) = status {
         if status_filter != "all" {
-            // Convert string to enum
-            match status_filter.as_str() {
-                "open" => count_query = count_query.filter(tickets::status.eq(crate::models::TicketStatus::Open)),
-                "in-progress" => count_query = count_query.filter(tickets::status.eq(crate::models::TicketStatus::InProgress)),
-                "closed" => count_query = count_query.filter(tickets::status.eq(crate::models::TicketStatus::Closed)),
-                _ => {} // Ignore invalid status values
+            // Parse comma-separated values
+            let status_values: Vec<&str> = status_filter.split(',').collect();
+            let mut status_enums: Vec<crate::models::TicketStatus> = Vec::new();
+
+            for status_val in status_values {
+                match status_val.trim() {
+                    "open" => status_enums.push(crate::models::TicketStatus::Open),
+                    "in-progress" => status_enums.push(crate::models::TicketStatus::InProgress),
+                    "closed" => status_enums.push(crate::models::TicketStatus::Closed),
+                    _ => {} // Ignore invalid status values
+                }
+            }
+
+            if !status_enums.is_empty() {
+                count_query = count_query.filter(tickets::status.eq_any(status_enums));
             }
         }
     }

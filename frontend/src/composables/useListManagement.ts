@@ -30,8 +30,8 @@ export function useListManagement<T extends Record<string, any>>(options: ListOp
 
   // Pagination (pageSize 0 = infinite scroll mode)
   const currentPage = ref(1)
-  const pageSize = ref(options.defaultPageSize || 25)
-  const pageSizeOptions = [10, 25, 50, 100, 0] // 0 = All (infinite scroll)
+  const pageSize = ref(options.defaultPageSize || 0)
+  const pageSizeOptions = [0, 25, 50, 100] // 0 = All (infinite scroll)
   const totalItems = ref(0)
   const totalPages = ref(1)
   const hasMore = computed(() => currentPage.value < totalPages.value)
@@ -45,7 +45,7 @@ export function useListManagement<T extends Record<string, any>>(options: ListOp
 
   // Search and filters
   const searchQuery = ref('')
-  const filters = ref<Record<string, string>>({})
+  const filters = ref<Record<string, string | string[]>>({})
 
   // Selection
   const selectedItems = ref<string[]>([])
@@ -81,8 +81,18 @@ export function useListManagement<T extends Record<string, any>>(options: ListOp
       try {
         const normalizedFilters = Object.fromEntries(
           Object.entries(filters.value)
-            .filter(([_, v]) => v !== 'all')
-            .map(([k, v]) => [k, v.toLowerCase()])
+            .filter(([_, v]) => {
+              // Filter out 'all' and empty arrays
+              if (Array.isArray(v)) return v.length > 0
+              return v !== 'all' && v !== ''
+            })
+            .map(([k, v]) => {
+              // Convert arrays to comma-separated strings for API
+              if (Array.isArray(v)) {
+                return [k, v.map(val => val.toLowerCase()).join(',')]
+              }
+              return [k, v.toLowerCase()]
+            })
         )
 
         // In infinite mode, use a reasonable page size for chunked loading
@@ -140,18 +150,24 @@ export function useListManagement<T extends Record<string, any>>(options: ListOp
     options: Array<{ value: string, label: string }>
     width?: string
     allLabel?: string
+    placeholder?: string
+    multiple?: boolean
   }>) => Object.entries(configs).map(([name, config]) => ({
     name,
-    value: filters.value[name] || 'all',
+    value: config.multiple
+      ? (Array.isArray(filters.value[name]) ? filters.value[name] : [])
+      : (filters.value[name] || 'all'),
     options: [
       { value: 'all', label: config.allLabel || `All ${name.charAt(0).toUpperCase() + name.slice(1)}` },
       ...config.options
     ],
-    width: config.width || 'w-[120px]'
+    width: config.width || 'w-[120px]',
+    placeholder: config.placeholder || config.allLabel || `All ${name.charAt(0).toUpperCase() + name.slice(1)}`,
+    multiple: config.multiple || false
   }))
 
   // Handlers
-  const handleFilterUpdate = (name: string, value: string) => {
+  const handleFilterUpdate = (name: string, value: string | string[]) => {
     filters.value[name] = value
     refresh()
   }
@@ -206,8 +222,11 @@ export function useListManagement<T extends Record<string, any>>(options: ListOp
 
   const toggleAllItems = (event: Event) => {
     event.stopPropagation()
-    const checked = (event.target as HTMLInputElement).checked
-    selectedItems.value = checked ? items.value.map(i => i[itemIdField].toString()) : []
+    // Check if all items are currently selected
+    const allSelected = items.value.length > 0 &&
+      items.value.every(i => selectedItems.value.includes(i[itemIdField].toString()))
+    // Toggle: if all selected, clear; otherwise select all
+    selectedItems.value = allSelected ? [] : items.value.map(i => i[itemIdField].toString())
     lastSelectedItemId.value = null
   }
 

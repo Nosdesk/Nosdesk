@@ -479,7 +479,7 @@ watch(
 /* Tablet (lg): 2 columns, details + comments in left, article in right */
 @media (min-width: 1024px) {
     .ticket-grid {
-        grid-template-columns: minmax(400px, 1.5fr) minmax(0, 1fr);
+        grid-template-columns: minmax(340px, 1.1fr) minmax(0, 1fr);
         grid-template-rows: auto auto;
         align-items: start;
     }

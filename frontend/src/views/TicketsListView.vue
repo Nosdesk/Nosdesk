@@ -9,9 +9,10 @@ import DebouncedSearchInput from "@/components/common/DebouncedSearchInput.vue";
 import PaginationControls from "@/components/common/PaginationControls.vue";
 import { IdCell, TextCell, UserAvatarCell, DateCell } from "@/components/common/cells";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
-// BulkActionsBar - ready for use when backend bulk operations are implemented
-// import BulkActionsBar from "@/components/common/BulkActionsBar.vue";
-// import type { BulkAction } from "@/components/common/BulkActionsBar.vue";
+import BulkActionsBar from "@/components/common/BulkActionsBar.vue";
+import type { BulkAction } from "@/components/common/BulkActionsBar.vue";
+import Modal from "@/components/Modal.vue";
+import UserSelectionModal from "@/components/UserSelectionModal.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import { useListManagement } from "@/composables/useListManagement";
@@ -58,35 +59,111 @@ const handleGoToItem = (itemId: number) => {
   router.push(`/tickets/${itemId}`);
 };
 
-// Bulk actions - deferred until backend support is implemented
-// TODO: Implement backend endpoints for bulk operations:
-// - POST /api/tickets/bulk { action: 'delete' | 'set-status' | 'assign' | 'merge', ids: number[], ... }
-// const bulkActions: BulkAction[] = [
-//   { id: 'set-status', label: 'Set Status', icon: 'status' },
-//   { id: 'assign', label: 'Assign', icon: 'assign' },
-//   { id: 'merge', label: 'Merge', icon: 'merge' },
-//   { id: 'export', label: 'Export', icon: 'export' },
-//   { id: 'delete', label: 'Delete', icon: 'delete', variant: 'danger', confirm: true }
-// ];
+// Bulk actions configuration
+const bulkActions: BulkAction[] = [
+  { id: 'set-status', label: 'Status', icon: 'status' },
+  { id: 'set-priority', label: 'Priority', icon: 'tag' },
+  { id: 'assign', label: 'Assign', icon: 'assign' },
+  { id: 'delete', label: 'Delete', icon: 'delete', variant: 'danger', confirm: true }
+];
+
+// Bulk action modal states
+const showStatusModal = ref(false);
+const showPriorityModal = ref(false);
+const showAssignModal = ref(false);
+const bulkActionLoading = ref(false);
+
+// Handle bulk action selection
+const handleBulkAction = async (actionId: string) => {
+  if (actionId === 'set-status') {
+    showStatusModal.value = true;
+  } else if (actionId === 'set-priority') {
+    showPriorityModal.value = true;
+  } else if (actionId === 'assign') {
+    showAssignModal.value = true;
+  } else if (actionId === 'delete') {
+    await executeBulkAction('delete');
+  }
+};
+
+// Execute bulk action
+const executeBulkAction = async (
+  action: 'delete' | 'set-status' | 'set-priority' | 'assign',
+  value?: string
+) => {
+  const ids = listManager.selectedItems.value.map(id => parseInt(id));
+  if (ids.length === 0) return;
+
+  bulkActionLoading.value = true;
+  try {
+    await ticketService.bulkAction({ action, ids, value });
+
+    // Refresh the list and clear selection
+    await listManager.refresh();
+    listManager.clearSelection();
+
+    // Close any open modals
+    showStatusModal.value = false;
+    showPriorityModal.value = false;
+    showAssignModal.value = false;
+  } catch (error) {
+    console.error('Bulk action failed:', error);
+    alert('Failed to perform bulk action. Please try again.');
+  } finally {
+    bulkActionLoading.value = false;
+  }
+};
+
+// Handle bulk status change
+const handleBulkStatusChange = (status: string) => {
+  executeBulkAction('set-status', status);
+};
+
+// Handle bulk priority change
+const handleBulkPriorityChange = (priority: string) => {
+  executeBulkAction('set-priority', priority);
+};
+
+// Handle bulk assign
+const handleBulkAssign = (userId: string) => {
+  executeBulkAction('assign', userId);
+  showAssignModal.value = false;
+};
 
 // Extract URL params for initial state
 const urlParams = route.query;
-const initialFilters: Record<string, string> = {};
+const initialFilters: Record<string, string | string[]> = {};
+
+// Define which filters support multiple values
+const multiSelectFilters = ['status'];
 
 // Set initial values from URL
 const filterKeys = ['status', 'priority', 'createdOn', 'createdAfter', 'createdBefore',
                     'modifiedOn', 'modifiedAfter', 'modifiedBefore', 'closedOn', 'closedAfter', 'closedBefore'];
 filterKeys.forEach(key => {
   if (urlParams[key] && typeof urlParams[key] === 'string') {
-    initialFilters[key] = urlParams[key] as string;
+    const value = urlParams[key] as string;
+    // Parse comma-separated values for multi-select filters
+    if (multiSelectFilters.includes(key) && value.includes(',')) {
+      initialFilters[key] = value.split(',');
+    } else if (multiSelectFilters.includes(key)) {
+      // Single value for multi-select becomes an array
+      initialFilters[key] = [value];
+    } else {
+      initialFilters[key] = value;
+    }
   }
 });
 
 const initialSearchQuery = (urlParams.search && typeof urlParams.search === 'string') ? urlParams.search : '';
 const initialPage = (urlParams.page && typeof urlParams.page === 'string') ? parseInt(urlParams.page) : 1;
-// Default to infinite scroll (0) on mobile, pagination (25) on desktop
-const defaultPageSize = isMobile.value ? 0 : 25;
+
+// Page size preference: URL param > localStorage > default (0 = all/infinite)
+const PAGESIZE_STORAGE_KEY = 'tickets-page-size';
+const savedPageSize = localStorage.getItem(PAGESIZE_STORAGE_KEY);
+const defaultPageSize = savedPageSize !== null ? parseInt(savedPageSize) : 0;
 const initialPageSize = (urlParams.pageSize && typeof urlParams.pageSize === 'string') ? parseInt(urlParams.pageSize) : defaultPageSize;
+
 const initialSortField = (urlParams.sortField && typeof urlParams.sortField === 'string') ? urlParams.sortField : 'id';
 const initialSortDirection = (urlParams.sortDirection && typeof urlParams.sortDirection === 'string') ? urlParams.sortDirection as 'asc' | 'desc' : 'desc';
 
@@ -98,6 +175,12 @@ const handleCreateTicket = async () => {
   } catch (error) {
     console.error('Failed to create empty ticket:', error);
   }
+};
+
+// Page size change handler that persists preference to localStorage
+const handlePageSizeChange = (newSize: number) => {
+  localStorage.setItem(PAGESIZE_STORAGE_KEY, String(newSize));
+  listManager.handlePageSizeChange(newSize);
 };
 
 // List management composable
@@ -191,7 +274,11 @@ watch(
 
     // Add filters
     Object.entries(listManager.filters.value).forEach(([key, value]) => {
-      if (value && value !== 'all') {
+      if (Array.isArray(value)) {
+        if (value.length > 0) {
+          query[key] = value.join(',');
+        }
+      } else if (value && value !== 'all') {
         query[key] = value;
       }
     });
@@ -223,9 +310,9 @@ watch(
 const columns = [
   { field: 'id', label: 'ID', width: 'minmax(60px,auto)', sortable: true, responsive: 'md' as const },
   { field: 'title', label: 'Title', width: '1fr', sortable: true, responsive: 'always' as const },
-  { field: 'status', label: 'Status', width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
-  { field: 'priority', label: 'Priority', width: 'minmax(100px,auto)', sortable: true, responsive: 'md' as const },
-  { field: 'created', label: 'Created', width: 'minmax(120px,auto)', sortable: true, sortKey: 'created_at', responsive: 'lg' as const },
+  { field: 'status', label: 'Status', width: 'minmax(85px,auto)', sortable: true, responsive: 'always' as const },
+  { field: 'priority', label: 'Priority', width: 'minmax(75px,auto)', sortable: true, responsive: 'md' as const },
+  { field: 'created', label: 'Created', width: 'minmax(90px,auto)', sortable: true, sortKey: 'created_at', responsive: 'lg' as const },
   { field: 'requester', label: 'Requester', width: 'minmax(120px,auto)', sortable: true, sortKey: 'requester_uuid', responsive: 'lg' as const },
   { field: 'assignee', label: 'Assignee', width: 'minmax(120px,auto)', sortable: true, sortKey: 'assignee_uuid', responsive: 'lg' as const }
 ];
@@ -236,18 +323,19 @@ const filterOptions = computed(() => {
     status: {
       options: STATUS_OPTIONS,
       width: 'w-[130px]',
-      allLabel: 'All Statuses'
+      allLabel: 'All Statuses',
+      placeholder: 'Status',
+      multiple: true
     },
     priority: {
       options: PRIORITY_OPTIONS,
       width: 'w-[130px]',
-      allLabel: 'All Priorities'
+      allLabel: 'All Priorities',
+      placeholder: 'Priority'
     }
   });
 });
 
-// Grid template for responsive layout
-const gridClass = "grid-cols-[auto_1fr_minmax(80px,auto)] md:grid-cols-[auto_minmax(60px,auto)_1fr_minmax(80px,auto)_minmax(80px,auto)] lg:grid-cols-[auto_minmax(60px,auto)_1fr_minmax(100px,auto)_minmax(100px,auto)_minmax(120px,auto)_minmax(120px,auto)_minmax(120px,auto)]";
 
 // Staggered fade-in animation
 const { getStyle } = useStaggeredList();
@@ -276,6 +364,8 @@ const { getStyle } = useStaggeredList();
             <BaseDropdown
               :model-value="filter.value"
               :options="filter.options"
+              :multiple="filter.multiple"
+              :placeholder="filter.placeholder"
               size="sm"
               @update:model-value="value => listManager.handleFilterUpdate(filter.name, value)"
             />
@@ -295,8 +385,8 @@ const { getStyle } = useStaggeredList();
       </div>
     </div>
 
-    <!-- Bulk Actions Bar - uncomment when backend bulk operations are implemented -->
-    <!-- <BulkActionsBar
+    <!-- Bulk Actions Bar -->
+    <BulkActionsBar
       :selected-count="listManager.selectedItems.value.length"
       :total-count="listManager.totalItems.value"
       :actions="bulkActions"
@@ -304,7 +394,7 @@ const { getStyle } = useStaggeredList();
       @action="handleBulkAction"
       @clear-selection="listManager.clearSelection"
       @select-all="listManager.selectAll"
-    /> -->
+    />
 
     <!-- Main content -->
     <div class="flex-1 flex flex-col overflow-hidden">
@@ -333,7 +423,6 @@ const { getStyle } = useStaggeredList();
               :sort-field="listManager.sortField.value"
               :sort-direction="listManager.sortDirection.value"
               :loading="listManager.isBackgroundRefresh.value"
-              :grid-class="gridClass"
               @update:sort="listManager.handleSortUpdate"
               @toggle-selection="listManager.toggleSelection"
               @toggle-all="listManager.toggleAllItems"
@@ -348,15 +437,15 @@ const { getStyle } = useStaggeredList();
               </template>
 
               <template #cell-status="{ value }">
-                <StatusBadge type="status" :value="value" :short="true" />
+                <StatusBadge type="status" :value="value" :short="true" :compact="true" />
               </template>
 
               <template #cell-priority="{ value }">
-                <StatusBadge type="priority" :value="value" :short="true" />
+                <StatusBadge type="priority" :value="value" :short="true" :compact="true" />
               </template>
 
               <template #cell-created="{ value }">
-                <DateCell :value="value" />
+                <DateCell :value="value" format="compact" />
               </template>
 
               <template #cell-requester="{ item }">
@@ -513,8 +602,64 @@ const { getStyle } = useStaggeredList();
       :page-size-options="listManager.pageSizeOptions"
       :is-infinite-mode="listManager.isInfiniteMode.value"
       @update:current-page="listManager.handlePageChange"
-      @update:page-size="listManager.handlePageSizeChange"
+      @update:page-size="handlePageSizeChange"
       @go-to-item="handleGoToItem"
+    />
+
+    <!-- Bulk Status Modal -->
+    <Modal
+      :show="showStatusModal"
+      title="Set Status"
+      size="sm"
+      @close="showStatusModal = false"
+    >
+      <div class="flex flex-col gap-2 p-4">
+        <p class="text-sm text-secondary mb-2">
+          Update status for {{ listManager.selectedItems.value.length }} ticket{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
+        </p>
+        <button
+          v-for="status in STATUS_OPTIONS"
+          :key="status.value"
+          @click="handleBulkStatusChange(status.value)"
+          :disabled="bulkActionLoading"
+          class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-surface-hover transition-colors text-left"
+        >
+          <StatusBadge type="status" :value="status.value" />
+          <span class="text-primary">{{ status.label }}</span>
+        </button>
+      </div>
+    </Modal>
+
+    <!-- Bulk Priority Modal -->
+    <Modal
+      :show="showPriorityModal"
+      title="Set Priority"
+      size="sm"
+      @close="showPriorityModal = false"
+    >
+      <div class="flex flex-col gap-2 p-4">
+        <p class="text-sm text-secondary mb-2">
+          Update priority for {{ listManager.selectedItems.value.length }} ticket{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
+        </p>
+        <button
+          v-for="priority in PRIORITY_OPTIONS"
+          :key="priority.value"
+          @click="handleBulkPriorityChange(priority.value)"
+          :disabled="bulkActionLoading"
+          class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-surface-hover transition-colors text-left"
+        >
+          <StatusBadge type="priority" :value="priority.value" />
+          <span class="text-primary">{{ priority.label }}</span>
+        </button>
+      </div>
+    </Modal>
+
+    <!-- Bulk Assign Modal -->
+    <UserSelectionModal
+      :show="showAssignModal"
+      title="Assign Tickets"
+      @close="showAssignModal = false"
+      @select="handleBulkAssign"
     />
   </div>
 </template>

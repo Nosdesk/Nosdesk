@@ -1964,3 +1964,125 @@ impl From<SiteSettings> for SiteSettingsResponse {
         }
     }
 }
+
+// ============================================================================
+// Backup Jobs - System Backup and Restore
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::backup_jobs)]
+pub struct BackupJob {
+    pub id: Uuid,
+    pub job_type: String,
+    pub status: String,
+    pub include_sensitive: bool,
+    pub file_path: Option<String>,
+    pub file_size: Option<i64>,
+    pub error_message: Option<String>,
+    pub created_by: Option<Uuid>,
+    pub created_at: NaiveDateTime,
+    pub completed_at: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::backup_jobs)]
+pub struct NewBackupJob {
+    pub job_type: String,
+    pub status: String,
+    pub include_sensitive: bool,
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::backup_jobs)]
+pub struct BackupJobUpdate {
+    pub status: Option<String>,
+    pub file_path: Option<String>,
+    pub file_size: Option<i64>,
+    pub error_message: Option<String>,
+    pub completed_at: Option<NaiveDateTime>,
+}
+
+// API response for backup jobs
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BackupJobResponse {
+    pub id: String,
+    pub job_type: String,
+    pub status: String,
+    pub include_sensitive: bool,
+    pub file_path: Option<String>,
+    pub file_size: Option<i64>,
+    pub error_message: Option<String>,
+    pub created_by: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub completed_at: Option<NaiveDateTime>,
+}
+
+impl From<BackupJob> for BackupJobResponse {
+    fn from(job: BackupJob) -> Self {
+        BackupJobResponse {
+            id: job.id.to_string(),
+            job_type: job.job_type,
+            status: job.status,
+            include_sensitive: job.include_sensitive,
+            file_path: job.file_path,
+            file_size: job.file_size,
+            error_message: job.error_message,
+            created_by: job.created_by.map(|u| u.to_string()),
+            created_at: job.created_at,
+            completed_at: job.completed_at,
+        }
+    }
+}
+
+// Request to start an export backup
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StartBackupExportRequest {
+    pub include_sensitive: bool,
+    pub password: Option<String>,
+}
+
+// Request to execute a restore
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExecuteRestoreRequest {
+    pub password: Option<String>,
+}
+
+// Backup manifest for archive metadata
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BackupManifest {
+    pub version: String,
+    pub created_at: String,
+    pub nosdesk_version: String,
+    pub include_sensitive: bool,
+    pub tables: std::collections::HashMap<String, TableManifest>,
+    pub files: FilesManifest,
+    pub encryption: Option<EncryptionManifest>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TableManifest {
+    pub count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FilesManifest {
+    pub total_count: i64,
+    pub total_size_bytes: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EncryptionManifest {
+    pub algorithm: String,
+    pub kdf: String,
+    pub salt: String,
+    pub nonce: String,
+}
+
+// Restore preview response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RestorePreview {
+    pub manifest: BackupManifest,
+    pub has_encrypted_sensitive: bool,
+    pub warnings: Vec<String>,
+}

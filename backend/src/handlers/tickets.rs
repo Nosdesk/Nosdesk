@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::models::{Claims, NewTicket, TicketPriority, TicketStatus, TicketUpdate, TicketsJson, UserRole};
 use crate::repository;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
+use crate::utils::sse::SseBroadcaster;
 
 // Helper type for database operations with proper error handling
 type DbResult<T> = Result<T, HttpResponse>;
@@ -1022,5 +1023,225 @@ pub async fn record_ticket_view(
             eprintln!("Error recording ticket view: {:?}", e);
             HttpResponse::InternalServerError().json("Failed to record ticket view")
         }
+    }
+}
+
+// Bulk ticket operations request
+#[derive(Debug, serde::Deserialize)]
+pub struct BulkActionRequest {
+    action: String,
+    ids: Vec<i32>,
+    value: Option<String>,
+}
+
+// Perform bulk operations on tickets
+pub async fn bulk_tickets(
+    req: HttpRequest,
+    pool: web::Data<crate::db::Pool>,
+    storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
+    body: web::Json<BulkActionRequest>,
+) -> impl Responder {
+    // Extract claims and check authentication
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    let mut conn = match get_db_conn(&pool).await {
+        Ok(conn) => conn,
+        Err(e) => return e,
+    };
+
+    let action = body.action.as_str();
+    let ids = &body.ids;
+
+    if ids.is_empty() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Bad Request",
+            "message": "No ticket IDs provided"
+        }));
+    }
+
+    match action {
+        "delete" => {
+            // Only admins can bulk delete
+            if !is_admin(&claims) {
+                return HttpResponse::Forbidden().json(json!({
+                    "error": "Forbidden",
+                    "message": "Only administrators can delete tickets"
+                }));
+            }
+
+            let mut deleted = 0;
+            for id in ids {
+                match repository::delete_ticket_with_cleanup(&mut conn, *id, storage.as_ref().clone()).await {
+                    Ok(rows) => deleted += rows,
+                    Err(e) => {
+                        eprintln!("Error deleting ticket {}: {:?}", id, e);
+                    }
+                }
+            }
+
+            HttpResponse::Ok().json(json!({ "affected": deleted }))
+        }
+
+        "set-status" => {
+            let status_str = match &body.value {
+                Some(v) => v.as_str(),
+                None => return HttpResponse::BadRequest().json(json!({
+                    "error": "Bad Request",
+                    "message": "Status value required"
+                })),
+            };
+
+            let status = match status_str {
+                "open" => crate::models::TicketStatus::Open,
+                "in-progress" => crate::models::TicketStatus::InProgress,
+                "closed" => crate::models::TicketStatus::Closed,
+                _ => return HttpResponse::BadRequest().json(json!({
+                    "error": "Bad Request",
+                    "message": "Invalid status value"
+                })),
+            };
+
+            let mut updated = 0;
+            for id in ids {
+                let update = TicketUpdate {
+                    title: None,
+                    description: None,
+                    status: Some(status.clone()),
+                    priority: None,
+                    requester_uuid: None,
+                    assignee_uuid: None,
+                    updated_at: Some(chrono::Utc::now().naive_utc()),
+                    closed_at: if status == crate::models::TicketStatus::Closed {
+                        Some(Some(chrono::Utc::now().naive_utc()))
+                    } else {
+                        None
+                    },
+                };
+
+                if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
+                    updated += 1;
+                    // Send SSE update
+                    SseBroadcaster::broadcast_ticket_updated(
+                        &sse_state,
+                        *id,
+                        "status",
+                        json!(status_str),
+                        &claims.sub,
+                    ).await;
+                }
+            }
+
+            HttpResponse::Ok().json(json!({ "affected": updated }))
+        }
+
+        "set-priority" => {
+            let priority_str = match &body.value {
+                Some(v) => v.as_str(),
+                None => return HttpResponse::BadRequest().json(json!({
+                    "error": "Bad Request",
+                    "message": "Priority value required"
+                })),
+            };
+
+            let priority = match priority_str {
+                "low" => crate::models::TicketPriority::Low,
+                "medium" => crate::models::TicketPriority::Medium,
+                "high" => crate::models::TicketPriority::High,
+                _ => return HttpResponse::BadRequest().json(json!({
+                    "error": "Bad Request",
+                    "message": "Invalid priority value"
+                })),
+            };
+
+            let mut updated = 0;
+            for id in ids {
+                let update = TicketUpdate {
+                    title: None,
+                    description: None,
+                    status: None,
+                    priority: Some(priority.clone()),
+                    requester_uuid: None,
+                    assignee_uuid: None,
+                    updated_at: Some(chrono::Utc::now().naive_utc()),
+                    closed_at: None,
+                };
+
+                if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
+                    updated += 1;
+                    // Send SSE update
+                    SseBroadcaster::broadcast_ticket_updated(
+                        &sse_state,
+                        *id,
+                        "priority",
+                        json!(priority_str),
+                        &claims.sub,
+                    ).await;
+                }
+            }
+
+            HttpResponse::Ok().json(json!({ "affected": updated }))
+        }
+
+        "assign" => {
+            let assignee_str = match &body.value {
+                Some(v) => v.as_str(),
+                None => return HttpResponse::BadRequest().json(json!({
+                    "error": "Bad Request",
+                    "message": "Assignee value required"
+                })),
+            };
+
+            let assignee_uuid = if assignee_str.is_empty() {
+                None
+            } else {
+                match Uuid::parse_str(assignee_str) {
+                    Ok(uuid) => Some(uuid),
+                    Err(_) => return HttpResponse::BadRequest().json(json!({
+                        "error": "Bad Request",
+                        "message": "Invalid assignee UUID"
+                    })),
+                }
+            };
+
+            let mut updated = 0;
+            for id in ids {
+                let update = TicketUpdate {
+                    title: None,
+                    description: None,
+                    status: None,
+                    priority: None,
+                    requester_uuid: None,
+                    assignee_uuid: Some(assignee_uuid),
+                    updated_at: Some(chrono::Utc::now().naive_utc()),
+                    closed_at: None,
+                };
+
+                if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
+                    updated += 1;
+                    // Send SSE update
+                    SseBroadcaster::broadcast_ticket_updated(
+                        &sse_state,
+                        *id,
+                        "assignee_uuid",
+                        json!(assignee_str),
+                        &claims.sub,
+                    ).await;
+                }
+            }
+
+            HttpResponse::Ok().json(json!({ "affected": updated }))
+        }
+
+        _ => HttpResponse::BadRequest().json(json!({
+            "error": "Bad Request",
+            "message": format!("Unknown action: {}", action)
+        })),
     }
 }

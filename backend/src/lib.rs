@@ -6,4 +6,5 @@ pub mod models;
 pub mod oidc;
 pub mod repository;
 pub mod schema;
+pub mod services;
 pub mod utils;

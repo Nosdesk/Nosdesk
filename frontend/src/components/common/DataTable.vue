@@ -63,21 +63,31 @@ const isColumnSorted = (column: Column) => {
   return props.sortField === sortKey
 }
 
-// Generate responsive grid classes
-const gridClasses = computed(() => {
-  if (props.gridClass) return props.gridClass
-  
-  // Default responsive grid based on column count and responsive settings
-  const baseColumns = props.columns.filter(col => !col.responsive || col.responsive === 'always')
-  const mdColumns = props.columns.filter(col => !col.responsive || col.responsive === 'always' || col.responsive === 'md')
-  const lgColumns = props.columns.filter(col => !col.responsive || col.responsive === 'always' || col.responsive === 'md' || col.responsive === 'lg')
-  
-  const baseGrid = `grid-cols-[auto_${baseColumns.map(col => col.width || '1fr').join('_')}]`
-  const mdGrid = `md:grid-cols-[auto_${mdColumns.map(col => col.width || '1fr').join('_')}]`
-  const lgGrid = `lg:grid-cols-[auto_${lgColumns.map(col => col.width || '1fr').join('_')}]`
-  
-  return `${baseGrid} ${mdGrid} ${lgGrid}`
-})
+// Get visible columns based on responsive breakpoint
+const getVisibleColumns = (breakpoint: 'base' | 'md' | 'lg') => {
+  return props.columns.filter(col => {
+    // 'always' columns are visible at all breakpoints
+    if (!col.responsive || col.responsive === 'always') return true
+    // 'md' columns visible at md and lg breakpoints
+    if (col.responsive === 'md') return breakpoint === 'md' || breakpoint === 'lg'
+    // 'lg' columns only visible at lg breakpoint
+    if (col.responsive === 'lg') return breakpoint === 'lg'
+    return false
+  })
+}
+
+// Generate grid-template-columns value for inline styles
+const getGridTemplate = (columns: Column[]) => {
+  const widths = columns.map(col => col.width || '1fr')
+  return `auto ${widths.join(' ')}` // auto for checkbox column
+}
+
+// Responsive grid templates
+const gridTemplates = computed(() => ({
+  base: getGridTemplate(getVisibleColumns('base')),
+  md: getGridTemplate(getVisibleColumns('md')),
+  lg: getGridTemplate(getVisibleColumns('lg'))
+}))
 
 // Helper to determine if column should be visible at current breakpoint
 const getColumnVisibility = (column: Column) => {
@@ -89,9 +99,16 @@ const getColumnVisibility = (column: Column) => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div
+    class="flex flex-col h-full data-table"
+    :style="{
+      '--grid-cols-base': gridTemplates.base,
+      '--grid-cols-md': gridTemplates.md,
+      '--grid-cols-lg': gridTemplates.lg
+    }"
+  >
     <!-- Grid Container -->
-    <div :class="['grid auto-rows-max', gridClasses]">
+    <div class="data-table-grid">
       
       <!-- Sticky Header Row -->
       <div class="contents sticky top-0 z-10">
@@ -176,6 +193,25 @@ const getColumnVisibility = (column: Column) => {
 </template>
 
 <style scoped>
+/* Responsive data table grid using CSS custom properties */
+.data-table-grid {
+  display: grid;
+  grid-template-columns: var(--grid-cols-base);
+  grid-auto-rows: max-content;
+}
+
+@media (min-width: 768px) {
+  .data-table-grid {
+    grid-template-columns: var(--grid-cols-md);
+  }
+}
+
+@media (min-width: 1024px) {
+  .data-table-grid {
+    grid-template-columns: var(--grid-cols-lg);
+  }
+}
+
 /* Custom scrollbar styling */
 .overflow-y-auto::-webkit-scrollbar,
 .overflow-x-auto::-webkit-scrollbar {

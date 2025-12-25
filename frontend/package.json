@@ -21,6 +21,7 @@
     "dompurify": "^3.3.0",
     "heic2any": "^0.0.4",
     "highlight.js": "^11.9.0",
+    "jszip": "^3.10.1",
     "lowlight": "^3.3.0",
     "marked": "^9.1.5",
     "pdfjs-dist": "^5.0.375",

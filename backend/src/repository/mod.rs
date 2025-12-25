@@ -21,6 +21,9 @@ pub mod user_ticket_views;
 // Site configuration
 pub mod site_settings;
 
+// Backup and restore
+pub mod backup;
+
 // Re-export all functions
 pub use article_content::*;
 pub use comments::*;

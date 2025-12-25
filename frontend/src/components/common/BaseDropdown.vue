@@ -9,19 +9,21 @@ export interface DropdownOption {
 }
 
 const props = withDefaults(defineProps<{
-  modelValue: string
+  modelValue: string | string[]
   options: DropdownOption[]
   placeholder?: string
   disabled?: boolean
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'xs' | 'sm' | 'md' | 'lg'
+  multiple?: boolean
 }>(), {
   placeholder: 'Select an option',
   disabled: false,
-  size: 'md'
+  size: 'md',
+  multiple: false
 })
 
 const emit = defineEmits<{
-  (e: 'update:modelValue', value: string): void
+  (e: 'update:modelValue', value: string | string[]): void
 }>()
 
 const isOpen = ref(false)
@@ -29,16 +31,63 @@ const triggerRef = ref<HTMLElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
 const highlightedIndex = ref(-1)
 
+// Normalize modelValue to array for consistent handling
+const selectedValues = computed((): string[] => {
+  if (props.multiple) {
+    return Array.isArray(props.modelValue) ? props.modelValue : []
+  }
+  return props.modelValue ? [props.modelValue as string] : []
+})
+
+// Check if an option is selected
+const isSelected = (value: string): boolean => {
+  return selectedValues.value.includes(value)
+}
+
+// Get selected option (for single select mode)
 const selectedOption = computed(() =>
   props.options.find(option => option.value === props.modelValue)
 )
 
+// Get display text for trigger button
+const displayText = computed(() => {
+  if (props.multiple) {
+    const selected = selectedValues.value.filter(v => v !== 'all')
+    if (selected.length === 0) return props.placeholder
+    // If all are selected, show the "all" option label (e.g., "All Statuses")
+    const allOption = props.options.find(o => o.value === 'all')
+    const nonAllOptions = props.options.filter(o => o.value !== 'all')
+    if (selected.length === nonAllOptions.length && allOption) {
+      return allOption.label
+    }
+    if (selected.length === 1) {
+      return props.options.find(o => o.value === selected[0])?.label || selected[0]
+    }
+    return `${selected.length} selected`
+  }
+  return selectedOption.value?.label || props.placeholder
+})
+
+// Check if anything is selected (for styling)
+const hasSelection = computed(() => {
+  if (props.multiple) {
+    return selectedValues.value.filter(v => v !== 'all').length > 0
+  }
+  return !!selectedOption.value
+})
+
 // Size classes
 const sizeClasses = computed(() => {
   switch (props.size) {
+    case 'xs':
+      return {
+        button: 'px-1.5 py-0.5 text-sm',
+        menu: 'text-sm',
+        option: 'px-3 py-1.5'
+      }
     case 'sm':
       return {
-        button: 'px-3 py-2 text-sm',
+        button: 'px-3 py-1.5 text-sm',
         menu: 'text-sm',
         option: 'px-3 py-2'
       }
@@ -104,9 +153,47 @@ const toggleDropdown = () => {
   }
 }
 
+// Get all non-"all" option values
+const allOptionValues = computed(() =>
+  props.options.filter(o => o.value !== 'all').map(o => o.value)
+)
+
+// Check if all options are selected
+const allSelected = computed(() => {
+  if (!props.multiple) return false
+  return allOptionValues.value.every(v => selectedValues.value.includes(v))
+})
+
 const selectOption = (option: DropdownOption) => {
-  emit('update:modelValue', option.value)
-  closeDropdown()
+  if (props.multiple) {
+    // Handle "all" option - toggles all selections
+    if (option.value === 'all') {
+      if (allSelected.value) {
+        // Deselect all
+        emit('update:modelValue', [])
+      } else {
+        // Select all
+        emit('update:modelValue', [...allOptionValues.value])
+      }
+      return
+    }
+
+    // Toggle the selected value
+    const currentValues = [...selectedValues.value].filter(v => v !== 'all')
+    const index = currentValues.indexOf(option.value)
+
+    if (index === -1) {
+      currentValues.push(option.value)
+    } else {
+      currentValues.splice(index, 1)
+    }
+
+    emit('update:modelValue', currentValues)
+    // Don't close dropdown in multi-select mode
+  } else {
+    emit('update:modelValue', option.value)
+    closeDropdown()
+  }
 }
 
 // Keyboard navigation
@@ -226,9 +313,9 @@ onUnmounted(() => {
     >
       <span
         class="truncate"
-        :class="selectedOption ? 'text-primary' : 'text-tertiary'"
+        :class="hasSelection ? 'text-primary' : 'text-tertiary'"
       >
-        {{ selectedOption?.label || placeholder }}
+        {{ displayText }}
       </span>
       <svg
         class="w-4 h-4 text-tertiary flex-shrink-0 ml-2 transition-transform duration-200"
@@ -270,33 +357,55 @@ onUnmounted(() => {
               v-for="(option, index) in options"
               :key="option.value"
               role="option"
-              :aria-selected="option.value === modelValue"
+              :aria-selected="isSelected(option.value)"
               @click="selectOption(option)"
               @mouseenter="highlightedIndex = index"
               class="w-full text-left text-primary transition-colors flex items-center gap-3"
               :class="[
                 sizeClasses.option,
-                option.value === modelValue
+                (option.value === 'all' ? allSelected : isSelected(option.value))
                   ? 'bg-accent/10 text-accent'
                   : highlightedIndex === index
                     ? 'bg-surface-hover'
                     : 'hover:bg-surface-hover'
               ]"
             >
-              <!-- Check mark for selected item -->
-              <svg
-                v-if="option.value === modelValue"
-                class="w-4 h-4 text-accent flex-shrink-0"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              <div v-else class="w-4 flex-shrink-0" />
+              <!-- Checkbox for multi-select mode -->
+              <template v-if="multiple">
+                <div
+                  class="w-4 h-4 border rounded flex-shrink-0 flex items-center justify-center transition-colors"
+                  :class="(option.value === 'all' ? allSelected : isSelected(option.value))
+                    ? 'bg-accent border-accent'
+                    : 'border-default'"
+                >
+                  <svg
+                    v-if="option.value === 'all' ? allSelected : isSelected(option.value)"
+                    class="w-3 h-3 text-white"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              </template>
+
+              <!-- Check mark for single-select mode -->
+              <template v-else>
+                <svg
+                  v-if="isSelected(option.value)"
+                  class="w-4 h-4 text-accent flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                <div v-else class="w-4 flex-shrink-0" />
+              </template>
 
               <div class="flex-1 min-w-0">
-                <div class="truncate" :class="option.value === modelValue ? 'font-medium' : ''">
+                <div class="truncate" :class="(option.value === 'all' ? allSelected : isSelected(option.value)) ? 'font-medium' : ''">
                   {{ option.label }}
                 </div>
                 <div v-if="option.description" class="text-xs text-tertiary truncate mt-0.5">

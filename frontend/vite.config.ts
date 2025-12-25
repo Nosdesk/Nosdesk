@@ -18,12 +18,30 @@ export default defineConfig({
     __VUE_PROD_TIPS__: false,
     __VUE_DEVTOOLS_GLOBAL_HOOK__: "window.__VUE_DEVTOOLS_GLOBAL_HOOK__",
   },
+  // Optimize dependency pre-bundling
+  optimizeDeps: {
+    include: [
+      'vue',
+      'vue-router',
+      'pinia',
+      'axios',
+      'date-fns',
+      'yjs',
+      'prosemirror-state',
+      'prosemirror-view',
+      'prosemirror-model',
+    ],
+  },
   // Build configuration - output to backend's public directory
   build: {
     outDir: "dist",
     emptyOutDir: true,
     // Ensure assets are referenced correctly when served by backend
     assetsDir: "assets",
+    // Enable build caching
+    sourcemap: false,
+    // Skip minification in watch mode for faster rebuilds
+    minify: process.env.NODE_ENV === 'production' ? 'esbuild' : false,
   },
   server: {
     host: "0.0.0.0",
@@ -31,7 +49,7 @@ export default defineConfig({
     // Docker-specific optimizations for file watching and HMR
     watch: {
       usePolling: true,  // Required for Docker on macOS/Windows
-      interval: 1000,    // Reduce CPU usage with 1s polling interval
+      interval: 300,     // Faster polling for quicker HMR
     },
     hmr: {
       clientPort: 5173,  // Match exposed Docker port for HMR websocket

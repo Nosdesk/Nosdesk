@@ -242,6 +242,18 @@ export const recordTicketView = async (ticketId: number) => {
   return response.data;
 };
 
+// Bulk operations
+export interface BulkActionRequest {
+  action: 'delete' | 'set-status' | 'set-priority' | 'assign';
+  ids: number[];
+  value?: string;
+}
+
+export const bulkAction = async (request: BulkActionRequest): Promise<{ affected: number }> => {
+  const response = await apiClient.post('/tickets/bulk', request);
+  return response.data;
+};
+
 // Export default object with all functions
 export default {
   getTickets,
@@ -262,5 +274,6 @@ export default {
   removeDeviceFromTicket,
   getRecentTickets,
   recordTicketView,
+  bulkAction,
   cancelAllRequests
 }; 

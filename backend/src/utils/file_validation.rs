@@ -11,52 +11,50 @@ pub fn get_max_file_size() -> usize {
         * 1024
 }
 
-/// Allowed MIME types for general uploads
-/// Combines images, documents, archives, and audio for maximum flexibility
-const ALLOWED_MIME_TYPES: &[&str] = &[
-    // Images
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "image/gif",
-    "image/bmp",
-    "image/svg+xml",
-    // Documents
-    "application/pdf",
-    "text/plain",
-    "text/markdown",
-    "application/json",
-    "text/csv",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    // Archives
-    "application/zip",
-    "application/x-tar",
-    "application/gzip",
-    "application/x-7z-compressed",
-    // Audio (for voice notes)
-    "audio/webm",
-    "audio/ogg",
-    "audio/mpeg",
-    "audio/mp4",
-    "audio/aac",
-    "audio/wav",
-    "audio/x-wav",
-    "audio/m4a",      // infer crate returns this for m4a files
-    "audio/x-m4a",    // alternative m4a MIME type
-    // Video/WebM (browser may detect voice notes as video/webm)
-    "video/webm",
+/// Dangerous file types that are explicitly blocked
+/// These are executable or script files that could be malicious
+const BLOCKED_MIME_TYPES: &[&str] = &[
+    // Executables
+    "application/x-executable",
+    "application/x-dosexec",
+    "application/x-msdos-program",
+    "application/x-msdownload",
+    "application/vnd.microsoft.portable-executable",
+    // Scripts
+    "application/x-sh",
+    "application/x-bash",
+    "application/x-csh",
+    "text/x-shellscript",
+    // Java
+    "application/java-archive",
+    "application/x-java-class",
+    // Dynamic libraries
+    "application/x-sharedlib",
+    "application/x-mach-binary",
+];
+
+/// Dangerous file extensions that are explicitly blocked
+/// These are checked when magic number detection fails or as additional safety
+const BLOCKED_EXTENSIONS: &[&str] = &[
+    // Windows executables
+    "exe", "dll", "scr", "cpl", "msi", "com", "bat", "cmd", "ps1", "vbs", "vbe", "js", "jse", "ws", "wsf", "wsc", "wsh",
+    // Linux/Unix executables
+    "sh", "bash", "csh", "ksh", "zsh", "run", "bin",
+    // Mac executables
+    "app", "command",
+    // Java
+    "jar", "class",
+    // Other potentially dangerous
+    "reg", "inf", "scf", "lnk", "pif", "hta", "gadget",
 ];
 
 /// Custom error type for file validation
 #[derive(Debug)]
 pub enum FileValidationError {
     FileTooLarge { size: usize, max_size: usize },
-    InvalidMimeType { detected: String, allowed_category: String },
+    BlockedMimeType { detected: String },
+    BlockedExtension { extension: String },
     InvalidFilename(String),
-    MimeDetectionFailed,
 }
 
 impl std::fmt::Display for FileValidationError {
@@ -71,18 +69,21 @@ impl std::fmt::Display for FileValidationError {
                     max_size / (1024 * 1024)
                 )
             }
-            Self::InvalidMimeType {
-                detected,
-                allowed_category,
-            } => {
+            Self::BlockedMimeType { detected } => {
                 write!(
                     f,
-                    "Invalid file type: detected '{}', but only {} files are allowed",
-                    detected, allowed_category
+                    "File type '{}' is not allowed for security reasons",
+                    detected
+                )
+            }
+            Self::BlockedExtension { extension } => {
+                write!(
+                    f,
+                    "File extension '.{}' is not allowed for security reasons",
+                    extension
                 )
             }
             Self::InvalidFilename(msg) => write!(f, "Invalid filename: {}", msg),
-            Self::MimeDetectionFailed => write!(f, "Could not detect file type"),
         }
     }
 }
@@ -96,13 +97,13 @@ impl From<FileValidationError> for actix_web::Error {
             FileValidationError::FileTooLarge { .. } => {
                 actix_web::error::ErrorPayloadTooLarge(error.to_string())
             }
-            FileValidationError::InvalidMimeType { .. } => {
+            FileValidationError::BlockedMimeType { .. } => {
+                actix_web::error::ErrorBadRequest(error.to_string())
+            }
+            FileValidationError::BlockedExtension { .. } => {
                 actix_web::error::ErrorBadRequest(error.to_string())
             }
             FileValidationError::InvalidFilename(_) => {
-                actix_web::error::ErrorBadRequest(error.to_string())
-            }
-            FileValidationError::MimeDetectionFailed => {
                 actix_web::error::ErrorBadRequest(error.to_string())
             }
         }
@@ -132,29 +133,60 @@ impl FileValidator {
         Ok(())
     }
 
-    /// Validate MIME type using magic number detection (via infer crate)
-    /// This is more secure than trusting Content-Type headers or file extensions
+    /// Validate file using blocklist approach (block dangerous types, allow everything else)
+    /// This is more permissive than an allowlist while still maintaining security
     ///
     /// # Arguments
     /// * `bytes` - First few bytes of the file (at least 512 bytes recommended)
+    /// * `filename` - Optional filename to check extension as fallback
     ///
     /// # Returns
-    /// The detected MIME type if valid, or an error if invalid/undetectable
+    /// The detected MIME type if safe, or "application/octet-stream" for unknown types
     pub fn validate_mime_type(bytes: &[u8]) -> Result<String, FileValidationError> {
-        // Detect MIME type from magic number
-        let detected_type = infer::get(bytes)
-            .map(|kind| kind.mime_type())
-            .ok_or(FileValidationError::MimeDetectionFailed)?;
+        Self::validate_file(bytes, None)
+    }
 
-        // Check if detected type is in allowed list
-        if !ALLOWED_MIME_TYPES.contains(&detected_type) {
-            return Err(FileValidationError::InvalidMimeType {
-                detected: detected_type.to_string(),
-                allowed_category: "allowed file types (images, documents, archives, audio)".to_string(),
-            });
+    /// Validate file with optional filename for extension checking
+    ///
+    /// # Arguments
+    /// * `bytes` - First few bytes of the file (at least 512 bytes recommended)
+    /// * `filename` - Optional filename to check extension
+    ///
+    /// # Returns
+    /// The detected MIME type if safe, or "application/octet-stream" for unknown types
+    pub fn validate_file(bytes: &[u8], filename: Option<&str>) -> Result<String, FileValidationError> {
+        // First, check filename extension if provided
+        if let Some(name) = filename {
+            let extension = Path::new(name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase());
+
+            if let Some(ext) = extension {
+                if BLOCKED_EXTENSIONS.contains(&ext.as_str()) {
+                    return Err(FileValidationError::BlockedExtension { extension: ext });
+                }
+            }
         }
 
-        Ok(detected_type.to_string())
+        // Try to detect MIME type from magic number
+        if let Some(kind) = infer::get(bytes) {
+            let detected_type = kind.mime_type();
+
+            // Block dangerous MIME types
+            if BLOCKED_MIME_TYPES.contains(&detected_type) {
+                return Err(FileValidationError::BlockedMimeType {
+                    detected: detected_type.to_string(),
+                });
+            }
+
+            return Ok(detected_type.to_string());
+        }
+
+        // Magic number detection failed - this is common for text files (txt, csv, json, md, etc.)
+        // These are generally safe, so allow them with a generic MIME type
+        // The extension was already checked above if provided
+        Ok("application/octet-stream".to_string())
     }
 
     /// Sanitize filename to prevent path traversal and other attacks
@@ -259,6 +291,31 @@ mod tests {
         // Would exceed limit (assuming default 50MB)
         let max = get_max_file_size();
         assert!(FileValidator::validate_chunk_size(max - 100, 200).is_err());
+    }
+
+    #[test]
+    fn test_blocked_extensions() {
+        // Blocked extensions should fail
+        assert!(FileValidator::validate_file(b"anything", Some("malware.exe")).is_err());
+        assert!(FileValidator::validate_file(b"anything", Some("script.sh")).is_err());
+        assert!(FileValidator::validate_file(b"anything", Some("payload.bat")).is_err());
+        assert!(FileValidator::validate_file(b"anything", Some("virus.dll")).is_err());
+
+        // Safe extensions should pass
+        assert!(FileValidator::validate_file(b"anything", Some("document.pdf")).is_ok());
+        assert!(FileValidator::validate_file(b"anything", Some("image.png")).is_ok());
+        assert!(FileValidator::validate_file(b"anything", Some("notes.txt")).is_ok());
+    }
+
+    #[test]
+    fn test_unknown_files_allowed() {
+        // Files without magic numbers (like text files) should be allowed
+        // as long as they don't have blocked extensions
+        let plain_text = b"Hello, world! This is plain text.";
+        assert!(FileValidator::validate_mime_type(plain_text).is_ok());
+        assert!(FileValidator::validate_file(plain_text, Some("readme.txt")).is_ok());
+        assert!(FileValidator::validate_file(plain_text, Some("data.csv")).is_ok());
+        assert!(FileValidator::validate_file(plain_text, Some("config.json")).is_ok());
     }
 
 }

@@ -14,29 +14,25 @@ RETURNS UUID
 AS $$
 DECLARE
     unix_ts_ms BIGINT;
-    uuid_bytes BYTEA;
+    rand_bytes BYTEA;
+    ts_hex TEXT;
 BEGIN
     -- Get current timestamp in milliseconds since Unix epoch
     unix_ts_ms := (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT;
 
-    -- Generate UUIDv7 bytes
-    -- First 6 bytes: timestamp (48 bits)
-    -- Next 2 bytes: version (4 bits = 0x7) + random (12 bits)
-    -- Last 8 bytes: variant (2 bits = 0b10) + random (62 bits)
-    uuid_bytes :=
-        -- Timestamp (48 bits)
-        SET_BYTE(E'\\x00000000', 0, (unix_ts_ms >> 40)::INT) ||
-        SET_BYTE(E'\\x00', 0, (unix_ts_ms >> 32)::INT) ||
-        SET_BYTE(E'\\x00', 0, (unix_ts_ms >> 24)::INT) ||
-        SET_BYTE(E'\\x00', 0, (unix_ts_ms >> 16)::INT) ||
-        SET_BYTE(E'\\x00', 0, (unix_ts_ms >> 8)::INT) ||
-        SET_BYTE(E'\\x00', 0, unix_ts_ms::INT) ||
-        -- Version (4 bits = 7) + rand_a (12 bits)
-        SET_BYTE(gen_random_bytes(2), 0, (GET_BYTE(gen_random_bytes(1), 0) & 15) | 112) || -- 0x70 = 0b01110000
-        -- Variant (2 bits = 0b10) + rand_b (62 bits)
-        SET_BYTE(gen_random_bytes(8), 0, (GET_BYTE(gen_random_bytes(1), 0) & 63) | 128); -- 0x80 = 0b10000000
+    -- Build 6-byte timestamp as hex (12 hex chars)
+    ts_hex := LPAD(TO_HEX(unix_ts_ms), 12, '0');
 
-    RETURN CAST(ENCODE(uuid_bytes, 'hex') AS UUID);
+    -- Generate 10 random bytes for version, variant, and random portions
+    rand_bytes := gen_random_bytes(10);
+
+    -- Set version (4 bits = 0x7) in first random byte
+    rand_bytes := SET_BYTE(rand_bytes, 0, (GET_BYTE(rand_bytes, 0) & 15) | 112);
+
+    -- Set variant (2 bits = 0b10) in third random byte (position 8 in UUID)
+    rand_bytes := SET_BYTE(rand_bytes, 2, (GET_BYTE(rand_bytes, 2) & 63) | 128);
+
+    RETURN CAST(ts_hex || ENCODE(rand_bytes, 'hex') AS UUID);
 END;
 $$ LANGUAGE plpgsql VOLATILE;
 
@@ -421,6 +417,20 @@ CREATE TABLE user_ticket_views (
     UNIQUE(user_uuid, ticket_id)
 );
 
+-- Backup jobs table for tracking export and restore operations
+CREATE TABLE backup_jobs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
+    job_type VARCHAR(20) NOT NULL, -- 'export' or 'restore'
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending, processing, completed, failed
+    include_sensitive BOOLEAN NOT NULL DEFAULT FALSE,
+    file_path TEXT,
+    file_size BIGINT,
+    error_message TEXT,
+    created_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMP WITH TIME ZONE
+);
+
 -- Site settings for branding and customization
 -- Single-row table pattern: only one row should exist
 CREATE TABLE site_settings (
@@ -543,6 +553,12 @@ CREATE INDEX idx_user_ticket_views_user_uuid ON user_ticket_views(user_uuid);
 CREATE INDEX idx_user_ticket_views_ticket_id ON user_ticket_views(ticket_id);
 CREATE INDEX idx_user_ticket_views_last_viewed_at ON user_ticket_views(last_viewed_at);
 CREATE INDEX idx_user_ticket_views_user_last_viewed ON user_ticket_views(user_uuid, last_viewed_at DESC);
+
+-- Backup jobs indexes
+CREATE INDEX idx_backup_jobs_status ON backup_jobs(status);
+CREATE INDEX idx_backup_jobs_job_type ON backup_jobs(job_type);
+CREATE INDEX idx_backup_jobs_created_at ON backup_jobs(created_at DESC);
+CREATE INDEX idx_backup_jobs_created_by ON backup_jobs(created_by) WHERE created_by IS NOT NULL;
 
 -- ============================================================================
 -- TRIGGERS - Auto-update timestamps

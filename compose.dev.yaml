@@ -13,7 +13,7 @@ services:
       - ./backend/migrations:/app/migrations:delegated
       - ./backend/Cargo.toml:/app/Cargo.toml:delegated
       - ./backend/Cargo.lock:/app/Cargo.lock:delegated
-      # Build output with :cached (read-heavy from container perspective)
+      # Build output - :cached ensures container sees host changes quickly
       - ./backend/public:/app/public:cached
       # Named volumes for caching
       - backend_cargo_cache:/usr/local/cargo/registry

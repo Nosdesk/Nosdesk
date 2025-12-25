@@ -218,6 +218,23 @@ export function formatSmartDate(
 }
 
 /**
+ * Compact date formatter - omits year if date is in current year
+ * Shows "Dec 24" for current year, "Dec 24, 2023" for other years
+ */
+export function formatCompactDate(
+  dateString: string | Date | null | undefined
+): string {
+  const date = parseDate(dateString)
+  if (!date) return ''
+
+  if (isThisYear(date)) {
+    return format(date, globalConfig.formats.monthDay)
+  }
+
+  return format(date, globalConfig.formats.short)
+}
+
+/**
  * Get user's current timezone (browser default)
  */
 export function getUserTimezone(): string {

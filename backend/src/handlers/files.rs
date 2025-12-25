@@ -68,12 +68,12 @@ pub async fn upload_files(
 
         println!("Read {} bytes of data for file {}", total_size, sanitized_filename);
 
-        // SECURITY: Validate MIME type using magic number detection
-        // This is more secure than trusting Content-Type headers
-        let detected_mime = FileValidator::validate_mime_type(&file_data)
+        // SECURITY: Validate file type using magic number detection AND extension check
+        // This uses a blocklist approach - blocking dangerous types while allowing most files
+        let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
-                eprintln!("MIME validation failed: {:?}", e);
-                actix_web::error::ErrorBadRequest(format!("Invalid file type: {}", e))
+                eprintln!("File validation failed: {:?}", e);
+                actix_web::error::ErrorBadRequest(format!("Invalid file: {}", e))
             })?;
 
         println!("Validated MIME type: {}", detected_mime);
@@ -317,14 +317,14 @@ pub async fn upload_ticket_note_image(
 
         println!("Read {} bytes of data for file {}", total_size, sanitized_filename);
 
-        // SECURITY: Validate MIME type - only allow images
-        let detected_mime = FileValidator::validate_mime_type(&file_data)
+        // SECURITY: Validate file type with extension check
+        let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
-                eprintln!("MIME validation failed: {:?}", e);
-                actix_web::error::ErrorBadRequest(format!("Invalid file type: {}", e))
+                eprintln!("File validation failed: {:?}", e);
+                actix_web::error::ErrorBadRequest(format!("Invalid file: {}", e))
             })?;
 
-        // Only allow image types
+        // Only allow image types for ticket note images
         if !detected_mime.starts_with("image/") {
             return Err(actix_web::error::ErrorBadRequest("Only image files are allowed"));
         }

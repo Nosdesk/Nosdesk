@@ -132,7 +132,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
 <template>
   <div class="flex-shrink-0 bg-surface border-t border-default">
     <!-- Mobile Layout -->
-    <div v-if="isMobile" class="flex items-center justify-between gap-2 p-2">
+    <div v-if="isMobile" class="flex items-center justify-between gap-2 px-2 py-1.5">
       <!-- Left: Position info -->
       <div class="flex items-center gap-1 text-xs text-secondary">
         <template v-if="isInfiniteMode">
@@ -197,14 +197,14 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
     </div>
 
     <!-- Desktop Layout -->
-    <div v-else class="flex items-center justify-between p-3 gap-4">
+    <div v-else class="flex items-center justify-between px-3 py-1.5 gap-4">
       <!-- Left: Page size selector -->
-      <div class="flex items-center gap-2 text-sm text-secondary flex-shrink-0">
+      <div class="flex items-center gap-1.5 text-sm text-secondary flex-shrink-0">
         <span>Show</span>
         <BaseDropdown
           :model-value="pageSize.toString()"
           :options="pageSizeDropdownOptions"
-          size="sm"
+          size="xs"
           @update:model-value="handlePageSizeChange"
         />
         <span>per page</span>
@@ -224,7 +224,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
               @click="changePage(currentPage - 1)"
               :disabled="currentPage <= 1"
               :class="[
-                'p-2 rounded-md text-sm transition-colors flex-shrink-0',
+                'p-1.5 rounded text-sm transition-colors flex-shrink-0',
                 currentPage <= 1
                   ? 'bg-surface-alt text-tertiary cursor-not-allowed'
                   : 'bg-surface-alt text-primary hover:bg-surface-hover'
@@ -235,13 +235,13 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
               </svg>
             </button>
 
-            <div class="flex items-center gap-1">
+            <div class="flex items-center gap-0.5">
               <template v-for="page in pageNumbers" :key="page">
                 <button
                   v-if="typeof page === 'number'"
                   @click="changePage(page)"
                   :class="[
-                    'py-1 text-sm rounded-md transition-colors w-10 text-center',
+                    'py-0.5 text-sm rounded transition-colors w-8 text-center',
                     page === currentPage
                       ? 'bg-accent text-white'
                       : 'bg-surface-alt text-primary hover:bg-surface-hover'
@@ -249,7 +249,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
                 >
                   {{ page }}
                 </button>
-                <span v-else class="py-1 text-sm text-secondary w-10 text-center">...</span>
+                <span v-else class="text-sm text-secondary w-6 text-center">...</span>
               </template>
             </div>
 
@@ -257,7 +257,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
               @click="changePage(currentPage + 1)"
               :disabled="currentPage >= totalPages"
               :class="[
-                'p-2 rounded-md text-sm transition-colors flex-shrink-0',
+                'p-1.5 rounded text-sm transition-colors flex-shrink-0',
                 currentPage >= totalPages
                   ? 'bg-surface-alt text-tertiary cursor-not-allowed'
                   : 'bg-surface-alt text-primary hover:bg-surface-hover'
@@ -272,10 +272,10 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
       </div>
 
       <!-- Right: Go to item (infinite) or page info (pagination) -->
-      <div class="flex items-center gap-3 flex-shrink-0">
+      <div class="flex items-center gap-2 flex-shrink-0">
         <template v-if="isInfiniteMode">
           <!-- Go to ticket input -->
-          <div class="flex items-center gap-2 text-sm text-secondary">
+          <div class="flex items-center gap-1.5 text-sm text-secondary">
             <span>Go to #</span>
             <input
               v-model="goToItemValue"
@@ -284,7 +284,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
               type="number"
               min="1"
               placeholder="ID"
-              class="w-16 px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
+              class="w-14 px-1.5 py-0.5 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
               ref="goToItemInput"
             />
           </div>
@@ -292,7 +292,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
 
         <template v-else>
           <!-- Page info with direct input -->
-          <div class="flex items-center gap-2 text-sm text-secondary">
+          <div class="flex items-center gap-1.5 text-sm text-secondary">
             <span>Page</span>
             <input
               v-model="pageInputValue"
@@ -302,7 +302,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
               type="number"
               :min="1"
               :max="totalPages"
-              class="w-12 px-2 py-1 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
+              class="w-10 px-1.5 py-0.5 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
               ref="pageInput"
             />
             <span>of {{ totalPages }}</span>

@@ -458,6 +458,16 @@ const router = createRouter({
       }
     },
     {
+      path: '/admin/backup-restore',
+      name: 'admin-backup-restore',
+      component: () => import('../views/BackupRestoreView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Backup & Restore',
+        adminRequired: true
+      }
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/error/404'
     }

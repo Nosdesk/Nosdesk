@@ -7,6 +7,7 @@ mod config_utils;
 mod utils;
 mod middleware;
 mod oidc;
+mod services;
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Error, HttpMessage};
@@ -37,42 +38,72 @@ async fn rate_limit_handler() -> impl Responder {
     }))
 }
 
+/// Handle missing assets in development mode
+/// When frontend rebuilds, old asset hashes become invalid - this helps developers
+fn handle_missing_asset(path: &str) -> HttpResponse {
+    let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
+
+    if environment != "production" {
+        // Log helpful message for developers
+        log::warn!(
+            "Asset not found: {} - Frontend may have been rebuilt. Try refreshing the page.",
+            path
+        );
+
+        // For JS files, return code that triggers a page reload
+        if path.ends_with(".js") {
+            return HttpResponse::Ok()
+                .content_type("application/javascript")
+                .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
+                .body(r#"console.warn('[Nosdesk Dev] Asset hash mismatch - frontend was rebuilt. Reloading...');setTimeout(()=>location.reload(),500);"#);
+        }
+
+        // For CSS files, return empty CSS with proper MIME type
+        if path.ends_with(".css") {
+            return HttpResponse::Ok()
+                .content_type("text/css")
+                .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
+                .body("/* Asset hash mismatch - frontend was rebuilt */");
+        }
+    }
+
+    HttpResponse::NotFound().finish()
+}
+
 /// Serve the SPA index.html for all non-API routes (SPA routing)
 /// This follows Actix best practices for SPA applications
-async fn serve_spa(req: HttpRequest) -> impl Responder {
+async fn serve_spa(req: HttpRequest) -> actix_web::Either<actix_files::NamedFile, HttpResponse> {
+    use actix_web::Either;
+
     // Check if this is a static asset request (has file extension and not HTML)
     let path = req.path();
-    
+
+    // If it's a hashed asset request (contains hash pattern), handle as missing asset
+    if path.starts_with("/assets/") && path.contains('-') {
+        return Either::Right(handle_missing_asset(path));
+    }
+
     // If it's a static asset request, return 404 to let the Files service handle it
     if path.contains('.') && !path.ends_with(".html") {
-        return HttpResponse::NotFound().finish();
+        return Either::Right(HttpResponse::NotFound().finish());
     }
-    
+
     // For all other routes (SPA routes), serve index.html
     match actix_files::NamedFile::open_async("./public/index.html").await {
-        Ok(file) => {
-            // Set proper headers for SPA routing
-            let mut response = file.into_response(&req);
-            response.headers_mut().insert(
-                "Cache-Control".parse().unwrap(),
-                "no-cache, no-store, must-revalidate".parse().unwrap()
-            );
-            response.headers_mut().insert(
-                "Pragma".parse().unwrap(),
-                "no-cache".parse().unwrap()
-            );
-            response.headers_mut().insert(
-                "Expires".parse().unwrap(),
-                "0".parse().unwrap()
-            );
-            response
-        },
+        Ok(file) => Either::Left(
+            file.use_last_modified(true)
+                .set_content_disposition(actix_web::http::header::ContentDisposition {
+                    disposition: actix_web::http::header::DispositionType::Inline,
+                    parameters: vec![],
+                })
+        ),
         Err(_) => {
             // Fallback if index.html doesn't exist
             let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
             if environment != "production" {
-                HttpResponse::NotFound()
+                Either::Right(HttpResponse::NotFound()
                     .content_type("text/html")
+                    .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
                     .body(r#"<!DOCTYPE html>
 <html>
 <head>
@@ -86,11 +117,11 @@ async fn serve_spa(req: HttpRequest) -> impl Responder {
     </div>
     <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 </body>
-</html>"#)
+</html>"#))
             } else {
-                HttpResponse::NotFound()
+                Either::Right(HttpResponse::NotFound()
                     .content_type("text/plain")
-                    .body("Frontend not found")
+                    .body("Frontend not found"))
             }
         }
     }
@@ -565,6 +596,8 @@ async fn main() -> std::io::Result<()> {
                         web::scope("/setup")
                             .route("/status", web::get().to(handlers::check_setup_status))
                             .route("/admin", web::post().to(handlers::setup_initial_admin))
+                            .route("/restore/upload", web::post().to(handlers::backup::onboarding_upload_restore))
+                            .route("/restore/execute", web::post().to(handlers::backup::onboarding_execute_restore))
                     )
                                             .route("/login", web::post().to(handlers::login))
                         .route("/logout", web::post().to(handlers::logout))
@@ -633,6 +666,16 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/branding/image", web::post().to(handlers::branding::upload_branding_image))
                     .route("/admin/branding/image", web::delete().to(handlers::branding::delete_branding_image))
 
+                    // Backup and restore (admin only)
+                    .route("/admin/backup/export", web::post().to(handlers::backup::start_export))
+                    .route("/admin/backup/jobs", web::get().to(handlers::backup::get_jobs))
+                    .route("/admin/backup/jobs/{id}", web::get().to(handlers::backup::get_job))
+                    .route("/admin/backup/jobs/{id}", web::delete().to(handlers::backup::delete_job))
+                    .route("/admin/backup/download/{id}", web::get().to(handlers::backup::download_backup))
+                    .route("/admin/backup/restore/upload", web::post().to(handlers::backup::upload_restore))
+                    .route("/admin/backup/restore/{id}/preview", web::get().to(handlers::backup::preview_restore))
+                    .route("/admin/backup/restore/{id}/execute", web::post().to(handlers::backup::execute_restore))
+
                     // Microsoft Graph API endpoints
                     .route("/auth/microsoft/graph", web::post().to(handlers::process_graph_request))
                     .service(
@@ -671,6 +714,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets/recent", web::get().to(handlers::get_recent_tickets))
                     .route("/tickets", web::post().to(handlers::create_ticket))
                     .route("/tickets/empty", web::post().to(handlers::create_empty_ticket))
+                    .route("/tickets/bulk", web::post().to(handlers::bulk_tickets))
                     .route("/tickets/{id}", web::get().to(handlers::get_ticket))
                     .route("/tickets/{id}", web::put().to(handlers::update_ticket))
                     .route("/tickets/{id}", web::patch().to(handlers::update_ticket_partial))
@@ -739,6 +783,7 @@ async fn main() -> std::io::Result<()> {
                     
                     // ===== DOCUMENTATION SYSTEM =====
                     .route("/documentation/pages", web::get().to(handlers::get_documentation_pages))
+                    .route("/documentation/pages/export", web::get().to(handlers::export_documentation_pages))
                     .route("/documentation/pages", web::post().to(handlers::create_documentation_page))
                     .route("/documentation/pages/{id}", web::get().to(handlers::get_documentation_page))
                     .route("/documentation/pages/{id}", web::put().to(handlers::update_documentation_page))

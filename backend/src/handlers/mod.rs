@@ -18,6 +18,7 @@ pub mod invitation;
 pub mod system;
 pub mod debug;
 pub mod branding;
+pub mod backup;
 
 // Import all handlers from modules
 pub use auth::*;
@@ -38,7 +39,7 @@ pub use tickets::{
     create_empty_ticket, get_ticket, update_ticket, update_ticket_partial,
     delete_ticket, record_ticket_view, import_tickets_from_json,
     import_tickets_from_json_string, link_tickets, unlink_tickets,
-    add_device_to_ticket, remove_device_from_ticket
+    add_device_to_ticket, remove_device_from_ticket, bulk_tickets
 };
 pub use projects::*;
 // Export specific items from devices to avoid conflicts

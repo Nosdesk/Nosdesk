@@ -1,5 +1,6 @@
 import { Plugin, PluginKey } from 'prosemirror-state'
-import { EditorView, NodeView } from 'prosemirror-view'
+import { EditorView } from 'prosemirror-view'
+import type { NodeView } from 'prosemirror-view'
 import { Node as ProseMirrorNode } from 'prosemirror-model'
 import { InputRule } from 'prosemirror-inputrules'
 import { getTicketById } from '@/services/ticketService'

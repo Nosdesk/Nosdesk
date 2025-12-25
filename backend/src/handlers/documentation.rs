@@ -663,6 +663,71 @@ pub struct CreateDocPageFromTicket {
     pub parent_id: Option<i32>,
 }
 
+// Response struct for documentation export (minimal fields needed for markdown export)
+#[derive(Debug, serde::Serialize)]
+pub struct DocumentationPageExport {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub title: String,
+    pub slug: Option<String>,
+    pub icon: Option<String>,
+    pub parent_id: Option<i32>,
+    pub display_order: Option<i32>,
+    pub status: DocumentationStatus,
+    pub yjs_document: Option<Vec<u8>>,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
+}
+
+// Export all documentation pages with their Yjs content for markdown export
+pub async fn export_documentation_pages(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+) -> impl Responder {
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Extract claims from cookie auth middleware (require authentication)
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can export documentation"
+        }));
+    }
+
+    match repository::get_documentation_pages(&mut conn) {
+        Ok(pages) => {
+            let export_pages: Vec<DocumentationPageExport> = pages.into_iter().map(|page| {
+                DocumentationPageExport {
+                    id: page.id,
+                    uuid: page.uuid,
+                    title: page.title,
+                    slug: page.slug,
+                    icon: page.icon,
+                    parent_id: page.parent_id,
+                    display_order: page.display_order,
+                    status: page.status,
+                    yjs_document: page.yjs_document,
+                    created_at: page.created_at,
+                    updated_at: page.updated_at,
+                }
+            }).collect();
+            HttpResponse::Ok().json(export_pages)
+        },
+        Err(_) => HttpResponse::InternalServerError().json("Failed to fetch pages for export"),
+    }
+}
+
 // Create a documentation page from a ticket's article content
 pub async fn create_documentation_page_from_ticket(
     req: HttpRequest,

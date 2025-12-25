@@ -88,6 +88,7 @@ where
             || path == "/api/auth/oauth/logout"
             || path == "/api/auth/setup/admin"
             || path == "/api/auth/setup/status"
+            || path.starts_with("/api/auth/setup/restore/")
             || path == "/api/auth/register"
             || path.starts_with("/api/auth/password-reset/")
             || path.starts_with("/api/auth/mfa-reset/")

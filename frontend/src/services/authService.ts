@@ -574,6 +574,79 @@ class AuthService {
       throw error;
     }
   }
+
+  /**
+   * Upload a backup file for onboarding restore
+   * Only works during initial setup when no users exist
+   */
+  async uploadRestoreBackup(file: File): Promise<OnboardingRestoreUploadResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await apiClient.post<OnboardingRestoreUploadResponse>(
+      '/auth/setup/restore/upload',
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    return response.data;
+  }
+
+  /**
+   * Execute the restore from an uploaded backup
+   * Only works during initial setup when no users exist
+   */
+  async executeRestore(filePath: string, password?: string): Promise<OnboardingRestoreResult> {
+    const response = await apiClient.post<OnboardingRestoreResult>(
+      '/auth/setup/restore/execute',
+      {
+        file_path: filePath,
+        password,
+      }
+    );
+    return response.data;
+  }
+}
+
+// Onboarding Restore Types
+export interface OnboardingRestoreUploadResponse {
+  file_path: string;
+  preview: RestorePreview;
+}
+
+export interface RestorePreview {
+  manifest: BackupManifest;
+  has_encrypted_sensitive: boolean;
+  warnings: string[];
+}
+
+export interface BackupManifest {
+  version: string;
+  created_at: string;
+  nosdesk_version: string;
+  include_sensitive: boolean;
+  tables: Record<string, { count: number }>;
+  files: {
+    total_count: number;
+    total_size_bytes: number;
+  };
+  encryption?: {
+    algorithm: string;
+    kdf: string;
+    salt: string;
+    nonce: string;
+  };
+}
+
+export interface OnboardingRestoreResult {
+  success: boolean;
+  message: string;
+  tables_restored: number;
+  records_restored: number;
+  files_restored: number;
 }
 
 export const authService = new AuthService();
