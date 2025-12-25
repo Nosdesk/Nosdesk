@@ -118,7 +118,7 @@ onMounted(async () => {
   <RouterView v-if="isBlankLayout" />
 
   <!-- Default layout with responsive navigation - Simple flexbox layout -->
-  <div v-else class="flex w-full h-full bg-app overflow-hidden">
+  <div v-else v-twemoji class="flex w-full h-full bg-app overflow-hidden">
     <!-- Sidebar (includes both sidebar and mobile bottom nav) -->
     <Navbar @update:collapsed="handleNavCollapse" />
 

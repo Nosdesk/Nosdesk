@@ -31,7 +31,7 @@ export function useListManagement<T extends Record<string, any>>(options: ListOp
   // Pagination (pageSize 0 = infinite scroll mode)
   const currentPage = ref(1)
   const pageSize = ref(options.defaultPageSize || 0)
-  const pageSizeOptions = [0, 25, 50, 100] // 0 = All (infinite scroll)
+  const pageSizeOptions = [25, 50, 100, 0] // 0 = All (infinite scroll)
   const totalItems = ref(0)
   const totalPages = ref(1)
   const hasMore = computed(() => currentPage.value < totalPages.value)

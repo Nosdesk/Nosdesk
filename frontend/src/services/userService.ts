@@ -593,6 +593,12 @@ const userService = {
         message: error.response?.data?.message || 'Failed to send invitation email'
       };
     }
+  },
+
+  // Bulk operations on users (admin only)
+  async bulkAction(request: { action: 'delete' | 'set-role'; ids: string[]; value?: string }): Promise<{ affected: number }> {
+    const response = await apiClient.post('/users/bulk', request);
+    return response.data;
   }
 };
 

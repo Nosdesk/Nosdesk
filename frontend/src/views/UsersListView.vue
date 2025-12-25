@@ -5,6 +5,9 @@ import BaseListView from "@/components/common/BaseListView.vue";
 import DataTable from "@/components/common/DataTable.vue";
 import DebouncedSearchInput from "@/components/common/DebouncedSearchInput.vue";
 import PaginationControls from "@/components/common/PaginationControls.vue";
+import BulkActionsBar from "@/components/common/BulkActionsBar.vue";
+import type { BulkAction } from "@/components/common/BulkActionsBar.vue";
+import Modal from "@/components/Modal.vue";
 import { StatusBadgeCell, UserInfoCell, DateCell } from "@/components/common/cells";
 import UserAvatar from "@/components/UserAvatar.vue";
 import { useListManagement } from "@/composables/useListManagement";
@@ -12,16 +15,17 @@ import { useListSSE } from "@/composables/useListSSE";
 import { useStaggeredList } from "@/composables/useStaggeredList";
 import { useMobileDetection } from "@/composables/useMobileDetection";
 import { useDataStore } from "@/stores/dataStore";
+import userService from "@/services/userService";
 import type { User } from "@/types/user";
 
 const router = useRouter();
 const dataStore = useDataStore();
 
-// Mobile detection for conditional infinite scroll
+// Mobile detection
 const { isMobile } = useMobileDetection();
 
-// Default page size: 0 (infinite scroll) on mobile, 25 on desktop
-const defaultPageSize = isMobile.value ? 0 : 25;
+// Default page size: 0 (infinite scroll / view all)
+const defaultPageSize = 0;
 
 // Navigate to user creation (used by both header button and mobile search bar)
 const navigateToCreateUser = () => {
@@ -89,6 +93,56 @@ const gridClass = "grid-cols-[auto_1fr_minmax(100px,auto)] lg:grid-cols-[auto_1f
 
 // Staggered fade-in animation
 const { getStyle } = useStaggeredList();
+
+// Role options for bulk role change
+const ROLE_OPTIONS = [
+  { value: 'admin', label: 'Admin' },
+  { value: 'technician', label: 'Technician' },
+  { value: 'user', label: 'User' }
+];
+
+// Bulk actions configuration
+const bulkActions: BulkAction[] = [
+  { id: 'set-role', label: 'Role', icon: 'role' },
+  { id: 'delete', label: 'Delete', icon: 'delete', variant: 'danger', confirm: true }
+];
+
+// Bulk action modal states
+const showRoleModal = ref(false);
+const bulkActionLoading = ref(false);
+
+// Handle bulk action selection
+const handleBulkAction = async (actionId: string) => {
+  if (actionId === 'set-role') {
+    showRoleModal.value = true;
+  } else if (actionId === 'delete') {
+    await executeBulkAction('delete');
+  }
+};
+
+// Execute bulk action
+const executeBulkAction = async (action: 'delete' | 'set-role', value?: string) => {
+  const ids = listManager.selectedItems.value;
+  if (ids.length === 0) return;
+
+  bulkActionLoading.value = true;
+  try {
+    await userService.bulkAction({ action, ids, value });
+    await listManager.refresh();
+    listManager.clearSelection();
+    showRoleModal.value = false;
+  } catch (error) {
+    console.error('Bulk action failed:', error);
+    alert('Failed to perform bulk action. Please try again.');
+  } finally {
+    bulkActionLoading.value = false;
+  }
+};
+
+// Handle bulk role change
+const handleBulkRoleChange = (role: string) => {
+  executeBulkAction('set-role', role);
+};
 
 // Track if we're currently loading more (to prevent duplicate requests)
 const isLoadingMore = ref(false);
@@ -160,6 +214,17 @@ defineExpose({
       </div>
     </div>
 
+    <!-- Bulk Actions Bar -->
+    <BulkActionsBar
+      :selected-count="listManager.selectedItems.value.length"
+      :total-count="listManager.totalItems.value"
+      :actions="bulkActions"
+      item-label="user"
+      @action="handleBulkAction"
+      @clear-selection="listManager.clearSelection"
+      @select-all="listManager.selectAll"
+    />
+
     <!-- Main content -->
     <div class="flex-1 flex flex-col overflow-hidden">
       <BaseListView
@@ -198,11 +263,9 @@ defineExpose({
               <UserInfoCell
                 :user-id="item.uuid"
                 :user-name="item.name"
-                :user-email="item.email"
+                :email="item.email"
                 :avatar="item.avatar_thumb || item.avatar_url"
                 :show-avatar="true"
-                :show-name="true"
-                :show-email="true"
               />
             </template>
 
@@ -291,6 +354,29 @@ defineExpose({
       @import="() => {}"
     />
 
+    <!-- Bulk Role Modal -->
+    <Modal
+      :show="showRoleModal"
+      title="Set Role"
+      size="sm"
+      @close="showRoleModal = false"
+    >
+      <div class="flex flex-col gap-2 p-4">
+        <p class="text-sm text-secondary mb-2">
+          Update role for {{ listManager.selectedItems.value.length }} user{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
+        </p>
+        <button
+          v-for="role in ROLE_OPTIONS"
+          :key="role.value"
+          @click="handleBulkRoleChange(role.value)"
+          :disabled="bulkActionLoading"
+          class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-surface-hover transition-colors text-left"
+        >
+          <StatusBadgeCell type="role" :value="role.value" />
+          <span class="text-primary">{{ role.label }}</span>
+        </button>
+      </div>
+    </Modal>
   </div>
 </template>
 

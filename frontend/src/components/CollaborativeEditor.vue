@@ -71,6 +71,7 @@ import {
 } from "prosemirror-inputrules";
 import { createImageUploadPlugin } from "./editor/imageUploadPlugin";
 import { syntaxHighlightPlugin } from "./editor/syntaxHighlightPlugin";
+import { twemojiPlugin } from "@/plugins/prosemirror-twemoji";
 
 // Props
 interface Props {
@@ -682,6 +683,7 @@ const initEditor = async () => {
                         onUploadError: (error) => log.error('Image upload failed:', error)
                     }),
                     syntaxHighlightPlugin,
+                    twemojiPlugin,
                 ],
             }),
         });
@@ -1684,6 +1686,7 @@ function viewSnapshot(snapshotData: { snapshot: string; prevSnapshot: string; re
                 // Minimal plugins for read-only viewing
                 keymap(baseKeymap),
                 dropCursor(),
+                twemojiPlugin,
             ],
         });
 

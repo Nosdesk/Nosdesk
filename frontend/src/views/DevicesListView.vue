@@ -5,6 +5,8 @@ import BaseListView from '@/components/common/BaseListView.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
+import BulkActionsBar from '@/components/common/BulkActionsBar.vue'
+import type { BulkAction } from '@/components/common/BulkActionsBar.vue'
 
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
 import { useListManagement } from '@/composables/useListManagement'
@@ -12,17 +14,17 @@ import { useListSSE } from '@/composables/useListSSE'
 import { useStaggeredList } from '@/composables/useStaggeredList'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useDataStore } from '@/stores/dataStore'
-import { getPaginatedDevices } from '@/services/deviceService'
+import { getPaginatedDevices, bulkAction } from '@/services/deviceService'
 import type { Device } from '@/types/device'
 
 const router = useRouter()
 const dataStore = useDataStore()
 
-// Mobile detection for conditional infinite scroll
+// Mobile detection
 const { isMobile } = useMobileDetection()
 
-// Default page size: 0 (infinite scroll) on mobile, 25 on desktop
-const defaultPageSize = isMobile.value ? 0 : 25
+// Default page size: 0 (infinite scroll / view all)
+const defaultPageSize = 0
 
 // Navigate to create device (used by both header button and mobile search bar)
 const navigateToCreateDevice = () => {
@@ -138,6 +140,39 @@ const gridClass = "grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1f
 // Staggered fade-in animation
 const { getStyle } = useStaggeredList();
 
+// Bulk actions configuration
+const bulkActions: BulkAction[] = [
+  { id: 'delete', label: 'Delete', icon: 'delete', variant: 'danger', confirm: true }
+];
+
+// Bulk action loading state
+const bulkActionLoading = ref(false);
+
+// Handle bulk action selection
+const handleBulkAction = async (actionId: string) => {
+  if (actionId === 'delete') {
+    await executeBulkAction('delete');
+  }
+};
+
+// Execute bulk action
+const executeBulkAction = async (action: 'delete') => {
+  const ids = listManager.selectedItems.value.map(id => parseInt(id));
+  if (ids.length === 0) return;
+
+  bulkActionLoading.value = true;
+  try {
+    await bulkAction({ action, ids });
+    await listManager.refresh();
+    listManager.clearSelection();
+  } catch (error) {
+    console.error('Bulk action failed:', error);
+    alert('Failed to perform bulk action. Please try again.');
+  } finally {
+    bulkActionLoading.value = false;
+  }
+};
+
 // Track if we're currently loading more (to prevent duplicate requests)
 const isLoadingMore = ref(false);
 
@@ -206,6 +241,17 @@ defineExpose({
         </div>
       </div>
     </div>
+
+    <!-- Bulk Actions Bar -->
+    <BulkActionsBar
+      :selected-count="listManager.selectedItems.value.length"
+      :total-count="listManager.totalItems.value"
+      :actions="bulkActions"
+      item-label="device"
+      @action="handleBulkAction"
+      @clear-selection="listManager.clearSelection"
+      @select-all="listManager.selectAll"
+    />
 
     <!-- Main content -->
     <div class="flex-1 flex flex-col overflow-hidden">

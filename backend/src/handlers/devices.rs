@@ -585,4 +585,73 @@ pub async fn get_paginated_devices_excluding(
             HttpResponse::InternalServerError().json("Failed to get devices")
         }
     }
+}
+
+// Bulk device operations request
+#[derive(Debug, Deserialize)]
+pub struct BulkDeviceActionRequest {
+    action: String,
+    ids: Vec<i32>,
+}
+
+/// Perform bulk operations on devices (admin only)
+pub async fn bulk_devices(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    body: web::Json<BulkDeviceActionRequest>,
+) -> impl Responder {
+    // Extract claims and check authentication
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    // Only admins can perform bulk operations
+    if !is_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only administrators can perform bulk device operations"
+        }));
+    }
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "error": "Database connection failed"
+        })),
+    };
+
+    let action = body.action.as_str();
+    let ids = &body.ids;
+
+    if ids.is_empty() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Bad Request",
+            "message": "No device IDs provided"
+        }));
+    }
+
+    match action {
+        "delete" => {
+            let mut deleted = 0;
+            for id in ids {
+                match repository::delete_device(&mut conn, *id) {
+                    Ok(rows) => deleted += rows,
+                    Err(e) => {
+                        eprintln!("Error deleting device {}: {:?}", id, e);
+                    }
+                }
+            }
+
+            HttpResponse::Ok().json(json!({ "affected": deleted }))
+        }
+
+        _ => HttpResponse::BadRequest().json(json!({
+            "error": "Bad Request",
+            "message": format!("Unknown action: {}", action)
+        })),
+    }
 } 

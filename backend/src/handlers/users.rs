@@ -2329,4 +2329,149 @@ pub async fn get_user_with_emails(
     };
 
     HttpResponse::Ok().json(user_with_emails)
+}
+
+// Bulk user operations request
+#[derive(Debug, Deserialize)]
+pub struct BulkUserActionRequest {
+    action: String,
+    ids: Vec<String>, // UUIDs as strings
+    value: Option<String>,
+}
+
+/// Perform bulk operations on users (admin only)
+pub async fn bulk_users(
+    req: HttpRequest,
+    pool: web::Data<crate::db::Pool>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
+    body: web::Json<BulkUserActionRequest>,
+) -> impl Responder {
+    // Extract claims and check authentication
+    let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
+        Ok(claims) => claims,
+        Err(_) => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    // Only admins can perform bulk operations
+    if claims.role != "admin" {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only administrators can perform bulk user operations"
+        }));
+    }
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "error": "Database connection failed"
+        })),
+    };
+
+    let action = body.action.as_str();
+    let ids = &body.ids;
+
+    if ids.is_empty() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Bad Request",
+            "message": "No user IDs provided"
+        }));
+    }
+
+    // Prevent self-deletion/modification
+    if ids.contains(&claims.sub) {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Bad Request",
+            "message": "Cannot perform bulk operations on your own account"
+        }));
+    }
+
+    match action {
+        "delete" => {
+            let mut deleted = 0;
+            for id in ids {
+                let uuid = match Uuid::parse_str(id) {
+                    Ok(u) => u,
+                    Err(_) => continue,
+                };
+
+                match repository::users::delete_user(&uuid, &mut conn) {
+                    Ok(_) => {
+                        deleted += 1;
+                        // Broadcast SSE event
+                        crate::utils::sse::SseBroadcaster::broadcast_user_deleted(
+                            &sse_state,
+                            id,
+                        ).await;
+                    }
+                    Err(e) => {
+                        eprintln!("Error deleting user {}: {:?}", id, e);
+                    }
+                }
+            }
+
+            HttpResponse::Ok().json(json!({ "affected": deleted }))
+        }
+
+        "set-role" => {
+            let role_str = match &body.value {
+                Some(v) => v.as_str(),
+                None => return HttpResponse::BadRequest().json(json!({
+                    "error": "Bad Request",
+                    "message": "Role value required"
+                })),
+            };
+
+            let role = match role_str {
+                "admin" => crate::models::UserRole::Admin,
+                "technician" => crate::models::UserRole::Technician,
+                "user" => crate::models::UserRole::User,
+                _ => return HttpResponse::BadRequest().json(json!({
+                    "error": "Bad Request",
+                    "message": "Invalid role value"
+                })),
+            };
+
+            let mut updated = 0;
+            for id in ids {
+                let uuid = match Uuid::parse_str(id) {
+                    Ok(u) => u,
+                    Err(_) => continue,
+                };
+
+                let user_update = crate::models::UserUpdate {
+                    name: None,
+                    role: Some(role.clone()),
+                    pronouns: None,
+                    avatar_url: None,
+                    banner_url: None,
+                    avatar_thumb: None,
+                    theme: None,
+                    microsoft_uuid: None,
+                    updated_at: Some(chrono::Utc::now().naive_utc()),
+                };
+
+                if repository::update_user(&uuid, user_update, &mut conn).is_ok() {
+                    updated += 1;
+                    // Broadcast SSE event
+                    crate::utils::sse::SseBroadcaster::broadcast_user_updated(
+                        &sse_state,
+                        id,
+                        "role",
+                        json!(role_str),
+                        &claims.sub,
+                    ).await;
+                }
+            }
+
+            HttpResponse::Ok().json(json!({ "affected": updated }))
+        }
+
+        _ => HttpResponse::BadRequest().json(json!({
+            "error": "Bad Request",
+            "message": format!("Unknown action: {}", action)
+        })),
+    }
 } 

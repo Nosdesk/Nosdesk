@@ -632,6 +632,8 @@ fn reset_sequences(conn: &mut DbConnection) -> Result<(), BackupError> {
 
     // Tables with serial/bigserial id columns that need sequence reset
     let tables_with_sequences = [
+        "tickets",
+        "devices",
         "user_emails",
         "user_auth_identities",
         "comments",

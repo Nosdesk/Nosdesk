@@ -11,11 +11,13 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { vSafeHtml } from './directives/vSafeHtml'
+import { vTwemoji } from './directives/vTwemoji'
 
 const app = createApp(App)
 
 // Register global directives
 app.directive('safe-html', vSafeHtml)
+app.directive('twemoji', vTwemoji)
 
 const pinia = createPinia()
 app.use(pinia)

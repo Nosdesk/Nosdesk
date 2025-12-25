@@ -113,7 +113,7 @@
             No backups yet. Create your first backup above.
           </div>
 
-          <div v-else class="space-y-2">
+          <div v-else class="flex flex-col gap-2">
             <div
               v-for="job in exportJobs"
               :key="job.id"

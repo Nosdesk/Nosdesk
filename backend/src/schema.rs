@@ -466,6 +466,7 @@ diesel::joinable!(sync_history -> users (initiated_by));
 diesel::joinable!(ticket_devices -> devices (device_id));
 diesel::joinable!(ticket_devices -> tickets (ticket_id));
 diesel::joinable!(ticket_devices -> users (created_by));
+diesel::joinable!(user_emails -> users (user_uuid));
 diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
 

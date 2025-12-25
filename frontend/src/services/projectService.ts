@@ -31,7 +31,9 @@ const mapProjectResponse = (project: ProjectResponse): Project => ({
   name: project.name,
   description: project.description || undefined,
   status: project.status,
-  ticketCount: project.ticket_count
+  created_at: project.created_at,
+  updated_at: project.updated_at,
+  ticket_count: project.ticket_count
 });
 
 // Project service functions
@@ -59,7 +61,7 @@ export const projectService = {
   },
 
   // Create a new project
-  async createProject(project: Omit<Project, 'id' | 'ticketCount'>): Promise<Project> {
+  async createProject(project: Omit<Project, 'id' | 'ticket_count'>): Promise<Project> {
     try {
       const request: NewProjectRequest = {
         name: project.name,
@@ -80,7 +82,7 @@ export const projectService = {
   },
 
   // Update an existing project
-  async updateProject(id: number, project: Partial<Omit<Project, 'id' | 'ticketCount'>>): Promise<Project> {
+  async updateProject(id: number, project: Partial<Omit<Project, 'id' | 'ticket_count'>>): Promise<Project> {
     try {
       const request: UpdateProjectRequest = {
         name: project.name,

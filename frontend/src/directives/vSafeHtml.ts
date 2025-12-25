@@ -9,6 +9,8 @@
  *   v-safe-html.svg="svgContent"        - SVG sanitisation
  *   v-safe-html.markdown="mdContent"    - Markdown HTML sanitisation
  *   v-safe-html.strict="content"        - Strip all HTML (text only)
+ *
+ * Note: Emoji rendering is handled by the global v-twemoji directive
  */
 
 import type { Directive, DirectiveBinding } from 'vue';

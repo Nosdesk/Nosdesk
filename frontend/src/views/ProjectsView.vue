@@ -274,30 +274,38 @@ watch(searchQuery, updateSearchQuery)
           class="bg-surface rounded-xl border border-default overflow-hidden hover:border-strong hover:shadow-lg transition-all cursor-pointer group"
         >
           <!-- Project Header -->
-          <div class="px-4 py-3 bg-surface-alt border-b border-default">
-            <div class="flex items-start justify-between gap-3">
-              <div class="flex items-center gap-3 min-w-0 flex-1">
-                <!-- Project icon -->
-                <div class="w-10 h-10 rounded-lg bg-accent-muted flex items-center justify-center flex-shrink-0">
-                  <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                  </svg>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <h3 class="font-semibold text-primary truncate group-hover:text-accent transition-colors">
-                    {{ project.name }}
-                  </h3>
-                  <span
-                    class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border mt-1"
-                    :class="getStatusClass(project.status)"
-                  >
-                    {{ formatStatus(project.status) }}
-                  </span>
-                </div>
+          <div class="px-4 py-3 bg-surface-alt border-b border-default relative">
+            <div class="flex items-start gap-3 w-full">
+              <!-- Icon -->
+              <div class="w-10 h-10 rounded-lg bg-accent-muted flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                </svg>
               </div>
 
-              <!-- Action buttons -->
-              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <!-- Name and status - grows to fill space -->
+              <div class="flex-1 min-w-0">
+                <h3 class="font-semibold text-primary truncate group-hover:text-accent transition-colors">
+                  {{ project.name }}
+                </h3>
+                <span
+                  class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border mt-1"
+                  :class="getStatusClass(project.status)"
+                >
+                  {{ formatStatus(project.status) }}
+                </span>
+              </div>
+
+              <!-- Ticket count - fixed to right -->
+              <div class="flex items-center gap-1.5 text-secondary flex-shrink-0">
+                <svg class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                <span class="text-sm font-medium">{{ project.ticket_count || 0 }}</span>
+              </div>
+
+              <!-- Action buttons - absolutely positioned on hover -->
+              <div class="hidden group-hover:flex items-center gap-1 absolute top-2 right-2 bg-surface-alt rounded-md p-0.5">
                 <button
                   @click="(e) => openEditModal(e, project)"
                   class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
@@ -323,21 +331,10 @@ watch(searchQuery, updateSearchQuery)
           <!-- Project Content -->
           <div class="p-4">
             <!-- Description -->
-            <p v-if="project.description" class="text-secondary text-sm line-clamp-2 mb-4">
+            <p v-if="project.description" class="text-secondary text-sm line-clamp-2">
               {{ project.description }}
             </p>
-            <p v-else class="text-tertiary text-sm italic mb-4">No description</p>
-
-            <!-- Stats row -->
-            <div class="flex items-center gap-4 text-sm">
-              <!-- Ticket count -->
-              <div class="flex items-center gap-2 text-secondary">
-                <svg class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                <span>{{ project.ticket_count || 0 }} ticket{{ (project.ticket_count || 0) !== 1 ? 's' : '' }}</span>
-              </div>
-            </div>
+            <p v-else class="text-tertiary text-sm italic">No description</p>
 
             <!-- Timestamps -->
             <div class="mt-4 pt-3 border-t border-subtle flex items-center justify-between text-xs text-tertiary">

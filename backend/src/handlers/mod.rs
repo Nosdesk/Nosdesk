@@ -30,7 +30,7 @@ pub use users::{
     cleanup_stale_images,
     get_user_auth_identities, delete_user_auth_identity,
     get_user_auth_identities_by_uuid, delete_user_auth_identity_by_uuid,
-    resend_invitation
+    resend_invitation, bulk_users
 };
 pub use files::*;
 // Export specific items from tickets to avoid conflicts
@@ -46,7 +46,7 @@ pub use projects::*;
 pub use devices::{
     get_all_devices, get_paginated_devices, get_paginated_devices_excluding,
     create_device, get_device_by_id, update_device, delete_device,
-    get_user_devices, unmanage_device
+    get_user_devices, unmanage_device, bulk_devices
 };
 pub use documentation::*;
 pub use auth_providers::*;

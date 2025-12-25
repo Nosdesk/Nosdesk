@@ -351,6 +351,44 @@ a {
 }
 
 /* ============================================
+   TWEMOJI - Cross-platform emoji rendering
+   Uses background-image to overlay SVG while preserving
+   the original emoji character in DOM (for accessibility/copy-paste)
+   ============================================ */
+
+.twemoji {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin: 0 0.05em 0 0.1em;
+  vertical-align: -0.15em;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  color: transparent;
+  overflow: hidden;
+  font-size: inherit;
+  line-height: 1;
+}
+
+/* Size variants for directive usage */
+.twemoji-xs { width: 0.75rem; height: 0.75rem; }
+.twemoji-sm { width: 1rem; height: 1rem; }
+.twemoji-md { width: 1.25rem; height: 1.25rem; }
+.twemoji-lg { width: 1.5rem; height: 1.5rem; }
+.twemoji-xl { width: 2rem; height: 2rem; }
+
+/* E-Paper Theme: Black & white emojis */
+[data-theme="epaper"] .twemoji {
+  filter: grayscale(100%) contrast(1.3) brightness(0.9);
+}
+
+/* Red Horizon Theme: Amber/orange monochrome emojis */
+[data-theme="red-horizon"] .twemoji {
+  filter: grayscale(100%) sepia(100%) saturate(400%) hue-rotate(-5deg) brightness(0.95) contrast(1.1);
+}
+
+/* ============================================
    THEME-SPECIFIC AVATAR EFFECTS (Easter Eggs)
    ============================================ */
 

@@ -23,81 +23,123 @@ pub fn get_paginated_users(
     search: Option<String>,
     role: Option<String>,
 ) -> Result<(Vec<User>, i64), Error> {
-    // Build the main query
-    let mut query = users::table.into_boxed();
-    
-    // Apply filters if provided
-    // Note: Email search removed - email is now in user_emails table
-    if let Some(search_term) = search.clone() {
-        if !search_term.is_empty() {
-            let search_pattern = format!("%{}%", search_term.to_lowercase());
-            // Note: ID-based search removed since users table now uses UUID primary key
-            query = query.filter(users::name.ilike(search_pattern.clone()));
+    use crate::schema::user_emails;
+
+    // Check if we need to search by email (requires join)
+    let has_search = search.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+
+    if has_search {
+        // When searching, we need to join with user_emails to search by email
+        let search_term = search.as_ref().unwrap();
+        let search_pattern = format!("%{}%", search_term.to_lowercase());
+
+        // Get distinct user UUIDs that match the search (by name OR by any email)
+        let matching_uuids: Vec<Uuid> = users::table
+            .left_join(user_emails::table)
+            .select(users::uuid)
+            .filter(
+                users::name.ilike(search_pattern.clone())
+                    .or(user_emails::email.ilike(search_pattern.clone()))
+            )
+            .distinct()
+            .load::<Uuid>(conn)?;
+
+        // Now build the main query filtering by those UUIDs
+        let mut query = users::table.into_boxed();
+        query = query.filter(users::uuid.eq_any(&matching_uuids));
+
+        // Handle role filter
+        if let Some(role_filter) = role.clone() {
+            if role_filter != "all" {
+                let user_role = match role_filter.as_str() {
+                    "admin" => UserRole::Admin,
+                    "technician" => UserRole::Technician,
+                    "user" => UserRole::User,
+                    _ => UserRole::User,
+                };
+                query = query.filter(users::role.eq(user_role));
+            }
         }
-    }
-    
-    // Handle role filter - convert string to UserRole enum
-    if let Some(role_filter) = role.clone() {
-        if role_filter != "all" {
-            let user_role = match role_filter.as_str() {
-                "admin" => UserRole::Admin,
-                "technician" => UserRole::Technician,
-                "user" => UserRole::User,
-                _ => UserRole::User,
-            };
-            query = query.filter(users::role.eq(user_role));
+
+        // Count total matching records
+        let mut count_query = users::table.into_boxed();
+        count_query = count_query.filter(users::uuid.eq_any(&matching_uuids));
+        if let Some(role_filter) = role {
+            if role_filter != "all" {
+                let user_role = match role_filter.as_str() {
+                    "admin" => UserRole::Admin,
+                    "technician" => UserRole::Technician,
+                    "user" => UserRole::User,
+                    _ => UserRole::User,
+                };
+                count_query = count_query.filter(users::role.eq(user_role));
+            }
         }
-    }
-    
-    // Build a separate count query with the same filters
-    let mut count_query = users::table.into_boxed();
-    
-    // Apply the same filters to the count query
-    if let Some(search_term) = search {
-        if !search_term.is_empty() {
-            let search_pattern = format!("%{}%", search_term.to_lowercase());
-            // Note: ID-based search removed since users table now uses UUID primary key
-            count_query = count_query.filter(users::name.ilike(search_pattern.clone()));
+        let total: i64 = count_query.count().get_result(conn)?;
+
+        // Apply sorting
+        match (sort_field.as_deref(), sort_direction.as_deref()) {
+            (Some("name"), Some("asc")) => query = query.order(users::name.asc()),
+            (Some("name"), _) => query = query.order(users::name.desc()),
+            (Some("role"), Some("asc")) => query = query.order(users::role.asc()),
+            (Some("role"), _) => query = query.order(users::role.desc()),
+            _ => query = query.order(users::name.asc()),
         }
-    }
-    
-    // Handle role filter for count query
-    if let Some(role_filter) = role {
-        if role_filter != "all" {
-            let user_role = match role_filter.as_str() {
-                "admin" => UserRole::Admin,
-                "technician" => UserRole::Technician,
-                "user" => UserRole::User,
-                _ => UserRole::User,
-            };
-            count_query = count_query.filter(users::role.eq(user_role));
+
+        // Apply pagination
+        let offset = (page - 1) * page_size;
+        query = query.offset(offset).limit(page_size);
+
+        let results = query.load::<User>(conn)?;
+        Ok((results, total))
+    } else {
+        // No search - simple query without join
+        let mut query = users::table.into_boxed();
+
+        // Handle role filter
+        if let Some(role_filter) = role.clone() {
+            if role_filter != "all" {
+                let user_role = match role_filter.as_str() {
+                    "admin" => UserRole::Admin,
+                    "technician" => UserRole::Technician,
+                    "user" => UserRole::User,
+                    _ => UserRole::User,
+                };
+                query = query.filter(users::role.eq(user_role));
+            }
         }
+
+        // Build count query
+        let mut count_query = users::table.into_boxed();
+        if let Some(role_filter) = role {
+            if role_filter != "all" {
+                let user_role = match role_filter.as_str() {
+                    "admin" => UserRole::Admin,
+                    "technician" => UserRole::Technician,
+                    "user" => UserRole::User,
+                    _ => UserRole::User,
+                };
+                count_query = count_query.filter(users::role.eq(user_role));
+            }
+        }
+        let total: i64 = count_query.count().get_result(conn)?;
+
+        // Apply sorting
+        match (sort_field.as_deref(), sort_direction.as_deref()) {
+            (Some("name"), Some("asc")) => query = query.order(users::name.asc()),
+            (Some("name"), _) => query = query.order(users::name.desc()),
+            (Some("role"), Some("asc")) => query = query.order(users::role.asc()),
+            (Some("role"), _) => query = query.order(users::role.desc()),
+            _ => query = query.order(users::name.asc()),
+        }
+
+        // Apply pagination
+        let offset = (page - 1) * page_size;
+        query = query.offset(offset).limit(page_size);
+
+        let results = query.load::<User>(conn)?;
+        Ok((results, total))
     }
-    
-    // Count total matching records (before pagination)
-    let total: i64 = count_query.count().get_result(conn)?;
-    
-    // Apply sorting to the main query
-    // Note: Email sorting removed - would require join with user_emails table
-    // Note: ID sorting removed - users table now uses UUID primary key (not sortable by id)
-    match (sort_field.as_deref(), sort_direction.as_deref()) {
-        (Some("name"), Some("asc")) => query = query.order(users::name.asc()),
-        (Some("name"), _) => query = query.order(users::name.desc()),
-        (Some("email"), Some("asc")) => query = query.order(users::name.asc()), // Fallback to name
-        (Some("email"), _) => query = query.order(users::name.desc()), // Fallback to name
-        (Some("role"), Some("asc")) => query = query.order(users::role.asc()),
-        (Some("role"), _) => query = query.order(users::role.desc()),
-        _ => query = query.order(users::name.asc()), // Default sort by name
-    }
-    
-    // Apply pagination
-    let offset = (page - 1) * page_size;
-    query = query.offset(offset).limit(page_size);
-    
-    // Execute the query
-    let results = query.load::<User>(conn)?;
-    
-    Ok((results, total))
 }
 
 // Note: get_user_by_id removed - users table now uses UUID as primary key

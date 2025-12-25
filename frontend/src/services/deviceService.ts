@@ -315,4 +315,10 @@ export const getPaginatedDevicesExcluding = async (params: {
     logger.error('Failed to fetch paginated devices excluding IDs', { error, params });
     throw error;
   }
-}; 127
+};
+
+// Bulk operations on devices (admin only)
+export const bulkAction = async (request: { action: 'delete'; ids: number[] }): Promise<{ affected: number }> => {
+  const response = await apiClient.post('/devices/bulk', request);
+  return response.data;
+};
