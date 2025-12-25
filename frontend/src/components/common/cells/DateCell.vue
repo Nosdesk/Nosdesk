@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { formatDate, formatRelativeTime, formatSmartDate, formatCompactDate } from '@/utils/dateUtils'
+import { formatDate, formatRelativeTime, formatSmartDate, formatCompactDate, formatCleanRelativeTime } from '@/utils/dateUtils'
 import { useDateStore } from '@/stores/dateStore'
 
 interface Props {
   value: string | Date | null | undefined
-  format?: 'short' | 'long' | 'relative' | 'smart' | 'compact'
+  format?: 'short' | 'long' | 'relative' | 'smart' | 'compact' | 'clean-relative'
   emptyText?: string
   showTimezone?: boolean
 }
@@ -24,6 +24,8 @@ const formattedDate = computed(() => {
   switch (props.format) {
     case 'relative':
       return formatRelativeTime(props.value)
+    case 'clean-relative':
+      return formatCleanRelativeTime(props.value)
     case 'smart':
       return formatSmartDate(props.value)
     case 'compact':

@@ -227,7 +227,7 @@ const navLinks = [
     },
     {
         to: "/projects",
-        icon: "M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z",
+        icon: "M4 4h4v16H4V4zm6 0h4v12h-4V4zm6 0h4v8h-4V4z",
         text: "Projects",
     },
     {

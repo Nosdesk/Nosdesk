@@ -9,39 +9,45 @@ interface Props {
     tickets?: Array<{ id: number; title: string }>;
     totalTickets?: number;
   };
+  disabled?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  disabled: false
+});
 const tooltipRef = ref<HTMLElement | null>(null);
 const showTooltip = ref(false);
 const position = ref({ x: 0, y: 0 });
 
 const updatePosition = (event: MouseEvent) => {
-  if (!tooltipRef.value) return;
-  
-  const tooltipWidth = tooltipRef.value.offsetWidth;
-  const tooltipHeight = tooltipRef.value.offsetHeight;
   const windowWidth = window.innerWidth;
   const windowHeight = window.innerHeight;
-  
+
   // Default position (below and to the right of the cursor)
   let x = event.clientX + 10;
   let y = event.clientY + 10;
-  
-  // Adjust if tooltip would go off the right edge
-  if (x + tooltipWidth > windowWidth) {
-    x = event.clientX - tooltipWidth - 10;
+
+  // Only adjust for tooltip dimensions if the ref exists
+  if (tooltipRef.value) {
+    const tooltipWidth = tooltipRef.value.offsetWidth;
+    const tooltipHeight = tooltipRef.value.offsetHeight;
+
+    // Adjust if tooltip would go off the right edge
+    if (x + tooltipWidth > windowWidth) {
+      x = event.clientX - tooltipWidth - 10;
+    }
+
+    // Adjust if tooltip would go off the bottom
+    if (y + tooltipHeight > windowHeight) {
+      y = event.clientY - tooltipHeight - 10;
+    }
   }
-  
-  // Adjust if tooltip would go off the bottom
-  if (y + tooltipHeight > windowHeight) {
-    y = event.clientY - tooltipHeight - 10;
-  }
-  
+
   position.value = { x, y };
 };
 
 const handleMouseEnter = (event: MouseEvent) => {
+  if (props.disabled) return;
   showTooltip.value = true;
   updatePosition(event);
 };
@@ -72,7 +78,7 @@ onUnmounted(() => {
     <slot />
     
     <div
-      v-if="showTooltip"
+      v-if="showTooltip && !disabled && (position.x !== 0 || position.y !== 0)"
       ref="tooltipRef"
       class="fixed z-50 bg-surface border border-default rounded-lg shadow-lg p-3 min-w-[200px] max-w-[300px]"
       :style="{

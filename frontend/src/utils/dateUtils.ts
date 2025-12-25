@@ -218,6 +218,39 @@ export function formatSmartDate(
 }
 
 /**
+ * Clean relative time formatter - shows "12 hours ago" without "about"
+ * For dates older than cutoff, shows compact date (no year if current year)
+ */
+export function formatCleanRelativeTime(
+  dateString: string | Date | null | undefined,
+  cutoffDays: number = 7
+): string {
+  const date = parseDate(dateString)
+  if (!date) return ''
+
+  const now = new Date()
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+
+  if (diffInSeconds < 0) return 'just now'
+  if (diffInSeconds < 60) return 'just now'
+
+  const diffInMinutes = Math.floor(diffInSeconds / 60)
+  if (diffInMinutes === 1) return '1 minute ago'
+  if (diffInMinutes < 60) return `${diffInMinutes} minutes ago`
+
+  const diffInHours = Math.floor(diffInMinutes / 60)
+  if (diffInHours === 1) return '1 hour ago'
+  if (diffInHours < 24) return `${diffInHours} hours ago`
+
+  const diffInDays = Math.floor(diffInHours / 24)
+  if (diffInDays === 1) return 'yesterday'
+  if (diffInDays < cutoffDays) return `${diffInDays} days ago`
+
+  // For older dates, use compact format (no year if current year)
+  return formatCompactDate(dateString)
+}
+
+/**
  * Compact date formatter - omits year if date is in current year
  * Shows "Dec 24" for current year, "Dec 24, 2023" for other years
  */

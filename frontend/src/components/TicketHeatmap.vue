@@ -126,6 +126,10 @@ const getColorClass = (count: number) => {
     return "heatmap-level-4";
 };
 
+// Check if date is in the future
+const todayStr = new Date().toISOString().split("T")[0];
+const isFutureDate = (dateStr: string) => dateStr > todayStr;
+
 // Format date for tooltip
 const formatHeatmapDate = (date: string) => {
     return formatDate(date, "MMM d, yyyy");
@@ -302,15 +306,17 @@ onActivated(() => {
                                     :key="`${weekIndex}-${dayIndex}`"
                                     :text="day.count.toString()"
                                     :details="getTooltipDetails(day)"
+                                    :disabled="isFutureDate(day.date)"
                                 >
                                     <div class="p-[1px]">
                                         <div
-                                            class="w-full h-2.5 rounded-[1px] transition-colors duration-300 hover:scale-110 hover:z-10 border border-subtle"
+                                            class="w-full h-2.5 rounded-[1px] transition-colors duration-300 hover:scale-110 hover:z-10 border"
                                             :class="[
-                                                getColorClass(day.count),
-                                                day.count > 0 ? 'cursor-pointer hover:border-default' : 'cursor-default'
+                                                isFutureDate(day.date) ? 'invisible' : getColorClass(day.count),
+                                                isFutureDate(day.date) ? 'border-transparent' : 'border-subtle',
+                                                day.count > 0 && !isFutureDate(day.date) ? 'cursor-pointer hover:border-default' : 'cursor-default'
                                             ]"
-                                            @click="handleDayClick(day)"
+                                            @click="!isFutureDate(day.date) && handleDayClick(day)"
                                         />
                                     </div>
                                 </HeatmapTooltip>

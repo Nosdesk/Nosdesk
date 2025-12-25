@@ -88,7 +88,7 @@ const navigateToOption = (route: string) => {
             </div>
             <div class="flex-1 min-w-0">
               <h3 class="text-primary font-medium">{{ item.title }}</h3>
-              <p class="text-xs text-secondary truncate">{{ item.description }}</p>
+              <p class="text-xs text-secondary">{{ item.description }}</p>
             </div>
           </div>
         </div>

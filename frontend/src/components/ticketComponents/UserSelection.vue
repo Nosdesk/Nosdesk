@@ -18,7 +18,14 @@ const props = defineProps<{
   placeholder?: string;
   type: 'requester' | 'assignee';
   currentUser?: { uuid: string; name: string; email?: string; avatar_thumb?: string | null; avatar_url?: string | null } | null;
+  hideInlineClear?: boolean;
 }>();
+
+// Expose methods for parent component control
+defineExpose({
+  focus: () => inputRef.value?.focus(),
+  clear: () => clearSelection(),
+});
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void;
@@ -482,11 +489,14 @@ const showHelperText = computed(() => {
 
       <!-- Action Buttons -->
       <div class="flex items-center gap-1.5 flex-shrink-0">
-        <!-- Clear button - larger touch target on mobile -->
+        <!-- Loading indicator -->
+        <div v-if="isSearching" class="w-4 h-4 border-2 border-tertiary border-t-transparent rounded-full animate-spin" />
+
+        <!-- Clear button - larger touch target on mobile (hidden if hideInlineClear is true) -->
         <button
-          v-if="modelValue"
+          v-else-if="modelValue && !hideInlineClear"
           @click.stop="clearSelection"
-          class="p-2 sm:p-1.5 -m-1 sm:m-0 text-tertiary hover:text-secondary hover:bg-surface-hover rounded-full transition-colors"
+          class="p-2 sm:p-1.5 -m-1 sm:m-0 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded-full transition-colors"
           type="button"
           title="Clear selection"
         >
@@ -494,17 +504,6 @@ const showHelperText = computed(() => {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
-
-        <!-- Loading/Search indicator -->
-        <div class="flex items-center justify-center w-5 h-5">
-          <div v-if="isSearching" class="w-4 h-4 border-2 border-tertiary border-t-transparent rounded-full animate-spin" />
-          <svg v-else-if="isDropdownOpen" class="w-4 h-4 text-tertiary rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-          </svg>
-          <svg v-else class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
       </div>
     </div>
 

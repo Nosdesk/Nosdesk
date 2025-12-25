@@ -274,7 +274,7 @@ defineExpose({
             </template>
 
             <template #cell-created_at="{ value }">
-              <DateCell :value="value" format="relative" />
+              <DateCell :value="value" format="clean-relative" />
             </template>
             </DataTable>
           </div>

@@ -143,7 +143,7 @@ pub async fn add_comment_to_ticket(
     let user_info = match crate::repository::users::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => {
             println!("Authenticated user: {} ({})", user.name, user.uuid);
-            Some(crate::models::UserInfo::from(user))
+            Some(crate::models::UserInfoWithAvatar::from(user))
         },
         Err(e) => {
             println!("Error: Authenticated user UUID '{}' not found in database: {:?}", claims.sub, e);

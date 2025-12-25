@@ -392,6 +392,22 @@ watch(
                             </a>
                         </div>
                         </div>
+
+                        <!-- Comments (inside left-column for tablet 2-col layout) -->
+                        <div class="ticket-comments rounded-xl">
+                            <CommentsAndAttachments
+                                :comments="comments"
+                                :current-user="
+                                    authStore.user?.uuid || 'Unknown User'
+                                "
+                                :recently-added-comment-ids="
+                                    recentlyAddedCommentIds
+                                "
+                                @add-comment="addComment"
+                                @delete-attachment="deleteAttachment"
+                                @delete-comment="deleteComment"
+                            />
+                        </div>
                     </div>
 
                     <!-- Article -->
@@ -400,22 +416,6 @@ watch(
                             :key="`article-${ticket.id}`"
                             :initial-content="ticket.article_content || ''"
                             :ticket-id="ticket.id"
-                        />
-                    </div>
-
-                    <!-- Comments -->
-                    <div class="ticket-comments rounded-xl">
-                        <CommentsAndAttachments
-                            :comments="comments"
-                            :current-user="
-                                authStore.user?.uuid || 'Unknown User'
-                            "
-                            :recently-added-comment-ids="
-                                recentlyAddedCommentIds
-                            "
-                            @add-comment="addComment"
-                            @delete-attachment="deleteAttachment"
-                            @delete-comment="deleteComment"
                         />
                     </div>
                 </div>
@@ -461,9 +461,10 @@ watch(
 <style scoped>
 /* Mobile: Single column, wrapper dissolves so items stack naturally */
 .ticket-grid {
-    display: grid;
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
     gap: 1.5rem;
+    width: 100%;
 }
 
 .ticket-left-column {
@@ -474,44 +475,67 @@ watch(
 .ticket-article,
 .ticket-comments {
     min-width: 0; /* Prevent overflow */
+    width: 100%;
 }
 
-/* Tablet (lg): 2 columns, details + comments in left, article in right */
+/* Mobile ordering: details → article → comments */
+.ticket-details {
+    order: 1;
+}
+
+.ticket-article {
+    order: 2;
+}
+
+.ticket-comments {
+    order: 3;
+}
+
+/* Tablet (lg): 2 columns using flexbox - no row alignment issues */
 @media (min-width: 1024px) {
     .ticket-grid {
-        grid-template-columns: minmax(340px, 1.1fr) minmax(0, 1fr);
-        grid-template-rows: auto auto;
-        align-items: start;
+        flex-direction: row;
+        align-items: flex-start;
     }
 
     .ticket-left-column {
         display: flex;
         flex-direction: column;
         gap: 1.5rem;
-        grid-column: 1;
-        grid-row: 1;
+        flex: 1 1 0;
+        max-width: 420px;
+        min-width: 340px;
+        order: 1; /* Left column first */
+    }
+
+    .ticket-details,
+    .ticket-comments {
+        width: 100%;
+        order: unset; /* Reset mobile ordering */
     }
 
     .ticket-article {
-        grid-column: 2;
-        grid-row: 1 / 3;
-        align-self: start;
-    }
-
-    .ticket-comments {
-        grid-column: 1;
-        grid-row: 2;
+        flex: 1.5 1 0;
+        min-width: 0;
+        order: 2; /* Article second */
     }
 }
 
-/* Desktop (xl): 3 columns, wrapper dissolves again */
+/* Desktop (xl): 3 columns with grid, wrapper dissolves */
 @media (min-width: 1536px) {
     .ticket-grid {
+        display: grid;
         grid-template-columns: minmax(350px, 1fr) minmax(0, 1.5fr) minmax(350px, 1fr);
     }
 
     .ticket-left-column {
         display: contents; /* Dissolve wrapper so details and comments become separate grid items */
+    }
+
+    .ticket-details,
+    .ticket-article,
+    .ticket-comments {
+        width: auto; /* Reset width for grid */
     }
 
     .ticket-details {

@@ -1,6 +1,7 @@
 import { type Ref } from 'vue';
 import ticketService from '@/services/ticketService';
 import apiClient from '@/services/apiConfig';
+import { useAuthStore } from '@/stores/auth';
 
 /**
  * Composable for managing ticket comments
@@ -24,6 +25,10 @@ export function useTicketComments(
     // Generate a temporary negative ID for optimistic update
     const tempId = -Date.now();
 
+    // Get current user info from auth store for optimistic update
+    const authStore = useAuthStore();
+    const currentUser = authStore.user;
+
     // Optimistically add to UI immediately with temp ID
     const optimisticComment = {
       id: tempId,
@@ -33,7 +38,12 @@ export function useTicketComments(
       created_at: new Date().toISOString(),
       ticket_id: ticket.value.id,
       attachments: [],
-      user: null,
+      user: currentUser ? {
+        uuid: currentUser.uuid,
+        name: currentUser.name,
+        avatar_url: currentUser.avatar_url,
+        avatar_thumb: currentUser.avatar_thumb,
+      } : null,
     };
 
     if (ticket.value.commentsAndAttachments) {
