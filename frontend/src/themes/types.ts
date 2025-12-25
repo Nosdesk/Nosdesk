@@ -120,6 +120,7 @@ export type BuiltInThemeId =
   | 'catppuccin-mocha'
   | 'one-dark'
   | 'epaper'
+  | 'christmas'
 
 /**
  * Theme mode - either 'system' or a specific theme ID

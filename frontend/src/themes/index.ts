@@ -24,12 +24,39 @@ import { pureBlackTheme } from './presets/pure-black'
 import { solarizedLightTheme, solarizedDarkTheme } from './presets/solarized'
 import { nossalDarkTheme } from './presets/nossal'
 import { redHorizonTheme } from './presets/red-horizon'
+import { christmasTheme } from './presets/christmas'
 
 // Re-export types
 export * from './types'
 
 // Re-export utilities
 export { applyTheme, getCurrentThemeId, isDarkTheme, getCssVariable } from './utils/cssInjector'
+
+/**
+ * Seasonal theme configuration
+ * Maps theme IDs to the months (1-12) when they should be available
+ */
+const SEASONAL_THEMES: Map<string, number[]> = new Map([
+  ['christmas', [12]], // December only
+])
+
+/**
+ * Check if a seasonal theme is currently available
+ */
+export function isSeasonalThemeAvailable(themeId: string): boolean {
+  const months = SEASONAL_THEMES.get(themeId)
+  if (!months) return true // Not a seasonal theme, always available
+
+  const currentMonth = new Date().getMonth() + 1 // getMonth() is 0-indexed
+  return months.includes(currentMonth)
+}
+
+/**
+ * Check if a theme is seasonal (regardless of current availability)
+ */
+export function isSeasonalTheme(themeId: string): boolean {
+  return SEASONAL_THEMES.has(themeId)
+}
 
 /**
  * Registry of all available themes
@@ -55,6 +82,8 @@ export const themeRegistry: Map<string, Theme> = new Map([
   ['epaper', ePaperTheme],
   ['pure-black', pureBlackTheme],
   ['red-horizon', redHorizonTheme],
+  // Seasonal themes
+  ['christmas', christmasTheme],
 ])
 
 /**
@@ -65,10 +94,12 @@ export function getTheme(id: string): Theme | undefined {
 }
 
 /**
- * Get all available themes
+ * Get all available themes (respects seasonal availability)
  */
 export function getAllThemes(): Theme[] {
-  return Array.from(themeRegistry.values())
+  return Array.from(themeRegistry.entries())
+    .filter(([id]) => isSeasonalThemeAvailable(id))
+    .map(([, theme]) => theme)
 }
 
 /**

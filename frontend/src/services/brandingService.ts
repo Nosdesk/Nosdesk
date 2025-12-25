@@ -116,81 +116,8 @@ class BrandingService {
     }
   }
 
-  /**
-   * Apply branding to the document (favicon and title)
-   */
-  applyBranding(config: BrandingConfig): void {
-    // Update page title
-    if (config.app_name) {
-      // Update any existing title to include the app name
-      const currentTitle = document.title
-      if (!currentTitle.includes(config.app_name)) {
-        document.title = config.app_name
-      }
-    }
-
-    // Update favicon
-    if (config.favicon_url) {
-      this.updateFavicon(config.favicon_url)
-    }
-  }
-
-  /**
-   * Update the favicon dynamically
-   */
-  updateFavicon(url: string): void {
-    // Remove existing favicon links
-    const existingIcons = document.querySelectorAll('link[rel*="icon"]')
-    existingIcons.forEach(icon => icon.remove())
-
-    // Create new favicon link
-    const link = document.createElement('link')
-    link.rel = 'icon'
-
-    // Determine type from URL
-    if (url.endsWith('.svg')) {
-      link.type = 'image/svg+xml'
-    } else if (url.endsWith('.ico')) {
-      link.type = 'image/x-icon'
-    } else if (url.endsWith('.png')) {
-      link.type = 'image/png'
-    }
-
-    link.href = url
-    document.head.appendChild(link)
-
-    // Also add alternate icon for legacy browsers
-    if (!url.endsWith('.ico')) {
-      const alternateLink = document.createElement('link')
-      alternateLink.rel = 'alternate icon'
-      alternateLink.href = url
-      document.head.appendChild(alternateLink)
-    }
-  }
-
-  /**
-   * Reset favicon to default
-   */
-  resetFavicon(): void {
-    const existingIcons = document.querySelectorAll('link[rel*="icon"]')
-    existingIcons.forEach(icon => icon.remove())
-
-    // Restore default favicons
-    const defaultIcons = [
-      { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
-      { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32.png' },
-      { rel: 'alternate icon', href: '/favicon.ico' }
-    ]
-
-    defaultIcons.forEach(iconData => {
-      const link = document.createElement('link')
-      link.rel = iconData.rel
-      if (iconData.type) link.type = iconData.type
-      if (iconData.sizes) link.setAttribute('sizes', iconData.sizes)
-      link.href = iconData.href
-      document.head.appendChild(link)
-    })
-  }
+  // Note: Favicon management is now handled by useFavicon composable in App.vue
+  // This provides reactive updates when brandingStore.faviconUrl changes
 }
 
 export default new BrandingService()

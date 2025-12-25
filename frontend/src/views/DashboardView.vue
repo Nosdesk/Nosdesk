@@ -74,6 +74,42 @@ const redHorizonGreetings = {
   ]
 }
 
+// Christmas themed greetings - festive and warm
+const christmasGreetings = {
+  morning: [
+    { message: "Merry Christmas, {0}!", weight: 2 },
+    { message: "Happy Holidays, {0}!", weight: 2 },
+    { message: "Season's Greetings, {0}!", weight: 1 },
+    { message: "Good morning, {0}! Ho ho ho!", weight: 1 },
+    { message: "Morning, {0}! Feeling festive?", weight: 1 },
+    { message: "Happy Holidays! Ready to spread cheer, {0}?", weight: 1 }
+  ],
+  afternoon: [
+    { message: "Merry Christmas, {0}!", weight: 2 },
+    { message: "Happy Holidays, {0}!", weight: 2 },
+    { message: "Season's Greetings, {0}!", weight: 1 },
+    { message: "Afternoon, {0}! Staying warm?", weight: 1 },
+    { message: "Hi {0}! The holidays are here!", weight: 1 },
+    { message: "Hello, {0}! Jingle all the way!", weight: 1 }
+  ],
+  evening: [
+    { message: "Merry Christmas, {0}!", weight: 2 },
+    { message: "Happy Holidays, {0}!", weight: 2 },
+    { message: "Season's Greetings, {0}!", weight: 1 },
+    { message: "Evening, {0}! Cozy night ahead?", weight: 1 },
+    { message: "Hello, {0}! Time for hot cocoa?", weight: 1 },
+    { message: "Good evening, {0}! Stay festive!", weight: 1 }
+  ],
+  lateNight: [
+    { message: "Merry Christmas, {0}!", weight: 2 },
+    { message: "Happy Holidays, {0}!", weight: 2 },
+    { message: "Hello, {0}! Waiting for Santa?", weight: 1 },
+    { message: "Late night, {0}? Wrapping presents?", weight: 1 },
+    { message: "Hi {0}! The stockings are hung!", weight: 1 },
+    { message: "Season's Greetings, {0}! Sweet dreams!", weight: 1 }
+  ]
+}
+
 // Standard greetings
 const standardGreetings = {
   morning: [
@@ -102,8 +138,15 @@ const standardGreetings = {
 const getGreeting = () => {
   const hour = new Date().getHours();
 
-  // Use red horizon greetings if that theme is active
-  const greetings = currentTheme.value === 'red-horizon' ? redHorizonGreetings : standardGreetings;
+  // Select greetings based on active theme
+  let greetings;
+  if (currentTheme.value === 'red-horizon') {
+    greetings = redHorizonGreetings;
+  } else if (currentTheme.value === 'christmas') {
+    greetings = christmasGreetings;
+  } else {
+    greetings = standardGreetings;
+  }
 
   // Determine time period
   let period: 'morning' | 'afternoon' | 'evening' | 'lateNight';
@@ -171,10 +214,37 @@ const redHorizonSubtitles = [
   "Standing by."
 ]
 
+// Christmas themed subtitles - warm and festive
+const christmasSubtitles = [
+  "Wishing you joy and cheer this holiday season!",
+  "May your days be merry and bright!",
+  "Spreading holiday cheer, one ticket at a time.",
+  "The most wonderful time of the year!",
+  "Deck the halls with resolved tickets!",
+  "All is calm, all is bright.",
+  "Let it snow, let it snow, let it snow!",
+  "Have yourself a merry little workday.",
+  "Tis the season to be productive!",
+  "Warm wishes for a wonderful holiday!",
+  "Making spirits bright since you logged in.",
+  "Peace, love, and great support.",
+  "Joy to the world, the tickets are done!",
+  "Sleigh your tasks today!",
+  "Wrapped up with care, just for you.",
+  "Festive vibes and good times ahead!",
+  "Here's to a season of success!",
+  "Chestnuts roasting, tickets resolving.",
+  "Sending warm holiday wishes your way!",
+  "May your queue be short and your coffee strong."
+]
+
 // Get themed subtitle
 const getSubtitle = () => {
   if (currentTheme.value === 'red-horizon') {
     return redHorizonSubtitles[Math.floor(Math.random() * redHorizonSubtitles.length)];
+  }
+  if (currentTheme.value === 'christmas') {
+    return christmasSubtitles[Math.floor(Math.random() * christmasSubtitles.length)];
   }
   return `Welcome to your ${brandingStore.appName} dashboard`;
 }

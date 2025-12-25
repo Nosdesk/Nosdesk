@@ -144,16 +144,12 @@ export const useBrandingStore = defineStore('branding', () => {
   }
 
   /**
-   * Apply branding to the document (favicon and default title)
+   * Apply branding to the document
+   * Note: Favicon is now handled reactively by useFavicon composable in App.vue
    */
   function applyBrandingToDocument(): void {
-    // Update favicon if custom one is set
-    if (config.value.favicon_url) {
-      brandingService.updateFavicon(config.value.favicon_url)
-    }
-
-    // Store the app name for use in page titles
-    // The actual title updates are handled by useTitleManager composable
+    // Favicon is handled by useFavicon composable watching faviconUrl
+    // App name for page titles is handled by useTitleManager composable
   }
 
   /**
@@ -184,7 +180,8 @@ export const useBrandingStore = defineStore('branding', () => {
     } catch (e) {
       // Ignore storage errors
     }
-    brandingService.resetFavicon()
+    // Favicon reset is handled automatically by useFavicon composable
+    // when faviconUrl becomes null
   }
 
   return {

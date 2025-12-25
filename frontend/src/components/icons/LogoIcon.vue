@@ -1,5 +1,36 @@
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
+import ChristmasLogoIcon from './ChristmasLogoIcon.vue'
+
+// Track current theme for seasonal logo
+const currentTheme = ref(document.documentElement.getAttribute('data-theme') || '')
+
+// Watch for theme changes
+let observer: MutationObserver | null = null
+
+onMounted(() => {
+  observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.attributeName === 'data-theme') {
+        currentTheme.value = document.documentElement.getAttribute('data-theme') || ''
+      }
+    }
+  })
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+})
+
+onUnmounted(() => {
+  observer?.disconnect()
+})
+</script>
+
 <template>
+  <!-- Christmas logo when Christmas theme is active -->
+  <ChristmasLogoIcon v-if="currentTheme === 'christmas'" />
+
+  <!-- Regular logo rest of the year -->
   <svg
+    v-else
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 445.01 81.11"
     fill="currentColor"

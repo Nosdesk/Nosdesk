@@ -9,11 +9,16 @@ import { useTitleManager } from '@/composables/useTitleManager'
 import { useMobileSearch } from '@/composables/useMobileSearch'
 import { useCursorScanlines } from '@/composables/useCursorScanlines'
 import { useCrtEffect } from '@/composables/useCrtEffect'
+import { useSnowfall } from '@/composables/useSnowfall'
+import { useFavicon } from '@/composables/useFavicon'
 import authService from '@/services/authService'
 import { useBrandingStore } from '@/stores/branding'
 
 // Initialize branding store and load config
 const brandingStore = useBrandingStore()
+
+// Reactive favicon management - watches branding store for changes
+useFavicon(() => brandingStore.faviconUrl)
 
 const route = useRoute()
 const isBlankLayout = computed(() => route.meta.layout === 'blank')
@@ -30,9 +35,10 @@ const titleManager = useTitleManager();
 // Mobile search bar state - used for conditional padding
 const { isActive: isMobileSearchActive } = useMobileSearch();
 
-// Red-horizon theme effects
-useCursorScanlines();  // Crosshair lines following cursor
-useCrtEffect();        // Full-screen CRT monitor effect
+// Theme-specific visual effects
+useCursorScanlines();  // Red-horizon: Crosshair lines following cursor
+useCrtEffect();        // Red-horizon: Full-screen CRT monitor effect
+useSnowfall();         // Christmas: Ambient falling snow
 
 // Handle route-based ticket information
 const ticketInfo = computed(() => {
@@ -76,6 +82,11 @@ const currentViewComponent = ref<any>(null);
 // Computed property for create button text from route meta
 const createButtonText = computed(() => {
   return route.meta.createButtonText || 'Create Ticket';
+});
+
+// Only show create button if the route has a createButtonAction defined
+const showCreateButton = computed(() => {
+  return !!route.meta.createButtonAction;
 });
 
 // Handle create button click using route meta configuration
