@@ -95,7 +95,9 @@ const router = createRouter({
       component: DashboardView,
       meta: {
         requiresAuth: true,
-        title: 'Dashboard'
+        title: 'Dashboard',
+        createButtonText: 'Create Ticket',
+        createButtonAction: 'handleCreateTicket'
       }
     },
     {
@@ -104,7 +106,9 @@ const router = createRouter({
       component: TicketsListView,
       meta: {
         requiresAuth: true,
-        title: 'Tickets'
+        title: 'Tickets',
+        createButtonText: 'Create Ticket',
+        createButtonAction: 'handleCreateTicket'
       }
     },
     {
@@ -114,7 +118,9 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'View Ticket'
+        title: 'View Ticket',
+        createButtonText: 'Create Ticket',
+        createButtonAction: 'handleCreateTicket'
       },
       beforeEnter: (to) => {
         to.meta.key = to.params.id
@@ -180,7 +186,9 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'Project Details'
+        title: 'Project Details',
+        createButtonText: 'Add Ticket',
+        createButtonAction: 'openAddTicketModal'
       },
       beforeEnter: (to) => {
         to.meta.key = to.params.id

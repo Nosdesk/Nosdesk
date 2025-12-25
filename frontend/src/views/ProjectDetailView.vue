@@ -192,6 +192,16 @@ watch(() => route.query.view, (newValue) => {
   // No need to set activeTab since it's now computed from the route
   console.log(`View changed to ${newValue || 'kanban'}`)
 }, { immediate: true })
+
+// Method to open add ticket modal from SiteHeader
+const openAddTicketModal = () => {
+  showAddTicketModal.value = true
+}
+
+// Expose methods for parent component access (SiteHeader create button)
+defineExpose({
+  openAddTicketModal
+})
 </script>
 
 <template>

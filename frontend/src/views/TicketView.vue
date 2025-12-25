@@ -170,6 +170,21 @@ watch(
         }
     },
 );
+
+// Create ticket handler for SiteHeader button
+const handleCreateTicket = async () => {
+    try {
+        const newTicket = await ticketService.createEmptyTicket();
+        router.push(`/tickets/${newTicket.id}`);
+    } catch (error) {
+        console.error("Failed to create empty ticket:", error);
+    }
+};
+
+// Expose methods for parent component access (SiteHeader create button)
+defineExpose({
+    handleCreateTicket,
+});
 </script>
 
 <template>

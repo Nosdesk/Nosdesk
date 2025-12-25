@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import TicketHeatmap from '@/components/TicketHeatmap.vue'
 import UserAssignedTickets from '@/components/UserAssignedTickets.vue'
-import { getTickets } from '@/services/ticketService'
+import ticketService, { getTickets } from '@/services/ticketService'
 import type { Ticket } from '@/services/ticketService'
 import { useAuthStore } from '@/stores/auth'
 import { useBrandingStore } from '@/stores/branding'
+
+const router = useRouter()
 
 // Initialize stores
 const authStore = useAuthStore()
@@ -300,6 +303,21 @@ const fetchTicketStats = async () => {
 // Fetch data when component mounts
 onMounted(() => {
   fetchTicketStats();
+});
+
+// Create ticket handler for SiteHeader button
+const handleCreateTicket = async () => {
+  try {
+    const newTicket = await ticketService.createEmptyTicket();
+    router.push(`/tickets/${newTicket.id}`);
+  } catch (error) {
+    console.error('Failed to create empty ticket:', error);
+  }
+};
+
+// Expose methods for parent component access (SiteHeader create button)
+defineExpose({
+  handleCreateTicket
 });
 </script>
 

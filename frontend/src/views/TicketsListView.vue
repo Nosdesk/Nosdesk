@@ -414,6 +414,11 @@ const filterOptions = computed(() => {
 
 // Staggered fade-in animation
 const { getStyle } = useStaggeredList();
+
+// Expose methods for parent component access (SiteHeader create button)
+defineExpose({
+  handleCreateTicket
+});
 </script>
 
 <template>
