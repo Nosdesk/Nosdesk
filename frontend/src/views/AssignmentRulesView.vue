@@ -4,6 +4,7 @@ import BackButton from '@/components/common/BackButton.vue'
 import AlertMessage from '@/components/common/AlertMessage.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import Checkbox from '@/components/common/Checkbox.vue'
 import Modal from '@/components/Modal.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { assignmentRuleService } from '@/services/assignmentRuleService'
@@ -533,23 +534,15 @@ onMounted(() => {
         <!-- Triggers -->
         <div>
           <label class="block text-sm font-medium text-primary mb-2">Triggers</label>
-          <div class="space-y-2">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                v-model="ruleForm.trigger_on_create"
-                type="checkbox"
-                class="w-4 h-4 text-accent bg-surface border-default rounded focus:ring-accent"
-              />
-              <span class="text-sm text-secondary">When a ticket is created</span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                v-model="ruleForm.trigger_on_category_change"
-                type="checkbox"
-                class="w-4 h-4 text-accent bg-surface border-default rounded focus:ring-accent"
-              />
-              <span class="text-sm text-secondary">When a ticket's category changes</span>
-            </label>
+          <div class="space-y-3">
+            <Checkbox
+              v-model="ruleForm.trigger_on_create"
+              label="When a ticket is created"
+            />
+            <Checkbox
+              v-model="ruleForm.trigger_on_category_change"
+              label="When a ticket's category changes"
+            />
           </div>
         </div>
 
