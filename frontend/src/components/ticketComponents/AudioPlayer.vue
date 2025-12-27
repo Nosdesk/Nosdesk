@@ -7,6 +7,7 @@ import { useAudioPlayer } from '@/composables/useAudioPlayer';
 
 const props = defineProps<{
   src: string;
+  transcription?: string;
 }>();
 
 const emit = defineEmits<{
@@ -30,6 +31,15 @@ const error = ref<string | null>(null);
 const isDragging = ref(false);
 const durationLoaded = ref(false);
 const isTouchDragging = ref(false);
+
+// Lazy loading - only load audio when visible
+const containerRef = ref<HTMLElement | null>(null);
+const isVisible = ref(false);
+const hasLoadedOnce = ref(false);
+let intersectionObserver: IntersectionObserver | null = null;
+
+// Blob URL for single-fetch optimization - download once, use for both waveform and playback
+const blobUrl = ref<string | null>(null);
 
 const formatTime = (seconds: number): string => {
   if (!seconds || isNaN(seconds) || !isFinite(seconds)) return "0:00";
@@ -284,47 +294,64 @@ const loadAudioData = async () => {
       audioData.value = null;
     }
 
+    // Revoke previous blob URL if exists
+    if (blobUrl.value) {
+      URL.revokeObjectURL(blobUrl.value);
+      blobUrl.value = null;
+    }
+
     // Initialize audio context first
     initAudioContext();
 
+    // Fetch audio once - we'll use this for both waveform AND playback
     const response = await fetch(props.src);
     if (!response.ok) {
       throw new Error(`Failed to load audio: ${response.statusText}`);
     }
 
-    const arrayBuffer = await response.arrayBuffer();
+    // Get as blob for creating object URL (for audio element playback)
+    const blob = await response.blob();
+    blobUrl.value = URL.createObjectURL(blob);
+
+    // Set the audio element src to use our blob URL (no second download!)
+    if (audioRef.value) {
+      audioRef.value.src = blobUrl.value;
+    }
+
+    // Convert blob to ArrayBuffer for waveform analysis
+    const arrayBuffer = await blob.arrayBuffer();
     const audioBuffer = await audioContext.value!.decodeAudioData(arrayBuffer);
-    
+
     // Set duration immediately and mark as loaded
     if (audioBuffer.duration && isFinite(audioBuffer.duration)) {
       duration.value = audioBuffer.duration;
       durationLoaded.value = true;
     }
-    
+
     const rawData = audioBuffer.getChannelData(0);
     const samples = 2000;
     const blockSize = Math.floor(rawData.length / samples);
     const filteredData = new Float32Array(samples);
-    
+
     let maxAmp = 0;
     for (let i = 0; i < rawData.length; i += blockSize) {
       const sampleAmp = Math.abs(rawData[i]);
       if (sampleAmp > maxAmp) maxAmp = sampleAmp;
     }
-    
+
     for (let i = 0; i < samples; i++) {
       const blockStart = blockSize * i;
       let sum = 0;
       let count = 0;
-      
+
       for (let j = 0; j < blockSize && (blockStart + j) < rawData.length; j++) {
         sum += Math.abs(rawData[blockStart + j]);
         count++;
       }
-      
+
       filteredData[i] = count > 0 ? (sum / count) / (maxAmp || 1) : 0;
     }
-    
+
     audioData.value = filteredData;
     drawWaveform();
     isLoading.value = false;
@@ -440,20 +467,15 @@ const checkAndUpdateDuration = () => {
   }
 };
 
-onMounted(async () => {
-  if (!audioRef.value) return;
+// Initialize audio and set up event listeners (called when visible)
+const initializeAudio = async () => {
+  if (!audioRef.value || hasLoadedOnce.value) return;
+  hasLoadedOnce.value = true;
 
-  // Listen for pause events from other players
-  cleanupPauseListener = onPauseOthers(() => {
-    if (audioRef.value && isPlaying.value) {
-      audioRef.value.pause();
-    }
-  });
-
-  // Initialize audio context on mount
+  // Initialize audio context
   initAudioContext();
 
-  // Load audio data immediately
+  // Load audio data
   await loadAudioData();
 
   // Set up event listeners
@@ -493,6 +515,20 @@ onMounted(async () => {
     checkAndUpdateDuration();
   });
 
+  // Try to get duration after a short delay as a fallback
+  setTimeout(() => {
+    checkAndUpdateDuration();
+  }, 500);
+};
+
+onMounted(() => {
+  // Listen for pause events from other players
+  cleanupPauseListener = onPauseOthers(() => {
+    if (audioRef.value && isPlaying.value) {
+      audioRef.value.pause();
+    }
+  });
+
   // Add global mouse event listeners
   document.addEventListener('mousemove', handleMouseMove);
   document.addEventListener('mouseup', handleMouseUp);
@@ -502,10 +538,30 @@ onMounted(async () => {
   document.addEventListener('touchend', handleTouchEnd);
   document.addEventListener('touchcancel', handleTouchEnd);
 
-  // Try to get duration after a short delay as a fallback
-  setTimeout(() => {
-    checkAndUpdateDuration();
-  }, 500);
+  // Set up Intersection Observer for lazy loading
+  if (containerRef.value && 'IntersectionObserver' in window) {
+    intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !hasLoadedOnce.value) {
+            isVisible.value = true;
+            // Load audio when component becomes visible
+            initializeAudio();
+          }
+        });
+      },
+      {
+        // Start loading slightly before the element is visible
+        rootMargin: '100px',
+        threshold: 0
+      }
+    );
+    intersectionObserver.observe(containerRef.value);
+  } else {
+    // Fallback for browsers without IntersectionObserver
+    isVisible.value = true;
+    initializeAudio();
+  }
 });
 
 // Add watch on src prop to reload audio data when it changes
@@ -516,6 +572,12 @@ watch(() => props.src, () => {
 });
 
 onUnmounted(() => {
+  // Clean up Intersection Observer
+  if (intersectionObserver) {
+    intersectionObserver.disconnect();
+    intersectionObserver = null;
+  }
+
   // Clean up pause listener
   if (cleanupPauseListener) {
     cleanupPauseListener();
@@ -527,6 +589,12 @@ onUnmounted(() => {
   }
   if (audioContext.value) {
     audioContext.value.close();
+  }
+
+  // Revoke blob URL to free memory
+  if (blobUrl.value) {
+    URL.revokeObjectURL(blobUrl.value);
+    blobUrl.value = null;
   }
 
   // Remove global mouse event listeners
@@ -541,12 +609,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="audio-player w-full">
-    <!-- Hidden audio element -->
+  <div ref="containerRef" class="audio-player w-full">
+    <!-- Hidden audio element - src is set programmatically from blob URL after fetch -->
     <audio
       ref="audioRef"
-      :src="props.src"
-      preload="auto"
+      preload="none"
       class="hidden"
     />
 
@@ -606,6 +673,21 @@ onUnmounted(() => {
 
       <!-- Duration -->
       <span class="text-xs font-mono text-tertiary tabular-nums flex-shrink-0 w-8">{{ formattedDuration }}</span>
+    </div>
+
+    <!-- Transcription display -->
+    <div v-if="props.transcription" class="mt-2">
+      <details class="group">
+        <summary class="text-xs text-tertiary hover:text-secondary cursor-pointer select-none flex items-center gap-1 py-1">
+          <svg class="w-3 h-3 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+          </svg>
+          Transcription
+        </summary>
+        <p class="mt-1 text-xs text-secondary italic p-2 bg-surface rounded-md">
+          {{ props.transcription }}
+        </p>
+      </details>
     </div>
   </div>
 </template>

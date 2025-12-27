@@ -23,6 +23,7 @@ export interface Ticket {
   requester: string
   requester_user?: UserInfo | null
   assignee_user?: UserInfo | null
+  category_id?: number | null
   closed_at?: string
   devices?: Device[]
   comments?: Comment[]

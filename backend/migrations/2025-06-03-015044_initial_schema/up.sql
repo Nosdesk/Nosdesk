@@ -226,7 +226,8 @@ CREATE TABLE attachments (
     checksum VARCHAR(64), -- SHA256 hash for integrity
     comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
     uploaded_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    transcription TEXT -- Voice note transcription from Web Speech API
 );
 
 -- Article contents for knowledge base with Yjs collaborative editing (snapshot-based persistence)

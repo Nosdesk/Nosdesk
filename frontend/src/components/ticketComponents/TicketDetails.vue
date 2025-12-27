@@ -16,6 +16,13 @@ interface UserInfo {
   avatar_thumb?: string | null;
 }
 
+interface CategoryInfo {
+  id: number;
+  name: string;
+  color?: string | null;
+  icon?: string | null;
+}
+
 const props = defineProps<{
   ticket: {
     id: number;
@@ -28,18 +35,23 @@ const props = defineProps<{
     requester?: string;
     requester_user?: UserInfo | null;
     assignee_user?: UserInfo | null;
+    category_id?: number | null;
+    category?: CategoryInfo | null;
   };
   createdDate: string;
   modifiedDate: string;
   selectedStatus: string;
   selectedPriority: string;
+  selectedCategory?: number | null;
   statusOptions: { value: string; label: string }[];
   priorityOptions: { value: string; label: string }[];
+  categoryOptions?: { value: string; label: string; color?: string }[];
 }>();
 
 const emit = defineEmits<{
   (e: "update:selectedStatus", value: string): void;
   (e: "update:selectedPriority", value: string): void;
+  (e: "update:selectedCategory", value: string): void;
   (e: "update:requester", value: string): void;
   (e: "update:assignee", value: string): void;
   (e: "update:title", value: string): void;
@@ -193,6 +205,21 @@ const handleTitleUpdate = (newTitle: string) => {
                   class="w-full"
                 />
               </div>
+            </div>
+          </div>
+
+          <!-- Category Section -->
+          <div v-if="categoryOptions && categoryOptions.length > 0" class="flex flex-col gap-1.5">
+            <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Category</h3>
+            <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
+              <CustomDropdown
+                :value="selectedCategory?.toString() || ''"
+                :options="categoryOptions"
+                type="category"
+                @update:value="emit('update:selectedCategory', $event)"
+                class="w-full"
+                placeholder="Select category..."
+              />
             </div>
           </div>
 

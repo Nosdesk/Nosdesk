@@ -4,8 +4,6 @@ import { ref } from "vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
 import AttachmentPreview from "@/components/ticketComponents/AttachmentPreview.vue";
-import AudioPlayer from "@/components/ticketComponents/AudioPlayer.vue";
-import AudioPreview from "@/components/ticketComponents/AudioPreview.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
@@ -27,6 +25,7 @@ interface CommentWithAttachments {
         url: string;
         name: string;
         comment_id: number;
+        transcription?: string;
     }[];
     user?: UserInfo;
 }
@@ -41,8 +40,6 @@ const newCommentContent = ref<string>("");
 const newAttachments = ref<File[]>([]); // Store File objects initially
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const showRecordingInterface = ref(false);
-const showPreviewInterface = ref(false);
-const currentRecording = ref<{ blob: Blob; duration: number } | null>(null);
 const isDraggingFile = ref(false);
 const conversionMessage = ref<string | null>(null);
 
@@ -117,29 +114,15 @@ const handleFileUpload = async (event: Event) => {
     const input = event.target as HTMLInputElement;
     if (input.files) {
         const files = Array.from(input.files);
-        console.log(
-            "Files selected:",
-            files.map((f) => `${f.name} (${f.type})`),
-        );
 
-        // Handle audio files separately
-        const audioFiles = files.filter((file) =>
-            file.type.startsWith("audio/"),
-        );
-        const otherFiles = files.filter(
-            (file) => !file.type.startsWith("audio/"),
-        );
+        // Process non-audio files (convert HEIC images if needed)
+        const nonAudioFiles = files.filter((file) => !file.type.startsWith("audio/"));
+        const processedFiles = await processFiles(nonAudioFiles);
 
-        // Process audio files
-        if (audioFiles.length > 0) {
-            const audioFile = audioFiles[0]; // Take the first audio file
-            currentRecording.value = { blob: audioFile, duration: 0 };
-            showPreviewInterface.value = true;
-        }
+        // Audio files go directly to attachments (no special processing needed)
+        const audioFiles = files.filter((file) => file.type.startsWith("audio/"));
 
-        // Process other files - convert HEIC images if needed
-        const processedFiles = await processFiles(otherFiles);
-        newAttachments.value.push(...processedFiles);
+        newAttachments.value.push(...processedFiles, ...audioFiles);
     }
     // Reset input so the same file can be selected again
     if (input) input.value = '';
@@ -156,52 +139,28 @@ const startVoiceRecording = () => {
 const handleRecordingComplete = (recording: {
     blob: Blob;
     duration: number;
+    transcription?: string;
 }) => {
-    currentRecording.value = recording;
+    console.log('[CommentsAndAttachments] Recording complete, transcription:', recording.transcription);
+
+    // Auto-stage the voice note as an attachment
+    const fileName = `Voice Note ${formatDate(new Date(), "MMM d, yyyy")}.webm`;
+    const audioFile = new File([recording.blob], fileName, {
+        type: recording.blob.type,
+    }) as File & { _transcription?: string };
+
+    if (recording.transcription) {
+        (audioFile as any)._transcription = recording.transcription;
+        console.log('[CommentsAndAttachments] Attached transcription to file');
+    }
+
+    newAttachments.value.push(audioFile);
+    console.log('[CommentsAndAttachments] File _transcription:', (audioFile as any)._transcription);
     showRecordingInterface.value = false;
-    showPreviewInterface.value = true;
 };
 
 const handleRecordingCancel = () => {
     showRecordingInterface.value = false;
-    currentRecording.value = null;
-};
-
-const handleAudioSubmit = (data: { blob: Blob; name: string }) => {
-    // Convert Blob to File
-    console.log("Handling audio submission:", data);
-    const audioFile = new File([data.blob], data.name, {
-        type: data.blob.type,
-    });
-    console.log("Created audio file:", audioFile);
-    newAttachments.value.push(audioFile);
-    showPreviewInterface.value = false;
-    currentRecording.value = null;
-};
-
-const confirmRecording = () => {
-    if (currentRecording.value) {
-        const fileName = `Voice Note ${new Date().toLocaleTimeString()}.webm`;
-        console.log("Confirming recording, creating file:", fileName);
-        const audioFile = new File([currentRecording.value.blob], fileName, {
-            type: currentRecording.value.blob.type,
-        });
-        console.log("Created audio file from recording:", audioFile);
-        newAttachments.value.push(audioFile);
-    }
-    showPreviewInterface.value = false;
-    currentRecording.value = null;
-};
-
-const reRecord = () => {
-    showPreviewInterface.value = false;
-    currentRecording.value = null;
-    startVoiceRecording();
-};
-
-const cancelPreview = () => {
-    showPreviewInterface.value = false;
-    currentRecording.value = null;
 };
 
 const deleteAttachment = (commentId: number, attachmentIndex: number) => {
@@ -224,15 +183,23 @@ const hasRealContent = (comment: CommentWithAttachments): boolean => {
     return content !== '' && content.toLowerCase() !== 'attachment added';
 };
 
-// File type helpers
-const isAudioFile = (filename: string): boolean => {
+// Check if comment is audio-only (no text, single audio attachment)
+const isAudioOnlyComment = (comment: CommentWithAttachments): boolean => {
+    if (hasRealContent(comment)) return false;
+    if (!comment.attachments || comment.attachments.length !== 1) return false;
+    const name = comment.attachments[0].name?.toLowerCase() || '';
     const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.webm', '.aac'];
-    return audioExtensions.some(ext => filename.toLowerCase().endsWith(ext)) ||
-           filename.toLowerCase().includes('voice note');
+    return audioExtensions.some(ext => name.endsWith(ext)) || name.includes('voice note');
 };
 
-const getAuthenticatedUrl = (url: string): string => {
-    return convertToAuthenticatedPath(url);
+// Get display name for audio - "Voice Message" for voice notes
+const getAudioDisplayName = (filename: string): string => {
+    if (!filename) return 'Audio';
+    const lower = filename.toLowerCase();
+    if (lower.startsWith('voice note') || lower.startsWith('voicenote')) {
+        return 'Voice Message';
+    }
+    return filename;
 };
 
 const handleDragEnter = (event: DragEvent) => {
@@ -264,25 +231,15 @@ const handleDrop = async (event: DragEvent) => {
     if (!event.dataTransfer?.files.length) return;
 
     const files = Array.from(event.dataTransfer.files);
-    console.log(
-        "Files dropped:",
-        files.map((f) => `${f.name} (${f.type})`),
-    );
 
-    // Handle audio files separately
+    // Process non-audio files (convert HEIC images if needed)
+    const nonAudioFiles = files.filter((file) => !file.type.startsWith("audio/"));
+    const processedFiles = await processFiles(nonAudioFiles);
+
+    // Audio files go directly to attachments
     const audioFiles = files.filter((file) => file.type.startsWith("audio/"));
-    const otherFiles = files.filter((file) => !file.type.startsWith("audio/"));
 
-    // Process audio files
-    if (audioFiles.length > 0) {
-        const audioFile = audioFiles[0]; // Take the first audio file
-        currentRecording.value = { blob: audioFile, duration: 0 };
-        showPreviewInterface.value = true;
-    }
-
-    // Process other files - convert HEIC images if needed
-    const processedFiles = await processFiles(otherFiles);
-    newAttachments.value.push(...processedFiles);
+    newAttachments.value.push(...processedFiles, ...audioFiles);
 };
 </script>
 
@@ -388,6 +345,7 @@ const handleDrop = async (event: DragEvent) => {
                                 :attachment="{
                                     url: uploadService.createPreviewUrl(file),
                                     name: file.name,
+                                    transcription: (file as any)._transcription,
                                 }"
                                 :author="props.currentUser"
                                 :timestamp="
@@ -400,23 +358,11 @@ const handleDrop = async (event: DragEvent) => {
                             />
                         </div>
 
-                        <!-- Voice Recorder and Preview Components -->
+                        <!-- Voice Recorder -->
                         <VoiceRecorder
                             v-if="showRecordingInterface"
                             @recording-complete="handleRecordingComplete"
                             @cancel="handleRecordingCancel"
-                        />
-
-                        <AudioPreview
-                            v-if="showPreviewInterface && currentRecording"
-                            :blob="currentRecording.blob"
-                            :author="props.currentUser"
-                            :timestamp="formattedDate(new Date().toISOString())"
-                            :show-recording-controls="showRecordingInterface"
-                            @confirm="confirmRecording"
-                            @submit="handleAudioSubmit"
-                            @re-record="reRecord"
-                            @cancel="cancelPreview"
                         />
 
                         <!-- Hidden file input -->
@@ -508,32 +454,26 @@ const handleDrop = async (event: DragEvent) => {
                                     class="flex-shrink-0"
                                 />
                                 <div class="flex flex-col flex-1 min-w-0">
-                                    <!-- Show text content if present, or filename(s) for attachment-only comments -->
-                                    <p class="text-primary">
-                                        <template v-if="hasRealContent(comment)">
-                                            {{ comment.content }}
-                                        </template>
-                                        <template v-else-if="comment.attachments && comment.attachments.length > 0">
-                                            {{ comment.attachments.map(a => a.name).join(', ') }}
-                                        </template>
+                                    <!-- Text content or "Voice Message" for audio-only -->
+                                    <p v-if="hasRealContent(comment)" class="text-primary">
+                                        {{ comment.content }}
                                     </p>
-                                    <small class="text-secondary"
-                                        >{{
-                                            comment.user?.name ||
-                                            comment.user_uuid
-                                        }}
+                                    <p v-else-if="isAudioOnlyComment(comment)" class="text-primary">
+                                        {{ getAudioDisplayName(comment.attachments[0].name) }}
+                                    </p>
+                                    <small class="text-secondary">
+                                        {{ comment.user?.name || comment.user_uuid }}
                                         -
-                                        {{
-                                            formattedDate(comment.createdAt)
-                                        }}</small
-                                    >
+                                        {{ formattedDate(comment.createdAt) }}
+                                    </small>
                                 </div>
                             </div>
+                            <!-- Action buttons -->
                             <div class="flex items-center gap-1 flex-shrink-0 self-start">
-                                <!-- Download button for attachment-only comments -->
+                                <!-- Download button for audio-only comments -->
                                 <a
-                                    v-if="!hasRealContent(comment) && comment.attachments && comment.attachments.length > 0"
-                                    :href="getAuthenticatedUrl(comment.attachments[0].url)"
+                                    v-if="isAudioOnlyComment(comment)"
+                                    :href="convertToAuthenticatedPath(comment.attachments[0].url)"
                                     :download="comment.attachments[0].name"
                                     target="_blank"
                                     class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
@@ -546,16 +486,13 @@ const handleDrop = async (event: DragEvent) => {
                                 </a>
                                 <!-- Delete button -->
                                 <button
+                                    v-if="hasRealContent(comment) || isAudioOnlyComment(comment)"
                                     type="button"
-                                    @click="deleteComment(comment.id)"
+                                    @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
                                     class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-                                    title="Delete comment"
+                                    :title="isAudioOnlyComment(comment) ? 'Delete voice message' : 'Delete comment'"
                                 >
-                                    <svg
-                                        class="w-4 h-4"
-                                        viewBox="0 0 20 20"
-                                        fill="currentColor"
-                                    >
+                                    <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                                         <path
                                             fill-rule="evenodd"
                                             d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
@@ -571,29 +508,12 @@ const handleDrop = async (event: DragEvent) => {
                             class="flex flex-col gap-2"
                         >
                             <template v-for="(attachment, index) in comment.attachments" :key="attachment.url">
-                                <!-- Audio files: render player directly -->
-                                <template v-if="isAudioFile(attachment.name)">
-                                    <AudioPlayer
-                                        v-if="!hasRealContent(comment)"
-                                        :src="getAuthenticatedUrl(attachment.url)"
-                                    />
-                                    <!-- For mixed comments with audio, use full preview -->
-                                    <AttachmentPreview
-                                        v-else
-                                        :attachment="attachment"
-                                        :author="comment.user?.name || comment.user_uuid"
-                                        :timestamp="formattedDate(comment.createdAt)"
-                                        :show-delete="true"
-                                        @delete="deleteAttachment(comment.id, index)"
-                                    />
-                                </template>
-                                <!-- Non-audio files: use AttachmentPreview for mixed comments only -->
                                 <AttachmentPreview
-                                    v-else-if="hasRealContent(comment)"
                                     :attachment="attachment"
                                     :author="comment.user?.name || comment.user_uuid"
                                     :timestamp="formattedDate(comment.createdAt)"
-                                    :show-delete="true"
+                                    :show-delete="!isAudioOnlyComment(comment)"
+                                    :hide-header="isAudioOnlyComment(comment)"
                                     @delete="deleteAttachment(comment.id, index)"
                                 />
                             </template>

@@ -1,10 +1,24 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
+import { useSpeechRecognition } from '@/composables/useSpeechRecognition';
 
 const emit = defineEmits<{
-  (e: 'recordingComplete', value: { blob: Blob; duration: number }): void;
+  (e: 'recordingComplete', value: { blob: Blob; duration: number; transcription?: string }): void;
   (e: 'cancel'): void;
 }>();
+
+// Speech recognition for real-time transcription
+const {
+  isSupported,
+  fullTranscript,
+  start: startSpeech,
+  stop: stopSpeech,
+  reset: resetSpeech
+} = useSpeechRecognition();
+
+// Computed for template reactivity
+const speechSupported = computed(() => isSupported.value);
+const liveTranscript = computed(() => fullTranscript.value);
 
 // Define states for recording
 const isRecording = ref(false);
@@ -21,6 +35,18 @@ const animationFrameId = ref<number | null>(null);
 
 // Track theme for canvas colors
 const isDarkMode = ref(false);
+
+// Ref for transcription preview auto-scroll
+const transcriptionPreviewRef = ref<HTMLDivElement | null>(null);
+
+// Auto-scroll transcription preview to bottom when new text arrives
+watch(liveTranscript, () => {
+  nextTick(() => {
+    if (transcriptionPreviewRef.value) {
+      transcriptionPreviewRef.value.scrollTop = transcriptionPreviewRef.value.scrollHeight;
+    }
+  });
+});
 
 // Format recording time
 const formatTime = (seconds: number): string => {
@@ -338,6 +364,15 @@ const startRecording = async () => {
 
     mediaRecorder.value.start(250);
     setupVisualization(stream);
+
+    // Start speech recognition if supported
+    if (speechSupported.value) {
+      resetSpeech();
+      startSpeech();
+      console.log('[VoiceRecorder] Speech recognition started');
+    } else {
+      console.log('[VoiceRecorder] Speech recognition not supported');
+    }
   } catch (error) {
     console.error("Error accessing microphone:", error);
     alert("Could not access microphone. Please check your permissions.");
@@ -348,6 +383,28 @@ const startRecording = async () => {
 // Stop recording
 const stopRecording = () => {
   if (mediaRecorder.value && isRecording.value) {
+    // Capture transcription before stopping speech recognition
+    const finalTranscription = liveTranscript.value;
+    stopSpeech();
+
+    // Update onstop handler to include transcription
+    mediaRecorder.value.onstop = () => {
+      const audioBlob = new Blob(audioChunks.value, { type: recordingMimeType.value });
+
+      if (audioBlob.size < 100) {
+        console.error("Recording too small");
+        emit('cancel');
+        return;
+      }
+
+      console.log('[VoiceRecorder] Emitting with transcription:', finalTranscription);
+      emit('recordingComplete', {
+        blob: audioBlob,
+        duration: recordingTime.value,
+        transcription: finalTranscription || undefined
+      });
+    };
+
     mediaRecorder.value.stop();
     cleanup();
   }
@@ -364,6 +421,7 @@ const cancelRecording = () => {
 
 const cleanup = () => {
   isRecording.value = false;
+  stopSpeech();
   if (recordingTimer.value) {
     clearInterval(recordingTimer.value);
     recordingTimer.value = null;
@@ -406,6 +464,11 @@ onUnmounted(() => {
     <!-- Waveform visualization -->
     <div class="waveform-container">
       <canvas ref="canvasRef" class="waveform-canvas"></canvas>
+    </div>
+
+    <!-- Live transcription preview -->
+    <div v-if="speechSupported && liveTranscript" ref="transcriptionPreviewRef" class="transcription-preview">
+      <span class="transcription-text">{{ liveTranscript }}</span>
     </div>
 
     <!-- Controls -->
@@ -562,5 +625,19 @@ onUnmounted(() => {
   transform: translateY(0);
 }
 
-/* Waveform container uses theme surface color automatically */
+.transcription-preview {
+  max-height: 60px;
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-surface);
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-default);
+}
+
+.transcription-text {
+  font-size: 0.75rem;
+  color: var(--color-secondary);
+  font-style: italic;
+  line-height: 1.4;
+}
 </style>

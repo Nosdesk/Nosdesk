@@ -28,14 +28,24 @@ const isEditing = ref(false);
 const originalValue = ref(props.modelValue);
 const inputRef = ref<HTMLInputElement | null>(null);
 
-// Update original value when modelValue changes from parent
+// Local value for editing - prevents cursor jumping from async parent updates
+// This is the Vue best practice for controlled inputs
+const localValue = ref(props.modelValue);
+
+// Update original value when modelValue changes from parent (but not during editing)
 watch(() => props.modelValue, (newValue) => {
   originalValue.value = newValue;
+  // Only sync local value if not currently editing to preserve cursor position
+  if (!isEditing.value) {
+    localValue.value = newValue;
+  }
 });
 
-// Auto-focus input when entering edit mode
+// Auto-focus input and initialize local value when entering edit mode
 watch(isEditing, async (newValue) => {
   if (newValue) {
+    // Sync local value with current model value when starting to edit
+    localValue.value = props.modelValue;
     await nextTick();
     inputRef.value?.focus();
     inputRef.value?.select();
@@ -48,10 +58,18 @@ const handleClick = () => {
   }
 };
 
+const handleInput = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  localValue.value = target.value;
+  // Emit on input for real-time updates (some parents may need immediate feedback)
+  emit('update:modelValue', localValue.value);
+};
+
 const handleBlur = () => {
   if (isEditing.value) {
     isEditing.value = false;
-    emit('update:modelValue', props.modelValue);
+    // Emit final value on blur to ensure parent has the latest
+    emit('update:modelValue', localValue.value);
   }
 };
 
@@ -60,7 +78,8 @@ const handleKeydown = (event: KeyboardEvent) => {
     event.preventDefault();
     (event.target as HTMLInputElement).blur();
   } else if (event.key === 'Escape') {
-    emit('update:modelValue', originalValue.value);
+    // Restore original value and exit edit mode
+    localValue.value = originalValue.value;
     isEditing.value = false;
   }
 };
@@ -106,11 +125,11 @@ const textSizeClasses = {
         {{ modelValue || placeholder }}
       </div>
 
-      <!-- Edit mode - input field -->
+      <!-- Edit mode - input field using local value to preserve cursor position -->
       <input
         v-else
-        :value="modelValue"
-        @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+        :value="localValue"
+        @input="handleInput"
         type="text"
         class="w-full bg-surface-hover text-primary font-semibold px-1 py-0.5 rounded-lg focus:bg-surface focus:outline-none transition-all duration-150 border-2 border-transparent focus:border-accent/50"
         :class="[

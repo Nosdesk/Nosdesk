@@ -5,8 +5,9 @@ use std::fs;
 use std::path::Path;
 use uuid::Uuid;
 
-use crate::models::{Claims, NewTicket, TicketPriority, TicketStatus, TicketUpdate, TicketsJson, UserRole};
+use crate::models::{AssignmentTrigger, Claims, NewTicket, TicketPriority, TicketStatus, TicketUpdate, TicketsJson, UserRole};
 use crate::repository;
+use crate::services::assignment::AssignmentEngine;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
 use crate::utils::sse::SseBroadcaster;
 
@@ -182,6 +183,7 @@ pub struct PaginationParams {
     search: Option<String>,
     status: Option<String>,
     priority: Option<String>,
+    category: Option<String>,
     assignee: Option<String>,
     requester: Option<String>,
     // Date filtering parameters
@@ -253,6 +255,7 @@ pub async fn get_paginated_tickets(
         query.search.clone(),
         query.status.clone(),
         query.priority.clone(),
+        query.category.clone(),
         query.assignee.clone(),
         query.requester.clone(),
         query.created_after.clone(),
@@ -568,10 +571,11 @@ pub async fn create_empty_ticket(
         priority: TicketPriority::Medium,
         requester_uuid: Some(user_uuid), // Use authenticated user's UUID
         assignee_uuid: None,
+        category_id: None,
     };
 
     // Create the ticket and then add empty article content
-    let ticket = match repository::create_ticket(&mut conn, empty_ticket) {
+    let mut ticket = match repository::create_ticket(&mut conn, empty_ticket) {
         Ok(ticket) => ticket,
         Err(e) => {
             println!("Error creating empty ticket: {:?}", e);
@@ -579,6 +583,30 @@ pub async fn create_empty_ticket(
                 .json(format!("Failed to create empty ticket: {}", e));
         }
     };
+
+    // Run automatic assignment rules if no assignee
+    if ticket.assignee_uuid.is_none() {
+        if let Some(result) = AssignmentEngine::evaluate_rules(&mut conn, &ticket, AssignmentTrigger::TicketCreated) {
+            // Update ticket with auto-assigned user
+            if let Some(assigned_uuid) = result.assigned_user_uuid {
+                let assign_update = TicketUpdate {
+                    assignee_uuid: Some(Some(assigned_uuid)),
+                    updated_at: Some(chrono::Utc::now().naive_utc()),
+                    ..Default::default()
+                };
+                if let Ok(updated) = repository::update_ticket_partial(&mut conn, ticket.id, assign_update) {
+                    ticket = updated;
+                    log::info!(
+                        "Auto-assigned ticket {} to user {} via rule '{}' ({})",
+                        ticket.id,
+                        assigned_uuid,
+                        result.rule_name,
+                        result.method
+                    );
+                }
+            }
+        }
+    }
 
     // Create empty article content for the ticket
     let new_article_content = crate::models::NewArticleContent {
@@ -632,6 +660,7 @@ pub async fn update_ticket_partial(
         assignee_uuid: None,
         updated_at: Some(chrono::Utc::now().naive_utc()),
         closed_at: None,
+        category_id: None,
     };
 
     // Handle simple string fields
@@ -695,9 +724,78 @@ pub async fn update_ticket_partial(
         }
     }
 
+    // Handle category_id (can be a number or null to unassign)
+    if body.get("category_id").is_some() {
+        match body.get("category_id") {
+            Some(Value::Number(n)) => {
+                if let Some(id) = n.as_i64() {
+                    ticket_update.category_id = Some(Some(id as i32));
+                }
+            }
+            Some(Value::Null) => {
+                // Null means remove category
+                ticket_update.category_id = Some(None);
+            }
+            _ => {}
+        }
+    }
+
+    // Track if category was changed for auto-assignment
+    let category_changed = body.get("category_id").is_some();
+
     // Update the ticket
     match repository::update_ticket_partial(&mut conn, ticket_id, ticket_update) {
-        Ok(_) => {
+        Ok(updated_ticket) => {
+            // Run automatic assignment rules if category changed and no assignee
+            if category_changed && updated_ticket.assignee_uuid.is_none() {
+                if let Some(result) = AssignmentEngine::evaluate_rules(
+                    &mut conn,
+                    &updated_ticket,
+                    AssignmentTrigger::CategoryChanged,
+                ) {
+                    // Update ticket with auto-assigned user
+                    if let Some(assigned_uuid) = result.assigned_user_uuid {
+                        let assign_update = TicketUpdate {
+                            assignee_uuid: Some(Some(assigned_uuid)),
+                            updated_at: Some(chrono::Utc::now().naive_utc()),
+                            ..Default::default()
+                        };
+                        if repository::update_ticket_partial(&mut conn, ticket_id, assign_update).is_ok() {
+                            log::info!(
+                                "Auto-assigned ticket {} to user {} via rule '{}' ({}) on category change",
+                                ticket_id,
+                                assigned_uuid,
+                                result.rule_name,
+                                result.method
+                            );
+
+                            // Get user info for the SSE event
+                            let user_info = repository::get_user_by_uuid(&assigned_uuid, &mut conn)
+                                .ok()
+                                .map(|u| crate::models::UserInfoWithAvatar::from(u));
+
+                            // Broadcast the assignment SSE event with user info
+                            broadcast_sse_simple(
+                                sse_state.clone(),
+                                ticket_id,
+                                "ticket_updated".to_string(),
+                                json!({
+                                    "key": "assignee",
+                                    "value": {
+                                        "uuid": assigned_uuid.to_string(),
+                                        "user_info": user_info
+                                    },
+                                    "user_sub": "system",
+                                    "auto_assigned": true,
+                                    "rule_name": result.rule_name
+                                }),
+                            )
+                            .await;
+                        }
+                    }
+                }
+            }
+
             // Broadcast SSE events IMMEDIATELY after DB update for low latency
             // Don't wait for fetching complete ticket data
             for (key, value) in body.0.as_object().unwrap_or(&serde_json::Map::new()) {
@@ -1123,6 +1221,7 @@ pub async fn bulk_tickets(
                     } else {
                         None
                     },
+                    category_id: None,
                 };
 
                 if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
@@ -1171,6 +1270,7 @@ pub async fn bulk_tickets(
                     assignee_uuid: None,
                     updated_at: Some(chrono::Utc::now().naive_utc()),
                     closed_at: None,
+                    category_id: None,
                 };
 
                 if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
@@ -1221,6 +1321,7 @@ pub async fn bulk_tickets(
                     assignee_uuid: Some(assignee_uuid),
                     updated_at: Some(chrono::Utc::now().naive_utc()),
                     closed_at: None,
+                    category_id: None,
                 };
 
                 if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {

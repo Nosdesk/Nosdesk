@@ -98,6 +98,11 @@ setTicketNavigationHandler((ticketId: number) => {
 const editorElement = ref<HTMLElement | null>(null);
 const isConnected = ref(false);
 
+// Connection status for UI display: 'connecting' | 'connected' | 'disconnected'
+const connectionStatus = ref<'connecting' | 'connected' | 'disconnected'>('connecting');
+const hasBeenConnected = ref(false);
+let connectionTimeout: ReturnType<typeof setTimeout> | null = null;
+
 // State for connected users
 const connectedUsers = ref<{ id: string; user: any }[]>([]);
 
@@ -703,8 +708,22 @@ const initEditor = async () => {
                 log.info(`Connection status: ${event.status}`);
             }
 
-            // Log additional context for disconnections
-            if (event.status === "disconnected") {
+            // Update connectionStatus for UI display
+            if (event.status === "connected") {
+                connectionStatus.value = 'connected';
+                hasBeenConnected.value = true;
+                // Clear the connection timeout since we're now connected
+                if (connectionTimeout) {
+                    clearTimeout(connectionTimeout);
+                    connectionTimeout = null;
+                }
+                log.info("WebSocket connected successfully");
+            } else if (event.status === "disconnected") {
+                // Only show disconnected if we've been connected before
+                // Otherwise keep showing "connecting" until the 10-second timeout
+                if (hasBeenConnected.value) {
+                    connectionStatus.value = 'disconnected';
+                }
                 log.warn(
                     "WebSocket disconnected - will attempt to reconnect automatically",
                 );
@@ -718,8 +737,11 @@ const initEditor = async () => {
                 ) {
                     diagnoseConnectionIssue();
                 }
-            } else if (event.status === "connected") {
-                log.info("WebSocket connected successfully");
+            } else if (event.status === "connecting") {
+                // If we've been connected before and are now reconnecting, show connecting
+                if (hasBeenConnected.value) {
+                    connectionStatus.value = 'connecting';
+                }
             }
         };
         provider.on("status", statusHandler);
@@ -1268,6 +1290,12 @@ const cleanup = () => {
         visibilityTimeout = null;
     }
 
+    // Clear connection timeout
+    if (connectionTimeout) {
+        clearTimeout(connectionTimeout);
+        connectionTimeout = null;
+    }
+
     // CRITICAL: Clean up in the correct order to prevent race conditions
     // 1. First disconnect the provider to stop new messages
     if (provider) {
@@ -1345,6 +1373,8 @@ const cleanup = () => {
 
     isConnected.value = false;
     isInitialized.value = false;
+    connectionStatus.value = 'connecting';
+    hasBeenConnected.value = false;
 };
 
 // Handle page unload to ensure clean disconnect
@@ -1582,6 +1612,15 @@ onMounted(() => {
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("keydown", handleKeydown);
     window.addEventListener("beforeunload", handleBeforeUnload);
+
+    // Set 10-second timeout for initial connection
+    // If not connected within 10 seconds, show "Disconnected" instead of "Connecting"
+    connectionTimeout = setTimeout(() => {
+        if (connectionStatus.value === 'connecting') {
+            connectionStatus.value = 'disconnected';
+            log.warn('Connection timeout - failed to connect within 10 seconds');
+        }
+    }, 10000);
 
     // Add network status monitoring with stored handler references for proper cleanup
     onlineHandler = () => {
@@ -2163,8 +2202,11 @@ defineExpose({
                 </div>
             </div>
 
-            <!-- Connection status indicator - only shown when disconnected -->
-            <div v-if="!isConnected" class="connection-status-disconnected">
+            <!-- Connection status indicator - shown when connecting or disconnected -->
+            <div v-if="connectionStatus === 'connecting'" class="connection-status-connecting">
+                Connecting...
+            </div>
+            <div v-else-if="connectionStatus === 'disconnected'" class="connection-status-disconnected">
                 Disconnected
             </div>
         </div>
@@ -2307,6 +2349,16 @@ defineExpose({
 .dropdown-item:hover {
     background-color: var(--color-surface-hover);
     color: var(--color-primary);
+}
+
+.connection-status-connecting {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-status-warning, #f59e0b);
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.375rem;
+    background-color: var(--color-status-warning-bg, rgba(245, 158, 11, 0.15));
+    border: 1px solid var(--color-status-warning-border, rgba(245, 158, 11, 0.3));
 }
 
 .connection-status-disconnected {

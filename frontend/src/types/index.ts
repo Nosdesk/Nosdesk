@@ -5,4 +5,6 @@ export * from './user';
 export * from './ticket';
 export * from './project';
 export * from './device';
+export * from './group';
+export * from './category';
 export * from './microsoft-graph';

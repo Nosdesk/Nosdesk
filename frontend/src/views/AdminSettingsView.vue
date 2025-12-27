@@ -9,6 +9,24 @@ const router = useRouter();
 // Navigation options for admin settings
 const adminMenuItems = [
   {
+    title: 'Groups',
+    description: 'Manage user groups and memberships',
+    icon: 'users',
+    route: '/admin/groups'
+  },
+  {
+    title: 'Categories',
+    description: 'Configure ticket categories and group visibility',
+    icon: 'tag',
+    route: '/admin/categories'
+  },
+  {
+    title: 'Assignment Rules',
+    description: 'Configure automatic ticket assignment based on rules',
+    icon: 'lightning',
+    route: '/admin/assignment-rules'
+  },
+  {
     title: 'Authentication Providers',
     description: 'Configure SSO, Microsoft Entra, and local authentication settings',
     icon: 'lock',

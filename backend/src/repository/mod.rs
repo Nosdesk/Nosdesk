@@ -1,8 +1,11 @@
 // Domain-specific modules
 pub mod article_content;
+pub mod assignment_rules;
+pub mod categories;
 pub mod comments;
 pub mod devices;
 pub mod documentation;
+pub mod groups;
 pub mod linked_tickets;
 pub mod projects;
 pub mod sync_history;

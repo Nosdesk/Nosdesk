@@ -12,8 +12,10 @@ import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import { RouterLink } from "vue-router";
 import userService from "@/services/userService";
 import { getDevicesByUser } from "@/services/deviceService";
+import { groupService } from "@/services/groupService";
 import type { User } from "@/services/userService";
 import type { Device } from "@/types/device";
+import type { Group } from "@/types/group";
 
 interface UserProfile extends User {
     department?: string;
@@ -34,6 +36,7 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const userProfile = ref<UserProfile | null>(null);
 const devices = ref<Device[]>([]);
+const groups = ref<Group[]>([]);
 
 // Creation and editing state
 const isCreationMode = ref(false);
@@ -199,6 +202,16 @@ const fetchUserData = async () => {
             console.error("Error loading devices for user:", deviceError);
             // Don't fail the whole page if devices can't be loaded
             devices.value = [];
+        }
+
+        // Load groups for the user (admin only)
+        if (authStore.isAdmin || authStore.user?.role === "admin") {
+            try {
+                groups.value = await groupService.getUserGroups(userUuid);
+            } catch (groupError) {
+                console.error("Error loading groups for user:", groupError);
+                groups.value = [];
+            }
         }
 
         // User emails are now loaded by the UserEmailsCard component
@@ -837,6 +850,38 @@ watch(
                                             </div>
                                         </div>
                                     </RouterLink>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Groups Section (Admin only) -->
+                        <div
+                            v-if="groups.length > 0"
+                            class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
+                        >
+                            <div
+                                class="px-4 py-3 bg-surface-alt border-b border-default"
+                            >
+                                <h2 class="text-lg font-medium text-primary">
+                                    Groups
+                                </h2>
+                            </div>
+                            <div class="p-3">
+                                <div class="flex flex-wrap gap-2">
+                                    <span
+                                        v-for="group in groups"
+                                        :key="group.id"
+                                        class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium"
+                                        :style="{
+                                            backgroundColor: (group.color || '#6366f1') + '20',
+                                            color: group.color || '#6366f1'
+                                        }"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                        </svg>
+                                        {{ group.name }}
+                                    </span>
                                 </div>
                             </div>
                         </div>

@@ -9,17 +9,24 @@ import UserAvatar from "@/components/UserAvatar.vue";
 import { convertToAuthenticatedPath } from '@/services/fileService';
 
 interface Props {
-  attachment: { id?: number; url: string; name: string; comment_id?: number };
+  attachment: { id?: number; url: string; name: string; comment_id?: number; transcription?: string };
   author: string;
   timestamp: string;
   isNew?: boolean;
   showDelete?: boolean;
+  hideHeader?: boolean; // Hide the header (title + buttons) - parent handles it
 }
 
 const props = withDefaults(defineProps<Props>(), {
   isNew: false,
-  showDelete: false
+  showDelete: false,
+  hideHeader: false
 });
+
+// Debug logging
+if (props.attachment.transcription) {
+  console.log('[AttachmentPreview] Has transcription:', props.attachment.transcription);
+}
 
 const emit = defineEmits<{
   (e: 'delete'): void;
@@ -62,12 +69,28 @@ const isVideoFile = (filename: string): boolean => {
 const isAudioFile = (filename: string): boolean => {
   try {
     const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.webm'];
-    return audioExtensions.some(ext => filename.toLowerCase().endsWith(ext)) || 
+    return audioExtensions.some(ext => filename.toLowerCase().endsWith(ext)) ||
            (typeof filename === 'string' && filename.toLowerCase().includes('voice note'));
   } catch (error) {
     console.error('Error checking if file is audio:', error);
     return false;
   }
+};
+
+// Check if this is an auto-generated voice note (vs a manually uploaded audio file)
+const isVoiceNote = (filename: string): boolean => {
+  if (!filename) return false;
+  // Auto-generated voice notes follow pattern: "Voice Note MMM d, yyyy.webm"
+  return filename.toLowerCase().startsWith('voice note') ||
+         filename.toLowerCase().startsWith('voicenote');
+};
+
+// Get display name for audio files - "Voice Message" for voice notes, filename for others
+const getAudioDisplayName = (filename: string): string => {
+  if (isVoiceNote(filename)) {
+    return 'Voice Message';
+  }
+  return filename;
 };
 
 const isImageFile = (filename: string): boolean => {
@@ -134,19 +157,45 @@ const closeImagePreview = () => {
   showPreviewModal.value = false;
 };
 
-// Load PDF thumbnails on component mount
+// Set up lazy loading for PDF thumbnails
 onMounted(() => {
   debugLog('Component onMounted hook started');
 
   if (isPdfFile(props.attachment.name)) {
-    // Generate PDF thumbnail
-    generatePdfThumbnail(props.attachment.url);
+    // Use Intersection Observer to lazy load PDF thumbnails
+    if (pdfContainerRef.value && 'IntersectionObserver' in window) {
+      pdfIntersectionObserver = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting && !pdfThumbnailSrc.value && !isPdfThumbnailLoading.value) {
+              generatePdfThumbnail(props.attachment.url);
+              // Disconnect after first intersection
+              pdfIntersectionObserver?.disconnect();
+            }
+          });
+        },
+        {
+          rootMargin: '100px',
+          threshold: 0
+        }
+      );
+      pdfIntersectionObserver.observe(pdfContainerRef.value);
+    } else {
+      // Fallback for browsers without IntersectionObserver
+      generatePdfThumbnail(props.attachment.url);
+    }
   }
 });
 
 // Clean up object URLs when component is unmounted
 onBeforeUnmount(() => {
   debugLog('Component unmounting, cleaning up resources');
+
+  // Clean up Intersection Observer
+  if (pdfIntersectionObserver) {
+    pdfIntersectionObserver.disconnect();
+    pdfIntersectionObserver = null;
+  }
 
   if (pdfThumbnailSrc.value) {
     URL.revokeObjectURL(pdfThumbnailSrc.value);
@@ -218,6 +267,10 @@ const pdfThumbnailCanvas = ref<HTMLCanvasElement | null>(null);
 const isPdfThumbnailLoading = ref<boolean>(false);
 const pdfThumbnailSrc = ref<string | null>(null); // Separate variable for PDF thumbnails
 
+// Lazy loading for PDFs
+const pdfContainerRef = ref<HTMLElement | null>(null);
+let pdfIntersectionObserver: IntersectionObserver | null = null;
+
 // Function to generate PDF thumbnails for the grid view
 const generatePdfThumbnail = async (url: string) => {
   isPdfThumbnailLoading.value = true;
@@ -272,23 +325,21 @@ const generatePdfThumbnail = async (url: string) => {
     attachmentType === 'image' ? 'max-w-[250px]' : '',
     attachmentType === 'pdf' ? 'max-w-[250px]' : ''
   ]">
-    <!-- Audio/Video header -->
-    <template v-if="attachmentType === 'audio' || attachmentType === 'video'">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
+    <!-- Audio/Video header (hidden when parent handles it) -->
+    <template v-if="(attachmentType === 'audio' || attachmentType === 'video') && !hideHeader">
+      <div class="flex items-center justify-between gap-2 min-w-0">
+        <div class="flex items-center gap-2 min-w-0 flex-1">
           <template v-if="attachmentType === 'audio'">
-            <div class="flex flex-col">
-              <span class="text-sm text-primary">{{ attachment.name }}</span>
-            </div>
+            <span class="text-sm text-primary truncate">{{ getAudioDisplayName(attachment.name) }}</span>
           </template>
           <template v-if="attachmentType === 'video'">
-            <svg class="w-5 h-5 text-tertiary" viewBox="0 0 20 20" fill="currentColor">
+            <svg class="w-5 h-5 text-tertiary flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
             </svg>
-            <span class="text-sm text-secondary">{{ attachment.name }}</span>
+            <span class="text-sm text-secondary truncate">{{ attachment.name }}</span>
           </template>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 flex-shrink-0">
           <!-- Download button -->
           <a
             :href="authenticatedUrl"
@@ -320,7 +371,7 @@ const generatePdfThumbnail = async (url: string) => {
 
     <!-- Content -->
     <template v-if="attachmentType === 'audio'">
-      <AudioPlayer :src="authenticatedUrl" />
+      <AudioPlayer :src="authenticatedUrl" :transcription="attachment.transcription" />
     </template>
     <template v-else-if="attachmentType === 'video'">
       <VideoPlayer
@@ -357,11 +408,12 @@ const generatePdfThumbnail = async (url: string) => {
             <p class="text-sm text-secondary">This image format is not supported by your browser</p>
           </div>
         </div>
-        <!-- Regular image display -->
+        <!-- Regular image display with native lazy loading -->
         <img
           v-else
           :src="authenticatedUrl"
           :alt="attachment.name"
+          loading="lazy"
           class="w-full h-full object-cover bg-transparent attachment-image"
           :class="{
             'animated-preview': isAnimatedImage(attachment.name)
@@ -411,7 +463,7 @@ const generatePdfThumbnail = async (url: string) => {
       </div>
     </template>
     <template v-else-if="attachmentType === 'pdf'">
-      <div class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-surface-alt attachment-container">
+      <div ref="pdfContainerRef" class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-surface-alt attachment-container">
         <!-- Delete button -->
         <button
           v-if="showDelete"
@@ -442,6 +494,7 @@ const generatePdfThumbnail = async (url: string) => {
           <img
             :src="pdfThumbnailSrc"
             :alt="attachment.name"
+            loading="lazy"
             class="w-full h-full object-contain attachment-image"
           />
         </div>

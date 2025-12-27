@@ -81,8 +81,13 @@ onUnmounted(() => {
           </div>
 
           <!-- Content -->
-          <div :class="['flex-1 overflow-y-auto', removePadding ? '' : 'p-4 sm:p-6']">
+          <div :class="['flex-1 overflow-y-auto min-h-0', removePadding ? '' : 'p-4 sm:p-6']">
             <slot />
+          </div>
+
+          <!-- Footer -->
+          <div v-if="$slots.footer" class="flex-shrink-0 p-4 border-t border-default bg-surface">
+            <slot name="footer" />
           </div>
         </div>
       </div>

@@ -747,7 +747,39 @@ async fn main() -> std::io::Result<()> {
                     .route("/projects/{id}/tickets", web::get().to(handlers::get_project_tickets))
                     .route("/projects/{project_id}/tickets/{ticket_id}", web::post().to(handlers::add_ticket_to_project))
                     .route("/projects/{project_id}/tickets/{ticket_id}", web::delete().to(handlers::remove_ticket_from_project))
-                    
+
+                    // ===== GROUP MANAGEMENT (Admin Only) =====
+                    .route("/groups", web::get().to(handlers::groups::get_all_groups))
+                    .route("/groups", web::post().to(handlers::groups::create_group))
+                    .route("/groups/{id}", web::get().to(handlers::groups::get_group))
+                    .route("/groups/{id}", web::put().to(handlers::groups::update_group))
+                    .route("/groups/{id}", web::delete().to(handlers::groups::delete_group))
+                    .route("/groups/{id}/members", web::put().to(handlers::groups::set_group_members))
+                    .route("/users/{uuid}/groups", web::get().to(handlers::groups::get_user_groups))
+                    .route("/users/{uuid}/groups", web::put().to(handlers::groups::set_user_groups))
+
+                    // ===== CATEGORY MANAGEMENT =====
+                    // User-facing categories endpoint (respects visibility)
+                    .route("/categories", web::get().to(handlers::categories::get_categories))
+                    // Admin category endpoints
+                    .route("/admin/categories", web::get().to(handlers::categories::get_all_categories_admin))
+                    .route("/admin/categories", web::post().to(handlers::categories::create_category))
+                    .route("/admin/categories/reorder", web::put().to(handlers::categories::reorder_categories))
+                    .route("/admin/categories/{id}", web::get().to(handlers::categories::get_category_admin))
+                    .route("/admin/categories/{id}", web::put().to(handlers::categories::update_category))
+                    .route("/admin/categories/{id}", web::delete().to(handlers::categories::delete_category))
+                    .route("/admin/categories/{id}/visibility", web::put().to(handlers::categories::set_category_visibility))
+
+                    // ===== ASSIGNMENT RULES MANAGEMENT =====
+                    .route("/admin/assignment-rules", web::get().to(handlers::assignment_rules::get_all_rules))
+                    .route("/admin/assignment-rules", web::post().to(handlers::assignment_rules::create_rule))
+                    .route("/admin/assignment-rules/reorder", web::put().to(handlers::assignment_rules::reorder_rules))
+                    .route("/admin/assignment-rules/preview", web::post().to(handlers::assignment_rules::preview_assignment))
+                    .route("/admin/assignment-rules/logs", web::get().to(handlers::assignment_rules::get_assignment_logs))
+                    .route("/admin/assignment-rules/{id}", web::get().to(handlers::assignment_rules::get_rule))
+                    .route("/admin/assignment-rules/{id}", web::patch().to(handlers::assignment_rules::update_rule))
+                    .route("/admin/assignment-rules/{id}", web::delete().to(handlers::assignment_rules::delete_rule))
+
                     // ===== USER MANAGEMENT =====
                     // Note: Specific routes must come BEFORE generic {uuid} routes to avoid matching conflicts
                     .route("/users", web::get().to(handlers::get_users))

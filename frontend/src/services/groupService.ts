@@ -1,0 +1,102 @@
+import apiClient from './apiConfig';
+import { logger } from '@/utils/logger';
+import type {
+  Group,
+  GroupWithMemberCount,
+  GroupWithMembers,
+  CreateGroupRequest,
+  UpdateGroupRequest,
+  SetGroupMembersRequest,
+  SetUserGroupsRequest
+} from '@/types/group';
+
+export const groupService = {
+  // Get all groups with member counts (admin only)
+  async getGroups(): Promise<GroupWithMemberCount[]> {
+    try {
+      const response = await apiClient.get<GroupWithMemberCount[]>('/groups');
+      return response.data;
+    } catch (error) {
+      logger.error('Error fetching groups:', error);
+      throw error;
+    }
+  },
+
+  // Get a single group with members (admin only)
+  async getGroup(id: number): Promise<GroupWithMembers> {
+    try {
+      const response = await apiClient.get<GroupWithMembers>(`/groups/${id}`);
+      return response.data;
+    } catch (error) {
+      logger.error(`Error fetching group ${id}:`, error);
+      throw error;
+    }
+  },
+
+  // Create a new group (admin only)
+  async createGroup(request: CreateGroupRequest): Promise<Group> {
+    try {
+      const response = await apiClient.post<Group>('/groups', request);
+      return response.data;
+    } catch (error) {
+      logger.error('Error creating group:', error);
+      throw error;
+    }
+  },
+
+  // Update a group (admin only)
+  async updateGroup(id: number, request: UpdateGroupRequest): Promise<Group> {
+    try {
+      const response = await apiClient.put<Group>(`/groups/${id}`, request);
+      return response.data;
+    } catch (error) {
+      logger.error(`Error updating group ${id}:`, error);
+      throw error;
+    }
+  },
+
+  // Delete a group (admin only)
+  async deleteGroup(id: number): Promise<void> {
+    try {
+      await apiClient.delete(`/groups/${id}`);
+    } catch (error) {
+      logger.error(`Error deleting group ${id}:`, error);
+      throw error;
+    }
+  },
+
+  // Set group members (admin only)
+  async setGroupMembers(id: number, request: SetGroupMembersRequest): Promise<GroupWithMembers> {
+    try {
+      const response = await apiClient.put<GroupWithMembers>(`/groups/${id}/members`, request);
+      return response.data;
+    } catch (error) {
+      logger.error(`Error setting members for group ${id}:`, error);
+      throw error;
+    }
+  },
+
+  // Get groups for a user (admin only)
+  async getUserGroups(userUuid: string): Promise<Group[]> {
+    try {
+      const response = await apiClient.get<Group[]>(`/users/${userUuid}/groups`);
+      return response.data;
+    } catch (error) {
+      logger.error(`Error fetching groups for user ${userUuid}:`, error);
+      throw error;
+    }
+  },
+
+  // Set groups for a user (admin only)
+  async setUserGroups(userUuid: string, request: SetUserGroupsRequest): Promise<Group[]> {
+    try {
+      const response = await apiClient.put<Group[]>(`/users/${userUuid}/groups`, request);
+      return response.data;
+    } catch (error) {
+      logger.error(`Error setting groups for user ${userUuid}:`, error);
+      throw error;
+    }
+  }
+};
+
+export default groupService;

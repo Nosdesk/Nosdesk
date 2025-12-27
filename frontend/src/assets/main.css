@@ -306,7 +306,9 @@
 
 html, body {
   height: 100%;
-  overflow: hidden;
+  /* Note: overflow is NOT set here globally.
+     - Default layout uses overflow-hidden on its container (App.vue)
+     - Blank layouts (login, onboarding) can scroll naturally */
 }
 
 body {

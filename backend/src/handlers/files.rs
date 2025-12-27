@@ -23,11 +23,38 @@ pub async fn upload_files(
     })?;
 
     let mut uploaded_attachments = Vec::new();
+    let mut transcription_text: Option<String> = None;
 
     // Process each field in the multipart form
     while let Some(mut field) = payload.try_next().await? {
-        // Check if the field name is "files"
         let field_name = field.name();
+
+        // Handle transcription field
+        if field_name == "transcription" {
+            // SECURITY: Limit transcription size to prevent memory exhaustion attacks
+            // 64KB is more than enough for any realistic voice transcription (~10,000+ words)
+            const MAX_TRANSCRIPTION_SIZE: usize = 64 * 1024;
+
+            let mut text_data = Vec::new();
+            while let Some(chunk) = field.next().await {
+                let data = chunk.map_err(|e| {
+                    eprintln!("Error reading transcription chunk: {:?}", e);
+                    actix_web::error::ErrorInternalServerError("Error reading transcription")
+                })?;
+
+                if text_data.len() + data.len() > MAX_TRANSCRIPTION_SIZE {
+                    return Err(actix_web::error::ErrorBadRequest("Transcription too large (max 64KB)"));
+                }
+
+                text_data.extend_from_slice(&data);
+            }
+            if !text_data.is_empty() {
+                transcription_text = Some(String::from_utf8_lossy(&text_data).to_string());
+            }
+            continue;
+        }
+
+        // Check if the field name is "files"
         if field_name != "files" {
             println!("Skipping non-file field: {}", field_name);
             continue;
@@ -100,6 +127,7 @@ pub async fn upload_files(
             checksum: Some(checksum),
             comment_id: None, // Not linked to a comment yet
             uploaded_by: None, // Will be set when attached to a comment
+            transcription: transcription_text.clone(),
         };
         
         println!("Creating attachment record in database: {:?}", new_attachment);
@@ -110,7 +138,8 @@ pub async fn upload_files(
                 let attachment_json = json!({
                     "id": attachment.id,
                     "url": stored_file.url,
-                    "name": sanitized_filename // Use sanitized filename
+                    "name": sanitized_filename,
+                    "transcription": attachment.transcription
                 });
                 println!("Attachment created successfully: {:?}", attachment_json);
                 uploaded_attachments.push(attachment_json);

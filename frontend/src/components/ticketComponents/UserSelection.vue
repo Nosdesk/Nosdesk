@@ -56,7 +56,7 @@ let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 let scrollPosition = 0;
 
 // Position state for desktop dropdown
-const menuPosition = ref({ top: 0, left: 0, width: 0, openUpward: false });
+const menuPosition = ref({ top: 0, left: 0, width: 0, openUpward: false, maxHeight: 320 });
 
 // Initialize input value when modelValue or currentUser changes
 watch(() => [props.modelValue, props.currentUser] as const, async ([newValue, currentUserProp]) => {
@@ -94,6 +94,7 @@ const dropdownStyles = computed(() => {
     top: `${menuPosition.value.top}px`,
     left: `${menuPosition.value.left}px`,
     width: `${menuPosition.value.width}px`,
+    maxHeight: `${menuPosition.value.maxHeight}px`,
     zIndex: 9999,
   };
 });
@@ -107,10 +108,12 @@ const updatePosition = () => {
   const viewportWidth = window.innerWidth;
   const spaceBelow = viewportHeight - rect.bottom;
   const spaceAbove = rect.top;
-  const menuHeight = 320; // max-h-80
+  const maxMenuHeight = 320; // max-h-80
+  const minPadding = 8; // Minimum padding from viewport edges
+  const gap = 4; // Gap between dropdown and input
 
   // Determine if should open upward
-  const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+  const openUpward = spaceBelow < maxMenuHeight && spaceAbove > spaceBelow;
 
   // Calculate width - minimum 280px for good readability
   const dropdownWidth = Math.max(rect.width, 280);
@@ -122,11 +125,36 @@ const updatePosition = () => {
   }
   if (left < 16) left = 16;
 
+  let topPosition: number;
+  let constrainedMaxHeight: number;
+
+  if (openUpward) {
+    // Available space above the input (minus padding and gap)
+    const availableSpaceAbove = rect.top - minPadding - gap;
+
+    // Constrain max height to available space
+    constrainedMaxHeight = Math.min(maxMenuHeight, availableSpaceAbove);
+
+    // Position dropdown so it starts at minPadding from top and extends down to just above input
+    topPosition = rect.top - gap - Math.min(constrainedMaxHeight, dropdownRef.value?.offsetHeight || constrainedMaxHeight);
+
+    // Ensure we don't go above the minimum padding
+    if (topPosition < minPadding) {
+      topPosition = minPadding;
+    }
+  } else {
+    // Opening downward
+    const availableSpaceBelow = viewportHeight - rect.bottom - minPadding - gap;
+    constrainedMaxHeight = Math.min(maxMenuHeight, availableSpaceBelow);
+    topPosition = rect.bottom + gap;
+  }
+
   menuPosition.value = {
-    top: openUpward ? rect.top - Math.min(menuHeight, spaceAbove - 8) : rect.bottom + 4,
+    top: topPosition,
     left,
     width: dropdownWidth,
     openUpward,
+    maxHeight: constrainedMaxHeight,
   };
 };
 
@@ -425,6 +453,16 @@ const getUserAvatar = (user: UserResult) => {
 // Limit displayed results
 const displayedResults = computed(() => searchResults.value.slice(0, 10));
 
+// Reposition dropdown when results change (height may have changed)
+watch(displayedResults, () => {
+  if (isDropdownOpen.value && !isMobile.value) {
+    // Wait for DOM to update with new results, then reposition
+    nextTick(() => {
+      updatePosition();
+    });
+  }
+});
+
 // Show helper text
 const showHelperText = computed(() => {
   if (isSearching.value) return false;
@@ -520,14 +558,14 @@ const showHelperText = computed(() => {
         <div
           v-if="isDropdownOpen && !isMobile && containerRef"
           ref="dropdownRef"
-          class="user-selection-dropdown bg-surface border border-default rounded-xl shadow-2xl overflow-hidden"
+          class="user-selection-dropdown bg-surface border border-default rounded-xl shadow-2xl overflow-hidden flex flex-col"
           :style="dropdownStyles"
         >
           <!-- Results List -->
           <div
             v-if="displayedResults.length > 0"
             ref="listRef"
-            class="py-1 max-h-80 overflow-y-auto overscroll-contain"
+            class="py-1 flex-1 overflow-y-auto overscroll-contain"
           >
             <button
               v-for="(user, index) in displayedResults"

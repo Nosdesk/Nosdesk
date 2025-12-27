@@ -230,8 +230,7 @@ onMounted(async () => {
             @click="handleAction(action.action)"
             class="px-4 py-2 rounded-lg transition-colors text-sm font-medium"
             :class="{
-              'bg-accent hover:opacity-90 text-white': action.action === 'logout_and_retry',
-              'bg-accent hover:opacity-90 text-white': action.action === 'retry' || action.action === 'settings',
+              'bg-accent hover:opacity-90 text-white': action.action === 'logout_and_retry' || action.action === 'retry' || action.action === 'settings',
               'bg-surface-alt hover:bg-surface-hover text-secondary': action.action === 'login'
             }"
           >

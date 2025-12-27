@@ -1,4 +1,5 @@
 // Reexport handlers
+pub mod assignment_rules;
 pub mod collaboration;
 pub mod auth;
 pub mod users;
@@ -19,6 +20,8 @@ pub mod system;
 pub mod debug;
 pub mod branding;
 pub mod backup;
+pub mod groups;
+pub mod categories;
 
 // Import all handlers from modules
 pub use auth::*;
@@ -237,6 +240,7 @@ pub async fn add_comment_to_ticket(
                                 checksum: attachment.checksum.clone(),
                                 comment_id: Some(comment.id),
                                 uploaded_by: Some(user_uuid_parsed),
+                                transcription: attachment.transcription.clone(),
                             };
                             
                             println!("Updating attachment in database: {}", attachment.id);

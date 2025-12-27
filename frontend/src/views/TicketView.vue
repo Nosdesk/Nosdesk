@@ -5,6 +5,8 @@ import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
 import ticketService from "@/services/ticketService";
+import { categoryService } from "@/services/categoryService";
+import type { TicketCategory } from "@/types/category";
 
 // Composables
 import { useTicketData } from "@/composables/useTicketData";
@@ -40,6 +42,7 @@ const {
     error,
     selectedStatus,
     selectedPriority,
+    selectedCategory,
     formattedCreatedDate,
     formattedModifiedDate,
     comments,
@@ -48,11 +51,31 @@ const {
     refreshTicket,
     updateStatus,
     updatePriority,
+    updateCategory,
     updateRequester,
     updateAssignee,
     updateTitle,
     deleteTicket,
 } = useTicketData();
+
+// Categories
+const categories = ref<TicketCategory[]>([]);
+const categoryOptions = computed(() => [
+    { value: '', label: 'No category' },
+    ...categories.value.map(cat => ({
+        value: String(cat.id),
+        label: cat.name,
+        color: cat.color || undefined
+    }))
+]);
+
+const loadCategories = async () => {
+    try {
+        categories.value = await categoryService.getCategories();
+    } catch (err) {
+        console.error('Failed to load categories:', err);
+    }
+};
 
 // SSE real-time updates
 const ticketId = computed(() =>
@@ -156,6 +179,9 @@ function viewProject(projectId: string): void {
 
 // Load ticket on mount and route change
 onMounted(async () => {
+    // Load categories in parallel with ticket
+    loadCategories();
+
     if (route.params.id) {
         const fromRecent = route.query.fromRecent === "true";
         await fetchTicket(route.params.id, fromRecent);
@@ -239,10 +265,13 @@ defineExpose({
                             :modified-date="formattedModifiedDate"
                             :selected-status="selectedStatus"
                             :selected-priority="selectedPriority"
+                            :selected-category="selectedCategory"
                             :status-options="STATUS_OPTIONS"
                             :priority-options="PRIORITY_OPTIONS"
+                            :category-options="categoryOptions"
                             @update:selectedStatus="updateStatus"
                             @update:selectedPriority="updatePriority"
+                            @update:selectedCategory="updateCategory"
                             @update:requester="updateRequester"
                             @update:assignee="updateAssignee"
                             @update:title="handleTitleUpdate"

@@ -28,6 +28,7 @@ export function useTicketData() {
   const error = ref<string | null>(null);
   const selectedStatus = ref<TicketStatus>("open");
   const selectedPriority = ref<TicketPriority>("low");
+  const selectedCategory = ref<number | null>(null);
 
   // Computed
   const formattedCreatedDate = computed(() =>
@@ -40,23 +41,14 @@ export function useTicketData() {
   const devices = computed(() => ticket.value?.devices || []);
 
   // Transform comments from API format
-  function transformComments(apiComments: any[]): CommentWithAttachments[] {
+  // Uses spread to preserve all fields (including future additions like transcription)
+  // Only explicitly maps fields that need transformation
+  function transformComments(apiComments: CommentWithAttachments[]): CommentWithAttachments[] {
     return apiComments
       .map((comment) => ({
-        id: comment.id,
-        content: comment.content,
-        user_uuid: comment.user_uuid,
-        createdAt: comment.created_at,
-        created_at: comment.created_at,
-        ticket_id: comment.ticket_id,
-        attachments:
-          comment.attachments?.map((att: any) => ({
-            id: att.id,
-            url: att.url,
-            name: att.name,
-            comment_id: att.comment_id,
-          })) || [],
-        user: comment.user,
+        ...comment,
+        createdAt: comment.created_at, // Add camelCase alias for consistency
+        attachments: comment.attachments || [],
       }))
       .sort(
         (a, b) =>
@@ -65,16 +57,9 @@ export function useTicketData() {
   }
 
   // Transform devices from API format
-  function transformDevices(apiDevices: any[]): Device[] {
-    return apiDevices.map((device) => ({
-      id: device.id,
-      name: device.name,
-      hostname: device.hostname,
-      serial_number: device.serial_number,
-      model: device.model,
-      manufacturer: device.manufacturer,
-      warranty_status: device.warranty_status,
-    }));
+  // Uses spread to preserve all fields automatically
+  function transformDevices(apiDevices: Device[]): Device[] {
+    return apiDevices.map((device) => ({ ...device }));
   }
 
   // Fetch ticket
@@ -116,6 +101,7 @@ export function useTicketData() {
       // Update UI state
       selectedStatus.value = ticket.value.status;
       selectedPriority.value = ticket.value.priority;
+      selectedCategory.value = ticket.value.category_id || null;
 
       // Update title manager
       titleManager.setTicket({
@@ -227,6 +213,13 @@ export function useTicketData() {
     await updateTicketField("title", newTitle);
   }
 
+  // Update category
+  async function updateCategory(newCategory: string): Promise<void> {
+    const categoryId = newCategory ? parseInt(newCategory, 10) : null;
+    selectedCategory.value = categoryId;
+    await updateTicketField("category_id", categoryId);
+  }
+
   // Delete ticket
   async function deleteTicket(): Promise<void> {
     if (!ticket.value) return;
@@ -244,6 +237,7 @@ export function useTicketData() {
     error,
     selectedStatus,
     selectedPriority,
+    selectedCategory,
 
     // Computed
     formattedCreatedDate,
@@ -256,6 +250,7 @@ export function useTicketData() {
     refreshTicket,
     updateStatus,
     updatePriority,
+    updateCategory,
     updateRequester,
     updateAssignee,
     updateTitle,

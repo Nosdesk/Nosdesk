@@ -296,10 +296,8 @@ const handleOidcLogoutClick = async () => {
 </script>
 
 <template>
-  <div
-    class="min-h-screen w-full flex items-center justify-center bg-app"
-  >
-    <div class="flex flex-col gap-4 w-full max-w-md p-8">
+  <div class="min-h-screen w-full flex flex-col items-center justify-center bg-app py-8">
+    <div class="flex flex-col gap-4 w-full max-w-md px-8">
       <!-- Logo/Brand -->
       <div class="flex flex-col gap-2 items-center">
         <img

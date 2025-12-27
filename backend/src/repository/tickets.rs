@@ -25,6 +25,7 @@ pub fn get_paginated_tickets(
     search: Option<String>,
     status: Option<String>,
     priority: Option<String>,
+    category: Option<String>,
     assignee: Option<String>,
     requester: Option<String>,
     created_after: Option<String>,
@@ -88,7 +89,16 @@ pub fn get_paginated_tickets(
             }
         }
     }
-    
+
+    // Handle category filter
+    if let Some(category_filter) = category.clone() {
+        if category_filter != "all" {
+            if let Ok(category_id) = category_filter.parse::<i32>() {
+                query = query.filter(tickets::category_id.eq(Some(category_id)));
+            }
+        }
+    }
+
     // Build a separate count query with the same filters
     let mut count_query = tickets::table.into_boxed();
     
@@ -140,7 +150,16 @@ pub fn get_paginated_tickets(
             }
         }
     }
-    
+
+    // Handle category filter for count query
+    if let Some(category_filter) = category {
+        if category_filter != "all" {
+            if let Ok(category_id) = category_filter.parse::<i32>() {
+                count_query = count_query.filter(tickets::category_id.eq(Some(category_id)));
+            }
+        }
+    }
+
     // Handle assignee filter for count query
     if let Some(assignee_filter) = &assignee {
         if assignee_filter != "all" {
@@ -284,6 +303,7 @@ pub fn get_paginated_tickets_with_users(
     search: Option<String>,
     status: Option<String>,
     priority: Option<String>,
+    category: Option<String>,
     assignee: Option<String>,
     requester: Option<String>,
     created_after: Option<String>,
@@ -299,7 +319,7 @@ pub fn get_paginated_tickets_with_users(
     // First get the basic tickets and total count
     let (tickets, total) = get_paginated_tickets(
         conn, page, page_size, sort_field, sort_direction,
-        search, status, priority, assignee, requester,
+        search, status, priority, category, assignee, requester,
         created_after, created_before, created_on,
         modified_after, modified_before, modified_on,
         closed_after, closed_before, closed_on
@@ -542,13 +562,14 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
         status,
         priority,
         requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7())),
-        assignee_uuid: if ticket_json.assignee.is_empty() { 
-            None 
-        } else { 
+        assignee_uuid: if ticket_json.assignee.is_empty() {
+            None
+        } else {
             Uuid::parse_str(&ticket_json.assignee).ok()
         },
+        category_id: None,
     };
-    
+
     let ticket = create_ticket(conn, new_ticket)?;
     
     // Create device if present (without ticket association)
@@ -606,6 +627,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
                     checksum: None,
                     comment_id: Some(comment.id),
                     uploaded_by: None,
+                    transcription: None,
                 };
                 
                 crate::repository::comments::create_attachment(conn, new_attachment)?;
@@ -662,13 +684,14 @@ pub fn create_complete_ticket(conn: &mut DbConnection, ticket_json: TicketJson) 
         status,
         priority,
         requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7())),
-        assignee_uuid: if ticket_json.assignee.is_empty() { 
-            None 
-        } else { 
+        assignee_uuid: if ticket_json.assignee.is_empty() {
+            None
+        } else {
             Uuid::parse_str(&ticket_json.assignee).ok()
         },
+        category_id: None,
     };
-    
+
     let ticket = create_ticket(conn, new_ticket)?;
     
     // Create device if present (without ticket association)
@@ -726,6 +749,7 @@ pub fn create_complete_ticket(conn: &mut DbConnection, ticket_json: TicketJson) 
                     checksum: None,
                     comment_id: Some(comment.id),
                     uploaded_by: None,
+                    transcription: None,
                 };
                 
                 crate::repository::comments::create_attachment(conn, new_attachment)?;

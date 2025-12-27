@@ -476,6 +476,36 @@ const router = createRouter({
       }
     },
     {
+      path: '/admin/groups',
+      name: 'admin-groups',
+      component: () => import('../views/GroupsManagementView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Groups',
+        adminRequired: true
+      }
+    },
+    {
+      path: '/admin/categories',
+      name: 'admin-categories',
+      component: () => import('../views/CategoriesManagementView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Categories',
+        adminRequired: true
+      }
+    },
+    {
+      path: '/admin/assignment-rules',
+      name: 'admin-assignment-rules',
+      component: () => import('../views/AssignmentRulesView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Assignment Rules',
+        adminRequired: true
+      }
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/error/404'
     }

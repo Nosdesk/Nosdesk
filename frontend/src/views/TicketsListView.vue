@@ -24,6 +24,8 @@ import { useThemeStore } from "@/stores/theme";
 import { useAuthStore } from "@/stores/auth";
 import { parseDate } from "@/utils/dateUtils";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
+import { categoryService } from "@/services/categoryService";
+import type { TicketCategory } from "@/types/category";
 import type { Ticket } from "@/services/ticketService";
 
 const themeStore = useThemeStore();
@@ -142,8 +144,19 @@ const multiSelectFilters = ['status'];
 const authStore = useAuthStore();
 const currentUserUuid = computed(() => authStore.user?.uuid || '');
 
+// Categories for filter
+const categories = ref<TicketCategory[]>([]);
+const loadCategories = async () => {
+  try {
+    categories.value = await categoryService.getCategories();
+  } catch (err) {
+    console.error('Failed to load categories:', err);
+  }
+};
+loadCategories();
+
 // Set initial values from URL
-const filterKeys = ['status', 'priority', 'assignee', 'requester', 'createdOn', 'createdAfter', 'createdBefore',
+const filterKeys = ['status', 'priority', 'category', 'assignee', 'requester', 'createdOn', 'createdAfter', 'createdBefore',
                     'modifiedOn', 'modifiedAfter', 'modifiedBefore', 'closedOn', 'closedAfter', 'closedBefore'];
 filterKeys.forEach(key => {
   if (urlParams[key] && typeof urlParams[key] === 'string') {
@@ -207,6 +220,7 @@ const listManager = useListManagement<Ticket>({
       search: params.search,
       status: params.status,
       priority: params.priority,
+      category: params.category,
       assignee: params.assignee,
       requester: params.requester,
       createdAfter: params.createdAfter,
@@ -394,6 +408,12 @@ const columns = [
 
 // Filter options
 const filterOptions = computed(() => {
+  // Build category options from loaded categories
+  const categoryOptions = categories.value.map(cat => ({
+    value: String(cat.id),
+    label: cat.name
+  }));
+
   return listManager.buildFilterOptions({
     status: {
       options: STATUS_OPTIONS,
@@ -407,6 +427,12 @@ const filterOptions = computed(() => {
       width: 'w-[130px]',
       allLabel: 'All Priorities',
       placeholder: 'Priority'
+    },
+    category: {
+      options: categoryOptions,
+      width: 'w-[140px]',
+      allLabel: 'All Categories',
+      placeholder: 'Category'
     }
   });
 });

@@ -54,9 +54,17 @@ export function useTicketComments(
 
     try {
       // Upload files if any
-      let attachments: { id: number; url: string; name: string }[] = [];
+      let attachments: { id: number; url: string; name: string; transcription?: string }[] = [];
       if (data.files?.length > 0) {
         const formData = new FormData();
+
+        // IMPORTANT: Append transcription BEFORE files so backend processes it first
+        const audioFile = data.files.find(f => f.type.startsWith('audio/'));
+        if (audioFile && (audioFile as any)._transcription) {
+          formData.append('transcription', (audioFile as any)._transcription);
+        }
+
+        // Then append files
         data.files.forEach((file) => {
           formData.append('files', file, file.name);
         });
@@ -69,6 +77,7 @@ export function useTicketComments(
           id: file.id,
           url: file.url,
           name: file.name,
+          transcription: file.transcription,
         }));
       }
 

@@ -10,6 +10,7 @@ export interface Attachment {
   url: string
   name: string
   comment_id: number
+  transcription?: string
 }
 
 export interface Comment {

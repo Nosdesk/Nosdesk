@@ -39,6 +39,11 @@ export const useThemeStore = defineStore('theme', () => {
   const savedColorBlindMode = localStorage.getItem('colorBlindMode') === 'true'
   const colorBlindMode = ref<boolean>(savedColorBlindMode)
 
+  // Device-local theme mode - when enabled, theme is not synced to/from backend
+  // Useful for having different themes on different devices (e.g., e-paper tablet)
+  const savedDeviceLocalTheme = localStorage.getItem('deviceLocalTheme') === 'true'
+  const deviceLocalTheme = ref<boolean>(savedDeviceLocalTheme)
+
   // Themes that require colorblind mode due to limited color palette
   const COLORBLIND_REQUIRED_THEMES = ['epaper', 'red-horizon']
 
@@ -156,6 +161,19 @@ export const useThemeStore = defineStore('theme', () => {
   }
 
   /**
+   * Set device-local theme mode
+   * When enabled, theme selection is stored only on this device and not synced to backend
+   */
+  function setDeviceLocalTheme(enabled: boolean): void {
+    deviceLocalTheme.value = enabled
+    if (enabled) {
+      localStorage.setItem('deviceLocalTheme', 'true')
+    } else {
+      localStorage.removeItem('deviceLocalTheme')
+    }
+  }
+
+  /**
    * Toggle between light and dark modes
    * If on a specific theme, switches to the opposite base theme
    */
@@ -195,8 +213,13 @@ export const useThemeStore = defineStore('theme', () => {
 
   /**
    * Load theme from user profile
+   * Skipped if deviceLocalTheme is enabled (per-device theme isolation)
    */
   function loadThemeFromUser(user: User | null): void {
+    if (deviceLocalTheme.value) {
+      logger.debug('Skipping theme sync from user profile (device-local theme enabled)')
+      return
+    }
     if (user && user.theme) {
       logger.debug('Loading theme from user profile:', user.theme)
       setTheme(user.theme as ThemeMode)
@@ -219,6 +242,7 @@ export const useThemeStore = defineStore('theme', () => {
     accentColorOverride,
     colorBlindMode,
     effectiveColorBlindMode,
+    deviceLocalTheme,
     isSyncing,
 
     // Theme lists for UI
@@ -230,6 +254,7 @@ export const useThemeStore = defineStore('theme', () => {
     setTheme,
     setAccentColor,
     setColorBlindMode,
+    setDeviceLocalTheme,
     toggleTheme,
     syncThemeToBackend,
     loadThemeFromUser,

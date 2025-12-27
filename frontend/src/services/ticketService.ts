@@ -21,6 +21,7 @@ export interface TicketPaginationParams {
   search?: string;
   status?: string;
   priority?: string;
+  category?: string;
   assignee?: string;
   requester?: string;
   // Date filtering parameters

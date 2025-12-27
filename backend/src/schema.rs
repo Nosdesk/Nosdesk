@@ -2,6 +2,10 @@
 
 pub mod sql_types {
     #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "assignment_method"))]
+    pub struct AssignmentMethod;
+
+    #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "documentation_status"))]
     pub struct DocumentationStatus;
 
@@ -69,6 +73,59 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::AssignmentMethod;
+
+    assignment_log (id) {
+        id -> Int4,
+        ticket_id -> Int4,
+        rule_id -> Nullable<Int4>,
+        #[max_length = 50]
+        trigger_type -> Varchar,
+        previous_assignee_uuid -> Nullable<Uuid>,
+        new_assignee_uuid -> Nullable<Uuid>,
+        method -> AssignmentMethod,
+        context -> Nullable<Jsonb>,
+        assigned_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    assignment_rule_state (rule_id) {
+        rule_id -> Int4,
+        last_assigned_index -> Int4,
+        total_assignments -> Int4,
+        last_assigned_at -> Nullable<Timestamptz>,
+        last_assigned_user_uuid -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::AssignmentMethod;
+
+    assignment_rules (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        #[max_length = 255]
+        name -> Varchar,
+        description -> Nullable<Text>,
+        priority -> Int4,
+        is_active -> Bool,
+        method -> AssignmentMethod,
+        target_user_uuid -> Nullable<Uuid>,
+        target_group_id -> Nullable<Int4>,
+        trigger_on_create -> Bool,
+        trigger_on_category_change -> Bool,
+        category_id -> Nullable<Int4>,
+        conditions -> Nullable<Jsonb>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     attachments (id) {
         id -> Int4,
         #[max_length = 2048]
@@ -83,6 +140,7 @@ diesel::table! {
         comment_id -> Nullable<Int4>,
         uploaded_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
+        transcription -> Nullable<Text>,
     }
 }
 
@@ -100,6 +158,15 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
         completed_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    category_group_visibility (category_id, group_id) {
+        category_id -> Int4,
+        group_id -> Int4,
+        created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -203,6 +270,21 @@ diesel::table! {
         created_at -> Timestamptz,
         created_by -> Uuid,
         change_summary -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    groups (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        #[max_length = 255]
+        name -> Varchar,
+        description -> Nullable<Text>,
+        #[max_length = 7]
+        color -> Nullable<Varchar>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -333,6 +415,25 @@ diesel::table! {
 }
 
 diesel::table! {
+    ticket_categories (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        #[max_length = 255]
+        name -> Varchar,
+        description -> Nullable<Text>,
+        #[max_length = 7]
+        color -> Nullable<Varchar>,
+        #[max_length = 50]
+        icon -> Nullable<Varchar>,
+        display_order -> Int4,
+        is_active -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     ticket_devices (ticket_id, device_id) {
         ticket_id -> Int4,
         device_id -> Int4,
@@ -360,6 +461,7 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         closed_at -> Nullable<Timestamptz>,
         closed_by -> Nullable<Uuid>,
+        category_id -> Nullable<Int4>,
     }
 }
 
@@ -396,6 +498,15 @@ diesel::table! {
         source -> Nullable<Varchar>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    user_groups (user_uuid, group_id) {
+        user_uuid -> Uuid,
+        group_id -> Int4,
+        created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
     }
 }
@@ -445,14 +556,24 @@ diesel::table! {
 diesel::joinable!(active_sessions -> users (user_uuid));
 diesel::joinable!(article_content_revisions -> article_contents (article_content_id));
 diesel::joinable!(article_contents -> tickets (ticket_id));
+diesel::joinable!(assignment_log -> assignment_rules (rule_id));
+diesel::joinable!(assignment_log -> tickets (ticket_id));
+diesel::joinable!(assignment_rule_state -> assignment_rules (rule_id));
+diesel::joinable!(assignment_rule_state -> users (last_assigned_user_uuid));
+diesel::joinable!(assignment_rules -> groups (target_group_id));
+diesel::joinable!(assignment_rules -> ticket_categories (category_id));
 diesel::joinable!(attachments -> comments (comment_id));
 diesel::joinable!(attachments -> users (uploaded_by));
 diesel::joinable!(backup_jobs -> users (created_by));
+diesel::joinable!(category_group_visibility -> groups (group_id));
+diesel::joinable!(category_group_visibility -> ticket_categories (category_id));
+diesel::joinable!(category_group_visibility -> users (created_by));
 diesel::joinable!(comments -> tickets (ticket_id));
 diesel::joinable!(comments -> users (user_uuid));
 diesel::joinable!(documentation_pages -> tickets (ticket_id));
 diesel::joinable!(documentation_revisions -> documentation_pages (page_id));
 diesel::joinable!(documentation_revisions -> users (created_by));
+diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(linked_tickets -> users (created_by));
 diesel::joinable!(project_tickets -> projects (project_id));
 diesel::joinable!(project_tickets -> tickets (ticket_id));
@@ -463,12 +584,15 @@ diesel::joinable!(security_events -> active_sessions (session_id));
 diesel::joinable!(security_events -> users (user_uuid));
 diesel::joinable!(site_settings -> users (updated_by));
 diesel::joinable!(sync_history -> users (initiated_by));
+diesel::joinable!(ticket_categories -> users (created_by));
 diesel::joinable!(ticket_devices -> devices (device_id));
 diesel::joinable!(ticket_devices -> tickets (ticket_id));
 diesel::joinable!(ticket_devices -> users (created_by));
+diesel::joinable!(tickets -> ticket_categories (category_id));
 diesel::joinable!(user_emails -> users (user_uuid));
+diesel::joinable!(user_groups -> groups (group_id));
 diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,article_content_revisions,article_contents,attachments,backup_jobs,comments,devices,documentation_pages,documentation_revisions,linked_tickets,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_history,ticket_devices,tickets,user_auth_identities,user_emails,user_ticket_views,users,);
+    active_sessions,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,devices,documentation_pages,documentation_revisions,groups,linked_tickets,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,);

@@ -32,6 +32,12 @@ const colorBlindMode = computed({
   set: (value) => themeStore.setColorBlindMode(value)
 })
 
+// Device-local theme mode - when enabled, theme is not synced to/from backend
+const deviceLocalTheme = computed({
+  get: () => themeStore.deviceLocalTheme,
+  set: (value) => themeStore.setDeviceLocalTheme(value)
+})
+
 // Monochromatic themes that require colorblind mode
 const MONOCHROMATIC_THEMES = ['epaper', 'red-horizon']
 const isMonochromaticTheme = computed(() => {
@@ -63,8 +69,8 @@ const selectTheme = async (themeId: ThemeMode) => {
   // Update local theme
   themeStore.setTheme(themeId)
 
-  // Sync to backend
-  if (userUuid.value) {
+  // Sync to backend (unless device-local theme is enabled)
+  if (userUuid.value && !deviceLocalTheme.value) {
     const success = await themeStore.syncThemeToBackend(userUuid.value)
 
     if (success) {
@@ -76,6 +82,9 @@ const selectTheme = async (themeId: ThemeMode) => {
       selectedTheme.value = previousTheme
       themeStore.setTheme(previousTheme)
     }
+  } else {
+    const themeName = themeId === 'system' ? 'System' : themeStore.effectiveTheme.meta.name
+    emit('success', `Theme changed to ${themeName}${deviceLocalTheme.value ? ' (device only)' : ''}`)
   }
 
   isUpdating.value = false
@@ -84,6 +93,11 @@ const selectTheme = async (themeId: ThemeMode) => {
 // Handle color blind mode toggle
 const handleColorBlindModeToggle = () => {
   emit('success', `Color blind friendly mode ${colorBlindMode.value ? 'enabled' : 'disabled'}`)
+}
+
+// Handle device local theme toggle
+const handleDeviceLocalThemeToggle = () => {
+  emit('success', `Device-only theme ${deviceLocalTheme.value ? 'enabled' : 'disabled'}`)
 }
 
 // Handle compact view toggle
@@ -143,6 +157,14 @@ const handleCompactViewToggle = () => {
             <p class="text-xs text-tertiary mt-0.5">Choose your preferred color scheme</p>
           </div>
         </div>
+
+        <!-- Device-only Theme Toggle -->
+        <ToggleSwitch
+          v-model="deviceLocalTheme"
+          label="Device-only theme"
+          description="Don't sync theme across devices (e.g., use E-Paper theme on your tablet while keeping dark mode on your laptop)"
+          @update:modelValue="handleDeviceLocalThemeToggle"
+        />
 
         <!-- System Theme Option -->
         <div>

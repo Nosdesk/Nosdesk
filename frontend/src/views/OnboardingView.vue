@@ -354,7 +354,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen w-full flex flex-col items-center justify-center bg-app overflow-auto py-8">
+  <div class="min-h-screen w-full flex flex-col items-center justify-center bg-app py-8">
     <div class="flex flex-col gap-6 w-full max-w-lg px-8">
       <!-- Logo/Brand -->
       <div class="flex flex-col gap-2 items-center">
