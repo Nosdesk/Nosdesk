@@ -11,7 +11,8 @@ import BackButton from '@/components/common/BackButton.vue';
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue';
 import DeleteButton from '@/components/common/DeleteButton.vue';
 import { useDocumentationNavStore } from "@/stores/documentationNav";
-import DocumentationTocItem from '@/components/documentationComponents/DocumentationTocItem.vue';
+import DocumentationCardGrid from '@/components/documentationComponents/DocumentationCardGrid.vue';
+import DocumentationCardSkeleton from '@/components/documentationComponents/DocumentationCardSkeleton.vue';
 import { docsEmitter } from "@/services/docsEmitter";
 import RevisionHistory from '@/components/editor/RevisionHistory.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
@@ -600,13 +601,30 @@ const handleDeletePage = async () => {
 
 // Modify the fetchContent method to load binary updates when appropriate
 const fetchContent = async () => {
-  isLoading.value = true;
-  // Reset state for the new page
-  isIndexPage.value = false;
-  isTicketNote.value = false;
-  page.value = null;
-  article.value = null;
-  
+  // Determine what type of content we're navigating to
+  const isNavigatingToIndex = !route.params.path || route.params.path === '';
+  const isNavigatingToTicketNote = !!route.query.ticketId;
+  const isNavigatingToDocument = !isNavigatingToIndex && !isNavigatingToTicketNote;
+
+  // Check if we have cached data for the destination
+  const hasIndexCache = pages.value.length > 0;
+  const hasDocumentCache = article.value !== null || page.value !== null;
+
+  // Only show skeleton if navigating to content we don't have cached
+  const shouldShowSkeleton =
+    (isNavigatingToIndex && !hasIndexCache) ||
+    (isNavigatingToDocument && !hasDocumentCache) ||
+    (isNavigatingToTicketNote && !isTicketNote.value);
+
+  if (shouldShowSkeleton) {
+    isLoading.value = true;
+    // Reset state for fresh load
+    isIndexPage.value = false;
+    isTicketNote.value = false;
+    page.value = null;
+    article.value = null;
+  }
+
   // Check if we're creating from a ticket
   if (route.query.createFromTicket === 'true') {
     isCreateFromTicket.value = true;
@@ -971,56 +989,27 @@ watch(searchQuery, (value) => {
     <div class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
       <!-- Search Results - Removed from main content area -->
 
-      <!-- Index Page View -->
-      <div v-if="isIndexPage" class="flex flex-col max-w-5xl mx-auto w-full px-4 py-6 gap-6 animate-fadeIn">
-        <!-- Recent Pages Section -->
-        <div class="flex flex-col gap-4">
-          <div class="flex items-center gap-2 pb-2 border-b border-default">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
+      <!-- Index Page View - Card Grid -->
+      <div v-if="isIndexPage" class="flex flex-col max-w-7xl mx-auto w-full px-4 py-6 gap-6 animate-fadeIn">
+        <!-- Header -->
+        <div class="flex items-center justify-between gap-4 pb-4 border-b border-default">
+          <div class="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-accent" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
             </svg>
-            <h2 class="text-lg font-medium text-primary">Recent Pages</h2>
+            <h2 class="text-xl font-semibold text-primary">Documentation</h2>
           </div>
 
-          <!-- List of pages -->
-          <div class="flex flex-col gap-2">
-            <RouterLink
-              v-for="page in sortedPages"
-              :key="page.id"
-              :to="`/documentation/${page.id}`"
-              class="bg-surface rounded-lg overflow-hidden border border-default transition-all duration-200 hover:border-accent/30 hover:-translate-y-0.5 group focus:outline-none focus:ring-2 focus:ring-accent/50"
-            >
-              <div class="p-4">
-                <div class="flex items-center gap-3">
-                  <div class="text-2xl flex-shrink-0">{{ page.icon || '📄' }}</div>
-                  <div class="flex-1 min-w-0">
-                    <h3 class="text-primary font-medium group-hover:text-accent transition-colors">
-                      {{ page.title }}
-                    </h3>
-                    <p v-if="page.description" class="text-secondary text-sm mt-1 line-clamp-2">
-                      {{ page.description }}
-                    </p>
-                    <div class="flex items-center gap-3 mt-2 text-xs text-tertiary">
-                      <span>{{ formatDate(page.updated_at || page.lastUpdated || new Date().toISOString()) }}</span>
-                      <span>·</span>
-                      <span>{{ page.last_edited_by?.name || page.created_by?.name || page.author || 'Unknown' }}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </RouterLink>
-          </div>
+          <!-- Page count badge -->
+          <span v-if="pages.length > 0" class="text-xs text-tertiary bg-surface-alt px-2 py-1 rounded-full">
+            {{ pages.length }} page{{ pages.length !== 1 ? 's' : '' }}
+          </span>
         </div>
 
-        <!-- Empty state for no pages -->
-        <EmptyState
-          v-if="pages.length === 0"
-          icon="document"
-          title="No documentation yet"
-          description="Create your first documentation page to start building a knowledge base."
-          action-label="Create Page"
-          variant="card"
-          @action="createNewPage"
+        <!-- Card Grid -->
+        <DocumentationCardGrid
+          :pages="pages"
+          @create="createNewPage"
         />
       </div>
 
@@ -1134,15 +1123,19 @@ watch(searchQuery, (value) => {
         />
       </div>
 
-      <!-- Loading State -->
-      <div
-        v-else-if="isLoading"
-        class="flex justify-center items-center h-full"
-      >
-        <div class="flex flex-col items-center gap-4">
-          <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
-          <div class="text-accent animate-pulse">Loading content...</div>
+      <!-- Loading State - Card Grid Skeleton -->
+      <div v-else-if="isLoading" class="flex flex-col max-w-7xl mx-auto w-full px-4 py-6 gap-6">
+        <!-- Header Skeleton -->
+        <div class="flex items-center justify-between gap-4 pb-4 border-b border-default">
+          <div class="flex items-center gap-2">
+            <div class="w-6 h-6 rounded bg-surface-hover animate-pulse"></div>
+            <div class="h-7 w-40 bg-surface-hover rounded animate-pulse"></div>
+          </div>
+          <div class="h-6 w-16 bg-surface-hover rounded-full animate-pulse"></div>
         </div>
+
+        <!-- Card Grid Skeleton -->
+        <DocumentationCardSkeleton :count="6" />
       </div>
 
       <!-- Create from ticket form -->

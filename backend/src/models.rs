@@ -1269,8 +1269,8 @@ pub struct DocumentationPageResponse {
     pub status: DocumentationStatus,
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: chrono::NaiveDateTime,
-    pub created_by: UserInfo,
-    pub last_edited_by: UserInfo,
+    pub created_by: UserInfoWithAvatar,
+    pub last_edited_by: UserInfoWithAvatar,
     pub parent_id: Option<i32>,
     pub ticket_id: Option<i32>,
     pub display_order: Option<i32>,
@@ -1279,6 +1279,7 @@ pub struct DocumentationPageResponse {
     pub archived_at: Option<chrono::NaiveDateTime>,
     pub has_unsaved_changes: bool,
     pub children: Option<Vec<DocumentationPageResponse>>,
+    pub content: Option<String>,
 }
 
 // Sync History Models

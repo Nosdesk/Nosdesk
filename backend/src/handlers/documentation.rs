@@ -3,12 +3,121 @@ use chrono::Utc;
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
+use yrs::{Doc, Transact, ReadTxn, WriteTxn, GetString, Options, updates::decoder::Decode, Update, XmlFragment, XmlOut};
+use std::panic;
+use regex::Regex;
 
 use crate::db::{Pool, DbConnection};
-use crate::models::{Claims, NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus, DocumentationPage, DocumentationPageResponse, UserInfo};
+use crate::models::{Claims, NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus, DocumentationPage, DocumentationPageResponse, UserInfoWithAvatar};
 use crate::repository;
 use crate::utils;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
+
+/// Recursively extract plain text from an XmlOut node
+fn extract_text_from_xml_node(node: &XmlOut, txn: &yrs::Transaction) -> String {
+    match node {
+        XmlOut::Text(text_ref) => {
+            // XmlTextRef::get_string returns the text content
+            match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                text_ref.get_string(txn)
+            })) {
+                Ok(s) => s,
+                Err(_) => String::new(),
+            }
+        }
+        XmlOut::Element(elem_ref) => {
+            // Recursively extract text from element's children
+            let mut text = String::new();
+            for child in elem_ref.children(txn) {
+                let child_text = extract_text_from_xml_node(&child, txn);
+                if !child_text.is_empty() {
+                    if !text.is_empty() {
+                        text.push(' ');
+                    }
+                    text.push_str(&child_text);
+                }
+            }
+            text
+        }
+        XmlOut::Fragment(frag_ref) => {
+            // Recursively extract text from fragment's children
+            let mut text = String::new();
+            for child in frag_ref.children(txn) {
+                let child_text = extract_text_from_xml_node(&child, txn);
+                if !child_text.is_empty() {
+                    if !text.is_empty() {
+                        text.push(' ');
+                    }
+                    text.push_str(&child_text);
+                }
+            }
+            text
+        }
+    }
+}
+
+/// Extract text content from a Yjs document binary blob
+/// Returns the plain text content extracted from the ProseMirror XmlFragment
+fn extract_yjs_content(yjs_document: &[u8]) -> Option<String> {
+    // Create a new Yjs document with GC disabled for reading
+    let options = Options {
+        skip_gc: true,
+        ..Default::default()
+    };
+    let doc = Doc::with_options(options);
+
+    // Initialize the prosemirror XmlFragment before applying update
+    {
+        let mut txn = doc.transact_mut();
+        let _ = txn.get_or_insert_xml_fragment("prosemirror");
+    }
+
+    // Decode and apply the update
+    let update = match Update::decode_v1(yjs_document) {
+        Ok(u) => u,
+        Err(_) => return None,
+    };
+
+    {
+        let mut txn = doc.transact_mut();
+        if txn.apply_update(update).is_err() {
+            return None;
+        }
+    }
+
+    // Extract text content from the prosemirror fragment by traversing children
+    let txn = doc.transact();
+    if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+        let mut text_parts = Vec::new();
+
+        // Iterate through top-level children (paragraphs, headings, etc.)
+        for child in fragment.children(&txn) {
+            let child_text = extract_text_from_xml_node(&child, &txn);
+            if !child_text.is_empty() {
+                text_parts.push(child_text);
+            }
+        }
+
+        if text_parts.is_empty() {
+            None
+        } else {
+            let joined = text_parts.join(" ");
+            // Strip any remaining XML/HTML tags (e.g., <strong>, <em>, etc.)
+            let tag_regex = Regex::new(r"<[^>]+>").unwrap();
+            let clean_text = tag_regex.replace_all(&joined, "").to_string();
+            // Normalize whitespace
+            let whitespace_regex = Regex::new(r"\s+").unwrap();
+            let normalized = whitespace_regex.replace_all(&clean_text, " ").trim().to_string();
+            if normalized.is_empty() {
+                None
+            } else {
+                Some(normalized)
+            }
+        }
+    } else {
+        None
+    }
+}
 
 // DTO for creating documentation pages (fields that frontend should send)
 #[derive(Debug, Deserialize)]
@@ -41,6 +150,20 @@ fn to_page_response(
     let last_edited_by_user = repository::get_user_by_uuid(&page.last_edited_by, conn)
         .map_err(|_| "Failed to fetch last_edited_by user")?;
 
+    // Extract content from Yjs document if available
+    // First try the page's own yjs_document, then fall back to linked ticket's article content
+    let content = page.yjs_document.as_ref()
+        .and_then(|doc| extract_yjs_content(doc))
+        .or_else(|| {
+            // If page is linked to a ticket, try to get content from article_contents
+            page.ticket_id.and_then(|ticket_id| {
+                repository::get_article_content_by_ticket_id(conn, ticket_id)
+                    .ok()
+                    .and_then(|article| article.yjs_document)
+                    .and_then(|doc| extract_yjs_content(&doc))
+            })
+        });
+
     Ok(DocumentationPageResponse {
         id: page.id,
         uuid: page.uuid,
@@ -51,13 +174,17 @@ fn to_page_response(
         status: page.status,
         created_at: page.created_at,
         updated_at: page.updated_at,
-        created_by: UserInfo {
+        created_by: UserInfoWithAvatar {
             uuid: created_by_user.uuid,
             name: created_by_user.name,
+            avatar_url: created_by_user.avatar_url,
+            avatar_thumb: created_by_user.avatar_thumb,
         },
-        last_edited_by: UserInfo {
+        last_edited_by: UserInfoWithAvatar {
             uuid: last_edited_by_user.uuid,
             name: last_edited_by_user.name,
+            avatar_url: last_edited_by_user.avatar_url,
+            avatar_thumb: last_edited_by_user.avatar_thumb,
         },
         parent_id: page.parent_id,
         ticket_id: page.ticket_id,
@@ -67,7 +194,19 @@ fn to_page_response(
         archived_at: page.archived_at,
         has_unsaved_changes: page.has_unsaved_changes,
         children: None,
+        content,
     })
+}
+
+// Helper function to convert multiple DocumentationPages to DocumentationPageResponses
+fn to_page_responses(
+    pages: Vec<DocumentationPage>,
+    conn: &mut DbConnection,
+) -> Result<Vec<DocumentationPageResponse>, String> {
+    pages
+        .into_iter()
+        .map(|page| to_page_response(page, conn))
+        .collect()
 }
 
 // Get all documentation pages
@@ -80,7 +219,12 @@ pub async fn get_documentation_pages(
     };
 
     match repository::get_documentation_pages(&mut conn) {
-        Ok(pages) => HttpResponse::Ok().json(pages),
+        Ok(pages) => {
+            match to_page_responses(pages, &mut conn) {
+                Ok(responses) => HttpResponse::Ok().json(responses),
+                Err(err) => HttpResponse::InternalServerError().json(err),
+            }
+        },
         Err(_) => HttpResponse::InternalServerError().json("Failed to fetch pages"),
     }
 }
@@ -389,7 +533,12 @@ pub async fn get_top_level_documentation_pages(
     };
 
     match repository::get_top_level_pages(&mut conn) {
-        Ok(pages) => HttpResponse::Ok().json(pages),
+        Ok(pages) => {
+            match to_page_responses(pages, &mut conn) {
+                Ok(responses) => HttpResponse::Ok().json(responses),
+                Err(err) => HttpResponse::InternalServerError().json(err),
+            }
+        },
         Err(_) => HttpResponse::InternalServerError().json("Failed to fetch top-level pages"),
     }
 }
@@ -406,7 +555,12 @@ pub async fn get_documentation_pages_by_parent_id(
     };
 
     match repository::get_pages_by_parent_id(parent, &mut conn) {
-        Ok(pages) => HttpResponse::Ok().json(pages),
+        Ok(pages) => {
+            match to_page_responses(pages, &mut conn) {
+                Ok(responses) => HttpResponse::Ok().json(responses),
+                Err(err) => HttpResponse::InternalServerError().json(err),
+            }
+        },
         Err(_) => HttpResponse::InternalServerError().json("Failed to fetch pages by parent ID"),
     }
 }
@@ -472,7 +626,12 @@ pub async fn get_ordered_pages_by_parent_id(
     };
 
     match repository::get_ordered_pages_by_parent_id(&mut conn, parent) {
-        Ok(pages) => HttpResponse::Ok().json(pages),
+        Ok(pages) => {
+            match to_page_responses(pages, &mut conn) {
+                Ok(responses) => HttpResponse::Ok().json(responses),
+                Err(err) => HttpResponse::InternalServerError().json(err),
+            }
+        },
         Err(_) => HttpResponse::InternalServerError().json("Failed to fetch ordered pages by parent ID"),
     }
 }
@@ -592,7 +751,12 @@ pub async fn get_ordered_top_level_pages(
 
     // Get all top-level pages with appropriate ordering
     match repository::get_ordered_top_level_pages(&mut conn) {
-        Ok(pages) => HttpResponse::Ok().json(pages),
+        Ok(pages) => {
+            match to_page_responses(pages, &mut conn) {
+                Ok(responses) => HttpResponse::Ok().json(responses),
+                Err(err) => HttpResponse::InternalServerError().json(err),
+            }
+        },
         Err(_) => HttpResponse::InternalServerError().json("Failed to fetch top-level pages"),
     }
 }
@@ -635,17 +799,20 @@ pub async fn get_documentation_pages_by_ticket_id(
     path: web::Path<i32>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
-    
+
     // Get a connection from the pool
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
-    
+
     match repository::get_documentation_pages_by_ticket_id(&mut conn, ticket_id) {
         Ok(pages) => {
             println!("Found {} documentation pages for ticket {}", pages.len(), ticket_id);
-            HttpResponse::Ok().json(pages)
+            match to_page_responses(pages, &mut conn) {
+                Ok(responses) => HttpResponse::Ok().json(responses),
+                Err(err) => HttpResponse::InternalServerError().json(err),
+            }
         },
         Err(e) => {
             println!("Error fetching documentation pages for ticket {}: {:?}", ticket_id, e);
