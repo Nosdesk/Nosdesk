@@ -217,7 +217,7 @@ defineExpose({
     <div class="flex-1">
         <div v-if="ticket" class="flex flex-col">
             <!-- Navigation and actions bar -->
-            <div class="pt-4 px-6 flex justify-between items-center">
+            <div class="pt-4 px-4 sm:px-6 flex justify-between items-center">
                 <div class="flex items-center gap-4">
                     <BackButton
                         v-if="ticket.project"
@@ -252,7 +252,7 @@ defineExpose({
                 />
             </div>
 
-            <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
+            <div class="flex flex-col gap-4 px-4 py-4 sm:px-6 mx-auto w-full max-w-8xl">
                 <!-- Grid Container with named areas -->
                 <div class="ticket-grid gap-6 items-start">
                     <!-- Left Column Wrapper (for 2-column tablet layout) -->
@@ -466,7 +466,7 @@ defineExpose({
             </div>
         </div>
 
-        <div v-else class="p-6 text-center text-secondary">
+        <div v-else class="p-4 sm:p-6 text-center text-secondary">
             Loading ticket...
         </div>
 

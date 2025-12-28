@@ -299,7 +299,7 @@ defineExpose({
       </template>
     </div>
 
-    <!-- Kanban Board View - fills remaining height with horizontal scroll -->
+    <!-- Kanban Board View - fills remaining height with scroll -->
     <div v-if="!isLoading && project && activeTab === 'kanban'" class="flex-1 min-h-0 overflow-auto">
       <KanbanBoard :project-id="project.id" />
     </div>

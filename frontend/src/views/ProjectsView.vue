@@ -249,9 +249,50 @@ watch(searchQuery, updateSearchQuery)
         @dismiss="error = null"
       />
 
+      <!-- Skeleton Loading State -->
+      <TransitionGroup
+        v-if="isLoading"
+        name="list-stagger"
+        tag="div"
+        class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+      >
+        <div
+          v-for="i in 6"
+          :key="`skeleton-${i}`"
+          :style="getStyle(i - 1)"
+          class="bg-surface rounded-xl border border-default overflow-hidden animate-pulse"
+        >
+          <!-- Skeleton Header -->
+          <div class="px-4 py-3 bg-surface-alt border-b border-default">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg bg-surface-hover"></div>
+              <div class="flex-1 min-w-0 space-y-2">
+                <div class="h-5 bg-surface-hover rounded w-3/4"></div>
+                <div class="h-5 bg-surface-hover rounded w-16"></div>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <div class="w-4 h-4 bg-surface-hover rounded"></div>
+                <div class="w-6 h-4 bg-surface-hover rounded"></div>
+              </div>
+            </div>
+          </div>
+          <!-- Skeleton Content -->
+          <div class="p-4 space-y-3">
+            <div class="space-y-2">
+              <div class="h-4 bg-surface-hover rounded w-full"></div>
+              <div class="h-4 bg-surface-hover rounded w-2/3"></div>
+            </div>
+            <div class="pt-2 border-t border-subtle flex items-center gap-3">
+              <div class="h-3 bg-surface-hover rounded w-16"></div>
+              <div class="h-3 bg-surface-hover rounded w-16"></div>
+            </div>
+          </div>
+        </div>
+      </TransitionGroup>
+
       <!-- Empty State -->
       <EmptyState
-        v-if="!isLoading && filteredProjects.length === 0"
+        v-else-if="filteredProjects.length === 0"
         icon="folder"
         :title="searchQuery || statusFilter !== 'all' ? 'No projects match your filters' : 'No projects found'"
         :description="searchQuery || statusFilter !== 'all' ? 'Try adjusting your search or filters' : 'Create your first project to get started'"

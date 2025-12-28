@@ -146,8 +146,14 @@ const handleAddTicket = (ticketId: number) => {
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
     </div>
 
-    <!-- Kanban Board - horizontal scroll on smaller screens, fills width on large screens -->
-    <div v-else class="flex gap-4 p-4 h-full xl:justify-center">
+    <!--
+      Kanban Board - horizontal scroll on smaller screens, fills width on large screens
+
+      CSS Note: Using pl-4 + ::after pseudo-element instead of p-4 because browsers
+      don't render trailing padding in overflow scroll containers. This is a known
+      CSS issue tracked at https://github.com/w3c/csswg-drafts/issues/129
+    -->
+    <div v-else class="kanban-board flex gap-4 py-4 pl-4 h-full xl:justify-center">
       <div
         v-for="column in columns"
         :key="column.id"
@@ -322,6 +328,24 @@ const handleAddTicket = (ticketId: number) => {
 </template>
 
 <style scoped>
+/*
+ * Trailing padding fix for horizontal scroll containers.
+ * Browsers don't render padding-right in overflow containers, so we use
+ * a pseudo-element as a spacer. See: https://github.com/w3c/csswg-drafts/issues/129
+ */
+.kanban-board::after {
+  content: '';
+  flex-shrink: 0;
+  width: 1px; /* Minimal width - gap-4 provides the actual spacing */
+}
+
+/* Hide the spacer on xl screens where content is centered */
+@media (min-width: 1280px) {
+  .kanban-board::after {
+    display: none;
+  }
+}
+
 /* Line clamp utility for ticket titles */
 .line-clamp-2 {
   display: -webkit-box;

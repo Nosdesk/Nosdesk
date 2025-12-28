@@ -1,7 +1,8 @@
 import { ref, readonly } from 'vue'
+import type { CreateIconType } from '@/components/common/CreateActionIcon.vue'
 
-// Icon types for the create button
-export type CreateButtonIcon = 'plus' | 'ticket' | 'user' | 'device' | 'folder' | 'document'
+// Re-export the icon type for convenience
+export type CreateButtonIcon = CreateIconType
 
 // Global state for mobile search bar
 const searchQuery = ref('')

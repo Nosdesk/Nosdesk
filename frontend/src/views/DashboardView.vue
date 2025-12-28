@@ -270,30 +270,49 @@ const username = computed(() => {
 // Current user UUID for filtering
 const currentUserUuid = computed(() => authStore.user?.uuid || '');
 
-// Initialize ticket stats with zeros
-const ticketStats = ref({
-  total: 0,
+// Raw ticket counts
+const ticketCounts = ref({
+  assigned: 0,
   open: 0,
   inProgress: 0,
-  closed: 0
+  closed: 0,
+  unassigned: 0,
+  all: 0
 });
 
-// Fetch tickets and update stats (filtered to current user's assigned tickets)
+// Stat cards configuration - computed to react to count changes
+const statCards = computed(() => [
+  { label: 'Assigned', value: ticketCounts.value.assigned, to: '/tickets?assignee=current', color: 'text-primary' },
+  { label: 'Open', value: ticketCounts.value.open, to: '/tickets?assignee=current&status=open', color: 'text-status-open' },
+  { label: 'In Progress', shortLabel: 'Progress', value: ticketCounts.value.inProgress, to: '/tickets?assignee=current&status=in-progress', color: 'text-status-in-progress' },
+  { label: 'Closed', value: ticketCounts.value.closed, to: '/tickets?assignee=current&status=closed', color: 'text-tertiary' },
+]);
+
+// Secondary stats (unassigned + all)
+const secondaryStats = computed(() => {
+  const stats = [];
+  if (ticketCounts.value.unassigned > 0) {
+    stats.push({ label: 'Unassigned', value: ticketCounts.value.unassigned, to: '/tickets?assignee=unassigned&status=open', color: 'text-amber-500', border: 'border-amber-500/30 hover:border-amber-500/50' });
+  }
+  stats.push({ label: 'All Tickets', value: ticketCounts.value.all, to: '/tickets', color: 'text-secondary', span: ticketCounts.value.unassigned === 0 });
+  return stats;
+});
+
+// Fetch tickets and update counts
 const fetchTicketStats = async () => {
   if (!currentUserUuid.value) return;
 
   try {
     const tickets = await getTickets();
-
-    // Filter to only tickets assigned to the current user
     const myTickets = tickets.filter(ticket => ticket.assignee === currentUserUuid.value);
 
-    // Calculate stats from assigned tickets
-    ticketStats.value = {
-      total: myTickets.length,
-      open: myTickets.filter(ticket => ticket.status === 'open').length,
-      inProgress: myTickets.filter(ticket => ticket.status === 'in-progress').length,
-      closed: myTickets.filter(ticket => ticket.status === 'closed').length
+    ticketCounts.value = {
+      assigned: myTickets.length,
+      open: myTickets.filter(t => t.status === 'open').length,
+      inProgress: myTickets.filter(t => t.status === 'in-progress').length,
+      closed: myTickets.filter(t => t.status === 'closed').length,
+      unassigned: tickets.filter(t => !t.assignee && t.status === 'open').length,
+      all: tickets.length
     };
   } catch (error) {
     console.error('Error fetching ticket stats:', error);
@@ -352,31 +371,41 @@ defineExpose({
 
           <!-- Your Assigned Tickets Stats -->
           <div class="grid grid-cols-4 gap-1.5 sm:gap-3">
-            <!-- Total Assigned -->
-            <router-link to="/tickets?assignee=current" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left">
-              <h3 class="text-tertiary text-[10px] sm:text-xs font-medium uppercase tracking-wide">Assigned</h3>
-              <p class="text-base sm:text-xl font-semibold text-primary mt-0.5 sm:mt-1 group-hover:text-accent transition-colors">{{ ticketStats.total }}</p>
-            </router-link>
-
-            <!-- Open -->
-            <router-link to="/tickets?assignee=current&status=open" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left">
-              <h3 class="text-tertiary text-[10px] sm:text-xs font-medium uppercase tracking-wide">Open</h3>
-              <p class="text-base sm:text-xl font-semibold text-status-open mt-0.5 sm:mt-1 group-hover:text-accent transition-colors">{{ ticketStats.open }}</p>
-            </router-link>
-
-            <!-- In Progress -->
-            <router-link to="/tickets?assignee=current&status=in-progress" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left">
+            <router-link
+              v-for="stat in statCards"
+              :key="stat.label"
+              :to="stat.to"
+              class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left"
+            >
               <h3 class="text-tertiary text-[10px] sm:text-xs font-medium uppercase tracking-wide">
-                <span class="hidden min-[400px]:inline">In Progress</span>
-                <span class="min-[400px]:hidden">Progress</span>
+                <span v-if="stat.shortLabel" class="hidden min-[400px]:inline">{{ stat.label }}</span>
+                <span v-if="stat.shortLabel" class="min-[400px]:hidden">{{ stat.shortLabel }}</span>
+                <span v-if="!stat.shortLabel">{{ stat.label }}</span>
               </h3>
-              <p class="text-base sm:text-xl font-semibold text-status-in-progress mt-0.5 sm:mt-1 group-hover:text-accent transition-colors">{{ ticketStats.inProgress }}</p>
+              <p :class="['text-base sm:text-xl font-semibold mt-0.5 sm:mt-1 group-hover:text-accent transition-colors', stat.color]">
+                {{ stat.value }}
+              </p>
             </router-link>
+          </div>
 
-            <!-- Closed -->
-            <router-link to="/tickets?assignee=current&status=closed" class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left">
-              <h3 class="text-tertiary text-[10px] sm:text-xs font-medium uppercase tracking-wide">Closed</h3>
-              <p class="text-base sm:text-xl font-semibold text-tertiary mt-0.5 sm:mt-1 group-hover:text-accent transition-colors">{{ ticketStats.closed }}</p>
+          <!-- Unassigned & All Tickets -->
+          <div class="grid grid-cols-2 gap-1.5 sm:gap-3">
+            <router-link
+              v-for="stat in secondaryStats"
+              :key="stat.label"
+              :to="stat.to"
+              :class="[
+                'bg-surface rounded-lg border transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left',
+                stat.border || 'border-default hover:border-strong',
+                stat.span ? 'col-span-2' : ''
+              ]"
+            >
+              <h3 :class="['text-[10px] sm:text-xs font-medium uppercase tracking-wide', stat.color]">
+                {{ stat.label }}
+              </h3>
+              <p :class="['text-base sm:text-xl font-semibold mt-0.5 sm:mt-1 group-hover:text-accent transition-colors', stat.color]">
+                {{ stat.value }}
+              </p>
             </router-link>
           </div>
         </div>

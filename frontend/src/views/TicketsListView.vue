@@ -165,6 +165,7 @@ filterKeys.forEach(key => {
     if ((key === 'assignee' || key === 'requester') && value === 'current') {
       value = currentUserUuid.value;
     }
+    // 'unassigned' is passed through as-is for backend to filter by null assignee
     // Parse comma-separated values for multi-select filters
     if (multiSelectFilters.includes(key) && value.includes(',')) {
       initialFilters[key] = value.split(',');
@@ -258,6 +259,7 @@ const parseUrlFilters = (query: typeof route.query): Record<string, string | str
       if ((key === 'assignee' || key === 'requester') && value === 'current') {
         value = currentUserUuid.value;
       }
+      // 'unassigned' is passed through as-is for backend to filter by null assignee
       if (multiSelectFilters.includes(key) && value.includes(',')) {
         filters[key] = value.split(',');
       } else if (multiSelectFilters.includes(key)) {

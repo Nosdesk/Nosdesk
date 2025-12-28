@@ -162,7 +162,11 @@ pub fn get_paginated_tickets(
 
     // Handle assignee filter for count query
     if let Some(assignee_filter) = &assignee {
-        if assignee_filter != "all" {
+        if assignee_filter == "unassigned" {
+            // Filter for tickets with no assignee
+            count_query = count_query.filter(tickets::assignee_uuid.is_null());
+            query = query.filter(tickets::assignee_uuid.is_null());
+        } else if assignee_filter != "all" {
             // Parse the UUID string
             if let Ok(assignee_uuid) = uuid::Uuid::parse_str(assignee_filter) {
                 count_query = count_query.filter(tickets::assignee_uuid.eq(Some(assignee_uuid)));

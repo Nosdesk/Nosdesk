@@ -436,54 +436,31 @@ watch(
                             </h3>
                         </div>
 
-                        <!-- Metadata row -->
-                        <div
-                            class="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-secondary"
-                        >
-                            <span class="font-mono text-tertiary"
-                                >#{{ ticket.id }}</span
-                            >
-
-                            <!-- Status and Priority badges -->
+                        <!-- Metadata: ID, Status, Priority -->
+                        <div class="flex items-center gap-3 text-xs">
+                            <span class="font-mono text-tertiary">#{{ ticket.id }}</span>
                             <StatusBadge type="status" :value="ticket.status" :compact="true" />
                             <StatusBadge type="priority" :value="ticket.priority" :short="true" :compact="true" />
+                        </div>
 
-                            <!-- Requester info -->
-                            <div
-                                v-if="ticket.requester_user"
-                                class="flex items-center gap-1.5"
-                            >
-                                <span class="text-tertiary">From:</span>
+                        <!-- From and Time (always on bottom) -->
+                        <div class="flex items-center gap-3 text-xs text-tertiary">
+                            <div v-if="ticket.requester_user" class="flex items-center gap-1.5">
+                                <span>From:</span>
                                 <UserAvatar
                                     :name="ticket.requester_user.name"
-                                    :avatar="
-                                        ticket.requester_user.avatar_thumb
-                                    "
+                                    :avatar="ticket.requester_user.avatar_thumb"
                                     :userUuid="ticket.requester_user.uuid"
                                     size="xs"
                                     :showName="true"
                                     class="text-secondary"
                                 />
                             </div>
-
-                            <!-- Last updated -->
                             <div class="flex items-center gap-1">
-                                <svg
-                                    class="w-3 h-3 text-tertiary"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                                    />
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
-                                <span class="text-tertiary">{{
-                                    formatRelativeTime(ticket.modified)
-                                }}</span>
+                                <span>{{ formatRelativeTime(ticket.modified) }}</span>
                             </div>
                         </div>
                     </div>

@@ -16,8 +16,13 @@ import HeaderTitle from "./HeaderTitle.vue";
 import DocumentIconSelector from "./DocumentIconSelector.vue";
 import ItemIdentifier from "./ItemIdentifier.vue";
 import PageUrlDisplay from "./PageUrlDisplay.vue";
+import CreateActionIcon, { type CreateIconType } from "./common/CreateActionIcon.vue";
 import ticketService from '@/services/ticketService';
 import { useAuthStore } from '@/stores/auth';
+import { useMobileDetection } from '@/composables/useMobileDetection';
+
+// Detect mobile for responsive component sizing
+const { isMobile } = useMobileDetection('sm')
 
 const router = useRouter();
 const route = useRoute();
@@ -27,7 +32,7 @@ interface Props {
   title?: string;
   showCreateButton?: boolean;
   createButtonText?: string;
-  createButtonIcon?: string;
+  createButtonIcon?: CreateIconType;
   useRouteTitle?: boolean;
   ticket: { id: number; title: string } | null;
   document: { id: string; title: string; icon: string } | null;
@@ -81,6 +86,10 @@ const displayTitle = computed(() => {
   }
   return '';
 });
+
+// Responsive sizes for header elements
+const iconSize = computed(() => isMobile.value ? 'md' : 'sm')
+const avatarSize = computed(() => isMobile.value ? 'lg' : 'md')
 
 const handleUpdateDocumentTitle = (newTitle: string) => {
   if (props.document) {
@@ -196,26 +205,13 @@ const handleCreateClick = async () => {
   }
 };
 
-// Check if we're on mobile
-const isMobile = ref(window.innerWidth < 768); // md breakpoint
-
-// Update mobile status on resize
-const updateMobileStatus = () => {
-  isMobile.value = window.innerWidth < 768;
-};
-
-// Debounced version - only updates after resize stops for 150ms
-const debouncedUpdateMobileStatus = debounce(updateMobileStatus, 150);
-
 // Event listeners for click outside
 onMounted(() => {
-  // Add resize listener (debounced to prevent excessive re-renders)
-  window.addEventListener('resize', debouncedUpdateMobileStatus);
+  // Mobile detection is handled by useMobileDetection composable
 });
 
 onUnmounted(() => {
-  // Remove resize listener
-  window.removeEventListener('resize', debouncedUpdateMobileStatus);
+  // Cleanup handled by useMobileDetection composable
 });
 
 // Add a ref for the header avatar component
@@ -240,7 +236,7 @@ defineExpose({
 
 <template>
   <header class="bg-surface border-b border-default relative z-[999]">
-    <div class="flex items-center justify-between h-16 px-4 md:px-6 gap-2">
+    <div class="flex items-center justify-between h-14 sm:h-16 px-3 sm:px-4 md:px-6 gap-2">
       <!-- Left side - Title area -->
       <div class="flex items-center flex-1 min-w-0">
         <template v-if="isTicketView && props.ticket">
@@ -288,21 +284,16 @@ defineExpose({
       </div>
 
       <!-- Right side -->
-      <div class="flex items-center gap-2 md:gap-4 flex-shrink-0">
-        <!-- Create Button (generic - can be ticket, project, etc.) - hidden on mobile (shown in MobileSearchBar) -->
+      <div class="flex items-center gap-3 sm:gap-2 md:gap-4 flex-shrink-0">
+        <!-- Create Button (generic - can be ticket, project, etc.) - icon only on mobile -->
         <button
           v-if="props.showCreateButton"
           @click="handleCreateClick"
           :disabled="isCreating"
-          class="hidden sm:flex create-button px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed items-center gap-2"
+          class="flex create-button px-2.5 py-2 sm:px-4 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed items-center gap-2"
           :aria-label="isCreating ? `Creating...` : `Create ${props.createButtonText}`"
         >
-          <!-- Always show icon -->
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path v-if="isCreating" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" class="animate-spin" />
-            <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-
+          <CreateActionIcon :icon="props.createButtonIcon" :loading="isCreating" :size="iconSize" />
           <span class="create-button-text">{{ isCreating ? 'Creating...' : props.createButtonText }}</span>
         </button>
 
@@ -319,7 +310,7 @@ defineExpose({
               :showName="false"
               :name="user.name"
               :avatar="user.avatar"
-              size="md"
+              :size="avatarSize"
               :clickable="false"
               ref="headerAvatarRef"
             />
@@ -344,13 +335,8 @@ defineExpose({
   will-change: transform;
 }
 
-/* Only compact the create button text below 400px */
-@media (max-width: 400px) {
-  .create-button {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
-    gap: 0.25rem;
-  }
+/* Compact the create button below 640px (sm breakpoint) - icon only */
+@media (max-width: 639px) {
   .create-button-text {
     display: none;
   }

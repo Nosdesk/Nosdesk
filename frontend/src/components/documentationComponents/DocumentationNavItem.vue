@@ -27,11 +27,8 @@ const docNavStore = useDocumentationNavStore()
 const dragPosition = ref<'above' | 'inside' | 'below' | null>(null)
 const itemRef = ref<HTMLElement | null>(null)
 
-// Calculate indent based on level - base padding of 8px plus 8px per level
-const indentStyle = computed(() => ({
-  '--indent-level': props.level ?? 0,
-  paddingLeft: `${8 + (props.level ?? 0) * 8}px`
-}))
+// Current level (0-based)
+const currentLevel = computed(() => props.level ?? 0)
 
 // Check if this page is currently active
 const isActive = computed(() => {
@@ -139,11 +136,14 @@ const handleDrop = (event: DragEvent) => {
 </script>
 
 <template>
-  <li class="relative select-none">
+  <li
+    class="tree-item relative select-none"
+    :style="{ '--level': currentLevel }"
+  >
     <!-- Main Item -->
     <div
       ref="itemRef"
-      class="group relative flex items-center gap-1 py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150"
+      class="group relative flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150"
       :class="[
         isActive
           ? 'bg-surface text-primary font-medium'
@@ -151,7 +151,6 @@ const handleDrop = (event: DragEvent) => {
         isDragging && 'opacity-40 scale-[0.98]',
         (dragPosition === 'inside' || isDropTarget) && 'bg-accent/10 ring-1 ring-accent/30',
       ]"
-      :style="indentStyle"
       draggable="true"
       @click.stop="handlePageClick"
       @dragstart="handleDragStart"
@@ -160,37 +159,42 @@ const handleDrop = (event: DragEvent) => {
       @dragleave="handleDragLeave"
       @drop="handleDrop"
     >
-      <!-- Expand/Collapse Toggle (only shown for pages with children) -->
-      <button
-        v-if="hasChildren"
-        class="flex-shrink-0 w-3 h-3 flex items-center justify-center text-tertiary hover:text-primary rounded transition-colors"
-        @click.stop="handleToggleExpand"
-        :aria-label="isExpanded ? 'Collapse' : 'Expand'"
-      >
-        <svg
-          class="w-2.5 h-2.5 transition-transform duration-200"
-          :class="{ 'rotate-90': isExpanded }"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          stroke-width="2.5"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-      </button>
+      <!-- Indent spacing - matches the width of parent indent guides -->
+      <span class="flex-shrink-0" :style="{ width: `${8 + currentLevel * 12}px` }"></span>
 
-      <!-- Page Icon -->
-      <span class="flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center leading-none">
-        <span v-if="page.icon && !isIconSvg(page.icon)" class="text-xs leading-none flex items-center justify-center">{{ page.icon }}</span>
-        <span v-else-if="page.icon && isIconSvg(page.icon)" v-safe-html.svg="page.icon" class="w-3.5 h-3.5 flex items-center justify-center"></span>
-        <span v-else class="text-xs leading-none text-tertiary flex items-center justify-center">📄</span>
+      <!-- Expand/Collapse Toggle - fixed width for alignment -->
+      <span class="flex-shrink-0 w-4 flex items-center justify-center">
+        <button
+          v-if="hasChildren"
+          class="w-3.5 h-3.5 flex items-center justify-center text-tertiary hover:text-primary rounded transition-colors"
+          @click.stop="handleToggleExpand"
+          :aria-label="isExpanded ? 'Collapse' : 'Expand'"
+        >
+          <svg
+            class="w-2.5 h-2.5 transition-transform duration-200"
+            :class="{ 'rotate-90': isExpanded }"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2.5"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </span>
+
+      <!-- Page Icon - fixed width for alignment -->
+      <span class="flex-shrink-0 w-5 flex items-center justify-center">
+        <span v-if="page.icon && !isIconSvg(page.icon)" class="text-sm leading-none">{{ page.icon }}</span>
+        <span v-else-if="page.icon && isIconSvg(page.icon)" v-safe-html.svg="page.icon" class="w-3.5 h-3.5"></span>
+        <span v-else class="text-sm leading-none text-tertiary">📄</span>
       </span>
 
       <!-- Page Title -->
-      <span class="flex-1 truncate min-w-0">{{ page.title }}</span>
+      <span class="flex-1 truncate min-w-0 ml-1">{{ page.title }}</span>
 
       <!-- Drag Handle (visible on hover) -->
-      <span class="flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity text-tertiary">
+      <span class="flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity text-tertiary ml-1">
         <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
           <circle cx="5" cy="4" r="1.5"/>
           <circle cx="11" cy="4" r="1.5"/>
@@ -203,35 +207,28 @@ const handleDrop = (event: DragEvent) => {
     </div>
 
     <!-- Children Container -->
-    <div
+    <ul
       v-if="hasChildren && isExpanded"
-      class="relative"
+      class="tree-children"
+      :style="{ '--parent-level': currentLevel }"
     >
-      <!-- Vertical connecting line -->
-      <div
-        class="absolute top-0 bottom-2 w-px bg-border-default opacity-50"
-        :style="{ left: `${8 + ((level ?? 0) + 1) * 8 + 6}px` }"
-      ></div>
-
-      <ul class="flex flex-col">
-        <DocumentationNavItem
-          v-for="child in page.children"
-          :key="child.id"
-          :page="child"
-          :is-child="true"
-          :level="(level ?? 0) + 1"
-          :dragged-page-id="draggedPageId"
-          :is-dragging="$attrs['is-dragging'] === String(child.id)"
-          :is-drop-target="$attrs['is-drop-target'] === String(child.id)"
-          @toggle-expand="(id) => emit('toggleExpand', id)"
-          @page-click="(id) => emit('pageClick', id)"
-          @drag-start="(id, event) => emit('dragStart', id, event)"
-          @drag-end="(event) => emit('dragEnd', event)"
-          @drag-over="(id, event, position, level) => emit('dragOver', id, event, position, level)"
-          @drop="(id, event, position) => emit('drop', id, event, position)"
-        />
-      </ul>
-    </div>
+      <DocumentationNavItem
+        v-for="child in page.children"
+        :key="child.id"
+        :page="child"
+        :is-child="true"
+        :level="currentLevel + 1"
+        :dragged-page-id="draggedPageId"
+        :is-dragging="$attrs['is-dragging'] === String(child.id)"
+        :is-drop-target="$attrs['is-drop-target'] === String(child.id)"
+        @toggle-expand="(id) => emit('toggleExpand', id)"
+        @page-click="(id) => emit('pageClick', id)"
+        @drag-start="(id, event) => emit('dragStart', id, event)"
+        @drag-end="(event) => emit('dragEnd', event)"
+        @drag-over="(id, event, position, level) => emit('dragOver', id, event, position, level)"
+        @drop="(id, event, position) => emit('drop', id, event, position)"
+      />
+    </ul>
   </li>
 </template>
 
@@ -243,5 +240,26 @@ const handleDrop = (event: DragEvent) => {
 
 [draggable="true"]:active {
   cursor: grabbing;
+}
+
+/* Tree children container with continuous vertical line */
+.tree-children {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Continuous vertical line using ::before pseudo-element */
+.tree-children::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 8px;
+  /* Position: 8px base + (parent-level * 12px) + 6px to center in the indent area */
+  left: calc(8px + var(--parent-level, 0) * 12px + 6px);
+  width: 1px;
+  background-color: currentColor;
+  opacity: 0.15;
+  border-radius: 1px;
 }
 </style>
