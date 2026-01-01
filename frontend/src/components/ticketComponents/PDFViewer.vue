@@ -45,7 +45,7 @@ const pageBuffer = ref<Map<number, HTMLCanvasElement>>(new Map());
 const MAX_BUFFER_SIZE = 10; // Store more pages in buffer
 const bufferInProgress = ref<Set<number>>(new Set());
 
-// Determine if we're in fullscreen view
+// Determine if in fullscreen view
 const isFullscreenView = computed(() => {
   return route.path === '/pdf-viewer';
 });
@@ -195,7 +195,7 @@ const renderToTransitionCanvas = async (pageNum: number): Promise<boolean> => {
   if (!pdfDocument.value || !transitionCanvas.value) return false;
   
   // Safety check - if the requested page is the last rendered page and
-  // we're not in the middle of a transition, no need to re-render
+  // not in the middle of a transition, no need to re-render
   if (pageNum === lastRenderedPage.value && !isTransitioning.value) {
     return true;
   }
@@ -680,7 +680,7 @@ onBeforeUnmount(() => {
   }
 });
 
-// Watch for src changes and reload PDF - use a more cautious approach
+// Watch for src changes and reload PDF - using a cautious approach
 watchEffect(() => {
   const currentSrc = props.src;
   if (currentSrc) {

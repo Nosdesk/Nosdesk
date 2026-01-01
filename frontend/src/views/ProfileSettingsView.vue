@@ -39,7 +39,7 @@ const updatingRole = ref(false);
 // Get the current user being edited (either targetUser for admin or authStore.user for self)
 const currentUser = computed(() => targetUser.value || authStore.user);
 
-// Check if we're in admin user management mode
+// Check if in admin user management mode
 const targetUserUuid = computed(() => {
   return (route.params.uuid as string) || undefined;
 });
@@ -339,12 +339,12 @@ const checkUserSetupStatus = async () => {
   try {
     // Get auth identities to check if user has a password set
     const identities = await apiClient.get(`/users/${targetUser.value.uuid}/auth-identities`);
-    const hasPassword = identities.data?.some((identity: any) =>
+    const hasPassword = identities.data?.some((identity: { provider_type: string; password_hash?: string }) =>
       identity.provider_type === 'local' && identity.password_hash
     );
     userHasCompletedSetup.value = hasPassword;
   } catch (e) {
-    // If we can't check, assume setup is complete
+    // If unable to check, assume setup complete
     userHasCompletedSetup.value = true;
   }
 };
@@ -424,9 +424,10 @@ const deleteAccount = async () => {
       // Admin deleted another user, redirect to users list
       router.push('/users?deleted=true');
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to delete account:', error);
-    handleError(error.response?.data?.message || 'Failed to delete account. Please try again.');
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    handleError(axiosError.response?.data?.message || 'Failed to delete account. Please try again.');
     isDeleting.value = false;
   } finally {
     showDeleteModal.value = false;

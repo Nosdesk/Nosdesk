@@ -1,13 +1,14 @@
 import { shallowRef, ref, computed, onMounted, onActivated, onDeactivated, onUnmounted, triggerRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMobileSearch, type CreateButtonIcon } from './useMobileSearch'
+import type { PaginationParams } from '@/types/pagination'
 
 interface ListOptions<T> {
   itemIdField?: string
   defaultPageSize?: number
   defaultSortField?: string
   defaultSortDirection?: 'asc' | 'desc'
-  fetchFunction: (params: any) => Promise<{ data: T[], total: number, totalPages: number }>
+  fetchFunction: (params: PaginationParams) => Promise<{ data: T[], total: number, totalPages: number }>
   routeBuilder?: (item: T) => string
   // Mobile search bar options
   mobileSearch?: {
@@ -18,7 +19,7 @@ interface ListOptions<T> {
   }
 }
 
-export function useListManagement<T extends Record<string, any>>(options: ListOptions<T>) {
+export function useListManagement<T extends Record<string, unknown>>(options: ListOptions<T>) {
   const router = useRouter()
   const itemIdField = options.itemIdField || 'id'
 
@@ -54,7 +55,7 @@ export function useListManagement<T extends Record<string, any>>(options: ListOp
   // Loading guard
   let loadPromise: Promise<void> | null = null
 
-  // Track if we're doing a background refresh (sort/filter change with existing data)
+  // Track background refresh (sort/filter change with existing data)
   const isBackgroundRefresh = ref(false)
 
   /**
@@ -256,7 +257,8 @@ export function useListManagement<T extends Record<string, any>>(options: ListOp
   const updateItemField = <K extends keyof T>(id: string | number, field: K, value: T[K]): boolean => {
     const item = getItem(id)
     if (!item) return false
-    ;(item as any)[field] = value
+    // Cast to allow mutation of the item field
+    ;(item as Record<K, T[K]>)[field] = value
     triggerRef(items)
     return true
   }

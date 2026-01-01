@@ -3,6 +3,7 @@ use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
 use serde_json::json;
 use std::sync::Arc;
+use tracing::{debug, error, info, warn};
 
 use crate::db::DbConnection;
 use crate::models::NewAttachment;
@@ -15,10 +16,10 @@ pub async fn upload_files(
     pool: web::Data<crate::db::Pool>,
     storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    println!("Received file upload request");
+    info!("Received file upload request");
     
     let mut conn = pool.get().map_err(|e| {
-        eprintln!("Database connection error: {:?}", e);
+        error!(error = ?e, "Database connection error");
         actix_web::error::ErrorInternalServerError("Database connection error")
     })?;
 
@@ -38,7 +39,7 @@ pub async fn upload_files(
             let mut text_data = Vec::new();
             while let Some(chunk) = field.next().await {
                 let data = chunk.map_err(|e| {
-                    eprintln!("Error reading transcription chunk: {:?}", e);
+                    error!(error = ?e, "Error reading transcription chunk");
                     actix_web::error::ErrorInternalServerError("Error reading transcription")
                 })?;
 
@@ -56,7 +57,7 @@ pub async fn upload_files(
 
         // Check if the field name is "files"
         if field_name != "files" {
-            println!("Skipping non-file field: {}", field_name);
+            debug!(field_name = %field_name, "Skipping non-file field");
             continue;
         }
         
@@ -69,11 +70,11 @@ pub async fn upload_files(
         // SECURITY: Sanitize filename to prevent path traversal attacks
         let sanitized_filename = FileValidator::sanitize_filename(original_filename)
             .map_err(|e| {
-                eprintln!("Filename sanitization failed: {:?}", e);
+                warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
                 actix_web::error::ErrorBadRequest(format!("Invalid filename: {}", e))
             })?;
 
-        println!("Processing uploaded file: {} (sanitized: {})", original_filename, sanitized_filename);
+        debug!(original_filename = %original_filename, sanitized_filename = %sanitized_filename, "Processing uploaded file");
 
         // Read the field data with incremental size validation
         let mut file_data = Vec::new();
@@ -81,7 +82,7 @@ pub async fn upload_files(
 
         while let Some(chunk) = field.next().await {
             let data = chunk.map_err(|e| {
-                eprintln!("Error reading chunk: {:?}", e);
+                error!(error = ?e, "Error reading chunk");
                 actix_web::error::ErrorInternalServerError("Error reading chunk")
             })?;
 
@@ -93,17 +94,17 @@ pub async fn upload_files(
             file_data.extend_from_slice(&data);
         }
 
-        println!("Read {} bytes of data for file {}", total_size, sanitized_filename);
+        debug!(filename = %sanitized_filename, bytes = total_size, "File data read complete");
 
         // SECURITY: Validate file type using magic number detection AND extension check
         // This uses a blocklist approach - blocking dangerous types while allowing most files
         let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
-                eprintln!("File validation failed: {:?}", e);
+                warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
                 actix_web::error::ErrorBadRequest(format!("Invalid file: {}", e))
             })?;
 
-        println!("Validated MIME type: {}", detected_mime);
+        debug!(mime_type = %detected_mime, filename = %sanitized_filename, "File validated");
 
         // SECURITY: Compute SHA-256 checksum for file integrity verification
         use ring::digest;
@@ -114,7 +115,7 @@ pub async fn upload_files(
         let stored_file = storage.store_file(&file_data, &sanitized_filename, &detected_mime, "temp")
             .await
             .map_err(|e| {
-                eprintln!("Failed to store file: {:?}", e);
+                error!(error = ?e, filename = %sanitized_filename, "Failed to store file");
                 actix_web::error::ErrorInternalServerError("Failed to store file")
             })?;
 
@@ -129,9 +130,9 @@ pub async fn upload_files(
             uploaded_by: None, // Will be set when attached to a comment
             transcription: transcription_text.clone(),
         };
-        
-        println!("Creating attachment record in database: {:?}", new_attachment);
-        
+
+        debug!(attachment = ?new_attachment, "Creating attachment record in database");
+
         // Save the attachment to the database
         match crate::repository::create_attachment(&mut conn, new_attachment) {
             Ok(attachment) => {
@@ -141,17 +142,17 @@ pub async fn upload_files(
                     "name": sanitized_filename,
                     "transcription": attachment.transcription
                 });
-                println!("Attachment created successfully: {:?}", attachment_json);
+                info!(attachment_id = attachment.id, filename = %sanitized_filename, "Attachment created successfully");
                 uploaded_attachments.push(attachment_json);
             },
             Err(e) => {
-                eprintln!("Error creating attachment record: {:?}", e);
+                error!(error = ?e, "Error creating attachment record");
                 return Err(actix_web::error::ErrorInternalServerError("Error creating attachment record"));
             }
         }
     }
-    
-    println!("Upload complete. Returning {} attachments", uploaded_attachments.len());
+
+    info!(count = uploaded_attachments.len(), "File upload complete");
     Ok(HttpResponse::Ok().json(uploaded_attachments))
 }
 
@@ -169,19 +170,19 @@ pub async fn serve_ticket_file(
     
     // Validate the token
     let mut conn = pool.get().map_err(|e| {
-        eprintln!("Database connection error: {:?}", e);
+        error!(error = ?e, "Database connection error");
         actix_web::error::ErrorInternalServerError("Database connection error")
     })?;
-    
+
     // Validate token using existing auth logic
     validate_file_access_token(&token, &mut conn).await?;
-    
+
     // Use our centralized storage method instead of hardcoded paths
     let file_path = format!("tickets/{}", filename);
     match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
         Ok(response) => Ok(response),
         Err(e) => {
-            eprintln!("Error serving ticket file {}: {:?}", file_path, e);
+            warn!(error = ?e, file_path = %file_path, "Error serving ticket file");
             Err(actix_web::error::ErrorNotFound("File not found"))
         }
     }
@@ -201,19 +202,19 @@ pub async fn serve_temp_file(
     
     // Validate the token
     let mut conn = pool.get().map_err(|e| {
-        eprintln!("Database connection error: {:?}", e);
+        error!(error = ?e, "Database connection error");
         actix_web::error::ErrorInternalServerError("Database connection error")
     })?;
-    
+
     // Validate token using existing auth logic
     validate_file_access_token(&token, &mut conn).await?;
-    
+
     // Use our centralized storage method instead of hardcoded paths
     let file_path = format!("temp/{}", filename);
     match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
         Ok(response) => Ok(response),
         Err(e) => {
-            eprintln!("Error serving temp file {}: {:?}", file_path, e);
+            warn!(error = ?e, file_path = %file_path, "Error serving temp file");
             Err(actix_web::error::ErrorNotFound("File not found"))
         }
     }
@@ -287,11 +288,11 @@ pub async fn upload_ticket_note_image(
     storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let ticket_id = path.into_inner();
-    println!("Received ticket note image upload for ticket {}", ticket_id);
+    info!(ticket_id = ticket_id, "Received ticket note image upload request");
 
     // Verify ticket exists
     let mut conn = pool.get().map_err(|e| {
-        eprintln!("Database connection error: {:?}", e);
+        error!(error = ?e, "Database connection error");
         actix_web::error::ErrorInternalServerError("Database connection error")
     })?;
 
@@ -305,7 +306,7 @@ pub async fn upload_ticket_note_image(
     while let Some(mut field) = payload.try_next().await? {
         let field_name = field.name();
         if field_name != "files" {
-            println!("Skipping non-file field: {}", field_name);
+            debug!(field_name = %field_name, "Skipping non-file field");
             continue;
         }
 
@@ -318,11 +319,11 @@ pub async fn upload_ticket_note_image(
         // SECURITY: Sanitize filename to prevent path traversal attacks
         let sanitized_filename = FileValidator::sanitize_filename(original_filename)
             .map_err(|e| {
-                eprintln!("Filename sanitization failed: {:?}", e);
+                warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
                 actix_web::error::ErrorBadRequest(format!("Invalid filename: {}", e))
             })?;
 
-        println!("Processing ticket note image: {} (sanitized: {})", original_filename, sanitized_filename);
+        debug!(original_filename = %original_filename, sanitized_filename = %sanitized_filename, "Processing ticket note image");
 
         // Read the field data with incremental size validation
         let mut file_data = Vec::new();
@@ -330,7 +331,7 @@ pub async fn upload_ticket_note_image(
 
         while let Some(chunk) = field.next().await {
             let data = chunk.map_err(|e| {
-                eprintln!("Error reading chunk: {:?}", e);
+                error!(error = ?e, "Error reading chunk");
                 actix_web::error::ErrorInternalServerError("Error reading chunk")
             })?;
 
@@ -344,12 +345,12 @@ pub async fn upload_ticket_note_image(
             file_data.extend_from_slice(&data);
         }
 
-        println!("Read {} bytes of data for file {}", total_size, sanitized_filename);
+        debug!(filename = %sanitized_filename, bytes = total_size, "File data read complete");
 
         // SECURITY: Validate file type with extension check
         let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
-                eprintln!("File validation failed: {:?}", e);
+                warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
                 actix_web::error::ErrorBadRequest(format!("Invalid file: {}", e))
             })?;
 
@@ -358,18 +359,18 @@ pub async fn upload_ticket_note_image(
             return Err(actix_web::error::ErrorBadRequest("Only image files are allowed"));
         }
 
-        println!("Validated MIME type: {}", detected_mime);
+        debug!(mime_type = %detected_mime, filename = %sanitized_filename, "File validated");
 
         // Store in tickets/{ticket_id}/notes/ folder
         let folder = format!("tickets/{}/notes", ticket_id);
         let stored_file = storage.store_file(&file_data, &sanitized_filename, &detected_mime, &folder)
             .await
             .map_err(|e| {
-                eprintln!("Failed to store file: {:?}", e);
+                error!(error = ?e, filename = %sanitized_filename, "Failed to store file");
                 actix_web::error::ErrorInternalServerError("Failed to store file")
             })?;
 
-        println!("Stored ticket note image: {}", stored_file.url);
+        info!(url = %stored_file.url, filename = %sanitized_filename, "Stored ticket note image");
 
         uploaded_files.push(json!({
             "url": stored_file.url,
@@ -378,7 +379,7 @@ pub async fn upload_ticket_note_image(
         }));
     }
 
-    println!("Ticket note image upload complete. Returning {} files", uploaded_files.len());
+    info!(ticket_id = ticket_id, count = uploaded_files.len(), "Ticket note image upload complete");
     Ok(HttpResponse::Ok().json(uploaded_files))
 }
 
@@ -397,7 +398,7 @@ pub async fn serve_ticket_note_image(
 
     // Validate the token
     let mut conn = pool.get().map_err(|e| {
-        eprintln!("Database connection error: {:?}", e);
+        error!(error = ?e, "Database connection error");
         actix_web::error::ErrorInternalServerError("Database connection error")
     })?;
 
@@ -408,7 +409,7 @@ pub async fn serve_ticket_note_image(
     match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
         Ok(response) => Ok(response),
         Err(e) => {
-            eprintln!("Error serving ticket note image {}: {:?}", file_path, e);
+            warn!(error = ?e, file_path = %file_path, "Error serving ticket note image");
             Err(actix_web::error::ErrorNotFound("File not found"))
         }
     }

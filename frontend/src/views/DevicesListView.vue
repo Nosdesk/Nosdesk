@@ -173,7 +173,7 @@ const executeBulkAction = async (action: 'delete') => {
   }
 };
 
-// Track if we're currently loading more (to prevent duplicate requests)
+// Track if currently loading more (to prevent duplicate requests)
 const isLoadingMore = ref(false);
 
 // Handle load more from BaseListView's scroll event

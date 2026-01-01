@@ -7,7 +7,7 @@ use uuid::Uuid;
 use futures::{StreamExt, TryStreamExt};
 use actix_multipart::Multipart;
 use std::collections::HashSet;
-use tracing::{info, error};
+use tracing::{debug, info, warn, error};
 
 use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword, UserProfileUpdate};
 use crate::repository;
@@ -126,7 +126,7 @@ pub async fn get_users(
             conn
         },
         Err(e) => {
-            eprintln!("Database connection error: {:?}", e);
+            error!(error = ?e, "Database connection error");
             return HttpResponse::InternalServerError().json("Database connection error");
         },
     };
@@ -138,7 +138,7 @@ pub async fn get_users(
             HttpResponse::Ok().json(user_responses)
         },
         Err(e) => {
-            eprintln!("Error fetching users: {:?}", e);
+            error!(error = ?e, "Error fetching users");
             HttpResponse::InternalServerError().json("Failed to fetch users")
         },
     }
@@ -186,7 +186,7 @@ pub async fn get_paginated_users(
             HttpResponse::Ok().json(response)
         },
         Err(e) => {
-            eprintln!("Error fetching paginated users: {:?}", e);
+            error!(error = ?e, "Error fetching paginated users");
             HttpResponse::InternalServerError().json("Failed to get paginated users")
         },
     }
@@ -269,7 +269,7 @@ pub async fn get_users_batch(
             HttpResponse::Ok().json(user_responses)
         },
         Err(e) => {
-            eprintln!("Error fetching users batch: {:?}", e);
+            error!(error = ?e, "Error fetching users batch");
             HttpResponse::InternalServerError().json("Failed to get users")
         },
     }
@@ -434,7 +434,7 @@ pub async fn create_user(
                 let hash = match hash(password, DEFAULT_COST) {
                     Ok(h) => h,
                     Err(e) => {
-                        eprintln!("Error hashing password: {:?}", e);
+                        error!(error = ?e, "Error hashing password");
                         return HttpResponse::InternalServerError().json(json!({
                             "status": "error",
                             "message": "Error setting password"
@@ -456,23 +456,23 @@ pub async fn create_user(
                         // Invitation sent successfully
                     },
                     SendInvitationResult::TokenStorageError(e) => {
-                        eprintln!("Error storing invitation token: {}", e);
+                        error!(error = %e, "Error storing invitation token");
                         return HttpResponse::InternalServerError().json(json!({
                             "status": "error",
                             "message": "Error creating invitation"
                         }));
                     },
                     SendInvitationResult::EmailServiceError(e) => {
-                        eprintln!("Error initializing email service: {}", e);
+                        error!(error = %e, "Error initializing email service");
                         return HttpResponse::InternalServerError().json(json!({
                             "status": "error",
                             "message": "Error sending invitation email"
                         }));
                     },
                     SendInvitationResult::EmailSendError(e) => {
-                        eprintln!("Error sending invitation email: {}", e);
+                        error!(error = %e, "Error sending invitation email");
                         // Don't fail - user was created, just couldn't send email
-                        println!("⚠️ User created but invitation email failed to send");
+                        warn!("User created but invitation email failed to send");
                     },
                 }
 
@@ -485,7 +485,7 @@ pub async fn create_user(
                 }));
             };
 
-            println!("Created user with UUID: {}", user.uuid);
+            debug!(user_uuid = %user.uuid, "Created user");
 
             // Create local auth identity (with or without password)
             let new_identity = NewUserAuthIdentity {
@@ -500,9 +500,9 @@ pub async fn create_user(
             match repository::user_auth_identities::create_identity(new_identity, &mut conn) {
                 Ok(_) => {
                     if invitation_sent {
-                        println!("✅ New user created successfully: {} (invitation email sent)", user.name);
+                        info!(user_name = %user.name, "New user created (invitation email sent)");
                     } else {
-                        println!("✅ New user created successfully: {} (password set)", user.name);
+                        info!(user_name = %user.name, "New user created (password set)");
                     }
                     let user_uuid_str = user.uuid.to_string();
                     let response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
@@ -522,7 +522,7 @@ pub async fn create_user(
                     HttpResponse::Created().json(response)
                 },
                 Err(e) => {
-                    eprintln!("Error creating auth identity: {:?}", e);
+                    error!(error = ?e, "Error creating auth identity");
                     // If identity creation fails, still return the user (with primary email)
                     let user_response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
                     HttpResponse::Created().json(user_response)
@@ -530,7 +530,7 @@ pub async fn create_user(
             }
         },
         Err(e) => {
-            eprintln!("Error creating user: {:?}", e);
+            error!(error = ?e, "Error creating user");
 
             // Provide more specific error messages for common issues
             let error_message = if format!("{:?}", e).contains("duplicate") || format!("{:?}", e).contains("unique") {
@@ -804,7 +804,7 @@ pub async fn get_user_auth_identities(
     let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
         Err(e) => {
-            eprintln!("Error getting user by UUID: {:?}", e);
+            error!(error = ?e, "Error getting user by UUID");
             return HttpResponse::NotFound().json(json!({
                 "status": "error",
                 "message": "User not found"
@@ -816,7 +816,7 @@ pub async fn get_user_auth_identities(
     match repository::user_auth_identities::get_user_identities_display(&user.uuid, &mut conn) {
         Ok(identities) => HttpResponse::Ok().json(identities),
         Err(e) => {
-            eprintln!("Error fetching auth identities: {:?}", e);
+            error!(error = ?e, "Error fetching auth identities");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to retrieve auth identities"
@@ -835,7 +835,7 @@ pub async fn get_user_auth_identities_by_uuid(
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(e) => {
-            eprintln!("Database connection error: {:?}", e);
+            error!(error = ?e, "Database connection error");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Could not get database connection"
@@ -858,7 +858,7 @@ pub async fn get_user_auth_identities_by_uuid(
 
     // Ensure the user is authorized (either accessing their own identities or is an admin)
     if claims.sub != user_uuid && claims.role != "admin" {
-        eprintln!("Authorization failed: user {} tried to access identities of {}", claims.sub, user_uuid);
+        warn!(requesting_user = %claims.sub, target_user = %user_uuid, "Authorization failed: user tried to access identities of another user");
         return HttpResponse::Forbidden().json(json!({
             "status": "error",
             "message": "Not authorized to access this resource"
@@ -877,7 +877,7 @@ pub async fn get_user_auth_identities_by_uuid(
     match repository::user_auth_identities::get_user_identities_display(&user_uuid_parsed, &mut conn) {
         Ok(identities) => HttpResponse::Ok().json(identities),
         Err(e) => {
-            eprintln!("Error fetching auth identities for UUID {}: {:?}", user_uuid, e);
+            error!(user_uuid = %user_uuid, error = ?e, "Error fetching auth identities for UUID");
             return HttpResponse::NotFound().json(json!({
                 "status": "error",
                 "message": "User not found or no auth identities"
@@ -922,7 +922,7 @@ pub async fn delete_user_auth_identity(
     let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
         Err(e) => {
-            eprintln!("Error getting user by UUID: {:?}", e);
+            error!(error = ?e, "Error getting user by UUID");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to get user data"
@@ -935,7 +935,7 @@ pub async fn delete_user_auth_identity(
     let identities = match repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn) {
         Ok(identities) => identities,
         Err(e) => {
-            eprintln!("Error getting user auth identities: {:?}", e);
+            error!(error = ?e, "Error getting user auth identities");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to get authentication identities"
@@ -966,7 +966,7 @@ pub async fn delete_user_auth_identity(
             }
         },
         Err(e) => {
-            eprintln!("Error deleting user auth identity: {:?}", e);
+            error!(error = ?e, "Error deleting user auth identity");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to delete authentication identity"
@@ -1020,7 +1020,7 @@ pub async fn delete_user_auth_identity_by_uuid(
     let identities = match repository::user_auth_identities::get_user_identities(&user_uuid_parsed, &mut conn) {
         Ok(identities) => identities,
         Err(e) => {
-            eprintln!("Error getting user auth identities: {:?}", e);
+            error!(error = ?e, "Error getting user auth identities");
             return HttpResponse::NotFound().json(json!({
                 "status": "error",
                 "message": "User not found"
@@ -1051,7 +1051,7 @@ pub async fn delete_user_auth_identity_by_uuid(
             }
         },
         Err(e) => {
-            eprintln!("Error deleting user auth identity: {:?}", e);
+            error!(error = ?e, "Error deleting user auth identity");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to delete authentication identity"
@@ -1089,7 +1089,7 @@ pub async fn upload_user_image(
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(e) => {
-            eprintln!("Database connection error: {:?}", e);
+            error!(error = ?e, "Database connection error");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Database connection error"
@@ -1128,15 +1128,15 @@ pub async fn upload_user_image(
     // Ensure the directory exists using storage abstraction
     let full_storage_path = format!("{}/{}", storage_path, user_uuid);
 
-    println!("📸 Processing {} upload for user: {}", image_type, user_uuid);
+    debug!(image_type = %image_type, user_uuid = %user_uuid, "Processing image upload");
 
     // Process the uploaded image
     while let Ok(Some(mut field)) = payload.try_next().await {
-        println!("📦 Received multipart field: name={:?}", field.name());
+        debug!(field_name = ?field.name(), "Received multipart field");
 
         // Get content type
         let content_type = field.content_type().map(|ct| ct.to_string()).unwrap_or_else(|| "application/octet-stream".to_string());
-        println!("📋 Content type: {}", content_type);
+        debug!(content_type = %content_type, "Content type");
         
         // Validate content type (only allow images)
         if !content_type.starts_with("image/") {
@@ -1171,7 +1171,7 @@ pub async fn upload_user_image(
         // Clean up old files for this user and image type before saving new one
         cleanup_old_user_images(&storage_path, &user_uuid, image_type).await
             .map_err(|e| {
-                eprintln!("Warning: Failed to cleanup old images: {}", e);
+                warn!(error = %e, "Failed to cleanup old images");
                 // Continue even if cleanup fails
             }).ok();
         
@@ -1184,7 +1184,7 @@ pub async fn upload_user_image(
             let data = match chunk {
                 Ok(data) => data,
                 Err(e) => {
-                    eprintln!("Error reading chunk: {:?}", e);
+                    error!(error = ?e, "Error reading chunk");
                     return HttpResponse::InternalServerError().json(json!({
                         "status": "error",
                         "message": "Error reading uploaded file"
@@ -1199,24 +1199,24 @@ pub async fn upload_user_image(
             // For avatars, process and resize to WebP format with fixed dimensions (200x200 max)
             match crate::utils::image::process_avatar_image(&file_data, &user_uuid, 200).await {
                 Ok(Some(avatar_url)) => {
-                    println!("Successfully processed avatar for user {}: {}", user_uuid, avatar_url);
-                    
+                    debug!(user_uuid = %user_uuid, avatar_url = %avatar_url, "Successfully processed avatar");
+
                     // Generate thumbnail from the processed avatar
                     let thumb_url = match crate::utils::image::generate_user_avatar_thumbnail(&avatar_url, &user_uuid).await {
                         Ok(Some(thumb_url)) => {
-                            println!("Successfully generated thumbnail for user {}: {}", user_uuid, thumb_url);
+                            debug!(user_uuid = %user_uuid, thumb_url = %thumb_url, "Successfully generated thumbnail");
                             Some(thumb_url)
                         },
                         Ok(None) => {
-                            println!("Failed to generate thumbnail for user {}", user_uuid);
+                            warn!(user_uuid = %user_uuid, "Failed to generate thumbnail");
                             None
                         },
                         Err(e) => {
-                            eprintln!("Error generating thumbnail: {}", e);
+                            error!(user_uuid = %user_uuid, error = %e, "Error generating thumbnail");
                             None
                         }
                     };
-                    
+
                     (avatar_url, thumb_url)
                 },
                 Ok(None) => {
@@ -1226,7 +1226,7 @@ pub async fn upload_user_image(
                     }));
                 },
                 Err(e) => {
-                    eprintln!("Error processing avatar: {}", e);
+                    error!(user_uuid = %user_uuid, error = %e, "Error processing avatar");
                     return HttpResponse::InternalServerError().json(json!({
                         "status": "error",
                         "message": format!("Failed to process avatar image: {}", e)
@@ -1237,7 +1237,7 @@ pub async fn upload_user_image(
             // For banners, process and resize to WebP format with banner dimensions (1200x400 max)
             match crate::utils::image::process_banner_image(&file_data, &user_uuid, 1200, 400).await {
                 Ok(Some(banner_url)) => {
-                    println!("Successfully processed banner for user {}: {}", user_uuid, banner_url);
+                    debug!(user_uuid = %user_uuid, banner_url = %banner_url, "Successfully processed banner");
                     (banner_url, None)
                 },
                 Ok(None) => {
@@ -1247,7 +1247,7 @@ pub async fn upload_user_image(
                     }));
                 },
                 Err(e) => {
-                    eprintln!("Error processing banner: {}", e);
+                    error!(user_uuid = %user_uuid, error = %e, "Error processing banner");
                     return HttpResponse::InternalServerError().json(json!({
                         "status": "error",
                         "message": format!("Failed to process banner image: {}", e)
@@ -1280,7 +1280,7 @@ pub async fn upload_user_image(
                 }));
             },
             Err(e) => {
-                eprintln!("Error updating user: {:?}", e);
+                error!(error = ?e, "Error updating user");
                 return HttpResponse::InternalServerError().json(json!({
                     "status": "error",
                     "message": "Error updating user record"
@@ -1323,10 +1323,10 @@ async fn cleanup_old_user_images(
             // Check if this file matches our pattern (user_uuid_type.ext)
             if filename.starts_with(&pattern_prefix) && filename.contains('.') {
                 let file_path = entry.path();
-                println!("Cleaning up old image file: {:?}", file_path);
+                debug!(file_path = ?file_path, "Cleaning up old image file");
                 
                 if let Err(e) = fs::remove_file(&file_path).await {
-                    eprintln!("Warning: Failed to remove old image file {:?}: {}", file_path, e);
+                    warn!(file_path = ?file_path, error = %e, "Failed to remove old image file");
                     // Continue with cleanup even if one file fails
                 }
             }
@@ -1369,7 +1369,7 @@ pub async fn cleanup_stale_images(
     let users = match repository::get_users(&mut conn) {
         Ok(users) => users,
         Err(e) => {
-            eprintln!("Error fetching users: {:?}", e);
+            error!(error = ?e, "Error fetching users");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to fetch users"
@@ -1465,7 +1465,7 @@ async fn cleanup_directory_stale_files(
             
             if !should_keep {
                 let file_path = entry.path();
-                println!("Removing stale image file: {:?}", file_path);
+                debug!(file_path = ?file_path, "Removing stale image file");
                 
                 match fs::remove_file(&file_path).await {
                     Ok(_) => {
@@ -1479,14 +1479,14 @@ async fn cleanup_directory_stale_files(
                     },
                     Err(e) => {
                         let error_msg = format!("Failed to remove {:?}: {}", file_path, e);
-                        eprintln!("Warning: {}", error_msg);
+                        warn!(file_path = ?file_path, error = %e, "Failed to remove file");
                         stats.errors.push(error_msg);
                     }
                 }
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -1496,46 +1496,46 @@ fn should_keep_file(filename: &str, valid_uuids: &HashSet<String>, valid_suffixe
     if filename.starts_with('.') {
         return true;
     }
-    
+
     // Skip non-image files
     if !filename.contains('.') {
         return true;
     }
-    
+
     // Extract the base name without extension
     let base_name = filename.split('.').next().unwrap_or("");
-    
+
     // Check for new format: {uuid}_{suffix} (like uuid_avatar.webp or uuid_thumb.webp)
     if let Some(underscore_pos) = base_name.find('_') {
         let uuid_part = &base_name[..underscore_pos];
         let suffix_part = &base_name[underscore_pos + 1..];
-        
+
         // Check if this matches our expected NEW pattern
         if valid_uuids.contains(uuid_part) && valid_suffixes.contains(&suffix_part) {
-            println!("Keeping new format file: {}", filename);
+            debug!(filename = %filename, "Keeping new format file");
             return true; // Keep this file
         }
-        
+
         // Check for old format patterns that should be removed
         // Old patterns: {uuid}_120x120.jpg, {uuid}_48x48.jpg, {uuid}_{random-uuid}_banner.jpg
         if valid_uuids.contains(uuid_part) {
             // This is for a valid user but in old format - remove it
             if suffix_part.contains("x") || suffix_part.len() > 20 { // Likely old format
-                println!("Removing old format file: {}", filename);
+                debug!(filename = %filename, "Removing old format file");
                 return false;
             }
         }
     }
-    
+
     // Check for files that don't start with a valid UUID - these are definitely stale
     let parts: Vec<&str> = base_name.split('_').collect();
     if !parts.is_empty() && !valid_uuids.contains(parts[0]) {
-        println!("Removing file with invalid UUID: {}", filename);
+        debug!(filename = %filename, "Removing file with invalid UUID");
         return false;
     }
-    
-    // If we can't determine the pattern clearly, keep the file to be safe
-    println!("Keeping unknown pattern file: {}", filename);
+
+    // If the pattern cannot be determined clearly, keep the file to be safe
+    debug!(filename = %filename, "Keeping unknown pattern file");
     true
 }
 
@@ -1603,7 +1603,7 @@ pub async fn update_user_by_uuid(
         let auth_identities = match repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn) {
             Ok(identities) => identities,
             Err(e) => {
-                eprintln!("Error fetching auth identities: {:?}", e);
+                error!(error = ?e, "Error fetching auth identities");
                 return HttpResponse::InternalServerError().json(json!({
                     "status": "error",
                     "message": "Error processing user identities"
@@ -1623,7 +1623,7 @@ pub async fn update_user_by_uuid(
                 ).execute(&mut conn) {
                     Ok(_) => {},
                     Err(e) => {
-                        eprintln!("Error deleting auth identity: {:?}", e);
+                        error!(error = ?e, "Error deleting auth identity");
                         return HttpResponse::InternalServerError().json(json!({
                             "status": "error",
                             "message": "Error updating password"
@@ -1642,7 +1642,7 @@ pub async fn update_user_by_uuid(
                 };
 
                 if let Err(e) = repository::user_auth_identities::create_identity(new_auth_identity, &mut conn) {
-                    eprintln!("Error creating updated auth identity: {:?}", e);
+                    error!(error = ?e, "Error creating updated auth identity");
                     return HttpResponse::InternalServerError().json(json!({
                         "status": "error",
                         "message": "Error updating password"
@@ -1661,7 +1661,7 @@ pub async fn update_user_by_uuid(
                 };
                 
                 if let Err(e) = repository::user_auth_identities::create_identity(new_auth_identity, &mut conn) {
-                    eprintln!("Error creating auth identity: {:?}", e);
+                    error!(error = ?e, "Error creating auth identity");
                     return HttpResponse::InternalServerError().json(json!({
                         "status": "error",
                         "message": "Error setting password"
@@ -1917,7 +1917,7 @@ pub async fn add_user_email(
             "email": created_email
         })),
         Err(e) => {
-            eprintln!("Error adding email: {:?}", e);
+            error!(error = ?e, "Error adding email");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to add email"
@@ -2002,7 +2002,7 @@ pub async fn update_user_email(
             "email": updated_email
         })),
         Err(e) => {
-            eprintln!("Error updating email: {:?}", e);
+            error!(error = ?e, "Error updating email");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to update email"
@@ -2095,7 +2095,7 @@ pub async fn delete_user_email(
             "message": "Email deleted successfully"
         })),
         Err(e) => {
-            eprintln!("Error deleting email: {:?}", e);
+            error!(error = ?e, "Error deleting email");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to delete email"
@@ -2217,7 +2217,7 @@ pub async fn resend_invitation(
         user.uuid,
         "invitation",
     ) {
-        eprintln!("Warning: Failed to invalidate old invitation tokens: {:?}", e);
+        warn!(user_uuid = %user.uuid, error = ?e, "Failed to invalidate old invitation tokens");
         // Continue anyway - old tokens will expire naturally
     }
 
@@ -2231,7 +2231,7 @@ pub async fn resend_invitation(
         &admin_name,
     ).await {
         SendInvitationResult::Success => {
-            println!("✅ Invitation email resent to {} for user {}", user_email, user.name);
+            info!(email = %user_email, user_name = %user.name, "Invitation email resent");
             HttpResponse::Ok().json(json!({
                 "status": "success",
                 "message": "Invitation email sent successfully",
@@ -2239,21 +2239,21 @@ pub async fn resend_invitation(
             }))
         },
         SendInvitationResult::TokenStorageError(e) => {
-            eprintln!("Error storing invitation token: {}", e);
+            error!(error = %e, "Error storing invitation token");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Error creating invitation"
             }))
         },
         SendInvitationResult::EmailServiceError(e) => {
-            eprintln!("Error initializing email service: {}", e);
+            error!(error = %e, "Error initializing email service");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Error sending invitation email"
             }))
         },
         SendInvitationResult::EmailSendError(e) => {
-            eprintln!("Error sending invitation email: {}", e);
+            error!(error = %e, "Error sending invitation email");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to send invitation email"
@@ -2315,7 +2315,7 @@ pub async fn get_user_with_emails(
     let emails = match user_emails_repo::get_user_emails_by_uuid(&mut conn, &user.uuid) {
         Ok(emails) => emails,
         Err(e) => {
-            eprintln!("Error fetching emails for user {}: {:?}", user.uuid, e);
+            error!(user_uuid = %user.uuid, error = ?e, "Error fetching emails for user");
             Vec::new() // Return empty vec if error fetching emails
         }
     };
@@ -2407,7 +2407,7 @@ pub async fn bulk_users(
                         ).await;
                     }
                     Err(e) => {
-                        eprintln!("Error deleting user {}: {:?}", id, e);
+                        error!(user_id = %id, error = ?e, "Error deleting user");
                     }
                 }
             }

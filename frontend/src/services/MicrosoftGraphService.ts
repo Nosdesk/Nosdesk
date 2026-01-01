@@ -22,7 +22,7 @@ export default class MicrosoftGraphService {
     endpoint: string,
     method: string = 'GET',
     providerId?: number,
-    body?: any,
+    body?: unknown,
     queryParams?: Record<string, string>,
     headers?: Record<string, string>
   ) {
@@ -222,7 +222,7 @@ export default class MicrosoftGraphService {
    * @returns Promise with test results for each permission
    */
   static async testAllPermissions(providerId?: number) {
-    const results: Record<string, { status: string; error: string | null; data: any }> = {
+    const results: Record<string, { status: string; error: string | null; data: unknown }> = {
       'User.Read.All': { status: 'pending', error: null, data: null },
       'Device.Read.All': { status: 'pending', error: null, data: null },
       'Directory.Read.All': { status: 'pending', error: null, data: null },
@@ -237,11 +237,12 @@ export default class MicrosoftGraphService {
         error: null, 
         data: { count: usersResponse.data?.value?.length || 0, sample: usersResponse.data?.value?.slice(0, 3) }
       };
-    } catch (error: any) {
-      results['User.Read.All'] = { 
-        status: 'error', 
-        error: error.response?.data?.message || error.message, 
-        data: null 
+    } catch (error) {
+      const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
+      results['User.Read.All'] = {
+        status: 'error',
+        error: axiosError.response?.data?.message || axiosError.message || 'Unknown error',
+        data: null
       };
     }
 
@@ -253,11 +254,12 @@ export default class MicrosoftGraphService {
         error: null, 
         data: { count: devicesResponse.data?.value?.length || 0, sample: devicesResponse.data?.value?.slice(0, 3) }
       };
-    } catch (error: any) {
-      results['Device.Read.All'] = { 
-        status: 'error', 
-        error: error.response?.data?.message || error.message, 
-        data: null 
+    } catch (error) {
+      const axiosError = error as { response?: { data?: { message?: string } }; message?: string };
+      results['Device.Read.All'] = {
+        status: 'error',
+        error: axiosError.response?.data?.message || axiosError.message || 'Unknown error',
+        data: null
       };
     }
 
@@ -270,24 +272,24 @@ export default class MicrosoftGraphService {
         error: null, 
         data: { count: groupsResponse.data?.value?.length || 0, sample: groupsResponse.data?.value?.slice(0, 3), note: 'Verified via groups access (requires Directory.Read.All)' }
       };
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Directory.Read.All test error:', error);
-      results['Directory.Read.All'] = { 
-        status: 'error', 
-        error: error.response?.data?.message || error.response?.data?.data?.error?.message || error.message, 
-        data: null 
+      const axiosError = error as { response?: { data?: { message?: string; data?: { error?: { message?: string } } } }; message?: string };
+      results['Directory.Read.All'] = {
+        status: 'error',
+        error: axiosError.response?.data?.message || axiosError.response?.data?.data?.error?.message || axiosError.message || 'Unknown error',
+        data: null
       };
     }
 
     // Test ProfilePhoto.Read.All (optional)
     try {
-      // For now, we'll check if we have the necessary User.Read.All permission
-      // since ProfilePhoto.Read.All requires user access first
-      // This is a safe assumption - if User.Read.All works, ProfilePhoto.Read.All should too
+      // Check User.Read.All permission since ProfilePhoto.Read.All requires user access first
+      // Safe assumption: if User.Read.All works, ProfilePhoto.Read.All should too
       const usersResponse = await this.getUsers(undefined, 'id,displayName', providerId);
       if (usersResponse.data?.value?.length > 0) {
-        // If we can read users, the profile photo permission should work
-        // (We avoid testing the actual photo endpoint to prevent 400 errors)
+        // User read successful - profile photo permission should work
+        // (Actual photo endpoint not tested to prevent 400 errors)
         results['ProfilePhoto.Read.All'] = { 
           status: 'success', 
           error: null, 
@@ -300,12 +302,13 @@ export default class MicrosoftGraphService {
           data: null 
         };
       }
-    } catch (error: any) {
+    } catch (error) {
       logger.error('ProfilePhoto.Read.All test error:', error);
-      results['ProfilePhoto.Read.All'] = { 
-        status: 'error', 
-        error: error.response?.data?.message || error.response?.data?.data?.error?.message || error.message, 
-        data: null 
+      const axiosError = error as { response?: { data?: { message?: string; data?: { error?: { message?: string } } } }; message?: string };
+      results['ProfilePhoto.Read.All'] = {
+        status: 'error',
+        error: axiosError.response?.data?.message || axiosError.response?.data?.data?.error?.message || axiosError.message || 'Unknown error',
+        data: null
       };
     }
 

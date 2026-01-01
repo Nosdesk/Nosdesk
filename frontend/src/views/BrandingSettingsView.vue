@@ -51,9 +51,10 @@ const loadBrandingConfig = async () => {
     brandingConfig.value = config
     appName.value = config.app_name || 'Nosdesk'
     primaryColor.value = config.primary_color || ''
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to load branding configuration:', error)
-    errorMessage.value = error.response?.data?.message || 'Failed to load branding configuration'
+    const axiosError = error as { response?: { data?: { message?: string } } }
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to load branding configuration'
   } finally {
     isLoading.value = false
   }
@@ -79,9 +80,10 @@ const saveSettings = async () => {
     setTimeout(() => {
       successMessage.value = ''
     }, 3000)
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to save branding settings:', error)
-    errorMessage.value = error.response?.data?.message || 'Failed to save branding settings'
+    const axiosError = error as { response?: { data?: { message?: string } } }
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to save branding settings'
   } finally {
     isSaving.value = false
   }
@@ -119,9 +121,10 @@ const handleLogoUpload = async (event: Event) => {
     setTimeout(() => {
       successMessage.value = ''
     }, 3000)
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to upload logo:', error)
-    errorMessage.value = error.response?.data?.message || 'Failed to upload logo'
+    const axiosError = error as { response?: { data?: { message?: string } } }
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to upload logo'
   } finally {
     uploadingLogo.value = false
     input.value = ''
@@ -159,9 +162,10 @@ const handleLogoLightUpload = async (event: Event) => {
     setTimeout(() => {
       successMessage.value = ''
     }, 3000)
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to upload light theme logo:', error)
-    errorMessage.value = error.response?.data?.message || 'Failed to upload light theme logo'
+    const axiosError = error as { response?: { data?: { message?: string } } }
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to upload light theme logo'
   } finally {
     uploadingLogoLight.value = false
     input.value = ''
@@ -199,9 +203,10 @@ const handleFaviconUpload = async (event: Event) => {
     setTimeout(() => {
       successMessage.value = ''
     }, 3000)
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to upload favicon:', error)
-    errorMessage.value = error.response?.data?.message || 'Failed to upload favicon'
+    const axiosError = error as { response?: { data?: { message?: string } } }
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to upload favicon'
   } finally {
     uploadingFavicon.value = false
     input.value = ''
@@ -226,9 +231,10 @@ const deleteBrandingImage = async (type: 'logo' | 'logo_light' | 'favicon') => {
     setTimeout(() => {
       successMessage.value = ''
     }, 3000)
-  } catch (error: any) {
+  } catch (error) {
     console.error(`Failed to delete ${type}:`, error)
-    errorMessage.value = error.response?.data?.message || `Failed to delete ${type}`
+    const axiosError = error as { response?: { data?: { message?: string } } }
+    errorMessage.value = axiosError.response?.data?.message || `Failed to delete ${type}`
   }
 }
 

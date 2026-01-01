@@ -109,7 +109,7 @@ const fetchTicketData = async () => {
             count: dateMap.get(day.date)?.count || 0,
             tickets: dateMap.get(day.date)?.tickets || [],
         }));
-    } catch (err: any) {
+    } catch (err) {
         console.error("Error fetching ticket data for heatmap:", err);
         error.value = "Failed to load ticket data. Please try again.";
     } finally {

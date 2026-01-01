@@ -101,10 +101,11 @@ const startImport = async () => {
       importStatus.value = 'error';
       errorMessage.value = response.data.message || 'Import failed';
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error('Import error:', error);
     importStatus.value = 'error';
-    errorMessage.value = error.response?.data?.message || 'Failed to import data';
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to import data';
   } finally {
     isLoading.value = false;
   }
@@ -113,7 +114,7 @@ const startImport = async () => {
 // Download sample template
 const downloadTemplate = (type: string) => {
   // This would normally generate and download a CSV file
-  // For now, we'll just show a success message
+  // Show success message for now
   successMessage.value = `${type} template downloaded`;
   setTimeout(() => {
     successMessage.value = null;

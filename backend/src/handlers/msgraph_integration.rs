@@ -25,7 +25,7 @@ use crate::utils;
 
 // Helper function for environment-based auth providers
 fn get_default_microsoft_provider() -> Result<AuthProvider, diesel::result::Error> {
-    // Since we're using environment variables, we'll just return a fixed provider for Microsoft
+    // Using environment variables, return a fixed provider for Microsoft
     if std::env::var("MICROSOFT_CLIENT_ID").is_ok() 
         && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok() 
         && std::env::var("MICROSOFT_TENANT_ID").is_ok() {
@@ -597,7 +597,7 @@ pub async fn get_connection_status(
         });
     }
 
-    // If we get here, configuration looks good
+    // Configuration looks good
     HttpResponse::Ok().json(ConnectionStatus {
         status: "connected".to_string(),
         message: "Microsoft Graph connection is configured and ready".to_string(),
@@ -782,7 +782,7 @@ pub async fn sync_data(
                             None 
                         },
                         records_processed: Some(sync_result.total_processed as i32),
-                        records_created: Some(0), // We could track this separately in the future
+                        records_created: Some(0), // Could track this separately in the future
                         records_updated: Some(sync_result.total_processed as i32),
                         records_failed: Some(sync_result.total_errors as i32),
                         completed_at: Some(Some(Utc::now().naive_utc())),
@@ -806,7 +806,7 @@ pub async fn sync_data(
                         &sync_type
                     );
 
-                    // Check if we should start background photo sync after user sync completes
+                    // Check if background photo sync should start after user sync completes
                     if entities.contains(&"users".to_string()) && sync_result.total_processed > 0 {
                         let background_photo_sync = std::env::var("MSGRAPH_BACKGROUND_PHOTOS")
                             .unwrap_or("true".to_string())
@@ -947,7 +947,7 @@ async fn test_graph_connection(provider_id: i32) -> Result<serde_json::Value, St
             .await
             .map_err(|e| format!("Failed to parse Microsoft Graph response: {}", e))?;
 
-        // Check if we got organization data
+        // Check for organization data
         let org_count = response_data
             .get("value")
             .and_then(|v| v.as_array())
@@ -1118,7 +1118,7 @@ async fn sync_users(
 
     let total_users = microsoft_users.len();
     
-    // Check if we're filtering disabled accounts and log accordingly
+    // Check if filtering disabled accounts
     let skip_disabled_accounts = std::env::var("MSGRAPH_SKIP_DISABLED_ACCOUNTS")
         .unwrap_or("true".to_string())
         .parse::<bool>()
@@ -1309,7 +1309,7 @@ async fn sync_users(
             errors: stats.errors,
         }
     } else {
-        // This should never be reached since we return early on cancellation,
+        // Should never be reached since early return on cancellation,
         // but just in case, return the cancelled status
         SyncProgress {
             entity: "users".to_string(),
@@ -1371,11 +1371,11 @@ async fn fetch_microsoft_graph_users_optimized(provider_id: i32) -> Result<(Vec<
         })?;
 
     // Build the Microsoft Graph API request for users
-    // Select the fields we need for our MicrosoftGraphUser struct
+    // Select fields for MicrosoftGraphUser struct
     // Important: Include proxyAddresses and otherMails for email aliases, and accountEnabled for filtering
     let select_fields = "id,displayName,givenName,surname,mail,userPrincipalName,jobTitle,department,officeLocation,mobilePhone,businessPhones,proxyAddresses,otherMails,accountEnabled";
     
-    // Check if we should skip disabled accounts (default: true for performance)
+    // Skip disabled accounts by default for performance
     let skip_disabled_accounts = std::env::var("MSGRAPH_SKIP_DISABLED_ACCOUNTS")
         .unwrap_or("true".to_string())
         .parse::<bool>()
@@ -1394,7 +1394,7 @@ async fn fetch_microsoft_graph_users_optimized(provider_id: i32) -> Result<(Vec<
         )
     };
 
-    println!("Microsoft Graph API query with email alias fields: {}", url);
+    debug!(url = %url, "Microsoft Graph API query with email alias fields");
 
     let mut all_users = Vec::new();
     let mut page_count = 0;
@@ -1440,7 +1440,7 @@ async fn fetch_microsoft_graph_users_optimized(provider_id: i32) -> Result<(Vec<
                     page_users.push(user);
                 },
                 Err(e) => {
-                    println!("Warning: Failed to parse user from Microsoft Graph (page {}): {}, data: {}", page_count, e, user_value);
+                    warn!(page = page_count, error = %e, data = %user_value, "Failed to parse user from Microsoft Graph");
                     // Continue processing other users even if one fails to parse
                 }
             }
@@ -1558,7 +1558,7 @@ async fn update_existing_microsoft_user(
     stats: &mut UserSyncStats,
     access_token: &str,
 ) -> Result<(), String> {
-    println!("Updating existing Microsoft user: {}", ms_user.user_principal_name);
+    debug!(user_principal_name = %ms_user.user_principal_name, "Updating existing Microsoft user");
 
     // Get the associated user
     let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)
@@ -1585,7 +1585,7 @@ async fn update_existing_microsoft_user(
     if user_update.name.is_some() || false /* email removed */ {
         user_repo::update_user(&user.uuid, user_update, conn)
             .map_err(|e| format!("Failed to update user: {}", e))?;
-        println!("Updated user information for: {}", user.name);
+        debug!(user_name = %user.name, "Updated user information");
     }
 
     // Update identity data with latest from Microsoft Graph
@@ -1598,14 +1598,14 @@ async fn update_existing_microsoft_user(
     // Sync profile photo
     let client = reqwest::Client::new();
     if let Ok(photo_urls) = sync_user_profile_photo(&client, access_token, ms_user, &utils::uuid_to_string(&user.uuid)).await {
-        println!("sync_user_profile_photo returned URLs for user: {} - avatar: {:?}, thumb: {:?}", user.name, photo_urls.avatar_url, photo_urls.avatar_thumb);
+        trace!(user_name = %user.name, avatar_url = ?photo_urls.avatar_url, avatar_thumb = ?photo_urls.avatar_thumb, "sync_user_profile_photo returned URLs");
         if let Err(e) = update_user_avatar_by_id(conn, &user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
-            println!("Warning: Failed to update avatar for user {}: {}", user.name, e);
+            warn!(user_name = %user.name, error = %e, "Failed to update avatar for user");
         } else {
-            println!("Successfully updated avatar for user: {}", user.name);
+            debug!(user_name = %user.name, "Successfully updated avatar for user");
         }
     } else {
-        println!("No profile photo available for user: {}", user.name);
+        debug!(user_name = %user.name, "No profile photo available for user");
     }
 
     stats.existing_users_updated += 1;
@@ -1635,7 +1635,7 @@ async fn link_existing_user_to_microsoft(
     stats: &mut UserSyncStats,
     access_token: &str,
 ) -> Result<(), String> {
-    println!("Linking existing user to Microsoft: {} -> {}", existing_user.name, ms_user.user_principal_name);
+    debug!(user_name = %existing_user.name, user_principal_name = %ms_user.user_principal_name, "Linking existing user to Microsoft");
 
     // Create Microsoft identity for existing user
     let identity_data = serde_json::to_value(ms_user)
@@ -1675,14 +1675,14 @@ async fn link_existing_user_to_microsoft(
     // Sync profile photo
     let client = reqwest::Client::new();
     if let Ok(photo_urls) = sync_user_profile_photo(&client, access_token, ms_user, &utils::uuid_to_string(&existing_user.uuid)).await {
-        println!("sync_user_profile_photo returned URLs for user: {} - avatar: {:?}, thumb: {:?}", existing_user.name, photo_urls.avatar_url, photo_urls.avatar_thumb);
+        trace!(user_name = %existing_user.name, avatar_url = ?photo_urls.avatar_url, avatar_thumb = ?photo_urls.avatar_thumb, "sync_user_profile_photo returned URLs");
         if let Err(e) = update_user_avatar_by_id(conn, &existing_user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
-            println!("Warning: Failed to update avatar for user {}: {}", existing_user.name, e);
+            warn!(user_name = %existing_user.name, error = %e, "Failed to update avatar for user");
         } else {
-            println!("Successfully updated avatar for user: {}", existing_user.name);
+            debug!(user_name = %existing_user.name, "Successfully updated avatar for user");
         }
     } else {
-        println!("No profile photo available for user: {}", existing_user.name);
+        debug!(user_name = %existing_user.name, "No profile photo available for user");
     }
 
     stats.identities_linked += 1;
@@ -1698,7 +1698,7 @@ async fn create_new_user_from_microsoft(
     stats: &mut UserSyncStats,
     access_token: &str,
 ) -> Result<(), String> {
-    println!("Creating new user from Microsoft: {}", ms_user.user_principal_name);
+    debug!(user_principal_name = %ms_user.user_principal_name, "Creating new user from Microsoft");
 
     // Generate UUID for new user
     let user_uuid = Uuid::now_v7();
@@ -1746,17 +1746,17 @@ async fn create_new_user_from_microsoft(
     // Sync profile photo
     let client = reqwest::Client::new();
     if let Ok(photo_urls) = sync_user_profile_photo(&client, access_token, ms_user, &utils::uuid_to_string(&user_uuid)).await {
-        println!("sync_user_profile_photo returned URLs for new user: {} - avatar: {:?}, thumb: {:?}", name, photo_urls.avatar_url, photo_urls.avatar_thumb);
+        trace!(user_name = %name, avatar_url = ?photo_urls.avatar_url, avatar_thumb = ?photo_urls.avatar_thumb, "sync_user_profile_photo returned URLs for new user");
         if let Err(e) = update_user_avatar_by_id(conn, &created_user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
-            println!("Warning: Failed to update avatar for user {}: {}", name, e);
+            warn!(user_name = %name, error = %e, "Failed to update avatar for user");
         } else {
-            println!("Successfully updated avatar for new user: {}", name);
+            debug!(user_name = %name, "Successfully updated avatar for new user");
         }
     } else {
-        println!("No profile photo available for user: {}", name);
+        debug!(user_name = %name, "No profile photo available for user");
     }
 
-    println!("Created new user: {} ({})", name, email);
+    info!(user_name = %name, email = %email, "Created new user");
     stats.new_users_created += 1;
     Ok(())
 }
@@ -1802,7 +1802,7 @@ async fn update_existing_microsoft_user_optimized(
     if user_update.name.is_some() || false /* email removed */ || user_update.microsoft_uuid.is_some() {
         user_repo::update_user(&user.uuid, user_update, conn)
             .map_err(|e| format!("Failed to update user: {}", e))?;
-        println!("Updated user information for: {}", user.name);
+        debug!(user_name = %user.name, "Updated user information");
     }
 
     // Store all email addresses
@@ -1851,7 +1851,7 @@ async fn update_existing_microsoft_user_optimized(
     // Sync profile photo using optimized client
     if let Ok(photo_urls) = sync_user_profile_photo(client, access_token, ms_user, &utils::uuid_to_string(&user.uuid)).await {
         if let Err(e) = update_user_avatar_by_id(conn, &user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
-            println!("Warning: Failed to update avatar for user {}: {}", user.name, e);
+            warn!(user_name = %user.name, error = %e, "Failed to update avatar for user");
         }
     }
 
@@ -2076,7 +2076,7 @@ async fn sync_devices(
     };
 
     let total_devices = microsoft_devices.len();
-    println!("Fetched {} devices from Microsoft Graph", total_devices);
+    info!(device_count = total_devices, "Fetched devices from Microsoft Graph");
 
     if total_devices == 0 {
         update_sync_progress_with_type(session_id, "devices", 0, 0, "completed", "No devices found to sync", "devices");
@@ -2134,11 +2134,11 @@ async fn sync_devices(
 
         match process_microsoft_device(conn, provider_id, &ms_device, &mut stats).await {
             Ok(_) => {
-                println!("Successfully processed device: {}", ms_device.device_name.as_deref().unwrap_or(&ms_device.id));
+                debug!(device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Successfully processed device");
             },
             Err(error) => {
                 let error_msg = format!("Failed to process device {}: {}", ms_device.device_name.as_deref().unwrap_or(&ms_device.id), error);
-                println!("{}", error_msg);
+                error!(device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), error = %error, "Failed to process device");
                 stats.errors.push(error_msg);
             }
         }
@@ -2254,24 +2254,24 @@ async fn sync_user_profile_photo(
     
     // If no 120x120 photo was available, try the default size as fallback
     if avatar_url.is_none() {
-        println!("No 120x120 photo available, trying default size for user: {}", user.user_principal_name);
+        debug!(user_principal_name = %user.user_principal_name, "No 120x120 photo available, trying default size");
         match sync_user_profile_photo_fallback(client, access_token, user, local_user_uuid).await {
             Ok(Some(url)) => {
-                println!("Successfully downloaded default photo for user: {}", user.user_principal_name);
+                debug!(user_principal_name = %user.user_principal_name, "Successfully downloaded default photo");
                 avatar_url = Some(url.clone());
-                
+
                 // Generate thumbnail from the default size image
                 match crate::utils::generate_user_avatar_thumbnail(&url, local_user_uuid).await {
                     Ok(Some(thumb_url)) => {
-                        println!("Successfully generated thumbnail from default photo for user: {}", user.user_principal_name);
+                        debug!(user_principal_name = %user.user_principal_name, "Successfully generated thumbnail from default photo");
                         avatar_thumb = Some(thumb_url);
                     },
-                    Ok(None) => println!("Failed to generate thumbnail from default photo for user: {}", user.user_principal_name),
-                    Err(e) => println!("Error generating thumbnail from default photo for user {}: {}", user.user_principal_name, e),
+                    Ok(None) => debug!(user_principal_name = %user.user_principal_name, "Failed to generate thumbnail from default photo"),
+                    Err(e) => warn!(user_principal_name = %user.user_principal_name, error = %e, "Error generating thumbnail from default photo"),
                 }
             },
-            Ok(None) => println!("No default photo available for user: {}", user.user_principal_name),
-            Err(e) => println!("Failed to download default photo for user {}: {}", user.user_principal_name, e),
+            Ok(None) => debug!(user_principal_name = %user.user_principal_name, "No default photo available"),
+            Err(e) => warn!(user_principal_name = %user.user_principal_name, error = %e, "Failed to download default photo"),
         }
     }
     
@@ -2289,10 +2289,10 @@ async fn download_profile_photo_size(
     local_user_uuid: &str,
     size: &str,
 ) -> Result<Option<String>, String> {
-    println!("Fetching {} profile photo for user: {}", size, user.user_principal_name);
+    trace!(size = size, user_principal_name = %user.user_principal_name, "Fetching profile photo");
 
     let photo_url = format!("https://graph.microsoft.com/v1.0/users/{}/photos/{}/$value", user.id, size);
-    
+
     let photo_response = client
         .get(&photo_url)
         .header("Authorization", format!("Bearer {}", access_token))
@@ -2301,17 +2301,17 @@ async fn download_profile_photo_size(
         .map_err(|e| format!("Failed to fetch {} profile photo: {}", size, e))?;
 
     let status = photo_response.status();
-    println!("{} photo request status for user {}: {}", size, user.user_principal_name, status);
+    trace!(size = size, user_principal_name = %user.user_principal_name, status = %status, "Photo request status");
 
     if !status.is_success() {
         if status.as_u16() == 404 {
-            println!("{} profile photo not found for user: {}", size, user.user_principal_name);
+            trace!(size = size, user_principal_name = %user.user_principal_name, "Profile photo not found");
             return Ok(None);
         } else if status.as_u16() == 400 {
-            println!("{} profile photo request returned 400 Bad Request for user: {}", size, user.user_principal_name);
+            debug!(size = size, user_principal_name = %user.user_principal_name, "Profile photo request returned 400 Bad Request");
             return Ok(None);
         } else if status.as_u16() == 403 {
-            println!("Access denied to {} profile photo for user: {} - insufficient permissions", size, user.user_principal_name);
+            warn!(size = size, user_principal_name = %user.user_principal_name, "Access denied to profile photo - insufficient permissions");
             return Ok(None);
         } else {
             return Err(format!("Failed to fetch {} profile photo, status: {}", size, status));
@@ -2325,11 +2325,11 @@ async fn download_profile_photo_size(
         .map_err(|e| format!("Failed to read {} photo data: {}", size, e))?;
 
     if photo_bytes.is_empty() {
-        println!("Empty {} profile photo for user: {}", size, user.user_principal_name);
+        debug!(size = size, user_principal_name = %user.user_principal_name, "Empty profile photo");
         return Ok(None);
     }
 
-    println!("Successfully downloaded {} profile photo ({} bytes) for user: {}", size, photo_bytes.len(), user.user_principal_name);
+    debug!(size = size, user_principal_name = %user.user_principal_name, bytes = photo_bytes.len(), "Successfully downloaded profile photo");
 
     // Save the photo to the filesystem
     save_profile_photo_to_disk(&photo_bytes, local_user_uuid, size).await
@@ -2341,26 +2341,26 @@ async fn save_profile_photo_to_disk(
     local_user_uuid: &str,
     size_label: &str,
 ) -> Result<Option<String>, String> {
-    println!("Processing Microsoft Graph profile photo for user: {}, size: {}", local_user_uuid, size_label);
-    
+    trace!(user_uuid = local_user_uuid, size = size_label, "Processing Microsoft Graph profile photo");
+
     // Use the shared image processing function to convert to WebP with size constraints
     let max_size = match size_label {
         "120x120" => 120,
         "default" => 200, // Default gets processed to 200px max
         _ => 200, // Fallback to 200px
     };
-    
+
     match crate::utils::image::process_avatar_image(photo_bytes, local_user_uuid, max_size).await {
         Ok(Some(avatar_url)) => {
-            println!("Successfully processed Microsoft Graph photo for user {}: {}", local_user_uuid, avatar_url);
+            debug!(user_uuid = local_user_uuid, avatar_url = %avatar_url, "Successfully processed Microsoft Graph photo");
             Ok(Some(avatar_url))
         },
         Ok(None) => {
-            println!("Failed to process Microsoft Graph photo for user {}", local_user_uuid);
+            debug!(user_uuid = local_user_uuid, "Failed to process Microsoft Graph photo");
             Ok(None)
         },
         Err(e) => {
-            println!("Error processing Microsoft Graph photo for user {}: {}", local_user_uuid, e);
+            error!(user_uuid = local_user_uuid, error = %e, "Error processing Microsoft Graph photo");
             Err(e)
         }
     }
@@ -2375,10 +2375,10 @@ async fn update_user_avatar_by_id(
     avatar_url: Option<String>,
     avatar_thumb: Option<String>,
 ) -> Result<(), String> {
-    println!("update_user_avatar_by_id called for user_uuid: {}, avatar_url: {:?}, avatar_thumb: {:?}", user_uuid, avatar_url, avatar_thumb);
+    trace!(user_uuid = %user_uuid, avatar_url = ?avatar_url, avatar_thumb = ?avatar_thumb, "update_user_avatar_by_id called");
 
     if avatar_url.is_some() || avatar_thumb.is_some() {
-        println!("Updating avatar URLs for user UUID {} - main: {:?}, thumb: {:?}", user_uuid, avatar_url, avatar_thumb);
+        trace!(user_uuid = %user_uuid, avatar_url = ?avatar_url, avatar_thumb = ?avatar_thumb, "Updating avatar URLs");
 
         let user_update = crate::models::UserUpdate {
             name: None,
@@ -2394,16 +2394,16 @@ async fn update_user_avatar_by_id(
 
         match user_repo::update_user(user_uuid, user_update, conn) {
             Ok(updated_user) => {
-                println!("Successfully updated avatar URLs for user UUID {} - main: {:?}, thumb: {:?}", user_uuid, updated_user.avatar_url, updated_user.avatar_thumb);
+                debug!(user_uuid = %user_uuid, avatar_url = ?updated_user.avatar_url, avatar_thumb = ?updated_user.avatar_thumb, "Successfully updated avatar URLs");
             },
             Err(e) => {
                 let error_msg = format!("Failed to update user avatar: {}", e);
-                println!("Error: {}", error_msg);
+                error!(user_uuid = %user_uuid, error = %e, "Failed to update user avatar");
                 return Err(error_msg);
             }
         }
     } else {
-        println!("No avatar URLs provided for user UUID {}, skipping update", user_uuid);
+        trace!(user_uuid = %user_uuid, "No avatar URLs provided, skipping update");
     }
 
     Ok(())
@@ -2416,11 +2416,11 @@ async fn sync_user_profile_photo_fallback(
     user: &MicrosoftGraphUser,
     local_user_uuid: &str,
 ) -> Result<Option<String>, String> {
-    println!("Fetching default size profile photo for user: {}", user.user_principal_name);
+    trace!(user_principal_name = %user.user_principal_name, "Fetching default size profile photo");
 
     // Try to get the user's profile photo in default size
     let photo_url = format!("https://graph.microsoft.com/v1.0/users/{}/photo/$value", user.id);
-    
+
     let photo_response = client
         .get(&photo_url)
         .header("Authorization", format!("Bearer {}", access_token))
@@ -2429,21 +2429,21 @@ async fn sync_user_profile_photo_fallback(
         .map_err(|e| format!("Failed to fetch default profile photo: {}", e))?;
 
     let status = photo_response.status();
-    println!("Default photo request status for user {}: {}", user.user_principal_name, status);
+    trace!(user_principal_name = %user.user_principal_name, status = %status, "Default photo request status");
 
     if !status.is_success() {
         // User likely doesn't have a profile photo
         if status.as_u16() == 404 {
-            println!("No profile photo found for user: {}", user.user_principal_name);
+            trace!(user_principal_name = %user.user_principal_name, "No profile photo found");
             return Ok(None);
         } else if status.as_u16() == 400 {
-            println!("Profile photo request returned 400 Bad Request for user: {} - user may not have a photo", user.user_principal_name);
+            debug!(user_principal_name = %user.user_principal_name, "Profile photo request returned 400 Bad Request - user may not have a photo");
             return Ok(None);
         } else if status.as_u16() == 403 {
-            println!("Access denied to profile photo for user: {} - insufficient permissions", user.user_principal_name);
+            warn!(user_principal_name = %user.user_principal_name, "Access denied to profile photo - insufficient permissions");
             return Ok(None);
         } else {
-            println!("Failed to fetch profile photo for user: {}, status: {} - skipping", user.user_principal_name, status);
+            debug!(user_principal_name = %user.user_principal_name, status = %status, "Failed to fetch profile photo - skipping");
             return Ok(None);
         }
     }
@@ -2455,11 +2455,11 @@ async fn sync_user_profile_photo_fallback(
         .map_err(|e| format!("Failed to read photo data: {}", e))?;
 
     if photo_bytes.is_empty() {
-        println!("Empty profile photo for user: {}", user.user_principal_name);
+        debug!(user_principal_name = %user.user_principal_name, "Empty profile photo");
         return Ok(None);
     }
 
-    println!("Successfully downloaded default profile photo ({} bytes) for user: {}", photo_bytes.len(), user.user_principal_name);
+    debug!(user_principal_name = %user.user_principal_name, bytes = photo_bytes.len(), "Successfully downloaded default profile photo");
 
     // Save the photo to the filesystem
     save_profile_photo_to_disk(&photo_bytes, local_user_uuid, "default").await
@@ -2528,7 +2528,7 @@ async fn fetch_microsoft_graph_devices(provider_id: i32) -> Result<(Vec<Microsof
 
     loop {
         page_count += 1;
-        println!("Fetching Intune devices page {} from Microsoft Graph: {}", page_count, url);
+        debug!(page = page_count, url = %url, "Fetching Intune devices page from Microsoft Graph");
 
         let graph_response = client
             .get(&url)
@@ -2565,12 +2565,12 @@ async fn fetch_microsoft_graph_devices(provider_id: i32) -> Result<(Vec<Microsof
                     page_devices.push(device);
                 },
                 Err(e) => {
-                    println!("Warning: Failed to parse Intune device from Microsoft Graph (page {}): {}, data: {}", page_count, e, device_value);
+                    warn!(page = page_count, error = %e, data = %device_value, "Failed to parse Intune device from Microsoft Graph");
                 }
             }
         }
 
-        println!("Intune devices page {}: Parsed {} devices", page_count, page_devices.len());
+        debug!(page = page_count, device_count = page_devices.len(), "Intune devices page parsed");
         all_devices.extend(page_devices);
 
         if let Some(next_link) = response_data.get("@odata.nextLink").and_then(|link| link.as_str()) {
@@ -2582,19 +2582,15 @@ async fn fetch_microsoft_graph_devices(provider_id: i32) -> Result<(Vec<Microsof
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
-    println!("Successfully fetched {} devices from Microsoft Graph across {} pages", all_devices.len(), page_count);
-    
+    info!(device_count = all_devices.len(), page_count = page_count, "Successfully fetched devices from Microsoft Graph");
+
     // Log a sample of devices for verification
     for (i, device) in all_devices.iter().take(5).enumerate() {
-        println!("Sample device {}: {} ({})", 
-            i + 1, 
-            device.device_name.as_deref().unwrap_or("N/A"), 
-            device.id
-        );
+        debug!(index = i + 1, device_name = device.device_name.as_deref().unwrap_or("N/A"), device_id = %device.id, "Sample device");
     }
-    
+
     if all_devices.len() > 5 {
-        println!("... and {} more devices", all_devices.len() - 5);
+        debug!(remaining_count = all_devices.len() - 5, "Additional devices not shown");
     }
 
     Ok((all_devices, access_token.to_string()))
@@ -2607,7 +2603,7 @@ async fn process_microsoft_device(
     ms_device: &MicrosoftGraphDevice,
     stats: &mut DeviceSyncStats,
 ) -> Result<(), String> {
-    println!("Processing device: {}", ms_device.device_name.as_deref().unwrap_or(&ms_device.id));
+    debug!(device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Processing device");
 
     // Step 1: Check if this device already exists by Intune device ID
     let existing_device = device_repo::get_device_by_intune_id(conn, &ms_device.id).ok();
@@ -2631,21 +2627,21 @@ async fn process_microsoft_device(
                 Ok(microsoft_uuid) => {
                     match user_repo::get_user_by_microsoft_uuid(conn, &microsoft_uuid) {
                         Ok(user) => {
-                            println!("Found user {} for device {} by Microsoft UUID", user.name, ms_device.device_name.as_deref().unwrap_or(&ms_device.id));
+                            debug!(user_name = %user.name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Found user for device by Microsoft UUID");
                             Some(user.uuid)
                         },
                         Err(_) => {
-                            println!("User with Microsoft UUID {} not found for device {}", microsoft_user_id, ms_device.device_name.as_deref().unwrap_or(&ms_device.id));
-                            
+                            debug!(microsoft_uuid = %microsoft_user_id, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "User with Microsoft UUID not found for device");
+
                             // Fallback to email matching if Microsoft UUID doesn't match
                             if let Some(user_principal_name) = &ms_device.user_principal_name {
                                 match user_emails_repo::find_user_by_any_email(conn, user_principal_name) {
                                     Ok(user) => {
-                                        println!("Found user {} for device {} by email fallback", user.name, ms_device.device_name.as_deref().unwrap_or(&ms_device.id));
+                                        debug!(user_name = %user.name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Found user for device by email fallback");
                                         Some(user.uuid)
                                     },
                                     Err(_) => {
-                                        println!("User {} not found for device {} (tried both Microsoft UUID and email)", user_principal_name, ms_device.device_name.as_deref().unwrap_or(&ms_device.id));
+                                        debug!(user_principal_name = %user_principal_name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "User not found for device (tried both Microsoft UUID and email)");
                                         None
                                     }
                                 }
@@ -2656,16 +2652,16 @@ async fn process_microsoft_device(
                     }
                 },
                 Err(_) => {
-                    println!("Invalid Microsoft UUID format for device {}: {}", ms_device.device_name.as_deref().unwrap_or(&ms_device.id), microsoft_user_id);
+                    warn!(device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), microsoft_user_id = %microsoft_user_id, "Invalid Microsoft UUID format for device");
                     // Fallback to email matching
                     if let Some(user_principal_name) = &ms_device.user_principal_name {
                         match user_emails_repo::find_user_by_any_email(conn, user_principal_name) {
                             Ok(user) => {
-                                println!("Found user {} for device {} by email fallback", user.name, ms_device.device_name.as_deref().unwrap_or(&ms_device.id));
+                                debug!(user_name = %user.name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Found user for device by email fallback");
                                 Some(user.uuid)
                             },
                             Err(_) => {
-                                println!("User {} not found for device {}", user_principal_name, ms_device.device_name.as_deref().unwrap_or(&ms_device.id));
+                                debug!(user_principal_name = %user_principal_name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "User not found for device");
                                 None
                             }
                         }
@@ -2679,16 +2675,16 @@ async fn process_microsoft_device(
         else if let Some(user_principal_name) = &ms_device.user_principal_name {
             match user_emails_repo::find_user_by_any_email(conn, user_principal_name) {
                 Ok(user) => {
-                    println!("Found user {} for device {} by email", user.name, ms_device.device_name.as_deref().unwrap_or(&ms_device.id));
+                    debug!(user_name = %user.name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Found user for device by email");
                     Some(user.uuid)
                 },
                 Err(_) => {
-                    println!("User {} not found for device {}", user_principal_name, ms_device.device_name.as_deref().unwrap_or(&ms_device.id));
+                    debug!(user_principal_name = %user_principal_name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "User not found for device");
                     None
                 }
             }
         } else {
-            println!("No user information available for device {}", ms_device.device_name.as_deref().unwrap_or(&ms_device.id));
+            debug!(device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "No user information available for device");
             None
         }
     };
@@ -2748,7 +2744,7 @@ async fn process_microsoft_device(
         device_repo::update_device(conn, existing.id, device_update)
             .map_err(|e| format!("Failed to update device: {}", e))?;
 
-        println!("Updated existing device: {}", device_name);
+        debug!(device_name = %device_name, "Updated existing device");
         stats.existing_devices_updated += 1;
 
         if primary_user_uuid.is_some() {
@@ -2781,7 +2777,7 @@ async fn process_microsoft_device(
         device_repo::create_device(conn, new_device)
             .map_err(|e| format!("Failed to create device: {}", e))?;
 
-        println!("Created new device: {}", device_name);
+        info!(device_name = %device_name, "Created new device");
         stats.new_devices_created += 1;
 
         if primary_user_uuid.is_some() {
@@ -2888,13 +2884,13 @@ async fn fetch_entra_object_id_from_graph(provider_id: i32, azure_ad_device_id: 
         })?;
 
     // Query Microsoft Graph for the device using the Azure AD Device ID
-    // We need to filter by deviceId (which is the Azure AD Device ID) to get the Object ID (id field)
+    // Filter by deviceId (Azure AD Device ID) to get the Object ID (id field)
     let url = format!(
         "https://graph.microsoft.com/v1.0/devices?$filter=deviceId eq '{}'&$select=id,deviceId",
         azure_ad_device_id
     );
 
-    println!("Fetching Entra Object ID for Azure AD Device ID: {}", azure_ad_device_id);
+    debug!(azure_ad_device_id = %azure_ad_device_id, "Fetching Entra Object ID for Azure AD Device ID");
 
     let graph_response = client
         .get(&url)
@@ -2936,7 +2932,7 @@ async fn fetch_entra_object_id_from_graph(provider_id: i32, azure_ad_device_id: 
         .and_then(|id| id.as_str())
         .ok_or_else(|| "Device Object ID not found in response".to_string())?;
 
-    println!("Successfully found Object ID {} for Azure AD Device ID {}", object_id, azure_ad_device_id);
+    debug!(object_id = %object_id, azure_ad_device_id = %azure_ad_device_id, "Successfully found Object ID for Azure AD Device ID");
     
     Ok(object_id.to_string())
 }
@@ -3061,7 +3057,7 @@ async fn process_microsoft_user_no_photos(
             update_existing_microsoft_user_no_photos(conn, ms_user, existing_identity, stats).await
         }
         Err(diesel::result::Error::NotFound) => {
-            // No identity found, check if we can link to an existing user by email
+            // No identity found, check if linking to an existing user by email is possible
             let emails = extract_user_emails(ms_user);
             
             if let Some(existing_user) = find_existing_user_by_emails(conn, &emails) {
@@ -3387,10 +3383,9 @@ fn find_users_without_photos(
         .load(conn)
         .map_err(|e| format!("Failed to find users without photos: {}", e))?;
 
-    // Convert UUID to String - we no longer have an id field, but the function signature expects (i32, String, String)
-    // Since the function return type expects (i32, String, String), but we're using UUIDs now,
-    // we need to adjust the return type or the calling code. For now, let's return (uuid_string, uuid_string, external_id)
-    // and update the function signature
+    // Convert UUID to String - no longer have an id field, but the function signature expects (i32, String, String)
+    // Return type expects (i32, String, String), but using UUIDs now.
+    // Return (uuid_string, uuid_string, external_id) and update the function signature
     let converted_results = results
         .into_iter()
         .map(|(uuid, external_id)| (0, uuid.to_string(), external_id)) // Using 0 as placeholder for deprecated id
@@ -3434,6 +3429,6 @@ async fn sync_user_photo_by_id(
     
     Ok(PhotoSyncUrls {
         avatar_url,
-        avatar_thumb: None, // We could add thumbnail support later
+        avatar_thumb: None, // Thumbnail support can be added later
     })
 }

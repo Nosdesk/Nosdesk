@@ -3,7 +3,7 @@ use bcrypt::verify;
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
-use tracing::{error, debug};
+use tracing::{debug, info, warn, error};
 
 
 use crate::db::DbConnection;
@@ -218,7 +218,7 @@ pub async fn login(
     let user = match repository::get_user_by_email(&login_data.email, &mut conn) {
         Ok(user) => user,
         Err(e) => {
-            eprintln!("Error finding user by email: {:?}", e);
+            error!(error = ?e, "Error finding user by email");
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
                 "message": "Invalid email or password"
@@ -230,7 +230,7 @@ pub async fn login(
     let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
         Ok(hash) => hash,
         Err(_) => {
-            eprintln!("No local password found for user: {}", user.uuid);
+            warn!(user_uuid = %user.uuid, "No local password found for user");
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
                 "message": "Invalid email or password"
@@ -568,7 +568,7 @@ pub async fn register(
             if let Err(e) = diesel::insert_into(user_auth_identities::table)
                 .values(&auth_identity)
                 .execute(&mut conn) {
-                eprintln!("Error creating auth identity: {:?}", e);
+                error!(error = ?e, "Error creating auth identity");
                 // Rollback by deleting the user
                 let _ = repository::users::delete_user(&created_user.uuid, &mut conn);
                 return HttpResponse::InternalServerError().json(json!({
@@ -577,12 +577,12 @@ pub async fn register(
                 }));
             }
 
-            println!("✅ New user registered successfully: {} (UUID: {})", created_user.name, created_user.uuid);
+            info!(user_name = %created_user.name, user_uuid = %created_user.uuid, "New user registered successfully");
             let response = repository::user_helpers::get_user_with_primary_email(created_user, &mut conn);
             HttpResponse::Created().json(response)
         },
         Err(e) => {
-            eprintln!("Error creating user: {:?}", e);
+            error!(error = ?e, "Error creating user");
             
             // Provide more specific error messages for common issues
             let error_message = if format!("{:?}", e).contains("duplicate") || format!("{:?}", e).contains("unique") {
@@ -676,7 +676,7 @@ pub async fn change_password(
             let current_password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
                 Ok(hash) => hash,
                 Err(_) => {
-                    eprintln!("No local password found for user: {}", user.uuid);
+                    warn!(user_uuid = %user.uuid, "No local password found for user");
                     return HttpResponse::BadRequest().json(json!({
                         "status": "error",
                         "message": "No local password found for this user"
@@ -688,7 +688,7 @@ pub async fn change_password(
             let password_matches = match verify(&password_data.current_password, &current_password_hash) {
                 Ok(matches) => matches,
                 Err(_) => {
-                    eprintln!("Error verifying current password during password change");
+                    error!("Error verifying current password during password change");
                     return HttpResponse::InternalServerError().json(json!({
                         "status": "error",
                         "message": "Error verifying password"
@@ -726,7 +726,7 @@ pub async fn change_password(
 
             // Update password hash in user_auth_identities
             if let Err(e) = update_local_password_hash(&user.uuid, &new_password_hash, &mut conn) {
-                eprintln!("Error updating password hash: {:?}", e);
+                error!(error = ?e, "Error updating password hash");
                 return HttpResponse::InternalServerError().json(json!({
                     "status": "error",
                     "message": "Error updating password"
@@ -738,7 +738,7 @@ pub async fn change_password(
                 .set(crate::schema::users::password_changed_at.eq(now))
                 .execute(&mut conn) {
                 Ok(_) => {
-                    println!("✅ Password changed successfully for user: {}", user.name);
+                    info!(user_name = %user.name, "Password changed successfully");
 
                     // Log security event for password change
                     if let Err(e) = log_password_change_event(&user.uuid, &mut conn).await {
@@ -752,7 +752,7 @@ pub async fn change_password(
                         Some(cookie) => cookie.value().to_string(),
                         None => {
                             tracing::warn!("Could not find access token cookie during password change for user {}", user.uuid);
-                            // Continue even if we can't find the cookie - password change succeeded
+                            // Continue even without finding the cookie - password change succeeded
                             return HttpResponse::Ok().json(json!({
                                 "status": "success",
                                 "message": "Password changed successfully"
@@ -785,7 +785,7 @@ pub async fn change_password(
                     ) {
                         Ok(revoked_count) => {
                             if revoked_count > 0 {
-                                println!("🔒 Revoked {} other session(s) after password change for user: {}", revoked_count, user.name);
+                                info!(revoked_count, user_name = %user.name, "Revoked other sessions after password change");
                             }
                         },
                         Err(e) => {
@@ -800,7 +800,7 @@ pub async fn change_password(
                     }))
                 },
                 Err(e) => {
-                    eprintln!("Error updating password: {:?}", e);
+                    error!(error = ?e, "Error updating password");
                     HttpResponse::InternalServerError().json(json!({
                         "status": "error",
                         "message": "Error updating password"
@@ -879,14 +879,14 @@ pub async fn admin_reset_password(
     // Update the user's password hash in user_auth_identities
     match update_local_password_hash(&user.uuid, &new_password_hash, &mut conn) {
         Ok(_) => {
-            println!("✅ Password reset successfully for user: {}", user.name);
+            info!(user_name = %user.name, "Password reset successfully");
             HttpResponse::Ok().json(json!({
                 "status": "success",
                 "message": "Password reset successfully"
             }))
         },
         Err(e) => {
-            eprintln!("Error resetting password: {:?}", e);
+            error!(error = ?e, "Error resetting password");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Error updating password"
@@ -1016,7 +1016,7 @@ pub async fn setup_initial_admin(
             }
         },
         Err(e) => {
-            eprintln!("Error counting users: {:?}", e);
+            error!(error = ?e, "Error counting users");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to verify setup status"
@@ -1065,7 +1065,7 @@ pub async fn setup_initial_admin(
     let password_hash = match hash_password(&admin_data.password) {
         Ok(hash) => hash,
         Err(e) => {
-            eprintln!("Error hashing password: {:?}", e);
+            error!(error = ?e, "Error hashing password");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Error processing password"
@@ -1110,7 +1110,7 @@ pub async fn setup_initial_admin(
             if let Err(e) = diesel::insert_into(user_auth_identities::table)
                 .values(&auth_identity)
                 .execute(&mut conn) {
-                eprintln!("Error creating auth identity: {:?}", e);
+                error!(error = ?e, "Error creating auth identity");
                 // Rollback by deleting the user
                 let _ = repository::users::delete_user(&created_user.uuid, &mut conn);
                 return HttpResponse::InternalServerError().json(json!({
@@ -1119,7 +1119,7 @@ pub async fn setup_initial_admin(
                 }));
             }
 
-            println!("✅ Initial admin user created successfully: {}", created_user.name);
+            info!(user_name = %created_user.name, "Initial admin user created successfully");
 
             let response = crate::models::AdminSetupResponse {
                 success: true,
@@ -1129,7 +1129,7 @@ pub async fn setup_initial_admin(
             HttpResponse::Created().json(response)
         },
         Err(e) => {
-            eprintln!("Error creating admin user: {:?}", e);
+            error!(error = ?e, "Error creating admin user");
             
             // Provide more specific error messages for common issues
             let error_message = if format!("{:?}", e).contains("duplicate") || format!("{:?}", e).contains("unique") {
@@ -1310,7 +1310,7 @@ pub async fn mfa_enable(
         })),
     };
 
-    // We'll generate backup codes on the server after successful verification
+    // Generate backup codes on the server after successful verification
 
     // Final TOTP verification before enabling
     if !mfa::verify_totp_token(mfa_secret, &request.token) {
@@ -1336,8 +1336,8 @@ pub async fn mfa_enable(
     // Generate backup codes now that verification succeeded
     let (backup_codes_plaintext, backup_codes_hashed) = mfa::generate_backup_codes_async().await;
 
-    // Use the pre-hashed backup codes from setup phase
-    // Note: backup_codes from frontend are plaintext from setup, but we hash them here
+    // Use pre-hashed backup codes from setup phase
+    // Note: backup_codes from frontend are plaintext from setup, hashed here for storage
     // This maintains security while keeping the API simple
     
     let backup_codes_json = match serde_json::to_value(&backup_codes_hashed) {
@@ -1459,7 +1459,7 @@ pub async fn mfa_disable(
             }))
         },
         Err(e) => {
-            eprintln!("Error disabling MFA: {:?}", e);
+            error!(error = ?e, "Error disabling MFA");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to disable MFA"
@@ -1543,7 +1543,7 @@ pub async fn mfa_regenerate_backup_codes(
             HttpResponse::Ok().json(response)
         },
         Err(e) => {
-            eprintln!("Error regenerating backup codes: {:?}", e);
+            error!(error = ?e, "Error regenerating backup codes");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to regenerate backup codes"

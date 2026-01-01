@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends Record<string, unknown>">
 import { computed } from 'vue'
 import Checkbox from './Checkbox.vue'
 
@@ -13,7 +13,7 @@ interface Column {
 
 interface DataTableProps {
   columns: Column[]
-  data: any[]
+  data: T[]
   selectedItems: string[]
   itemIdField?: string
   sortField?: string
@@ -32,7 +32,7 @@ const emit = defineEmits<{
   'update:sort': [field: string, direction: 'asc' | 'desc']
   'toggle-selection': [event: Event, itemId: string]
   'toggle-all': [event: Event]
-  'row-click': [item: any]
+  'row-click': [item: T]
 }>()
 
 // Compute if all items are selected

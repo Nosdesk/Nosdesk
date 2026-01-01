@@ -126,7 +126,7 @@ export function useTitleManager() {
     // Store the actual reactive ticket object reference
     currentTicket.value = ticketData;
     // The document title will automatically update when ticketData.title changes
-    // since we're watching the reactive object
+    // watching the reactive object handles document title updates
     if (ticketData) {
       document.title = `#${ticketData.id} ${ticketData.title} | ${getAppName()}`;
     }

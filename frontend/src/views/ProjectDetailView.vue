@@ -58,7 +58,7 @@ const fetchExistingTicketIds = async () => {
   if (!projectId.value) return
   try {
     const tickets = await projectService.getProjectTickets(projectId.value)
-    existingTicketIds.value = tickets.map((t: any) => t.id)
+    existingTicketIds.value = tickets.map((t: { id: number }) => t.id)
   } catch (err) {
     console.error('Failed to fetch existing tickets:', err)
   }

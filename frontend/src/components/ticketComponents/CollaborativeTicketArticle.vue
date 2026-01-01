@@ -65,7 +65,7 @@ const handleSelectRevision = async (revisionNumber: number | null) => {
   }
 
   if (revisionNumber === null) {
-    // Exit revision view and return to live document
+    // Exit revision view, return to live document
     editorRef.value.exitRevisionView();
     return;
   }
@@ -88,7 +88,7 @@ const handleSelectRevision = async (revisionNumber: number | null) => {
 
 const handleCloseRevisionHistory = () => {
   showRevisionHistory.value = false;
-  // Also exit revision view if we're currently viewing one
+  // Also exit revision view if currently viewing one
   if (editorRef.value && editorRef.value.isViewingRevision) {
     editorRef.value.exitRevisionView();
   }

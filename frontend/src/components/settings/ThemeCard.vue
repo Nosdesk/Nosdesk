@@ -12,7 +12,7 @@ const props = defineProps<{
 
 const themeStore = useThemeStore()
 
-// Check if we should apply the CRT scanline effect (when current theme is red-horizon)
+// Apply CRT scanline effect when current theme is red-horizon
 const showCrtEffect = computed(() => {
   const currentThemeId = themeStore.effectiveTheme?.meta?.id
   return currentThemeId === 'red-horizon' && !props.selected

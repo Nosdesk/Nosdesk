@@ -20,14 +20,14 @@ export interface TicketEvent {
     | "TicketUnlinked"
     | "DocumentationUpdated"
     | "Heartbeat";
-  data: any;
+  data: unknown;
 }
 
-// Event handler type
-type EventHandler = (data: any) => void;
+// Event handler type - uses unknown since SSE events have varying shapes
+type EventHandler = (data: unknown) => void;
 
-// SSE Event types
-type SSEEventType =
+// SSE Event types - exported for use in composables
+export type SSEEventType =
   | "ticket-updated"
   | "ticket-created"
   | "ticket-deleted"
@@ -97,9 +97,10 @@ class SSEService {
       this.tokenExpiryTime = Date.now() + data.expires_in * 1000;
 
       return this.sseToken!;
-    } catch (error: any) {
+    } catch (error) {
+      const axiosError = error as { response?: { status?: number } };
       throw new Error(
-        `Failed to get SSE token: ${error.response?.status || 'Network error'}`
+        `Failed to get SSE token: ${axiosError.response?.status || 'Network error'}`
       );
     }
   }
@@ -323,7 +324,7 @@ class SSEService {
   }
 
   // Emit event to listeners
-  private emit(eventType: SSEEventType, data: any): void {
+  private emit(eventType: SSEEventType, data: unknown): void {
     const listeners = this.eventListeners.get(eventType);
 
     // Direct console.log for debugging

@@ -3,7 +3,7 @@ import { useRouter, useRoute } from "vue-router";
 import { computed, ref, onMounted, onUnmounted } from "vue";
 
 // Debounce utility for resize events
-function debounce<T extends (...args: any[]) => void>(fn: T, delay: number): T {
+function debounce<T extends (...args: unknown[]) => void>(fn: T, delay: number): T {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   return ((...args: Parameters<T>) => {
     if (timeoutId) clearTimeout(timeoutId)
@@ -169,7 +169,7 @@ const handleCreateClick = async () => {
   emit('create');
 
   // Default behavior for tickets if no listener is provided (backward compatibility)
-  // Only execute if we're on a tickets-related route
+  // Only execute on tickets-related routes
   if (route.path.includes('/tickets') || route.path === '/') {
     try {
       if (import.meta.env.DEV) {

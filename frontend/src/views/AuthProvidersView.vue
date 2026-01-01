@@ -43,9 +43,10 @@ const loadProviders = async () => {
   try {
     const response = await axios.get('/api/admin/auth/providers');
     providers.value = response.data;
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to load auth providers:', error);
-    errorMessage.value = error.response?.data?.message || 'Failed to load authentication providers';
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to load authentication providers';
   } finally {
     isLoading.value = false;
   }
@@ -65,11 +66,11 @@ const validateProviderConfig = async (provider: Provider) => {
         redirect_uri: response.data.redirect_uri
       };
     }
-  } catch (error: any) {
-    const errorDetails = error.response?.data;
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
     configValidations.value[provider.id] = {
       valid: false,
-      error: errorDetails?.message || `Configuration validation failed`
+      error: axiosError.response?.data?.message || `Configuration validation failed`
     };
   }
 };

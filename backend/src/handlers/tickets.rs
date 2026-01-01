@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::models::{AssignmentTrigger, Claims, NewTicket, TicketPriority, TicketStatus, TicketUpdate, TicketsJson, UserRole};
@@ -165,7 +166,7 @@ async fn broadcast_sse_simple(
                     .await;
                 }
             }
-            _ => eprintln!("Unknown SSE event type: {}", event_type),
+            _ => warn!(event_type = %event_type, "Unknown SSE event type"),
         }
     });
 }
@@ -284,7 +285,7 @@ pub async fn get_paginated_tickets(
             HttpResponse::Ok().json(response)
         }
         Err(e) => {
-            eprintln!("Error fetching paginated tickets: {:?}", e);
+            error!(error = ?e, "Failed to fetch paginated tickets");
             HttpResponse::InternalServerError().json("Failed to get paginated tickets")
         }
     }
@@ -317,14 +318,14 @@ pub async fn get_ticket(
         Ok(uuid) => uuid,
         Err(_) => {
             // Log but don't fail - still return the ticket
-            eprintln!("Warning: Invalid user UUID in claims, cannot record view");
+            warn!("Invalid user UUID in claims, cannot record view");
             return HttpResponse::Ok().json(complete_ticket);
         }
     };
 
     let view_repo = UserTicketViewsRepository::new(pool.get_ref().clone());
     if let Err(e) = view_repo.record_view(user_uuid, ticket_id) {
-        eprintln!("Warning: Failed to record ticket view for user {}: {:?}", user_uuid, e);
+        warn!(user_uuid = %user_uuid, error = ?e, "Failed to record ticket view");
     }
 
     HttpResponse::Ok().json(complete_ticket)
@@ -578,7 +579,7 @@ pub async fn create_empty_ticket(
     let mut ticket = match repository::create_ticket(&mut conn, empty_ticket) {
         Ok(ticket) => ticket,
         Err(e) => {
-            println!("Error creating empty ticket: {:?}", e);
+            error!(error = ?e, "Failed to create empty ticket");
             return HttpResponse::InternalServerError()
                 .json(format!("Failed to create empty ticket: {}", e));
         }
@@ -704,7 +705,7 @@ pub async fn update_ticket_partial(
             match crate::repository::users::get_user_by_name(requester_str, &mut conn) {
                 Ok(user) => ticket_update.requester_uuid = Some(Some(user.uuid)),
                 Err(_) => {
-                    println!("Warning: Could not find user with name '{}'", requester_str);
+                    warn!(name = %requester_str, "Could not find user by name");
                 }
             }
         }
@@ -799,10 +800,7 @@ pub async fn update_ticket_partial(
             // Broadcast SSE events IMMEDIATELY after DB update for low latency
             // Don't wait for fetching complete ticket data
             for (key, value) in body.0.as_object().unwrap_or(&serde_json::Map::new()) {
-                println!(
-                    "Broadcasting SSE event for ticket {}: {} = {:?}",
-                    ticket_id, key, value
-                );
+                debug!(ticket_id = ticket_id, key = %key, value = ?value, "Broadcasting SSE event");
                 broadcast_sse_simple(
                     sse_state.clone(),
                     ticket_id,
@@ -830,7 +828,7 @@ pub async fn update_ticket_partial(
             HttpResponse::Ok().json(updated_ticket)
         }
         Err(e) => {
-            println!("Error updating ticket: {:?}", e);
+            error!(error = ?e, "Failed to update ticket");
             HttpResponse::InternalServerError().json("Failed to update ticket")
         }
     }
@@ -867,11 +865,7 @@ pub async fn link_tickets(
 
     match repository::link_tickets(&mut conn, ticket_id, linked_ticket_id) {
         Ok(_) => {
-            // Broadcast SSE event for ticket linking
-            println!(
-                "Broadcasting SSE event: Ticket {} linked to ticket {}",
-                ticket_id, linked_ticket_id
-            );
+            debug!(ticket_id = ticket_id, linked_ticket_id = linked_ticket_id, "Broadcasting SSE event for ticket linking");
 
             // Broadcast SSE event for ticket linking
             broadcast_sse_simple(
@@ -887,7 +881,7 @@ pub async fn link_tickets(
             HttpResponse::Ok().json(json!({"success": true}))
         }
         Err(e) => {
-            println!("Error linking tickets: {:?}", e);
+            error!(error = ?e, "Failed to link tickets");
             HttpResponse::InternalServerError().json("Failed to link tickets")
         }
     }
@@ -924,11 +918,7 @@ pub async fn unlink_tickets(
 
     match repository::unlink_tickets(&mut conn, ticket_id, linked_ticket_id) {
         Ok(_) => {
-            // Broadcast SSE event for ticket unlinking
-            println!(
-                "Broadcasting SSE event: Ticket {} unlinked from ticket {}",
-                ticket_id, linked_ticket_id
-            );
+            debug!(ticket_id = ticket_id, linked_ticket_id = linked_ticket_id, "Broadcasting SSE event for ticket unlinking");
 
             // Broadcast SSE event for ticket unlinking
             broadcast_sse_simple(
@@ -944,7 +934,7 @@ pub async fn unlink_tickets(
             HttpResponse::Ok().json(json!({"success": true}))
         }
         Err(e) => {
-            println!("Error unlinking tickets: {:?}", e);
+            error!(error = ?e, "Failed to unlink tickets");
             HttpResponse::InternalServerError().json("Failed to unlink tickets")
         }
     }
@@ -981,11 +971,7 @@ pub async fn add_device_to_ticket(
 
     match repository::add_device_to_ticket(&mut conn, ticket_id, device_id) {
         Ok(_) => {
-            // Broadcast SSE event for device linking
-            println!(
-                "Broadcasting SSE event: Device {} linked to ticket {}",
-                device_id, ticket_id
-            );
+            debug!(ticket_id = ticket_id, device_id = device_id, "Broadcasting SSE event for device linking");
 
             // Broadcast SSE event for device linking
             broadcast_sse_simple(
@@ -1001,10 +987,7 @@ pub async fn add_device_to_ticket(
             HttpResponse::Ok().json(json!({"success": true}))
         }
         Err(e) => {
-            println!(
-                "Error adding device {} to ticket {}: {:?}",
-                device_id, ticket_id, e
-            );
+            error!(ticket_id = ticket_id, device_id = device_id, error = ?e, "Failed to add device to ticket");
             HttpResponse::InternalServerError().json("Failed to add device to ticket")
         }
     }
@@ -1042,11 +1025,7 @@ pub async fn remove_device_from_ticket(
     match repository::remove_device_from_ticket(&mut conn, ticket_id, device_id) {
         Ok(rows_affected) => {
             if rows_affected > 0 {
-                // Broadcast SSE event for device unlinking
-                println!(
-                    "Broadcasting SSE event: Device {} unlinked from ticket {}",
-                    device_id, ticket_id
-                );
+                debug!(ticket_id = ticket_id, device_id = device_id, "Broadcasting SSE event for device unlinking");
 
                 // Broadcast SSE event for device unlinking
                 broadcast_sse_simple(
@@ -1065,10 +1044,7 @@ pub async fn remove_device_from_ticket(
             }
         }
         Err(e) => {
-            println!(
-                "Error removing device {} from ticket {}: {:?}",
-                device_id, ticket_id, e
-            );
+            error!(ticket_id = ticket_id, device_id = device_id, error = ?e, "Failed to remove device from ticket");
             HttpResponse::InternalServerError().json("Failed to remove device from ticket")
         }
     }
@@ -1092,7 +1068,7 @@ pub async fn get_recent_tickets(
     match repo.get_recent_tickets(user_uuid, 15) {
         Ok(tickets) => HttpResponse::Ok().json(tickets),
         Err(e) => {
-            eprintln!("Error fetching recent tickets: {:?}", e);
+            error!(error = ?e, "Failed to fetch recent tickets");
             HttpResponse::InternalServerError().json("Failed to fetch recent tickets")
         }
     }
@@ -1118,7 +1094,7 @@ pub async fn record_ticket_view(
     match repo.record_view(user_uuid, ticket_id) {
         Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => {
-            eprintln!("Error recording ticket view: {:?}", e);
+            error!(error = ?e, "Failed to record ticket view");
             HttpResponse::InternalServerError().json("Failed to record ticket view")
         }
     }
@@ -1179,7 +1155,7 @@ pub async fn bulk_tickets(
                 match repository::delete_ticket_with_cleanup(&mut conn, *id, storage.as_ref().clone()).await {
                     Ok(rows) => deleted += rows,
                     Err(e) => {
-                        eprintln!("Error deleting ticket {}: {:?}", id, e);
+                        error!(ticket_id = id, error = ?e, "Failed to delete ticket");
                     }
                 }
             }

@@ -51,7 +51,7 @@ export function useDropdownPosition(
     // Estimate menu height (will be clamped anyway)
     const estimatedMenuHeight = 250
 
-    // Determine if we should open upward
+    // Determine whether dropdown should open upward
     const openUp = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow
 
     // Calculate top position

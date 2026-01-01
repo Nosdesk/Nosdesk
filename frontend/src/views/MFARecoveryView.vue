@@ -237,9 +237,10 @@ onMounted(async () => {
 
     // Start countdown timer
     startTimer();
-  } catch (err: any) {
+  } catch (err) {
     console.error('MFA recovery error:', err);
-    error.value = err.response?.data?.message || 'Invalid or expired recovery link. Please request a new one.';
+    const axiosError = err as { response?: { data?: { message?: string } } };
+    error.value = axiosError.response?.data?.message || 'Invalid or expired recovery link. Please request a new one.';
   } finally {
     loading.value = false;
   }
@@ -284,9 +285,10 @@ const disableMFA = async () => {
     // Show success message and redirect to login
     alert('MFA has been disabled successfully. You can now log in with just your password.');
     router.push('/login');
-  } catch (err: any) {
+  } catch (err) {
     console.error('MFA disable error:', err);
-    disableError.value = err.response?.data?.message || 'Failed to disable MFA. Please try again.';
+    const axiosError = err as { response?: { data?: { message?: string } } };
+    disableError.value = axiosError.response?.data?.message || 'Failed to disable MFA. Please try again.';
   } finally {
     disabling.value = false;
   }

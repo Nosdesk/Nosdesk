@@ -65,7 +65,7 @@ const loadAuthMethods = async () => {
     const identities = await authService.getUserAuthIdentities();
 
     // Add connected OAuth providers
-    identities.forEach((identity: any) => {
+    identities.forEach((identity: { id: number; provider_type: string; email?: string; provider_name?: string; created_at: string }) => {
       methods.push({
         id: identity.id.toString(),
         type: identity.provider_type as 'microsoft',
@@ -134,9 +134,10 @@ const removeAuthMethod = async (methodId: string, methodType: string) => {
     // Reload auth methods after deletion
     await loadAuthMethods();
     emit('success', 'Authentication method removed successfully');
-  } catch (err: any) {
+  } catch (err) {
     // Extract error message from backend response
-    const errorMessage = err.response?.data?.message || 'Failed to remove authentication method';
+    const axiosError = err as { response?: { data?: { message?: string } } };
+    const errorMessage = axiosError.response?.data?.message || 'Failed to remove authentication method';
     emit('error', errorMessage);
     logger.error('Failed to remove auth method', { error: err, methodId, methodType });
   } finally {

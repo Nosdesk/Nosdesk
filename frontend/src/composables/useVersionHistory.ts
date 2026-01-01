@@ -2,6 +2,7 @@ import { ref, computed } from 'vue';
 import type { Ref } from 'vue';
 import versionHistoryService from '@/services/versionHistoryService';
 import type { ArticleRevision, ArticleRevisionDetail } from '@/services/versionHistoryService';
+import { logger } from '@/utils/logger';
 
 export function useVersionHistory(ticketId: Ref<number> | number) {
   const revisions = ref<ArticleRevision[]>([]);
@@ -21,12 +22,12 @@ export function useVersionHistory(ticketId: Ref<number> | number) {
     error.value = null;
 
     try {
-      console.log('[useVersionHistory] Loading revisions for ticket:', ticketIdRef.value);
+      logger.debug('Loading revisions for ticket', { ticketId: ticketIdRef.value });
       revisions.value = await versionHistoryService.getRevisions(ticketIdRef.value);
-      console.log('[useVersionHistory] Loaded revisions:', revisions.value);
+      logger.debug('Loaded revisions', { count: revisions.value.length });
     } catch (err) {
       error.value = err instanceof Error ? err : new Error('Failed to load revisions');
-      console.error('[useVersionHistory] Error loading revisions:', err);
+      logger.error('Error loading revisions', { ticketId: ticketIdRef.value, error: err });
     } finally {
       isLoading.value = false;
     }
@@ -41,7 +42,7 @@ export function useVersionHistory(ticketId: Ref<number> | number) {
     try {
       return await versionHistoryService.getRevision(ticketIdRef.value, revisionNumber);
     } catch (err) {
-      console.error('Error fetching revision detail:', err);
+      logger.error('Error fetching revision detail', { ticketId: ticketIdRef.value, revisionNumber, error: err });
       return null;
     }
   };
@@ -62,7 +63,7 @@ export function useVersionHistory(ticketId: Ref<number> | number) {
       return true;
     } catch (err) {
       restoreError.value = err instanceof Error ? err : new Error('Failed to restore revision');
-      console.error('Error restoring revision:', err);
+      logger.error('Error restoring revision', { ticketId: ticketIdRef.value, revisionNumber, error: err });
       return false;
     } finally {
       isRestoring.value = false;

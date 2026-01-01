@@ -35,13 +35,6 @@ pub fn get_rule_by_id(conn: &mut DbConnection, rule_id: i32) -> QueryResult<Assi
     assignment_rules::table.find(rule_id).first(conn)
 }
 
-/// Get a rule by UUID
-pub fn get_rule_by_uuid(conn: &mut DbConnection, rule_uuid: &Uuid) -> QueryResult<AssignmentRule> {
-    assignment_rules::table
-        .filter(assignment_rules::uuid.eq(rule_uuid))
-        .first(conn)
-}
-
 /// Get a rule with all related details (user, group, category, state)
 pub fn get_rule_with_details(conn: &mut DbConnection, rule_id: i32) -> Result<AssignmentRuleWithDetails, Error> {
     let rule = assignment_rules::table.find(rule_id).first::<AssignmentRule>(conn)?;
@@ -174,18 +167,6 @@ pub fn update_state(
         .get_result(conn)
 }
 
-/// Reset rule state (useful after group membership changes)
-pub fn reset_state(conn: &mut DbConnection, rule_id: i32) -> QueryResult<AssignmentRuleState> {
-    let update = AssignmentRuleStateUpdate {
-        last_assigned_index: Some(0),
-        total_assignments: Some(0),
-        last_assigned_at: None,
-        last_assigned_user_uuid: None,
-    };
-
-    update_state(conn, rule_id, update)
-}
-
 // ============================================================================
 // Assignment Log Operations
 // ============================================================================
@@ -197,27 +178,11 @@ pub fn log_assignment(conn: &mut DbConnection, new_log: NewAssignmentLog) -> Que
         .get_result(conn)
 }
 
-/// Get assignment logs for a ticket
-pub fn get_logs_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<AssignmentLog>> {
-    assignment_log::table
-        .filter(assignment_log::ticket_id.eq(ticket_id))
-        .order(assignment_log::assigned_at.desc())
-        .load(conn)
-}
-
 /// Get recent assignment logs (for monitoring/debugging)
 pub fn get_recent_logs(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<AssignmentLog>> {
     assignment_log::table
         .order(assignment_log::assigned_at.desc())
         .limit(limit)
-        .load(conn)
-}
-
-/// Get logs for a specific rule
-pub fn get_logs_for_rule(conn: &mut DbConnection, rule_id: i32) -> QueryResult<Vec<AssignmentLog>> {
-    assignment_log::table
-        .filter(assignment_log::rule_id.eq(Some(rule_id)))
-        .order(assignment_log::assigned_at.desc())
         .load(conn)
 }
 

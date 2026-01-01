@@ -26,7 +26,7 @@ export const useAuthStore = defineStore('auth', () => {
   const authProvider = ref<string | null>(localStorage.getItem('authProvider'));
 
   // Track ongoing fetchUserData requests to prevent duplicates
-  let fetchUserDataPromise: Promise<any> | null = null;
+  let fetchUserDataPromise: Promise<User | null> | null = null;
 
   // Track last fetch attempt to prevent rapid retries on rate limit errors
   let lastFetchAttempt = 0;
@@ -44,7 +44,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // Computed properties
-  // UX ONLY: Consider authenticated if we have a CSRF token OR if we have user data loaded
+  // UX ONLY: Consider authenticated if CSRF token exists OR user data is loaded
   // The user data check handles the timing gap where cookies are being set but not yet in document.cookie
   // NOTE: Actual authentication is always verified by backend on every request
   const isAuthenticated = computed(() => hasCsrfToken() || !!user.value);
@@ -89,12 +89,13 @@ export const useAuthStore = defineStore('auth', () => {
         // Reset cooldown on success
         lastFetchAttempt = 0;
         return response.data;
-      } catch (err: any) {
+      } catch (err) {
         logger.error('Error fetching user data:', err);
 
         // Handle specific error cases
-        if (err.response) {
-          const status = err.response.status;
+        const axiosError = err as { response?: { status: number } };
+        if (axiosError.response) {
+          const status = axiosError.response.status;
 
           if (status === 429) {
             // Rate limit error - don't logout, just show error
@@ -165,9 +166,10 @@ export const useAuthStore = defineStore('auth', () => {
       error.value = response.data.message || 'Login failed. Please try again.';
       return false;
 
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Login error:', err);
-      error.value = err.response?.data?.message || 'Login failed. Please check your credentials.';
+      const axiosError = err as { response?: { data?: { message?: string } } };
+      error.value = axiosError.response?.data?.message || 'Login failed. Please check your credentials.';
       return false;
     } finally {
       loading.value = false;
@@ -221,9 +223,10 @@ export const useAuthStore = defineStore('auth', () => {
       error.value = response.data.message || 'MFA verification failed';
       return false;
 
-    } catch (err: any) {
+    } catch (err) {
       logger.error('🔐 MFA Login error:', err);
-      error.value = err.response?.data?.message || 'MFA verification failed. Please try again.';
+      const axiosError = err as { response?: { data?: { message?: string } } };
+      error.value = axiosError.response?.data?.message || 'MFA verification failed. Please try again.';
       return false;
     } finally {
       loading.value = false;
@@ -254,9 +257,10 @@ export const useAuthStore = defineStore('auth', () => {
         });
 
         return response.data;
-      } catch (err: any) {
+      } catch (err) {
         logger.error('MFA setup error:', err);
-        error.value = err.response?.data?.message || 'Failed to start MFA setup. Please try again.';
+        const axiosError = err as { response?: { data?: { message?: string } } };
+        error.value = axiosError.response?.data?.message || 'Failed to start MFA setup. Please try again.';
         return null;
       } finally {
         loading.value = false;
@@ -288,9 +292,10 @@ export const useAuthStore = defineStore('auth', () => {
         error.value = response.data.message || 'MFA setup failed. Please try again.';
         return false;
         
-      } catch (err: any) {
+      } catch (err) {
         logger.error('MFA enable login error:', err);
-        error.value = err.response?.data?.message || 'Failed to complete MFA setup. Please try again.';
+        const axiosError = err as { response?: { data?: { message?: string } } };
+        error.value = axiosError.response?.data?.message || 'Failed to complete MFA setup. Please try again.';
         return false;
       } finally {
         loading.value = false;
@@ -338,7 +343,7 @@ export const useAuthStore = defineStore('auth', () => {
       // Continue with frontend logout even if backend call fails
     }
 
-    // Manually clear the csrf_token cookie (it's not httpOnly so we can delete it)
+    // Manually clear the csrf_token cookie (not httpOnly, so deletion is possible)
     // This ensures isAuthenticated becomes false immediately
     document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
@@ -365,7 +370,7 @@ export const useAuthStore = defineStore('auth', () => {
         if (response.data.logout_url) {
           // Redirect to OIDC provider's logout endpoint
           window.location.href = response.data.logout_url;
-          return; // Don't navigate with router, we're doing a full redirect
+          return; // Full redirect in progress, skip router navigation
         }
       } catch (err) {
         logger.error('OIDC logout request failed:', err);

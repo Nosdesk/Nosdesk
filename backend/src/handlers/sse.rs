@@ -156,7 +156,7 @@ impl SseState {
 
     pub async fn broadcast_event(&self, event: TicketEvent) {
         // Fast, non-blocking broadcast - just send once
-        // Log when events are dropped so we can track issues
+        // Log when events are dropped for tracking issues
         match self.sender.send(event.clone()) {
             Ok(receiver_count) => {
                 #[cfg(debug_assertions)]
@@ -294,7 +294,7 @@ impl Stream for SseStream {
         }
 
         // Both event stream and heartbeat are Pending
-        // BroadcastStream properly maintains waker registration, so we'll wake when either:
+        // BroadcastStream properly maintains waker registration, waking when either:
         // 1. A new event is broadcast (stream waker fires immediately)
         // 2. Heartbeat interval elapses (interval waker fires)
         Poll::Pending

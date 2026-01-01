@@ -5,6 +5,7 @@
 /// to PostgreSQL if Redis is unavailable.
 use redis::{AsyncCommands, RedisError};
 use std::sync::Arc;
+use tracing::{debug, warn};
 
 /// TTL for cached documents (1 hour = 3600 seconds)
 const DOCUMENT_TTL: usize = 3600;
@@ -38,17 +39,17 @@ impl RedisYjsCache {
             Ok(mut conn) => {
                 match conn.get::<_, Vec<u8>>(&key).await {
                     Ok(data) => {
-                        println!("✅ Redis cache HIT for document: {} ({} bytes)", doc_id, data.len());
+                        debug!(doc_id = %doc_id, bytes = data.len(), "Redis cache HIT for document");
                         Some(data)
                     }
                     Err(e) => {
-                        println!("❌ Redis cache MISS for document {}: {:?}", doc_id, e);
+                        debug!(doc_id = %doc_id, error = ?e, "Redis cache MISS for document");
                         None
                     }
                 }
             }
             Err(e) => {
-                println!("⚠️ Redis connection failed for document {}: {:?}", doc_id, e);
+                warn!(doc_id = %doc_id, error = ?e, "Redis connection failed for document");
                 None
             }
         }
@@ -67,15 +68,15 @@ impl RedisYjsCache {
             Ok(mut conn) => {
                 match conn.set_ex::<_, _, ()>(&key, data, ttl as u64).await {
                     Ok(_) => {
-                        println!("💾 Redis cached document: {} ({} bytes, TTL: {}s)", doc_id, data.len(), ttl);
+                        debug!(doc_id = %doc_id, bytes = data.len(), ttl = ttl, "Redis cached document");
                     }
                     Err(e) => {
-                        println!("⚠️ Failed to cache document {} in Redis: {:?}", doc_id, e);
+                        warn!(doc_id = %doc_id, error = ?e, "Failed to cache document in Redis");
                     }
                 }
             }
             Err(e) => {
-                println!("⚠️ Redis connection failed when caching document {}: {:?}", doc_id, e);
+                warn!(doc_id = %doc_id, error = ?e, "Redis connection failed when caching document");
             }
         }
     }
@@ -88,15 +89,15 @@ impl RedisYjsCache {
             Ok(mut conn) => {
                 match conn.del::<_, ()>(&key).await {
                     Ok(_) => {
-                        println!("🗑️ Deleted document from Redis cache: {}", doc_id);
+                        debug!(doc_id = %doc_id, "Deleted document from Redis cache");
                     }
                     Err(e) => {
-                        println!("⚠️ Failed to delete document {} from Redis: {:?}", doc_id, e);
+                        warn!(doc_id = %doc_id, error = ?e, "Failed to delete document from Redis");
                     }
                 }
             }
             Err(e) => {
-                println!("⚠️ Redis connection failed when deleting document {}: {:?}", doc_id, e);
+                warn!(doc_id = %doc_id, error = ?e, "Redis connection failed when deleting document");
             }
         }
     }
@@ -114,15 +115,15 @@ impl RedisYjsCache {
             Ok(mut conn) => {
                 match conn.expire::<_, ()>(&key, ttl as i64).await {
                     Ok(_) => {
-                        println!("⏰ Refreshed TTL for document: {} ({}s)", doc_id, ttl);
+                        debug!(doc_id = %doc_id, ttl = ttl, "Refreshed TTL for document");
                     }
                     Err(e) => {
-                        println!("⚠️ Failed to refresh TTL for document {}: {:?}", doc_id, e);
+                        warn!(doc_id = %doc_id, error = ?e, "Failed to refresh TTL for document");
                     }
                 }
             }
             Err(e) => {
-                println!("⚠️ Redis connection failed when refreshing TTL for document {}: {:?}", doc_id, e);
+                warn!(doc_id = %doc_id, error = ?e, "Redis connection failed when refreshing TTL for document");
             }
         }
     }

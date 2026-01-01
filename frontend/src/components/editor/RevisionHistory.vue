@@ -171,6 +171,15 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import { useDataStore } from '@/stores/dataStore'
 import apiClient from '@/services/apiConfig'
 
+// Documentation revision format from API (uses created_by instead of contributed_by)
+interface DocumentationRevisionResponse {
+  id: number;
+  revision_number: number;
+  created_by?: string | null;
+  created_at: string;
+  word_count?: number | null;
+}
+
 interface Props {
   ticketId?: number
   documentId?: number
@@ -238,15 +247,17 @@ async function loadDocumentationRevisions() {
   docError.value = null
 
   try {
-    const response = await apiClient.get(`/collaboration/docs/${props.documentId}/revisions`)
+    const response = await apiClient.get<DocumentationRevisionResponse[]>(`/collaboration/docs/${props.documentId}/revisions`)
     // Transform documentation revisions to match ticket revision format
     // Documentation uses created_by (single), tickets use contributed_by (array)
-    docRevisions.value = response.data.map((rev: any) => ({
+    docRevisions.value = response.data.map((rev) => ({
       ...rev,
+      article_content_id: 0, // Not applicable for documentation
       contributed_by: rev.created_by ? [rev.created_by] : []
     }))
-  } catch (err: any) {
-    docError.value = err.message || 'Failed to load revisions'
+  } catch (err) {
+    const error = err as Error;
+    docError.value = error.message || 'Failed to load revisions'
     console.error('Failed to load documentation revisions:', err)
   } finally {
     docLoading.value = false
@@ -263,8 +274,9 @@ async function restoreDocumentationRevision(revisionNumber: number): Promise<boo
     await apiClient.post(`/collaboration/docs/${props.documentId}/revisions/${revisionNumber}/restore`)
     await loadDocumentationRevisions()
     return true
-  } catch (err: any) {
-    docError.value = err.message || 'Failed to restore revision'
+  } catch (err) {
+    const error = err as Error;
+    docError.value = error.message || 'Failed to restore revision'
     console.error('Failed to restore documentation revision:', err)
     return false
   } finally {
@@ -359,7 +371,7 @@ async function executeRestore() {
   if (success) {
     showRestoreConfirm.value = false
     selectedRevision.value = null
-    // Don't emit selectRevision(null) here - we're not in revision view mode
+    // Don't emit selectRevision(null) here - not in revision view mode
     // The restore itself will update the editor content via WebSocket
     emit('restored', revisionToRestore.value)
     revisionToRestore.value = null

@@ -1,5 +1,6 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
+use tracing::debug;
 
 use crate::db::Pool;
 use crate::models::{NewProject, ProjectUpdate};
@@ -152,7 +153,7 @@ pub async fn add_ticket_to_project(
     match repository::add_ticket_to_project(&mut conn, project_id, ticket_id) {
         Ok(association) => {
             // Broadcast SSE event for project assignment
-            println!("Broadcasting SSE event: Ticket {} assigned to project {}", ticket_id, project_id);
+            debug!(ticket_id = ticket_id, project_id = project_id, "Broadcasting SSE event: Ticket assigned to project");
             use crate::utils::sse::SseBroadcaster;
             SseBroadcaster::broadcast_project_assigned(&sse_state, ticket_id, project_id).await;
 
@@ -183,7 +184,7 @@ pub async fn remove_ticket_from_project(
         Ok(0) => HttpResponse::NotFound().json("Association not found"),
         Ok(_) => {
             // Broadcast SSE event for project unassignment
-            println!("Broadcasting SSE event: Ticket {} unassigned from project {}", ticket_id, project_id);
+            debug!(ticket_id = ticket_id, project_id = project_id, "Broadcasting SSE event: Ticket unassigned from project");
             use crate::utils::sse::SseBroadcaster;
             SseBroadcaster::broadcast_project_unassigned(&sse_state, ticket_id, project_id).await;
 

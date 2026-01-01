@@ -38,7 +38,7 @@ const sortBy = ref("priority-date"); // default sort by priority first, then dat
 // Computed: target user UUID (prop or current user)
 const targetUserUuid = computed(() => props.userUuid || authStore.user?.uuid || "");
 
-// Computed: whether we're showing data for the current user
+// Computed: whether showing data for the current user
 const isCurrentUser = computed(() => !props.userUuid || props.userUuid === authStore.user?.uuid);
 
 // Computed: display title
@@ -229,7 +229,7 @@ watch(
     ],
     ([userUuid, newPropStatus]) => {
         if (newPropStatus) selectedStatus.value = newPropStatus;
-        // Fetch when we have a valid userUuid
+        // Fetch when a valid userUuid is available
         if (userUuid) {
             fetchTickets();
         }

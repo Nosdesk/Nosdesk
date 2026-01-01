@@ -9,7 +9,6 @@ import DocumentationChildCard from './DocumentationChildCard.vue'
 
 const props = defineProps<{
   page: Page
-  staggerIndex?: number
 }>()
 
 const docNavStore = useDocumentationNavStore()
@@ -41,11 +40,6 @@ const contentPreview = computed(() => {
   }
   return normalized || null
 })
-
-// Stagger animation style
-const staggerStyle = computed(() => ({
-  '--stagger-delay': `${(props.staggerIndex ?? 0) * 50}ms`
-}))
 
 // Freshness calculation (how recently updated)
 const freshnessClass = computed(() => {
@@ -91,7 +85,6 @@ const toggleExpand = (event: Event) => {
   <article
     class="doc-card"
     :class="{ 'is-expanded': isExpanded }"
-    :style="staggerStyle"
   >
     <!-- Card Header with Icon -->
     <RouterLink :to="`/documentation/${page.id}`" class="doc-card-header">
@@ -203,16 +196,11 @@ const toggleExpand = (event: Event) => {
   /* Subtle glassmorphism */
   backdrop-filter: blur(8px);
 
-  /* Transitions */
+  /* Transitions for hover effects */
   transition:
     transform 200ms ease,
     box-shadow 300ms ease,
     border-color 200ms ease;
-
-  /* Stagger animation */
-  animation: cardFadeIn 300ms ease-out forwards;
-  animation-delay: var(--stagger-delay, 0ms);
-  opacity: 0;
 }
 
 /* Hover state */
@@ -406,17 +394,6 @@ const toggleExpand = (event: Event) => {
 }
 
 /* Animations */
-@keyframes cardFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
 @keyframes glow {
   0%, 100% {
     box-shadow: 0 0 4px currentColor;
@@ -523,25 +500,18 @@ const toggleExpand = (event: Event) => {
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  .doc-card {
-    animation: none;
-    opacity: 1;
+  .doc-card,
+  .icon-emoji,
+  .children-toggle .chevron {
+    transition: none;
   }
 
   .doc-card:hover {
     transform: none;
   }
 
-  .icon-emoji {
-    transition: none;
-  }
-
   .freshness-indicator {
     animation: none;
-  }
-
-  .children-toggle .chevron {
-    transition: none;
   }
 }
 </style>

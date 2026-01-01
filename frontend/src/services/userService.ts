@@ -89,9 +89,10 @@ const userService = {
       requestManager.cancelRequest(requestKey);
       
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       // Don't throw if request was cancelled
-      if (error.name === 'AbortError' || error.name === 'CanceledError') {
+      const errorWithName = error as { name?: string };
+      if (errorWithName.name === 'AbortError' || errorWithName.name === 'CanceledError') {
         logger.debug('Request cancelled', { requestKey });
         throw new Error('REQUEST_CANCELLED');
       }
@@ -116,7 +117,7 @@ const userService = {
     try {
       const response = await apiClient.get(`/users/${uuid}/emails`);
       return response.data.emails || [];
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Failed to fetch user emails', { error, uuid });
       return [];
     }
@@ -127,7 +128,7 @@ const userService = {
     try {
       const response = await apiClient.post(`/users/${uuid}/emails`, { email });
       return response.data.email || null;
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Failed to add user email', { error, uuid, email });
       throw error;
     }
@@ -138,7 +139,7 @@ const userService = {
     try {
       const response = await apiClient.put(`/users/${uuid}/emails/${emailId}`, updates);
       return response.data.email || null;
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Failed to update user email', { error, uuid, emailId, updates });
       throw error;
     }
@@ -148,7 +149,7 @@ const userService = {
   async deleteUserEmail(uuid: string, emailId: number): Promise<void> {
     try {
       await apiClient.delete(`/users/${uuid}/emails/${emailId}`);
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Failed to delete user email', { error, uuid, emailId });
       throw error;
     }
@@ -233,7 +234,7 @@ const userService = {
         }
       }
 
-      // If we have the UUID, use the new UUID-based endpoint
+      // With UUID available, use the UUID-based endpoint
       const endpoint = userUuid ?
         `/users/${userUuid}/auth-identities` :
         `/users/auth-identities`;
@@ -354,7 +355,7 @@ const userService = {
         }
       }
 
-      // If we have the UUID, use the new UUID-based endpoint
+      // With UUID available, use the UUID-based endpoint
       const endpoint = userUuid ?
         `/users/${userUuid}/auth-identities/${identityId}` :
         `/users/auth-identities/${identityId}`;
@@ -378,7 +379,7 @@ const userService = {
         try {
           const token = localStorage.getItem('token');
           if (token) {
-            // Make a request to get current user to ensure we have the correct UUID
+            // Make a request to get current user to ensure the correct UUID is available
             const userResponse = await apiClient.get('/auth/me');
             if (userResponse.data && userResponse.data.uuid) {
               userUuid = userResponse.data.uuid;
@@ -509,7 +510,7 @@ const userService = {
     success: boolean;
     mfa_required?: boolean;
     token?: string;
-    user?: any;
+    user?: User;
     message?: string;
     mfa_backup_code_used?: boolean;
     requires_backup_code_regeneration?: boolean;
@@ -521,13 +522,14 @@ const userService = {
         mfa_token: mfaToken
       });
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Failed to login with MFA', { error, email });
       // Return error response data if available for better error handling
-      if (error.response?.data) {
+      const axiosError = error as { response?: { data?: { message?: string } } };
+      if (axiosError.response?.data) {
         return {
           success: false,
-          message: error.response.data.message || 'MFA login failed'
+          message: axiosError.response.data.message || 'MFA login failed'
         };
       }
       return null;
@@ -554,11 +556,12 @@ const userService = {
     try {
       const response = await apiClient.post('/users/cleanup-images');
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Failed to cleanup stale images', { error });
+      const axiosError = error as { response?: { data?: { message?: string } } };
       return {
         success: false,
-        message: error.response?.data?.message || 'Failed to cleanup stale images'
+        message: axiosError.response?.data?.message || 'Failed to cleanup stale images'
       };
     }
   },
@@ -586,11 +589,12 @@ const userService = {
         message: response.data.message || 'Invitation email sent successfully',
         email: response.data.email
       };
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Failed to resend invitation', { error, uuid });
+      const axiosError = error as { response?: { data?: { message?: string } } };
       return {
         success: false,
-        message: error.response?.data?.message || 'Failed to send invitation email'
+        message: axiosError.response?.data?.message || 'Failed to send invitation email'
       };
     }
   },

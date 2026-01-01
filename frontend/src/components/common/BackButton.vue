@@ -19,7 +19,7 @@ const router = useRouter();
 const canGoBack = ref(window.history.length > 1);
 
 const handleBack = () => {
-  // If we have context information, use it for smarter navigation
+  // Use context information for smarter navigation when available
   if (props.context && props.contextId) {
     switch (props.context) {
       case 'project':
@@ -34,7 +34,7 @@ const handleBack = () => {
     }
   }
   
-  // Check if we can go back in history
+  // Check if browser history navigation is available
   if (canGoBack.value) {
     router.back();
   } else if (props.fallbackRoute) {

@@ -19,7 +19,7 @@ export function getLinkMarkAtSelection(state: EditorState): { mark: Mark | null;
   const { selection, doc, schema } = state;
   const { $from, $to } = selection;
 
-  // Check if we're inside a link mark
+  // Check if cursor is inside a link mark
   const linkMark = $from.marks().find((mark) => mark.type === schema.marks.link);
 
   if (linkMark) {

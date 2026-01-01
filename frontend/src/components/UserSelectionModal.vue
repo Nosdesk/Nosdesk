@@ -3,6 +3,7 @@ import { ref, watch } from 'vue';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import { useDataStore } from '@/stores/dataStore';
+import type { UserInfo } from '@/types/user';
 
 const props = defineProps<{
   show: boolean;
@@ -18,7 +19,7 @@ const dataStore = useDataStore();
 
 // State management
 const searchQuery = ref('');
-const users = ref<any[]>([]);
+const users = ref<UserInfo[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
 
@@ -62,7 +63,7 @@ const handleSearchInput = () => {
 };
 
 // Select user
-const selectUser = (user: any) => {
+const selectUser = (user: UserInfo) => {
   emit('select-user', {
     uuid: user.uuid,
     name: user.name,

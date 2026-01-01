@@ -25,11 +25,11 @@ pub fn get_paginated_users(
 ) -> Result<(Vec<User>, i64), Error> {
     use crate::schema::user_emails;
 
-    // Check if we need to search by email (requires join)
+    // Email search requires join with user_emails
     let has_search = search.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
 
     if has_search {
-        // When searching, we need to join with user_emails to search by email
+        // Join with user_emails to search by email
         let search_term = search.as_ref().unwrap();
         let search_pattern = format!("%{}%", search_term.to_lowercase());
 
@@ -195,7 +195,7 @@ pub fn delete_user(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<usize, E
     // Start a transaction to ensure all-or-nothing deletion
     conn.transaction::<_, Error, _>(|conn| {
         // === Phase 1: Handle RESTRICT constraints ===
-        // These tables have ON DELETE RESTRICT, so we need to delete/reassign data first
+        // Tables with ON DELETE RESTRICT require explicit deletion/reassignment first
 
         // 1a. Delete all comments by this user
         diesel::delete(comments::table.filter(comments::user_uuid.eq(user_uuid)))
@@ -207,9 +207,7 @@ pub fn delete_user(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<usize, E
             .execute(conn)?;
 
         // 1c. Update documentation_pages created_by/last_edited_by (RESTRICT)
-        // We need to reassign to another user or handle this specially
-        // For now, we'll update to a system user or the first admin
-        // This is a simplification - in production you might want to preserve authorship
+        // Reassign to first available admin
         let first_admin: Option<User> = users::table
             .into_boxed()
             .filter(users::role.eq(crate::models::UserRole::Admin))
@@ -231,11 +229,11 @@ pub fn delete_user(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<usize, E
                 .set(documentation_revisions::created_by.eq(admin.uuid))
                 .execute(conn)?;
         }
-        // Note: If no other admin exists, the delete will fail due to FK constraint
-        // This is intentional - we need at least one admin to own documentation
+        // Note: If no other admin exists, delete fails due to FK constraint
+        // Intentional - at least one admin must own documentation
 
         // === Phase 2: Handle SET NULL constraints ===
-        // These tables have ON DELETE SET NULL but we handle explicitly for clarity
+        // These tables have ON DELETE SET NULL but handled explicitly for clarity
 
         // 2a. Devices
         diesel::update(devices::table.filter(devices::primary_user_uuid.eq(user_uuid)))

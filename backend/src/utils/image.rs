@@ -1,6 +1,7 @@
 use image::{ImageFormat, ImageReader};
 use tokio::fs;
 use std::io::Cursor;
+use tracing::{debug, info, warn, error};
 
 /// Process and resize an uploaded avatar image to WebP format with fixed dimensions
 /// This ensures consistent sizing and optimal storage
@@ -9,7 +10,7 @@ pub async fn process_avatar_image(
     user_uuid: &str,
     max_size: u32, // Maximum width/height in pixels
 ) -> Result<Option<String>, String> {
-    println!("Processing avatar image for user: {}, max_size: {}px", user_uuid, max_size);
+    debug!(user_uuid = %user_uuid, max_size, "Processing avatar image");
 
     // Process image in a blocking task to avoid blocking the async runtime
     let user_uuid = user_uuid.to_string();
@@ -19,27 +20,27 @@ pub async fn process_avatar_image(
         let mut img = match load_image_with_orientation(&image_bytes) {
             Ok(img) => img,
             Err(e) => {
-                println!("Failed to load image: {}", e);
+                error!(error = %e, "Failed to load image");
                 return None;
             }
         };
 
-        println!("Original image dimensions (after orientation): {}x{}", img.width(), img.height());
+        debug!(width = img.width(), height = img.height(), "Original image dimensions after orientation");
 
         // Create a square image by center cropping to 1:1 aspect ratio
         let square_img = create_square_crop(&img, max_size);
 
-        println!("Final image dimensions: {}x{}", square_img.width(), square_img.height());
+        debug!(width = square_img.width(), height = square_img.height(), "Final image dimensions");
 
         // Convert to WebP format
         let mut webp_bytes = Vec::new();
         match square_img.write_to(&mut std::io::Cursor::new(&mut webp_bytes), ImageFormat::WebP) {
             Ok(_) => {
-                println!("Successfully converted image to WebP format");
+                debug!("Successfully converted image to WebP format");
                 Some(webp_bytes)
             },
             Err(e) => {
-                println!("Failed to encode image as WebP: {}", e);
+                error!(error = %e, "Failed to encode image as WebP");
                 None
             }
         }
@@ -49,7 +50,7 @@ pub async fn process_avatar_image(
         Ok(Some(bytes)) => bytes,
         Ok(None) => return Ok(None),
         Err(e) => {
-            println!("Avatar processing task failed: {}", e);
+            error!(error = %e, "Avatar processing task failed");
             return Ok(None);
         }
     };
@@ -73,12 +74,12 @@ pub async fn process_avatar_image(
     
     match fs::write(&full_avatar_path, &webp_bytes).await {
         Ok(_) => {
-            println!("Successfully saved processed avatar to: {}", full_avatar_path);
+            debug!(path = %full_avatar_path, "Successfully saved processed avatar");
             let avatar_url = format!("/uploads/{}", avatar_path);
             Ok(Some(avatar_url))
         },
         Err(e) => {
-            println!("Failed to save processed avatar: {}", e);
+            error!(error = %e, "Failed to save processed avatar");
             Ok(None)
         }
     }
@@ -96,13 +97,13 @@ pub async fn generate_user_avatar_thumbnail(
         image_path.to_string()
     };
     
-    println!("Generating thumbnail from: {}", file_path);
+    debug!(file_path = %file_path, "Generating thumbnail");
     
     // Read the original image
     let img_bytes = match fs::read(&file_path).await {
         Ok(bytes) => bytes,
         Err(e) => {
-            println!("Failed to read avatar file {}: {}", file_path, e);
+            error!(file_path = %file_path, error = %e, "Failed to read avatar file");
             return Ok(None);
         }
     };
@@ -114,7 +115,7 @@ pub async fn generate_user_avatar_thumbnail(
         let img = match load_image_with_orientation(&img_bytes) {
             Ok(img) => img,
             Err(e) => {
-                println!("Failed to load image: {}", e);
+                error!(error = %e, "Failed to load image");
                 return None;
             }
         };
@@ -127,7 +128,7 @@ pub async fn generate_user_avatar_thumbnail(
         match thumbnail.write_to(&mut std::io::Cursor::new(&mut webp_bytes), ImageFormat::WebP) {
             Ok(_) => Some(webp_bytes),
             Err(e) => {
-                println!("Failed to encode image as WebP: {}", e);
+                error!(error = %e, "Failed to encode image as WebP");
                 None
             }
         }
@@ -137,7 +138,7 @@ pub async fn generate_user_avatar_thumbnail(
         Ok(Some(bytes)) => bytes,
         Ok(None) => return Ok(None),
         Err(e) => {
-            println!("Thumbnail generation task failed: {}", e);
+            error!(error = %e, "Thumbnail generation task failed");
             return Ok(None);
         }
     };
@@ -159,12 +160,12 @@ pub async fn generate_user_avatar_thumbnail(
     
     match fs::write(&full_thumb_path, &webp_bytes).await {
         Ok(_) => {
-            println!("Successfully saved thumbnail to: {}", full_thumb_path);
+            debug!(path = %full_thumb_path, "Successfully saved thumbnail");
             let thumb_url = format!("/uploads/{}", thumb_path);
             Ok(Some(thumb_url))
         },
         Err(e) => {
-            println!("Failed to save thumbnail: {}", e);
+            error!(error = %e, "Failed to save thumbnail");
             Ok(None)
         }
     }
@@ -189,10 +190,10 @@ async fn cleanup_old_user_avatars(
             // Check if this file matches our pattern (user_uuid_avatar.ext)
             if filename.starts_with(&pattern_prefix) && filename.contains('.') {
                 let file_path = entry.path();
-                println!("Cleaning up old avatar file: {:?}", file_path);
+                debug!(file_path = ?file_path, "Cleaning up old avatar file");
                 
                 if let Err(e) = fs::remove_file(&file_path).await {
-                    eprintln!("Warning: Failed to remove old avatar file {:?}: {}", file_path, e);
+                    warn!(file_path = ?file_path, error = %e, "Failed to remove old avatar file");
                     // Continue with cleanup even if one file fails
                 }
             }
@@ -221,10 +222,10 @@ async fn cleanup_old_user_thumbnails(
             // Check if this file matches our pattern (user_uuid_thumb.ext)
             if filename.starts_with(&pattern_prefix) && filename.contains('.') {
                 let file_path = entry.path();
-                println!("Cleaning up old thumbnail file: {:?}", file_path);
+                debug!(file_path = ?file_path, "Cleaning up old thumbnail file");
                 
                 if let Err(e) = fs::remove_file(&file_path).await {
-                    eprintln!("Warning: Failed to remove old thumbnail file {:?}: {}", file_path, e);
+                    warn!(file_path = ?file_path, error = %e, "Failed to remove old thumbnail file");
                     // Continue with cleanup even if one file fails
                 }
             }
@@ -242,8 +243,8 @@ pub async fn process_banner_image(
     max_width: u32,  // Maximum width in pixels (e.g., 1200)
     max_height: u32, // Maximum height in pixels (e.g., 400)
 ) -> Result<Option<String>, String> {
-    println!("Processing banner image for user: {}, max_size: {}x{}", user_uuid, max_width, max_height);
-    
+    debug!(user_uuid = %user_uuid, max_width, max_height, "Processing banner image");
+
     // Process image in a blocking task to avoid blocking the async runtime
     let user_uuid = user_uuid.to_string();
     let image_bytes = image_bytes.to_vec();
@@ -252,27 +253,27 @@ pub async fn process_banner_image(
         let img = match load_image_with_orientation(&image_bytes) {
             Ok(img) => img,
             Err(e) => {
-                println!("Failed to load image: {}", e);
+                error!(error = %e, "Failed to load image");
                 return None;
             }
         };
 
-        println!("Original banner dimensions (after orientation): {}x{}", img.width(), img.height());
-        
+        debug!(width = img.width(), height = img.height(), "Original banner dimensions after orientation");
+
         // Create a banner-aspect image by cropping and resizing
         let banner_img = create_banner_crop(&img, max_width, max_height);
-        
-        println!("Final banner dimensions: {}x{}", banner_img.width(), banner_img.height());
-        
+
+        debug!(width = banner_img.width(), height = banner_img.height(), "Final banner dimensions");
+
         // Convert to WebP format
         let mut webp_bytes = Vec::new();
         match banner_img.write_to(&mut std::io::Cursor::new(&mut webp_bytes), ImageFormat::WebP) {
             Ok(_) => {
-                println!("Successfully converted banner to WebP format");
+                debug!("Successfully converted banner to WebP format");
                 Some(webp_bytes)
             },
             Err(e) => {
-                println!("Failed to encode banner as WebP: {}", e);
+                error!(error = %e, "Failed to encode banner as WebP");
                 None
             }
         }
@@ -282,7 +283,7 @@ pub async fn process_banner_image(
         Ok(Some(bytes)) => bytes,
         Ok(None) => return Ok(None),
         Err(e) => {
-            println!("Banner processing task failed: {}", e);
+            error!(error = %e, "Banner processing task failed");
             return Ok(None);
         }
     };
@@ -304,12 +305,12 @@ pub async fn process_banner_image(
     
     match fs::write(&full_banner_path, &webp_bytes).await {
         Ok(_) => {
-            println!("Successfully saved processed banner to: {}", full_banner_path);
+            debug!(path = %full_banner_path, "Successfully saved processed banner");
             let banner_url = format!("/uploads/{}", banner_path);
             Ok(Some(banner_url))
         },
         Err(e) => {
-            println!("Failed to save processed banner: {}", e);
+            error!(error = %e, "Failed to save processed banner");
             Ok(None)
         }
     }
@@ -334,10 +335,10 @@ async fn cleanup_old_user_banners(
             // Check if this file matches our pattern (user_uuid_banner.ext)
             if filename.starts_with(&pattern_prefix) && filename.contains('.') {
                 let file_path = entry.path();
-                println!("Cleaning up old banner file: {:?}", file_path);
+                debug!(file_path = ?file_path, "Cleaning up old banner file");
                 
                 if let Err(e) = fs::remove_file(&file_path).await {
-                    eprintln!("Warning: Failed to remove old banner file {:?}: {}", file_path, e);
+                    warn!(file_path = ?file_path, error = %e, "Failed to remove old banner file");
                     // Continue with cleanup even if one file fails
                 }
             }
@@ -352,13 +353,13 @@ async fn cleanup_old_user_banners(
 fn create_banner_crop(img: &image::DynamicImage, max_width: u32, max_height: u32) -> image::DynamicImage {
     let original_width = img.width();
     let original_height = img.height();
-    
-    println!("Creating banner crop from {}x{} to fit within {}x{}", original_width, original_height, max_width, max_height);
-    
+
+    debug!(original_width, original_height, max_width, max_height, "Creating banner crop");
+
     // Calculate the target aspect ratio
     let target_ratio = max_width as f32 / max_height as f32;
     let original_ratio = original_width as f32 / original_height as f32;
-    
+
     let (crop_width, crop_height, crop_x, crop_y) = if original_ratio > target_ratio {
         // Image is too wide, crop horizontally
         let crop_height = original_height;
@@ -374,22 +375,22 @@ fn create_banner_crop(img: &image::DynamicImage, max_width: u32, max_height: u32
         let crop_y = (original_height - crop_height) / 2;
         (crop_width, crop_height, crop_x, crop_y)
     };
-    
-    println!("Cropping {}x{} banner from position ({}, {})", crop_width, crop_height, crop_x, crop_y);
-    
+
+    debug!(crop_width, crop_height, crop_x, crop_y, "Cropping banner");
+
     // Create the banner crop
     let cropped_img = img.crop_imm(crop_x, crop_y, crop_width, crop_height);
-    
+
     // Resize to fit within the maximum dimensions while maintaining aspect ratio
     let (final_width, final_height) = if crop_width > max_width || crop_height > max_height {
         let scale_w = max_width as f32 / crop_width as f32;
         let scale_h = max_height as f32 / crop_height as f32;
         let scale = scale_w.min(scale_h);
-        
+
         let final_width = (crop_width as f32 * scale) as u32;
         let final_height = (crop_height as f32 * scale) as u32;
-        
-        println!("Resizing banner from {}x{} to {}x{}", crop_width, crop_height, final_width, final_height);
+
+        debug!(from_width = crop_width, from_height = crop_height, to_width = final_width, to_height = final_height, "Resizing banner");
         (final_width, final_height)
     } else {
         (crop_width, crop_height)
@@ -408,24 +409,24 @@ fn create_banner_crop(img: &image::DynamicImage, max_width: u32, max_height: u32
 fn create_square_crop(img: &image::DynamicImage, target_size: u32) -> image::DynamicImage {
     let original_width = img.width();
     let original_height = img.height();
-    
-    println!("Creating square crop from {}x{} to {}x{}", original_width, original_height, target_size, target_size);
-    
+
+    debug!(original_width, original_height, target_size, "Creating square crop");
+
     // Determine the size of the square crop from the original image
     let crop_size = std::cmp::min(original_width, original_height);
-    
+
     // Calculate the top-left coordinates for center cropping
     let crop_x = (original_width - crop_size) / 2;
     let crop_y = (original_height - crop_size) / 2;
-    
-    println!("Cropping {}x{} square from position ({}, {})", crop_size, crop_size, crop_x, crop_y);
-    
+
+    debug!(crop_size, crop_x, crop_y, "Cropping square");
+
     // Create the square crop
     let cropped_img = img.crop_imm(crop_x, crop_y, crop_size, crop_size);
-    
+
     // Resize the square crop to the target size
     let final_img = if crop_size != target_size {
-        println!("Resizing cropped square from {}x{} to {}x{}", crop_size, crop_size, target_size, target_size);
+        debug!(from_size = crop_size, to_size = target_size, "Resizing cropped square");
         cropped_img.resize_exact(target_size, target_size, image::imageops::FilterType::Lanczos3)
     } else {
         cropped_img
@@ -459,7 +460,7 @@ fn load_image_with_orientation(image_bytes: &[u8]) -> Result<image::DynamicImage
     img.apply_orientation(orientation);
 
     if orientation != image::metadata::Orientation::NoTransforms {
-        println!("Applied EXIF orientation correction: {:?}", orientation);
+        debug!(orientation = ?orientation, "Applied EXIF orientation correction");
     }
 
     Ok(img)

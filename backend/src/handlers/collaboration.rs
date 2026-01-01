@@ -14,6 +14,7 @@ use bytes::Bytes;
 use uuid::Uuid;
 use base64::{Engine as _, engine::general_purpose};
 use std::panic;
+use tracing::{debug, info, warn, error, trace};
 
 use crate::repository;
 
@@ -39,7 +40,7 @@ fn get_content_preview(awareness: &Awareness, max_chars: usize) -> String {
             None => "(invalid char data)".to_string(),
         };
 
-        // If text is empty but we have children, log structure info
+        // Empty text with children - log structure info
         if text_content.is_empty() && children_count > 0 {
             format!("[{} children, text: '']", children_count)
         } else if text_content.is_empty() {
@@ -62,41 +63,36 @@ fn log_document_root_types(awareness: &Awareness, doc_id: &str) {
         .map(|(name, _)| name.to_string())
         .collect();
 
-    println!("🔍 Root types in {}: {:?}", doc_id, root_names);
+    trace!(doc_id = %doc_id, root_types = ?root_names, "Root types in document");
 
     // Check prosemirror fragment specifically
     if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
         // XmlFragment children count using both methods
         let children_iter: usize = fragment.children(&txn).count();
         let children_len = fragment.len(&txn);
-        println!("   📁 'prosemirror' (XmlFragment):");
-        println!("      - children().count() = {}", children_iter);
-        println!("      - len() = {}", children_len);
+        trace!(doc_id = %doc_id, children_iter, children_len, "prosemirror XmlFragment");
 
-        // Try to iterate and describe children
-        for (i, child) in fragment.children(&txn).enumerate() {
-            println!("      - Child {}: {:?}", i, child);
-            if i >= 5 {
-                println!("      ... (more children)");
-                break;
-            }
+        // Try to iterate and describe children (only log count, not individual items in trace)
+        let child_count = fragment.children(&txn).take(6).count();
+        if child_count > 5 {
+            trace!(doc_id = %doc_id, child_count = "5+", "prosemirror children");
         }
 
         // Try get_string
         let text = fragment.get_string(&txn);
         if text.is_empty() {
-            println!("      - get_string() = '' (empty)");
+            trace!(doc_id = %doc_id, "prosemirror get_string() is empty");
         } else {
             let preview: String = text.chars().take(100).collect();
-            println!("      - get_string() = '{}'", preview);
+            trace!(doc_id = %doc_id, preview = %preview, "prosemirror content preview");
         }
     } else {
-        println!("   📁 'prosemirror': not found");
+        trace!(doc_id = %doc_id, "prosemirror fragment not found");
     }
 
     // Log state vector to see client contributions
     let sv = txn.state_vector();
-    println!("   📊 State vector: {:?}", sv);
+    trace!(doc_id = %doc_id, state_vector = ?sv, "Document state vector");
 }
 use crate::models::{NewArticleContent, NewArticleContentRevision};
 use crate::utils::redis_yjs_cache::RedisYjsCache;
@@ -155,7 +151,7 @@ pub async fn get_article_content(
     let doc_type = match DocumentType::from_doc_id(&clean_doc_id) {
         Some(dt) => dt,
         None => {
-            println!("Invalid document ID format: {}", clean_doc_id);
+            warn!(doc_id = %clean_doc_id, "Invalid document ID format");
             return HttpResponse::BadRequest().json("Invalid document ID format (expected 'ticket-N' or 'doc-N')");
         }
     };
@@ -170,19 +166,19 @@ pub async fn get_article_content(
             // Load Yjs document snapshot from article_contents table (snapshot-based persistence)
             match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
                 Ok(article_content) => {
-                    println!("Retrieved article content for ticket {}", ticket_id);
+                    debug!(ticket_id, "Retrieved article content");
 
                     // If yjs_document snapshot exists, encode as base64, otherwise return empty
                     let content_base64 = if let Some(yjs_doc) = article_content.yjs_document {
                         if !yjs_doc.is_empty() {
-                            println!("📦 Loading snapshot from PostgreSQL: ticket {} ({} bytes binary)", ticket_id, yjs_doc.len());
+                            debug!(ticket_id, bytes = yjs_doc.len(), "Loading snapshot from PostgreSQL");
                             general_purpose::STANDARD.encode(&yjs_doc)
                         } else {
-                            println!("📝 Empty Yjs document for ticket {}", ticket_id);
+                            debug!(ticket_id, "Empty Yjs document");
                             String::new()
                         }
                     } else {
-                        println!("📝 No Yjs document snapshot for ticket {}", ticket_id);
+                        debug!(ticket_id, "No Yjs document snapshot");
                         String::new()
                     };
 
@@ -192,7 +188,7 @@ pub async fn get_article_content(
                     }))
                 },
                 Err(e) => {
-                    println!("📝 No article content found for ticket {}: {:?}", ticket_id, e);
+                    debug!(ticket_id, error = ?e, "No article content found");
                     HttpResponse::Ok().json(json!({
                         "content": "",
                         "ticket_id": ticket_id
@@ -203,7 +199,7 @@ pub async fn get_article_content(
         DocumentType::Documentation(doc_id) => {
             match repository::get_documentation_page(doc_id, &mut conn) {
                 Ok(doc_page) => {
-                    println!("Retrieved documentation page {}", doc_id);
+                    debug!(doc_id, "Retrieved documentation page");
 
                     // If yjs_document exists, encode as base64, otherwise return empty
                     let content_base64 = if let Some(yjs_doc) = doc_page.yjs_document {
@@ -218,7 +214,7 @@ pub async fn get_article_content(
                     }))
                 },
                 Err(e) => {
-                    println!("No documentation page found with ID {}: {}", doc_id, e);
+                    debug!(doc_id, error = %e, "No documentation page found");
                     HttpResponse::Ok().json(json!({
                         "content": "",
                         "doc_id": doc_id
@@ -329,7 +325,7 @@ impl DocumentState {
     }
     
     fn should_do_final_save(&self) -> bool {
-        // Only do final save if room has been empty for a bit, changes exist, and we haven't done it yet
+        // Only do final save if room has been empty for a bit, changes exist, and final save not yet done
         if let Some(empty_since) = self.room_empty_since {
             let now = Instant::now();
             return !self.final_save_completed && 
@@ -418,16 +414,16 @@ impl YjsAppState {
         for (doc_id, doc_state) in documents.iter_mut() {
             // Regular saves for active documents
             if doc_state.should_save() {
-                println!("Saving document {} with pending changes", doc_id);
+                debug!(doc_id = %doc_id, "Saving document with pending changes");
                 self.save_document_internal(doc_id, &doc_state.awareness);
                 doc_state.mark_saved();
                 saved_count += 1;
             }
 
-            // Check if we should create a snapshot (every 500 updates)
+            // Check for snapshot creation (every 500 updates)
             if doc_state.should_create_snapshot() {
-                println!("📸 Snapshot threshold reached for {} ({} updates since last snapshot)",
-                    doc_id, doc_state.update_counter - doc_state.last_snapshot_at);
+                debug!(doc_id = %doc_id, updates_since_snapshot = doc_state.update_counter - doc_state.last_snapshot_at,
+                    "Snapshot threshold reached");
 
                 // Clone contributors before passing to async function
                 let contributors = doc_state.contributors.clone();
@@ -438,7 +434,7 @@ impl YjsAppState {
 
             // Final save for empty rooms
             if doc_state.should_do_final_save() {
-                println!("Performing final save for empty room: {}", doc_id);
+                debug!(doc_id = %doc_id, "Performing final save for empty room");
                 self.save_document_internal(doc_id, &doc_state.awareness);
                 doc_state.mark_saved();
                 doc_state.mark_final_save_completed();
@@ -446,7 +442,7 @@ impl YjsAppState {
 
                 // Create revision at end of editing session if there were content changes
                 if !doc_state.contributors.is_empty() {
-                    println!("📸 Creating session-end revision: {}", doc_id);
+                    debug!(doc_id = %doc_id, "Creating session-end revision");
                     let contributors = doc_state.contributors.clone();
                     self.create_snapshot_revision(doc_id, &doc_state.awareness, contributors);
                     doc_state.reset_snapshot_tracking();
@@ -462,8 +458,8 @@ impl YjsAppState {
         }
 
         if saved_count > 0 || final_saved_count > 0 || snapshot_count > 0 {
-            println!("Periodic maintenance: {} saves, {} final saves, {} snapshots",
-                    saved_count, final_saved_count, snapshot_count);
+            info!(saves = saved_count, final_saves = final_saved_count, snapshots = snapshot_count,
+                "Periodic maintenance completed");
         }
     }
 
@@ -477,7 +473,7 @@ impl YjsAppState {
             doc_state.mark_room_active();
             Arc::clone(&doc_state.awareness)
         } else {
-            println!("Document not in memory: {} - checking Redis cache", doc_id);
+            debug!(doc_id = %doc_id, "Document not in memory - checking Redis cache");
 
             // Create Doc with GC disabled and a consistent server-side client ID
             // CRITICAL: Use a deterministic client ID based on the document ID to ensure
@@ -494,7 +490,7 @@ impl YjsAppState {
             let client_id = hasher.finish() | 1; // Ensure it's non-zero
 
             options.client_id = client_id;
-            println!("📋 Creating document with consistent client ID: {} (from doc_id: {})", client_id, doc_id);
+            debug!(doc_id = %doc_id, client_id, "Creating document with consistent client ID");
 
             let doc = Doc::with_options(options);
 
@@ -507,7 +503,7 @@ impl YjsAppState {
             {
                 let mut txn = doc.transact_mut();
                 let _ = txn.get_or_insert_xml_fragment("prosemirror");
-                println!("🎯 Pre-initialized 'prosemirror' XmlFragment for document: {}", doc_id);
+                debug!(doc_id = %doc_id, "Pre-initialized 'prosemirror' XmlFragment");
             }
 
             let mut awareness = Awareness::new(doc);
@@ -517,7 +513,7 @@ impl YjsAppState {
 
             // STEP 1: Try to load from Redis (hot cache - survives restarts)
             if let Some(redis_data) = self.redis_cache.get_document(doc_id).await {
-                println!("Attempting to load document from Redis: {} ({} bytes)", doc_id, redis_data.len());
+                debug!(doc_id = %doc_id, bytes = redis_data.len(), "Attempting to load document from Redis");
 
                 if let Ok(update) = Update::decode_v1(&redis_data) {
                     let apply_result = {
@@ -526,21 +522,21 @@ impl YjsAppState {
                     };
 
                     if let Err(e) = apply_result {
-                        println!("❌ Error applying Redis state: {:?}", e);
+                        error!(doc_id = %doc_id, error = ?e, "Error applying Redis state");
                         // Delete corrupted entry from Redis
-                        println!("🗑️ Deleting corrupted Redis entry for {}", doc_id);
+                        warn!(doc_id = %doc_id, "Deleting corrupted Redis entry");
                         self.redis_cache.delete_document(doc_id).await;
                     } else {
-                        println!("✅ Successfully loaded document from Redis cache");
+                        debug!(doc_id = %doc_id, "Successfully loaded document from Redis cache");
                         loaded_from_redis = true;
 
                         // Diagnostic: Verify content
                         let preview = get_content_preview(&awareness, 50);
-                        println!("📄 Redis content loaded: {}", preview);
+                        trace!(doc_id = %doc_id, preview = %preview, "Redis content loaded");
                         log_document_root_types(&awareness, doc_id);
                     }
                 } else {
-                    println!("⚠️ Failed to decode Redis data - deleting corrupted entry");
+                    warn!(doc_id = %doc_id, "Failed to decode Redis data - deleting corrupted entry");
                     // Delete corrupted entry from Redis so it doesn't block future loads
                     self.redis_cache.delete_document(doc_id).await;
                 }
@@ -548,11 +544,11 @@ impl YjsAppState {
 
             // STEP 2: Fall back to PostgreSQL (cold storage) if Redis didn't have it
             if !loaded_from_redis {
-                println!("Redis cache miss - checking PostgreSQL for {}", doc_id);
+                debug!(doc_id = %doc_id, "Redis cache miss - checking PostgreSQL");
 
                 // Parse document type
                 if let Some(doc_type) = DocumentType::from_doc_id(doc_id) {
-                    println!("✅ Parsed doc_type successfully for {}", doc_id);
+                    trace!(doc_id = %doc_id, "Parsed doc_type successfully");
                     match self.pool.get() {
                         Ok(mut conn) => {
                             // PHASE 2: Load from PostgreSQL
@@ -563,8 +559,7 @@ impl YjsAppState {
                                         Ok(article_content) => {
                                             if let Some(yjs_doc) = article_content.yjs_document {
                                                 if !yjs_doc.is_empty() {
-                                                    println!("📦 Loading snapshot from PostgreSQL: ticket {} ({} bytes binary)",
-                                                            ticket_id, yjs_doc.len());
+                                                    debug!(ticket_id, bytes = yjs_doc.len(), "Loading snapshot from PostgreSQL");
 
                                                     if let Ok(update) = Update::decode_v1(&yjs_doc) {
                                                         let apply_result = {
@@ -573,9 +568,9 @@ impl YjsAppState {
                                                         };
 
                                                         if let Err(e) = apply_result {
-                                                            println!("❌ Error applying PostgreSQL snapshot: {:?}", e);
+                                                            error!(ticket_id, error = ?e, "Error applying PostgreSQL snapshot");
                                                         } else {
-                                                            println!("✅ Successfully loaded snapshot from PostgreSQL");
+                                                            debug!(ticket_id, "Successfully loaded snapshot from PostgreSQL");
                                                             loaded_from_postgres = true;
 
                                                             // Cache in Redis for future fast access
@@ -583,21 +578,21 @@ impl YjsAppState {
 
                                                             // Diagnostic: Check content
                                                             let preview = get_content_preview(&awareness, 100);
-                                                            println!("📄 PostgreSQL content: {}", preview);
+                                                            trace!(ticket_id, preview = %preview, "PostgreSQL content loaded");
                                                             log_document_root_types(&awareness, doc_id);
                                                         }
                                                     } else {
-                                                        println!("❌ Failed to decode PostgreSQL snapshot for ticket {}", ticket_id);
+                                                        error!(ticket_id, "Failed to decode PostgreSQL snapshot");
                                                     }
                                                 } else {
-                                                    println!("📝 Empty Yjs document for ticket {}", ticket_id);
+                                                    debug!(ticket_id, "Empty Yjs document");
                                                 }
                                             } else {
-                                                println!("📝 No Yjs document snapshot for ticket {}", ticket_id);
+                                                debug!(ticket_id, "No Yjs document snapshot");
                                             }
                                         },
                                         Err(e) => {
-                                            println!("📝 No article content found for ticket {}: {:?}", ticket_id, e);
+                                            debug!(ticket_id, error = ?e, "No article content found");
                                         }
                                     }
                                 },
@@ -607,8 +602,7 @@ impl YjsAppState {
                                         Ok(doc_page) => {
                                             if let Some(yjs_doc) = doc_page.yjs_document {
                                                 if !yjs_doc.is_empty() {
-                                                    println!("📦 Loading from PostgreSQL: doc page {} ({} bytes binary)",
-                                                            doc_page_id, yjs_doc.len());
+                                                    debug!(doc_page_id, bytes = yjs_doc.len(), "Loading from PostgreSQL");
 
                                                     if let Ok(update) = Update::decode_v1(&yjs_doc) {
                                                         let apply_result = {
@@ -617,9 +611,9 @@ impl YjsAppState {
                                                         };
 
                                                         if let Err(e) = apply_result {
-                                                            println!("❌ Error applying PostgreSQL state: {:?}", e);
+                                                            error!(doc_page_id, error = ?e, "Error applying PostgreSQL state");
                                                         } else {
-                                                            println!("✅ Successfully loaded documentation from PostgreSQL");
+                                                            debug!(doc_page_id, "Successfully loaded documentation from PostgreSQL");
                                                             loaded_from_postgres = true;
 
                                                             // Cache in Redis
@@ -627,31 +621,31 @@ impl YjsAppState {
 
                                                             // Diagnostic: Check what's actually in the document
                                                             let preview = get_content_preview(&awareness, 100);
-                                                            println!("📄 PostgreSQL content: {}", preview);
+                                                            trace!(doc_page_id, preview = %preview, "PostgreSQL content loaded");
                                                         }
                                                     } else {
-                                                        println!("Failed to decode Yjs update from PostgreSQL");
+                                                        error!(doc_page_id, "Failed to decode Yjs update from PostgreSQL");
                                                     }
                                                 } else {
-                                                    println!("📝 New documentation page - no existing Yjs content");
+                                                    debug!(doc_page_id, "New documentation page - no existing Yjs content");
                                                 }
                                             } else {
-                                                println!("📝 New documentation page - no existing Yjs content");
+                                                debug!(doc_page_id, "New documentation page - no existing Yjs content");
                                             }
                                         },
                                         Err(e) => {
-                                            println!("📝 No existing documentation page in PostgreSQL: {:?}", e);
+                                            debug!(doc_page_id, error = ?e, "No existing documentation page in PostgreSQL");
                                         }
                                     }
                                 }
                             }
                         },
                         Err(e) => {
-                            println!("❌ Database connection error: {:?}", e);
+                            error!(doc_id = %doc_id, error = ?e, "Database connection error");
                         }
                     }
                 } else {
-                    println!("⚠️ Could not parse doc_id format: '{}' (expected 'ticket-N' or 'doc-N')", doc_id);
+                    warn!(doc_id = %doc_id, "Could not parse doc_id format (expected 'ticket-N' or 'doc-N')");
                 }
             }
 
@@ -660,16 +654,16 @@ impl YjsAppState {
             if !loaded_from_redis && !loaded_from_postgres {
                 let mut txn = awareness.doc_mut().transact_mut();
                 let _ = txn.get_or_insert_xml_fragment("prosemirror");
-                println!("🎯 Initialized 'prosemirror' XmlFragment for NEW document: {}", doc_id);
+                debug!(doc_id = %doc_id, "Initialized 'prosemirror' XmlFragment for NEW document");
             }
 
             // Log final state after loading attempts
             let preview = get_content_preview(&awareness, 100);
             if loaded_from_redis || loaded_from_postgres {
-                println!("📊 Document loaded: {}", preview);
+                debug!(doc_id = %doc_id, preview = %preview, "Document loaded");
                 log_document_root_types(&awareness, doc_id);
             } else {
-                println!("📊 New document created: {}", preview);
+                debug!(doc_id = %doc_id, preview = %preview, "New document created");
             }
 
             let awareness_arc = Arc::new(awareness);
@@ -705,12 +699,12 @@ impl YjsAppState {
             // Replace the awareness with the new one
             doc_state.awareness = Arc::clone(&awareness);
             doc_state.mark_changed();
-            println!("📝 Replaced document {} with restored revision", doc_id);
+            info!(doc_id = %doc_id, "Replaced document with restored revision");
         } else {
             // Document doesn't exist in memory, create it
             let doc_state = DocumentState::new(Arc::clone(&awareness));
             documents.insert(doc_id.to_string(), doc_state);
-            println!("📝 Created new document {} from restored revision", doc_id);
+            info!(doc_id = %doc_id, "Created new document from restored revision");
         }
     }
 
@@ -745,7 +739,7 @@ impl YjsAppState {
         }
         drop(documents);
 
-        println!("Session {} joined document {} (room now has {} users)", session_id, doc_id, room_size);
+        debug!(session_id = %session_id, doc_id = %doc_id, room_size, "Session joined document");
 
         // Broadcast viewer count change via SSE for tickets
         if let Some(DocumentType::Ticket(ticket_id)) = DocumentType::from_doc_id(doc_id) {
@@ -778,7 +772,7 @@ impl YjsAppState {
             room.remove(session_id);
             let room_size = room.len();
             let is_empty = room.is_empty();
-            println!("Session {} left document {} (room now has {} users)", session_id, doc_id, room_size);
+            debug!(session_id = %session_id, doc_id = %doc_id, room_size, "Session left document");
 
             // Release the sessions lock before any async operations
             drop(sessions);
@@ -795,7 +789,7 @@ impl YjsAppState {
 
             // If room is empty, mark it as empty but don't save immediately
             if is_empty {
-                println!("Room for document {} is now empty, will save after delay", doc_id);
+                debug!(doc_id = %doc_id, "Room is now empty, will save after delay");
 
                 // Mark the document as having an empty room
                 let mut documents = self.documents.write().await;
@@ -828,7 +822,7 @@ impl YjsAppState {
 
             // Remove stale sessions from the room
             for session_id in stale_sessions.iter() {
-                println!("Removing stale session {} from document {}", session_id, doc_id);
+                debug!(session_id = %session_id, doc_id = %doc_id, "Removing stale session");
                 room.remove(session_id);
             }
 
@@ -840,7 +834,7 @@ impl YjsAppState {
 
         // Log cleanup summary
         if stale_session_count > 0 {
-            println!("Cleaned up {} stale sessions", stale_session_count);
+            info!(count = stale_session_count, "Cleaned up stale sessions");
         }
 
         // Release the sessions lock before updating document states
@@ -851,7 +845,7 @@ impl YjsAppState {
             let mut documents = self.documents.write().await;
             for doc_id in newly_empty_rooms {
                 if let Some(doc_state) = documents.get_mut(&doc_id) {
-                    println!("Marking room {} as empty due to stale session cleanup", doc_id);
+                    debug!(doc_id = %doc_id, "Marking room empty due to stale session cleanup");
                     doc_state.mark_room_empty();
                 }
             }
@@ -862,20 +856,20 @@ impl YjsAppState {
     async fn force_save_document(&self, doc_id: &str) {
         let mut documents = self.documents.write().await;
         if let Some(doc_state) = documents.get_mut(doc_id) {
-            println!("Force saving document {} on disconnect", doc_id);
+            debug!(doc_id = %doc_id, "Force saving document on disconnect");
             self.save_document_internal(doc_id, &doc_state.awareness);
             doc_state.mark_saved();
 
             // Create revision at end of editing session if there were actual content changes
             // Contributors are only added when content actually changes, so this is sufficient
             if !doc_state.contributors.is_empty() {
-                println!("📸 Creating session-end revision for {} ({} contributors)",
-                    doc_id, doc_state.contributors.len());
+                info!(doc_id = %doc_id, contributors = doc_state.contributors.len(),
+                    "Creating session-end revision");
                 let contributors = doc_state.contributors.clone();
                 self.create_snapshot_revision(doc_id, &doc_state.awareness, contributors);
                 doc_state.reset_snapshot_tracking();
             } else {
-                println!("⏭️ Skipping revision for {} - no content changes in this session", doc_id);
+                debug!(doc_id = %doc_id, "Skipping revision - no content changes in session");
             }
 
             // Mark final save completed so periodic task doesn't duplicate
@@ -928,7 +922,7 @@ impl YjsAppState {
         let doc_type = match DocumentType::from_doc_id(doc_id) {
             Some(dt) => dt,
             None => {
-                println!("⚠️ Cannot save - invalid document ID format: {}", doc_id);
+                warn!(doc_id = %doc_id, "Cannot save - invalid document ID format");
                 return;
             }
         };
@@ -942,11 +936,11 @@ impl YjsAppState {
             let root_names: Vec<String> = txn.root_refs()
                 .map(|(name, _)| name.to_string())
                 .collect();
-            println!("🔍 SAVE - {} root types: {:?}", doc_id, root_names);
+            trace!(doc_id = %doc_id, root_types = ?root_names, "SAVE - root types");
 
             // Log state vector to see which clients have contributed
             let state_vec = txn.state_vector();
-            println!("🔍 SAVE - {} state vector: {:?}", doc_id, state_vec);
+            trace!(doc_id = %doc_id, state_vector = ?state_vec, "SAVE - state vector");
 
             // Log content preview before saving
             if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
@@ -954,15 +948,15 @@ impl YjsAppState {
                 let preview = safe_get_fragment_string(&fragment, &txn)
                     .map(|s| s.chars().take(50).collect::<String>())
                     .unwrap_or_else(|| "(invalid chars)".to_string());
-                println!("💾 Saving {}: {} children, preview: '{}'", doc_id, child_count, preview);
+                debug!(doc_id = %doc_id, child_count, preview = %preview, "Saving document");
             } else {
-                println!("⚠️ Saving {}: NO 'prosemirror' fragment found!", doc_id);
+                warn!(doc_id = %doc_id, "Saving document: NO 'prosemirror' fragment found");
             }
 
             txn.encode_state_as_update_v1(&StateVector::default())
         };
 
-        println!("Saving document content for {} ({} bytes)", doc_id, binary_content.len());
+        debug!(doc_id = %doc_id, bytes = binary_content.len(), "Saving document content");
 
         // CRITICAL: Save to Redis first (hot cache - survives restarts)
         // This ensures the latest state is always in Redis for fast recovery
@@ -989,12 +983,12 @@ impl YjsAppState {
                         Ok(mut conn) => {
                             match repository::update_article_yjs_state(&mut conn, ticket_id, content) {
                                 Ok(_) => {
-                                    println!("✅ Successfully saved Yjs snapshot for ticket {}", ticket_id);
+                                    debug!(ticket_id, "Successfully saved Yjs snapshot for ticket");
                                 },
-                                Err(e) => println!("❌ Failed to save Yjs snapshot for ticket {}: {:?}", ticket_id, e),
+                                Err(e) => error!(ticket_id, error = ?e, "Failed to save Yjs snapshot for ticket"),
                             }
                         },
-                        Err(e) => println!("❌ Database connection error when saving ticket {}: {:?}", ticket_id, e),
+                        Err(e) => error!(ticket_id, error = ?e, "Database connection error when saving ticket"),
                     }
                 });
             },
@@ -1005,11 +999,11 @@ impl YjsAppState {
                         Ok(mut conn) => {
                             // Update only the Yjs-related fields
                             match repository::update_documentation_yjs_state(&mut conn, doc_page_id, content) {
-                                Ok(_) => println!("✅ Successfully saved Yjs state for documentation page {}", doc_page_id),
-                                Err(e) => println!("❌ Failed to save Yjs state for documentation page {}: {:?}", doc_page_id, e),
+                                Ok(_) => debug!(doc_page_id, "Successfully saved Yjs state for documentation page"),
+                                Err(e) => error!(doc_page_id, error = ?e, "Failed to save Yjs state for documentation page"),
                             }
                         },
-                        Err(e) => println!("❌ Database connection error when saving documentation: {:?}", e),
+                        Err(e) => error!(doc_page_id, error = ?e, "Database connection error when saving documentation"),
                     }
                 });
             }
@@ -1026,7 +1020,7 @@ impl YjsAppState {
             txn.encode_state_as_update_v1(&StateVector::default())
         };
 
-        println!("💾 Immediate Redis save for {} ({} bytes)", doc_id, binary_content.len());
+        debug!(doc_id = %doc_id, bytes = binary_content.len(), "Immediate Redis save");
 
         // Save to Redis synchronously (fast, in-memory)
         self.redis_cache.set_document(doc_id, &binary_content).await;
@@ -1038,7 +1032,7 @@ impl YjsAppState {
         let doc_type = match DocumentType::from_doc_id(doc_id) {
             Some(dt) => dt,
             None => {
-                println!("⚠️ Skipping snapshot - invalid document ID format: {}", doc_id);
+                warn!(doc_id = %doc_id, "Skipping snapshot - invalid document ID format");
                 return;
             }
         };
@@ -1055,8 +1049,7 @@ impl YjsAppState {
             (state_vector.encode_v1(), full_update)
         };
 
-        println!("📸 Creating snapshot for {}: {} bytes",
-            doc_id, full_update_bytes.len());
+        debug!(doc_id = %doc_id, bytes = full_update_bytes.len(), "Creating snapshot");
 
         // Save to database asynchronously
         let pool = self.pool.clone();
@@ -1081,7 +1074,7 @@ impl YjsAppState {
                                     match repository::create_article_content(&mut conn, new_content) {
                                         Ok(ac) => ac,
                                         Err(e) => {
-                                            println!("❌ Failed to create article_content for snapshot: {:?}", e);
+                                            error!(ticket_id, error = ?e, "Failed to create article_content for snapshot");
                                             return;
                                         }
                                     }
@@ -1091,7 +1084,8 @@ impl YjsAppState {
                             // Check if content is the same as the last revision
                             if let Ok(last_revision) = repository::get_latest_article_content_revision(&mut conn, article_content.id) {
                                 if last_revision.yjs_document_content == full_update_bytes {
-                                    println!("⏭️ Skipping revision - content unchanged from revision {}", last_revision.revision_number);
+                                    debug!(ticket_id, revision = last_revision.revision_number,
+                                        "Skipping revision - content unchanged");
                                     return;
                                 }
                             }
@@ -1110,21 +1104,21 @@ impl YjsAppState {
                                     // Increment revision number in article_content
                                     match repository::increment_article_content_revision(&mut conn, article_content.id) {
                                         Ok(_) => {
-                                            println!("✅ Snapshot created: ticket {} revision {} ({} contributors)",
-                                                ticket_id, revision.revision_number, contributor_vec.len());
+                                            info!(ticket_id, revision = revision.revision_number,
+                                                contributors = contributor_vec.len(), "Snapshot created for ticket");
 
                                             // Update ticket's modified timestamp since content actually changed
                                             if let Err(e) = repository::update_ticket_modified_timestamp(&mut conn, ticket_id) {
-                                                println!("⚠️ Failed to update ticket modified timestamp: {:?}", e);
+                                                warn!(ticket_id, error = ?e, "Failed to update ticket modified timestamp");
                                             }
                                         },
-                                        Err(e) => println!("❌ Failed to increment revision number: {:?}", e),
+                                        Err(e) => error!(ticket_id, error = ?e, "Failed to increment revision number"),
                                     }
                                 },
-                                Err(e) => println!("❌ Failed to create revision: {:?}", e),
+                                Err(e) => error!(ticket_id, error = ?e, "Failed to create revision"),
                             }
                         },
-                        Err(e) => println!("❌ Database connection error during snapshot: {:?}", e),
+                        Err(e) => error!(ticket_id, error = ?e, "Database connection error during snapshot"),
                     }
                 });
             },
@@ -1135,7 +1129,8 @@ impl YjsAppState {
                             // Check if content is the same as the last revision
                             if let Ok(last_revision) = repository::get_latest_documentation_revision(&mut conn, doc_page_id) {
                                 if last_revision.yjs_document_snapshot == full_update_bytes {
-                                    println!("⏭️ Skipping revision - content unchanged from revision {}", last_revision.revision_number);
+                                    debug!(doc_page_id, revision = last_revision.revision_number,
+                                        "Skipping revision - content unchanged");
                                     return;
                                 }
                             }
@@ -1143,13 +1138,13 @@ impl YjsAppState {
                             // Create documentation revision snapshot
                             match repository::create_documentation_revision(&mut conn, doc_page_id, state_vector_bytes, full_update_bytes, contributor_vec.clone()) {
                                 Ok(revision_number) => {
-                                    println!("✅ Snapshot created: documentation page {} revision {} ({} contributors)",
-                                        doc_page_id, revision_number, contributor_vec.len());
+                                    info!(doc_page_id, revision = revision_number,
+                                        contributors = contributor_vec.len(), "Snapshot created for documentation page");
                                 },
-                                Err(e) => println!("❌ Failed to create documentation revision: {:?}", e),
+                                Err(e) => error!(doc_page_id, error = ?e, "Failed to create documentation revision"),
                             }
                         },
-                        Err(e) => println!("❌ Database connection error during snapshot: {:?}", e),
+                        Err(e) => error!(doc_page_id, error = ?e, "Database connection error during snapshot"),
                     }
                 });
             }
@@ -1201,13 +1196,13 @@ impl YjsWebSocket {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             let time_since_last_hb = Instant::now().duration_since(act.hb);
 
-            println!("WebSocket heartbeat check for session {}: {} seconds since last activity",
-                    act.id, time_since_last_hb.as_secs());
+            trace!(session_id = %act.id, idle_secs = time_since_last_hb.as_secs(),
+                "WebSocket heartbeat check");
 
             // Add grace period: warn at CLIENT_TIMEOUT, disconnect at CLIENT_TIMEOUT + 30s
             if time_since_last_hb > CLIENT_TIMEOUT + Duration::from_secs(30) {
-                println!("❌ WebSocket Client heartbeat TIMEOUT after {} seconds, disconnecting session {}",
-                        time_since_last_hb.as_secs(), act.id);
+                warn!(session_id = %act.id, idle_secs = time_since_last_hb.as_secs(),
+                    "WebSocket Client heartbeat TIMEOUT, disconnecting");
 
                 // Spawn async removal
                 let app_state = act.app_state.clone();
@@ -1224,14 +1219,14 @@ impl YjsWebSocket {
             // Send WebSocket PING to verify connection health
             // Note: y-websocket client handles its own keepalive via resyncInterval
             // This PING is for detecting dead connections at the WebSocket protocol level
-            println!("📤 WebSocket sending PING to session {} (ping #{}, {}s since last activity)",
-                    act.id, act.pings_sent + 1, time_since_last_hb.as_secs());
+            trace!(session_id = %act.id, ping_num = act.pings_sent + 1,
+                idle_secs = time_since_last_hb.as_secs(), "WebSocket sending PING");
             act.pings_sent += 1;
             ctx.ping(b"");
 
             if time_since_last_hb > CLIENT_TIMEOUT {
-                println!("⚠️ WebSocket Client heartbeat WARNING for session {} ({} seconds since last activity)",
-                        act.id, time_since_last_hb.as_secs());
+                warn!(session_id = %act.id, idle_secs = time_since_last_hb.as_secs(),
+                    "WebSocket Client heartbeat WARNING");
             }
         });
     }
@@ -1274,27 +1269,27 @@ impl YjsWebSocket {
             };
 
             // Use the built-in protocol handler to process the message
-            // DefaultProtocol is stateless, so we can create a new instance
+            // DefaultProtocol is stateless - create new instance
             let protocol = DefaultProtocol;
 
             // DIAGNOSTIC: Log incoming message details
             let msg_type = if msg_vec.is_empty() { 255 } else { msg_vec[0] };
-            println!("🔍 Processing message: type={}, size={} bytes", msg_type, msg_vec.len());
+            trace!(msg_type, bytes = msg_vec.len(), "Processing message");
 
             // Log sync message type for debugging
             if msg_type == 0 && msg_vec.len() > 1 {
                 let sync_step = msg_vec[1];
                 match sync_step {
-                    0 => println!("   📍 SYNC_STEP_1 (state vector request)"),
-                    1 => println!("   📍 SYNC_STEP_2 (state response)"),
-                    2 => println!("   📍 SYNC_UPDATE (incremental change, {} bytes)", msg_vec.len() - 2),
-                    _ => println!("   📍 Unknown sync step: {}", sync_step),
+                    0 => trace!("SYNC_STEP_1 (state vector request)"),
+                    1 => trace!("SYNC_STEP_2 (state response)"),
+                    2 => trace!(bytes = msg_vec.len() - 2, "SYNC_UPDATE (incremental change)"),
+                    _ => trace!(sync_step, "Unknown sync step"),
                 }
             }
 
             match protocol.handle(&awareness, &msg_vec) {
                 Ok(messages) => {
-                    println!("✅ protocol.handle() succeeded, generated {} response message(s)", messages.len());
+                    trace!(response_count = messages.len(), "protocol.handle() succeeded");
 
                     // DIAGNOSTIC: Check content AFTER processing message
                     let content_after = {
@@ -1308,13 +1303,13 @@ impl YjsWebSocket {
 
                     let content_changed = content_before != content_after;
                     if content_changed {
-                        println!("📝 Content changed! Before: '{}' → After: '{}'",
-                            if content_before.len() > 50 { &content_before[..50] } else { &content_before },
-                            if content_after.len() > 50 { &content_after[..50] } else { &content_after });
+                        debug!(before = %if content_before.len() > 50 { &content_before[..50] } else { &content_before },
+                            after = %if content_after.len() > 50 { &content_after[..50] } else { &content_after },
+                            "Content changed");
                     } else if msg_type == 0 && msg_vec.len() > 1 && msg_vec[1] == 2 {
                         // SYNC_UPDATE didn't apply - request full state from client
                         // This happens when state vectors are misaligned (e.g., after server restart)
-                        println!("🔄 SYNC_UPDATE did not change content - requesting client's full state");
+                        debug!("SYNC_UPDATE did not change content - requesting client's full state");
                         use yrs::sync::Message;
                         let sync_message = Message::Sync(yrs::sync::SyncMessage::SyncStep1(StateVector::default()));
                         let encoded = sync_message.encode_v1();
@@ -1343,7 +1338,7 @@ impl YjsWebSocket {
                     }
                 },
                 Err(e) => {
-                    println!("Error handling protocol message: {:?}", e);
+                    error!(error = ?e, "Error handling protocol message");
                 }
             }
         });
@@ -1354,14 +1349,10 @@ impl Actor for YjsWebSocket {
     type Context = ws::WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        let start_time = chrono::Utc::now();
-        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        println!("🟢 WebSocket STARTED at {}", start_time.format("%H:%M:%S%.3f"));
-        println!("   Session ID: {}", self.id);
-        println!("   Document: {}", self.doc_id);
-        println!("   Heartbeat interval: {}s", HEARTBEAT_INTERVAL.as_secs());
-        println!("   Timeout threshold: {}s", (CLIENT_TIMEOUT + Duration::from_secs(30)).as_secs());
-        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        info!(session_id = %self.id, doc_id = %self.doc_id,
+            heartbeat_interval_secs = HEARTBEAT_INTERVAL.as_secs(),
+            timeout_secs = (CLIENT_TIMEOUT + Duration::from_secs(30)).as_secs(),
+            "WebSocket STARTED");
 
         self.hb(ctx);
 
@@ -1374,26 +1365,20 @@ impl Actor for YjsWebSocket {
             app_state.register_session(&doc_id, &session_id, addr).await;
         });
 
-        println!("⏳ Waiting for client sync request for document {}", self.doc_id);
+        debug!(doc_id = %self.doc_id, "Waiting for client sync request");
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        let stop_time = chrono::Utc::now();
         let time_since_last_hb = Instant::now().duration_since(self.hb);
-
         let connection_duration = Instant::now().duration_since(self.started_at);
 
-        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        println!("🔴 WebSocket STOPPING at {}", stop_time.format("%H:%M:%S%.3f"));
-        println!("   Session ID: {}", self.id);
-        println!("   Document: {}", self.doc_id);
-        println!("   Connection duration: {}s", connection_duration.as_secs());
-        println!("   Time since last activity: {}s", time_since_last_hb.as_secs());
-        println!("   Statistics:");
-        println!("     - Messages received: {}", self.messages_received);
-        println!("     - PINGs sent: {}", self.pings_sent);
-        println!("     - PONGs received: {}", self.pongs_received);
-        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        info!(session_id = %self.id, doc_id = %self.doc_id,
+            connection_duration_secs = connection_duration.as_secs(),
+            idle_secs = time_since_last_hb.as_secs(),
+            messages_received = self.messages_received,
+            pings_sent = self.pings_sent,
+            pongs_received = self.pongs_received,
+            "WebSocket STOPPING");
 
         // Spawn async cleanup work
         let app_state = self.app_state.clone();
@@ -1416,7 +1401,7 @@ impl Actor for YjsWebSocket {
             };
 
             if should_force_save {
-                println!("Last session for document {}, performing final save", doc_id);
+                debug!(doc_id = %doc_id, "Last session for document, performing final save");
                 app_state.force_save_document(&doc_id).await;
             }
         });
@@ -1429,39 +1414,39 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for YjsWebSocket {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         match msg {
             Ok(ws::Message::Ping(msg)) => {
-                println!("📩 WebSocket received PING for session {}", self.id);
+                trace!(session_id = %self.id, "WebSocket received PING");
                 self.hb = Instant::now();
                 self.messages_received += 1;
                 ctx.pong(&msg);
             },
             Ok(ws::Message::Pong(_)) => {
-                println!("📩 WebSocket received PONG for session {}", self.id);
+                trace!(session_id = %self.id, "WebSocket received PONG");
                 self.hb = Instant::now();
                 self.pongs_received += 1;
                 self.messages_received += 1;
             },
             Ok(ws::Message::Binary(bin)) => {
-                println!("📩 WebSocket received BINARY message ({} bytes) for session {}", bin.len(), self.id);
+                trace!(session_id = %self.id, bytes = bin.len(), "WebSocket received BINARY message");
                 self.hb = Instant::now();
                 self.messages_received += 1;
                 self.process_message(&bin, ctx);
             },
             Ok(ws::Message::Close(reason)) => {
-                println!("WebSocket received CLOSE message for session {}: {:?}", self.id, reason);
+                debug!(session_id = %self.id, reason = ?reason, "WebSocket received CLOSE message");
                 ctx.close(reason);
                 ctx.stop();
             },
             Ok(ws::Message::Text(text)) => {
-                println!("WebSocket received unexpected TEXT message for session {}: {}", self.id, text);
+                warn!(session_id = %self.id, text = %text, "WebSocket received unexpected TEXT message");
             },
             Ok(ws::Message::Continuation(_)) => {
-                println!("WebSocket received CONTINUATION for session {}", self.id);
+                trace!(session_id = %self.id, "WebSocket received CONTINUATION");
             },
             Ok(ws::Message::Nop) => {
-                println!("WebSocket received NOP for session {}", self.id);
+                trace!(session_id = %self.id, "WebSocket received NOP");
             },
             Err(e) => {
-                println!("WebSocket protocol error for session {}: {:?}", self.id, e);
+                error!(session_id = %self.id, error = ?e, "WebSocket protocol error");
                 ctx.stop();
             },
         }
@@ -1484,11 +1469,9 @@ pub async fn ws_handler(
     path: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
     let doc_id = path.into_inner();
-    println!("WebSocket connection request for document: {}", doc_id);
-    
-    // Extract and validate JWT token from httpOnly cookie
-    
+    debug!(doc_id = %doc_id, "WebSocket connection request");
 
+    // Extract and validate JWT token from httpOnly cookie
     let token = req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("No authentication cookie"))?;
 
@@ -1508,7 +1491,7 @@ pub async fn ws_handler(
         return Err(actix_web::error::ErrorInternalServerError("Database pool not available"));
     };
 
-    println!("WebSocket authentication successful for document: {} (user: {})", doc_id, user_uuid);
+    debug!(doc_id = %doc_id, user_uuid = %user_uuid, "WebSocket authentication successful");
     let actor = YjsWebSocket::new(doc_id, app_state.get_ref().clone(), user_uuid);
 
     // Use WsResponseBuilder to configure larger frame size for Yjs documents
@@ -1621,18 +1604,13 @@ pub async fn restore_ticket_revision(
     let update = match Update::decode_v1(&revision.yjs_document_content) {
         Ok(upd) => upd,
         Err(e) => {
-            println!("Error decoding revision update: {:?}", e);
+            error!(ticket_id, revision_number, error = ?e, "Error decoding revision update");
             return HttpResponse::InternalServerError().json("Error decoding revision");
         }
     };
 
-    // To properly restore to a previous revision, we need to replace the document entirely.
-    // Yjs CRDTs merge updates - they don't support "reverting". So we must:
-    // 1. Create a new document with the revision content
-    // 2. Replace the existing document with the new one
-    // 3. Broadcast the new state to all clients
-
-    // Create a new document with the revision content
+    // Restore requires replacing document entirely - Yjs CRDTs merge updates, don't support reverting.
+    // Steps: create new doc with revision content, replace existing, broadcast to clients.
     let new_doc = {
         use yrs::{Doc, Options};
 
@@ -1654,7 +1632,7 @@ pub async fn restore_ticket_revision(
         {
             let mut txn = doc.transact_mut();
             if let Err(e) = txn.apply_update(update) {
-                println!("Error applying revision update to new doc: {:?}", e);
+                error!(ticket_id, revision_number, error = ?e, "Error applying revision update to new doc");
                 return HttpResponse::InternalServerError().json("Error applying revision");
             }
         }
@@ -1681,7 +1659,7 @@ pub async fn restore_ticket_revision(
     let encoded = sync_message.encode_v1();
     app_state.broadcast(&doc_id, "", &encoded).await;
 
-    println!("✅ Restored ticket {} to revision {}", ticket_id, revision_number);
+    info!(ticket_id, revision_number, "Restored ticket to revision");
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -1772,18 +1750,13 @@ pub async fn restore_doc_revision(
     let update = match Update::decode_v1(&revision.yjs_document_snapshot) {
         Ok(upd) => upd,
         Err(e) => {
-            println!("Error decoding revision update: {:?}", e);
+            error!(doc_id, revision_number, error = ?e, "Error decoding revision update");
             return HttpResponse::InternalServerError().json("Error decoding revision");
         }
     };
 
-    // To properly restore to a previous revision, we need to replace the document entirely.
-    // Yjs CRDTs merge updates - they don't support "reverting". So we must:
-    // 1. Create a new document with the revision content
-    // 2. Replace the existing document with the new one
-    // 3. Broadcast the new state to all clients
-
-    // Create a new document with the revision content
+    // Restore requires replacing document entirely - Yjs CRDTs merge updates, don't support reverting.
+    // Steps: create new doc with revision content, replace existing, broadcast to clients.
     let new_doc = {
         use yrs::{Doc, Options};
 
@@ -1805,7 +1778,7 @@ pub async fn restore_doc_revision(
         {
             let mut txn = doc.transact_mut();
             if let Err(e) = txn.apply_update(update) {
-                println!("Error applying revision update to new doc: {:?}", e);
+                error!(doc_id, revision_number, error = ?e, "Error applying revision update to new doc");
                 return HttpResponse::InternalServerError().json("Error applying revision");
             }
         }
@@ -1831,7 +1804,7 @@ pub async fn restore_doc_revision(
     let encoded = sync_message.encode_v1();
     app_state.broadcast(&doc_id_str, "", &encoded).await;
 
-    println!("✅ Restored documentation page {} to revision {}", doc_id, revision_number);
+    info!(doc_id, revision_number, "Restored documentation page to revision");
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

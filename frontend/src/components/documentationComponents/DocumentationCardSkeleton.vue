@@ -1,15 +1,7 @@
 <script setup lang="ts">
-import { useStaggeredList } from '@/composables/useStaggeredList'
-
 defineProps<{
   count?: number
 }>()
-
-const { getStyle } = useStaggeredList({
-  staggerDelay: 50,
-  animationDuration: 300,
-  maxStaggerItems: 9
-})
 </script>
 
 <template>
@@ -17,7 +9,6 @@ const { getStyle } = useStaggeredList({
     <div
       v-for="i in (count || 6)"
       :key="`skeleton-${i}`"
-      :style="getStyle(i - 1)"
       class="skeleton-card"
     >
       <!-- Icon area skeleton -->
@@ -81,22 +72,6 @@ const { getStyle } = useStaggeredList({
   border: 1px solid var(--color-default);
   border-radius: 1rem;
   overflow: hidden;
-
-  /* Stagger animation */
-  animation: skeletonFadeIn var(--animation-duration, 300ms) ease-out forwards;
-  animation-delay: var(--stagger-delay, 0ms);
-  opacity: 0;
-}
-
-@keyframes skeletonFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .skeleton-header {

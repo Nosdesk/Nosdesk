@@ -7,16 +7,31 @@ import { projectService } from '@/services/projectService'
 import ticketService from '@/services/ticketService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import type { Ticket } from '@/types/ticket'
+
+// Processed task structure for Gantt chart display
+interface GanttTask {
+  id: number
+  title: string
+  start: Date
+  end: Date
+  color: string
+  progress: number
+  status: string
+  assignee?: string
+  priority?: string
+  description?: string
+}
 
 const props = defineProps<{
   projectId: number;
-  tickets: any[]; // Using any[] until we have a proper type
+  tickets: Ticket[];
 }>()
 
 const router = useRouter()
 const isLoading = ref(false)
 const error = ref<string | null>(null)
-const ganttTickets = ref<any[]>([])
+const ganttTickets = ref<GanttTask[]>([])
 const timeScale = ref<'day' | 'week' | 'month'>('week')
 const today = new Date()
 const startDate = ref(new Date(today.getFullYear(), today.getMonth(), 1)) // First day of current month
@@ -24,7 +39,7 @@ const endDate = ref(new Date(today.getFullYear(), today.getMonth() + 3, 0)) // L
 
 // Drag state
 const isDragging = ref(false)
-const draggedTask = ref<any>(null)
+const draggedTask = ref<GanttTask | null>(null)
 const dragStartX = ref(0)
 const dragStartLeft = ref(0)
 const dragStartWidth = ref(0)
@@ -32,7 +47,7 @@ const dragMode = ref<'move' | 'resize-start' | 'resize-end'>('move')
 const wasDragging = ref(false)
 
 // Tooltip state
-const hoveredTask = ref<any>(null)
+const hoveredTask = ref<GanttTask | null>(null)
 const tooltipPosition = ref({ x: 0, y: 0 })
 
 // Convert tickets to Gantt format
@@ -197,7 +212,7 @@ const timeUnits = computed(() => {
 })
 
 // Helper to calculate position and width of a task bar
-const getTaskBarStyle = (task: any) => {
+const getTaskBarStyle = (task: GanttTask) => {
   // Calculate which time unit the task starts in and how many units it spans
   const millisecondsPerUnit = timeScale.value === 'day' ? 
     (24 * 60 * 60 * 1000) : 
@@ -323,7 +338,7 @@ const isSameDay = (date: Date, today: Date) => {
 }
 
 // Drag and drop handlers
-const startDrag = (event: MouseEvent, task: any, mode: 'move' | 'resize-start' | 'resize-end' = 'move') => {
+const startDrag = (event: MouseEvent, task: GanttTask, mode: 'move' | 'resize-start' | 'resize-end' = 'move') => {
   isDragging.value = true
   draggedTask.value = task
   dragMode.value = mode
@@ -442,7 +457,7 @@ const endDrag = async () => {
 }
 
 // Tooltip handlers
-const showTooltip = (event: MouseEvent, task: any) => {
+const showTooltip = (event: MouseEvent, task: GanttTask) => {
   hoveredTask.value = task
   tooltipPosition.value = {
     x: event.clientX,
@@ -910,7 +925,7 @@ const hideTooltip = () => {
   position: relative;
   overflow: hidden;
   display: flex;
-  /* Remove background grid since we have perfect alignment now */
+  /* Remove background grid - perfect alignment achieved */
   background: transparent;
 }
 

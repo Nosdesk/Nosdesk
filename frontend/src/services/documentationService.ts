@@ -2,7 +2,7 @@ import { logger } from '@/utils/logger';
 import apiClient from './apiConfig';
 import type { UserInfo } from '@/types/user';
 
-// Note: apiClient already has baseURL set to '/api', so we don't need to prefix routes
+// Note: apiClient already has baseURL set to '/api', so routes need no prefix
 
 // Re-export for backwards compatibility
 export type { UserInfo };
@@ -64,9 +64,9 @@ interface BackendDocumentationPage {
 }
 
 // Convert backend page data to frontend Page format
-export const convertToPage = (data: any): Page => {
+export const convertToPage = (data: unknown): Page => {
   // Handle null or undefined data
-  if (!data) {
+  if (!data || typeof data !== 'object') {
     logger.warn('Attempting to convert null or undefined data to Page');
     return {
       id: 'invalid-page',
@@ -83,23 +83,26 @@ export const convertToPage = (data: any): Page => {
     };
   }
 
+  // Type assertion after validation
+  const pageData = data as Record<string, unknown>;
+
   try {
     // Clean up all properties before assigning
-    const cleanId = data.id !== undefined ? data.id : `unknown-${Date.now()}`;
-    const cleanSlug = typeof data.slug === 'string' ? data.slug : '';
-    const cleanTitle = typeof data.title === 'string' ? data.title : 'Untitled';
-    const cleanDescription = data.description !== undefined ? data.description : null;
-    
+    const cleanId = pageData.id !== undefined ? pageData.id : `unknown-${Date.now()}`;
+    const cleanSlug = typeof pageData.slug === 'string' ? pageData.slug : '';
+    const cleanTitle = typeof pageData.title === 'string' ? pageData.title : 'Untitled';
+    const cleanDescription = pageData.description !== undefined ? pageData.description : null;
+
     // Handle content conversion from binary (Vec<u8>) to string
     let cleanContent = '';
-    if (data.content) {
-      if (typeof data.content === 'string') {
+    if (pageData.content) {
+      if (typeof pageData.content === 'string') {
         // Already a string
-        cleanContent = data.content;
-      } else if (Array.isArray(data.content)) {
+        cleanContent = pageData.content;
+      } else if (Array.isArray(pageData.content)) {
         // It's an array of bytes from the backend
         try {
-          const bytes = new Uint8Array(data.content);
+          const bytes = new Uint8Array(pageData.content as number[]);
           cleanContent = new TextDecoder().decode(bytes);
         } catch (decodeError) {
           logger.warn('Error decoding binary content:', decodeError);
@@ -109,40 +112,41 @@ export const convertToPage = (data: any): Page => {
         cleanContent = '';
       }
     }
-    
-    const cleanParentId = data.parent_id !== undefined ? data.parent_id : null;
+
+    const cleanParentId = pageData.parent_id !== undefined ? pageData.parent_id : null;
     // For backwards compatibility, fallback to created_by.name if author doesn't exist
-    const cleanAuthor = typeof data.author === 'string' ? data.author : (data.created_by?.name || 'System');
-    const cleanStatus = typeof data.status === 'string' ? data.status : 'published';
-    const cleanIcon = typeof data.icon === 'string' ? data.icon : '📄';
+    const createdBy = pageData.created_by as { name?: string } | undefined;
+    const cleanAuthor = typeof pageData.author === 'string' ? pageData.author : (createdBy?.name || 'System');
+    const cleanStatus = typeof pageData.status === 'string' ? pageData.status : 'published';
+    const cleanIcon = typeof pageData.icon === 'string' ? pageData.icon : '📄';
 
     // Process children array with extra validation
     let cleanChildren: Page[] = [];
-    if (Array.isArray(data.children)) {
-      cleanChildren = data.children
-        .filter((child: any) => child && typeof child === 'object') // Filter out non-objects
-        .map((child: any) => convertToPage(child));               // Convert each valid child
+    if (Array.isArray(pageData.children)) {
+      cleanChildren = (pageData.children as unknown[])
+        .filter((child) => child && typeof child === 'object') // Filter out non-objects
+        .map((child) => convertToPage(child));                  // Convert each valid child
     }
 
     return {
       id: cleanId,
-      uuid: data.uuid,
+      uuid: pageData.uuid as string | undefined,
       slug: cleanSlug,
       title: cleanTitle,
-      description: cleanDescription,
+      description: cleanDescription as string | null,
       content: cleanContent,
-      parent_id: cleanParentId,
+      parent_id: cleanParentId as string | number | null,
       author: cleanAuthor,
       status: cleanStatus,
-      icon: cleanIcon,
+      icon: cleanIcon as string | null,
       children: cleanChildren,
-      lastUpdated: data.updated_at || new Date().toISOString(),
-      ticket_id: data.ticket_id || null,
-      created_at: data.created_at,
-      updated_at: data.updated_at,
-      created_by: data.created_by,
-      last_edited_by: data.last_edited_by,
-      display_order: typeof data.display_order === 'number' ? data.display_order : 0
+      lastUpdated: (pageData.updated_at as string) || new Date().toISOString(),
+      ticket_id: (pageData.ticket_id as string | null) || null,
+      created_at: pageData.created_at as string | undefined,
+      updated_at: pageData.updated_at as string | undefined,
+      created_by: pageData.created_by as UserInfo | undefined,
+      last_edited_by: pageData.last_edited_by as UserInfo | undefined,
+      display_order: typeof pageData.display_order === 'number' ? pageData.display_order : 0
     };
   } catch (error) {
     logger.error('Error converting backend page data:', error, data);
@@ -163,7 +167,7 @@ export const convertToPage = (data: any): Page => {
 };
 
 // Convert backend page data to frontend Article format (for backward compatibility)
-export const convertToArticle = (data: any): Article => {
+export const convertToArticle = (data: unknown): Article => {
   // Handle null or undefined data
   if (!data) {
     logger.warn('Attempting to convert null or undefined data to Article');
@@ -225,8 +229,8 @@ export const getPages = async (): Promise<Page[]> => {
     }
     
     // Filter out any potentially invalid items before conversion
-    const validItems = response.data.filter((item: any) => 
-      item && typeof item === 'object' && item.id !== undefined
+    const validItems = (response.data as unknown[]).filter((item): item is Record<string, unknown> =>
+      item !== null && typeof item === 'object' && 'id' in item
     );
     
     if (validItems.length !== response.data.length) {
@@ -420,46 +424,50 @@ export const getPageByPath = async (path: string): Promise<Page | null> => {
 export const getAllPages = async (): Promise<Page[]> => {
   try {
     const response = await apiClient.get(`/documentation/pages`);
-    const allPages = response.data;
-    
+    const allPages = response.data as unknown[];
+
     // Map for organizing children by parent ID
     const childrenMap: { [key: string]: Page[] } = {};
-    
+
     // Array for top-level pages
     const topLevelPages: Page[] = [];
-    
+
     // Organize pages by parent
-    allPages.forEach((page: any) => {
+    allPages.forEach((pageData) => {
+      const page = pageData as Record<string, unknown>;
+      const pageId = page.id as string | number;
+      const parentId = page.parent_id as string | number | null;
+
       // Create a full Page object
       const pageObject: Page = {
-        id: page.id,
-        slug: page.slug || '',
-        title: page.title || '',
-        description: page.description || null,
-        content: page.content || '',
-        parent_id: page.parent_id,
-        author: page.author || 'System Admin',
-        status: page.status || 'published',
-        icon: page.icon,
+        id: pageId,
+        slug: (page.slug as string) || '',
+        title: (page.title as string) || '',
+        description: (page.description as string | null) || null,
+        content: (page.content as string) || '',
+        parent_id: parentId,
+        author: (page.author as string) || 'System Admin',
+        status: (page.status as string) || 'published',
+        icon: page.icon as string | null,
         children: [],
-        lastUpdated: page.updated_at,
-        ticket_id: page.ticket_id
+        lastUpdated: page.updated_at as string | undefined,
+        ticket_id: page.ticket_id as string | null | undefined
       };
-      
+
       // Initialize children array for this page's ID if not already done
-      if (!childrenMap[page.id]) {
-        childrenMap[page.id] = [];
+      if (!childrenMap[String(pageId)]) {
+        childrenMap[String(pageId)] = [];
       }
-      
-      if (!page.parent_id) {
+
+      if (!parentId) {
         // This is a top-level page
         topLevelPages.push(pageObject);
-      } else if (childrenMap[page.parent_id]) {
+      } else if (childrenMap[String(parentId)]) {
         // Add to parent's children
-        childrenMap[page.parent_id].push(pageObject);
+        childrenMap[String(parentId)].push(pageObject);
       } else {
         // Initialize parent's children array and add this page
-        childrenMap[page.parent_id] = [pageObject];
+        childrenMap[String(parentId)] = [pageObject];
       }
     });
     
@@ -483,13 +491,13 @@ export const searchArticles = async (query: string): Promise<Article[]> => {
     // Try to use the backend search endpoint
     try {
       const response = await apiClient.get(`/documentation/search?q=${encodeURIComponent(query)}`);
-      return response.data.map((item: any) => convertToArticle(item));
+      return (response.data as unknown[]).map((item) => convertToArticle(item));
     } catch (error) {
       logger.error('Backend search failed, falling back to client-side search:', error);
       
       // Fallback to client-side search
       const allArticlesResponse = await apiClient.get(`/documentation/pages`);
-      const allArticles = allArticlesResponse.data.map((item: any) => convertToArticle(item));
+      const allArticles = (allArticlesResponse.data as unknown[]).map((item) => convertToArticle(item));
       
       // Filter articles by title and description
       const lowerQuery = query.toLowerCase();
@@ -522,7 +530,7 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
     } else if (!isNaN(Number(article.id))) {
       numericId = Number(article.id);
     } else {
-      // If it's a slug, we need to fetch the numeric ID first
+      // If it's a slug, fetch the numeric ID first
       try {
         const response = await apiClient.get(`/documentation/pages/slug/${article.id}`);
         numericId = response.data.id;
@@ -574,20 +582,21 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
     
     // Convert backend article to frontend Page
     return convertToPage(updatedArticleResponse.data);
-  } catch (error: any) {
+  } catch (error) {
     logger.error('Error saving article:', error);
-    
+
     // Try to log more detailed error information
-    if (error.response) {
-      logger.error('Update error response data:', error.response.data);
-      logger.error('Update error response status:', error.response.status);
-      
+    const axiosError = error as { response?: { data?: unknown; status?: number }; config?: { data?: unknown } };
+    if (axiosError.response) {
+      logger.error('Update error response data:', axiosError.response.data);
+      logger.error('Update error response status:', axiosError.response.status);
+
       // Try to log the request payload that caused the error
-      if (error.config && error.config.data) {
-        logger.error('Request payload that caused error:', error.config.data);
+      if (axiosError.config?.data) {
+        logger.error('Request payload that caused error:', axiosError.config.data);
       }
     }
-    
+
     return null;
   }
 };
@@ -649,23 +658,29 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
       // If fetching the new article fails, return the data from the creation response
       return convertToPage(response.data);
     }
-  } catch (error: any) {
+  } catch (error) {
     logger.error('Error creating article:', error);
-    if (error.response) {
-      logger.error('Response data:', error.response.data);
-      logger.error('Response status:', error.response.status);
-      logger.error('Response headers:', error.response.headers);
-      
+    const axiosError = error as {
+      response?: { data?: unknown; status?: number; headers?: unknown };
+      config?: { url?: string; method?: string; data?: unknown };
+      request?: unknown;
+      message?: string;
+    };
+    if (axiosError.response) {
+      logger.error('Response data:', axiosError.response.data);
+      logger.error('Response status:', axiosError.response.status);
+      logger.error('Response headers:', axiosError.response.headers);
+
       // Log more details about the request
-      if (error.config) {
-        logger.error('Request URL:', error.config.url);
-        logger.error('Request method:', error.config.method);
-        logger.error('Request data:', error.config.data);
+      if (axiosError.config) {
+        logger.error('Request URL:', axiosError.config.url);
+        logger.error('Request method:', axiosError.config.method);
+        logger.error('Request data:', axiosError.config.data);
       }
-    } else if (error.request) {
-      logger.error('Request made but no response received:', error.request);
+    } else if (axiosError.request) {
+      logger.error('Request made but no response received:', axiosError.request);
     } else {
-      logger.error('Error setting up request:', error.message);
+      logger.error('Error setting up request:', axiosError.message);
     }
     return null;
   }
@@ -734,19 +749,25 @@ export const savePageContent = async (pageId: string, content: string): Promise<
       
       // Convert backend page to frontend Page
       return convertToPage(updatedPageResponse.data);
-    } catch (error: any) {
-      if (error.response) {
-        logger.error('Update error response data:', error.response.data);
-        logger.error('Update error response status:', error.response.status);
-        
+    } catch (error) {
+      const axiosError = error as {
+        response?: { data?: unknown; status?: number };
+        config?: { data?: unknown };
+        request?: unknown;
+        message?: string;
+      };
+      if (axiosError.response) {
+        logger.error('Update error response data:', axiosError.response.data);
+        logger.error('Update error response status:', axiosError.response.status);
+
         // Try to log the request payload that caused the error
-        if (error.config && error.config.data) {
-          logger.error('Request payload that caused error:', error.config.data);
+        if (axiosError.config?.data) {
+          logger.error('Request payload that caused error:', axiosError.config.data);
         }
-      } else if (error.request) {
-        logger.error('Update error request:', error.request);
+      } else if (axiosError.request) {
+        logger.error('Update error request:', axiosError.request);
       } else {
-        logger.error('Update error message:', error.message);
+        logger.error('Update error message:', axiosError.message);
       }
       throw error;
     }
@@ -917,7 +938,7 @@ export const deleteArticle = async (pageId: string | number): Promise<boolean> =
     } else if (!isNaN(Number(pageId))) {
       numericId = Number(pageId);
     } else {
-      // If it's a slug, we need to fetch the numeric ID first
+      // If it's a slug, fetch the numeric ID first
       try {
         const response = await apiClient.get(`/documentation/pages/slug/${pageId}`);
         numericId = response.data.id;

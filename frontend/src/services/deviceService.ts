@@ -16,10 +16,29 @@ export interface DevicePaginationParams extends PaginationParams {
 // Re-export for backwards compatibility
 export type { PaginatedResponse } from '@/types/pagination';
 
+// Backend device response structure (before transformation)
+interface BackendDevice {
+  id: number;
+  name: string;
+  hostname: string;
+  serial_number: string;
+  model: string;
+  warranty_status: string;
+  manufacturer?: string | null;
+  primary_user_uuid?: string | null;
+  intune_device_id?: string | null;
+  entra_device_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  last_sync_time?: string | null;
+  is_editable?: boolean;
+  primary_user?: Device['primary_user'];
+}
+
 /**
  * Transform backend device response to frontend Device interface
  */
-const transformDeviceResponse = (backendDevice: any): Device => {
+const transformDeviceResponse = (backendDevice: BackendDevice): Device => {
   return {
     id: backendDevice.id,
     name: backendDevice.name,
@@ -80,9 +99,10 @@ export const getPaginatedDevices = async (params: PaginationParams, requestKey: 
       pageSize: response.data.pageSize,
       totalPages: response.data.totalPages,
     };
-  } catch (error: any) {
+  } catch (error) {
     // Don't throw if request was cancelled
-    if (error.name === 'AbortError' || error.name === 'CanceledError') {
+    const errorWithName = error as { name?: string };
+    if (errorWithName.name === 'AbortError' || errorWithName.name === 'CanceledError') {
       logger.debug('Request cancelled', { requestKey });
       throw new Error('REQUEST_CANCELLED');
     }

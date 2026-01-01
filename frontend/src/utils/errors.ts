@@ -107,14 +107,24 @@ export class PermissionError extends AppError {
 }
 
 // Error factory for creating errors from API responses
-export function createErrorFromResponse(error: any): AppError {
-  if (!error.response) {
+interface AxiosLikeError {
+  response?: {
+    status: number;
+    data?: { message?: string; required_role?: string };
+    config: { url?: string };
+  };
+  message?: string;
+}
+
+export function createErrorFromResponse(error: unknown): AppError {
+  const axiosError = error as AxiosLikeError;
+  if (!axiosError.response) {
     return new NetworkError('Network request failed', {
-      originalError: error.message
+      originalError: axiosError.message
     })
   }
 
-  const { status, data, config } = error.response
+  const { status, data, config } = axiosError.response
 
   if (status === 401) {
     return new AuthenticationError(

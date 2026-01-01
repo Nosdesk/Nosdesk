@@ -59,9 +59,10 @@ export const getPaginatedTickets = async (params: TicketPaginationParams, reques
     });
 
     return response.data;
-  } catch (error: any) {
+  } catch (error) {
     // Don't throw if request was cancelled
-    if (error.name === 'AbortError' || error.name === 'CanceledError') {
+    const errorWithName = error as { name?: string };
+    if (errorWithName.name === 'AbortError' || errorWithName.name === 'CanceledError') {
       logger.debug('Request cancelled', { requestKey });
       throw new Error('REQUEST_CANCELLED');
     }

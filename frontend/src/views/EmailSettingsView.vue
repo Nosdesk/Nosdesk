@@ -35,9 +35,10 @@ const loadEmailConfig = async () => {
   try {
     const response = await axios.get('/api/admin/email/config');
     emailConfig.value = response.data;
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to load email configuration:', error);
-    errorMessage.value = error.response?.data?.message || 'Failed to load email configuration';
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to load email configuration';
   } finally {
     isLoading.value = false;
   }
@@ -70,9 +71,10 @@ const sendTestEmail = async () => {
     testEmailAddress.value = ''; // Clear the input after success
 
     setTimeout(() => { successMessage.value = ''; }, 5000);
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to send test email:', error);
-    errorMessage.value = error.response?.data?.message || 'Failed to send test email';
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to send test email';
     setTimeout(() => { errorMessage.value = ''; }, 5000);
   } finally {
     sendingTest.value = false;

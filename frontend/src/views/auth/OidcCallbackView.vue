@@ -89,7 +89,7 @@ onMounted(async () => {
     return;
   }
 
-  // Validate that we have code and state
+  // Validate required code and state parameters
   if (!code || !state) {
     error.value = 'Missing required authentication parameters';
     detailedError.value = `Missing: ${!code ? 'code' : ''} ${!state ? 'state' : ''}`;
@@ -142,22 +142,29 @@ onMounted(async () => {
                           JSON.stringify(data, null, 2).substring(0, 200);
       loading.value = false;
     }
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error during OIDC authentication:', err);
 
+    interface AxiosLikeError {
+      response?: { status?: number; data?: { message?: string; error?: string } };
+      request?: unknown;
+      message?: string;
+    }
+    const axiosError = err as AxiosLikeError;
+
     // Try to extract error message from response if available
-    const errorMsg = err.response?.data?.message ||
-                    err.response?.data?.error ||
+    const errorMsg = axiosError.response?.data?.message ||
+                    axiosError.response?.data?.error ||
                     'An unexpected error occurred during authentication';
 
     // Get detailed error information
     let details = '';
-    if (err.response) {
-      details = `Status: ${err.response.status}\nData: ${JSON.stringify(err.response.data, null, 2)}`;
-    } else if (err.request) {
+    if (axiosError.response) {
+      details = `Status: ${axiosError.response.status}\nData: ${JSON.stringify(axiosError.response.data, null, 2)}`;
+    } else if (axiosError.request) {
       details = 'No response received from server';
     } else {
-      details = err.message || 'Unknown error';
+      details = axiosError.message || 'Unknown error';
     }
 
     error.value = errorMsg;
@@ -173,7 +180,7 @@ onMounted(async () => {
       <div v-if="loading" class="flex flex-col items-center justify-center gap-4">
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-accent"></div>
         <h2 class="text-xl font-medium text-white">{{ message }}</h2>
-        <p class="text-tertiary text-center">Please wait while we complete your authentication</p>
+        <p class="text-tertiary text-center">Please wait while authentication completes</p>
       </div>
 
       <div v-else-if="error && errorInfo" class="flex flex-col items-center justify-center gap-6">

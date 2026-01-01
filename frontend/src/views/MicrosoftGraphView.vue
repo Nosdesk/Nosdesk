@@ -107,9 +107,10 @@ const validateConfiguration = async () => {
     if (!response.data.valid) {
       errorMessage.value = response.data.message || "Configuration validation failed. Check your environment variables.";
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error("Failed to validate configuration:", error);
-    errorMessage.value = error.response?.data?.message || "Failed to validate configuration";
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || "Failed to validate configuration";
     configValidation.value = null;
   } finally {
     isValidatingConfig.value = false;
@@ -135,7 +136,7 @@ const fetchConnectionStatus = async () => {
         ...graphConfig.value,
         clientId: response.data.client_id,
         tenantId: response.data.tenant_id,
-        // We don't display the client secret for security reasons
+        // Client secret is not displayed for security reasons
         clientSecret: "",
       };
     }
@@ -191,10 +192,11 @@ const startProgressPolling = (sessionId: string) => {
           response.data.status === 'completed_with_errors') {
         stopProgressPolling(true); // Refresh data when sync completes
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to fetch sync progress:", error);
-      // If we get a 404, the session might be completed or expired
-      if (error?.response?.status === 404) {
+      // A 404 indicates the session might be completed or expired
+      const axiosError = error as { response?: { status?: number } };
+      if (axiosError?.response?.status === 404) {
         stopProgressPolling(true); // Refresh data if session not found
       }
     }
@@ -238,10 +240,11 @@ const cancelSync = async (sessionId: string) => {
       successMessage.value = null;
       errorMessage.value = null;
     }, 3000);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Failed to cancel sync:", error);
-    errorMessage.value = error.response?.data?.message || "Failed to cancel sync";
-    
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || "Failed to cancel sync";
+
     setTimeout(() => {
       errorMessage.value = null;
     }, 3000);
@@ -279,10 +282,11 @@ const startSync = async () => {
     setTimeout(() => {
       successMessage.value = null;
     }, 3000);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Failed to start sync:", error);
+    const axiosError = error as { response?: { data?: { message?: string } } };
     errorMessage.value =
-      error.response?.data?.message || "Failed to start sync";
+      axiosError.response?.data?.message || "Failed to start sync";
   } finally {
     isLoading.value = false;
   }
@@ -382,7 +386,7 @@ const fetchActiveSyncs = async () => {
     const response = await apiClient.get("/integrations/graph/active-syncs");
     activeSyncs.value = response.data.active_syncs || [];
     
-    // Only start monitoring if there are truly active syncs (running/starting) and we're not already monitoring
+    // Only start monitoring if there are truly active syncs (running/starting) and not already monitoring
     if (activeSyncs.value.length > 0 && !isSyncing.value) {
       const runningSyncs = activeSyncs.value.filter(sync => 
         sync.status === 'running' || sync.status === 'starting'
@@ -394,7 +398,7 @@ const fetchActiveSyncs = async () => {
       startProgressPolling(activeSync.session_id);
       }
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error("Failed to fetch active syncs:", error);
     // Don't show error message for this as it's a background operation
   } finally {
@@ -416,7 +420,7 @@ const fetchLastSyncDetails = async () => {
   try {
     const response = await apiClient.get("/integrations/graph/last-sync");
     lastSyncDetails.value = response.data;
-  } catch (error: any) {
+  } catch (error) {
     console.error("Failed to fetch last sync details:", error);
     // Don't show error message for this as it's a background operation
     lastSyncDetails.value = null;

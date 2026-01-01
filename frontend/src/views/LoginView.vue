@@ -31,7 +31,10 @@ const email = ref("");
 const password = ref("");
 const showPassword = ref(false);
 const rememberMe = ref(false);
-const isLoading = ref(false);
+// Track which specific action is loading (null = nothing loading)
+const loadingAction = ref<'login' | 'mfa' | 'microsoft' | 'oidc' | null>(null);
+// Computed for convenience - true if any action is loading
+const isLoading = computed(() => loadingAction.value !== null);
 const errorMessage = ref("");
 const successMessage = ref("");
 const showForgotPasswordModal = ref(false);
@@ -80,7 +83,7 @@ onMounted(async () => {
 });
 
 const handleLogin = async () => {
-  isLoading.value = true;
+  loadingAction.value = 'login';
   errorMessage.value = "";
   successMessage.value = "";
 
@@ -116,7 +119,7 @@ const handleLogin = async () => {
     console.error("Login error:", error);
     errorMessage.value = "An unexpected error occurred. Please try again.";
   } finally {
-    isLoading.value = false;
+    loadingAction.value = null;
   }
 };
 
@@ -126,7 +129,7 @@ const handleMfaLogin = async () => {
     return;
   }
 
-  isLoading.value = true;
+  loadingAction.value = 'mfa';
   errorMessage.value = "";
 
   try {
@@ -145,7 +148,7 @@ const handleMfaLogin = async () => {
     console.error("MFA login error:", error);
     errorMessage.value = "An unexpected error occurred. Please try again.";
   } finally {
-    isLoading.value = false;
+    loadingAction.value = null;
   }
 };
 
@@ -164,7 +167,7 @@ const handleMfaInput = (event: Event) => {
   // Update the model value
   mfaToken.value = cleanValue;
   
-  // Auto-submit when we have a complete code (6 digits or 8-char backup code)
+  // Auto-submit when a complete code is entered (6 digits or 8-char backup code)
   if (cleanValue.length === 6 || cleanValue.length === 8) {
     nextTick(() => {
       if (!isLoading.value) {
@@ -197,7 +200,7 @@ const handleMfaPaste = (event: ClipboardEvent) => {
 };
 
 const handleMicrosoftLoginClick = async () => {
-  isLoading.value = true;
+  loadingAction.value = 'microsoft';
   errorMessage.value = "";
   successMessage.value = "";
 
@@ -205,10 +208,10 @@ const handleMicrosoftLoginClick = async () => {
     const redirectPath =
       router.currentRoute.value.query.redirect?.toString() || "/";
     await handleMicrosoftLogin(redirectPath);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error initiating Microsoft authentication:", error);
     errorMessage.value = microsoftError.value || "Failed to initiate Microsoft authentication";
-    isLoading.value = false;
+    loadingAction.value = null;
   }
 };
 
@@ -217,14 +220,14 @@ const handleMicrosoftLogoutClick = async () => {
     errorMessage.value = "";
     successMessage.value = "";
     await handleMicrosoftLogout(window.location.href);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error logging out of Microsoft:", error);
     errorMessage.value = microsoftError.value || "Failed to initiate Microsoft logout";
   }
 };
 
 const handleOidcLoginClick = async () => {
-  isLoading.value = true;
+  loadingAction.value = 'oidc';
   errorMessage.value = "";
   successMessage.value = "";
 
@@ -252,10 +255,11 @@ const handleOidcLoginClick = async () => {
     } else {
       throw new Error('No authorization URL received');
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error initiating OIDC authentication:", error);
-    errorMessage.value = error.message || "Failed to initiate SSO authentication";
-    isLoading.value = false;
+    const err = error as Error;
+    errorMessage.value = err.message || "Failed to initiate SSO authentication";
+    loadingAction.value = null;
   }
 };
 
@@ -288,9 +292,10 @@ const handleOidcLogoutClick = async () => {
       // Provider doesn't support logout, show message
       successMessage.value = data.message || 'Logged out of application. You may still be signed in to your identity provider.';
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error logging out of OIDC provider:", error);
-    errorMessage.value = error.message || "Failed to initiate SSO logout";
+    const err = error as Error;
+    errorMessage.value = err.message || "Failed to initiate SSO logout";
   }
 };
 </script>
@@ -445,7 +450,7 @@ const handleOidcLogoutClick = async () => {
               class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               <svg
-                v-if="isLoading"
+                v-if="loadingAction === 'mfa'"
                 class="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
                 fill="none"
                 viewBox="0 0 24 24"
@@ -464,7 +469,7 @@ const handleOidcLogoutClick = async () => {
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                 ></path>
               </svg>
-              <span v-if="isLoading">Verifying...</span>
+              <span v-if="loadingAction === 'mfa'">Verifying...</span>
               <span v-else>Verify & Sign In</span>
             </button>
           </div>
@@ -588,7 +593,7 @@ const handleOidcLogoutClick = async () => {
           :disabled="isLoading"
           class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <span v-if="isLoading">Signing in...</span>
+          <span v-if="loadingAction === 'login'">Signing in...</span>
           <span v-else>Sign in</span>
         </button>
 
@@ -605,9 +610,20 @@ const handleOidcLogoutClick = async () => {
             <button
               type="button"
               @click="handleMicrosoftLoginClick"
-              class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent"
+              :disabled="isLoading"
+              class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg
+                v-if="loadingAction === 'microsoft'"
+                class="animate-spin h-4 w-4 mr-2"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <svg
+                v-else
                 xmlns="http://www.w3.org/2000/svg"
                 width="16"
                 height="16"
@@ -619,7 +635,8 @@ const handleOidcLogoutClick = async () => {
                 <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
                 <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
               </svg>
-              Sign in with Microsoft Entra
+              <span v-if="loadingAction === 'microsoft'">Connecting...</span>
+              <span v-else>Sign in with Microsoft Entra</span>
             </button>
 
             <button
@@ -652,6 +669,16 @@ const handleOidcLogoutClick = async () => {
               class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg
+                v-if="loadingAction === 'oidc'"
+                class="animate-spin h-5 w-5 mr-2"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <svg
+                v-else
                 xmlns="http://www.w3.org/2000/svg"
                 class="h-5 w-5 mr-2"
                 viewBox="0 0 24 24"
@@ -665,7 +692,8 @@ const handleOidcLogoutClick = async () => {
                 <polyline points="10 17 15 12 10 7" />
                 <line x1="15" y1="12" x2="3" y2="12" />
               </svg>
-              Sign in with {{ oidcDisplayName }}
+              <span v-if="loadingAction === 'oidc'">Connecting...</span>
+              <span v-else>Sign in with {{ oidcDisplayName }}</span>
             </button>
 
             <button

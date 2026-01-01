@@ -84,7 +84,7 @@ onMounted(async () => {
     return;
   }
 
-  // Check if we have valid credentials from the secure store
+  // Check for valid credentials in the secure store
   if (mfaSetupStore.hasValidCredentials) {
     const creds = mfaSetupStore.getCredentials;
     if (creds) {
@@ -115,7 +115,7 @@ onMounted(async () => {
 
 // Clean up credentials when leaving the page
 onUnmounted(() => {
-  // Only clear if we're navigating away without completing setup
+  // Only clear if navigating away without completing setup
   if (!authStore.user) {
     mfaSetupStore.clearCredentials();
   }

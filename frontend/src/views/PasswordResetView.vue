@@ -254,9 +254,10 @@ const handleSubmit = async () => {
   try {
     await authService.completePasswordReset(token.value, newPassword.value);
     resetSuccess.value = true;
-  } catch (error: any) {
+  } catch (error) {
     console.error('Password reset error:', error);
-    errorMessage.value = error.response?.data?.message || 'Failed to reset password. The link may have expired.';
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to reset password. The link may have expired.';
   } finally {
     loading.value = false;
   }

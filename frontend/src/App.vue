@@ -56,7 +56,7 @@ const ticketInfo = computed(() => {
   return null
 })
 
-// Computed property to determine if we're on a documentation page
+// Computed property to determine if on a documentation page
 const isDocumentationPage = computed(() => {
   return route.name === 'documentation-article';
 });
@@ -110,7 +110,7 @@ onMounted(async () => {
   }
 
   try {
-    // Only check if we're not already on onboarding or login pages
+    // Only check if not already on onboarding or login pages
     if (route.name !== 'onboarding' && route.name !== 'login') {
       console.log('🔄 App: Checking setup status on initialization...');
       const setupStatus = await authService.checkSetupStatus();

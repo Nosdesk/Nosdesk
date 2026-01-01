@@ -15,19 +15,16 @@ const emit = defineEmits<{
 <template>
   <div class="doc-card-grid">
     <!-- Main Grid -->
-    <TransitionGroup
+    <div
       v-if="pages.length > 0"
-      name="card-stagger"
-      tag="div"
       class="grid-container"
     >
       <DocumentationCard
-        v-for="(page, index) in pages"
+        v-for="page in pages"
         :key="page.id"
         :page="page"
-        :stagger-index="index"
       />
-    </TransitionGroup>
+    </div>
 
     <!-- Empty State -->
     <EmptyState
@@ -77,29 +74,5 @@ const emit = defineEmits<{
   .grid-container {
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   }
-}
-
-/* Stagger transition group */
-.card-stagger-move {
-  transition: transform 300ms ease;
-}
-
-.card-stagger-enter-active {
-  transition: all 300ms ease-out;
-}
-
-.card-stagger-leave-active {
-  transition: all 200ms ease-in;
-  position: absolute;
-}
-
-.card-stagger-enter-from {
-  opacity: 0;
-  transform: translateY(16px) scale(0.95);
-}
-
-.card-stagger-leave-to {
-  opacity: 0;
-  transform: scale(0.95);
 }
 </style>

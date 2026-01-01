@@ -51,7 +51,7 @@ const fetchDeviceData = async () => {
     loading.value = true;
     error.value = null;
     
-    // Check if we're in creation mode (no ID parameter)
+    // Check for creation mode (no ID parameter)
     if (!route.params.id || route.params.id === 'new') {
       isCreationMode.value = true;
       isNewDevice.value = true;
@@ -182,8 +182,9 @@ const fetchEntraObjectId = async () => {
     } else {
       objectIdError.value = response.message || 'Failed to fetch Entra Object ID';
     }
-  } catch (e: any) {
-    objectIdError.value = e.response?.data?.message || 'Failed to fetch Entra Object ID';
+  } catch (e) {
+    const axiosError = e as { response?: { data?: { message?: string } } };
+    objectIdError.value = axiosError.response?.data?.message || 'Failed to fetch Entra Object ID';
     console.error('Error fetching Entra Object ID:', e);
   } finally {
     loadingObjectId.value = false;
@@ -203,7 +204,7 @@ const openInEntra = async () => {
     return;
   }
 
-  // If we already have the Object ID, open directly
+  // If Object ID is already available, open directly
   if (entraObjectId.value) {
     const url = `https://entra.microsoft.com/#view/Microsoft_AAD_Devices/DeviceDetailsMenuBlade/~/Properties/objectId/${entraObjectId.value}`;
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -414,7 +415,7 @@ const handleUnmanageDevice = async () => {
 
 // Watch device and emit device object updates
 watch(device, (newDevice) => {
-  // Only emit when we have valid device data - prevents title flash during loading
+  // Only emit when valid device data exists - prevents title flash during loading
   // Clearing is handled by App.vue on route leave
   if (newDevice) {
     emit('update:device', newDevice);

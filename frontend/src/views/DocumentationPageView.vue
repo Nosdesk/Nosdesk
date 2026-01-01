@@ -59,17 +59,27 @@ let titleUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // Revision history state
 const showRevisionHistory = ref(false);
-const editorRef = ref<any>(null);
+const editorRef = ref<InstanceType<typeof CollaborativeEditor> | null>(null);
 
 // SSE for real-time updates
 const { addEventListener, removeEventListener, connect, isConnected, isConnecting, error: sseError } = useSSE();
 const authStore = useAuthStore();
 
+// SSE documentation event data shape
+interface DocumentationEventData {
+  document_id?: number;
+  field?: string;
+  value?: string;
+  updated_by?: string;
+  data?: DocumentationEventData;
+}
+
 // Handle SSE documentation updates from other clients
-const handleDocumentationUpdate = (event: any) => {
+const handleDocumentationUpdate = (event: unknown) => {
   // SSE events come as {type: "DocumentationUpdated", data: {...}} from backend
-  // The sseService parses the raw event.data, so we receive the full object
-  const data = event.data || event;
+  // sseService parses raw event.data, returning the full object
+  const rawEvent = event as DocumentationEventData;
+  const data = rawEvent.data || rawEvent;
 
   console.log('[SSE] Documentation update received:', {
     rawEvent: event,
@@ -146,7 +156,7 @@ const emit = defineEmits<{
   (e: 'update:document', document: { id: string; title: string; icon: string; slug?: string } | null): void;
 }>();
 
-// Add a computed property to determine if we should show the page URL
+// Determines whether to show the page URL
 const isMainDocumentationPage = computed(() => {
   return isIndexPage.value;
 });
@@ -357,7 +367,7 @@ const handleSelectRevision = async (revisionNumber: number | null) => {
 
 const handleCloseRevisionHistory = () => {
   showRevisionHistory.value = false;
-  // Also exit revision view if we're currently viewing one
+  // Also exit revision view if currently viewing one
   if (editorRef.value && editorRef.value.isViewingRevision) {
     editorRef.value.exitRevisionView();
   }
@@ -601,16 +611,16 @@ const handleDeletePage = async () => {
 
 // Modify the fetchContent method to load binary updates when appropriate
 const fetchContent = async () => {
-  // Determine what type of content we're navigating to
+  // Determine content type for navigation
   const isNavigatingToIndex = !route.params.path || route.params.path === '';
   const isNavigatingToTicketNote = !!route.query.ticketId;
   const isNavigatingToDocument = !isNavigatingToIndex && !isNavigatingToTicketNote;
 
-  // Check if we have cached data for the destination
+  // Check for cached data at destination
   const hasIndexCache = pages.value.length > 0;
   const hasDocumentCache = article.value !== null || page.value !== null;
 
-  // Only show skeleton if navigating to content we don't have cached
+  // Only show skeleton when navigating to uncached content
   const shouldShowSkeleton =
     (isNavigatingToIndex && !hasIndexCache) ||
     (isNavigatingToDocument && !hasDocumentCache) ||
@@ -625,7 +635,7 @@ const fetchContent = async () => {
     article.value = null;
   }
 
-  // Check if we're creating from a ticket
+  // Check if creating from a ticket
   if (route.query.createFromTicket === 'true') {
     isCreateFromTicket.value = true;
     isLoading.value = false;
@@ -673,7 +683,7 @@ const fetchContent = async () => {
     }
   }
   
-  // If we're on the main documentation route with no path, show the index page
+  // On main documentation route with no path, show the index page
   if (!route.params.path || route.params.path === '') {
     console.log('Loading main documentation index page');
     await loadAllPages();
@@ -763,7 +773,7 @@ watch(() => route.query.createFromTicket, (newValue) => {
 }, { immediate: true });
 
 // Emit the document object when it changes
-// Only emit when we have a valid document - clearing is handled by App.vue on route leave
+// Only emit with valid document - clearing handled by App.vue on route leave
 // This prevents title flashing during page transitions between documentation pages
 watch(documentObj, (newDocument) => {
   if (newDocument) {
@@ -822,15 +832,14 @@ const sortedPages = computed(() => {
 });
 
 onMounted(() => {
-  // Check if we have a search query on mount
-  const flattened: any[] = [];
+  // Check for search query on mount
   if (route.query.search === 'string') {
     searchQuery.value = route.query.search;
   }
 
   // Connect to SSE and add listener for documentation updates
   connect();
-  addEventListener('documentation-updated' as any, handleDocumentationUpdate);
+  addEventListener('documentation-updated', handleDocumentationUpdate);
 
   // Fetch content based on the route
   fetchContent();
@@ -990,8 +999,8 @@ watch(searchQuery, (value) => {
       <!-- Search Results - Removed from main content area -->
 
       <!-- Index Page View - Card Grid -->
-      <div v-if="isIndexPage" class="flex flex-col max-w-7xl mx-auto w-full px-4 py-6 gap-6 animate-fadeIn">
-        <!-- Header -->
+      <div v-if="isIndexPage || (isLoading && !article && !page)" class="flex flex-col max-w-7xl mx-auto w-full px-4 py-6 gap-6">
+        <!-- Header (always visible - static content) -->
         <div class="flex items-center justify-between gap-4 pb-4 border-b border-default">
           <div class="flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-accent" viewBox="0 0 20 20" fill="currentColor">
@@ -1000,21 +1009,22 @@ watch(searchQuery, (value) => {
             <h2 class="text-xl font-semibold text-primary">Documentation</h2>
           </div>
 
-          <!-- Page count badge -->
-          <span v-if="pages.length > 0" class="text-xs text-tertiary bg-surface-alt px-2 py-1 rounded-full">
-            {{ pages.length }} page{{ pages.length !== 1 ? 's' : '' }}
+          <!-- Page count badge (shows count when loaded, skeleton when loading) -->
+          <span
+            class="text-xs bg-surface-alt px-2 py-1 rounded-full"
+            :class="isLoading ? 'text-transparent animate-pulse' : 'text-tertiary'"
+          >
+            {{ isLoading ? '0 pages' : `${pages.length} page${pages.length !== 1 ? 's' : ''}` }}
           </span>
         </div>
 
-        <!-- Card Grid -->
-        <DocumentationCardGrid
-          :pages="pages"
-          @create="createNewPage"
-        />
+        <!-- Card Grid or Skeleton -->
+        <DocumentationCardSkeleton v-if="isLoading" :count="6" />
+        <DocumentationCardGrid v-else :pages="pages" @create="createNewPage" />
       </div>
 
       <!-- Document Content View - Full width container with centered content -->
-      <div v-else-if="article || page" class="w-full flex animate-fadeIn">
+      <div v-else-if="article || page" class="w-full flex">
         <!-- Main Content Area - Centered -->
         <div class="flex-1 flex justify-center">
           <div class="w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
@@ -1123,23 +1133,8 @@ watch(searchQuery, (value) => {
         />
       </div>
 
-      <!-- Loading State - Card Grid Skeleton -->
-      <div v-else-if="isLoading" class="flex flex-col max-w-7xl mx-auto w-full px-4 py-6 gap-6">
-        <!-- Header Skeleton -->
-        <div class="flex items-center justify-between gap-4 pb-4 border-b border-default">
-          <div class="flex items-center gap-2">
-            <div class="w-6 h-6 rounded bg-surface-hover animate-pulse"></div>
-            <div class="h-7 w-40 bg-surface-hover rounded animate-pulse"></div>
-          </div>
-          <div class="h-6 w-16 bg-surface-hover rounded-full animate-pulse"></div>
-        </div>
-
-        <!-- Card Grid Skeleton -->
-        <DocumentationCardSkeleton :count="6" />
-      </div>
-
       <!-- Create from ticket form -->
-      <div v-else-if="isCreateFromTicket" class="max-w-4xl mx-auto w-full p-6 bg-surface rounded-lg shadow-lg mt-8 border border-default animate-fadeIn">
+      <div v-else-if="isCreateFromTicket" class="max-w-4xl mx-auto w-full p-6 bg-surface rounded-lg shadow-lg mt-8 border border-default">
         <h1 class="text-2xl font-bold text-primary mb-6">Create Documentation from Ticket</h1>
 
         <div class="mb-6">
@@ -1168,7 +1163,7 @@ watch(searchQuery, (value) => {
       </div>
 
       <!-- Not Found State -->
-      <div v-else class="p-8 text-center text-secondary flex flex-col items-center gap-4 animate-fadeIn">
+      <div v-else class="p-8 text-center text-secondary flex flex-col items-center gap-4">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-tertiary mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>

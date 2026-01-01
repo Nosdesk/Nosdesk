@@ -10,7 +10,7 @@ export interface LogEntry {
   level: LogLevel
   message: string
   timestamp: string
-  context?: Record<string, any>
+  context?: Record<string, unknown>
   correlationId?: string
   userId?: string
 }
@@ -56,27 +56,27 @@ class Logger {
     this.correlationId = id
   }
 
-  debug(message: string, context?: any) {
-    this.log(LogLevel.DEBUG, message, context)
+  debug(message: string, context?: unknown) {
+    this.log(LogLevel.DEBUG, message, context as Record<string, unknown> | undefined)
   }
 
-  info(message: string, context?: any) {
-    this.log(LogLevel.INFO, message, context)
+  info(message: string, context?: unknown) {
+    this.log(LogLevel.INFO, message, context as Record<string, unknown> | undefined)
   }
 
-  warn(message: string, context?: any) {
-    this.log(LogLevel.WARN, message, context)
+  warn(message: string, context?: unknown) {
+    this.log(LogLevel.WARN, message, context as Record<string, unknown> | undefined)
   }
 
-  error(message: string, context?: any) {
-    this.log(LogLevel.ERROR, message, context)
+  error(message: string, context?: unknown) {
+    this.log(LogLevel.ERROR, message, context as Record<string, unknown> | undefined)
   }
 
-  fatal(message: string, context?: any) {
-    this.log(LogLevel.FATAL, message, context)
+  fatal(message: string, context?: unknown) {
+    this.log(LogLevel.FATAL, message, context as Record<string, unknown> | undefined)
   }
 
-  private log(level: LogLevel, message: string, context?: Record<string, any>) {
+  private log(level: LogLevel, message: string, context?: Record<string, unknown>) {
     if (level < this.config.minLevel) {
       return
     }
@@ -130,7 +130,7 @@ class Logger {
     }
   }
 
-  private sanitizeContext(context?: Record<string, any>): Record<string, any> | undefined {
+  private sanitizeContext(context?: Record<string, unknown>): Record<string, unknown> | undefined {
     if (!context) return undefined
 
     const sanitized = { ...context }

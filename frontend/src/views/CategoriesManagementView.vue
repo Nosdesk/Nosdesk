@@ -72,9 +72,10 @@ const loadCategories = async () => {
 
   try {
     categories.value = await categoryService.getAllCategoriesAdmin();
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to load categories:', error);
-    errorMessage.value = error.response?.data?.message || 'Failed to load categories';
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to load categories';
   } finally {
     isLoading.value = false;
   }
@@ -169,8 +170,9 @@ const saveCategory = async () => {
     await loadCategories();
 
     setTimeout(() => successMessage.value = '', 3000);
-  } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || 'Failed to save category';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to save category';
   } finally {
     isSaving.value = false;
   }
@@ -183,8 +185,9 @@ const toggleActive = async (category: CategoryWithVisibility) => {
       is_active: !category.is_active
     });
     await loadCategories();
-  } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || 'Failed to update category';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to update category';
   }
 };
 
@@ -209,8 +212,9 @@ const deleteCategory = async () => {
     await loadCategories();
 
     setTimeout(() => successMessage.value = '', 3000);
-  } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || 'Failed to delete category';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to delete category';
   } finally {
     isSaving.value = false;
   }
@@ -237,8 +241,9 @@ const moveCategory = async (category: CategoryWithVisibility, direction: 'up' | 
   try {
     await categoryService.reorderCategories({ orders });
     await loadCategories();
-  } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || 'Failed to reorder categories';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to reorder categories';
   }
 };
 

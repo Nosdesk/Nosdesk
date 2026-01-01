@@ -321,7 +321,7 @@ let animInterval: ReturnType<typeof setInterval> | null = null;
 const dataArrivedTick = ref<number | null>(null);
 const transitionDuration = 30; // ticks for transition (~1.8s)
 
-// Start/stop animation based on whether we have real data
+// Start/stop animation based on whether real data is available
 watch(() => mfa.qrMatrix.value, (newVal) => {
     if (newVal && dataArrivedTick.value === null) {
         // Data just arrived - record the tick and keep animating for transition
@@ -468,13 +468,13 @@ const getQrCellClass = (i: number) => {
     const maxDist = Math.sqrt(2) * center;
     const normalizedDist = dist / maxDist;
 
-    // If we have real matrix data
+    // Real matrix data available
     if (mfa.qrMatrix.value) {
         const matrix = mfa.qrMatrix.value;
         const idx = row * matrix.size + col;
         const finalIsDark = matrix.data[idx];
 
-        // Check if we're still in transition
+        // Check if still in transition
         if (dataArrivedTick.value !== null) {
             const ticksSinceArrival = animTick.value - dataArrivedTick.value;
             // Radial wave progress: 0 at start, 1 when complete
@@ -566,7 +566,7 @@ const handleVerificationPaste = (event: ClipboardEvent) => {
     if (cleanValue.length >= 6) {
         // Take first 6 characters for standard TOTP codes
         verificationCode.value = cleanValue.slice(0, 6);
-        // Auto-submit if we got exactly a 6-digit code
+        // Auto-submit on exactly 6-digit code
         if (cleanValue.length === 6) {
             // Small delay to let the UI update
             setTimeout(() => {

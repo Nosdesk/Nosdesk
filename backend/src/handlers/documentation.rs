@@ -2,6 +2,7 @@ use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use chrono::Utc;
 use serde::Deserialize;
 use serde_json::json;
+use tracing::{debug, error, info};
 use uuid::Uuid;
 use yrs::{Doc, Transact, ReadTxn, WriteTxn, GetString, Options, updates::decoder::Decode, Update, XmlFragment, XmlOut};
 use std::panic;
@@ -430,7 +431,7 @@ pub async fn update_documentation_page(
             // Update the page
             match repository::update_documentation_page(&mut conn, page_id, &page_update) {
                 Ok(updated_page) => {
-                    println!("Documentation page updated: {}", updated_page.id);
+                    debug!(page_id = updated_page.id, "Documentation page updated");
 
                     // Broadcast SSE events for each updated field
                     if let Some(ref title) = update_req.title {
@@ -467,7 +468,7 @@ pub async fn update_documentation_page(
                     }
                 },
                 Err(e) => {
-                    println!("Error updating documentation page: {:?}", e);
+                    error!(page_id = page_id, error = ?e, "Error updating documentation page");
                     HttpResponse::InternalServerError().json("Failed to update documentation page")
                 },
             }
@@ -510,11 +511,11 @@ pub async fn delete_documentation_page(
             // Delete the page
             match repository::delete_documentation_page(page_id, &mut conn) {
                 Ok(_) => {
-                    println!("Documentation page deleted by {}: {}", claims.name, page_id);
+                    info!(page_id = page_id, deleted_by = %claims.name, "Documentation page deleted");
                     HttpResponse::NoContent().finish()
                 },
                 Err(e) => {
-                    println!("Error deleting documentation page: {:?}", e);
+                    error!(page_id = page_id, error = ?e, "Error deleting documentation page");
                     HttpResponse::InternalServerError().json("Failed to delete documentation page")
                 },
             }
@@ -672,7 +673,7 @@ pub async fn reorder_pages(
     match repository::reorder_pages(&mut conn, Some(request.parent_id), &request.page_orders) {
         Ok(updated_pages) => HttpResponse::Ok().json(updated_pages),
         Err(e) => {
-            eprintln!("Error reordering pages: {:?}", e);
+            error!(parent_id = request.parent_id, error = ?e, "Error reordering pages");
             HttpResponse::InternalServerError().json("Failed to reorder pages")
         }
     }
@@ -731,7 +732,7 @@ pub async fn move_page_to_parent(
             }))
         }
         Err(e) => {
-            eprintln!("Error moving page: {:?}", e);
+            error!(page_id = request.page_id, new_parent_id = ?request.new_parent_id, error = ?e, "Error moving page");
             HttpResponse::InternalServerError().json(json!({
                 "error": "Internal server error",
                 "message": "Failed to move page to new parent"
@@ -808,14 +809,14 @@ pub async fn get_documentation_pages_by_ticket_id(
 
     match repository::get_documentation_pages_by_ticket_id(&mut conn, ticket_id) {
         Ok(pages) => {
-            println!("Found {} documentation pages for ticket {}", pages.len(), ticket_id);
+            debug!(ticket_id = ticket_id, count = pages.len(), "Found documentation pages for ticket");
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
         Err(e) => {
-            println!("Error fetching documentation pages for ticket {}: {:?}", ticket_id, e);
+            error!(ticket_id = ticket_id, error = ?e, "Error fetching documentation pages for ticket");
             HttpResponse::InternalServerError().json("Failed to fetch documentation pages")
         }
     }
@@ -978,7 +979,7 @@ pub async fn create_documentation_page_from_ticket(
     match repository::create_documentation_page(new_page, &mut conn) {
         Ok(page) => HttpResponse::Created().json(page),
         Err(e) => {
-            eprintln!("Error creating documentation page: {:?}", e);
+            error!(ticket_id = ticket_id, error = ?e, "Error creating documentation page from ticket");
             HttpResponse::InternalServerError().json("Failed to create documentation page")
         }
     }

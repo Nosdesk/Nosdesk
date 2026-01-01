@@ -91,7 +91,7 @@ const fetchUserData = async () => {
         loading.value = true;
         error.value = null;
 
-        // Check if we're in creation mode (no UUID parameter)
+        // Check for creation mode (no UUID parameter)
         if (!route.params.uuid || route.params.uuid === "new") {
             isCreationMode.value = true;
             isNewUser.value = true;

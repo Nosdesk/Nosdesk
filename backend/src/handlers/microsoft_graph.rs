@@ -1,6 +1,7 @@
 use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use serde_json::json;
 use serde::Deserialize;
+use tracing::error;
 use urlencoding;
 
 use crate::db::Pool;
@@ -10,7 +11,7 @@ use crate::models::AuthProvider;
 
 // Helper functions for environment-based auth providers
 fn get_default_microsoft_provider_id() -> Result<i32, diesel::result::Error> {
-    // Since we're using environment variables, we'll just return a fixed ID for Microsoft
+    // Using environment variables - return fixed ID for Microsoft
     if std::env::var("MICROSOFT_CLIENT_ID").is_ok() 
         && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok() 
         && std::env::var("MICROSOFT_TENANT_ID").is_ok() {
@@ -158,7 +159,7 @@ pub async fn process_graph_request(
                             "message": "No Microsoft authentication provider configured"
                         }));
                     } else {
-                        eprintln!("Error getting default Microsoft provider: {:?}", e);
+                        error!(error = ?e, "Error getting default Microsoft provider");
                         return HttpResponse::InternalServerError().json(json!({
                             "status": "error",
                             "message": "Failed to retrieve Microsoft provider"
@@ -187,7 +188,7 @@ pub async fn process_graph_request(
                     "message": "Authentication provider not found"
                 }));
             } else {
-                eprintln!("Error getting auth provider {}: {:?}", provider_id_val, e);
+                error!(provider_id = provider_id_val, error = ?e, "Error getting auth provider");
                 return HttpResponse::InternalServerError().json(json!({
                     "status": "error",
                     "message": "Failed to retrieve authentication provider"
@@ -258,7 +259,7 @@ pub async fn process_graph_request(
                     token_data
                 },
                 Err(e) => {
-                    eprintln!("Error parsing token response: {:?}", e);
+                    error!(error = ?e, "Error parsing token response");
                     return HttpResponse::InternalServerError().json(json!({
                         "status": "error",
                         "message": "Failed to parse Microsoft authentication response"
@@ -267,7 +268,7 @@ pub async fn process_graph_request(
             }
         },
         Err(e) => {
-            eprintln!("Error getting Microsoft access token: {:?}", e);
+            error!(error = ?e, "Error getting Microsoft access token");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to get Microsoft access token"
@@ -409,7 +410,7 @@ pub async fn process_graph_request(
                     }
                 },
                 Err(e) => {
-                    eprintln!("Error parsing Microsoft Graph response: {:?}", e);
+                    error!(error = ?e, "Error parsing Microsoft Graph response");
                     HttpResponse::InternalServerError().json(json!({
                         "status": "error",
                         "message": "Failed to parse Microsoft Graph response"
@@ -418,7 +419,7 @@ pub async fn process_graph_request(
             }
         },
         Err(e) => {
-            eprintln!("Error sending Microsoft Graph request: {:?}", e);
+            error!(error = ?e, "Error sending Microsoft Graph request");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to send Microsoft Graph request"

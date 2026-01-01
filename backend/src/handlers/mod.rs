@@ -60,6 +60,7 @@ pub use msgraph_integration::{get_connection_status, get_config_validation, test
 use actix_web::{web, HttpResponse, HttpMessage, Responder};
 use serde_json::json;
 use std::sync::Arc;
+use tracing::{info, warn, error, debug};
 
 // Re-export validation utilities
 // pub use crate::utils::validation;
@@ -72,16 +73,16 @@ pub async fn get_comments_by_ticket_id(
     pool: web::Data<crate::db::Pool>
 ) -> impl Responder {
     let ticket_id = path.into_inner();
-    println!("Getting comments for ticket: {}", ticket_id);
-    
+    debug!(ticket_id, "Getting comments for ticket");
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(e) => {
-            println!("Database connection error: {:?}", e);
+            error!(error = ?e, "Database connection error");
             return HttpResponse::InternalServerError().json(json!({"error": "Database connection error"}));
         }
     };
-    
+
     match crate::repository::comments::get_comments_with_attachments_by_ticket_id(&mut conn, ticket_id) {
         Ok(comments) => {
             // Format the comments for the frontend
@@ -98,12 +99,12 @@ pub async fn get_comments_by_ticket_id(
                     "user": c.user
                 })
             }).collect();
-            
-            println!("Successfully retrieved {} comments for ticket {}", formatted_comments.len(), ticket_id);
+
+            debug!(ticket_id, comment_count = formatted_comments.len(), "Successfully retrieved comments");
             HttpResponse::Ok().json(formatted_comments)
         },
         Err(e) => {
-            println!("Error retrieving comments for ticket {}: {}", ticket_id, e);
+            error!(ticket_id, error = %e, "Error retrieving comments");
             HttpResponse::InternalServerError().json(json!({"error": format!("Failed to retrieve comments: {}", e)}))
         }
     }
@@ -118,14 +119,14 @@ pub async fn add_comment_to_ticket(
     req: actix_web::HttpRequest,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
-    println!("Adding comment to ticket {}", ticket_id);
-    println!("Comment content: {}", comment_data.content);
-    println!("Attachments count: {}", comment_data.attachments.len());
+    debug!(ticket_id, "Adding comment to ticket");
+    debug!(content = %comment_data.content, "Comment content");
+    debug!(attachments_count = comment_data.attachments.len(), "Attachments count");
 
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(e) => {
-            println!("Database connection error: {:?}", e);
+            error!(error = ?e, "Database connection error");
             return HttpResponse::InternalServerError().json(json!({"error": "Database connection error"}));
         }
     };
@@ -145,11 +146,11 @@ pub async fn add_comment_to_ticket(
     // Get the authenticated user's information
     let user_info = match crate::repository::users::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => {
-            println!("Authenticated user: {} ({})", user.name, user.uuid);
+            debug!(user_name = %user.name, user_uuid = %user.uuid, "Authenticated user");
             Some(crate::models::UserInfoWithAvatar::from(user))
         },
         Err(e) => {
-            println!("Error: Authenticated user UUID '{}' not found in database: {:?}", claims.sub, e);
+            error!(user_uuid = %claims.sub, error = ?e, "Authenticated user UUID not found in database");
             return HttpResponse::InternalServerError().json(json!({"error": "User account not found"}));
         }
     };
@@ -164,20 +165,20 @@ pub async fn add_comment_to_ticket(
     // Insert the comment
     match crate::repository::comments::create_comment(&mut conn, new_comment) {
         Ok(comment) => {
-            println!("Created comment with ID: {}", comment.id);
+            debug!(comment_id = comment.id, "Created comment");
             
             // Now associate any attachments with this comment
             let mut attachments = Vec::new();
             let mut attachment_errors = Vec::new();
             
             for attachment_data in &comment_data.attachments {
-                println!("Processing attachment: {:?}", attachment_data);
+                debug!(attachment = ?attachment_data, "Processing attachment");
                 // Find the existing attachment (uploaded to temp) by ID if available
                 if let Some(id) = attachment_data.id {
-                    println!("Looking up attachment ID {}", id);
+                    debug!(attachment_id = id, "Looking up attachment");
                     match crate::repository::comments::get_attachment_by_id(&mut conn, id) {
                         Ok(mut attachment) => {
-                            println!("Found attachment: {:?}", attachment);
+                            debug!(attachment = ?attachment, "Found attachment");
                             // Update the attachment with the comment_id
                             attachment.comment_id = Some(comment.id);
                             
@@ -185,18 +186,18 @@ pub async fn add_comment_to_ticket(
                             let file_path = attachment.url.trim_start_matches("/uploads/temp/");
                             let old_storage_path = format!("temp/{}", file_path);
                             let new_storage_path = format!("tickets/{}/{}", ticket_id, file_path);
-                            
-                            println!("Moving file from {} to {} using storage abstraction", old_storage_path, new_storage_path);
+
+                            debug!(from = %old_storage_path, to = %new_storage_path, "Moving file using storage abstraction");
                             
                             // Use storage abstraction to move the file
                             match storage.move_file(&old_storage_path, &new_storage_path).await {
                                 Ok(_) => {
-                                    println!("Moved file from {} to {} using storage", old_storage_path, new_storage_path);
+                                    debug!(from = %old_storage_path, to = %new_storage_path, "Moved file using storage");
                                     // Update the URL to point to the new location (keep /uploads prefix for frontend compatibility)
                                     attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
                                 },
                                 Err(e) => {
-                                    println!("Error moving file with storage: {:?}", e);
+                                    warn!(error = ?e, "Error moving file with storage, falling back to filesystem");
                                     // Fallback to filesystem operations if storage fails
                                     let old_fs_path = format!("uploads/{}", old_storage_path);
                                     let new_fs_path = format!("uploads/{}", new_storage_path);
@@ -205,21 +206,21 @@ pub async fn add_comment_to_ticket(
                                     // Create directory if it doesn't exist
                                     if !std::path::Path::new(&new_fs_dir).exists() {
                                         if let Err(e) = std::fs::create_dir_all(&new_fs_dir) {
-                                            println!("Error creating ticket directory: {}", e);
+                                            error!(error = %e, directory = %new_fs_dir, "Error creating ticket directory");
                                         }
                                     }
-                                    
+
                                     // Try to move the file using filesystem operations
                                     if let Err(e) = std::fs::rename(&old_fs_path, &new_fs_path) {
-                                        println!("Error moving file with filesystem: {}", e);
+                                        warn!(error = %e, "Error moving file with filesystem");
                                         // If move fails, try to copy and then delete
                                         if let Err(e) = std::fs::copy(&old_fs_path, &new_fs_path) {
-                                            println!("Error copying file: {}", e);
+                                            error!(error = %e, file = %attachment.name, "Error copying file");
                                             attachment_errors.push(format!("Failed to copy file {}: {}", attachment.name, e));
                                         } else {
                                             // Try to delete the original file
                                             if let Err(e) = std::fs::remove_file(&old_fs_path) {
-                                                println!("Error removing original file: {}", e);
+                                                warn!(error = %e, path = %old_fs_path, "Error removing original file");
                                             }
                                             // Update the URL to point to the new location
                                             attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
@@ -242,35 +243,35 @@ pub async fn add_comment_to_ticket(
                                 uploaded_by: Some(user_uuid_parsed),
                                 transcription: attachment.transcription.clone(),
                             };
-                            
-                            println!("Updating attachment in database: {}", attachment.id);
-                            
+
+                            debug!(attachment_id = attachment.id, "Updating attachment in database");
+
                             // Fix the diesel update query
                             use diesel::prelude::*;
                             match diesel::update(crate::schema::attachments::table.find(attachment.id))
                                 .set(&updated_attachment)
                                 .execute(&mut conn) {
                                 Ok(_) => {
-                                    println!("Updated attachment: {}", attachment.id);
+                                    debug!(attachment_id = attachment.id, "Updated attachment");
                                     attachments.push(attachment);
                                 },
                                 Err(e) => {
-                                    println!("Error updating attachment: {}", e);
+                                    error!(error = %e, attachment_name = %attachment.name, "Error updating attachment");
                                     attachment_errors.push(format!("Failed to update attachment {} in database: {}", attachment.name, e));
                                 }
                             }
                         },
                         Err(e) => {
-                            println!("Error finding attachment {}: {}", id, e);
+                            error!(attachment_id = id, error = %e, "Error finding attachment");
                             attachment_errors.push(format!("Failed to find attachment ID {}: {}", id, e));
                         }
                     }
                 }
             }
-            
+
             // Log any attachment processing errors
             if !attachment_errors.is_empty() {
-                println!("Warning: Some attachments had processing errors: {:?}", attachment_errors);
+                warn!(errors = ?attachment_errors, "Some attachments had processing errors");
             }
             
             // Get user info
@@ -293,12 +294,12 @@ pub async fn add_comment_to_ticket(
             
             // Broadcast SSE event for the new comment AFTER all file operations are complete
             // This prevents stream interruption during file processing
-            println!("Broadcasting SSE event for comment {} with {} attachments", comment.id, attachments.len());
-            
+            debug!(comment_id = comment.id, attachments_count = attachments.len(), "Broadcasting SSE event for comment");
+
             // Small delay to ensure stream stability after file operations
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            
-            println!("SSE: About to broadcast comment-added event for ticket {}", ticket_id);
+
+            debug!(ticket_id, "SSE: About to broadcast comment-added event");
             
             // Use the centralized SSE broadcasting utility
             use crate::utils::sse::SseBroadcaster;
@@ -313,14 +314,14 @@ pub async fn add_comment_to_ticket(
                 &claims.sub,
             ).await;
 
-            println!("SSE: Successfully broadcasted comment-added and modified events for ticket {}", ticket_id);
+            debug!(ticket_id, "SSE: Successfully broadcasted comment-added and modified events");
 
-            println!("Successfully created comment with {} attachments", attachments.len());
-            println!("Returning JSON response: {}", response);
+            info!(ticket_id, attachments_count = attachments.len(), "Successfully created comment");
+            debug!(response = %response, "Returning JSON response");
             HttpResponse::Created().json(response)
         },
         Err(e) => {
-            println!("Error creating comment: {}", e);
+            error!(error = %e, "Error creating comment");
             HttpResponse::InternalServerError().json(json!({"error": format!("Failed to create comment: {}", e)}))
         }
     }
@@ -332,12 +333,12 @@ pub async fn delete_comment(
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
     let comment_id = path.into_inner();
-    println!("Deleting comment with ID: {}", comment_id);
-    
+    debug!(comment_id, "Deleting comment");
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(e) => {
-            println!("Database connection error: {:?}", e);
+            error!(error = ?e, "Database connection error");
             return HttpResponse::InternalServerError().json(json!({"error": "Database connection error"}));
         }
     };
@@ -356,16 +357,16 @@ pub async fn delete_comment(
                 // Broadcast SSE event for the deleted comment using centralized utility
                 use crate::utils::sse::SseBroadcaster;
                 SseBroadcaster::broadcast_comment_deleted(&sse_state, ticket_id, comment_id).await;
-                
-                println!("Successfully deleted comment");
+
+                info!(comment_id, "Successfully deleted comment");
                 HttpResponse::Ok().json(json!({"success": true, "message": "Comment deleted"}))
             } else {
-                println!("Comment not found in database");
+                warn!(comment_id, "Comment not found in database");
                 HttpResponse::NotFound().json(json!({"error": "Comment not found"}))
             }
         },
         Err(e) => {
-            println!("Error deleting comment: {}", e);
+            error!(comment_id, error = %e, "Error deleting comment");
             HttpResponse::InternalServerError().json(json!({"error": format!("Failed to delete comment: {}", e)}))
         }
     }
@@ -381,12 +382,12 @@ pub async fn delete_attachment(
     storage: Arc<dyn crate::utils::storage::Storage>
 ) -> impl Responder {
     let attachment_id = path.into_inner();
-    println!("Deleting attachment with ID: {}", attachment_id);
-    
+    debug!(attachment_id, "Deleting attachment");
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(e) => {
-            println!("Database connection error: {:?}", e);
+            error!(error = ?e, "Database connection error");
             return HttpResponse::InternalServerError().json(json!({"error": "Database connection error"}));
         }
     };
@@ -394,8 +395,8 @@ pub async fn delete_attachment(
     // First, get the attachment to find the file path
     match crate::repository::comments::get_attachment_by_id(&mut conn, attachment_id) {
         Ok(attachment) => {
-            println!("Found attachment: {:?}", attachment);
-            
+            debug!(attachment = ?attachment, "Found attachment");
+
             // Extract the storage path from the URL
             let storage_path = if attachment.url.starts_with("/uploads/temp/") {
                 attachment.url.trim_start_matches("/uploads/").to_string()
@@ -404,34 +405,34 @@ pub async fn delete_attachment(
             } else {
                 attachment.url.trim_start_matches("/uploads/").to_string()
             };
-            
-            println!("Attempting to delete file from storage at: {}", storage_path);
-            
+
+            debug!(storage_path = %storage_path, "Attempting to delete file from storage");
+
             // Delete the file using the storage abstraction
             match storage.delete_file(&storage_path).await {
-                Ok(_) => println!("Successfully deleted file from storage: {}", storage_path),
-                Err(e) => println!("Warning: Failed to delete file from storage: {:?}", e),
+                Ok(_) => debug!(storage_path = %storage_path, "Successfully deleted file from storage"),
+                Err(e) => warn!(error = ?e, storage_path = %storage_path, "Failed to delete file from storage"),
             }
-            
+
             // Delete the database record
             match crate::repository::comments::delete_attachment(&mut conn, attachment_id) {
                 Ok(deleted) => {
                     if deleted > 0 {
-                        println!("Successfully deleted attachment from database");
+                        info!(attachment_id, "Successfully deleted attachment from database");
                         HttpResponse::Ok().json(json!({"success": true, "message": "Attachment deleted"}))
                     } else {
-                        println!("Attachment not found in database");
+                        warn!(attachment_id, "Attachment not found in database");
                         HttpResponse::NotFound().json(json!({"error": "Attachment not found"}))
                     }
                 },
                 Err(e) => {
-                    println!("Error deleting attachment from database: {}", e);
+                    error!(attachment_id, error = %e, "Error deleting attachment from database");
                     HttpResponse::InternalServerError().json(json!({"error": format!("Failed to delete attachment: {}", e)}))
                 }
             }
         },
         Err(e) => {
-            println!("Error finding attachment {}: {}", attachment_id, e);
+            error!(attachment_id, error = %e, "Error finding attachment");
             HttpResponse::NotFound().json(json!({"error": "Attachment not found"}))
         }
     }
@@ -454,15 +455,15 @@ pub async fn serve_public_file(
     } else if uri.starts_with("/uploads/users/thumbs/") {
         format!("users/thumbs/{}", filename)
     } else {
-        eprintln!("Security violation: Attempted to access non-avatar/banner/thumb file: {}", filename);
+        warn!(filename = %filename, "Security violation: Attempted to access non-avatar/banner/thumb file");
         return HttpResponse::Forbidden().finish();
     };
-    
+
     // Serve the file using storage abstraction
     match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &storage_path, &req).await {
         Ok(response) => response,
         Err(e) => {
-            eprintln!("Error serving public file {}: {:?}", storage_path, e);
+            error!(storage_path = %storage_path, error = ?e, "Error serving public file");
             HttpResponse::NotFound().finish()
         }
     }
@@ -474,12 +475,12 @@ pub async fn serve_protected_file(
     storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
 ) -> impl Responder {
     let file_path = path.into_inner();
-    
+
     // For protected files, serve using storage abstraction
     match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
         Ok(response) => response,
         Err(e) => {
-            eprintln!("Error serving protected file {}: {:?}", file_path, e);
+            error!(file_path = %file_path, error = ?e, "Error serving protected file");
             HttpResponse::NotFound().finish()
         }
     }

@@ -3,6 +3,7 @@ import { useRouter } from "vue-router";
 import { useRecentTicketsStore } from "@/stores/recentTickets";
 import { useTitleManager } from "@/composables/useTitleManager";
 import ticketService from "@/services/ticketService";
+import { logger } from "@/utils/logger";
 import { formatDateTime, getCurrentUTCDateTime } from "@/utils/dateUtils";
 import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
 import type { UserInfo } from '@/types/user';
@@ -112,7 +113,7 @@ export function useTicketData() {
       // Record the ticket view on the server (updates recent tickets)
       await recentTicketsStore.recordTicketView(id);
     } catch (err) {
-      console.error(`Error fetching ticket ${id}:`, err);
+      logger.error(`Error fetching ticket ${id}`, { error: err });
       error.value = "Failed to load ticket. Please try again later.";
     } finally {
       loading.value = false;
@@ -127,10 +128,10 @@ export function useTicketData() {
   }
 
   // Update ticket field
-  async function updateTicketField(field: string, value: any): Promise<void> {
+  async function updateTicketField<K extends keyof LocalTicket>(field: K, value: LocalTicket[K]): Promise<void> {
     if (!ticket.value) return;
 
-    const oldValue = (ticket.value as any)[field];
+    const oldValue = ticket.value[field];
     if (oldValue === value) return;
 
     try {
@@ -139,7 +140,7 @@ export function useTicketData() {
 
       // Optimistic update - use direct mutation to preserve object reference
       // This prevents component remounts when the ticket object is updated
-      (ticket.value as any)[field] = value;
+      ticket.value[field] = value;
       ticket.value.modified = nowDateTime;
 
       // Clear user objects when clearing requester/assignee
@@ -179,9 +180,9 @@ export function useTicketData() {
         }
       }
     } catch (err) {
-      console.error(`Error updating ${field}:`, err);
+      logger.error(`Error updating ticket field: ${field}`, { error: err, field });
       // Revert optimistic update on error - also use direct mutation
-      (ticket.value as any)[field] = oldValue;
+      ticket.value[field] = oldValue;
       if (field === "status") selectedStatus.value = oldValue;
       if (field === "priority") selectedPriority.value = oldValue;
       throw err;

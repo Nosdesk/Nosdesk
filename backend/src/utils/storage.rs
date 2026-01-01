@@ -5,6 +5,7 @@ use std::path::Path;
 use uuid::Uuid;
 use actix_web::{HttpResponse, HttpRequest};
 use actix_web::http::header::{CONTENT_TYPE, CACHE_CONTROL, ACCEPT_RANGES};
+use tracing::error;
 
 /// Storage configuration for different backends
 #[derive(Debug, Clone)]
@@ -278,7 +279,7 @@ pub async fn serve_file_from_storage(
     
     // Get file data from storage
     let file_data = storage.get_file(path).await.map_err(|e| {
-        eprintln!("Failed to get file from storage: {:?}", e);
+        error!("Failed to get file from storage: {:?}", e);
         actix_web::error::ErrorNotFound("File not found")
     })?;
     

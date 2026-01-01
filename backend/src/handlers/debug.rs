@@ -1,5 +1,6 @@
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
+use tracing::{debug, error, info, warn};
 
 /// Log entry from frontend
 #[derive(Debug, Deserialize)]
@@ -33,28 +34,54 @@ pub async fn receive_frontend_logs(
     let logs = &body.logs;
 
     for log in logs {
-        // Color-code based on log level
-        let level_prefix = match log.level.as_str() {
-            "error" => "\x1b[31m[FE:ERROR]\x1b[0m",  // Red
-            "warn" => "\x1b[33m[FE:WARN]\x1b[0m",    // Yellow
-            "info" => "\x1b[32m[FE:INFO]\x1b[0m",    // Green
-            "debug" => "\x1b[36m[FE:DEBUG]\x1b[0m",  // Cyan
-            _ => "[FE:LOG]",
-        };
+        // Truncate additional data if present
+        let data_str = log.data.as_ref().and_then(|data| {
+            if data.is_empty() || data == "undefined" {
+                None
+            } else if data.len() > 500 {
+                Some(format!("{}... [truncated]", &data[..500]))
+            } else {
+                Some(data.clone())
+            }
+        });
 
-        // Print the main message
-        println!("{} {} - {}", level_prefix, log.timestamp, log.message);
-
-        // Print additional data if present
-        if let Some(data) = &log.data {
-            if !data.is_empty() && data != "undefined" {
-                // Truncate very long data
-                let truncated = if data.len() > 500 {
-                    format!("{}... [truncated]", &data[..500])
-                } else {
-                    data.clone()
-                };
-                println!("    └─ Data: {}", truncated);
+        // Log using appropriate tracing level based on frontend log level
+        match log.level.as_str() {
+            "error" => {
+                error!(
+                    target: "frontend",
+                    timestamp = %log.timestamp,
+                    url = %log.url,
+                    data = ?data_str,
+                    "[FE] {}", log.message
+                );
+            }
+            "warn" => {
+                warn!(
+                    target: "frontend",
+                    timestamp = %log.timestamp,
+                    url = %log.url,
+                    data = ?data_str,
+                    "[FE] {}", log.message
+                );
+            }
+            "info" => {
+                info!(
+                    target: "frontend",
+                    timestamp = %log.timestamp,
+                    url = %log.url,
+                    data = ?data_str,
+                    "[FE] {}", log.message
+                );
+            }
+            "debug" | _ => {
+                debug!(
+                    target: "frontend",
+                    timestamp = %log.timestamp,
+                    url = %log.url,
+                    data = ?data_str,
+                    "[FE] {}", log.message
+                );
             }
         }
     }

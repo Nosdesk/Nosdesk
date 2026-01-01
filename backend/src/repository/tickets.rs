@@ -1,14 +1,49 @@
-use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::QueryResult;
 use uuid::Uuid;
 use std::sync::Arc;
+use tracing::{debug, warn};
 
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
 use crate::utils::storage::Storage;
+
+// ============= Helper Functions for Enum Parsing =============
+
+/// Parse a status string into a TicketStatus enum
+fn parse_ticket_status(status: &str) -> TicketStatus {
+    match status {
+        "open" => TicketStatus::Open,
+        "in-progress" => TicketStatus::InProgress,
+        "closed" => TicketStatus::Closed,
+        _ => TicketStatus::Open, // Default to open if unknown
+    }
+}
+
+/// Parse a priority string into a TicketPriority enum
+fn parse_ticket_priority(priority: &str) -> TicketPriority {
+    match priority {
+        "low" => TicketPriority::Low,
+        "medium" => TicketPriority::Medium,
+        "high" => TicketPriority::High,
+        _ => TicketPriority::Medium, // Default to medium if unknown
+    }
+}
+
+/// Parse comma-separated status values into a vec of TicketStatus enums
+fn parse_status_filter(status_filter: &str) -> Vec<TicketStatus> {
+    status_filter
+        .split(',')
+        .filter_map(|s| match s.trim() {
+            "open" => Some(TicketStatus::Open),
+            "in-progress" => Some(TicketStatus::InProgress),
+            "closed" => Some(TicketStatus::Closed),
+            _ => None,
+        })
+        .collect()
+}
 
 // Get all tickets
 pub fn get_all_tickets(conn: &mut DbConnection) -> QueryResult<Vec<Ticket>> {
@@ -58,35 +93,18 @@ pub fn get_paginated_tickets(
     // Handle enum status filter (supports comma-separated values for multi-select)
     if let Some(status_filter) = status.clone() {
         if status_filter != "all" {
-            // Parse comma-separated values
-            let status_values: Vec<&str> = status_filter.split(',').collect();
-            let mut status_enums: Vec<crate::models::TicketStatus> = Vec::new();
-
-            for status_val in status_values {
-                match status_val.trim() {
-                    "open" => status_enums.push(crate::models::TicketStatus::Open),
-                    "in-progress" => status_enums.push(crate::models::TicketStatus::InProgress),
-                    "closed" => status_enums.push(crate::models::TicketStatus::Closed),
-                    _ => {} // Ignore invalid status values
-                }
-            }
-
+            let status_enums = parse_status_filter(&status_filter);
             if !status_enums.is_empty() {
                 query = query.filter(tickets::status.eq_any(status_enums));
             }
         }
     }
-    
+
     // Handle enum priority filter
     if let Some(priority_filter) = priority.clone() {
         if priority_filter != "all" {
-            // Convert string to enum
-            match priority_filter.as_str() {
-                "low" => query = query.filter(tickets::priority.eq(crate::models::TicketPriority::Low)),
-                "medium" => query = query.filter(tickets::priority.eq(crate::models::TicketPriority::Medium)),
-                "high" => query = query.filter(tickets::priority.eq(crate::models::TicketPriority::High)),
-                _ => {} // Ignore invalid priority values
-            }
+            let priority_enum = parse_ticket_priority(&priority_filter);
+            query = query.filter(tickets::priority.eq(priority_enum));
         }
     }
 
@@ -119,35 +137,18 @@ pub fn get_paginated_tickets(
     // Handle enum status filter for count query (supports comma-separated values)
     if let Some(status_filter) = status {
         if status_filter != "all" {
-            // Parse comma-separated values
-            let status_values: Vec<&str> = status_filter.split(',').collect();
-            let mut status_enums: Vec<crate::models::TicketStatus> = Vec::new();
-
-            for status_val in status_values {
-                match status_val.trim() {
-                    "open" => status_enums.push(crate::models::TicketStatus::Open),
-                    "in-progress" => status_enums.push(crate::models::TicketStatus::InProgress),
-                    "closed" => status_enums.push(crate::models::TicketStatus::Closed),
-                    _ => {} // Ignore invalid status values
-                }
-            }
-
+            let status_enums = parse_status_filter(&status_filter);
             if !status_enums.is_empty() {
                 count_query = count_query.filter(tickets::status.eq_any(status_enums));
             }
         }
     }
-    
+
     // Handle enum priority filter for count query
     if let Some(priority_filter) = priority {
         if priority_filter != "all" {
-            // Convert string to enum
-            match priority_filter.as_str() {
-                "low" => count_query = count_query.filter(tickets::priority.eq(crate::models::TicketPriority::Low)),
-                "medium" => count_query = count_query.filter(tickets::priority.eq(crate::models::TicketPriority::Medium)),
-                "high" => count_query = count_query.filter(tickets::priority.eq(crate::models::TicketPriority::High)),
-                _ => {} // Ignore invalid priority values
-            }
+            let priority_enum = parse_ticket_priority(&priority_filter);
+            count_query = count_query.filter(tickets::priority.eq(priority_enum));
         }
     }
 
@@ -378,7 +379,7 @@ pub fn update_ticket(conn: &mut DbConnection, ticket_id: i32, ticket: NewTicket)
 
 // Add a new function for partial ticket updates
 pub fn update_ticket_partial(conn: &mut DbConnection, ticket_id: i32, ticket_update: crate::models::TicketUpdate) -> QueryResult<Ticket> {
-    println!("Updating ticket {} with: {:?}", ticket_id, ticket_update);
+    debug!(ticket_id, update = ?ticket_update, "Updating ticket");
     
     diesel::update(tickets::table.find(ticket_id))
         .set(&ticket_update)
@@ -445,7 +446,7 @@ pub async fn delete_ticket_with_cleanup(
         tokio::spawn(async move {
             for path in attachment_paths {
                 if let Err(e) = storage.delete_file(&path).await {
-                    eprintln!("Warning: Failed to delete file {}: {:?}", path, e);
+                    warn!(path, error = ?e, "Failed to delete file during ticket cleanup");
                 }
             }
         });
@@ -469,7 +470,7 @@ fn extract_storage_path_from_url(url: &str) -> Option<String> {
 pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<CompleteTicket, Error> {
     // Get the main ticket first
     let ticket = get_ticket_by_id(conn, ticket_id)?;
-    println!("Found ticket: {} - {}", ticket.id, ticket.title);
+    debug!(id = ticket.id, title = %ticket.title, "Found ticket");
     
     // Look up complete user data for requester and assignee
     let requester_user = ticket.requester_uuid.as_ref()
@@ -514,11 +515,11 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
     
     // Get linked tickets
     let linked_tickets = crate::repository::linked_tickets::get_linked_tickets(conn, ticket_id).unwrap_or_default();
-    println!("Linked tickets for ticket {}: {:?}", ticket_id, linked_tickets);
+    debug!(ticket_id, count = linked_tickets.len(), "Found linked tickets");
     
     // Get projects for this ticket
     let projects = crate::repository::projects::get_projects_for_ticket(conn, ticket_id).unwrap_or_default();
-    println!("Projects for ticket {}: {:?}", ticket_id, projects.len());
+    debug!(ticket_id, count = projects.len(), "Found projects for ticket");
     
     Ok(CompleteTicket {
         ticket,
@@ -534,31 +535,10 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
 
 // Import from JSON
 pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson) -> Result<Ticket, Error> {
-    // Parse status
-    let status = match ticket_json.status.as_str() {
-        "open" => TicketStatus::Open,
-        "in-progress" => TicketStatus::InProgress,
-        "closed" => TicketStatus::Closed,
-        _ => TicketStatus::Open, // Default to open if unknown
-    };
-    
-    // Parse priority
-    let priority = match ticket_json.priority.as_str() {
-        "low" => TicketPriority::Low,
-        "medium" => TicketPriority::Medium,
-        "high" => TicketPriority::High,
-        _ => TicketPriority::Medium, // Default to medium if unknown
-    };
-    
-    // Parse dates
-    // Parse created as NaiveDateTime
-    let created = NaiveDateTime::parse_from_str(&ticket_json.created, "%Y-%m-%dT%H:%M:%S")
-        .unwrap_or_else(|_| chrono::Local::now().naive_local());
-    
-    // Parse modified as NaiveDateTime
-    let modified = NaiveDateTime::parse_from_str(&format!("{} 00:00:00", ticket_json.modified), "%Y-%m-%d %H:%M:%S")
-        .unwrap_or_else(|_| chrono::Local::now().naive_local());
-    
+    // Use helper functions for enum parsing
+    let status = parse_ticket_status(&ticket_json.status);
+    let priority = parse_ticket_priority(&ticket_json.priority);
+
     // Create the ticket
     let new_ticket = NewTicket {
         title: ticket_json.title.clone(),
@@ -575,7 +555,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
     };
 
     let ticket = create_ticket(conn, new_ticket)?;
-    
+
     // Create device if present (without ticket association)
     if let Some(device_json) = &ticket_json.device {
         let new_device = NewDevice {
@@ -599,28 +579,25 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
             is_managed: None,
             enrollment_date: None,
         };
-        
+
         crate::repository::devices::create_device(conn, new_device)?;
     }
-    
+
     // Create comments and attachments if present
     if let Some(comments_json) = &ticket_json.comments {
-        for comment_json in comments_json {
-            let created_at = NaiveDateTime::parse_from_str(&comment_json.created_at, "%Y-%m-%dT%H:%M:%S")
-                .unwrap_or_else(|_| chrono::Local::now().naive_local());
-            
-            // Parse user UUID from JSON or use a default system user UUID
-            let default_user_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
-                .unwrap_or_else(|_| Uuid::now_v7());
+        // Default system user UUID for imported comments
+        let default_user_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
+            .unwrap_or_else(|_| Uuid::now_v7());
 
+        for comment_json in comments_json {
             let new_comment = NewComment {
                 content: comment_json.content.clone(),
                 ticket_id: ticket.id,
-                user_uuid: default_user_uuid, // Default system user UUID since we don't have user mapping
+                user_uuid: default_user_uuid,
             };
-            
+
             let comment = crate::repository::comments::create_comment(conn, new_comment)?;
-            
+
             // Create attachments for this comment
             for attachment_json in &comment_json.attachments {
                 let new_attachment = NewAttachment {
@@ -633,14 +610,14 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
                     uploaded_by: None,
                     transcription: None,
                 };
-                
+
                 crate::repository::comments::create_attachment(conn, new_attachment)?;
             }
         }
     }
-    
+
     // Create article content if present
-    if let Some(_content) = &ticket_json.article_content {
+    if ticket_json.article_content.is_some() {
         let new_article_content = NewArticleContent {
             ticket_id: ticket.id,
             yjs_state_vector: None,
@@ -650,130 +627,14 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
 
         crate::repository::article_content::create_article_content(conn, new_article_content)?;
     }
-    
+
     Ok(ticket)
 }
 
+/// Creates a complete ticket from JSON data (delegates to import_ticket_from_json)
 #[allow(dead_code)]
 pub fn create_complete_ticket(conn: &mut DbConnection, ticket_json: TicketJson) -> Result<Ticket, diesel::result::Error> {
-    // Parse status
-    let status = match ticket_json.status.as_str() {
-        "open" => TicketStatus::Open,
-        "in-progress" => TicketStatus::InProgress,
-        "closed" => TicketStatus::Closed,
-        _ => TicketStatus::Open, // Default to open if unknown
-    };
-    
-    // Parse priority
-    let priority = match ticket_json.priority.as_str() {
-        "low" => TicketPriority::Low,
-        "medium" => TicketPriority::Medium,
-        "high" => TicketPriority::High,
-        _ => TicketPriority::Medium, // Default to medium if unknown
-    };
-    
-    // Parse dates
-    // Parse created as NaiveDateTime
-    let created = NaiveDateTime::parse_from_str(&ticket_json.created, "%Y-%m-%dT%H:%M:%S")
-        .unwrap_or_else(|_| chrono::Local::now().naive_local());
-    
-    // Parse modified as NaiveDateTime
-    let modified = NaiveDateTime::parse_from_str(&ticket_json.modified, "%Y-%m-%dT%H:%M:%S")
-        .unwrap_or_else(|_| chrono::Local::now().naive_local());
-    
-    // Create the ticket
-    let new_ticket = NewTicket {
-        title: ticket_json.title.clone(),
-        description: None, // No description field in TicketJson
-        status,
-        priority,
-        requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7())),
-        assignee_uuid: if ticket_json.assignee.is_empty() {
-            None
-        } else {
-            Uuid::parse_str(&ticket_json.assignee).ok()
-        },
-        category_id: None,
-    };
-
-    let ticket = create_ticket(conn, new_ticket)?;
-    
-    // Create device if present (without ticket association)
-    if let Some(device_json) = &ticket_json.device {
-        let new_device = NewDevice {
-            name: device_json.name.clone(),
-            hostname: Some(device_json.hostname.clone()),
-            device_type: None,
-            serial_number: Some(device_json.serial_number.clone()),
-            manufacturer: None, // Will be populated during Microsoft Entra sync
-            model: Some(device_json.model.clone()),
-            warranty_status: Some(device_json.warranty_status.clone()),
-            location: None,
-            notes: None,
-            primary_user_uuid: None, // Will be populated during Microsoft Entra sync
-            azure_device_id: None,
-            intune_device_id: None,
-            entra_device_id: None,
-            compliance_state: None,
-            last_sync_time: None,
-            operating_system: None,
-            os_version: None,
-            is_managed: None,
-            enrollment_date: None,
-        };
-        
-        crate::repository::devices::create_device(conn, new_device)?;
-    }
-    
-    // Create comments and attachments if present
-    if let Some(comments_json) = &ticket_json.comments {
-        for comment_json in comments_json {
-            let created_at = NaiveDateTime::parse_from_str(&comment_json.created_at, "%Y-%m-%dT%H:%M:%S")
-                .unwrap_or_else(|_| chrono::Local::now().naive_local());
-            
-            // Parse user UUID from JSON or use a default system user UUID
-            let default_user_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
-                .unwrap_or_else(|_| Uuid::now_v7());
-
-            let new_comment = NewComment {
-                content: comment_json.content.clone(),
-                ticket_id: ticket.id,
-                user_uuid: default_user_uuid, // Default system user UUID since we don't have user mapping
-            };
-            
-            let comment = crate::repository::comments::create_comment(conn, new_comment)?;
-            
-            // Create attachments for this comment
-            for attachment_json in &comment_json.attachments {
-                let new_attachment = NewAttachment {
-                    url: attachment_json.url.clone(),
-                    name: attachment_json.name.clone(),
-                    file_size: None,
-                    mime_type: None,
-                    checksum: None,
-                    comment_id: Some(comment.id),
-                    uploaded_by: None,
-                    transcription: None,
-                };
-                
-                crate::repository::comments::create_attachment(conn, new_attachment)?;
-            }
-        }
-    }
-    
-    // Create article content if present
-    if let Some(_content) = &ticket_json.article_content {
-        let new_article_content = NewArticleContent {
-            ticket_id: ticket.id,
-            yjs_state_vector: None,
-            yjs_document: None,
-            yjs_client_id: None,
-        };
-
-        crate::repository::article_content::create_article_content(conn, new_article_content)?;
-    }
-    
-    Ok(ticket)
+    import_ticket_from_json(conn, &ticket_json)
 }
 
 // Ticket-Device relationship functions

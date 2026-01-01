@@ -354,7 +354,7 @@ export function useKanbanDragDrop(
   }
 
   const handleColumnDragLeave = (event: DragEvent) => {
-    // Only reset if we're leaving to outside the column (not to a child element)
+    // Only reset when leaving to outside the column (not to a child element)
     const relatedTarget = event.relatedTarget as HTMLElement | null
     const currentTarget = event.currentTarget as HTMLElement
 
@@ -416,7 +416,7 @@ export function useKanbanDragDrop(
     dragState.value.touchDragPosition = { x: touch.clientX, y: touch.clientY }
     currentDragPosition = { x: touch.clientX, y: touch.clientY }
 
-    // Find which column we're over
+    // Find which column the touch is over
     const elementsAtPoint = document.elementsFromPoint(touch.clientX, touch.clientY)
     const columnContent = elementsAtPoint.find(el =>
       el.hasAttribute('data-column-id')

@@ -7,6 +7,7 @@ import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
 import ticketService from "@/services/ticketService";
 import { categoryService } from "@/services/categoryService";
 import type { TicketCategory } from "@/types/category";
+import type { Ticket } from "@/types/ticket";
 
 // Composables
 import { useTicketData } from "@/composables/useTicketData";
@@ -150,13 +151,13 @@ const handleTitleUpdate = (newTitle: string) => {
 
 // Emit ticket updates - pass the full reactive ticket object
 const emit = defineEmits<{
-    (e: "update:ticket", ticket: any | null): void;
+    (e: "update:ticket", ticket: Ticket | null): void;
 }>();
 
 watch(
     ticket,
     (newTicket) => {
-        // Only emit when we have valid ticket data - prevents title flash during loading
+        // Only emit when valid ticket data exists - prevents title flash during loading
         // Clearing is handled by App.vue on route leave
         if (newTicket) {
             emit("update:ticket", newTicket);

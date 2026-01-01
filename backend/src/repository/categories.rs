@@ -53,13 +53,6 @@ pub fn get_category_by_id(conn: &mut DbConnection, category_id: i32) -> QueryRes
     ticket_categories::table.find(category_id).first(conn)
 }
 
-/// Get a category by UUID
-pub fn get_category_by_uuid(conn: &mut DbConnection, category_uuid: &Uuid) -> QueryResult<TicketCategory> {
-    ticket_categories::table
-        .filter(ticket_categories::uuid.eq(category_uuid))
-        .first(conn)
-}
-
 /// Get a category with visibility information
 pub fn get_category_with_visibility(conn: &mut DbConnection, category_id: i32) -> Result<CategoryWithVisibility, Error> {
     let category = ticket_categories::table
@@ -107,11 +100,6 @@ pub fn delete_category(conn: &mut DbConnection, category_id: i32) -> QueryResult
             ticket_categories::updated_at.eq(chrono::Utc::now().naive_utc()),
         ))
         .get_result(conn)
-}
-
-/// Hard delete a category (use with caution)
-pub fn hard_delete_category(conn: &mut DbConnection, category_id: i32) -> QueryResult<usize> {
-    diesel::delete(ticket_categories::table.find(category_id)).execute(conn)
 }
 
 /// Get the next display order value

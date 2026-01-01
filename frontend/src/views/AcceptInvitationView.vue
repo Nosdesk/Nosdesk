@@ -305,9 +305,10 @@ onMounted(async () => {
     } else {
       errorMessage.value = response.message || 'This invitation is invalid or has expired.';
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error('Invitation validation error:', error);
-    errorMessage.value = error.response?.data?.message || 'Failed to validate invitation. Please contact your administrator.';
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to validate invitation. Please contact your administrator.';
   } finally {
     validating.value = false;
   }
@@ -324,9 +325,10 @@ const handleSubmit = async () => {
   try {
     await authService.acceptInvitation(token.value, newPassword.value);
     acceptSuccess.value = true;
-  } catch (error: any) {
+  } catch (error) {
     console.error('Accept invitation error:', error);
-    submitError.value = error.response?.data?.message || 'Failed to activate account. The invitation may have expired.';
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    submitError.value = axiosError.response?.data?.message || 'Failed to activate account. The invitation may have expired.';
   } finally {
     loading.value = false;
   }

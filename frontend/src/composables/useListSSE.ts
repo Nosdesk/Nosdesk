@@ -1,6 +1,12 @@
 import { ref, onActivated, onDeactivated, onMounted, onUnmounted } from 'vue'
-import { useSSE } from '@/services/sseService'
+import { useSSE, type SSEEventType } from '@/services/sseService'
 import { useAuthStore } from '@/stores/auth'
+
+// SSE event data wrapper type (matches sseService)
+interface SSEEventData {
+  data?: Record<string, unknown>
+  [key: string]: unknown
+}
 
 interface UseListSSEOptions<T> {
   // List manager methods
@@ -17,13 +23,13 @@ interface UseListSSEOptions<T> {
   }
 
   // ID extractor from event data
-  getEventItemId: (data: any) => string | number | undefined
+  getEventItemId: (data: unknown) => string | number | undefined
 
   // Item key in created events (e.g., 'ticket', 'user')
   itemKey?: string
 
   // Custom update handler for complex field mappings
-  onItemUpdated?: (data: any) => void
+  onItemUpdated?: (data: unknown) => void
 }
 
 /**
@@ -34,7 +40,7 @@ export function useListSSE<T>(options: UseListSSEOptions<T>) {
   const authStore = useAuthStore()
   const isActive = ref(true)
 
-  const handleItemUpdated = (data: any) => {
+  const handleItemUpdated = (data: unknown) => {
     if (!isActive.value) return
 
     const itemId = options.getEventItemId(data)
@@ -44,24 +50,26 @@ export function useListSSE<T>(options: UseListSSEOptions<T>) {
       options.onItemUpdated(data)
     } else {
       // Default: direct field update
-      const eventData = data.data || data
+      const eventObj = data as SSEEventData
+      const eventData = eventObj.data || eventObj
       if (eventData.field && eventData.value !== undefined) {
-        options.updateItemField(itemId, eventData.field, eventData.value)
+        options.updateItemField(itemId, eventData.field as keyof T, eventData.value as T[keyof T])
       }
     }
   }
 
-  const handleItemCreated = (data: any) => {
+  const handleItemCreated = (data: unknown) => {
     if (!isActive.value) return
 
-    const eventData = data.data || data
+    const eventObj = data as SSEEventData
+    const eventData = eventObj.data || eventObj
     const itemKey = options.itemKey || 'item'
     if (eventData[itemKey]) {
-      options.prependItem(eventData[itemKey])
+      options.prependItem(eventData[itemKey] as T)
     }
   }
 
-  const handleItemDeleted = (data: any) => {
+  const handleItemDeleted = (data: unknown) => {
     if (!isActive.value) return
 
     const itemId = options.getEventItemId(data)
@@ -79,7 +87,7 @@ export function useListSSE<T>(options: UseListSSEOptions<T>) {
   const setupListeners = () => {
     for (const [key, eventType] of Object.entries(options.eventTypes)) {
       if (eventType) {
-        addEventListener(eventType as any, handlers[key as keyof typeof handlers])
+        addEventListener(eventType as SSEEventType, handlers[key as keyof typeof handlers])
       }
     }
   }
@@ -87,7 +95,7 @@ export function useListSSE<T>(options: UseListSSEOptions<T>) {
   const cleanupListeners = () => {
     for (const [key, eventType] of Object.entries(options.eventTypes)) {
       if (eventType) {
-        removeEventListener(eventType as any, handlers[key as keyof typeof handlers])
+        removeEventListener(eventType as SSEEventType, handlers[key as keyof typeof handlers])
       }
     }
   }

@@ -191,8 +191,9 @@ export const withPerformanceTracking = async <T>(
     const result = await requestFn()
     tracker.success()
     return result
-  } catch (error: any) {
-    if (error.name === 'AbortError' || error.name === 'CanceledError' || error.message === 'REQUEST_CANCELLED') {
+  } catch (error) {
+    const err = error as { name?: string; message?: string };
+    if (err.name === 'AbortError' || err.name === 'CanceledError' || err.message === 'REQUEST_CANCELLED') {
       tracker.cancel()
     } else {
       tracker.error()

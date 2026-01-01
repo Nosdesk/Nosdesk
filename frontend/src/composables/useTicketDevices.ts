@@ -2,15 +2,19 @@ import { ref, type Ref } from 'vue';
 import ticketService from '@/services/ticketService';
 import * as deviceService from '@/services/deviceService';
 import type { Device } from '@/types/device';
+import type { Ticket } from '@/types/ticket';
+
+// Subset of Device fields used in ticket context
+type TicketDevice = Pick<Device, 'id' | 'name' | 'hostname' | 'serial_number' | 'model' | 'manufacturer' | 'warranty_status'>;
 
 /**
  * Composable for managing ticket devices
  */
-export function useTicketDevices(ticket: Ref<any>, refreshTicket: () => Promise<void>) {
+export function useTicketDevices(ticket: Ref<Ticket | null>, refreshTicket: () => Promise<void>) {
   const showDeviceModal = ref(false);
 
   // Transform backend device to ticket device format
-  function transformDevice(backendDevice: Device): any {
+  function transformDevice(backendDevice: Device): TicketDevice {
     return {
       id: backendDevice.id,
       name: backendDevice.name,
@@ -53,7 +57,7 @@ export function useTicketDevices(ticket: Ref<any>, refreshTicket: () => Promise<
 
       // Optimistically update local state - use splice to preserve array reference
       if (ticket.value.devices) {
-        const index = ticket.value.devices.findIndex((d: any) => d.id === deviceId);
+        const index = ticket.value.devices.findIndex((d) => d.id === deviceId);
         if (index !== -1) {
           ticket.value.devices.splice(index, 1);
         }
@@ -68,7 +72,7 @@ export function useTicketDevices(ticket: Ref<any>, refreshTicket: () => Promise<
   async function updateDeviceField(deviceId: number, field: string, newValue: string): Promise<void> {
     if (!ticket.value?.devices) return;
 
-    const deviceIndex = ticket.value.devices.findIndex((d: any) => d.id === deviceId);
+    const deviceIndex = ticket.value.devices.findIndex((d) => d.id === deviceId);
     if (deviceIndex === -1) return;
 
     const oldValue = ticket.value.devices[deviceIndex][field];

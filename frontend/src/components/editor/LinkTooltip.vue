@@ -72,7 +72,7 @@ const updateAdjustedPosition = () => {
     openUp = true;
   }
 
-  // Ensure we're not off the top
+  // Ensure tooltip is not off the top edge
   if (y < margin) {
     y = margin;
     openUp = false;

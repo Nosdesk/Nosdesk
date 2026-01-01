@@ -186,10 +186,11 @@ const handleSubmit = async () => {
   try {
     await authService.requestMFAReset(email.value, password.value);
     emailSent.value = true;
-  } catch (error: any) {
+  } catch (error) {
     console.error('MFA recovery request error:', error);
     // Show generic error to prevent account enumeration
-    errorMessage.value = error.response?.data?.message || 'Failed to send recovery email. Please try again.';
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to send recovery email. Please try again.';
   } finally {
     loading.value = false;
   }

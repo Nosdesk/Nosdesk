@@ -907,9 +907,9 @@ const toggleDropdown = () => {
   }
 };
 
-// Close dropdown when clicking outside (but not if we're dragging)
+// Close dropdown when clicking outside (skip during drag operations)
 const handleClickOutside = (event: MouseEvent) => {
-  // Don't close if we were dragging
+  // Skip close if a drag operation just completed
   if (hasDragged.value) return;
 
   if (

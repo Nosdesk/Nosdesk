@@ -50,7 +50,7 @@ const formatTime = (seconds: number): string => {
 
 const formattedCurrentTime = computed(() => formatTime(currentTime.value));
 const formattedDuration = computed(() => {
-  // Only return formatted duration if we have a valid duration
+  // Only return formatted duration if a valid duration exists
   if (durationLoaded.value && duration.value > 0 && isFinite(duration.value)) {
     return formatTime(duration.value);
   }
@@ -303,7 +303,7 @@ const loadAudioData = async () => {
     // Initialize audio context first
     initAudioContext();
 
-    // Fetch audio once - we'll use this for both waveform AND playback
+    // Fetch audio once - used for both waveform AND playback
     const response = await fetch(props.src);
     if (!response.ok) {
       throw new Error(`Failed to load audio: ${response.statusText}`);
@@ -313,7 +313,7 @@ const loadAudioData = async () => {
     const blob = await response.blob();
     blobUrl.value = URL.createObjectURL(blob);
 
-    // Set the audio element src to use our blob URL (no second download!)
+    // Set the audio element src to use the blob URL (no second download!)
     if (audioRef.value) {
       audioRef.value.src = blobUrl.value;
     }

@@ -47,8 +47,9 @@ const changePassword = async () => {
     confirmPassword.value = '';
 
     emit('success', 'Password changed successfully');
-  } catch (err: any) {
-    const errorMessage = err.response?.data?.message || 'Failed to change password. Please check your current password.';
+  } catch (err) {
+    const axiosError = err as { response?: { data?: { message?: string } } };
+    const errorMessage = axiosError.response?.data?.message || 'Failed to change password. Please check your current password.';
     emit('error', errorMessage);
     console.error('Error changing password:', err);
   } finally {

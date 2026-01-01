@@ -79,7 +79,7 @@ export const useDataStore = defineStore('data', () => {
     
     // Return cached data if valid and not forcing refresh
     if (!forceRefresh && cached && isCacheValid(cached.timestamp) && !cached.loading) {
-      // Check if we need background refresh
+      // Check if background refresh needed
       if (needsBackgroundRefresh(cached.timestamp)) {
         // Trigger background refresh without waiting
         refreshPaginatedUsersInBackground(params, cacheKey)

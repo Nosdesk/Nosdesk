@@ -4,17 +4,53 @@ import { useAuthStore } from "@/stores/auth";
 import { useTitleManager } from "@/composables/useTitleManager";
 import { useRecentTicketsStore } from "@/stores/recentTickets";
 import * as deviceService from "@/services/deviceService";
-import { projectService } from "@/services/projectService";
+import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
+import type { Ticket, Device, Comment } from "@/types/ticket";
+import type { CommentWithAttachments } from "@/types/comment";
+import type {
+  TicketUpdatedEventData,
+  CommentAddedEventData,
+  CommentDeletedEventData,
+  DeviceLinkEventData,
+  DeviceUpdatedEventData,
+  TicketLinkEventData,
+  ProjectEventData,
+  ViewerCountEventData,
+} from "@/types/sse";
+
+/**
+ * Extended ticket type for detail view with UI-specific fields
+ */
+interface TicketWithDetails extends Ticket {
+  commentsAndAttachments?: CommentWithAttachments[];
+}
+
+/**
+ * SSE event wrapper - events may come wrapped or direct
+ */
+interface SSEEventWrapper<T> {
+  data?: T;
+}
+
+/**
+ * Unwrap SSE event data (handles both wrapped and direct formats)
+ */
+function unwrapEvent<T>(data: T | SSEEventWrapper<T>): T {
+  if (data && typeof data === 'object' && 'data' in data && data.data !== undefined) {
+    return data.data as T;
+  }
+  return data as T;
+}
 
 /**
  * Composable for handling SSE events for tickets
  * Uses direct mutation to preserve object references and prevent component remounts
  */
 export function useTicketSSE(
-  ticket: Ref<any>,
+  ticket: Ref<TicketWithDetails | null>,
   ticketId: Ref<number | undefined>,
-  selectedStatus: Ref<any>,
-  selectedPriority: Ref<any>,
+  selectedStatus: Ref<TicketStatus>,
+  selectedPriority: Ref<TicketPriority>,
 ) {
   const {
     addEventListener,
@@ -40,14 +76,14 @@ export function useTicketSSE(
   }
 
   // Handle ticket updated
-  function handleTicketUpdated(eventData: any): void {
+  function handleTicketUpdated(eventData: TicketUpdatedEventData | SSEEventWrapper<TicketUpdatedEventData>): void {
     console.log(
       "%c[SSE Handler] ticket-updated received",
       "color: #f97316; font-weight: bold",
       { rawData: eventData, timestamp: new Date().toISOString() }
     );
 
-    const data = eventData.data || eventData;
+    const data = unwrapEvent(eventData);
     if (!ticket.value || data.ticket_id !== ticket.value.id) {
       console.log("[SSE Handler] ticket-updated: Not for this ticket, ignoring", {
         currentTicketId: ticket.value?.id,
@@ -63,39 +99,41 @@ export function useTicketSSE(
     });
 
     // Use direct mutation to preserve object reference - prevents component remounts
-    if (data.field === "title") {
+    if (data.field === "title" && typeof data.value === "string") {
       ticket.value.title = data.value;
       titleManager.setTicket(ticket.value);
       console.log("%c[SSE Handler] ✅ ticket-updated: Title updated", "color: #22c55e; font-weight: bold");
     } else if (data.field === "status") {
-      ticket.value.status = data.value;
-      selectedStatus.value = data.value;
+      const statusValue = data.value as TicketStatus;
+      ticket.value.status = statusValue;
+      selectedStatus.value = statusValue;
       console.log("%c[SSE Handler] ✅ ticket-updated: Status updated", "color: #22c55e; font-weight: bold");
     } else if (data.field === "priority") {
-      ticket.value.priority = data.value;
-      selectedPriority.value = data.value;
+      const priorityValue = data.value as TicketPriority;
+      ticket.value.priority = priorityValue;
+      selectedPriority.value = priorityValue;
       console.log("%c[SSE Handler] ✅ ticket-updated: Priority updated", "color: #22c55e; font-weight: bold");
-    } else if (data.field === "modified") {
+    } else if (data.field === "modified" && typeof data.value === "string") {
       ticket.value.modified = data.value;
       console.log("%c[SSE Handler] ✅ ticket-updated: Modified timestamp updated", "color: #22c55e; font-weight: bold");
     } else if (data.field === "requester") {
       if (typeof data.value === "string") {
-        ticket.value.requester = data.value || null;
+        ticket.value.requester = data.value || "";
         if (!data.value) {
           ticket.value.requester_user = null;
         }
-      } else if (data.value?.uuid) {
+      } else if (typeof data.value === "object" && data.value && "uuid" in data.value) {
         ticket.value.requester = data.value.uuid;
         ticket.value.requester_user = data.value.user_info || ticket.value.requester_user;
       }
       console.log("%c[SSE Handler] ✅ ticket-updated: Requester updated", "color: #22c55e; font-weight: bold");
     } else if (data.field === "assignee") {
       if (typeof data.value === "string") {
-        ticket.value.assignee = data.value || null;
+        ticket.value.assignee = data.value || "";
         if (!data.value) {
           ticket.value.assignee_user = null;
         }
-      } else if (data.value?.uuid) {
+      } else if (typeof data.value === "object" && data.value && "uuid" in data.value) {
         ticket.value.assignee = data.value.uuid;
         ticket.value.assignee_user = data.value.user_info || ticket.value.assignee_user;
       }
@@ -111,8 +149,8 @@ export function useTicketSSE(
   }
 
   // Handle comment added
-  function handleCommentAdded(data: any): void {
-    const eventData = data.data || data;
+  function handleCommentAdded(rawData: CommentAddedEventData | SSEEventWrapper<CommentAddedEventData>): void {
+    const eventData = unwrapEvent(rawData);
     if (!ticket.value || eventData.ticket_id !== ticket.value.id) return;
 
     const commentData = eventData.comment;
@@ -121,19 +159,19 @@ export function useTicketSSE(
     // Check for duplicates (will catch optimistic updates)
     if (
       ticket.value.commentsAndAttachments?.find(
-        (c: any) => c.id === commentData.id,
+        (c) => c.id === commentData.id,
       )
     ) {
       console.log('[SSE] Skipping duplicate comment', commentData.id);
       return;
     }
 
-    const newComment = {
+    const newComment: CommentWithAttachments = {
       id: commentData.id,
       content: commentData.content,
-      user_uuid: commentData.user_uuid || commentData.user_id,
-      createdAt: commentData.createdAt || commentData.created_at,
-      created_at: commentData.created_at || commentData.createdAt,
+      user_uuid: commentData.user_uuid || commentData.user_id || "",
+      createdAt: commentData.createdAt || commentData.created_at || "",
+      created_at: commentData.created_at || commentData.createdAt || "",
       ticket_id: commentData.ticket_id,
       attachments: commentData.attachments || [],
       user: commentData.user,
@@ -150,13 +188,13 @@ export function useTicketSSE(
   }
 
   // Handle comment deleted
-  function handleCommentDeleted(data: any): void {
-    const eventData = data.data || data;
+  function handleCommentDeleted(rawData: CommentDeletedEventData | SSEEventWrapper<CommentDeletedEventData>): void {
+    const eventData = unwrapEvent(rawData);
     if (!ticket.value || eventData.ticket_id !== ticket.value.id) return;
 
     if (ticket.value.commentsAndAttachments) {
       const index = ticket.value.commentsAndAttachments.findIndex(
-        (comment: any) => comment.id === eventData.comment_id
+        (comment) => comment.id === eventData.comment_id
       );
       if (index !== -1) {
         ticket.value.commentsAndAttachments.splice(index, 1);
@@ -165,8 +203,8 @@ export function useTicketSSE(
   }
 
   // Handle device linked
-  async function handleDeviceLinked(data: any): Promise<void> {
-    const eventData = data.data || data;
+  async function handleDeviceLinked(rawData: DeviceLinkEventData | SSEEventWrapper<DeviceLinkEventData>): Promise<void> {
+    const eventData = unwrapEvent(rawData);
     if (!ticket.value || eventData.ticket_id !== ticket.value.id) return;
 
     try {
@@ -174,7 +212,7 @@ export function useTicketSSE(
 
       // Check if device already exists
       const deviceExists = ticket.value.devices?.find(
-        (d: any) => d.id === eventData.device_id,
+        (d) => d.id === eventData.device_id,
       );
 
       if (!deviceExists) {
@@ -190,13 +228,13 @@ export function useTicketSSE(
   }
 
   // Handle device unlinked
-  function handleDeviceUnlinked(data: any): void {
-    const eventData = data.data || data;
+  function handleDeviceUnlinked(rawData: DeviceLinkEventData | SSEEventWrapper<DeviceLinkEventData>): void {
+    const eventData = unwrapEvent(rawData);
     if (!ticket.value || eventData.ticket_id !== ticket.value.id) return;
 
     if (ticket.value.devices) {
       const index = ticket.value.devices.findIndex(
-        (d: any) => d.id === eventData.device_id
+        (d) => d.id === eventData.device_id
       );
       if (index !== -1) {
         ticket.value.devices.splice(index, 1);
@@ -205,12 +243,12 @@ export function useTicketSSE(
   }
 
   // Handle device updated
-  function handleDeviceUpdated(data: any): void {
-    const eventData = data.data || data;
+  function handleDeviceUpdated(rawData: DeviceUpdatedEventData | SSEEventWrapper<DeviceUpdatedEventData>): void {
+    const eventData = unwrapEvent(rawData);
     if (!ticket.value?.devices) return;
 
     const deviceIndex = ticket.value.devices.findIndex(
-      (d: any) => d.id === eventData.device_id,
+      (d) => d.id === eventData.device_id,
     );
 
     if (
@@ -218,13 +256,15 @@ export function useTicketSSE(
       eventData.field &&
       eventData.value !== undefined
     ) {
-      (ticket.value.devices[deviceIndex] as any)[eventData.field] = eventData.value;
+      const device = ticket.value.devices[deviceIndex];
+      // Use type assertion for dynamic field access
+      (device as Record<string, unknown>)[eventData.field] = eventData.value;
     }
   }
 
   // Handle ticket linked
-  function handleTicketLinked(data: any): void {
-    const eventData = data.data || data;
+  function handleTicketLinked(rawData: TicketLinkEventData | SSEEventWrapper<TicketLinkEventData>): void {
+    const eventData = unwrapEvent(rawData);
     if (!ticket.value) return;
 
     const isSourceTicket = eventData.ticket_id === ticket.value.id;
@@ -249,14 +289,14 @@ export function useTicketSSE(
   }
 
   // Handle ticket unlinked
-  function handleTicketUnlinked(data: any): void {
+  function handleTicketUnlinked(rawData: TicketLinkEventData | SSEEventWrapper<TicketLinkEventData>): void {
     console.log(
       "%c[SSE Handler] ticket-unlinked received",
       "color: #f97316; font-weight: bold",
-      { rawData: data, timestamp: new Date().toISOString() }
+      { rawData, timestamp: new Date().toISOString() }
     );
 
-    const eventData = data.data || data;
+    const eventData = unwrapEvent(rawData);
     if (!ticket.value) {
       console.log("[SSE Handler] ticket-unlinked: No ticket.value, ignoring");
       return;
@@ -315,14 +355,14 @@ export function useTicketSSE(
   }
 
   // Handle project assigned
-  async function handleProjectAssigned(data: any): Promise<void> {
+  async function handleProjectAssigned(rawData: ProjectEventData | SSEEventWrapper<ProjectEventData>): Promise<void> {
     console.log(
       "%c[SSE Handler] project-assigned received",
       "color: #f97316; font-weight: bold",
-      { rawData: data, timestamp: new Date().toISOString() }
+      { rawData, timestamp: new Date().toISOString() }
     );
 
-    const eventData = data.data || data;
+    const eventData = unwrapEvent(rawData);
     if (!ticket.value || eventData.ticket_id !== ticket.value.id) {
       console.log(
         "[SSE Handler] project-assigned: Not for this ticket, ignoring",
@@ -341,13 +381,16 @@ export function useTicketSSE(
       currentProjects: ticket.value.projects,
     });
 
-    // Check if already in the array
-    const alreadyAssigned = ticket.value.projects?.includes(projectId);
+    // Check if already in the array (projects array contains Project objects or IDs)
+    const projectsArray = ticket.value.projects as unknown[];
+    const alreadyAssigned = projectsArray?.some((p) =>
+      typeof p === 'string' ? p === projectId : (p as { id?: string })?.id === projectId
+    );
     if (!alreadyAssigned) {
       if (ticket.value.projects) {
-        ticket.value.projects.push(projectId);
+        (ticket.value.projects as unknown[]).push(projectId);
       } else {
-        ticket.value.projects = [projectId];
+        (ticket.value as Record<string, unknown>).projects = [projectId];
       }
       console.log(
         "%c[SSE Handler] ✅ project-assigned: Successfully assigned",
@@ -366,14 +409,14 @@ export function useTicketSSE(
   }
 
   // Handle project unassigned
-  function handleProjectUnassigned(data: any): void {
+  function handleProjectUnassigned(rawData: ProjectEventData | SSEEventWrapper<ProjectEventData>): void {
     console.log(
       "%c[SSE Handler] project-unassigned received",
       "color: #f97316; font-weight: bold",
-      { rawData: data, timestamp: new Date().toISOString() }
+      { rawData, timestamp: new Date().toISOString() }
     );
 
-    const eventData = data.data || data;
+    const eventData = unwrapEvent(rawData);
     if (!ticket.value || eventData.ticket_id !== ticket.value.id) {
       console.log(
         "[SSE Handler] project-unassigned: Not for this ticket, ignoring",
@@ -394,15 +437,18 @@ export function useTicketSSE(
     });
 
     if (ticket.value.projects) {
-      const index = ticket.value.projects.indexOf(projectId);
+      const projectsArray = ticket.value.projects as unknown[];
+      const index = projectsArray.findIndex((p) =>
+        typeof p === 'string' ? p === projectId : (p as { id?: string })?.id === projectId
+      );
       if (index !== -1) {
-        ticket.value.projects.splice(index, 1);
+        projectsArray.splice(index, 1);
         console.log(
           "%c[SSE Handler] ✅ project-unassigned: Successfully unassigned",
           "color: #22c55e; font-weight: bold",
           {
             unassignedProjectId: projectId,
-            afterLength: ticket.value.projects.length,
+            afterLength: projectsArray.length,
             remainingProjects: ticket.value.projects,
           }
         );
@@ -418,8 +464,8 @@ export function useTicketSSE(
   }
 
   // Handle viewer count changed
-  function handleViewerCountChanged(data: any): void {
-    const eventData = data.data || data;
+  function handleViewerCountChanged(rawData: ViewerCountEventData | SSEEventWrapper<ViewerCountEventData>): void {
+    const eventData = unwrapEvent(rawData);
     if (!ticket.value || eventData.ticket_id !== ticket.value.id) return;
 
     activeViewerCount.value = eventData.count || 0;
@@ -430,8 +476,25 @@ export function useTicketSSE(
     );
   }
 
+  // SSE event types used by this composable
+  type TicketSSEEventType =
+    | "ticket-updated"
+    | "comment-added"
+    | "comment-deleted"
+    | "device-linked"
+    | "device-unlinked"
+    | "device-updated"
+    | "ticket-linked"
+    | "ticket-unlinked"
+    | "project-assigned"
+    | "project-unassigned"
+    | "viewer-count-changed";
+
+  // Event handler type for SSE events
+  type SSEEventHandler = (data: unknown) => void | Promise<void>;
+
   // Event handler configuration - DRY principle
-  const eventHandlers = {
+  const eventHandlers: Record<TicketSSEEventType, SSEEventHandler> = {
     "ticket-updated": handleTicketUpdated,
     "comment-added": handleCommentAdded,
     "comment-deleted": handleCommentDeleted,
@@ -443,7 +506,7 @@ export function useTicketSSE(
     "project-assigned": handleProjectAssigned,
     "project-unassigned": handleProjectUnassigned,
     "viewer-count-changed": handleViewerCountChanged,
-  } as const;
+  };
 
   // Setup event listeners
   function setupEventListeners(): void {
@@ -452,17 +515,21 @@ export function useTicketSSE(
       "color: #06b6d4; font-weight: bold",
       { eventTypes: Object.keys(eventHandlers) }
     );
-    Object.entries(eventHandlers).forEach(([event, handler]) => {
-      addEventListener(event as any, handler);
-      console.log(`[SSE Setup] ✓ Registered listener for: ${event}`);
-    });
+    (Object.entries(eventHandlers) as [TicketSSEEventType, SSEEventHandler][]).forEach(
+      ([event, handler]) => {
+        addEventListener(event, handler);
+        console.log(`[SSE Setup] ✓ Registered listener for: ${event}`);
+      }
+    );
   }
 
   // Remove event listeners
   function cleanupEventListeners(): void {
-    Object.entries(eventHandlers).forEach(([event, handler]) => {
-      removeEventListener(event as any, handler);
-    });
+    (Object.entries(eventHandlers) as [TicketSSEEventType, SSEEventHandler][]).forEach(
+      ([event, handler]) => {
+        removeEventListener(event, handler);
+      }
+    );
   }
 
   // Auto-setup on mount - connect immediately for real-time updates

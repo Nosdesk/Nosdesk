@@ -1,5 +1,6 @@
 import apiClient from './apiConfig';
 import { logger } from '@/utils/logger';
+import type { User } from '@/types/user';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -20,7 +21,7 @@ export interface AdminSetupRequest {
 export interface AdminSetupResponse {
   success: boolean;
   message: string;
-  user?: any;
+  user?: User;
 }
 
 export interface LoginCredentials {
@@ -30,7 +31,7 @@ export interface LoginCredentials {
 
 export interface LoginResponse {
   token: string;
-  user: any;
+  user: User;
 }
 
 // MFA Interfaces
@@ -96,7 +97,7 @@ class AuthService {
    * NOTE: Backend enforces actual rate limiting for security
    */
   async checkSetupStatus(): Promise<OnboardingStatus> {
-    // UX ONLY: Check if we have cached data that's still valid
+    // UX ONLY: Check for valid cached data
     const now = Date.now();
     if (this.setupStatusCache.data &&
         (now - this.setupStatusCache.timestamp) < this.setupStatusCache.ttl) {
@@ -144,17 +145,20 @@ class AuthService {
 
       logger.debug('Setup status checked', { requiresSetup: response.data.requires_setup, userCount: response.data.user_count });
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Failed to check setup status', { error });
 
       // UX ONLY: If it's a network error or server error, assume setup is required
       // This ensures new users can still access onboarding even if there are temporary issues
-      if (error.code === 'NETWORK_ERROR' || error.code === 'ERR_NETWORK' ||
-          (error.response && error.response.status >= 500)) {
+      const axiosError = error as { code?: string; response?: { status?: number } };
+      if (axiosError.code === 'NETWORK_ERROR' || axiosError.code === 'ERR_NETWORK' ||
+          (axiosError.response && axiosError.response.status >= 500)) {
         logger.warn('Network/server error, assuming setup required for safety');
         return {
           requires_setup: true,
-          user_count: 0
+          user_count: 0,
+          microsoft_auth_enabled: false,
+          oidc_enabled: false
         };
       }
 

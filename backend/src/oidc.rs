@@ -21,7 +21,7 @@ use openidconnect::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn, debug};
+use tracing::{debug, error, info, warn};
 
 use crate::config_utils;
 
@@ -94,6 +94,7 @@ lazy_static::lazy_static! {
         match OidcConfig::from_env() {
             Ok(config) => Some(config),
             Err(e) => {
+                // Note: Using eprintln here because tracing may not be initialized yet during lazy_static initialization
                 eprintln!("Failed to load OIDC config: {}", e);
                 None
             }
@@ -246,7 +247,7 @@ static END_SESSION_ENDPOINT: once_cell::sync::Lazy<Arc<RwLock<Option<String>>>> 
 
 /// Initialize or get the cached OIDC client
 pub async fn get_oidc_client() -> Result<CoreClient, String> {
-    // Check if we have a cached client
+    // Check for cached client
     {
         let client_guard = OIDC_CLIENT.read().await;
         if let Some(client) = client_guard.as_ref() {
@@ -303,7 +304,7 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<CoreClient, String> {
         }
 
         // Convert to CoreProviderMetadata for client creation
-        // We need to re-discover with CoreProviderMetadata since the client expects that type
+        // Re-discover with CoreProviderMetadata since the client expects that type
         let core_metadata = CoreProviderMetadata::discover_async(
             IssuerUrl::new(issuer_url.clone()).unwrap(),
             async_http_client
@@ -333,7 +334,7 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<CoreClient, String> {
             *endpoint_guard = Some(logout_uri.clone());
         }
 
-        // For manual config, we create a minimal client without provider metadata
+        // Manual config creates a minimal client without provider metadata
         // Note: This won't have JWKS for ID token signature verification
         // Consider fetching JWKS separately if needed
         let client = CoreClient::new(

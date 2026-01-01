@@ -150,14 +150,15 @@ const handleSetup = async () => {
       errorMessage.value = response.message || 'Setup failed. Please try again.';
       currentStep.value = 'setup';
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error('Setup error:', error);
     currentStep.value = 'setup';
 
-    if (error.response?.data?.message) {
-      errorMessage.value = error.response.data.message;
-    } else if (error.response?.data?.status === 'error') {
-      errorMessage.value = error.response.data.message || 'Setup failed. Please try again.';
+    const axiosError = error as { response?: { data?: { message?: string; status?: string } } };
+    if (axiosError.response?.data?.message) {
+      errorMessage.value = axiosError.response.data.message;
+    } else if (axiosError.response?.data?.status === 'error') {
+      errorMessage.value = axiosError.response.data.message || 'Setup failed. Please try again.';
     } else {
       errorMessage.value = 'An unexpected error occurred. Please try again.';
     }
@@ -274,9 +275,10 @@ const uploadBackupFile = async () => {
     } else {
       restoreStep.value = 'preview';
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error('Upload error:', error);
-    errorMessage.value = error.response?.data?.error || 'Failed to upload backup file';
+    const axiosError = error as { response?: { data?: { error?: string } } };
+    errorMessage.value = axiosError.response?.data?.error || 'Failed to upload backup file';
     restoreFile.value = null;
   } finally {
     isLoading.value = false;
@@ -308,9 +310,10 @@ const executeRestore = async () => {
       errorMessage.value = restoreResult.value.message || 'Restore failed';
       restoreStep.value = 'preview';
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error('Restore error:', error);
-    errorMessage.value = error.response?.data?.error || 'Failed to restore backup';
+    const axiosError = error as { response?: { data?: { error?: string } } };
+    errorMessage.value = axiosError.response?.data?.error || 'Failed to restore backup';
     restoreStep.value = 'preview';
   } finally {
     isLoading.value = false;

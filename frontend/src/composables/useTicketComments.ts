@@ -2,12 +2,39 @@ import { type Ref } from 'vue';
 import ticketService from '@/services/ticketService';
 import apiClient from '@/services/apiConfig';
 import { useAuthStore } from '@/stores/auth';
+import { logger } from '@/utils/logger';
+import type { Ticket } from '@/types/ticket';
+import type { CommentWithAttachments } from '@/types/comment';
+
+/**
+ * Extended ticket type with comments for detail view
+ */
+interface TicketWithDetails extends Ticket {
+  commentsAndAttachments?: CommentWithAttachments[];
+}
+
+/**
+ * File with attached transcription (for voice recordings)
+ */
+interface FileWithTranscription extends File {
+  _transcription?: string;
+}
+
+/**
+ * Upload response from file upload endpoint
+ */
+interface UploadedFile {
+  id: number;
+  url: string;
+  name: string;
+  transcription?: string;
+}
 
 /**
  * Composable for managing ticket comments
  */
 export function useTicketComments(
-  ticket: Ref<any>,
+  ticket: Ref<TicketWithDetails | null>,
   refreshTicket: () => Promise<void>,
 ) {
 
@@ -54,14 +81,14 @@ export function useTicketComments(
 
     try {
       // Upload files if any
-      let attachments: { id: number; url: string; name: string; transcription?: string }[] = [];
+      let attachments: UploadedFile[] = [];
       if (data.files?.length > 0) {
         const formData = new FormData();
 
         // IMPORTANT: Append transcription BEFORE files so backend processes it first
-        const audioFile = data.files.find(f => f.type.startsWith('audio/'));
-        if (audioFile && (audioFile as any)._transcription) {
-          formData.append('transcription', (audioFile as any)._transcription);
+        const audioFile = data.files.find(f => f.type.startsWith('audio/')) as FileWithTranscription | undefined;
+        if (audioFile?._transcription) {
+          formData.append('transcription', audioFile._transcription);
         }
 
         // Then append files
@@ -69,11 +96,11 @@ export function useTicketComments(
           formData.append('files', file, file.name);
         });
 
-        const response = await apiClient.post('/upload', formData, {
+        const response = await apiClient.post<UploadedFile[]>('/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
 
-        attachments = response.data.map((file: any) => ({
+        attachments = response.data.map((file) => ({
           id: file.id,
           url: file.url,
           name: file.name,
@@ -92,12 +119,12 @@ export function useTicketComments(
       // This ensures user data is always present, even if SSE is delayed
       if (ticket.value.commentsAndAttachments) {
         const tempIndex = ticket.value.commentsAndAttachments.findIndex(
-          (c: any) => c.id === tempId
+          (c) => c.id === tempId
         );
 
         // Check if SSE already added the real comment
         const sseAlreadyAdded = ticket.value.commentsAndAttachments.some(
-          (c: any) => c.id === newComment.id
+          (c) => c.id === newComment.id
         );
 
         if (tempIndex !== -1) {
@@ -131,12 +158,12 @@ export function useTicketComments(
           });
         }
       }
-    } catch (error) {
-      console.error('Error adding comment:', error);
+    } catch (err) {
+      logger.error('Error adding comment', { ticketId: ticket.value?.id, error: err });
       // Remove optimistic comment on error
       if (ticket.value.commentsAndAttachments) {
         const index = ticket.value.commentsAndAttachments.findIndex(
-          (c: any) => c.id === tempId
+          (c) => c.id === tempId
         );
         if (index !== -1) {
           ticket.value.commentsAndAttachments.splice(index, 1);
@@ -151,7 +178,7 @@ export function useTicketComments(
     if (!ticket.value) return;
 
     try {
-      const comment = ticket.value.commentsAndAttachments?.find((c: any) => c.id === data.commentId);
+      const comment = ticket.value.commentsAndAttachments?.find((c) => c.id === data.commentId);
       if (!comment?.attachments?.[data.attachmentIndex]) {
         return;
       }
@@ -177,7 +204,7 @@ export function useTicketComments(
         // Optimistic update - use splice to preserve array reference
         if (ticket.value.commentsAndAttachments) {
           const commentIndex = ticket.value.commentsAndAttachments.findIndex(
-            (c: any) => c.id === data.commentId,
+            (c) => c.id === data.commentId,
           );
 
           if (commentIndex !== -1) {
@@ -190,7 +217,7 @@ export function useTicketComments(
         await ticketService.deleteAttachment(attachment.id);
       }
     } catch (err) {
-      console.error('Error deleting attachment:', err);
+      logger.error('Error deleting attachment', { commentId: data.commentId, attachmentIndex: data.attachmentIndex, error: err });
       await refreshTicket();
     }
   }
@@ -203,7 +230,7 @@ export function useTicketComments(
       // Optimistic update - use splice to preserve array reference
       if (ticket.value.commentsAndAttachments) {
         const index = ticket.value.commentsAndAttachments.findIndex(
-          (c: any) => c.id === commentId,
+          (c) => c.id === commentId,
         );
         if (index !== -1) {
           ticket.value.commentsAndAttachments.splice(index, 1);
@@ -213,7 +240,7 @@ export function useTicketComments(
       // Delete from backend
       await ticketService.deleteComment(commentId);
     } catch (err) {
-      console.error('Error deleting comment:', err);
+      logger.error('Error deleting comment', { commentId, error: err });
       await refreshTicket();
     }
   }

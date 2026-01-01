@@ -6,6 +6,7 @@ import { parseDate } from '@/utils/dateUtils'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
 import { useTicketDrag, type DraggableTicket } from '@/composables/useTicketDrag'
+import type { Ticket } from '@/types/ticket'
 
 const recentTicketsStore = useRecentTicketsStore()
 const {
@@ -20,21 +21,21 @@ const {
 } = useTicketDrag()
 
 // Convert store ticket to draggable ticket format
-const toDraggableTicket = (ticket: any): DraggableTicket => ({
+const toDraggableTicket = (ticket: Ticket): DraggableTicket => ({
   id: ticket.id,
   title: ticket.title,
   status: ticket.status,
   priority: ticket.priority,
-  assignee: ticket.assignee || ticket.assignee_user?.display_name || null
+  assignee: ticket.assignee || ticket.assignee_user?.name || null
 })
 
-// Only show loading skeleton on initial load (when we have no data yet)
+// Only show loading skeleton on initial load (no data yet)
 const showLoading = computed(() =>
   recentTicketsStore.isLoading && recentTicketsStore.recentTickets.length === 0
 )
 
 onMounted(async () => {
-  // Only fetch if we don't have data yet (prevents refetch on every mount)
+  // Only fetch if no data yet (prevents refetch on every mount)
   if (recentTicketsStore.recentTickets.length === 0) {
     await recentTicketsStore.fetchRecentTickets()
   }

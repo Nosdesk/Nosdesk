@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use diesel::result::Error;
 use std::collections::HashMap;
+use tracing::{debug, error};
 use uuid::Uuid;
 use crate::utils;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
@@ -144,7 +145,7 @@ pub async fn get_all_devices(pool: web::Data<Pool>) -> impl Responder {
             HttpResponse::Ok().json(device_responses)
         },
         Err(e) => {
-            eprintln!("Database error getting all devices: {:?}", e);
+            error!(error = ?e, "Database error getting all devices");
             HttpResponse::InternalServerError().json("Failed to get devices")
         }
     }
@@ -190,7 +191,7 @@ pub async fn get_paginated_devices(
             HttpResponse::Ok().json(response)
         }
         Err(e) => {
-            eprintln!("Database error getting paginated devices: {:?}", e);
+            error!(error = ?e, "Database error getting paginated devices");
             HttpResponse::InternalServerError().json("Failed to get devices")
         }
     }
@@ -220,7 +221,7 @@ pub async fn get_device_by_id(
             match e {
                 Error::NotFound => HttpResponse::NotFound().json(format!("Device {} not found", device_id)),
                 _ => {
-                    eprintln!("Database error getting device {}: {:?}", device_id, e);
+                    error!(device_id, error = ?e, "Database error getting device");
                     HttpResponse::InternalServerError().json(format!("Failed to get device {}", device_id))
                 }
             }
@@ -251,7 +252,7 @@ pub async fn get_user_devices(
             HttpResponse::Ok().json(device_responses)
         },
         Err(e) => {
-            eprintln!("Error getting devices for user {}: {:?}", user_uuid_str, e);
+            error!(user_uuid = %user_uuid_str, error = ?e, "Error getting devices for user");
             HttpResponse::InternalServerError().json(format!("Failed to get devices for user {}", user_uuid_str))
         }
     }
@@ -294,7 +295,7 @@ pub async fn create_device(
             HttpResponse::Created().json(device_response)
         },
         Err(e) => {
-            eprintln!("Database error creating device: {:?}", e);
+            error!(error = ?e, "Database error creating device");
             HttpResponse::InternalServerError().json("Failed to create device")
         }
     }
@@ -338,7 +339,7 @@ pub async fn update_device(
             return match e {
                 Error::NotFound => HttpResponse::NotFound().json(format!("Device {} not found", device_id)),
                 _ => {
-                    eprintln!("Database error getting device {}: {:?}", device_id, e);
+                    error!(device_id, error = ?e, "Database error getting device");
                     HttpResponse::InternalServerError().json(format!("Failed to get device {}", device_id))
                 }
             }
@@ -365,7 +366,7 @@ pub async fn update_device(
             if let Some(update_obj) = update_json.as_object() {
                 for (key, value) in update_obj {
                     if !value.is_null() {
-                        println!("Broadcasting SSE event for device {}: {} = {:?}", device_id, key, value);
+                        debug!(device_id, field = %key, value = ?value, "Broadcasting SSE event for device update");
                         use crate::utils::sse::SseBroadcaster;
                         SseBroadcaster::broadcast_device_updated(
                             &sse_state,
@@ -390,7 +391,7 @@ pub async fn update_device(
             match e {
                 Error::NotFound => HttpResponse::NotFound().json(format!("Device {} not found", device_id)),
                 _ => {
-                    eprintln!("Database error updating device {}: {:?}", device_id, e);
+                    error!(device_id, error = ?e, "Database error updating device");
                     HttpResponse::InternalServerError().json(format!("Failed to update device {}", device_id))
                 }
             }
@@ -437,7 +438,7 @@ pub async fn delete_device(
             }
         }
         Err(e) => {
-            eprintln!("Database error deleting device {}: {:?}", device_id, e);
+            error!(device_id, error = ?e, "Database error deleting device");
             HttpResponse::InternalServerError().json(format!("Failed to delete device {}", device_id))
         }
     }
@@ -479,7 +480,7 @@ pub async fn unmanage_device(
             return match e {
                 Error::NotFound => HttpResponse::NotFound().json(format!("Device {} not found", device_id)),
                 _ => {
-                    eprintln!("Database error getting device {}: {:?}", device_id, e);
+                    error!(device_id, error = ?e, "Database error getting device");
                     HttpResponse::InternalServerError().json(format!("Failed to get device {}", device_id))
                 }
             }
@@ -530,7 +531,7 @@ pub async fn unmanage_device(
             HttpResponse::Ok().json(device_response)
         },
         Err(e) => {
-            eprintln!("Database error unmanaging device {}: {:?}", device_id, e);
+            error!(device_id, error = ?e, "Database error unmanaging device");
             HttpResponse::InternalServerError().json(format!("Failed to unmanage device {}", device_id))
         }
     }
@@ -581,7 +582,7 @@ pub async fn get_paginated_devices_excluding(
             HttpResponse::Ok().json(response)
         },
         Err(e) => {
-            eprintln!("Error getting paginated devices: {:?}", e);
+            error!(error = ?e, "Error getting paginated devices");
             HttpResponse::InternalServerError().json("Failed to get devices")
         }
     }
@@ -641,7 +642,7 @@ pub async fn bulk_devices(
                 match repository::delete_device(&mut conn, *id) {
                     Ok(rows) => deleted += rows,
                     Err(e) => {
-                        eprintln!("Error deleting device {}: {:?}", id, e);
+                        error!(device_id = *id, error = ?e, "Error deleting device in bulk operation");
                     }
                 }
             }

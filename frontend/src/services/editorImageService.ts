@@ -98,7 +98,7 @@ export async function uploadEditorImage(
 
       // The URL returned from the ticket-specific endpoint is in format:
       // /uploads/tickets/{ticketId}/notes/{uuid}_{filename}
-      // We need to convert it to the API file serving endpoint:
+      // Convert to the API file serving endpoint:
       // /api/files/tickets/{ticketId}/notes/{uuid}_{filename}
       let finalUrl = uploadedFile.url;
       if (ticketId && finalUrl.startsWith('/uploads/')) {

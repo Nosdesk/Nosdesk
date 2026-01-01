@@ -41,9 +41,11 @@ pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::
     }
 
     if attempts >= 30 {
-        error!("❌ FATAL: Database not ready after 60 seconds");
-        error!("   Tried to connect 30 times over 60 seconds");
-        error!("   Check that PostgreSQL is running and DATABASE_URL is correct");
+        error!(
+            attempts = 30,
+            timeout_seconds = 60,
+            "Database not ready after timeout. Check that PostgreSQL is running and DATABASE_URL is correct"
+        );
         return Err("Database not ready after 60 seconds".into());
     }
 
@@ -58,7 +60,7 @@ pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::
             }
         }
         Err(e) => {
-            error!("❌ Failed to run migrations: {}", e);
+            error!(error = %e, "Failed to run migrations");
             return Err(e.into());
         }
     }
@@ -67,13 +69,13 @@ pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::
     match crate::repository::count_users(&mut conn) {
         Ok(count) => {
             if count == 0 {
-                info!("📋 Initial setup required - no users found");
+                info!("Initial setup required - no users found");
             } else {
-                info!("✅ System ready with {} user(s)", count);
+                info!(user_count = count, "System ready");
             }
         }
         Err(e) => {
-            warn!("⚠️  Could not check user count: {}", e);
+            warn!(error = %e, "Could not check user count");
         }
     }
 
@@ -91,28 +93,28 @@ pub fn establish_connection_pool() -> Pool {
 
     let database_url = match env::var("DATABASE_URL") {
         Ok(url) => {
-            eprintln!("✅ DATABASE_URL found: {}", url.chars().take(30).collect::<String>() + "...");
+            info!(url_prefix = %url.chars().take(30).collect::<String>(), "DATABASE_URL found");
             url
         },
         Err(e) => {
-            eprintln!("❌ FATAL: DATABASE_URL environment variable must be set");
-            eprintln!("   Error: {}", e);
+            error!(error = %e, "DATABASE_URL environment variable must be set");
             std::process::exit(1);
         }
     };
 
-    eprintln!("🔌 Attempting to create database connection pool...");
+    info!("Attempting to create database connection pool");
     let manager = ConnectionManager::<PgConnection>::new(database_url);
 
     match r2d2::Pool::builder().build(manager) {
         Ok(pool) => {
-            eprintln!("✅ Database connection pool created successfully");
+            info!("Database connection pool created successfully");
             pool
         },
         Err(e) => {
-            eprintln!("❌ FATAL: Failed to create database connection pool");
-            eprintln!("   Error: {}", e);
-            eprintln!("   This usually means the database is not accessible or DATABASE_URL is incorrect");
+            error!(
+                error = %e,
+                "Failed to create database connection pool. This usually means the database is not accessible or DATABASE_URL is incorrect"
+            );
             std::process::exit(1);
         }
     }

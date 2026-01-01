@@ -236,7 +236,7 @@ pub fn update_documentation_yjs_state(
 
 // Create a documentation revision snapshot
 // Note: This is simplified - the schema doesn't have a revision number or contributed_by
-// We'll create a basic revision with just the snapshot and metadata
+// Creates a basic revision with just the snapshot and metadata
 pub fn create_documentation_revision(
     conn: &mut DbConnection,
     page_id: i32,

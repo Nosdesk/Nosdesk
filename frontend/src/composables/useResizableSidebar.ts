@@ -7,7 +7,7 @@ const RESIZER_HEIGHT = 8;
 
 // Debug logging - set to false to disable logging
 const DEBUG = false;
-const logDebug = (...args: any[]) => {
+const logDebug = (...args: unknown[]) => {
   if (DEBUG) console.log('[ResizableSidebar]', ...args);
 };
 

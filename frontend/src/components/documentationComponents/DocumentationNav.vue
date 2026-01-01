@@ -13,7 +13,7 @@ defineEmits<{
   'search': [query: string];
 }>();
 
-// Define our own PageChild interface to match what we're using
+// PageChild interface for internal component use
 interface PageChild {
   id: string | number;
   slug: string;
@@ -312,7 +312,7 @@ const handlePageClick = (id: string | number) => {
 
   // If the page has children, handle expansion/collapse
   if (foundPage && foundPage.children && foundPage.children.length > 0) {
-    // Check if we're already on the same route
+    // Check if already on the same route
     if (route.path === pageRoute) {
       // Only collapse if already on that page
       docNavStore.togglePage(stringId)

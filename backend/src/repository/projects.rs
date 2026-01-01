@@ -1,6 +1,7 @@
 use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::QueryResult;
+use tracing::{debug, warn};
 
 use crate::db::DbConnection;
 use crate::models::*;
@@ -101,39 +102,39 @@ pub fn delete_project(conn: &mut DbConnection, project_id: i32) -> QueryResult<u
 pub fn add_ticket_to_project(conn: &mut DbConnection, project_id: i32, ticket_id: i32) -> QueryResult<ProjectTicket> {
     // First check if the ticket exists
     match crate::repository::tickets::get_ticket_by_id(conn, ticket_id) {
-        Ok(_) => println!("Ticket {} exists", ticket_id),
+        Ok(_) => debug!(ticket_id, "Ticket exists"),
         Err(e) => {
-            println!("Error: Ticket {} does not exist: {:?}", ticket_id, e);
+            warn!(ticket_id, error = ?e, "Ticket does not exist");
             return Err(Error::NotFound);
         }
     }
 
     // Then check if the project exists
     match projects::table.find(project_id).first::<Project>(conn) {
-        Ok(_) => println!("Project {} exists", project_id),
+        Ok(_) => debug!(project_id, "Project exists"),
         Err(e) => {
-            println!("Error: Project {} does not exist: {:?}", project_id, e);
+            warn!(project_id, error = ?e, "Project does not exist");
             return Err(Error::NotFound);
         }
     }
-    
+
     // Check if the association already exists
     let existing = project_tickets::table
         .filter(project_tickets::project_id.eq(project_id))
         .filter(project_tickets::ticket_id.eq(ticket_id))
         .first::<ProjectTicket>(conn);
-    
+
     if let Ok(association) = existing {
-        println!("Association already exists between project {} and ticket {}", project_id, ticket_id);
+        debug!(project_id, ticket_id, "Association already exists");
         return Ok(association);
     }
-    
+
     let new_association = NewProjectTicket {
         project_id,
         ticket_id,
     };
-    
-    println!("Creating new association between project {} and ticket {}", project_id, ticket_id);
+
+    debug!(project_id, ticket_id, "Creating new project-ticket association");
     diesel::insert_into(project_tickets::table)
         .values(&new_association)
         .get_result(conn)
@@ -177,8 +178,8 @@ pub fn get_project_tickets(conn: &mut DbConnection, project_id: i32) -> QueryRes
 
 // Get projects for a ticket
 pub fn get_projects_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<Project>> {
-    println!("Getting projects for ticket ID: {}", ticket_id);
-    
+    debug!(ticket_id, "Getting projects for ticket");
+
     project_tickets::table
         .filter(project_tickets::ticket_id.eq(ticket_id))
         .inner_join(projects::table)

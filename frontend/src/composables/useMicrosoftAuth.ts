@@ -27,10 +27,11 @@ export function useMicrosoftAuth() {
       } else {
         throw new Error('Invalid authorization URL received');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error initiating Microsoft authentication:', err);
-      error.value = err.response?.data?.message || 
-                   err.response?.data?.error || 
+      const axiosError = err as { response?: { data?: { message?: string; error?: string } } };
+      error.value = axiosError.response?.data?.message ||
+                   axiosError.response?.data?.error ||
                    'Failed to initiate Microsoft authentication';
       isLoading.value = false;
     }
@@ -53,9 +54,10 @@ export function useMicrosoftAuth() {
       } else {
         throw new Error('Invalid logout URL received');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error logging out of Microsoft:', err);
-      error.value = err.response?.data?.message || 'Failed to initiate Microsoft logout';
+      const axiosError = err as { response?: { data?: { message?: string } } };
+      error.value = axiosError.response?.data?.message || 'Failed to initiate Microsoft logout';
       isLoading.value = false;
     }
   };

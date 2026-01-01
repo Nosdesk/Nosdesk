@@ -280,7 +280,7 @@ pub async fn verify_backup_code(
         });
     }
 
-    // Check if we're running low on backup codes before moving remaining_codes
+    // Check if running low on backup codes before moving remaining_codes
     let requires_regeneration = remaining_codes.len() <= 2;
 
     // Update backup codes in database (remove the used one)

@@ -1,6 +1,7 @@
 use crate::handlers::sse::{SseState, TicketEvent};
 use actix_web::web;
 use chrono::Utc;
+use tracing::debug;
 
 /// SSE broadcasting utilities for real-time ticket updates
 pub struct SseBroadcaster;
@@ -8,9 +9,9 @@ pub struct SseBroadcaster;
 impl SseBroadcaster {
     /// Generic function to broadcast any SSE event
     async fn broadcast_event(state: &web::Data<SseState>, event: TicketEvent) {
-        println!("SSE: Broadcasting event: {:?}", event);
+        debug!(event = ?event, "SSE: Broadcasting event");
         state.broadcast_event(event).await;
-        println!("SSE: Event broadcasted successfully");
+        debug!("SSE: Event broadcasted successfully");
     }
 
     /// Generic function to create and broadcast events with common fields

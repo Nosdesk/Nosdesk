@@ -156,10 +156,11 @@ const handleSubmit = async () => {
   try {
     await authService.requestPasswordReset(email.value);
     emailSent.value = true;
-  } catch (error: any) {
+  } catch (error) {
     console.error('Password reset request error:', error);
     // Show generic error to prevent account enumeration
-    errorMessage.value = error.response?.data?.message || 'Failed to send reset email. Please try again.';
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to send reset email. Please try again.';
   } finally {
     loading.value = false;
   }

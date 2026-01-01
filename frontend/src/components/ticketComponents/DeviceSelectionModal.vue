@@ -94,7 +94,7 @@ const loadRequesterDevices = async () => {
   }
 };
 
-// Get IDs of devices that should be excluded from pagination (requester's devices + existing)
+// Get IDs of devices to exclude from pagination (requester's devices + existing)
 const getExcludeIds = (): number[] => {
   const excludeIds = [...(props.existingDeviceIds || [])];
   
@@ -220,7 +220,7 @@ const totalDevicesCount = computed(() => {
   return totalDevices.value + requesterDevices.value.length;
 });
 
-// Check if we have any devices to show
+// Check if any devices available to show
 const hasDevicesToShow = computed(() => {
   return requesterDevices.value.length > 0 || devices.value.length > 0;
 });

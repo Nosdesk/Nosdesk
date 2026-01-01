@@ -743,7 +743,7 @@ const generatePdfThumbnail = async (url: string) => {
   border-radius: 6px;
 }
 
-/* Remove the pulse-border animation since we're using a cleaner approach */
+/* Remove the pulse-border animation - using a cleaner approach */
 @keyframes pulse-border {
   0%, 100% {
     border-color: rgba(59, 130, 246, 0.8);

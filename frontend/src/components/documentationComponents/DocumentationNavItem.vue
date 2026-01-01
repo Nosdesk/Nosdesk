@@ -119,7 +119,7 @@ const handleDragOver = (event: DragEvent) => {
 }
 
 const handleDragLeave = (event: DragEvent) => {
-  // Only clear if we're actually leaving this element (not entering a child)
+  // Only clear if actually leaving this element (not entering a child)
   const relatedTarget = event.relatedTarget as HTMLElement
   if (!itemRef.value?.contains(relatedTarget)) {
     dragPosition.value = null

@@ -35,10 +35,10 @@ const editingModel = ref(false);
 const editingManufacturer = ref(false);
 const editingWarrantyStatus = ref(false);
 
-// Track if we're updating from props to prevent circular emissions
+// Track if updating from props to prevent circular emissions
 const isUpdatingFromProps = ref(false);
 
-// Debug logging to see what data we're getting
+// Debug logging for incoming device data
 console.log('🔧 DeviceDetails received device data:', {
   id: props.device.id,
   name: props.device.name,

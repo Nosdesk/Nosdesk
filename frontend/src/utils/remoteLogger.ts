@@ -10,7 +10,7 @@ type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 interface LogEntry {
   level: LogLevel;
   message: string;
-  data?: any;
+  data?: string;
   timestamp: string;
   url: string;
   userAgent: string;
@@ -56,7 +56,7 @@ const scheduleFlush = () => {
 };
 
 // Add log to queue
-const queueLog = (level: LogLevel, message: string, data?: any) => {
+const queueLog = (level: LogLevel, message: string, data?: unknown) => {
   if (!isRemoteLoggingEnabled()) return;
 
   const entry: LogEntry = {
@@ -79,7 +79,7 @@ const queueLog = (level: LogLevel, message: string, data?: any) => {
 };
 
 // Safely stringify data, handling circular references
-const safeStringify = (obj: any): string => {
+const safeStringify = (obj: unknown): string => {
   const seen = new WeakSet();
   return JSON.stringify(obj, (key, value) => {
     if (typeof value === 'object' && value !== null) {
@@ -102,10 +102,10 @@ const safeStringify = (obj: any): string => {
 
 // Remote logger API
 export const remoteLog = {
-  debug: (message: string, data?: any) => queueLog('debug', message, data),
-  info: (message: string, data?: any) => queueLog('info', message, data),
-  warn: (message: string, data?: any) => queueLog('warn', message, data),
-  error: (message: string, data?: any) => queueLog('error', message, data),
+  debug: (message: string, data?: unknown) => queueLog('debug', message, data),
+  info: (message: string, data?: unknown) => queueLog('info', message, data),
+  warn: (message: string, data?: unknown) => queueLog('warn', message, data),
+  error: (message: string, data?: unknown) => queueLog('error', message, data),
 
   // Force immediate flush (useful before page unload)
   flush: flushLogs,
@@ -124,27 +124,27 @@ const originalConsole = {
 export const interceptConsole = () => {
   if (!isRemoteLoggingEnabled()) return;
 
-  console.log = (...args: any[]) => {
+  console.log = (...args: unknown[]) => {
     originalConsole.log(...args);
     queueLog('info', args.map(a => typeof a === 'string' ? a : safeStringify(a)).join(' '));
   };
 
-  console.info = (...args: any[]) => {
+  console.info = (...args: unknown[]) => {
     originalConsole.info(...args);
     queueLog('info', args.map(a => typeof a === 'string' ? a : safeStringify(a)).join(' '));
   };
 
-  console.warn = (...args: any[]) => {
+  console.warn = (...args: unknown[]) => {
     originalConsole.warn(...args);
     queueLog('warn', args.map(a => typeof a === 'string' ? a : safeStringify(a)).join(' '));
   };
 
-  console.error = (...args: any[]) => {
+  console.error = (...args: unknown[]) => {
     originalConsole.error(...args);
     queueLog('error', args.map(a => typeof a === 'string' ? a : safeStringify(a)).join(' '));
   };
 
-  console.debug = (...args: any[]) => {
+  console.debug = (...args: unknown[]) => {
     originalConsole.debug(...args);
     queueLog('debug', args.map(a => typeof a === 'string' ? a : safeStringify(a)).join(' '));
   };

@@ -71,9 +71,10 @@ const loadGroups = async () => {
       console.error('Unexpected groups response:', result);
       groups.value = [];
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to load groups:', error);
-    errorMessage.value = error.response?.data?.message || 'Failed to load groups';
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to load groups';
     groups.value = [];
   } finally {
     isLoading.value = false;
@@ -112,8 +113,9 @@ const openEditModal = async (group: GroupWithMemberCount) => {
       color: fullGroup.color || '#6366f1'
     };
     showGroupModal.value = true;
-  } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || 'Failed to load group details';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to load group details';
   }
 };
 
@@ -126,8 +128,9 @@ const openMembersModal = async (group: GroupWithMemberCount) => {
     userSearchQuery.value = '';
     await loadUsers();
     showMembersModal.value = true;
-  } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || 'Failed to load group members';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to load group members';
   }
 };
 
@@ -169,8 +172,9 @@ const saveGroup = async () => {
     await loadGroups();
 
     setTimeout(() => successMessage.value = '', 3000);
-  } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || 'Failed to save group';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to save group';
   } finally {
     isSaving.value = false;
   }
@@ -193,8 +197,9 @@ const saveMembers = async () => {
     await loadGroups();
 
     setTimeout(() => successMessage.value = '', 3000);
-  } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || 'Failed to update members';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to update members';
   } finally {
     isSaving.value = false;
   }
@@ -221,8 +226,9 @@ const deleteGroup = async () => {
     await loadGroups();
 
     setTimeout(() => successMessage.value = '', 3000);
-  } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || 'Failed to delete group';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to delete group';
   } finally {
     isSaving.value = false;
   }

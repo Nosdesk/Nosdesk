@@ -6,6 +6,7 @@ import UserAvatar from "@/components/UserAvatar.vue";
 import InlineEdit from "@/components/common/InlineEdit.vue";
 import userService from "@/services/userService";
 import uploadService from "@/services/uploadService";
+import type { User } from "@/types/user";
 
 interface UserAvatarComponentType {
     refreshUser: (uuid?: string) => Promise<void>;
@@ -47,7 +48,7 @@ const emit = defineEmits<{
 // Props for external control
 const props = withDefaults(
     defineProps<{
-        user?: any; // User data to display (if different from auth user)
+        user?: User; // User data to display (if different from auth user)
         canEdit?: boolean; // Whether editing is allowed
         showEditableFields?: boolean; // Whether to show editable fields
         variant?: 'full' | 'compact'; // Display variant
@@ -157,8 +158,9 @@ const handleFileChange = async (event: Event) => {
         avatarFile.value = file;
         avatarPreview.value = uploadService.createPreviewUrl(file);
         await uploadAvatar();
-    } catch (error: any) {
-        emit("error", error.message || "Failed to process image");
+    } catch (error) {
+        const err = error as Error;
+        emit("error", err.message || "Failed to process image");
     }
 };
 
@@ -183,8 +185,9 @@ const handleBannerChange = async (event: Event) => {
         bannerFile.value = file;
         bannerPreview.value = uploadService.createPreviewUrl(file);
         await uploadBanner();
-    } catch (error: any) {
-        emit("error", error.message || "Failed to process image");
+    } catch (error) {
+        const err = error as Error;
+        emit("error", err.message || "Failed to process image");
     }
 };
 

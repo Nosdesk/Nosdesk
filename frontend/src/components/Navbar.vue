@@ -193,7 +193,7 @@ onBeforeUnmount(() => {
     // Global listeners for resizing are handled by the composable's onBeforeUnmount
 });
 
-// Computed property to check if we're on a documentation page
+// Computed property to check if on a documentation page
 const isDocumentationPage = computed(() => {
     return route.path.startsWith("/documentation");
 });

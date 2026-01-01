@@ -6,8 +6,10 @@ import authService, {
   type MFAEnableRequest,
   type MFALoginSetupRequest,
   type MFALoginEnableRequest,
-  type QrMatrix
+  type QrMatrix,
+  type LoginResponse
 } from '@/services/authService';
+import { logger } from '@/utils/logger';
 
 /**
  * Composable for MFA functionality following Vue 3 best practices
@@ -55,7 +57,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
         mfaStep.value = 'enabled';
       }
     } catch (err) {
-      console.error('Error checking MFA status:', err);
+      logger.error('Error checking MFA status', { error: err });
       error.value = 'Failed to check MFA status';
     } finally {
       loading.value = false;
@@ -81,16 +83,16 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
 
       // Log matrix info for debugging
       if (data.qr_matrix) {
-        console.log(`[MFA] QR matrix received: size=${data.qr_matrix.size}x${data.qr_matrix.size}, data_length=${data.qr_matrix.data.length}`);
+        logger.debug('QR matrix received', { size: data.qr_matrix.size, dataLength: data.qr_matrix.data.length });
       } else {
-        console.log('[MFA] No QR matrix received from backend');
+        logger.debug('No QR matrix received from backend');
       }
 
       successMessage.value = 'MFA setup initiated. Please scan the QR code with your authenticator app.';
 
       return data;
     } catch (err) {
-      console.error('Error setting up MFA for login:', err);
+      logger.error('Error setting up MFA for login', { error: err });
       error.value = 'Failed to setup MFA';
       return null;
     } finally {
@@ -116,14 +118,14 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
 
       // Log matrix info for debugging
       if (data.qr_matrix) {
-        console.log(`[MFA] QR matrix received: size=${data.qr_matrix.size}x${data.qr_matrix.size}, data_length=${data.qr_matrix.data.length}`);
+        logger.debug('QR matrix received', { size: data.qr_matrix.size, dataLength: data.qr_matrix.data.length });
       } else {
-        console.log('[MFA] No QR matrix received from backend');
+        logger.debug('No QR matrix received from backend');
       }
 
       successMessage.value = 'MFA setup initiated. Please scan the QR code with your authenticator app.';
     } catch (err) {
-      console.error('Error setting up MFA:', err);
+      logger.error('Error setting up MFA', { error: err });
       error.value = 'Failed to setup MFA';
       resetMFASetup();
     } finally {
@@ -158,7 +160,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       const result = await authService.verifyMFA(request);
       return result.valid;
     } catch (err) {
-      console.error('Error verifying MFA:', err);
+      logger.error('Error verifying MFA', { error: err });
       error.value = err instanceof Error ? err.message : 'Invalid verification code. Please try again.';
       return false;
     } finally {
@@ -191,7 +193,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
 
       return { success: result.success, backup_codes: result.backup_codes };
     } catch (err) {
-      console.error('Error enabling MFA:', err);
+      logger.error('Error enabling MFA', { error: err });
       error.value = err instanceof Error ? err.message : 'Failed to enable MFA';
       throw err;
     } finally {
@@ -206,7 +208,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
     email: string,
     password: string,
     token: string
-  ): Promise<any> {
+  ): Promise<LoginResponse> {
     try {
       loading.value = true;
       verifying.value = true;
@@ -234,7 +236,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
 
       return result;
     } catch (err) {
-      console.error('Error enabling MFA for login:', err);
+      logger.error('Error enabling MFA for login', { error: err });
       error.value = err instanceof Error ? err.message : 'Failed to enable MFA';
       throw err;
     } finally {
@@ -262,7 +264,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
 
       return result.success;
     } catch (err) {
-      console.error('Error disabling MFA:', err);
+      logger.error('Error disabling MFA', { error: err });
       error.value = 'Failed to disable MFA';
       return false;
     } finally {
@@ -288,7 +290,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
 
       return null;
     } catch (err) {
-      console.error('Error regenerating backup codes:', err);
+      logger.error('Error regenerating backup codes', { error: err });
       error.value = 'Failed to regenerate backup codes';
       return null;
     } finally {

@@ -144,25 +144,25 @@ async fn cookie_auth_middleware(
     let cookie_names: Vec<String> = req.cookies()
         .map(|jar| jar.iter().map(|c| c.name().to_string()).collect())
         .unwrap_or_default();
-    tracing::debug!("🔐 Cookie Auth Middleware: {} - Cookies: {:?}", req.path(), cookie_names);
+    debug!(path = %req.path(), cookies = ?cookie_names, "Cookie auth middleware processing request");
 
     // Extract access token from httpOnly cookie
     let token = req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
         .ok_or_else(|| {
-            tracing::warn!("🔐 Cookie Auth: No access_token cookie for {}", req.path());
+            warn!(path = %req.path(), "Cookie auth: no access_token cookie found");
             actix_web::error::ErrorUnauthorized("Authentication required")
         })?;
 
-    tracing::debug!("🔐 Cookie Auth: Validating token from cookie");
+    debug!("Cookie auth: validating token from cookie");
 
     // Validate token and get claims
     let (claims, _user) = JwtUtils::authenticate_with_token(token.value(), &mut conn).await
         .map_err(|err| {
-            tracing::error!("🔐 Cookie Auth: Token validation failed: {:?}", err);
+            error!(error = ?err, "Cookie auth: token validation failed");
             actix_web::error::ErrorUnauthorized("Invalid or expired token")
         })?;
 
-    tracing::info!("🔐 Cookie Auth: ✅ Authenticated user: {}", claims.sub);
+    info!(user = %claims.sub, "Cookie auth: user authenticated successfully");
 
     // Insert claims into request extensions
     req.extensions_mut().insert(claims);
@@ -173,30 +173,29 @@ async fn cookie_auth_middleware(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Force flush by using println! with immediate panic to test output
-    println!("🚀 BACKEND STARTING - If you see this, logging works!");
-    std::io::Write::flush(&mut std::io::stdout()).ok();
-    eprintln!("🚀 BACKEND STARTING (stderr) - Current dir: {:?}", std::env::current_dir());
+    // Early startup logging before tracing is initialized
+    // Using eprintln! here since tracing isn't set up yet
+    eprintln!("BACKEND STARTING - Current dir: {:?}", std::env::current_dir());
     std::io::Write::flush(&mut std::io::stderr()).ok();
 
     // Load .env file if it exists (for local development), but don't fail if it doesn't exist
     // In Docker, environment variables are already loaded via docker-compose
     if let Err(e) = dotenv() {
-        eprintln!("Note: Could not load .env file: {}. This is normal in Docker environments.", e);
+        eprintln!("Could not load .env file: {}. This is normal in Docker environments.", e);
     }
 
     // Critical check: Verify DATABASE_URL exists
     if std::env::var("DATABASE_URL").is_err() {
-        eprintln!("❌ FATAL ERROR: DATABASE_URL environment variable is not set!");
-        eprintln!("   Cannot proceed without database connection");
+        eprintln!("FATAL ERROR: DATABASE_URL environment variable is not set!");
+        eprintln!("Cannot proceed without database connection");
         std::process::exit(1);
     }
-    eprintln!("✅ DATABASE_URL is set");
+    eprintln!("DATABASE_URL is set");
 
     // JWT_SECRET presence is validated after tracing init (see below)
-    eprintln!("✅ JWT_SECRET will be validated after tracing initialization");
+    eprintln!("JWT_SECRET will be validated after tracing initialization");
 
-    eprintln!(">>> Initializing tracing...");
+    eprintln!("Initializing tracing...");
 
     // Initialize tracing/logging subsystem with better error handling
     let log_level = env::var("RUST_LOG")
@@ -220,11 +219,11 @@ async fn main() -> std::io::Result<()> {
         .with(EnvFilter::new(&log_level))
         .try_init();
 
-    eprintln!(">>> Tracing initialized, continuing startup...");
-    
+    debug!("Tracing initialized, continuing startup");
+
     // === SECURITY STARTUP VALIDATION ===
-    info!("🚀 Starting Nosdesk API Server...");
-    info!("Log level set to: {}", log_level);
+    info!("Starting Nosdesk API Server");
+    info!(log_level = %log_level, "Log level configured");
     
     // Debug: Print some environment variables to see what's available
     debug!("Environment check:");
@@ -242,8 +241,8 @@ async fn main() -> std::io::Result<()> {
         Ok(secret) => {
             if secret.len() < 32 {
                 if environment == "production" {
-                    error!("❌ JWT_SECRET must be at least 32 characters in production");
-                    error!("   Generate a secure key with: openssl rand -base64 32");
+                    error!("JWT_SECRET must be at least 32 characters in production");
+                    error!("Generate a secure key with: openssl rand -base64 32");
                     std::process::exit(1);
                 } else {
                     warn!("JWT_SECRET is less than 32 characters - this would be rejected in production");
@@ -252,38 +251,38 @@ async fn main() -> std::io::Result<()> {
             secret
         },
         Err(e) => {
-            error!("❌ JWT_SECRET environment variable must be set: {}", e);
-            error!("   Generate a secure key with: openssl rand -base64 32");
+            error!(error = %e, "JWT_SECRET environment variable must be set");
+            error!("Generate a secure key with: openssl rand -base64 32");
             std::process::exit(1);
         }
     };
-    info!("✅ JWT_SECRET validated");
+    info!("JWT_SECRET validated");
     
     // Validate that MFA_ENCRYPTION_KEY is set for production
     if environment == "production" {
         match std::env::var("MFA_ENCRYPTION_KEY") {
             Ok(key) => {
                 if key.len() != 64 {
-                    error!("❌ MFA_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)");
-                    error!("   Generate a secure key with: openssl rand -hex 32");
+                    error!("MFA_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)");
+                    error!("Generate a secure key with: openssl rand -hex 32");
                     std::process::exit(1);
                 }
                 // Validate it's valid hex
                 if hex::decode(&key).is_err() {
-                    error!("❌ MFA_ENCRYPTION_KEY must be valid hexadecimal");
-                    error!("   Generate a secure key with: openssl rand -hex 32");
+                    error!("MFA_ENCRYPTION_KEY must be valid hexadecimal");
+                    error!("Generate a secure key with: openssl rand -hex 32");
                     std::process::exit(1);
                 }
             },
             Err(e) => {
-                error!("❌ MFA_ENCRYPTION_KEY environment variable must be set in production: {}", e);
-                error!("   Generate a secure key with: openssl rand -hex 32");
+                error!(error = %e, "MFA_ENCRYPTION_KEY environment variable must be set in production");
+                error!("Generate a secure key with: openssl rand -hex 32");
                 std::process::exit(1);
             }
         }
     } else if std::env::var("MFA_ENCRYPTION_KEY").is_err() {
-        warn!("⚠️  MFA_ENCRYPTION_KEY not set - MFA features will be disabled");
-        warn!("   Generate with: openssl rand -hex 32");
+        warn!("MFA_ENCRYPTION_KEY not set - MFA features will be disabled");
+        warn!("Generate with: openssl rand -hex 32");
     }
     
     // Security: Validate environment (already declared above)
@@ -291,14 +290,14 @@ async fn main() -> std::io::Result<()> {
         // Check for HTTPS in production URLs
         if let Ok(frontend_url) = env::var("FRONTEND_URL") {
             if !frontend_url.starts_with("https://") && !frontend_url.starts_with("http://localhost") {
-                warn!("⚠️  FRONTEND_URL should use HTTPS in production");
+                warn!("FRONTEND_URL should use HTTPS in production");
             }
         }
 
         // Check database SSL in production
         if let Ok(db_url) = env::var("DATABASE_URL") {
             if !db_url.contains("sslmode=require") && !db_url.contains("localhost") {
-                warn!("⚠️  DATABASE_URL should use sslmode=require in production");
+                warn!("DATABASE_URL should use sslmode=require in production");
             }
         }
     }
@@ -320,7 +319,7 @@ async fn main() -> std::io::Result<()> {
     // Create rate limiter with Redis backend (fallback to in-memory for development)
     let redis_url = env::var("REDIS_URL").unwrap_or_else(|_| {
         if environment == "production" {
-            warn!("⚠️  REDIS_URL not configured in production - using in-memory rate limiting");
+            warn!("REDIS_URL not configured in production - using in-memory rate limiting");
         }
         "memory://".to_string()
     });
@@ -350,7 +349,7 @@ async fn main() -> std::io::Result<()> {
     let public_limiter = match public_limiter {
         Ok(limiter) => limiter,
         Err(e) => {
-            warn!("⚠️  Rate limiter fallback: {}", e);
+            warn!(error = %e, "Rate limiter fallback to in-memory");
 
             // Fallback to memory limiter
             let fallback = Limiter::builder("memory://")
@@ -365,7 +364,7 @@ async fn main() -> std::io::Result<()> {
             match fallback {
                 Ok(limiter) => limiter,
                 Err(fallback_err) => {
-                    error!("❌ Failed to initialize fallback rate limiter: {}", fallback_err);
+                    error!(error = %fallback_err, "Failed to initialize fallback rate limiter");
                     return Err(std::io::Error::new(std::io::ErrorKind::Other, "Rate limiter initialization failed"));
                 }
             }
@@ -375,7 +374,7 @@ async fn main() -> std::io::Result<()> {
     let auth_limiter = match auth_limiter {
         Ok(limiter) => limiter,
         Err(e) => {
-            warn!("⚠️  Auth rate limiter fallback: {}", e);
+            warn!(error = %e, "Auth rate limiter fallback to in-memory");
 
             // Fallback to memory limiter
             let fallback = Limiter::builder("memory://")
@@ -390,7 +389,7 @@ async fn main() -> std::io::Result<()> {
             match fallback {
                 Ok(limiter) => limiter,
                 Err(fallback_err) => {
-                    error!("❌ Failed to initialize fallback auth rate limiter: {}", fallback_err);
+                    error!(error = %fallback_err, "Failed to initialize fallback auth rate limiter");
                     return Err(std::io::Error::new(std::io::ErrorKind::Other, "Auth rate limiter initialization failed"));
                 }
             }
@@ -400,7 +399,7 @@ async fn main() -> std::io::Result<()> {
     // Get host and port from environment variables
     let host = env::var("HOST").unwrap_or("127.0.0.1".to_string());
     let port = env::var("PORT").unwrap_or("8080".to_string()).parse::<u16>().map_err(|e| {
-        error!("❌ Invalid PORT value: {}", e);
+        error!(error = %e, "Invalid PORT value");
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid PORT")
     })?;
 
@@ -416,7 +415,7 @@ async fn main() -> std::io::Result<()> {
     // Validate CORS configuration
     let frontend_url = env::var("FRONTEND_URL").unwrap_or_else(|_| {
         if environment == "production" {
-            warn!("⚠️  FRONTEND_URL not set in production");
+            warn!("FRONTEND_URL not set in production");
         }
         "http://localhost:3000".to_string()
     });
@@ -433,7 +432,7 @@ async fn main() -> std::io::Result<()> {
     let pool = match std::panic::catch_unwind(|| db::establish_connection_pool()) {
         Ok(pool) => pool,
         Err(e) => {
-            error!("❌ Database connection pool initialization panicked: {:?}", e);
+            error!(error = ?e, "Database connection pool initialization panicked");
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Database connection pool failed"));
         }
     };
@@ -442,14 +441,14 @@ async fn main() -> std::io::Result<()> {
     match db::initialize_database(&pool).await {
         Ok(_) => {},
         Err(e) => {
-            error!("❌ Database initialization failed: {}", e);
+            error!(error = %e, "Database initialization failed");
             return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Database initialization failed: {}", e)));
         }
     }
-    
+
     // Security: Verify initialization was successful
     if !db::is_initialized() {
-        error!("❌ Database initialization verification failed");
+        error!("Database initialization verification failed");
         return Err(std::io::Error::new(std::io::ErrorKind::Other, "Database initialization verification failed"));
     }
 
@@ -461,7 +460,7 @@ async fn main() -> std::io::Result<()> {
         match std::fs::create_dir_all(&full_path) {
             Ok(_) => {},
             Err(e) => {
-                error!("❌ Failed to create directory {}: {}", full_path, e);
+                error!(path = %full_path, error = %e, "Failed to create directory");
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create directory: {}", full_path)));
             }
         }
@@ -472,19 +471,19 @@ async fn main() -> std::io::Result<()> {
     let yjs_redis_url = if redis_url.starts_with("redis://") {
         redis_url.clone()
     } else {
-        warn!("⚠️  Using in-memory rate limiting - Yjs cache will use localhost Redis");
+        warn!("Using in-memory rate limiting - Yjs cache will use localhost Redis");
         env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string())
     };
 
     let redis_cache = match create_redis_cache(&yjs_redis_url) {
         Ok(cache) => {
-            info!("✅ Redis cache initialized for Yjs documents at {}", yjs_redis_url);
+            info!(url = %yjs_redis_url, "Redis cache initialized for Yjs documents");
             cache
         },
         Err(e) => {
-            error!("❌ Failed to initialize Redis cache for Yjs: {:?}", e);
-            error!("⚠️  CRITICAL: Yjs documents will NOT persist across server restarts!");
-            error!("⚠️  Please ensure Redis is running and REDIS_URL is configured correctly.");
+            error!(error = ?e, "Failed to initialize Redis cache for Yjs");
+            error!("CRITICAL: Yjs documents will NOT persist across server restarts");
+            error!("Please ensure Redis is running and REDIS_URL is configured correctly");
             return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Redis initialization failed: {:?}", e)));
         }
     };
@@ -503,7 +502,7 @@ async fn main() -> std::io::Result<()> {
     let auth_limiter_data = web::Data::new(auth_limiter);
 
     if host == "0.0.0.0" {
-        warn!("⚠️  Server bound to all interfaces (0.0.0.0)");
+        warn!("Server bound to all interfaces (0.0.0.0)");
     }
 
     // Initialize storage backend
@@ -511,7 +510,7 @@ async fn main() -> std::io::Result<()> {
     let storage = create_storage(storage_config);
     let storage_data = web::Data::new(storage.clone());
 
-    info!("🚀 Server starting on http://{}:{} ({})", host, port, environment);
+    info!(host = %host, port = %port, environment = %environment, "Server starting");
     
     let server_result = HttpServer::new(move || {
         // Configure CORS with specific allowed origins

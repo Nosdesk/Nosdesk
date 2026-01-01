@@ -61,8 +61,9 @@ const addEmail = async () => {
       showAddForm.value = false;
       await fetchUserEmails(); // Refresh list
     }
-  } catch (error: any) {
-    const message = error.response?.data?.message || 'Failed to add email address';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    const message = axiosError.response?.data?.message || 'Failed to add email address';
     emit('error', message);
   } finally {
     addingEmail.value = false;
@@ -75,8 +76,9 @@ const setAsPrimary = async (emailId: number, emailAddress: string) => {
     await userService.updateUserEmail(props.userUuid, emailId, { is_primary: true });
     emit('success', `Set ${emailAddress} as primary email`);
     await fetchUserEmails(); // Refresh list
-  } catch (error: any) {
-    const message = error.response?.data?.message || 'Failed to set email as primary';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    const message = axiosError.response?.data?.message || 'Failed to set email as primary';
     emit('error', message);
   }
 };
@@ -91,8 +93,9 @@ const deleteEmail = async (emailId: number, emailAddress: string) => {
     await userService.deleteUserEmail(props.userUuid, emailId);
     emit('success', 'Email address removed successfully');
     await fetchUserEmails(); // Refresh list
-  } catch (error: any) {
-    const message = error.response?.data?.message || 'Failed to delete email address';
+  } catch (error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    const message = axiosError.response?.data?.message || 'Failed to delete email address';
     emit('error', message);
   }
 };

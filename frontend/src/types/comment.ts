@@ -23,8 +23,11 @@ export interface Comment {
   user?: UserInfo
 }
 
-export interface CommentWithAttachments {
-  comment: Comment
-  attachments: Attachment[]
-  user?: UserInfo
+/**
+ * Comment with attachments - flat structure used in ticket detail views
+ * Extends Comment with a camelCase date alias for UI convenience
+ */
+export interface CommentWithAttachments extends Comment {
+  /** CamelCase alias for created_at, used in UI components */
+  createdAt?: string
 }

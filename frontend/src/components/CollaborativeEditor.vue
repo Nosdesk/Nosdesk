@@ -13,7 +13,7 @@ import * as Y from "yjs";
 import { PermanentUserData } from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { EditorView } from "prosemirror-view";
-import { EditorState, Selection } from "prosemirror-state";
+import { EditorState, Selection, type Command } from "prosemirror-state";
 import { schema } from "@/components/editor/schema";
 import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "./UserAvatar.vue";
@@ -73,6 +73,14 @@ import { createImageUploadPlugin } from "./editor/imageUploadPlugin";
 import { syntaxHighlightPlugin } from "./editor/syntaxHighlightPlugin";
 import { twemojiPlugin } from "@/plugins/prosemirror-twemoji";
 
+// Yjs awareness user state structure
+interface AwarenessUser {
+    name: string;
+    color: string;
+    uuid?: string;
+    avatar?: string;
+}
+
 // Props
 interface Props {
     docId: string;
@@ -104,7 +112,7 @@ const hasBeenConnected = ref(false);
 let connectionTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // State for connected users
-const connectedUsers = ref<{ id: string; user: any }[]>([]);
+const connectedUsers = ref<{ id: string; user: AwarenessUser }[]>([]);
 
 // Remove save status tracking since backend handles saves automatically
 
@@ -119,10 +127,17 @@ let visibilityTimeout: ReturnType<typeof setTimeout> | null = null;
 let onlineHandler: (() => void) | null = null;
 let offlineHandler: (() => void) | null = null;
 
+// WebSocket close event structure from y-websocket
+interface WebSocketCloseEvent {
+    code?: number;
+    reason?: string;
+    wasClean?: boolean;
+}
+
 // Provider event handler references for proper cleanup
 let statusHandler: ((event: { status: string }) => void) | null = null;
-let connectionErrorHandler: ((error: any) => void) | null = null;
-let connectionCloseHandler: ((event: any) => void) | null = null;
+let connectionErrorHandler: ((error: Event) => void) | null = null;
+let connectionCloseHandler: ((event: WebSocketCloseEvent) => void) | null = null;
 let syncedHandler: ((isSynced: boolean) => void) | null = null;
 let statusReconnectHandler: ((event: { status: string }) => void) | null = null;
 let awarenessChangeHandler: (() => void) | null = null;
@@ -207,7 +222,7 @@ class SafePermanentUserData {
         return user;
     }
 
-    getUserByDeletedId(id: any) {
+    getUserByDeletedId(id: { visibleUsers: Set<unknown>; visibleDs: unknown }) {
         const user = this.pud.getUserByDeletedId(id);
         // If user not found, return a default anonymous user instead of null
         if (user === null || user === undefined) {
@@ -224,11 +239,11 @@ class SafePermanentUserData {
 
 // Enhanced logging
 const log = {
-    info: (message: string, ...args: any[]) =>
+    info: (message: string, ...args: unknown[]) =>
         console.log(`[YJS-Editor] ${message}`, ...args),
-    error: (message: string, ...args: any[]) =>
+    error: (message: string, ...args: unknown[]) =>
         console.error(`[YJS-Editor] ${message}`, ...args),
-    debug: (message: string, ...args: any[]) => {
+    debug: (message: string, ...args: unknown[]) => {
         // Only log debug messages in development or when verbose logging is enabled
         if (
             import.meta.env.DEV ||
@@ -237,7 +252,7 @@ const log = {
             console.debug(`[YJS-Editor] ${message}`, ...args);
         }
     },
-    warn: (message: string, ...args: any[]) =>
+    warn: (message: string, ...args: unknown[]) =>
         console.warn(`[YJS-Editor] ${message}`, ...args),
 };
 
@@ -365,7 +380,7 @@ const buildInputRules = (schema: Schema) => {
 
 // Create custom keymap for list behaviors
 const createListKeymap = (schema: Schema) => {
-    const keys: { [key: string]: any } = {};
+    const keys: { [key: string]: Command } = {};
 
     // Add key bindings for list behavior
     if (schema.nodes.bullet_list && schema.nodes.list_item) {
@@ -402,11 +417,12 @@ const initEditor = async () => {
 
         // DIAGNOSTIC: Log ALL ydoc updates to trace where sync breaks
         // This listener fires whenever the document changes locally OR remotely
-        ydoc.on('update', (update: Uint8Array, origin: any) => {
-            const isLocal = origin === null || origin === ydoc.clientID || (origin && origin.constructor && origin.constructor.name === 'WebsocketProvider' ? false : true);
+        ydoc.on('update', (update: Uint8Array, origin: unknown) => {
+            const originObj = origin as { constructor?: { name?: string } } | null;
+            const isLocal = origin === null || origin === ydoc.clientID || (originObj?.constructor?.name === 'WebsocketProvider' ? false : true);
             log.info('🔄 YDOC UPDATE EVENT:', {
                 updateSize: update.length,
-                origin: origin?.constructor?.name || String(origin) || 'null',
+                origin: originObj?.constructor?.name || String(origin) || 'null',
                 isLikelyLocal: isLocal,
                 yXmlFragmentLength: yXmlFragment?.length || 0,
                 clientId: ydoc.clientID,
@@ -424,8 +440,8 @@ const initEditor = async () => {
         permanentUserData = new SafePermanentUserData(ydoc);
 
         // 2. Create the websocket provider
-        // Note: y-websocket automatically appends `/${docId}` to the URL we provide
-        // So we need to provide the base URL without the document ID
+        // Note: y-websocket automatically appends `/${docId}` to the provided URL
+        // Provide base URL without the document ID
         // Derive WebSocket URL from API URL for consistency with REST API configuration
         const apiUrl = import.meta.env.VITE_API_URL || '/api';
         let baseWsUrl = import.meta.env.VITE_WS_SERVER_URL;
@@ -461,8 +477,8 @@ const initEditor = async () => {
         // y-websocket will append /${docId} to the baseWsUrl, creating the correct backend route
         provider = new WebsocketProvider(baseWsUrl, props.docId, ydoc, {
             // Set resync interval to 20 seconds to prevent 30-second timeout disconnects
-            // y-websocket closes connection if no message received in 30s, so we need
-            // periodic Yjs protocol messages to keep the connection alive
+            // y-websocket closes connection if no message received in 30s
+            // Periodic Yjs protocol messages keep the connection alive
             resyncInterval: 20000, // 20 seconds
             // Disable broadcast channel for now to reduce complexity
             disableBc: true,
@@ -512,13 +528,15 @@ const initEditor = async () => {
                 plugins: [
                     ySyncPlugin(yXmlFragment, {
                         mapping,
-                        // Use the PermanentUserData instance we populated with user mappings
-                        // This allows snapshot rendering to lookup users by client ID
-                        permanentUserData: permanentUserData as any
+                        // Use PermanentUserData instance populated with user mappings
+                        // Allows snapshot rendering to lookup users by client ID
+                        // Type cast needed: y-prosemirror expects yjs.PermanentUserData but our
+                        // SafePermanentUserData wrapper provides fallback values for missing users
+                        permanentUserData: permanentUserData as unknown as typeof PermanentUserData.prototype
                     }),
                     yCursorPlugin(provider.awareness, {
                         // Custom cursor builder that handles missing users gracefully
-                        cursorBuilder: (user: any, clientId: number): HTMLElement => {
+                        cursorBuilder: (user: AwarenessUser | undefined, clientId: number): HTMLElement => {
                             const cursor = document.createElement('span');
                             cursor.classList.add('ProseMirror-yjs-cursor');
                             cursor.setAttribute('style', `border-color: ${user?.color || '#808080'}`);
@@ -560,7 +578,7 @@ const initEditor = async () => {
                                 $from.parent.type === schema.nodes.code_block &&
                                 dispatch
                             ) {
-                                // Check if we're at the end of a code block
+                                // Check if at the end of a code block
                                 const after = $from.after();
                                 const tr = state.tr.replaceWith(
                                     after,
@@ -712,14 +730,14 @@ const initEditor = async () => {
             if (event.status === "connected") {
                 connectionStatus.value = 'connected';
                 hasBeenConnected.value = true;
-                // Clear the connection timeout since we're now connected
+                // Clear the connection timeout now that connection is established
                 if (connectionTimeout) {
                     clearTimeout(connectionTimeout);
                     connectionTimeout = null;
                 }
                 log.info("WebSocket connected successfully");
             } else if (event.status === "disconnected") {
-                // Only show disconnected if we've been connected before
+                // Only show disconnected if previously connected
                 // Otherwise keep showing "connecting" until the 10-second timeout
                 if (hasBeenConnected.value) {
                     connectionStatus.value = 'disconnected';
@@ -738,7 +756,7 @@ const initEditor = async () => {
                     diagnoseConnectionIssue();
                 }
             } else if (event.status === "connecting") {
-                // If we've been connected before and are now reconnecting, show connecting
+                // If previously connected and now reconnecting, show connecting
                 if (hasBeenConnected.value) {
                     connectionStatus.value = 'connecting';
                 }
@@ -748,13 +766,14 @@ const initEditor = async () => {
 
         // Add error event handler for more detailed error information
         // Store handler reference for proper cleanup
-        connectionErrorHandler = (error: any) => {
+        connectionErrorHandler = (error: Event) => {
             log.error("WebSocket connection error:", error);
+            const errorEvent = error as Event & { message?: string; code?: number; type?: string; target?: unknown };
             log.debug("Error details:", {
-                message: error?.message || "No error message",
-                code: error?.code || "No error code",
-                type: error?.type || "No error type",
-                target: error?.target || "No target info",
+                message: errorEvent.message || "No error message",
+                code: errorEvent.code || "No error code",
+                type: errorEvent.type || "No error type",
+                target: errorEvent.target || "No target info",
                 timestamp: new Date().toISOString(),
             });
         };
@@ -762,27 +781,27 @@ const initEditor = async () => {
 
         // Monitor for authentication-related disconnections
         // Store handler reference for proper cleanup
-        connectionCloseHandler = (event: any) => {
+        connectionCloseHandler = (event: WebSocketCloseEvent) => {
             log.warn("WebSocket connection closed:", {
-                code: event?.code,
-                reason: event?.reason,
-                wasClean: event?.wasClean,
+                code: event.code,
+                reason: event.reason,
+                wasClean: event.wasClean,
                 timestamp: new Date().toISOString(),
             });
 
             // Check for authentication-related close codes
-            if (event?.code === 1008) {
+            if (event.code === 1008) {
                 log.error(
                     "WebSocket closed due to policy violation - likely authentication failure",
                 );
                 log.error(
                     "Check if JWT token is valid and user still exists in database",
                 );
-            } else if (event?.code === 1011) {
+            } else if (event.code === 1011) {
                 log.error(
                     "WebSocket closed due to server error - likely backend database/processing issue",
                 );
-            } else if (event?.code === 1006) {
+            } else if (event.code === 1006) {
                 log.warn(
                     "WebSocket closed abnormally - network issue or server crash",
                 );
@@ -811,7 +830,7 @@ const initEditor = async () => {
         };
         provider.on("synced", syncedHandler);
 
-        // Note: We intentionally do NOT override provider.ws.onmessage here.
+        // Note: Intentionally NOT overriding provider.ws.onmessage here.
         // y-websocket handles all sync messages (SYNC_STEP_1, SYNC_STEP_2, SYNC_UPDATE)
         // internally through its messageHandlers. Overriding onmessage can interfere
         // with the sync protocol and cause document content to not be applied correctly.
@@ -999,7 +1018,7 @@ const updateConnectedUsers = () => {
 
     try {
         const states = provider.awareness.getStates();
-        const users: { id: string; user: any }[] = [];
+        const users: { id: string; user: AwarenessUser }[] = [];
 
         // Convert Map to array and exclude the current user
         states.forEach((state, clientId) => {
@@ -1009,11 +1028,12 @@ const updateConnectedUsers = () => {
                 provider &&
                 clientId !== provider.awareness.clientID
             ) {
+                const awarenessUser = state.user as AwarenessUser;
                 // Only include users with valid user data
-                if (state.user.name && typeof state.user.name === "string") {
+                if (awarenessUser.name && typeof awarenessUser.name === "string") {
                     users.push({
                         id: String(clientId),
-                        user: state.user,
+                        user: awarenessUser,
                     });
                 }
             }
@@ -1095,8 +1115,8 @@ const handleKeydown = (event: KeyboardEvent) => {
 };
 
 // Handle tab visibility changes with debounce to prevent aggressive disconnection
-// When browser backgrounds tab for extended periods, we disconnect to save resources
-// But short tab switches (< 30 seconds) should maintain the connection
+// When browser backgrounds tab for extended periods, disconnect to save resources
+// Short tab switches (< 30 seconds) should maintain the connection
 const handleVisibilityChange = () => {
     // Clear any pending visibility timeout
     if (visibilityTimeout) {
@@ -1177,7 +1197,7 @@ const toggleCodeBlock = () => {
     const { state, dispatch } = editorView;
     const { $from } = state.selection;
 
-    // Check if we're already in a code block
+    // Check if already in a code block
     if ($from.parent.type === schema.nodes.code_block) {
         // Convert back to paragraph
         setBlockType(schema.nodes.paragraph, {})(state, dispatch);
@@ -1483,7 +1503,7 @@ const debugRelativePositions = () => {
                             anchor: state.cursor.anchor,
                             head: state.cursor.head,
                             // If these positions are actually stored as relative positions in awareness,
-                            // let's try to inspect them directly
+                            // inspect them directly
                             anchorRelative:
                                 typeof state.cursor.anchorRelative === "object"
                                     ? JSON.stringify(
@@ -1597,13 +1617,22 @@ const diagnoseConnectionIssue = () => {
     log.info("=== End Diagnostics ===");
 };
 
+// Debug object type for window.example
+interface EditorDebugInfo {
+    provider: WebsocketProvider | null;
+    ydoc: Y.Doc | null;
+    yXmlFragment: Y.XmlFragment | null;
+    editorView: EditorView | null;
+    diagnoseConnection: () => void;
+}
+
 // Add window debug methods
 window.example = undefined; // Initialize with undefined until editor is created
 
 // Update the global interface
 declare global {
     interface Window {
-        example?: any;
+        example?: EditorDebugInfo;
     }
 }
 
@@ -1676,7 +1705,7 @@ function viewSnapshot(snapshotData: { snapshot: string; prevSnapshot: string; re
     try {
         log.info(`Viewing revision ${snapshotData.revision_number}`);
 
-        // Store the original state so we can restore it later
+        // Store the original state for restoring later
         if (!isViewingRevision.value) {
             originalYXmlFragment = yXmlFragment;
             originalEditorState = editorView.state;

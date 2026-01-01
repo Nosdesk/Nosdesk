@@ -53,9 +53,10 @@ const handlePdfReady = () => {
   console.log('PDF loaded successfully');
 };
 
-const handlePdfError = (error: any) => {
+const handlePdfError = (error: unknown) => {
   console.error('PDF loading error:', error);
-  errorMessage.value = 'Failed to load PDF: ' + (error?.message || 'Unknown error');
+  const err = error as { message?: string };
+  errorMessage.value = 'Failed to load PDF: ' + (err?.message || 'Unknown error');
 };
 
 // Handle back navigation

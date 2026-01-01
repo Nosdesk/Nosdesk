@@ -1,9 +1,9 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends { id: string | number }">
 import { computed } from 'vue'
 import Checkbox from './Checkbox.vue'
 
 const props = defineProps<{
-  items: any[]
+  items: T[]
   selectedIds: (string | number)[]
   selectable?: boolean
   columns: {
@@ -15,16 +15,16 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'toggle-selection': [event: Event, item: any]
+  'toggle-selection': [event: Event, item: T]
   'toggle-all': [event: Event]
-  'row-click': [item: any]
+  'row-click': [item: T]
 }>()
 
 const allSelected = computed(() => {
   return props.items.length > 0 && props.selectedIds.length === props.items.length
 })
 
-const isSelected = (item: any) => {
+const isSelected = (item: T) => {
   return props.selectedIds.includes(item.id)
 }
 </script>

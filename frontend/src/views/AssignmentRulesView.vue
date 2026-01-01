@@ -80,9 +80,10 @@ const loadRules = async () => {
 
   try {
     rules.value = await assignmentRuleService.getAllRules()
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to load assignment rules:', error)
-    errorMessage.value = error.response?.data?.message || 'Failed to load assignment rules'
+    const axiosError = error as { response?: { data?: { message?: string } } }
+    errorMessage.value = axiosError.response?.data?.message || 'Failed to load assignment rules'
   } finally {
     isLoading.value = false
   }
@@ -177,8 +178,9 @@ const saveRule = async () => {
     showRuleModal.value = false
     await loadRules()
     setTimeout(() => (successMessage.value = ''), 3000)
-  } catch (error: any) {
-    errorMessage.value = error.response?.data || 'Failed to save rule'
+  } catch (error) {
+    const axiosError = error as { response?: { data?: string } }
+    errorMessage.value = axiosError.response?.data || 'Failed to save rule'
   } finally {
     isSaving.value = false
   }
@@ -189,8 +191,9 @@ const toggleRuleActive = async (rule: AssignmentRuleWithDetails) => {
   try {
     await assignmentRuleService.updateRule(rule.id, { is_active: !rule.is_active })
     await loadRules()
-  } catch (error: any) {
-    errorMessage.value = error.response?.data || 'Failed to update rule'
+  } catch (error) {
+    const axiosError = error as { response?: { data?: string } }
+    errorMessage.value = axiosError.response?.data || 'Failed to update rule'
   }
 }
 
@@ -214,8 +217,9 @@ const deleteRule = async () => {
     ruleToDelete.value = null
     await loadRules()
     setTimeout(() => (successMessage.value = ''), 3000)
-  } catch (error: any) {
-    errorMessage.value = error.response?.data || 'Failed to delete rule'
+  } catch (error) {
+    const axiosError = error as { response?: { data?: string } }
+    errorMessage.value = axiosError.response?.data || 'Failed to delete rule'
   } finally {
     isSaving.value = false
   }
@@ -241,8 +245,9 @@ const moveRule = async (rule: AssignmentRuleWithDetails, direction: 'up' | 'down
       ]
     })
     await loadRules()
-  } catch (error: any) {
-    errorMessage.value = error.response?.data || 'Failed to reorder rules'
+  } catch (error) {
+    const axiosError = error as { response?: { data?: string } }
+    errorMessage.value = axiosError.response?.data || 'Failed to reorder rules'
   }
 }
 

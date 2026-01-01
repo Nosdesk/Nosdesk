@@ -3,6 +3,7 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures::{StreamExt, TryStreamExt};
 use serde::Deserialize;
 use serde_json::json;
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::db::Pool;
@@ -27,7 +28,7 @@ pub async fn get_branding_config(pool: web::Data<Pool>) -> impl Responder {
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(e) => {
-            eprintln!("Database connection error: {:?}", e);
+            error!(error = ?e, "Database connection error");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Database connection error"
@@ -41,7 +42,7 @@ pub async fn get_branding_config(pool: web::Data<Pool>) -> impl Responder {
             HttpResponse::Ok().json(response)
         }
         Err(e) => {
-            eprintln!("Error fetching site settings: {:?}", e);
+            warn!(error = ?e, "Error fetching site settings, returning defaults");
             // Return defaults if no settings exist
             HttpResponse::Ok().json(json!({
                 "app_name": "Nosdesk",
@@ -69,7 +70,7 @@ pub async fn update_branding_config(
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(e) => {
-            eprintln!("Database connection error: {:?}", e);
+            error!(error = ?e, "Database connection error");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Database connection error"
@@ -123,7 +124,7 @@ pub async fn update_branding_config(
             HttpResponse::Ok().json(response)
         }
         Err(e) => {
-            eprintln!("Error updating site settings: {:?}", e);
+            error!(error = ?e, "Error updating site settings");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to update branding settings"
@@ -152,7 +153,7 @@ pub async fn upload_branding_image(
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(e) => {
-            eprintln!("Database connection error: {:?}", e);
+            error!(error = ?e, "Database connection error");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Database connection error"
@@ -181,7 +182,7 @@ pub async fn upload_branding_image(
         }
     };
 
-    println!("📸 Processing branding {} upload by user: {}", image_type, user_uuid);
+    info!(image_type = %image_type, user_id = %user_uuid, "Processing branding image upload");
 
     // Process the uploaded file
     while let Ok(Some(mut field)) = payload.try_next().await {
@@ -190,7 +191,7 @@ pub async fn upload_branding_image(
             .map(|ct| ct.to_string())
             .unwrap_or_else(|| "application/octet-stream".to_string());
 
-        println!("📋 Content type: {}", content_type);
+        debug!(content_type = %content_type, "Received file upload");
 
         // Validate content type based on image type
         let valid_types: &[&str] = if image_type == "favicon" {
@@ -232,7 +233,7 @@ pub async fn upload_branding_image(
             let data = match chunk {
                 Ok(data) => data,
                 Err(e) => {
-                    eprintln!("Error reading chunk: {:?}", e);
+                    error!(error = ?e, "Error reading chunk");
                     return HttpResponse::InternalServerError().json(json!({
                         "status": "error",
                         "message": "Error reading uploaded file"
@@ -263,7 +264,7 @@ pub async fn upload_branding_image(
         // Ensure directory exists
         let dir_path = format!("uploads/{}", storage_dir);
         if let Err(e) = std::fs::create_dir_all(&dir_path) {
-            eprintln!("Error creating branding directory: {:?}", e);
+            error!(error = ?e, dir_path = %dir_path, "Error creating branding directory");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to create storage directory"
@@ -276,14 +277,14 @@ pub async fn upload_branding_image(
         // Save the file
         let file_path = format!("uploads/{}", storage_path);
         if let Err(e) = std::fs::write(&file_path, &file_data) {
-            eprintln!("Error writing file: {:?}", e);
+            error!(error = ?e, file_path = %file_path, "Error writing file");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to save file"
             }));
         }
 
-        println!("✅ Saved branding image to: {}", file_path);
+        info!(file_path = %file_path, "Saved branding image");
 
         // Update the database with the new URL
         let result = match image_type.as_str() {
@@ -305,7 +306,7 @@ pub async fn upload_branding_image(
                 }));
             }
             Err(e) => {
-                eprintln!("Error updating site settings: {:?}", e);
+                error!(error = ?e, image_type = %image_type, "Error updating site settings");
                 return HttpResponse::InternalServerError().json(json!({
                     "status": "error",
                     "message": "Failed to update branding settings"
@@ -338,7 +339,7 @@ pub async fn delete_branding_image(
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(e) => {
-            eprintln!("Database connection error: {:?}", e);
+            error!(error = ?e, "Database connection error");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Database connection error"
@@ -371,7 +372,7 @@ pub async fn delete_branding_image(
     let current_settings = match site_settings::get_site_settings(&mut conn) {
         Ok(settings) => settings,
         Err(e) => {
-            eprintln!("Error fetching current settings: {:?}", e);
+            error!(error = ?e, "Error fetching current settings");
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to fetch current settings"
@@ -391,7 +392,7 @@ pub async fn delete_branding_image(
     if let Some(url) = url_to_delete {
         let file_path = format!("uploads{}", url.trim_start_matches("/uploads"));
         if let Err(e) = std::fs::remove_file(&file_path) {
-            eprintln!("Warning: Failed to delete file {}: {:?}", file_path, e);
+            warn!(error = ?e, file_path = %file_path, "Failed to delete file");
         }
     }
 
@@ -412,7 +413,7 @@ pub async fn delete_branding_image(
             }))
         }
         Err(e) => {
-            eprintln!("Error updating site settings: {:?}", e);
+            error!(error = ?e, image_type = %image_type, "Error updating site settings");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to update branding settings"
@@ -443,9 +444,9 @@ async fn cleanup_old_branding_images(dir: &str, image_type: &str) {
                 // Match files that start with the image type (e.g., "logo_1234567890")
                 if stem_str == image_type || stem_str.starts_with(&format!("{}_", image_type)) {
                     if let Err(e) = std::fs::remove_file(&path) {
-                        eprintln!("Warning: Failed to cleanup old file {:?}: {:?}", path, e);
+                        warn!(error = ?e, path = ?path, "Failed to cleanup old file");
                     } else {
-                        println!("🗑️ Cleaned up old file: {:?}", path);
+                        debug!(path = ?path, "Cleaned up old file");
                     }
                 }
             }

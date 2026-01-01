@@ -45,7 +45,7 @@ const updateSeek = (newPosition: number) => {
     emit('seek', seekTime);
     lastSeekTime.value = now;
   } else if (!rafId.value) {
-    // Schedule a future seek if we're throttling
+    // Schedule a future seek if throttling
     rafId.value = requestAnimationFrame(() => {
       if (isDragging.value) { // Only emit if still dragging
         const seekTime = (draggedPosition.value / 100) * props.duration;

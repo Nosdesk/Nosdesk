@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
 import LoginView from '../views/LoginView.vue'
@@ -295,7 +295,7 @@ const router = createRouter({
             // For regular pages, format the slug as a title
             // Check if it's a numeric ID (legacy support) or a slug
             if (!isNaN(Number(path))) {
-              // It's a numeric ID, we'll let the component handle the title
+              // It's a numeric ID - component handles the title
               to.meta.title = 'Documentation';
             } else {
               // It's a slug, format it as a title
@@ -311,7 +311,7 @@ const router = createRouter({
     {
       path: '/profile',
       name: 'profile-redirect',
-      component: () => null, // Empty component since we're redirecting
+      component: () => null, // Empty component since this route redirects
       meta: {
         requiresAuth: true,
         title: 'Profile'
@@ -543,7 +543,7 @@ router.beforeResolve((to, from, next) => {
 /**
  * Check for unsaved changes before navigation
  */
-async function checkUnsavedChanges(to: any, from: any) {
+async function checkUnsavedChanges(to: RouteLocationNormalized, from: RouteLocationNormalized) {
   // @ts-ignore
   if (window.hasUnsavedChanges && !window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
     return false; // Cancel navigation
@@ -554,7 +554,7 @@ async function checkUnsavedChanges(to: any, from: any) {
  * Check if system requires initial setup/onboarding
  * Redirects to onboarding if no admin user exists
  */
-async function checkOnboarding(to: any, from: any) {
+async function checkOnboarding(to: RouteLocationNormalized, _from: RouteLocationNormalized) {
   // Skip check for onboarding, error, and login pages
   if (to.name === 'onboarding' || to.name === 'error' || to.name === 'login') {
     return;
@@ -580,20 +580,21 @@ async function checkOnboarding(to: any, from: any) {
  * Fetch user data if authenticated but not yet loaded
  * Handles authentication state and redirects
  */
-async function checkAuthentication(to: any, from: any) {
+async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLocationNormalized) {
   const { useAuthStore } = await import('@/stores/auth');
   const authStore = useAuthStore();
 
-  const requiresAuth = to.matched.some((record: any) => record.meta.requiresAuth);
+  const requiresAuth = to.matched.some((record) => record.meta.requiresAuth);
   const isAuthenticated = authStore.isAuthenticated;
 
   // Fetch user data if needed
   if (isAuthenticated && !authStore.user && !authStore.loading && to.name !== 'login') {
     try {
       await authStore.fetchUserData();
-    } catch (error: any) {
+    } catch (error) {
       // Only logout for auth errors (401/403)
-      if (error?.response?.status === 401 || error?.response?.status === 403) {
+      const axiosError = error as { response?: { status?: number } };
+      if (axiosError?.response?.status === 401 || axiosError?.response?.status === 403) {
         authStore.logout();
         return { name: 'login', query: { redirect: to.fullPath } };
       }
@@ -617,8 +618,8 @@ async function checkAuthentication(to: any, from: any) {
 /**
  * Check admin access for admin-only routes
  */
-async function checkAdminAccess(to: any, from: any) {
-  const requiresAdmin = to.matched.some((record: any) => record.meta.adminRequired);
+async function checkAdminAccess(to: RouteLocationNormalized, _from: RouteLocationNormalized) {
+  const requiresAdmin = to.matched.some((record) => record.meta.adminRequired);
 
   if (requiresAdmin) {
     const { useAuthStore } = await import('@/stores/auth');

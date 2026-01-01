@@ -144,7 +144,7 @@ const handleBulkRoleChange = (role: string) => {
   executeBulkAction('set-role', role);
 };
 
-// Track if we're currently loading more (to prevent duplicate requests)
+// Track if currently loading more (to prevent duplicate requests)
 const isLoadingMore = ref(false);
 
 // Handle load more from BaseListView's scroll event

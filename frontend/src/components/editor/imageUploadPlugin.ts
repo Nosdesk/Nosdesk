@@ -247,7 +247,7 @@ export function createImageUploadPlugin(options: ImageUploadPluginOptions = {}):
 
     props: {
       handlePaste(view: EditorView, event: ClipboardEvent): boolean {
-        // Handle async - return true to prevent default if we're handling images
+        // Handle async - return true to prevent default when handling images
         const clipboardData = event.clipboardData;
         if (!clipboardData) return false;
 
