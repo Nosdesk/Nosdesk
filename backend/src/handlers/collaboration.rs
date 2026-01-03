@@ -1471,6 +1471,34 @@ pub async fn ws_handler(
     let doc_id = path.into_inner();
     debug!(doc_id = %doc_id, "WebSocket connection request");
 
+    // Validate Origin header to prevent WebSocket hijacking (CSWSH)
+    let frontend_url = std::env::var("FRONTEND_URL")
+        .unwrap_or_else(|_| "http://localhost:5173".to_string());
+    let allowed_origin = frontend_url.trim_end_matches('/');
+    let is_production = std::env::var("ENVIRONMENT")
+        .map(|v| v.to_lowercase() == "production")
+        .unwrap_or(false);
+
+    match req.headers().get("Origin") {
+        Some(origin) => {
+            let origin_str = origin.to_str().unwrap_or("");
+            let origin_normalized = origin_str.trim_end_matches('/');
+            if origin_normalized != allowed_origin {
+                warn!(origin = %origin_str, expected = %allowed_origin, "WebSocket origin mismatch");
+                return Err(actix_web::error::ErrorForbidden("Invalid origin"));
+            }
+        }
+        None => {
+            // Origin should always be present from browsers (per spec)
+            // In production, require it; in dev, allow for testing tools
+            if is_production {
+                warn!("WebSocket request missing Origin header in production");
+                return Err(actix_web::error::ErrorForbidden("Origin header required"));
+            }
+            debug!("WebSocket request without Origin header (allowed in non-production)");
+        }
+    }
+
     // Extract and validate JWT token from httpOnly cookie
     let token = req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("No authentication cookie"))?;

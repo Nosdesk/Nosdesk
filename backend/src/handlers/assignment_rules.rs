@@ -132,6 +132,19 @@ pub async fn create_rule(
         }
     }
 
+    // Validate conditions JSON size and depth to prevent DoS
+    if let Some(ref conditions) = body.conditions {
+        let json_str = conditions.to_string();
+        if json_str.len() > 10_000 {
+            return HttpResponse::BadRequest().json("Conditions JSON too large (max 10KB)");
+        }
+        // Check nesting depth (simple heuristic: count brackets)
+        let depth = json_str.chars().filter(|c| *c == '{' || *c == '[').count();
+        if depth > 20 {
+            return HttpResponse::BadRequest().json("Conditions JSON too deeply nested");
+        }
+    }
+
     // Get next priority if not provided
     let priority = match body.priority {
         Some(p) => p,
@@ -232,6 +245,18 @@ pub async fn update_rule(
             if let Ok(true) = repository::assignment_rules::rule_name_exists(&mut conn, new_name, Some(rule_id)) {
                 return HttpResponse::Conflict().json("A rule with this name already exists");
             }
+        }
+    }
+
+    // Validate conditions JSON size and depth to prevent DoS
+    if let Some(ref conditions) = body.conditions {
+        let json_str = conditions.to_string();
+        if json_str.len() > 10_000 {
+            return HttpResponse::BadRequest().json("Conditions JSON too large (max 10KB)");
+        }
+        let depth = json_str.chars().filter(|c| *c == '{' || *c == '[').count();
+        if depth > 20 {
+            return HttpResponse::BadRequest().json("Conditions JSON too deeply nested");
         }
     }
 

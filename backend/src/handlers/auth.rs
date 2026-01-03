@@ -13,8 +13,9 @@ use crate::models::{
 };
 use crate::repository;
 use crate::utils::{self, ValidationError, parse_uuid};
-use crate::utils::auth::hash_password;
+use crate::utils::auth::{hash_password, validate_password};
 use crate::utils::mfa;
+use crate::utils::rate_limit::{RateLimiter, get_redis_url};
 
 // Import JWT utilities
 use crate::utils::jwt::{JwtUtils, helpers as jwt_helpers};
@@ -200,12 +201,47 @@ pub async fn create_session_record(
     }
 }
 
+// Account lockout configuration (IP rate limiting handled by middleware)
+const MAX_LOGIN_ATTEMPTS: u32 = 5;
+const LOCKOUT_DURATION_SECONDS: u64 = 900; // 15 minutes
+
 // Authentication handlers
 pub async fn login(
     db_pool: web::Data<crate::db::Pool>,
     login_data: web::Json<LoginRequest>,
     request: HttpRequest,
 ) -> impl Responder {
+    let redis_url = get_redis_url();
+    let lockout_key = RateLimiter::login_attempt_key(&login_data.email);
+
+    // Check if account is locked before any validation
+    let is_production = std::env::var("ENVIRONMENT")
+        .map(|v| v.to_lowercase() == "production")
+        .unwrap_or(false);
+
+    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
+        Ok(Some(remaining_seconds)) => {
+            warn!(email = %login_data.email, remaining_seconds, "Login attempt on locked account");
+            return HttpResponse::TooManyRequests().json(json!({
+                "status": "error",
+                "message": format!("Account temporarily locked. Try again in {} minutes.", (remaining_seconds / 60) + 1),
+                "retry_after": remaining_seconds
+            }));
+        }
+        Ok(None) => {} // Not locked, continue
+        Err(e) => {
+            error!(error = %e, "Redis error checking account lockout");
+            if is_production {
+                // Fail closed in production - deny login if we can't verify lockout status
+                return HttpResponse::ServiceUnavailable().json(json!({
+                    "status": "error",
+                    "message": "Authentication service temporarily unavailable. Please try again."
+                }));
+            }
+            // Fail open in development for convenience
+        }
+    }
+
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
@@ -219,6 +255,8 @@ pub async fn login(
         Ok(user) => user,
         Err(e) => {
             error!(error = ?e, "Error finding user by email");
+            // Record failed attempt even for non-existent users (prevents enumeration)
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
                 "message": "Invalid email or password"
@@ -231,6 +269,7 @@ pub async fn login(
         Ok(hash) => hash,
         Err(_) => {
             warn!(user_uuid = %user.uuid, "No local password found for user");
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
                 "message": "Invalid email or password"
@@ -245,10 +284,31 @@ pub async fn login(
     };
 
     if !password_matches {
+        // Record failed attempt
+        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+            Ok(attempts) => {
+                let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
+                if remaining == 0 {
+                    warn!(email = %login_data.email, "Account locked after {} failed attempts", MAX_LOGIN_ATTEMPTS);
+                    return HttpResponse::TooManyRequests().json(json!({
+                        "status": "error",
+                        "message": format!("Account locked after too many failed attempts. Try again in {} minutes.", LOCKOUT_DURATION_SECONDS / 60),
+                        "retry_after": LOCKOUT_DURATION_SECONDS
+                    }));
+                }
+                debug!(email = %login_data.email, attempts, remaining, "Failed login attempt");
+            }
+            Err(e) => warn!(error = %e, "Failed to record login attempt"),
+        }
         return HttpResponse::Unauthorized().json(json!({
             "status": "error",
             "message": "Invalid email or password"
         }));
+    }
+
+    // Clear failed attempts on successful password verification
+    if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
+        warn!(error = %e, "Failed to clear login attempts after successful auth");
     }
 
     // Check if user has MFA enabled - if so, require MFA verification
@@ -455,11 +515,12 @@ pub async fn register(
         validation_errors.push("email: Invalid email format".to_string());
     }
 
-    // Validate password
-    if user_data.password.len() < 8 {
-        validation_errors.push("password: Password must be at least 8 characters long".to_string());
-    } else if user_data.password.len() > 128 {
-        validation_errors.push("password: Password must be less than 128 characters".to_string());
+    // Validate password using centralized validation
+    let password_validation = validate_password(&user_data.password);
+    if !password_validation.valid {
+        for error in password_validation.errors {
+            validation_errors.push(format!("password: {}", error));
+        }
     }
 
     // Validate role
@@ -1423,23 +1484,21 @@ pub async fn mfa_disable(
         })),
     };
 
-    // If using full scope, verify password
-    // If using mfa_recovery scope, skip password check (magic link already authenticated)
-    if claims.scope == "full" {
-        let password_hash_str = match get_local_password_hash(&user.uuid, &mut conn) {
-            Ok(hash) => hash,
-            Err(_) => return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error reading password hash"
-            })),
-        };
+    // Always verify password for MFA disable (even with recovery token)
+    // This prevents account takeover if recovery email is compromised
+    let password_hash_str = match get_local_password_hash(&user.uuid, &mut conn) {
+        Ok(hash) => hash,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Error reading password hash"
+        })),
+    };
 
-        if !verify(&request.password, &password_hash_str).unwrap_or(false) {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid password"
-            }));
-        }
+    if !verify(&request.password, &password_hash_str).unwrap_or(false) {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid password"
+        }));
     }
 
     // Disable MFA

@@ -1,5 +1,10 @@
 use uuid::Uuid;
 
+/// Get Redis URL from environment with sensible default
+pub fn get_redis_url() -> String {
+    std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string())
+}
+
 /// Generic rate limiting utility using Redis
 /// This provides a reusable rate limiting implementation following DRY principles
 pub struct RateLimiter;
@@ -133,6 +138,100 @@ impl RateLimiter {
     /// Formatted Redis key for MFA rate limiting
     pub fn mfa_attempt_key(user_uuid: &Uuid) -> String {
         format!("mfa_attempts:{}", user_uuid)
+    }
+
+    /// Generate a standardized rate limit key for login attempts (by email)
+    pub fn login_attempt_key(email: &str) -> String {
+        format!("login_attempts:{}", email.to_lowercase())
+    }
+
+    /// Clear all attempts for a key (used on successful login)
+    pub async fn clear_attempts(redis_url: &str, key: &str) -> Result<(), RateLimitError> {
+        use redis::AsyncCommands;
+
+        let client = redis::Client::open(redis_url)
+            .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
+
+        let mut con = client
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(|_| RateLimitError::ConnectionFailed)?;
+
+        con.del(key)
+            .await
+            .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Check if an account is locked (exceeded max attempts)
+    /// Returns remaining lockout time in seconds if locked, None if not locked
+    pub async fn check_lockout(
+        redis_url: &str,
+        key: &str,
+        max_attempts: u32,
+    ) -> Result<Option<u64>, RateLimitError> {
+        use redis::AsyncCommands;
+
+        let client = redis::Client::open(redis_url)
+            .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
+
+        let mut con = client
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(|_| RateLimitError::ConnectionFailed)?;
+
+        let count: Option<u32> = con
+            .get(key)
+            .await
+            .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
+
+        if count.unwrap_or(0) >= max_attempts {
+            // Get TTL to show remaining lockout time
+            let ttl: i64 = con
+                .ttl(key)
+                .await
+                .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
+
+            Ok(Some(if ttl > 0 { ttl as u64 } else { 0 }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Record a failed login attempt
+    pub async fn record_failed_attempt(
+        redis_url: &str,
+        key: &str,
+        lockout_seconds: u64,
+    ) -> Result<u32, RateLimitError> {
+        use redis::AsyncCommands;
+
+        let client = redis::Client::open(redis_url)
+            .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
+
+        let mut con = client
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(|_| RateLimitError::ConnectionFailed)?;
+
+        // Atomic increment + set expiry
+        let script = r#"
+            local current = redis.call('INCR', KEYS[1])
+            if current == 1 then
+                redis.call('EXPIRE', KEYS[1], ARGV[1])
+            end
+            return current
+        "#;
+
+        let count: u32 = redis::Script::new(script)
+            .key(key)
+            .arg(lockout_seconds)
+            .invoke_async(&mut con)
+            .await
+            .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
+
+        Ok(count)
     }
 }
 

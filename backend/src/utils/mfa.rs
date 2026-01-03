@@ -319,6 +319,13 @@ pub async fn verify_mfa_token(
     if let Some(ref encrypted_secret) = user.mfa_secret {
         let secret = decrypt_mfa_secret(encrypted_secret)?;
         if verify_totp_token(secret.as_str(), token) {
+            // TOTP replay prevention: check if this code was already used
+            if check_totp_replay(user_uuid, token).await {
+                tracing::warn!(user_uuid = %user_uuid, "TOTP replay attack detected");
+                return Err(anyhow!("This code has already been used. Please wait for a new code."));
+            }
+            // Mark code as used
+            mark_totp_used(user_uuid, token).await;
             return Ok(MfaVerificationResult {
                 is_valid: true,
                 backup_code_used: None,
@@ -329,6 +336,71 @@ pub async fn verify_mfa_token(
 
     // If TOTP fails, try backup code verification
     verify_backup_code(user_uuid, token, conn).await
+}
+
+/// Check if TOTP code was already used (replay prevention)
+/// Returns true if replay detected, false if code is fresh
+/// Fails closed in production (assumes replay) for security
+async fn check_totp_replay(user_uuid: &Uuid, token: &str) -> bool {
+    use redis::AsyncCommands;
+    use std::hash::{Hash, Hasher};
+    use std::collections::hash_map::DefaultHasher;
+
+    let is_production = std::env::var("ENVIRONMENT")
+        .map(|v| v.to_lowercase() == "production")
+        .unwrap_or(false);
+
+    let redis_url = crate::utils::rate_limit::get_redis_url();
+    let client = match redis::Client::open(redis_url.as_str()) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "Redis connection failed for TOTP replay check");
+            return is_production; // Fail closed in production
+        }
+    };
+
+    let mut con = match client.get_multiplexed_async_connection().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "Redis async connection failed for TOTP replay check");
+            return is_production; // Fail closed in production
+        }
+    };
+
+    // Hash the token to avoid storing it directly
+    let mut hasher = DefaultHasher::new();
+    token.hash(&mut hasher);
+    let token_hash = hasher.finish();
+    let key = format!("totp_used:{}:{}", user_uuid, token_hash);
+
+    let exists: bool = con.exists(&key).await.unwrap_or(false);
+    exists
+}
+
+/// Mark TOTP code as used (replay prevention)
+async fn mark_totp_used(user_uuid: &Uuid, token: &str) {
+    use redis::AsyncCommands;
+    use std::hash::{Hash, Hasher};
+    use std::collections::hash_map::DefaultHasher;
+
+    let redis_url = crate::utils::rate_limit::get_redis_url();
+    let client = match redis::Client::open(redis_url.as_str()) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut con = match client.get_multiplexed_async_connection().await {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut hasher = DefaultHasher::new();
+    token.hash(&mut hasher);
+    let token_hash = hasher.finish();
+    let key = format!("totp_used:{}:{}", user_uuid, token_hash);
+
+    // Set with 90-second TTL (TOTP validity window + clock drift tolerance)
+    let _: Result<(), _> = con.set_ex(&key, "1", 90).await;
 }
 
 /// Check if MFA should be required for a user based on OWASP recommendations
@@ -429,7 +501,7 @@ pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
     let (max_attempts, window_seconds) = get_mfa_rate_limit_config();
 
     // Get Redis URL from environment
-    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+    let redis_url = crate::utils::rate_limit::get_redis_url();
 
     // Generate rate limit key for this user
     let key = RateLimiter::mfa_attempt_key(user_uuid);
@@ -448,11 +520,18 @@ pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
             allowed
         }
         Err(e) => {
-            // On Redis error, log it but allow the attempt (fail open for availability)
-            // In production, you might want to fail closed instead
             tracing::error!("MFA rate limit check failed for user {}: {}", user_uuid, e);
-            tracing::warn!("Allowing MFA attempt due to rate limit check failure (fail-open mode)");
-            true
+            // Fail-closed in production (security-critical), fail-open in development (convenience)
+            let is_production = std::env::var("ENVIRONMENT")
+                .map(|v| v.to_lowercase() == "production")
+                .unwrap_or(false);
+            if is_production {
+                tracing::warn!("Denying MFA attempt due to rate limit check failure (fail-closed mode)");
+                false
+            } else {
+                tracing::warn!("Allowing MFA attempt due to rate limit check failure (fail-open mode in non-production)");
+                true
+            }
         }
     }
 } 

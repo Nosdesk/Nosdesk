@@ -412,13 +412,18 @@ async fn main() -> std::io::Result<()> {
 
     let max_payload_size = max_file_size_mb * 1024 * 1024; // Convert to bytes
 
-    // Validate CORS configuration
-    let frontend_url = env::var("FRONTEND_URL").unwrap_or_else(|_| {
-        if environment == "production" {
-            warn!("FRONTEND_URL not set in production");
+    // Validate CORS configuration - FRONTEND_URL required in production
+    let frontend_url = match env::var("FRONTEND_URL") {
+        Ok(url) => url,
+        Err(_) if environment == "production" => {
+            error!("FRONTEND_URL must be set in production for CORS security");
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "FRONTEND_URL environment variable is required in production"
+            ));
         }
-        "http://localhost:3000".to_string()
-    });
+        Err(_) => "http://localhost:3000".to_string(),
+    };
 
     // Parse additional CORS origins if provided
     let additional_origins: Vec<String> = env::var("ADDITIONAL_CORS_ORIGINS")
@@ -786,6 +791,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/batch", web::post().to(handlers::get_users_batch))
                     .route("/users/bulk", web::post().to(handlers::bulk_users))
                     .route("/users/cleanup-images", web::post().to(handlers::cleanup_stale_images))
+                    .route("/files/cleanup-temp", web::post().to(handlers::cleanup_temp_files))
                     .route("/users/auth-identities", web::get().to(handlers::get_user_auth_identities))
                     .route("/users/auth-identities/{id}", web::delete().to(handlers::delete_user_auth_identity))
                     .route("/users", web::post().to(handlers::create_user))

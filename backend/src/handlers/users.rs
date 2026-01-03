@@ -158,14 +158,51 @@ pub async fn get_paginated_users(
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(25).clamp(1, 100);
 
+    // Validate sort_field against allowed columns
+    let allowed_sort_fields = ["first_name", "last_name", "email", "role", "created_at", "updated_at"];
+    let sort_field = query.sort_field.as_ref().and_then(|f| {
+        let f_lower = f.to_lowercase();
+        if allowed_sort_fields.contains(&f_lower.as_str()) {
+            Some(f_lower)
+        } else {
+            None
+        }
+    });
+
+    // Validate sort_direction
+    let sort_direction = query.sort_direction.as_ref().and_then(|d| {
+        let d_lower = d.to_lowercase();
+        if d_lower == "asc" || d_lower == "desc" {
+            Some(d_lower)
+        } else {
+            None
+        }
+    });
+
+    // Limit search string length to prevent DoS
+    let search = query.search.as_ref().map(|s| {
+        if s.len() > 100 { s[..100].to_string() } else { s.clone() }
+    });
+
+    // Validate role filter
+    let allowed_roles = ["admin", "agent", "user"];
+    let role = query.role.as_ref().and_then(|r| {
+        let r_lower = r.to_lowercase();
+        if allowed_roles.contains(&r_lower.as_str()) {
+            Some(r_lower)
+        } else {
+            None
+        }
+    });
+
     match repository::get_paginated_users(
         &mut conn,
         page,
         page_size,
-        query.sort_field.clone(),
-        query.sort_direction.clone(),
-        query.search.clone(),
-        query.role.clone(),
+        sort_field,
+        sort_direction,
+        search,
+        role,
     ) {
         Ok((users, total)) => {
             // Calculate total pages
