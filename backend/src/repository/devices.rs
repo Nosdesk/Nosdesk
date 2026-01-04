@@ -294,6 +294,19 @@ pub fn get_paginated_devices_excluding_ids(
         .limit(page_size)
         .offset((page - 1) * page_size)
         .load(conn)?;
-    
+
     Ok((results, total_count))
-} 
+}
+
+/// Get multiple devices by their Entra device IDs (batch lookup for efficiency)
+/// Used for mapping Microsoft Graph device members to local device IDs
+pub fn get_devices_by_entra_ids(
+    conn: &mut DbConnection,
+    entra_ids: &[&str],
+) -> QueryResult<Vec<(String, i32)>> {
+    devices::table
+        .filter(devices::entra_device_id.eq_any(entra_ids))
+        .filter(devices::entra_device_id.is_not_null())
+        .select((devices::entra_device_id.assume_not_null(), devices::id))
+        .load::<(String, i32)>(conn)
+}

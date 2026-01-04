@@ -1,3 +1,10 @@
+export interface DeviceGroup {
+  id: number;
+  uuid: string;
+  name: string;
+  color?: string | null;
+}
+
 export interface Device {
   id: number;
   name: string;
@@ -22,6 +29,7 @@ export interface Device {
     avatar_url?: string | null;
     avatar_thumb?: string | null;
   } | null;
+  groups?: DeviceGroup[];
   // Legacy fields for backward compatibility
   type?: string;
   lastSeen?: string;

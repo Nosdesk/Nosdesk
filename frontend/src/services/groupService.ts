@@ -4,6 +4,7 @@ import type {
   Group,
   GroupWithMemberCount,
   GroupWithMembers,
+  GroupDetails,
   CreateGroupRequest,
   UpdateGroupRequest,
   SetGroupMembersRequest,
@@ -94,6 +95,17 @@ export const groupService = {
       return response.data;
     } catch (error) {
       logger.error(`Error setting groups for user ${userUuid}:`, error);
+      throw error;
+    }
+  },
+
+  // Get group details by UUID (all authenticated users)
+  async getGroupDetails(uuid: string): Promise<GroupDetails> {
+    try {
+      const response = await apiClient.get<GroupDetails>(`/groups/details/${uuid}`);
+      return response.data;
+    } catch (error) {
+      logger.error(`Error fetching group details for ${uuid}:`, error);
       throw error;
     }
   }

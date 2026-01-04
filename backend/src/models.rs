@@ -1327,6 +1327,33 @@ pub struct SyncHistoryUpdate {
     pub records_failed: Option<i32>,
 }
 
+// Delta tokens for incremental sync (Microsoft Graph delta queries)
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::sync_delta_tokens)]
+pub struct SyncDeltaToken {
+    pub id: i32,
+    pub provider_type: String,
+    pub entity_type: String,
+    pub delta_link: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::sync_delta_tokens)]
+pub struct NewSyncDeltaToken {
+    pub provider_type: String,
+    pub entity_type: String,
+    pub delta_link: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::sync_delta_tokens)]
+pub struct SyncDeltaTokenUpdate {
+    pub delta_link: Option<String>,
+    pub updated_at: Option<NaiveDateTime>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProgressPoint {
     pub name: String,
@@ -2108,6 +2135,13 @@ pub struct Group {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    pub external_id: Option<String>,
+    pub external_source: Option<String>,
+    pub group_type: Option<String>,
+    pub mail_enabled: bool,
+    pub security_enabled: bool,
+    pub last_synced_at: Option<NaiveDateTime>,
+    pub sync_enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -2119,6 +2153,18 @@ pub struct NewGroup {
     pub created_by: Option<Uuid>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::groups)]
+pub struct NewExternalGroup {
+    pub name: String,
+    pub description: Option<String>,
+    pub external_id: Option<String>,
+    pub external_source: Option<String>,
+    pub group_type: Option<String>,
+    pub mail_enabled: bool,
+    pub security_enabled: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::groups)]
 pub struct GroupUpdate {
@@ -2128,12 +2174,25 @@ pub struct GroupUpdate {
     pub updated_at: Option<NaiveDateTime>,
 }
 
+#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::groups)]
+pub struct ExternalGroupUpdate {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub group_type: Option<String>,
+    pub mail_enabled: Option<bool>,
+    pub security_enabled: Option<bool>,
+    pub last_synced_at: Option<NaiveDateTime>,
+    pub updated_at: Option<NaiveDateTime>,
+}
+
 // Group with member count for list views
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GroupWithMemberCount {
     #[serde(flatten)]
     pub group: Group,
     pub member_count: i64,
+    pub device_count: i64,
 }
 
 // Group with full member details
@@ -2142,6 +2201,15 @@ pub struct GroupWithMembers {
     #[serde(flatten)]
     pub group: Group,
     pub members: Vec<UserInfoWithAvatar>,
+}
+
+// Group with members and devices (for detail view)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GroupDetails {
+    #[serde(flatten)]
+    pub group: Group,
+    pub members: Vec<UserInfoWithAvatar>,
+    pub devices: Vec<Device>,
 }
 
 // User-Group junction table
@@ -2162,6 +2230,29 @@ pub struct NewUserGroup {
     pub user_uuid: Uuid,
     pub group_id: i32,
     pub created_by: Option<Uuid>,
+}
+
+// Device-Group junction table
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::device_groups)]
+#[diesel(belongs_to(Group))]
+#[diesel(belongs_to(Device))]
+#[diesel(primary_key(device_id, group_id))]
+pub struct DeviceGroup {
+    pub device_id: i32,
+    pub group_id: i32,
+    pub created_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
+    pub external_source: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::device_groups)]
+pub struct NewDeviceGroup {
+    pub device_id: i32,
+    pub group_id: i32,
+    pub created_by: Option<Uuid>,
+    pub external_source: Option<String>,
 }
 
 // ============================================================================

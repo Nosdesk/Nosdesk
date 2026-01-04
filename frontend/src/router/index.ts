@@ -486,6 +486,27 @@ const router = createRouter({
       }
     },
     {
+      path: '/groups/:uuid',
+      name: 'group-detail',
+      component: () => import('../views/GroupDetailView.vue'),
+      props: true,
+      meta: {
+        requiresAuth: true,
+        title: 'Group Details'
+      }
+    },
+    {
+      path: '/admin/groups/:uuid/configure',
+      name: 'group-configuration',
+      component: () => import('../views/GroupConfigurationView.vue'),
+      props: true,
+      meta: {
+        requiresAuth: true,
+        title: 'Group Configuration',
+        adminRequired: true
+      }
+    },
+    {
       path: '/admin/categories',
       name: 'admin-categories',
       component: () => import('../views/CategoriesManagementView.vue'),

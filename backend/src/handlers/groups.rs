@@ -9,6 +9,41 @@ use crate::repository;
 use crate::utils::rbac::require_admin;
 
 // ============================================================================
+// Group Detail Endpoint (All authenticated users)
+// ============================================================================
+
+/// Get group details by UUID (accessible to all authenticated users)
+pub async fn get_group_details(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+) -> impl Responder {
+    // Verify user is authenticated (but not admin required)
+    let _claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    };
+
+    let group_uuid = match Uuid::parse_str(&path.into_inner()) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json("Invalid group UUID"),
+    };
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    match repository::groups::get_group_details(&mut conn, &group_uuid) {
+        Ok(details) => HttpResponse::Ok().json(details),
+        Err(e) => match e {
+            Error::NotFound => HttpResponse::NotFound().json("Group not found"),
+            _ => HttpResponse::InternalServerError().json("Failed to get group details"),
+        },
+    }
+}
+
+// ============================================================================
 // Group CRUD Endpoints (Admin Only)
 // ============================================================================
 

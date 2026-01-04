@@ -19,6 +19,7 @@ use crate::repository::devices as device_repo;
 use crate::repository::user_auth_identities as identity_repo;
 use crate::repository::user_emails as user_emails_repo;
 use crate::repository::sync_history as sync_history_repo;
+use crate::repository::groups as groups_repo;
 use crate::config_utils;
 use crate::models::{NewUserAuthIdentity, User, UserAuthIdentity, NewSyncHistory, SyncHistoryUpdate, AuthProvider};
 use crate::utils;
@@ -82,6 +83,55 @@ fn get_user_sync_config() -> (usize, usize) {
         .unwrap_or(USER_BATCH_SIZE);
     
     (concurrent_processing, user_batch_size)
+}
+
+/// Creates a Microsoft Graph HTTP client with access token using client credentials flow.
+/// This is the shared helper to eliminate token acquisition duplication across sync functions.
+async fn get_msgraph_client_and_token() -> Result<(reqwest::Client, String), String> {
+    let client_id = std::env::var("MICROSOFT_CLIENT_ID")
+        .map_err(|_| "MICROSOFT_CLIENT_ID not configured")?;
+    let client_secret = std::env::var("MICROSOFT_CLIENT_SECRET")
+        .map_err(|_| "MICROSOFT_CLIENT_SECRET not configured")?;
+    let tenant_id = std::env::var("MICROSOFT_TENANT_ID")
+        .map_err(|_| "MICROSOFT_TENANT_ID not configured")?;
+
+    let client = reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .pool_max_idle_per_host(10)
+        .pool_idle_timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let params = [
+        ("client_id", client_id.as_str()),
+        ("client_secret", client_secret.as_str()),
+        ("grant_type", "client_credentials"),
+        ("scope", "https://graph.microsoft.com/.default"),
+    ];
+
+    let token_response = client
+        .post(format!("https://login.microsoftonline.com/{}/oauth2/v2.0/token", tenant_id))
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to request access token: {}", e))?;
+
+    let token_data: serde_json::Value = token_response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse token response: {}", e))?;
+
+    let access_token = token_data["access_token"]
+        .as_str()
+        .ok_or_else(|| {
+            let error_desc = token_data.get("error_description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error");
+            format!("Failed to obtain access token: {}", error_desc)
+        })?
+        .to_string();
+
+    Ok((client, access_token))
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -189,6 +239,137 @@ pub struct MicrosoftGraphDevice {
     pub device_enrollment_type: Option<String>,
     #[serde(rename = "managementAgent")]
     pub management_agent: Option<String>,
+    /// Entra Object ID - resolved from azure_ad_device_id during sync.
+    /// This is the directory object ID used for group membership matching.
+    #[serde(skip)]
+    pub entra_object_id: Option<String>,
+}
+
+// Microsoft Graph Group structure from API response
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct MicrosoftGraphGroup {
+    pub id: String,
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    #[serde(rename = "mailEnabled")]
+    pub mail_enabled: Option<bool>,
+    #[serde(rename = "securityEnabled")]
+    pub security_enabled: Option<bool>,
+    #[serde(rename = "groupTypes")]
+    pub group_types: Option<Vec<String>>,
+    pub mail: Option<String>,
+}
+
+impl MicrosoftGraphGroup {
+    /// Determine the group type based on Microsoft Graph properties
+    pub fn get_group_type(&self) -> &'static str {
+        let types = self.group_types.as_deref().unwrap_or(&[]);
+        let mail_enabled = self.mail_enabled.unwrap_or(false);
+        let security_enabled = self.security_enabled.unwrap_or(false);
+
+        if types.iter().any(|t| t == "DynamicMembership") {
+            "dynamic"
+        } else if types.iter().any(|t| t == "Unified") {
+            "m365"
+        } else if security_enabled && !mail_enabled {
+            "security"
+        } else if mail_enabled && !security_enabled {
+            "distribution"
+        } else {
+            "other"
+        }
+    }
+
+    /// Check if this is a distribution list
+    pub fn is_distribution_list(&self) -> bool {
+        self.get_group_type() == "distribution"
+    }
+}
+
+// Microsoft Graph Group Member structure (for membership sync)
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct MicrosoftGraphGroupMember {
+    #[serde(rename = "@odata.type")]
+    pub odata_type: Option<String>,
+    pub id: String,
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(rename = "userPrincipalName")]
+    pub user_principal_name: Option<String>,
+}
+
+impl MicrosoftGraphGroupMember {
+    /// Check if this member is a user (not a nested group or other type)
+    pub fn is_user(&self) -> bool {
+        self.odata_type.as_deref() == Some("#microsoft.graph.user")
+    }
+
+    /// Check if this member is a device
+    pub fn is_device(&self) -> bool {
+        self.odata_type.as_deref() == Some("#microsoft.graph.device")
+    }
+}
+
+// Group sync configuration
+#[derive(Debug, Clone)]
+pub struct GroupSyncConfig {
+    pub sync_security_groups: bool,
+    pub sync_m365_groups: bool,
+    pub sync_dynamic_groups: bool,
+    pub sync_distribution_lists: bool,
+}
+
+impl Default for GroupSyncConfig {
+    fn default() -> Self {
+        Self {
+            sync_security_groups: true,
+            sync_m365_groups: true,
+            sync_dynamic_groups: true,
+            sync_distribution_lists: false, // Off by default
+        }
+    }
+}
+
+impl GroupSyncConfig {
+    /// Load config from environment variables (can be extended to load from site_settings)
+    pub fn from_env() -> Self {
+        Self {
+            sync_security_groups: std::env::var("MSGRAPH_SYNC_SECURITY_GROUPS")
+                .map(|v| v.to_lowercase() != "false")
+                .unwrap_or(true),
+            sync_m365_groups: std::env::var("MSGRAPH_SYNC_M365_GROUPS")
+                .map(|v| v.to_lowercase() != "false")
+                .unwrap_or(true),
+            sync_dynamic_groups: std::env::var("MSGRAPH_SYNC_DYNAMIC_GROUPS")
+                .map(|v| v.to_lowercase() != "false")
+                .unwrap_or(true),
+            sync_distribution_lists: std::env::var("MSGRAPH_SYNC_DISTRIBUTION_LISTS")
+                .map(|v| v.to_lowercase() == "true")
+                .unwrap_or(false),
+        }
+    }
+
+    /// Check if a group should be synced based on its type
+    pub fn should_sync_group(&self, group: &MicrosoftGraphGroup) -> bool {
+        match group.get_group_type() {
+            "security" => self.sync_security_groups,
+            "m365" => self.sync_m365_groups,
+            "dynamic" => self.sync_dynamic_groups,
+            "distribution" => self.sync_distribution_lists,
+            _ => true, // Sync "other" types by default
+        }
+    }
+}
+
+// Group sync statistics
+#[derive(Serialize, Debug, Default)]
+pub struct GroupSyncStats {
+    pub groups_created: usize,
+    pub groups_updated: usize,
+    pub user_membership_changes: usize,
+    pub device_membership_changes: usize,
+    pub errors: Vec<String>,
 }
 
 // User sync statistics
@@ -884,56 +1065,17 @@ fn check_microsoft_config() -> Result<(), String> {
 }
 
 /// Test Graph connection by making a simple API call
-async fn test_graph_connection(provider_id: i32) -> Result<serde_json::Value, String> {
-    // Get required configuration values from environment variables
-    let client_id = config_utils::get_microsoft_client_id()
-        .map_err(|e| format!("Microsoft Client ID configuration error: {}", e))?;
-    
-    let tenant_id = config_utils::get_microsoft_tenant_id()
-        .map_err(|e| format!("Microsoft Tenant ID configuration error: {}", e))?;
-    
-    let client_secret = config_utils::get_microsoft_client_secret()
-        .map_err(|e| format!("Microsoft Client Secret configuration error: {}", e))?;
-
-    // Get an access token using client credentials flow
-    let params = [
-        ("client_id", client_id.as_str()),
-        ("client_secret", client_secret.as_str()),
-        ("grant_type", "client_credentials"),
-        ("scope", "https://graph.microsoft.com/.default"),
-    ];
-
-    let client = reqwest::Client::new();
+async fn test_graph_connection(_provider_id: i32) -> Result<serde_json::Value, String> {
     let start_time = std::time::Instant::now();
-    
-    let token_response = client
-        .post(format!("https://login.microsoftonline.com/{}/oauth2/v2.0/token", tenant_id))
-        .form(&params)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to request access token: {}", e))?;
 
-    let token_data: serde_json::Value = token_response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse token response: {}", e))?;
-
-    let access_token = token_data["access_token"]
-        .as_str()
-        .ok_or_else(|| {
-            let error_desc = token_data.get("error_description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown error");
-            format!("Failed to obtain access token: {}", error_desc)
-        })?;
+    let (client, access_token) = get_msgraph_client_and_token().await?;
 
     // Test the connection with a simple API call to get organization info
     let url = "https://graph.microsoft.com/v1.0/organization";
-    
+
     let graph_response = client
         .get(url)
-        .header("Authorization", format!("Bearer {}", access_token))
-        .header("Content-Type", "application/json")
+        .bearer_auth(&access_token)
         .send()
         .await
         .map_err(|e| format!("Failed to send Microsoft Graph test request: {}", e))?;
@@ -1322,53 +1464,8 @@ async fn sync_users(
 }
 
 /// Fetch users from Microsoft Graph API (optimized version)
-async fn fetch_microsoft_graph_users_optimized(provider_id: i32) -> Result<(Vec<MicrosoftGraphUser>, String), String> {
-    // Get required configuration values from environment variables
-    let client_id = config_utils::get_microsoft_client_id()
-        .map_err(|e| format!("Microsoft Client ID configuration error: {}", e))?;
-    
-    let tenant_id = config_utils::get_microsoft_tenant_id()
-        .map_err(|e| format!("Microsoft Tenant ID configuration error: {}", e))?;
-    
-    let client_secret = config_utils::get_microsoft_client_secret()
-        .map_err(|e| format!("Microsoft Client Secret configuration error: {}", e))?;
-
-    // Get an access token using client credentials flow
-    let params = [
-        ("client_id", client_id.as_str()),
-        ("client_secret", client_secret.as_str()),
-        ("grant_type", "client_credentials"),
-        ("scope", "https://graph.microsoft.com/.default"),
-    ];
-
-    // Create optimized HTTP client
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .pool_max_idle_per_host(10)
-        .pool_idle_timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-        
-    let token_response = client
-        .post(format!("https://login.microsoftonline.com/{}/oauth2/v2.0/token", tenant_id))
-        .form(&params)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to request access token: {}", e))?;
-
-    let token_data: serde_json::Value = token_response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse token response: {}", e))?;
-
-    let access_token = token_data["access_token"]
-        .as_str()
-        .ok_or_else(|| {
-            let error_desc = token_data.get("error_description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown error");
-            format!("Failed to obtain access token: {}", error_desc)
-        })?;
+async fn fetch_microsoft_graph_users_optimized(_provider_id: i32) -> Result<(Vec<MicrosoftGraphUser>, String), String> {
+    let (client, access_token) = get_msgraph_client_and_token().await?;
 
     // Build the Microsoft Graph API request for users
     // Select fields for MicrosoftGraphUser struct
@@ -2061,7 +2158,7 @@ async fn sync_devices(
     update_sync_progress_with_type(session_id, "devices", 0, 0, "running", "Fetching devices from Microsoft Graph", "devices");
 
     // Step 1: Fetch devices from Microsoft Graph
-    let (microsoft_devices, _access_token) = match fetch_microsoft_graph_devices(provider_id).await {
+    let (mut microsoft_devices, access_token) = match fetch_microsoft_graph_devices(provider_id).await {
         Ok(result) => result,
         Err(error) => {
             update_sync_progress_with_type(session_id, "devices", 0, 0, "error", &format!("Failed to fetch devices: {}", error), "devices");
@@ -2087,6 +2184,35 @@ async fn sync_devices(
         status: "completed".to_string(),
             errors: Vec::new(),
         };
+    }
+
+    // Step 1b: Resolve Entra Object IDs for devices
+    // Group membership uses Object IDs, not deviceIds, so we need to resolve these
+    update_sync_progress_with_type(session_id, "devices", 0, total_devices, "running", "Resolving Entra Object IDs", "devices");
+
+    let client = reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .unwrap_or_default();
+
+    for device in &mut microsoft_devices {
+        if let Some(azure_ad_device_id) = &device.azure_ad_device_id {
+            device.entra_object_id = resolve_entra_object_id(&client, &access_token, azure_ad_device_id).await;
+            if device.entra_object_id.is_some() {
+                debug!(
+                    device_name = %device.device_name.as_deref().unwrap_or(&device.id),
+                    azure_ad_device_id = %azure_ad_device_id,
+                    entra_object_id = %device.entra_object_id.as_ref().unwrap(),
+                    "Resolved Entra Object ID"
+                );
+            } else {
+                debug!(
+                    device_name = %device.device_name.as_deref().unwrap_or(&device.id),
+                    azure_ad_device_id = %azure_ad_device_id,
+                    "Could not resolve Entra Object ID"
+                );
+            }
+        }
     }
 
     update_sync_progress_with_type(session_id, "devices", 0, total_devices, "running", &format!("Processing {} devices", total_devices), "devices");
@@ -2189,29 +2315,454 @@ async fn sync_devices(
 
 /// Sync groups from Microsoft Graph
 async fn sync_groups(
-    _conn: &mut DbConnection,
+    conn: &mut DbConnection,
     _provider_id: i32,
     session_id: &str,
 ) -> SyncProgress {
-    update_sync_progress(session_id, "groups", 0, 0, "completed", "Group sync not yet implemented");
-    
-    // TODO: Implement actual group sync logic
+    let mut stats = GroupSyncStats::default();
+
+    update_sync_progress_with_type(session_id, "groups", 0, 0, "running", "Fetching groups from Microsoft Graph", "groups");
+
+    // Load sync configuration
+    let config = GroupSyncConfig::from_env();
+
+    // Step 1: Fetch all groups from Microsoft Graph
+    let (microsoft_groups, access_token) = match fetch_microsoft_graph_groups().await {
+        Ok(result) => result,
+        Err(error) => {
+            update_sync_progress_with_type(session_id, "groups", 0, 0, "error", &format!("Failed to fetch groups: {}", error), "groups");
+            return SyncProgress {
+                entity: "groups".to_string(),
+                processed: 0,
+                total: 0,
+                status: "error".to_string(),
+                errors: vec![format!("Failed to fetch Microsoft Graph groups: {}", error)],
+            };
+        }
+    };
+
+    // Filter groups based on configuration
+    let groups_to_sync: Vec<_> = microsoft_groups
+        .into_iter()
+        .filter(|g| config.should_sync_group(g))
+        .collect();
+
+    let total_groups = groups_to_sync.len();
+    info!(group_count = total_groups, "Fetched and filtered groups from Microsoft Graph");
+
+    if total_groups == 0 {
+        update_sync_progress_with_type(session_id, "groups", 0, 0, "completed", "No groups found to sync (check filter settings)", "groups");
+        return SyncProgress {
+            entity: "groups".to_string(),
+            processed: 0,
+            total: 0,
+            status: "completed".to_string(),
+            errors: Vec::new(),
+        };
+    }
+
+    update_sync_progress_with_type(session_id, "groups", 0, total_groups, "running", &format!("Processing {} groups", total_groups), "groups");
+
+    // Create HTTP client for member fetches
+    let client = reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .pool_max_idle_per_host(10)
+        .pool_idle_timeout(Duration::from_secs(30))
+        .build()
+        .unwrap_or_default();
+
+    // Step 2: Process each group
+    let mut processed_count = 0;
+    let mut synced_external_ids: Vec<String> = Vec::new();
+
+    for ms_group in groups_to_sync {
+        // Check for cancellation
+        if is_sync_cancelled(session_id) {
+            let cancel_message = format!(
+                "Sync cancelled. Processed {} of {} groups ({} created, {} updated)",
+                processed_count, total_groups, stats.groups_created, stats.groups_updated
+            );
+            update_sync_progress_with_type(session_id, "groups", processed_count, total_groups, "cancelled", &cancel_message, "groups");
+            return SyncProgress {
+                entity: "groups".to_string(),
+                processed: processed_count,
+                total: total_groups,
+                status: "cancelled".to_string(),
+                errors: stats.errors,
+            };
+        }
+
+        processed_count += 1;
+        let group_name = ms_group.display_name.as_deref().unwrap_or(&ms_group.id);
+
+        update_sync_progress_with_type(
+            session_id,
+            "groups",
+            processed_count - 1,
+            total_groups,
+            "running",
+            &format!("Processing group: {}", group_name),
+            "groups"
+        );
+
+        // Upsert the group
+        match groups_repo::upsert_external_group(
+            conn,
+            &ms_group.id,
+            "microsoft",
+            group_name,
+            ms_group.description.as_deref(),
+            Some(ms_group.get_group_type()),
+            ms_group.mail_enabled.unwrap_or(false),
+            ms_group.security_enabled.unwrap_or(false),
+        ) {
+            Ok((group, was_created)) => {
+                if was_created {
+                    stats.groups_created += 1;
+                    debug!(group_name = %group_name, group_type = %ms_group.get_group_type(), "Created new group");
+                } else {
+                    stats.groups_updated += 1;
+                    trace!(group_name = %group_name, "Updated existing group");
+                }
+                synced_external_ids.push(ms_group.id.clone());
+
+                // Sync user group membership
+                match sync_group_membership(conn, &client, &access_token, &ms_group.id, group.id).await {
+                    Ok(changes) => {
+                        stats.user_membership_changes += changes;
+                        if changes > 0 {
+                            debug!(group_name = %group_name, changes = changes, "Synced user membership changes");
+                        }
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Failed to sync user membership for group {}: {}", group_name, e);
+                        warn!("{}", error_msg);
+                        stats.errors.push(error_msg);
+                    }
+                }
+
+                // Sync device group membership
+                match sync_device_group_membership(conn, &client, &access_token, &ms_group.id, group.id).await {
+                    Ok(changes) => {
+                        stats.device_membership_changes += changes;
+                        if changes > 0 {
+                            debug!(group_name = %group_name, changes = changes, "Synced device membership changes");
+                        }
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Failed to sync device membership for group {}: {}", group_name, e);
+                        warn!("{}", error_msg);
+                        stats.errors.push(error_msg);
+                    }
+                }
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to upsert group {}: {}", group_name, e);
+                error!(group_name = %group_name, error = %e, "Failed to upsert group");
+                stats.errors.push(error_msg);
+            }
+        }
+
+        // Progress update every 5 groups
+        if processed_count % 5 == 0 || processed_count == total_groups {
+            update_sync_progress_with_type(
+                session_id,
+                "groups",
+                processed_count,
+                total_groups,
+                "running",
+                &format!(
+                    "Processed {}/{} groups ({} created, {} updated, {} errors)",
+                    processed_count, total_groups, stats.groups_created, stats.groups_updated, stats.errors.len()
+                ),
+                "groups"
+            );
+        }
+
+        // Small delay between groups
+        if processed_count < total_groups {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    // Step 3: Mark groups not seen in this sync as potentially stale
+    let external_id_refs: Vec<&str> = synced_external_ids.iter().map(|s| s.as_str()).collect();
+    if let Err(e) = groups_repo::mark_groups_not_synced(conn, "microsoft", &external_id_refs) {
+        warn!(error = %e, "Failed to mark stale groups");
+    }
+
+    let processed = stats.groups_created + stats.groups_updated;
+    let final_message = format!(
+        "Completed: {} created, {} updated, {} user memberships, {} device memberships, {} errors",
+        stats.groups_created, stats.groups_updated, stats.user_membership_changes, stats.device_membership_changes, stats.errors.len()
+    );
+
+    update_sync_progress_with_type(
+        session_id,
+        "groups",
+        total_groups,
+        total_groups,
+        "completed",
+        &final_message,
+        "groups"
+    );
+
     SyncProgress {
         entity: "groups".to_string(),
-        processed: 0,
-        total: 0,
-        status: "completed".to_string(),
-        errors: vec!["Group sync not yet implemented".to_string()],
+        processed,
+        total: total_groups,
+        status: if stats.errors.is_empty() { "completed".to_string() } else { "completed_with_errors".to_string() },
+        errors: stats.errors,
     }
 }
 
+/// Fetch all groups from Microsoft Graph
+async fn fetch_microsoft_graph_groups() -> Result<(Vec<MicrosoftGraphGroup>, String), String> {
+    let (client, access_token) = get_msgraph_client_and_token().await?;
 
+    // Fetch groups with pagination
+    let select_fields = "id,displayName,description,mailEnabled,securityEnabled,groupTypes,mail";
+    let mut all_groups: Vec<MicrosoftGraphGroup> = Vec::new();
+    let mut next_link: Option<String> = Some(format!(
+        "https://graph.microsoft.com/v1.0/groups?$select={}&$top=999",
+        select_fields
+    ));
 
+    while let Some(url) = next_link {
+        let response = client
+            .get(&url)
+            .bearer_auth(&access_token)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch groups: {}", e))?;
 
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(format!("Microsoft Graph API error ({}): {}", status, error_text));
+        }
 
+        let data: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse groups response: {}", e))?;
 
+        if let Some(groups) = data["value"].as_array() {
+            for group_value in groups {
+                if let Ok(group) = serde_json::from_value::<MicrosoftGraphGroup>(group_value.clone()) {
+                    all_groups.push(group);
+                }
+            }
+        }
 
+        next_link = data["@odata.nextLink"]
+            .as_str()
+            .map(String::from);
+    }
 
+    info!(total_groups = all_groups.len(), "Fetched groups from Microsoft Graph");
+    Ok((all_groups, access_token))
+}
+
+/// Fetch members of a specific group
+async fn fetch_group_members(
+    client: &reqwest::Client,
+    access_token: &str,
+    group_id: &str,
+) -> Result<Vec<MicrosoftGraphGroupMember>, String> {
+    let mut all_members: Vec<MicrosoftGraphGroupMember> = Vec::new();
+    let mut next_link: Option<String> = Some(format!(
+        "https://graph.microsoft.com/v1.0/groups/{}/members?$select=id,displayName,userPrincipalName&$top=999",
+        group_id
+    ));
+
+    while let Some(url) = next_link {
+        let response = client
+            .get(&url)
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch group members: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(format!("Failed to fetch members ({}): {}", status, error_text));
+        }
+
+        let data: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse members response: {}", e))?;
+
+        if let Some(members) = data["value"].as_array() {
+            for member_value in members {
+                if let Ok(member) = serde_json::from_value::<MicrosoftGraphGroupMember>(member_value.clone()) {
+                    // Include user and device members
+                    if member.is_user() || member.is_device() {
+                        all_members.push(member);
+                    }
+                }
+            }
+        }
+
+        next_link = data["@odata.nextLink"]
+            .as_str()
+            .map(String::from);
+    }
+
+    Ok(all_members)
+}
+
+/// Sync group membership (adds/removes local users from local group)
+async fn sync_group_membership(
+    conn: &mut DbConnection,
+    client: &reqwest::Client,
+    access_token: &str,
+    graph_group_id: &str,
+    local_group_id: i32,
+) -> Result<usize, String> {
+    use std::collections::HashSet;
+
+    // Fetch current members from Microsoft Graph
+    let graph_members = fetch_group_members(client, access_token, graph_group_id).await?;
+
+    // Filter to only user members (not devices or nested groups)
+    let user_members: Vec<_> = graph_members.iter().filter(|m| m.is_user()).collect();
+
+    // Get current local membership
+    let current_local_members = groups_repo::get_member_uuids_for_group(conn, local_group_id)
+        .map_err(|e| format!("Failed to get local members: {}", e))?;
+    let current_local_set: HashSet<_> = current_local_members.into_iter().collect();
+
+    // Map Graph user IDs to local user UUIDs
+    let graph_member_ids: Vec<&str> = user_members.iter().map(|m| m.id.as_str()).collect();
+    let user_mappings = identity_repo::get_user_uuids_by_external_ids(&graph_member_ids, "microsoft", conn)
+        .map_err(|e| format!("Failed to lookup users: {}", e))?;
+
+    let new_member_uuids: HashSet<_> = user_mappings.into_iter().map(|(_, uuid)| uuid).collect();
+
+    // Calculate additions and removals
+    let to_add: Vec<_> = new_member_uuids.difference(&current_local_set).cloned().collect();
+    let to_remove: Vec<_> = current_local_set.difference(&new_member_uuids).cloned().collect();
+
+    let mut changes = 0;
+
+    // Add new members
+    for user_uuid in &to_add {
+        if let Err(e) = groups_repo::add_user_to_group(conn, *user_uuid, local_group_id, None) {
+            warn!(user_uuid = %user_uuid, group_id = local_group_id, error = %e, "Failed to add user to group");
+        } else {
+            changes += 1;
+        }
+    }
+
+    // Remove old members (only for users synced from Microsoft - preserve manually added users)
+    for user_uuid in &to_remove {
+        // Check if this user has a Microsoft identity - only remove if they were synced from Microsoft
+        let has_microsoft_identity = identity_repo::get_user_identities(user_uuid, conn)
+            .map(|identities| identities.iter().any(|i| i.provider_type == "microsoft"))
+            .unwrap_or(false);
+
+        if has_microsoft_identity {
+            if let Err(e) = groups_repo::remove_user_from_group(conn, user_uuid, local_group_id) {
+                warn!(user_uuid = %user_uuid, group_id = local_group_id, error = %e, "Failed to remove user from group");
+            } else {
+                changes += 1;
+            }
+        } else {
+            debug!(user_uuid = %user_uuid, group_id = local_group_id, "Preserving manually added user in group");
+        }
+    }
+
+    Ok(changes)
+}
+
+/// Sync device group membership (adds/removes local devices from local group)
+async fn sync_device_group_membership(
+    conn: &mut DbConnection,
+    client: &reqwest::Client,
+    access_token: &str,
+    graph_group_id: &str,
+    local_group_id: i32,
+) -> Result<usize, String> {
+    use std::collections::HashSet;
+
+    // Fetch current members from Microsoft Graph
+    let graph_members = fetch_group_members(client, access_token, graph_group_id).await?;
+
+    debug!(
+        group_id = graph_group_id,
+        total_members = graph_members.len(),
+        "Fetched group members for device sync"
+    );
+
+    // Filter to only device members
+    let device_members: Vec<_> = graph_members.iter().filter(|m| m.is_device()).collect();
+
+    debug!(
+        group_id = graph_group_id,
+        device_count = device_members.len(),
+        "Filtered to device members"
+    );
+
+    if device_members.is_empty() {
+        debug!(group_id = graph_group_id, "No device members in group");
+        return Ok(0);
+    }
+
+    // Get current local device membership (only synced ones from Microsoft)
+    let current_synced_devices = groups_repo::get_synced_device_ids_for_group(conn, local_group_id, "microsoft")
+        .map_err(|e| format!("Failed to get local device members: {}", e))?;
+    let current_local_set: HashSet<_> = current_synced_devices.into_iter().collect();
+
+    // Map Graph device IDs (Entra Object IDs) to local device IDs
+    let graph_device_ids: Vec<&str> = device_members.iter().map(|m| m.id.as_str()).collect();
+
+    debug!(
+        group_id = graph_group_id,
+        graph_device_ids = ?graph_device_ids,
+        "Looking up local devices by Entra IDs"
+    );
+
+    let device_mappings = device_repo::get_devices_by_entra_ids(conn, &graph_device_ids)
+        .map_err(|e| format!("Failed to lookup devices: {}", e))?;
+
+    debug!(
+        group_id = graph_group_id,
+        mapped_count = device_mappings.len(),
+        "Mapped Graph device IDs to local device IDs"
+    );
+
+    let new_device_ids: HashSet<_> = device_mappings.into_iter().map(|(_, id)| id).collect();
+
+    // Calculate additions and removals
+    let to_add: Vec<_> = new_device_ids.difference(&current_local_set).cloned().collect();
+    let to_remove: Vec<_> = current_local_set.difference(&new_device_ids).cloned().collect();
+
+    let mut changes = 0;
+
+    // Add new device members
+    for device_id in &to_add {
+        if let Err(e) = groups_repo::add_device_to_group(conn, *device_id, local_group_id, None, Some("microsoft")) {
+            warn!(device_id = %device_id, group_id = local_group_id, error = %e, "Failed to add device to group");
+        } else {
+            changes += 1;
+        }
+    }
+
+    // Remove old device members (only those that were synced from Microsoft)
+    // This preserves manually-added device group memberships
+    for device_id in &to_remove {
+        if let Err(e) = groups_repo::remove_device_from_group(conn, *device_id, local_group_id) {
+            warn!(device_id = %device_id, group_id = local_group_id, error = %e, "Failed to remove device from group");
+        } else {
+            changes += 1;
+        }
+    }
+
+    Ok(changes)
+}
 
 /// Result struct for photo sync containing both avatar sizes
 #[derive(Debug)]
@@ -2465,54 +3016,61 @@ async fn sync_user_profile_photo_fallback(
     save_profile_photo_to_disk(&photo_bytes, local_user_uuid, "default").await
 }
 
-/// Fetch devices from Microsoft Graph API (Intune managed devices)
-async fn fetch_microsoft_graph_devices(provider_id: i32) -> Result<(Vec<MicrosoftGraphDevice>, String), String> {
-    // Get required configuration values from environment variables
-    let client_id = config_utils::get_microsoft_client_id()
-        .map_err(|e| format!("Microsoft Client ID configuration error: {}", e))?;
-    
-    let tenant_id = config_utils::get_microsoft_tenant_id()
-        .map_err(|e| format!("Microsoft Tenant ID configuration error: {}", e))?;
-    
-    let client_secret = config_utils::get_microsoft_client_secret()
-        .map_err(|e| format!("Microsoft Client Secret configuration error: {}", e))?;
+/// Resolve an Azure AD Device ID (deviceId) to its Entra Object ID.
+/// The deviceId is from device registration, while the Object ID is the directory object identifier.
+/// Group membership uses Object IDs, so we need to resolve this for proper matching.
+async fn resolve_entra_object_id(
+    client: &reqwest::Client,
+    access_token: &str,
+    azure_ad_device_id: &str,
+) -> Option<String> {
+    // Query Entra devices by deviceId filter to get the object ID
+    let url = format!(
+        "https://graph.microsoft.com/v1.0/devices?$filter=deviceId eq '{}'&$select=id,deviceId",
+        azure_ad_device_id
+    );
 
-    // Get an access token using client credentials flow
-    let params = [
-        ("client_id", client_id.as_str()),
-        ("client_secret", client_secret.as_str()),
-        ("grant_type", "client_credentials"),
-        ("scope", "https://graph.microsoft.com/.default"),
-    ];
-
-    // Create optimized HTTP client
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .pool_max_idle_per_host(10)
-        .pool_idle_timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-        
-    let token_response = client
-        .post(format!("https://login.microsoftonline.com/{}/oauth2/v2.0/token", tenant_id))
-        .form(&params)
+    let response = match client
+        .get(&url)
+        .bearer_auth(access_token)
         .send()
         .await
-        .map_err(|e| format!("Failed to request access token: {}", e))?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            debug!(azure_ad_device_id = %azure_ad_device_id, error = %e, "Failed to query Entra device");
+            return None;
+        }
+    };
 
-    let token_data: serde_json::Value = token_response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse token response: {}", e))?;
+    if !response.status().is_success() {
+        debug!(
+            azure_ad_device_id = %azure_ad_device_id,
+            status = %response.status(),
+            "Entra device lookup returned non-success status"
+        );
+        return None;
+    }
 
-    let access_token = token_data["access_token"]
-        .as_str()
-        .ok_or_else(|| {
-            let error_desc = token_data.get("error_description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown error");
-            format!("Failed to obtain access token: {}", error_desc)
-        })?;
+    let data: serde_json::Value = match response.json().await {
+        Ok(d) => d,
+        Err(e) => {
+            debug!(azure_ad_device_id = %azure_ad_device_id, error = %e, "Failed to parse Entra device response");
+            return None;
+        }
+    };
+
+    // Extract the object ID from the first result
+    data["value"]
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|device| device["id"].as_str())
+        .map(|s| s.to_string())
+}
+
+/// Fetch devices from Microsoft Graph API (Intune managed devices)
+async fn fetch_microsoft_graph_devices(_provider_id: i32) -> Result<(Vec<MicrosoftGraphDevice>, String), String> {
+    let (client, access_token) = get_msgraph_client_and_token().await?;
 
     // Build the Microsoft Graph API request for managed devices
     // Note: Using correct field names for managedDevice type from Microsoft Graph v1.0 API
@@ -2718,6 +3276,7 @@ async fn process_microsoft_device(
 
     if let Some(existing) = existing_device {
         // Update existing device
+        // Use entra_object_id (directory object ID) for group membership matching
         let device_update = crate::models::DeviceUpdate {
             name: Some(device_name.clone()),
             hostname: Some(hostname),
@@ -2727,7 +3286,7 @@ async fn process_microsoft_device(
             manufacturer: Some(manufacturer),
             primary_user_uuid: primary_user_uuid.clone(),
             intune_device_id: Some(ms_device.id.clone()),
-            entra_device_id: ms_device.azure_ad_device_id.clone(),
+            entra_device_id: ms_device.entra_object_id.clone(),
             device_type: None, // Keep existing device type
             location: None, // Keep existing location
             notes: None, // Keep existing notes
@@ -2752,6 +3311,7 @@ async fn process_microsoft_device(
         }
     } else {
         // Create new device
+        // Use entra_object_id (directory object ID) for group membership matching
         let new_device = crate::models::NewDevice {
             name: device_name.clone(),
             hostname: Some(hostname),
@@ -2761,7 +3321,7 @@ async fn process_microsoft_device(
             manufacturer: Some(manufacturer),
             primary_user_uuid: primary_user_uuid.clone(),
             intune_device_id: Some(ms_device.id.clone()),
-            entra_device_id: ms_device.azure_ad_device_id.clone(),
+            entra_device_id: ms_device.entra_object_id.clone(),
             device_type: Some("Computer".to_string()), // Default for Intune devices
             location: None,
             notes: None,
@@ -2837,51 +3397,8 @@ pub async fn get_entra_object_id(
 }
 
 /// Fetch Entra Object ID from Microsoft Graph using Azure AD Device ID
-async fn fetch_entra_object_id_from_graph(provider_id: i32, azure_ad_device_id: &str) -> Result<String, String> {
-    // Get required configuration values from environment variables
-    let client_id = config_utils::get_microsoft_client_id()
-        .map_err(|e| format!("Microsoft Client ID configuration error: {}", e))?;
-    
-    let tenant_id = config_utils::get_microsoft_tenant_id()
-        .map_err(|e| format!("Microsoft Tenant ID configuration error: {}", e))?;
-    
-    let client_secret = config_utils::get_microsoft_client_secret()
-        .map_err(|e| format!("Microsoft Client Secret configuration error: {}", e))?;
-
-    // Get an access token using client credentials flow
-    let params = [
-        ("client_id", client_id.as_str()),
-        ("client_secret", client_secret.as_str()),
-        ("grant_type", "client_credentials"),
-        ("scope", "https://graph.microsoft.com/.default"),
-    ];
-
-    // Create HTTP client
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-        
-    let token_response = client
-        .post(format!("https://login.microsoftonline.com/{}/oauth2/v2.0/token", tenant_id))
-        .form(&params)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to request access token: {}", e))?;
-
-    let token_data: serde_json::Value = token_response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse token response: {}", e))?;
-
-    let access_token = token_data["access_token"]
-        .as_str()
-        .ok_or_else(|| {
-            let error_desc = token_data.get("error_description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown error");
-            format!("Failed to obtain access token: {}", error_desc)
-        })?;
+async fn fetch_entra_object_id_from_graph(_provider_id: i32, azure_ad_device_id: &str) -> Result<String, String> {
+    let (client, access_token) = get_msgraph_client_and_token().await?;
 
     // Query Microsoft Graph for the device using the Azure AD Device ID
     // Filter by deviceId (Azure AD Device ID) to get the Object ID (id field)

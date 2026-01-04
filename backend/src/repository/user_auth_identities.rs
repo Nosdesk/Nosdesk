@@ -90,5 +90,42 @@ pub fn delete_identity(
     .execute(conn)
 }
 
+/// Get user UUID by external ID (e.g., Microsoft Graph user ID)
+/// Used for syncing group membership from external sources
+pub fn get_user_uuid_by_external_id(
+    external_id: &str,
+    conn: &mut DbConnection,
+) -> Result<Option<Uuid>, Error> {
+    user_auth_identities::table
+        .filter(user_auth_identities::external_id.eq(external_id))
+        .select(user_auth_identities::user_uuid)
+        .first::<Uuid>(conn)
+        .optional()
+}
 
- 
+/// Get user UUID by external ID for a specific provider type
+pub fn get_user_uuid_by_external_id_and_provider(
+    external_id: &str,
+    provider_type: &str,
+    conn: &mut DbConnection,
+) -> Result<Option<Uuid>, Error> {
+    user_auth_identities::table
+        .filter(user_auth_identities::external_id.eq(external_id))
+        .filter(user_auth_identities::provider_type.eq(provider_type))
+        .select(user_auth_identities::user_uuid)
+        .first::<Uuid>(conn)
+        .optional()
+}
+
+/// Get multiple user UUIDs by their external IDs (batch lookup for efficiency)
+pub fn get_user_uuids_by_external_ids(
+    external_ids: &[&str],
+    provider_type: &str,
+    conn: &mut DbConnection,
+) -> Result<Vec<(String, Uuid)>, Error> {
+    user_auth_identities::table
+        .filter(user_auth_identities::external_id.eq_any(external_ids))
+        .filter(user_auth_identities::provider_type.eq(provider_type))
+        .select((user_auth_identities::external_id, user_auth_identities::user_uuid))
+        .load::<(String, Uuid)>(conn)
+}

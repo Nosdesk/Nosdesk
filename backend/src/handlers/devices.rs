@@ -9,8 +9,9 @@ use crate::utils;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
 
 use crate::db::Pool;
-use crate::models::{Claims, NewDevice, DeviceUpdate, Device, User};
+use crate::models::{Claims, NewDevice, DeviceUpdate, Device, User, Group};
 use crate::repository;
+use crate::repository::groups as groups_repo;
 
 // Pagination query parameters
 #[derive(Deserialize)]
@@ -57,6 +58,7 @@ pub struct DeviceResponse {
     pub updated_at: String,
     pub last_sync_time: Option<String>,
     pub primary_user: Option<UserInfo>,
+    pub groups: Vec<GroupInfo>,
     pub is_editable: bool,
 }
 
@@ -70,8 +72,27 @@ pub struct UserInfo {
     pub avatar_thumb: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct GroupInfo {
+    pub id: i32,
+    pub uuid: String,
+    pub name: String,
+    pub color: Option<String>,
+}
+
+impl From<Group> for GroupInfo {
+    fn from(group: Group) -> Self {
+        Self {
+            id: group.id,
+            uuid: utils::uuid_to_string(&group.uuid),
+            name: group.name,
+            color: group.color,
+        }
+    }
+}
+
 impl DeviceResponse {
-    pub fn from_device_and_user(device: Device, user: Option<User>, conn: &mut crate::db::DbConnection) -> Self {
+    pub fn from_device_and_user(device: Device, user: Option<User>, groups: Vec<Group>, conn: &mut crate::db::DbConnection) -> Self {
         // Device is editable only if it's NOT synced from Microsoft Graph
         // (i.e., it has neither intune_device_id nor entra_device_id)
         let is_editable = device.intune_device_id.is_none() && device.entra_device_id.is_none();
@@ -112,6 +133,7 @@ impl DeviceResponse {
                     avatar_thumb: u.avatar_thumb,
                 }
             }),
+            groups: groups.into_iter().map(GroupInfo::from).collect(),
         }
     }
 }
@@ -127,7 +149,8 @@ fn devices_to_responses(conn: &mut crate::db::DbConnection, devices: Vec<Device>
     devices.into_iter().map(|device| {
         let user = device.primary_user_uuid.as_ref()
             .and_then(|uuid| get_user_by_uuid(conn, uuid));
-        DeviceResponse::from_device_and_user(device, user, conn)
+        let groups = groups_repo::get_groups_for_device(conn, device.id).unwrap_or_default();
+        DeviceResponse::from_device_and_user(device, user, groups, conn)
     }).collect()
 }
 
@@ -214,7 +237,11 @@ pub async fn get_device_by_id(
             let user = device.primary_user_uuid.as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
 
-            let device_response = DeviceResponse::from_device_and_user(device, user, &mut conn);
+            // Get groups for the device
+            let groups = groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
+            debug!(device_id, group_count = groups.len(), "Fetched groups for device");
+
+            let device_response = DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
             HttpResponse::Ok().json(device_response)
         },
         Err(e) => {
@@ -291,7 +318,8 @@ pub async fn create_device(
             let user = device.primary_user_uuid.as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
 
-            let device_response = DeviceResponse::from_device_and_user(device, user, &mut conn);
+            // Newly created device has no groups yet
+            let device_response = DeviceResponse::from_device_and_user(device, user, vec![], &mut conn);
             HttpResponse::Created().json(device_response)
         },
         Err(e) => {
@@ -384,7 +412,10 @@ pub async fn update_device(
             let user = device.primary_user_uuid.as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
 
-            let device_response = DeviceResponse::from_device_and_user(device, user, &mut conn);
+            // Get groups for the device
+            let groups = groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
+
+            let device_response = DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
             HttpResponse::Ok().json(device_response)
         },
         Err(e) => {
@@ -527,7 +558,10 @@ pub async fn unmanage_device(
             let user = device.primary_user_uuid.as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
 
-            let device_response = DeviceResponse::from_device_and_user(device, user, &mut conn);
+            // Get groups for the device
+            let groups = groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
+
+            let device_response = DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
             HttpResponse::Ok().json(device_response)
         },
         Err(e) => {

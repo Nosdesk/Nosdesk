@@ -4,6 +4,15 @@
  */
 
 import type { UserInfo } from './user'
+import type { Device } from './device'
+
+// Simplified user info returned by group APIs (matches backend UserInfoWithAvatar)
+export interface GroupMember {
+  uuid: string
+  name: string
+  avatar_url?: string | null
+  avatar_thumb?: string | null
+}
 
 export interface Group {
   id: number
@@ -18,10 +27,24 @@ export interface Group {
 
 export interface GroupWithMemberCount extends Group {
   member_count: number
+  device_count: number
 }
 
 export interface GroupWithMembers extends Group {
   members: UserInfo[]
+}
+
+// Full group details with members and devices (for detail view)
+export interface GroupDetails extends Group {
+  external_id?: string | null
+  external_source?: string | null
+  group_type?: string | null
+  mail_enabled: boolean
+  security_enabled: boolean
+  last_synced_at?: string | null
+  sync_enabled: boolean
+  members: GroupMember[]
+  devices: Device[]
 }
 
 export interface CreateGroupRequest {

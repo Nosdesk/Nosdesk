@@ -13,6 +13,7 @@ import { RouterLink } from "vue-router";
 import userService from "@/services/userService";
 import { getDevicesByUser } from "@/services/deviceService";
 import { groupService } from "@/services/groupService";
+import { useColorFilter } from "@/composables/useColorFilter";
 import type { User } from "@/services/userService";
 import type { Device } from "@/types/device";
 import type { Group } from "@/types/group";
@@ -32,6 +33,7 @@ interface UserFormData {
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { colorFilterStyle } = useColorFilter();
 const loading = ref(true);
 const error = ref<string | null>(null);
 const userProfile = ref<UserProfile | null>(null);
@@ -85,6 +87,11 @@ watch(userProfile, (newProfile) => {
         document.title = `${newProfile.name}'s Profile | Nosdesk`;
     }
 });
+
+// Navigate to group detail page
+const navigateToGroup = (group: Group) => {
+    router.push(`/groups/${group.uuid}`);
+};
 
 const fetchUserData = async () => {
     try {
@@ -868,20 +875,22 @@ watch(
                             </div>
                             <div class="p-3">
                                 <div class="flex flex-wrap gap-2">
-                                    <span
+                                    <button
                                         v-for="group in groups"
                                         :key="group.id"
-                                        class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium"
+                                        @click="navigateToGroup(group)"
+                                        class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer hover:opacity-80 transition-opacity"
                                         :style="{
                                             backgroundColor: (group.color || '#6366f1') + '20',
-                                            color: group.color || '#6366f1'
+                                            color: group.color || '#6366f1',
+                                            ...colorFilterStyle
                                         }"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                                         </svg>
                                         {{ group.name }}
-                                    </span>
+                                    </button>
                                 </div>
                             </div>
                         </div>

@@ -18,7 +18,7 @@ pub fn get_all_groups(conn: &mut DbConnection) -> QueryResult<Vec<Group>> {
         .load(conn)
 }
 
-/// Get all groups with member counts
+/// Get all groups with member and device counts
 pub fn get_groups_with_member_counts(conn: &mut DbConnection) -> Result<Vec<GroupWithMemberCount>, Error> {
     let all_groups = groups::table
         .order(groups::name.asc())
@@ -27,14 +27,20 @@ pub fn get_groups_with_member_counts(conn: &mut DbConnection) -> Result<Vec<Grou
     let mut groups_with_count = Vec::new();
 
     for group in all_groups {
-        let count = user_groups::table
+        let member_count = user_groups::table
             .filter(user_groups::group_id.eq(group.id))
+            .count()
+            .get_result::<i64>(conn)?;
+
+        let device_count = device_groups::table
+            .filter(device_groups::group_id.eq(group.id))
             .count()
             .get_result::<i64>(conn)?;
 
         groups_with_count.push(GroupWithMemberCount {
             group,
-            member_count: count,
+            member_count,
+            device_count,
         });
     }
 
@@ -72,6 +78,31 @@ pub fn get_group_with_members(conn: &mut DbConnection, group_id: i32) -> Result<
         .collect();
 
     Ok(GroupWithMembers { group, members })
+}
+
+/// Get a group with its members and devices (for detail view)
+pub fn get_group_details(conn: &mut DbConnection, group_uuid: &Uuid) -> Result<GroupDetails, Error> {
+    let group = groups::table
+        .filter(groups::uuid.eq(group_uuid))
+        .first::<Group>(conn)?;
+
+    let member_uuids: Vec<Uuid> = user_groups::table
+        .filter(user_groups::group_id.eq(group.id))
+        .select(user_groups::user_uuid)
+        .load::<Uuid>(conn)?;
+
+    let members: Vec<UserInfoWithAvatar> = member_uuids
+        .iter()
+        .filter_map(|uuid| {
+            crate::repository::get_user_by_uuid(uuid, conn)
+                .ok()
+                .map(UserInfoWithAvatar::from)
+        })
+        .collect();
+
+    let devices: Vec<Device> = get_devices_in_group(conn, group.id)?;
+
+    Ok(GroupDetails { group, members, devices })
 }
 
 /// Create a new group
@@ -245,4 +276,250 @@ pub fn get_group_ids_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> Quer
         .filter(user_groups::user_uuid.eq(user_uuid))
         .select(user_groups::group_id)
         .load(conn)
+}
+
+// ============================================================================
+// External Group Sync Operations (Microsoft Graph, etc.)
+// ============================================================================
+
+/// Get a group by its external ID
+pub fn get_group_by_external_id(conn: &mut DbConnection, external_id: &str) -> QueryResult<Group> {
+    groups::table
+        .filter(groups::external_id.eq(external_id))
+        .first(conn)
+}
+
+/// Get all groups from a specific external source
+pub fn get_groups_by_external_source(conn: &mut DbConnection, external_source: &str) -> QueryResult<Vec<Group>> {
+    groups::table
+        .filter(groups::external_source.eq(external_source))
+        .order(groups::name.asc())
+        .load(conn)
+}
+
+/// Get all external IDs for groups from a specific source
+pub fn get_external_ids_by_source(conn: &mut DbConnection, external_source: &str) -> QueryResult<Vec<String>> {
+    groups::table
+        .filter(groups::external_source.eq(external_source))
+        .filter(groups::external_id.is_not_null())
+        .select(groups::external_id)
+        .load::<Option<String>>(conn)
+        .map(|ids| ids.into_iter().flatten().collect())
+}
+
+/// Create a group from external source data
+pub fn create_external_group(conn: &mut DbConnection, new_group: NewExternalGroup) -> QueryResult<Group> {
+    diesel::insert_into(groups::table)
+        .values(&new_group)
+        .get_result(conn)
+}
+
+/// Update a group from external source data
+pub fn update_external_group(
+    conn: &mut DbConnection,
+    group_id: i32,
+    mut group_update: ExternalGroupUpdate,
+) -> QueryResult<Group> {
+    if group_update.updated_at.is_none() {
+        group_update.updated_at = Some(chrono::Utc::now().naive_utc());
+    }
+    if group_update.last_synced_at.is_none() {
+        group_update.last_synced_at = Some(chrono::Utc::now().naive_utc());
+    }
+
+    diesel::update(groups::table.find(group_id))
+        .set(&group_update)
+        .get_result(conn)
+}
+
+/// Upsert a group from external source - returns (group, was_created)
+pub fn upsert_external_group(
+    conn: &mut DbConnection,
+    external_id: &str,
+    external_source: &str,
+    name: &str,
+    description: Option<&str>,
+    group_type: Option<&str>,
+    mail_enabled: bool,
+    security_enabled: bool,
+) -> QueryResult<(Group, bool)> {
+    // Try to find existing group by external_id
+    let existing = groups::table
+        .filter(groups::external_id.eq(external_id))
+        .first::<Group>(conn);
+
+    match existing {
+        Ok(group) => {
+            // Update existing group
+            let update = ExternalGroupUpdate {
+                name: Some(name.to_string()),
+                description: description.map(String::from),
+                group_type: group_type.map(String::from),
+                mail_enabled: Some(mail_enabled),
+                security_enabled: Some(security_enabled),
+                last_synced_at: Some(chrono::Utc::now().naive_utc()),
+                updated_at: Some(chrono::Utc::now().naive_utc()),
+            };
+
+            let updated = diesel::update(groups::table.find(group.id))
+                .set(&update)
+                .get_result(conn)?;
+
+            Ok((updated, false))
+        }
+        Err(diesel::result::Error::NotFound) => {
+            // Create new group
+            let new_group = NewExternalGroup {
+                name: name.to_string(),
+                description: description.map(String::from),
+                external_id: Some(external_id.to_string()),
+                external_source: Some(external_source.to_string()),
+                group_type: group_type.map(String::from),
+                mail_enabled,
+                security_enabled,
+            };
+
+            let created = diesel::insert_into(groups::table)
+                .values(&new_group)
+                .get_result(conn)?;
+
+            Ok((created, true))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Get member UUIDs for a group (simple list)
+pub fn get_member_uuids_for_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Vec<Uuid>> {
+    user_groups::table
+        .filter(user_groups::group_id.eq(group_id))
+        .select(user_groups::user_uuid)
+        .load(conn)
+}
+
+/// Mark groups as stale (not seen in this sync) - useful for detecting deleted external groups
+pub fn mark_groups_not_synced(
+    conn: &mut DbConnection,
+    external_source: &str,
+    except_external_ids: &[&str],
+) -> QueryResult<usize> {
+    use diesel::dsl::now;
+
+    // This updates sync_enabled to false for groups that are:
+    // 1. From the specified external source
+    // 2. NOT in the list of external IDs we just synced
+    // This doesn't delete them - it just marks them so they can be cleaned up later if desired
+    diesel::update(
+        groups::table
+            .filter(groups::external_source.eq(external_source))
+            .filter(groups::external_id.is_not_null())
+            .filter(diesel::dsl::not(groups::external_id.eq_any(except_external_ids)))
+    )
+    .set((
+        groups::sync_enabled.eq(false),
+        groups::updated_at.eq(now),
+    ))
+    .execute(conn)
+}
+
+// ============================================================================
+// Device-Group Membership Operations
+// ============================================================================
+
+/// Get all devices in a group
+pub fn get_devices_in_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Vec<Device>> {
+    device_groups::table
+        .filter(device_groups::group_id.eq(group_id))
+        .inner_join(devices::table.on(devices::id.eq(device_groups::device_id)))
+        .select(devices::all_columns)
+        .load(conn)
+}
+
+/// Get all groups for a device
+pub fn get_groups_for_device(conn: &mut DbConnection, device_id: i32) -> QueryResult<Vec<Group>> {
+    device_groups::table
+        .filter(device_groups::device_id.eq(device_id))
+        .inner_join(groups::table)
+        .select(groups::all_columns)
+        .order(groups::name.asc())
+        .load(conn)
+}
+
+/// Add a device to a group
+pub fn add_device_to_group(
+    conn: &mut DbConnection,
+    device_id: i32,
+    group_id: i32,
+    created_by: Option<Uuid>,
+    external_source: Option<&str>,
+) -> QueryResult<DeviceGroup> {
+    // Check if already exists
+    let existing = device_groups::table
+        .filter(device_groups::device_id.eq(device_id))
+        .filter(device_groups::group_id.eq(group_id))
+        .first::<DeviceGroup>(conn);
+
+    if let Ok(membership) = existing {
+        return Ok(membership);
+    }
+
+    let new_membership = NewDeviceGroup {
+        device_id,
+        group_id,
+        created_by,
+        external_source: external_source.map(String::from),
+    };
+
+    diesel::insert_into(device_groups::table)
+        .values(&new_membership)
+        .get_result(conn)
+}
+
+/// Remove a device from a group
+pub fn remove_device_from_group(
+    conn: &mut DbConnection,
+    device_id: i32,
+    group_id: i32,
+) -> QueryResult<usize> {
+    diesel::delete(
+        device_groups::table
+            .filter(device_groups::device_id.eq(device_id))
+            .filter(device_groups::group_id.eq(group_id))
+    ).execute(conn)
+}
+
+/// Get device IDs for a group (simple list)
+pub fn get_device_ids_for_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Vec<i32>> {
+    device_groups::table
+        .filter(device_groups::group_id.eq(group_id))
+        .select(device_groups::device_id)
+        .load(conn)
+}
+
+/// Get device IDs for a group that were synced from an external source
+pub fn get_synced_device_ids_for_group(
+    conn: &mut DbConnection,
+    group_id: i32,
+    external_source: &str,
+) -> QueryResult<Vec<i32>> {
+    device_groups::table
+        .filter(device_groups::group_id.eq(group_id))
+        .filter(device_groups::external_source.eq(external_source))
+        .select(device_groups::device_id)
+        .load(conn)
+}
+
+/// Check if a device is in a specific group
+pub fn is_device_in_group(
+    conn: &mut DbConnection,
+    device_id: i32,
+    group_id: i32,
+) -> QueryResult<bool> {
+    let count = device_groups::table
+        .filter(device_groups::device_id.eq(device_id))
+        .filter(device_groups::group_id.eq(group_id))
+        .count()
+        .get_result::<i64>(conn)?;
+
+    Ok(count > 0)
 }

@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useColorFilter } from '@/composables/useColorFilter'
+
+const { colorFilterStyle } = useColorFilter()
 
 interface Props {
   modelValue: boolean
@@ -35,6 +38,11 @@ const sizeClasses = {
 }
 
 const currentSize = computed(() => sizeClasses[props.size])
+
+// Apply color filter when checked (for Red Horizon theme)
+const checkboxStyle = computed(() =>
+  props.modelValue || props.indeterminate ? colorFilterStyle.value : {}
+)
 </script>
 
 <template>
@@ -47,6 +55,7 @@ const currentSize = computed(() => sizeClasses[props.size])
       :disabled="disabled"
       :id="id"
       @click="toggle"
+      :style="checkboxStyle"
       :class="[
         'relative inline-flex items-center justify-center rounded border-2 transition-colors duration-150 ease-in-out',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface',

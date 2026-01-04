@@ -8,8 +8,8 @@ import InlineEdit from '@/components/common/InlineEdit.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import UserCard from '@/components/UserCard.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
+import DeviceGroups from '@/components/DeviceGroups.vue';
 import { getDeviceById, updateDevice, createDevice, deleteDevice, unmanageDevice } from '@/services/deviceService';
-import MicrosoftGraphService from '@/services/MicrosoftGraphService';
 import { IntuneIcon, EntraIcon } from '@/components/icons';
 import type { Device, DeviceFormData } from '@/types/device';
 
@@ -19,9 +19,6 @@ const emit = defineEmits(['update:device']);
 const device = ref<Device | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
-const loadingObjectId = ref(false);
-const entraObjectId = ref<string | null>(null);
-const objectIdError = ref<string | null>(null);
 const showUserSelectionModal = ref(false);
 const showAdditionalDetails = ref(false);
 
@@ -166,31 +163,6 @@ const formatDate = (dateString: string) => {
   }
 };
 
-const fetchEntraObjectId = async () => {
-  try {
-    loadingObjectId.value = true;
-    objectIdError.value = null;
-    
-    if (!device.value || !device.value.entra_device_id) {
-      objectIdError.value = 'No Entra Device ID found';
-      return;
-    }
-    
-    const response = await MicrosoftGraphService.getEntraObjectId(device.value.entra_device_id);
-    if (response.success) {
-      entraObjectId.value = response.object_id;
-    } else {
-      objectIdError.value = response.message || 'Failed to fetch Entra Object ID';
-    }
-  } catch (e) {
-    const axiosError = e as { response?: { data?: { message?: string } } };
-    objectIdError.value = axiosError.response?.data?.message || 'Failed to fetch Entra Object ID';
-    console.error('Error fetching Entra Object ID:', e);
-  } finally {
-    loadingObjectId.value = false;
-  }
-};
-
 const openInIntune = () => {
   if (device.value?.intune_device_id) {
     const url = `https://intune.microsoft.com/#view/Microsoft_Intune_Devices/DeviceSettingsMenuBlade/~/overview/mdmDeviceId/${device.value.intune_device_id}`;
@@ -198,25 +170,9 @@ const openInIntune = () => {
   }
 };
 
-const openInEntra = async () => {
-  if (!device.value?.entra_device_id) {
-    objectIdError.value = 'No Entra Device ID found';
-    return;
-  }
-
-  // If Object ID is already available, open directly
-  if (entraObjectId.value) {
-    const url = `https://entra.microsoft.com/#view/Microsoft_AAD_Devices/DeviceDetailsMenuBlade/~/Properties/objectId/${entraObjectId.value}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-    return;
-  }
-
-  // Otherwise, fetch the Object ID first
-  await fetchEntraObjectId();
-  
-  // If successful, open the link
-  if (entraObjectId.value) {
-    const url = `https://entra.microsoft.com/#view/Microsoft_AAD_Devices/DeviceDetailsMenuBlade/~/Properties/objectId/${entraObjectId.value}`;
+const openInEntra = () => {
+  if (device.value?.entra_device_id) {
+    const url = `https://entra.microsoft.com/#view/Microsoft_AAD_Devices/DeviceDetailsMenuBlade/~/Properties/objectId/${device.value.entra_device_id}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 };
@@ -687,7 +643,7 @@ onMounted(() => {
 
                 <div v-if="device.primary_user" class="flex flex-col gap-4">
                   <!-- User Profile Section -->
-                  <UserCard :user="device.primary_user" avatar-size="md" />
+                  <UserCard :user="device.primary_user" avatar-size="lg" />
 
                   <!-- Change User Button (only for editable devices) -->
                   <button
@@ -724,6 +680,11 @@ onMounted(() => {
                   </button>
                 </div>
               </SectionCard>
+            </div>
+
+            <!-- Groups (shown in left column on 2-col layout) -->
+            <div class="xl:hidden">
+              <DeviceGroups :groups="device.groups" />
             </div>
           </div>
 
@@ -794,12 +755,12 @@ onMounted(() => {
 
                 <!-- Last Sync Time -->
                 <div v-if="device.last_sync_time" class="flex flex-col gap-2 pt-4 border-t border-default">
-                  <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Synchronized</h4>
+                  <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Intune Check-in</h4>
                   <div class="flex items-center gap-2">
                     <svg class="w-4 h-4 text-accent flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
-                    <p class="text-primary text-sm">{{ formatDate(device.last_sync_time) }}</p>
+                    <p class="text-primary text-sm">{{ formatDateTime(device.last_sync_time) }}</p>
                   </div>
                 </div>
 
@@ -819,26 +780,11 @@ onMounted(() => {
                     <button
                       v-if="device.entra_device_id"
                       @click="openInEntra"
-                      :disabled="loadingObjectId"
-                      class="flex-1 min-w-[200px] flex items-center justify-center gap-3 px-4 py-3 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm font-medium"
+                      class="flex-1 min-w-[200px] flex items-center justify-center gap-3 px-4 py-3 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors duration-200 text-sm font-medium"
                     >
-                      <EntraIcon v-if="!loadingObjectId" size="18" class="text-white flex-shrink-0" />
-                      <svg v-else class="w-4 h-4 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      <span>{{ loadingObjectId ? 'Loading...' : 'Open in Entra Admin Center' }}</span>
+                      <EntraIcon size="18" class="text-white flex-shrink-0" />
+                      <span>Open in Entra Admin Center</span>
                     </button>
-                  </div>
-
-                  <!-- Error Message -->
-                  <div v-if="objectIdError" class="mt-3 p-3 bg-status-error/20 border border-status-error/30 rounded-lg">
-                    <p class="text-status-error text-sm flex items-center gap-2">
-                      <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                      </svg>
-                      {{ objectIdError }}
-                    </p>
                   </div>
 
                   <!-- Unmanage Button -->
@@ -861,9 +807,9 @@ onMounted(() => {
                   <div class="pt-4 border-t border-default">
                     <button
                       @click="showAdditionalDetails = !showAdditionalDetails"
-                      class="w-full flex items-center justify-between px-4 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors text-sm font-medium"
+                      class="w-full flex items-center justify-between text-secondary hover:text-primary transition-colors text-sm"
                     >
-                      <span>Additional Details</span>
+                      <span class="font-medium">{{ showAdditionalDetails ? 'Hide' : 'Show' }} Technical Details</span>
                       <svg
                         class="w-4 h-4 transition-transform duration-200"
                         :class="{ 'rotate-180': showAdditionalDetails }"
@@ -878,30 +824,24 @@ onMounted(() => {
                     <!-- Dropdown Content -->
                     <div
                       v-show="showAdditionalDetails"
-                      class="mt-3 space-y-4 p-4 bg-surface-alt rounded-lg border border-default"
+                      class="mt-4 divide-y divide-default"
                     >
+                      <!-- Device ID -->
+                      <div class="flex items-center justify-between py-2.5">
+                        <span class="text-sm text-secondary">Device ID</span>
+                        <span class="text-sm text-primary font-mono">{{ device.id }}</span>
+                      </div>
+
                       <!-- Intune Device ID -->
-                      <div v-if="device.intune_device_id" class="flex flex-col gap-2">
-                        <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Intune Device ID</h4>
-                        <div class="bg-surface rounded-lg p-3 border border-default">
-                          <span class="text-primary font-mono text-xs break-all">{{ device.intune_device_id }}</span>
-                        </div>
+                      <div v-if="device.intune_device_id" class="flex items-start justify-between gap-4 py-2.5">
+                        <span class="text-sm text-secondary flex-shrink-0">Intune ID</span>
+                        <span class="text-sm text-primary font-mono text-right break-all">{{ device.intune_device_id }}</span>
                       </div>
 
                       <!-- Entra Device ID -->
-                      <div v-if="device.entra_device_id" class="flex flex-col gap-2">
-                        <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Entra Device ID</h4>
-                        <div class="bg-surface rounded-lg p-3 border border-default">
-                          <span class="text-primary font-mono text-xs break-all">{{ device.entra_device_id }}</span>
-                        </div>
-                      </div>
-
-                      <!-- Device ID -->
-                      <div class="flex flex-col gap-2">
-                        <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Device ID</h4>
-                        <div class="bg-surface rounded-lg p-3 border border-default">
-                          <span class="text-primary font-mono text-xs break-all">{{ device.id }}</span>
-                        </div>
+                      <div v-if="device.entra_device_id" class="flex items-start justify-between gap-4 py-2.5">
+                        <span class="text-sm text-secondary flex-shrink-0">Entra ID</span>
+                        <span class="text-sm text-primary font-mono text-right break-all">{{ device.entra_device_id }}</span>
                       </div>
                     </div>
                   </div>
@@ -921,14 +861,14 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- Primary User Information (shown as 3rd column on xl) -->
-          <div class="hidden xl:block">
+          <!-- Primary User Information and Groups (shown as 3rd column on xl) -->
+          <div class="hidden xl:flex xl:flex-col xl:gap-6">
             <SectionCard content-padding="p-4">
               <template #title>Primary User</template>
 
               <div v-if="device.primary_user" class="flex flex-col gap-4">
                 <!-- User Profile Section -->
-                <UserCard :user="device.primary_user" avatar-size="md" />
+                <UserCard :user="device.primary_user" avatar-size="lg" />
 
                 <!-- Change User Button (only for editable devices) -->
                 <button
@@ -965,6 +905,9 @@ onMounted(() => {
                 </button>
               </div>
             </SectionCard>
+
+            <!-- Groups -->
+            <DeviceGroups :groups="device.groups" />
           </div>
         </div>
         

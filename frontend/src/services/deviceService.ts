@@ -33,6 +33,7 @@ interface BackendDevice {
   last_sync_time?: string | null;
   is_editable?: boolean;
   primary_user?: Device['primary_user'];
+  groups?: Device['groups'];
 }
 
 /**
@@ -55,6 +56,7 @@ const transformDeviceResponse = (backendDevice: BackendDevice): Device => {
     last_sync_time: backendDevice.last_sync_time,
     is_editable: backendDevice.is_editable ?? true,
     primary_user: backendDevice.primary_user,
+    groups: backendDevice.groups,
     // Legacy fields for backward compatibility
     type: backendDevice.manufacturer || determineDeviceType(backendDevice.model),
     lastSeen: backendDevice.updated_at || new Date().toISOString(),

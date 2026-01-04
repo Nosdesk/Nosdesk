@@ -752,6 +752,9 @@ async fn main() -> std::io::Result<()> {
                     .route("/projects/{project_id}/tickets/{ticket_id}", web::post().to(handlers::add_ticket_to_project))
                     .route("/projects/{project_id}/tickets/{ticket_id}", web::delete().to(handlers::remove_ticket_from_project))
 
+                    // ===== GROUP DETAIL (All authenticated users) =====
+                    .route("/groups/details/{uuid}", web::get().to(handlers::groups::get_group_details))
+
                     // ===== GROUP MANAGEMENT (Admin Only) =====
                     .route("/groups", web::get().to(handlers::groups::get_all_groups))
                     .route("/groups", web::post().to(handlers::groups::create_group))

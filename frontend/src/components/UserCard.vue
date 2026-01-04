@@ -47,15 +47,16 @@ const avatarSizeMap = {
       :to="linkToProfile ? `/users/${user.uuid}` : undefined"
       class="flex-shrink-0 group"
     >
-      <UserAvatar
-        :name="user.uuid"
-        :userName="user.name"
-        :avatar="user.avatar_thumb || user.avatar_url"
-        :size="avatarSizeMap[avatarSize]"
-        :clickable="false"
-        :show-name="false"
-        class="ring-2 ring-surface-alt group-hover:ring-accent transition-all"
-      />
+      <div class="rounded-full ring-2 ring-surface-alt group-hover:ring-accent transition-all">
+        <UserAvatar
+          :name="user.uuid"
+          :userName="user.name"
+          :avatar="user.avatar_thumb || user.avatar_url"
+          :size="avatarSizeMap[avatarSize]"
+          :clickable="false"
+          :show-name="false"
+        />
+      </div>
     </component>
 
     <!-- User Details -->
