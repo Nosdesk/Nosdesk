@@ -117,48 +117,32 @@ const formattedDate = (dateString: string) => {
           </span>
         </div>
         
-        <!-- Title - extends to full width when buttons not shown -->
+        <!-- Title - clickable to navigate to ticket -->
         <div class="min-w-0 flex-1">
-          <h3 class="text-primary font-medium truncate text-md">
+          <h3
+            @click="viewTicket"
+            class="text-primary font-medium truncate text-md cursor-pointer hover:text-accent transition-colors"
+          >
             {{ linkedTicket.title }}
           </h3>
         </div>
       </div>
       
-      <!-- Action buttons - always visible on mobile, show on hover on desktop -->
-      <div
-        class="flex items-center gap-1 ml-3 flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-200"
+      <!-- Action button -->
+      <button
+        @click="emit('unlink')"
+        :disabled="isNavigating"
+        class="p-1.5 ml-3 flex-shrink-0 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors disabled:opacity-50"
+        title="Unlink ticket"
       >
-        <button
-          @click="viewTicket"
-          :disabled="isNavigating"
-          class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors disabled:opacity-50"
-          title="View ticket"
-        >
-          <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-            <path
-              fill-rule="evenodd"
-              d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
-              clip-rule="evenodd"
-            />
-          </svg>
-        </button>
-        <button
-          @click="emit('unlink')"
-          :disabled="isNavigating"
-          class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors disabled:opacity-50"
-          title="Unlink ticket"
-        >
-          <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-            <path
-              fill-rule="evenodd"
-              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-              clip-rule="evenodd"
-            />
-          </svg>
-        </button>
-      </div>
+        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+          <path
+            fill-rule="evenodd"
+            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+            clip-rule="evenodd"
+          />
+        </svg>
+      </button>
     </div>
 
     <!-- Ticket content -->
@@ -180,9 +164,9 @@ const formattedDate = (dateString: string) => {
             <span class="text-xs text-tertiary uppercase tracking-wide">Requester</span>
             <UserAvatar
               v-if="linkedTicket.requester_user || linkedTicket.requester"
-              :name="linkedTicket.requester_user?.name || linkedTicket.requester"
+              :name="linkedTicket.requester_user?.uuid || linkedTicket.requester"
+              :userName="linkedTicket.requester_user?.name"
               :avatar="linkedTicket.requester_user?.avatar_thumb"
-              :userUuid="linkedTicket.requester_user?.uuid"
               size="xs"
               :showName="true"
             />
@@ -192,9 +176,9 @@ const formattedDate = (dateString: string) => {
             <span class="text-xs text-tertiary uppercase tracking-wide">Assignee</span>
             <UserAvatar
               v-if="linkedTicket.assignee_user || linkedTicket.assignee"
-              :name="linkedTicket.assignee_user?.name || linkedTicket.assignee"
+              :name="linkedTicket.assignee_user?.uuid || linkedTicket.assignee"
+              :userName="linkedTicket.assignee_user?.name"
               :avatar="linkedTicket.assignee_user?.avatar_thumb"
-              :userUuid="linkedTicket.assignee_user?.uuid"
               size="xs"
               :showName="true"
             />

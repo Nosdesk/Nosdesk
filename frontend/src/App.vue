@@ -170,15 +170,17 @@ onMounted(async () => {
         :class="isMobileSearchActive ? 'pb-[calc(6.5rem+env(safe-area-inset-bottom))]' : 'pb-[calc(3rem+env(safe-area-inset-bottom))]'"
       >
         <RouterView
-          v-slot="{ Component }"
+          v-slot="{ Component, route: viewRoute }"
           @update:ticket="titleManager.setTicket"
           @update:device="titleManager.setDevice"
           @update:document="titleManager.setDocument"
           @update:title="titleManager.setCustomTitle"
         >
-          <KeepAlive :include="['TicketsListView', 'UsersListView', 'DevicesListView', 'ProjectsView']">
-            <component :is="Component" :key="$route.name" ref="currentViewComponent" class="h-full overflow-auto" />
-          </KeepAlive>
+          <Transition name="page" mode="out-in">
+            <KeepAlive :include="['TicketsListView', 'UsersListView', 'DevicesListView', 'ProjectsView']">
+              <component :is="Component" :key="viewRoute.fullPath" ref="currentViewComponent" class="h-full overflow-auto" />
+            </KeepAlive>
+          </Transition>
         </RouterView>
       </main>
     </div>
@@ -237,5 +239,27 @@ onMounted(async () => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* Page transition for route navigation */
+.page-enter-active {
+  transition: opacity 0.15s ease-out;
+}
+
+.page-leave-active {
+  transition: opacity 0.1s ease-in;
+}
+
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .page-enter-active,
+  .page-leave-active {
+    transition: none;
+  }
 }
 </style>

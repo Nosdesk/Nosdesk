@@ -271,9 +271,9 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
           </div>
           <h3
             v-else
-            @click="startEditing('name')"
+            @click="handleViewClick"
             class="text-md font-medium text-primary truncate cursor-pointer hover:text-accent transition-colors"
-            :title="editableName || 'Click to edit device name'"
+            :title="editableName || 'View device'"
           >
             {{ editableName || 'Unnamed Device' }}
           </h3>
@@ -302,28 +302,16 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
           </div>
         </div>
         
-        <!-- Action buttons -->
-        <div class="flex items-center gap-1 ml-2">
-          <button
-            @click="handleViewClick"
-            class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-            title="View device details"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
-          </button>
-          <button
-            @click="emit('remove')"
-            class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors"
-            title="Remove device"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+        <!-- Action button -->
+        <button
+          @click="emit('remove')"
+          class="p-1.5 ml-2 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors"
+          title="Remove device"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
     </div>
     
@@ -424,18 +412,6 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
           </div>
         </div>
 
-        <!-- Quick action button -->
-        <div class="pt-2 border-t border-default">
-          <button
-            @click="handleViewClick"
-            class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-accent/10 text-accent rounded-lg hover:bg-accent/20 transition-colors text-sm font-medium"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            View Details
-          </button>
-        </div>
       </div>
     </div>
   </div>

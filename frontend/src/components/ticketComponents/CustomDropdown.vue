@@ -187,7 +187,7 @@ onUnmounted(() => {
     <button
       type="button"
       @click="toggleDropdown"
-      class="w-full px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-[40px] bg-transparent text-primary text-left flex items-center justify-between hover:bg-surface-hover active:bg-surface-alt transition-colors rounded-lg"
+      class="w-full px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-[40px] bg-transparent text-primary text-left flex items-center justify-between hover:bg-surface-hover active:bg-surface-alt transition-colors rounded-lg cursor-pointer"
     >
       <div class="flex items-center gap-2.5 sm:gap-2">
         <StatusIndicator v-if="type === 'status'" :status="value as 'open' | 'in-progress' | 'closed'" size="sm" />

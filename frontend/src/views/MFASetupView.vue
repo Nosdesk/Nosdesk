@@ -1,6 +1,7 @@
 <template>
   <div class="fixed inset-0 bg-app overflow-y-auto">
-    <div class="flex flex-col gap-6 w-full max-w-4xl px-4 sm:px-8 py-8 sm:py-12 mx-auto">
+    <div class="min-h-full flex flex-col items-center justify-center py-8 sm:py-12 px-4 sm:px-8">
+      <div class="flex flex-col gap-6 w-full max-w-4xl">
       <!-- Header -->
       <div class="flex flex-col gap-2 items-center">
         <LogoIcon class="h-8 px-4 text-accent" aria-label="Nosdesk Logo" />
@@ -44,6 +45,7 @@
           Back to Login
         </button>
 
+      </div>
       </div>
     </div>
   </div>

@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { useRouter } from 'vue-router';
 import UserAvatar from '@/components/UserAvatar.vue';
 import { useDataStore } from '@/stores/dataStore';
 import { useMobileDetection } from '@/composables/useMobileDetection';
+
+const router = useRouter();
 
 interface UserResult {
   id: string;
@@ -450,6 +453,13 @@ const getUserAvatar = (user: UserResult) => {
   return user.avatar_thumb || user.avatar_url || undefined;
 };
 
+// Navigate to user profile
+const navigateToUserProfile = () => {
+  if (props.modelValue) {
+    router.push(`/users/${props.modelValue}`);
+  }
+};
+
 // Limit displayed results
 const displayedResults = computed(() => searchResults.value.slice(0, 10));
 
@@ -486,15 +496,22 @@ const showHelperText = computed(() => {
     >
       <!-- Avatar -->
       <div class="flex-shrink-0 w-7 h-7 sm:w-6 sm:h-6 flex items-center justify-center">
-        <UserAvatar
+        <button
           v-if="modelValue && inputValue && !isDropdownOpen"
-          :name="modelValue"
-          :userName="currentUser?.uuid === modelValue ? currentUser.name : undefined"
-          :avatar="currentUser?.uuid === modelValue ? (currentUser.avatar_thumb || currentUser.avatar_url) : undefined"
-          :showName="false"
-          size="sm"
-          :clickable="false"
-        />
+          type="button"
+          @click.stop="navigateToUserProfile"
+          class="rounded-full hover:ring-2 hover:ring-accent/50 transition-all cursor-pointer"
+          title="View profile"
+        >
+          <UserAvatar
+            :name="modelValue"
+            :userName="currentUser?.uuid === modelValue ? currentUser.name : undefined"
+            :avatar="currentUser?.uuid === modelValue ? (currentUser.avatar_thumb || currentUser.avatar_url) : undefined"
+            :showName="false"
+            size="sm"
+            :clickable="false"
+          />
+        </button>
         <div
           v-else
           class="w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-surface border border-subtle flex items-center justify-center transition-colors"

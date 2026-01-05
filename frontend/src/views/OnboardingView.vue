@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { useAuthStore } from '@/stores/auth';
-import { useMfaSetupStore } from '@/stores/mfaSetup';
+import { useAutoLogin } from '@/composables/useAutoLogin';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import authService, {
   type AdminSetupRequest,
@@ -11,8 +10,10 @@ import authService, {
 } from '@/services/authService';
 
 const router = useRouter();
-const authStore = useAuthStore();
-const mfaSetupStore = useMfaSetupStore();
+
+// Auto-login composable (OnboardingView manages its own step state, so we only use attemptLogin)
+const { attemptLogin } = useAutoLogin({ source: 'onboarding' });
+
 const isLoading = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
@@ -133,15 +134,13 @@ const handleSetup = async () => {
       successMessage.value = 'Admin account created successfully! Logging you in...';
       autoLoginAttempted.value = true;
 
-      // Small delay for better UX (let user see the success message)
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Attempt automatic login with credentials
-      const loginSuccess = await attemptAutoLogin();
+      // Attempt automatic login using composable
+      const loginSuccess = await attemptLogin(adminData.value.email, adminData.value.password);
 
       if (loginSuccess) {
         currentStep.value = 'complete';
-        // Auth store will handle the redirect automatically
+        // Clear sensitive data
+        clearSensitiveData();
       } else {
         // Fallback to manual login page
         handleLoginFallback();
@@ -164,56 +163,6 @@ const handleSetup = async () => {
     }
   } finally {
     isLoading.value = false;
-  }
-};
-
-const attemptAutoLogin = async (): Promise<boolean> => {
-  try {
-    // Use the auth store's login method for consistency
-    const loginSuccess = await authStore.login({
-      email: adminData.value.email,
-      password: adminData.value.password
-    });
-
-    if (loginSuccess) {
-      successMessage.value = 'Successfully logged in! Redirecting...';
-      return true;
-    } else {
-      // Check if MFA is required
-      if (authStore.mfaRequired) {
-        successMessage.value = 'Account created! MFA verification required.';
-        // Redirect to login with MFA state
-        setTimeout(() => {
-          router.push({
-            path: '/login',
-            query: {
-              message: 'Account created successfully. Please complete MFA verification.',
-              email: adminData.value.email
-            }
-          });
-        }, 2000);
-        return true;
-      } else if (authStore.mfaSetupRequired) {
-        successMessage.value = 'Account created successfully! Setting up multi-factor authentication...';
-        // Redirect to MFA setup with proper credentials storage
-        setTimeout(() => {
-          console.log('🔄 Onboarding: MFA setup required, storing credentials');
-
-          // Store credentials securely in memory-only Pinia store
-          mfaSetupStore.setCredentials(adminData.value.email, adminData.value.password, 'onboarding');
-
-          console.log('🔄 Onboarding: Credentials stored for MFA setup');
-
-          router.push({ name: 'mfa-setup' });
-        }, 1500);
-        return true;
-      }
-    }
-
-    return false;
-  } catch (error) {
-    console.error('Auto-login error:', error);
-    return false;
   }
 };
 

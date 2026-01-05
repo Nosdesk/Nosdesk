@@ -52,9 +52,50 @@
         </div>
       </div>
 
-      <!-- Success State -->
+      <!-- Success State - Logging In -->
       <div
-        v-else-if="acceptSuccess"
+        v-else-if="acceptSuccess && loggingIn && !loginComplete"
+        class="bg-surface rounded-xl border border-default shadow-xl overflow-hidden"
+      >
+        <div class="p-8">
+          <div class="flex flex-col items-center gap-4 text-center">
+            <div class="bg-accent/20 rounded-full p-4">
+              <svg class="w-12 h-12 text-accent animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-xl font-semibold text-primary mb-2">Account Activated!</h2>
+              <p class="text-sm text-secondary">{{ loginMessage }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Success State - Login Complete -->
+      <div
+        v-else-if="acceptSuccess && loginComplete"
+        class="bg-surface rounded-xl border border-default shadow-xl overflow-hidden"
+      >
+        <div class="p-8">
+          <div class="flex flex-col items-center gap-4 text-center">
+            <div class="bg-status-success/20 rounded-full p-4">
+              <svg class="w-12 h-12 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-xl font-semibold text-primary mb-2">Welcome to Nosdesk!</h2>
+              <p class="text-sm text-secondary">{{ loginMessage }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Success State - Fallback (manual login required) -->
+      <div
+        v-else-if="acceptSuccess && !loggingIn"
         class="bg-surface rounded-xl border border-default shadow-xl overflow-hidden"
       >
         <div class="p-8">
@@ -66,9 +107,7 @@
             </div>
             <div>
               <h2 class="text-xl font-semibold text-primary mb-2">Account Activated!</h2>
-              <p class="text-sm text-secondary">
-                Your account has been successfully set up. You can now log in with your email and password.
-              </p>
+              <p class="text-sm text-secondary">{{ loginMessage || 'Please log in with your credentials.' }}</p>
             </div>
             <button
               @click="goToLogin"
@@ -226,9 +265,9 @@
         </div>
       </div>
 
-      <!-- Back to Login -->
+      <!-- Back to Login (only show during form entry, not during success/login states) -->
       <button
-        v-if="!acceptSuccess && !validating"
+        v-if="!acceptSuccess && !validating && !loggingIn"
         @click="goToLogin"
         class="flex items-center justify-center gap-2 text-sm text-tertiary hover:text-primary transition-colors py-2"
       >
@@ -242,13 +281,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import authService from '@/services/authService';
+import { useAutoLogin } from '@/composables/useAutoLogin';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 
 const router = useRouter();
 const route = useRoute();
+
+// Auto-login composable
+const {
+  isLoggingIn: loggingIn,
+  isComplete: loginComplete,
+  message: loginMessage,
+  attemptLogin
+} = useAutoLogin({ source: 'invitation' });
 
 const newPassword = ref('');
 const confirmPassword = ref('');
@@ -325,6 +373,14 @@ const handleSubmit = async () => {
   try {
     await authService.acceptInvitation(token.value, newPassword.value);
     acceptSuccess.value = true;
+
+    // Attempt auto-login using composable
+    const success = await attemptLogin(userEmail.value, newPassword.value);
+
+    // Clear sensitive data after login attempt
+    if (success) {
+      clearSensitiveData();
+    }
   } catch (error) {
     console.error('Accept invitation error:', error);
     const axiosError = error as { response?: { data?: { message?: string } } };
@@ -334,7 +390,18 @@ const handleSubmit = async () => {
   }
 };
 
+const clearSensitiveData = () => {
+  newPassword.value = '';
+  confirmPassword.value = '';
+};
+
+// Cleanup on unmount
+onUnmounted(() => {
+  clearSensitiveData();
+});
+
 const goToLogin = () => {
+  clearSensitiveData();
   router.push('/login');
 };
 </script>
