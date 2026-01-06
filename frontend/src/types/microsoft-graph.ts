@@ -47,6 +47,7 @@ export interface ActiveSync {
   started_at: string;
   updated_at: string;
   sync_type: string;
+  is_delta: boolean;
 }
 
 // Backend SyncResult structure
@@ -69,6 +70,7 @@ export interface LastSyncDetails {
   started_at: string;
   updated_at: string;
   sync_type: string;
+  is_delta: boolean;
 }
 
 export interface GraphApiTestResult {

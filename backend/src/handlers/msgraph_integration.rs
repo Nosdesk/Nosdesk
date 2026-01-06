@@ -144,12 +144,16 @@ pub struct SyncProgressState {
     pub message: String,
     pub started_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub sync_type: String, // "users", "profile_photos", "devices", "groups"
+    pub sync_type: String, // "users", "profile_photos", "devices", "groups", or "multiple"
+    pub is_delta: bool,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct SyncDataRequest {
     pub entities: Vec<String>,
+    /// Use delta sync (incremental) instead of full sync
+    #[serde(default)]
+    pub use_delta: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -207,7 +211,42 @@ pub struct MicrosoftGraphUser {
     pub account_enabled: Option<bool>,
 }
 
-// Microsoft Graph Device structure from API response (managedDevice)
+// Entra ID Device structure from API response (/devices endpoint)
+// This is for device identity from Microsoft Entra ID, supports delta sync
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct EntraDevice {
+    /// Entra ID object ID (used for group membership)
+    pub id: String,
+    /// The actual device identifier
+    #[serde(rename = "deviceId")]
+    pub device_id: Option<String>,
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(rename = "operatingSystem")]
+    pub operating_system: Option<String>,
+    #[serde(rename = "operatingSystemVersion")]
+    pub operating_system_version: Option<String>,
+    /// Trust type: AzureAd, ServerAd, Workplace
+    #[serde(rename = "trustType")]
+    pub trust_type: Option<String>,
+    #[serde(rename = "isManaged")]
+    pub is_managed: Option<bool>,
+    #[serde(rename = "isCompliant")]
+    pub is_compliant: Option<bool>,
+    #[serde(rename = "accountEnabled")]
+    pub account_enabled: Option<bool>,
+    #[serde(rename = "approximateLastSignInDateTime")]
+    pub approximate_last_sign_in_date_time: Option<String>,
+    pub manufacturer: Option<String>,
+    pub model: Option<String>,
+    #[serde(rename = "profileType")]
+    pub profile_type: Option<String>,
+    #[serde(rename = "registrationDateTime")]
+    pub registration_date_time: Option<String>,
+}
+
+// Microsoft Graph Device structure from API response (Intune managedDevice)
+// This is for device management/compliance from Intune, does NOT support delta sync
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct MicrosoftGraphDevice {
     pub id: String,
@@ -411,34 +450,86 @@ struct UserSyncResult {
     error: Option<String>,
 }
 
-// Helper functions for progress tracking
-fn update_sync_progress(session_id: &str, entity: &str, current: usize, total: usize, status: &str, message: &str) {
-    update_sync_progress_with_type(session_id, entity, current, total, status, message, entity);
+/// Parameters for updating sync progress
+struct SyncProgressUpdate<'a> {
+    session_id: &'a str,
+    entity: &'a str,
+    current: usize,
+    total: usize,
+    status: &'a str,
+    message: &'a str,
+    sync_type: &'a str,
+    is_delta: Option<bool>,
 }
 
-fn update_sync_progress_with_type(session_id: &str, entity: &str, current: usize, total: usize, status: &str, message: &str, sync_type: &str) {
-    let now = Utc::now();
-    
-    // Update in-memory progress for real-time tracking
-    if let Ok(mut progress_map) = SYNC_PROGRESS.lock() {
-        let progress = SyncProgressState {
-            session_id: session_id.to_string(),
-            entity: entity.to_string(),
+impl<'a> SyncProgressUpdate<'a> {
+    /// Create a new progress update with the given parameters
+    fn new(session_id: &'a str, entity: &'a str, current: usize, total: usize, status: &'a str, message: &'a str) -> Self {
+        Self {
+            session_id,
+            entity,
             current,
             total,
-            status: status.to_string(),
-            message: message.to_string(),
-            started_at: progress_map.get(session_id)
-                .map(|p| p.started_at)
-                .unwrap_or(now),
-            updated_at: now,
-            sync_type: sync_type.to_string(),
-        };
-        progress_map.insert(session_id.to_string(), progress);
+            status,
+            message,
+            sync_type: entity, // Default sync_type to entity
+            is_delta: None,
+        }
     }
-    
-    // Database persistence is now handled directly in the sync_data function
-    // for comprehensive session tracking rather than per-entity tracking
+
+    /// Set the sync type (defaults to entity if not set)
+    fn with_sync_type(mut self, sync_type: &'a str) -> Self {
+        self.sync_type = sync_type;
+        self
+    }
+
+    /// Set the is_delta flag explicitly
+    fn with_is_delta(mut self, is_delta: bool) -> Self {
+        self.is_delta = Some(is_delta);
+        self
+    }
+
+    /// Apply the update to the in-memory progress map
+    fn apply(self) {
+        let now = Utc::now();
+
+        if let Ok(mut progress_map) = SYNC_PROGRESS.lock() {
+            // Preserve existing values if not explicitly provided
+            let existing = progress_map.get(self.session_id);
+            let started_at = existing.map(|p| p.started_at).unwrap_or(now);
+            let preserved_is_delta = self.is_delta.unwrap_or_else(|| {
+                existing.map(|p| p.is_delta).unwrap_or(false)
+            });
+
+            let progress = SyncProgressState {
+                session_id: self.session_id.to_string(),
+                entity: self.entity.to_string(),
+                current: self.current,
+                total: self.total,
+                status: self.status.to_string(),
+                message: self.message.to_string(),
+                started_at,
+                updated_at: now,
+                sync_type: self.sync_type.to_string(),
+                is_delta: preserved_is_delta,
+            };
+            progress_map.insert(self.session_id.to_string(), progress);
+        }
+    }
+}
+
+// Helper functions for progress tracking (convenience wrappers)
+fn update_sync_progress(session_id: &str, entity: &str, current: usize, total: usize, status: &str, message: &str) {
+    SyncProgressUpdate::new(session_id, entity, current, total, status, message).apply();
+}
+
+fn update_sync_progress_with_type(session_id: &str, entity: &str, current: usize, total: usize, status: &str, message: &str, sync_type: &str, is_delta: Option<bool>) {
+    let mut update = SyncProgressUpdate::new(session_id, entity, current, total, status, message)
+        .with_sync_type(sync_type);
+    if let Some(delta) = is_delta {
+        update = update.with_is_delta(delta);
+    }
+    update.apply();
 }
 
 
@@ -586,15 +677,16 @@ pub async fn get_last_sync(
         Ok(sync_history) => {
             // Convert database model to API response format
             let response = SyncProgressState {
-                session_id: sync_history.id.to_string(), // Use ID as session ID
-                entity: sync_history.sync_type.clone(), // sync_type maps to entity 
+                session_id: sync_history.id.to_string(),
+                entity: sync_history.sync_type.clone(),
                 current: sync_history.records_processed.unwrap_or(0) as usize,
-                total: sync_history.records_processed.unwrap_or(0) as usize, // Use processed as both current and total if no other field
+                total: sync_history.records_processed.unwrap_or(0) as usize,
                 status: sync_history.status,
                 message: sync_history.error_message.unwrap_or_else(|| "Sync completed".to_string()),
                 started_at: DateTime::from_naive_utc_and_offset(sync_history.started_at, Utc),
                 updated_at: DateTime::from_naive_utc_and_offset(sync_history.completed_at.unwrap_or(sync_history.started_at), Utc),
                 sync_type: sync_history.sync_type,
+                is_delta: sync_history.is_delta,
             };
             HttpResponse::Ok().json(response)
         },
@@ -655,7 +747,7 @@ pub async fn cancel_sync_session(
     if let Some(progress) = get_sync_progress(&session_id) {
         if progress.status == "running" || progress.status == "starting" {
             cancel_sync(&session_id);
-            update_sync_progress_with_type(&session_id, &progress.entity, progress.current, progress.total, "cancelling", "Cancellation requested", &progress.sync_type);
+            update_sync_progress_with_type(&session_id, &progress.entity, progress.current, progress.total, "cancelling", "Cancellation requested", &progress.sync_type, None);
             
             HttpResponse::Ok().json(json!({
                 "success": true,
@@ -856,6 +948,15 @@ pub async fn sync_data(
 
     // Determine the primary sync type based on entities
     let entities = request.entities.clone();
+    let use_delta = request.use_delta;
+
+    // Log delta sync request (full implementation pending)
+    if use_delta {
+        info!("Delta sync requested - using incremental sync where supported");
+    } else {
+        info!("Full sync requested");
+    }
+
     let sync_type = if entities.len() > 1 {
         "multiple".to_string()
     } else if entities.contains(&"devices".to_string()) {
@@ -880,6 +981,7 @@ pub async fn sync_data(
         records_updated: Some(0),
         records_failed: Some(0),
         tenant_id: None,
+        is_delta: use_delta,
     };
 
     let sync_history = match sync_history_repo::create_sync_history(&mut conn, new_sync) {
@@ -898,13 +1000,13 @@ pub async fn sync_data(
 
     // Initialize session and progress tracking
     initialize_sync_session(&session_id);
-    
-    update_sync_progress_with_type(&session_id, "initializing", 0, 0, "starting", "Initializing sync process", &sync_type);
+
+    update_sync_progress_with_type(&session_id, "initializing", 0, 0, "starting", "Initializing sync process", &sync_type, Some(use_delta));
 
     // Start the sync process in the background
     let provider_id = provider.id;
     let session_id_clone = session_id.clone();
-    
+
     tokio::spawn(async move {
         let mut conn = match db_pool.get() {
             Ok(conn) => conn,
@@ -914,7 +1016,7 @@ pub async fn sync_data(
             }
         };
 
-        match perform_sync(&mut conn, provider_id, &entities, &session_id_clone).await {
+        match perform_sync(&mut conn, provider_id, &entities, &session_id_clone, use_delta).await {
             Ok(sync_result) => {
                 // Check if sync was cancelled by looking at the result
                 if !sync_result.success && sync_result.message.contains("cancelled") {
@@ -978,13 +1080,14 @@ pub async fn sync_data(
 
                     // Update in-memory progress with completion message
                     update_sync_progress_with_type(
-                        &session_id_clone, 
-                        &sync_type, 
-                        sync_result.total_processed, 
-                        sync_result.total_processed, 
-                        status, 
-                        &completion_message, 
-                        &sync_type
+                        &session_id_clone,
+                        &sync_type,
+                        sync_result.total_processed,
+                        sync_result.total_processed,
+                        status,
+                        &completion_message,
+                        &sync_type,
+                        None
                     );
 
                     // Check if background photo sync should start after user sync completes
@@ -1023,7 +1126,7 @@ pub async fn sync_data(
                 let error_message = format!("Sync failed: {}", error);
                 error!("Sync failed for session {}: {}", session_id_clone, error);
                 
-                update_sync_progress_with_type(&session_id_clone, &sync_type, 0, 0, "error", &error_message, &sync_type);
+                update_sync_progress_with_type(&session_id_clone, &sync_type, 0, 0, "error", &error_message, &sync_type, None);
                 
                 // Update database with error
                 let update = SyncHistoryUpdate {
@@ -1160,11 +1263,18 @@ async fn perform_sync(
     provider_id: i32,
     entities: &[String],
     session_id: &str,
+    use_delta: bool,
 ) -> Result<SyncResult, String> {
     let mut results = Vec::new();
     let mut total_processed = 0;
     let mut total_errors = 0;
     let mut was_cancelled = false;
+
+    if use_delta {
+        info!("Delta sync mode enabled - using incremental sync where supported");
+    } else {
+        info!("Full sync mode - fetching all data from Microsoft Graph");
+    }
 
     // Determine the primary sync type based on entities
     let primary_sync_type = if entities.contains(&"devices".to_string()) {
@@ -1180,13 +1290,13 @@ async fn perform_sync(
     // Don't overwrite entity-specific progress - just process each entity
     for (index, entity) in entities.iter().enumerate() {
         let sync_progress = match entity.as_str() {
-            "users" => sync_users(conn, provider_id, session_id).await,
-            "devices" => sync_devices(conn, provider_id, session_id).await,
-            "groups" => sync_groups(conn, provider_id, session_id).await,
+            "users" => sync_users(conn, provider_id, session_id, use_delta).await,
+            "devices" => sync_devices(conn, provider_id, session_id, use_delta).await,
+            "groups" => sync_groups(conn, provider_id, session_id, use_delta).await,
             _ => {
                 total_errors += 1;
                 // Update progress with error for unsupported entity
-                update_sync_progress_with_type(session_id, entity, 0, 0, "error", &format!("Unsupported entity type: {}", entity), primary_sync_type);
+                update_sync_progress_with_type(session_id, entity, 0, 0, "error", &format!("Unsupported entity type: {}", entity), primary_sync_type, None);
                 SyncProgress {
                     entity: entity.clone(),
                     processed: 0,
@@ -1228,11 +1338,12 @@ async fn perform_sync(
 }
 
 /// Sync users from Microsoft Graph (optimized with concurrent processing)
-#[instrument(level = "info", skip(conn), fields(provider_id = provider_id, session_id = session_id))]
+#[instrument(level = "info", skip(conn), fields(provider_id = provider_id, session_id = session_id, use_delta = use_delta))]
 async fn sync_users(
     conn: &mut DbConnection,
     provider_id: i32,
     session_id: &str,
+    use_delta: bool,
 ) -> SyncProgress {
     let mut stats = UserSyncStats {
         new_users_created: 0,
@@ -1241,10 +1352,11 @@ async fn sync_users(
         errors: Vec::new(),
     };
 
-    update_sync_progress(session_id, "users", 0, 0, "running", "Fetching users from Microsoft Graph");
+    let sync_mode_msg = if use_delta { "delta" } else { "full" };
+    update_sync_progress(session_id, "users", 0, 0, "running", &format!("Fetching users from Microsoft Graph ({})", sync_mode_msg));
 
-    // Step 1: Fetch users from Microsoft Graph
-    let (microsoft_users, access_token) = match fetch_microsoft_graph_users_optimized(provider_id).await {
+    // Step 1: Fetch users from Microsoft Graph using delta query
+    let delta_result = match fetch_microsoft_graph_users_delta(conn, use_delta).await {
         Ok(result) => result,
         Err(error) => {
             update_sync_progress(session_id, "users", 0, 0, "error", &format!("Failed to fetch users: {}", error));
@@ -1257,6 +1369,24 @@ async fn sync_users(
             };
         }
     };
+
+    let microsoft_users = delta_result.users;
+    let removed_user_ids = delta_result.removed_user_ids;
+    let access_token = delta_result.access_token;
+
+    // Handle removed users first (if delta sync returned any)
+    if !removed_user_ids.is_empty() {
+        info!(count = removed_user_ids.len(), "Processing removed users from delta response");
+        for removed_id in &removed_user_ids {
+            // Find the identity for this Microsoft user
+            if let Ok(identity) = find_identity_by_provider_user_id(conn, provider_id, removed_id) {
+                // Soft-delete or mark the user as inactive
+                // For now, we just log it - you might want to deactivate the user
+                info!(user_uuid = %identity.user_uuid, ms_id = %removed_id, "User removed from Microsoft - consider deactivating");
+                // TODO: Implement user deactivation if desired
+            }
+        }
+    }
 
     let total_users = microsoft_users.len();
     
@@ -1348,13 +1478,14 @@ async fn sync_users(
                 
                 // Update progress with cancellation status
                 update_sync_progress_with_type(
-                    session_id, 
-                    "users", 
-                    processed_count, 
-                    total_users, 
-                    "cancelled", 
-                    &cancel_message, 
-                    "users"
+                    session_id,
+                    "users",
+                    processed_count,
+                    total_users,
+                    "cancelled",
+                    &cancel_message,
+                    "users",
+                    None
                 );
                 
                 sync_was_cancelled = true;
@@ -1370,13 +1501,14 @@ async fn sync_users(
             processed_count += 1;
             
             update_sync_progress_with_type(
-                session_id, 
-                "users", 
-                processed_count - 1, 
-                total_users, 
-                "running", 
+                session_id,
+                "users",
+                processed_count - 1,
+                total_users,
+                "running",
                 &format!("Processing user: {}", ms_user.user_principal_name),
-                "users"
+                "users",
+                None
             );
 
             if background_photo_sync {
@@ -1574,6 +1706,221 @@ async fn fetch_microsoft_graph_users_optimized(_provider_id: i32) -> Result<(Vec
     }
 
     Ok((all_users, access_token.to_string()))
+}
+
+/// Result of a delta sync fetch operation
+struct DeltaFetchResult {
+    /// Users to create or update
+    users: Vec<MicrosoftGraphUser>,
+    /// IDs of users that were removed (from @removed marker in delta response)
+    removed_user_ids: Vec<String>,
+    /// The new delta link to store for next sync (if any)
+    new_delta_link: Option<String>,
+    /// Whether this was a full sync (no delta token or token expired)
+    was_full_sync: bool,
+    /// Access token for profile photo downloads
+    access_token: String,
+}
+
+/// Fetch users from Microsoft Graph API with delta sync support
+///
+/// Delta queries return only changes since the last sync, making subsequent syncs much faster.
+/// If no delta token exists or use_delta is false, performs a full sync.
+/// If delta token has expired (410 Gone), automatically falls back to full sync.
+#[instrument(level = "info", skip(conn), fields(use_delta = use_delta))]
+async fn fetch_microsoft_graph_users_delta(
+    conn: &mut DbConnection,
+    use_delta: bool,
+) -> Result<DeltaFetchResult, String> {
+    let (client, access_token) = get_msgraph_client_and_token().await?;
+
+    // Select fields for MicrosoftGraphUser struct
+    let select_fields = "id,displayName,givenName,surname,mail,userPrincipalName,jobTitle,department,officeLocation,mobilePhone,businessPhones,proxyAddresses,otherMails,accountEnabled";
+
+    // Check for existing delta token
+    let delta_token = if use_delta {
+        match crate::repository::sync_history::get_delta_token(conn, "microsoft", "users") {
+            Ok(token) => {
+                info!("Found existing delta token for users, using incremental sync");
+                Some(token.delta_link)
+            }
+            Err(diesel::result::Error::NotFound) => {
+                info!("No delta token found for users, performing initial delta sync");
+                None
+            }
+            Err(e) => {
+                warn!(error = %e, "Error retrieving delta token, performing full sync");
+                None
+            }
+        }
+    } else {
+        info!("Full sync requested, ignoring any existing delta token");
+        // Clear existing delta token when doing a full sync
+        if let Err(e) = crate::repository::sync_history::delete_delta_token(conn, "microsoft", "users") {
+            if !matches!(e, diesel::result::Error::NotFound) {
+                warn!(error = %e, "Failed to clear delta token");
+            }
+        }
+        None
+    };
+
+    // Build initial URL
+    let skip_disabled_accounts = std::env::var("MSGRAPH_SKIP_DISABLED_ACCOUNTS")
+        .unwrap_or("true".to_string())
+        .parse::<bool>()
+        .unwrap_or(true);
+
+    let mut url = match &delta_token {
+        Some(link) => {
+            // Use the stored delta link for incremental sync
+            link.clone()
+        }
+        None => {
+            // Start fresh delta sync or full sync
+            // Note: We use /users/delta endpoint even for full sync to get a delta link for next time
+            // Important: Delta queries don't support $filter=accountEnabled, we filter client-side instead
+            format!(
+                "https://graph.microsoft.com/v1.0/users/delta?$select={}",
+                urlencoding::encode(select_fields)
+            )
+        }
+    };
+
+    let mut was_full_sync = delta_token.is_none();
+
+    debug!(url = %url, was_full_sync = was_full_sync, "Microsoft Graph delta query URL");
+
+    let mut all_users = Vec::new();
+    let mut removed_user_ids = Vec::new();
+    let mut page_count = 0;
+    let mut new_delta_link = None;
+
+    loop {
+        page_count += 1;
+        debug!("Fetching delta page {} from Microsoft Graph", page_count);
+
+        let graph_response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", "application/json")
+            .send()
+            .await
+            .map_err(|e| format!("Failed to send Microsoft Graph delta request (page {}): {}", page_count, e))?;
+
+        let status = graph_response.status();
+
+        // Handle 410 Gone - delta token expired, need to do full sync
+        if status == reqwest::StatusCode::GONE {
+            warn!("Delta token expired (410 Gone), falling back to full sync");
+
+            // Clear the expired token
+            let _ = crate::repository::sync_history::delete_delta_token(conn, "microsoft", "users");
+
+            // Reset to full sync - rebuild the initial URL without delta token
+            // Note: Delta queries don't support $filter=accountEnabled, we filter client-side instead
+            url = format!(
+                "https://graph.microsoft.com/v1.0/users/delta?$select={}",
+                urlencoding::encode(select_fields)
+            );
+            was_full_sync = true;
+            all_users.clear();
+            removed_user_ids.clear();
+            page_count = 0;
+            continue;
+        }
+
+        let response_data: serde_json::Value = graph_response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse Microsoft Graph delta response (page {}): {}", page_count, e))?;
+
+        if !status.is_success() {
+            let error_msg = response_data
+                .get("error")
+                .and_then(|err| err.get("message"))
+                .and_then(|msg| msg.as_str())
+                .unwrap_or("Unknown Microsoft Graph error");
+            return Err(format!("Microsoft Graph API error (page {}, {}): {}", page_count, status, error_msg));
+        }
+
+        // Parse users from this page
+        let users_array = response_data
+            .get("value")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| format!("Microsoft Graph delta response missing 'value' array (page {})", page_count))?;
+
+        for user_value in users_array {
+            // Check if this is a removed user
+            if user_value.get("@removed").is_some() {
+                if let Some(id) = user_value.get("id").and_then(|v| v.as_str()) {
+                    debug!(user_id = %id, "User marked as removed in delta response");
+                    removed_user_ids.push(id.to_string());
+                }
+                continue;
+            }
+
+            // Parse normal user
+            match serde_json::from_value::<MicrosoftGraphUser>(user_value.clone()) {
+                Ok(user) => {
+                    // Client-side filtering for disabled accounts (delta queries don't support $filter)
+                    if skip_disabled_accounts {
+                        if let Some(enabled) = user.account_enabled {
+                            if !enabled {
+                                trace!(user_id = %user.id, "Skipping disabled user");
+                                continue;
+                            }
+                        }
+                    }
+                    all_users.push(user);
+                }
+                Err(e) => {
+                    warn!(page = page_count, error = %e, data = %user_value, "Failed to parse user from delta response");
+                }
+            }
+        }
+
+        debug!("Delta page {}: {} users, {} removed", page_count, all_users.len(), removed_user_ids.len());
+
+        // Check for deltaLink (end of changes) or nextLink (more pages)
+        if let Some(delta_link) = response_data.get("@odata.deltaLink").and_then(|v| v.as_str()) {
+            new_delta_link = Some(delta_link.to_string());
+            debug!("Received deltaLink, finished fetching changes");
+            break;
+        } else if let Some(next_link) = response_data.get("@odata.nextLink").and_then(|v| v.as_str()) {
+            url = next_link.to_string();
+            trace!("Found nextLink, continuing to page {}...", page_count + 1);
+        } else {
+            warn!("No deltaLink or nextLink found in response");
+            break;
+        }
+
+        // Small delay between requests
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+
+    // Store the new delta link for next sync
+    if let Some(ref delta_link) = new_delta_link {
+        match crate::repository::sync_history::upsert_delta_token(conn, "microsoft", "users", delta_link) {
+            Ok(_) => info!("Saved delta token for users"),
+            Err(e) => warn!(error = %e, "Failed to save delta token for users"),
+        }
+    }
+
+    info!(
+        users = all_users.len(),
+        removed = removed_user_ids.len(),
+        pages = page_count,
+        was_full_sync = was_full_sync,
+        "Delta fetch completed"
+    );
+
+    Ok(DeltaFetchResult {
+        users: all_users,
+        removed_user_ids,
+        new_delta_link,
+        was_full_sync,
+        access_token: access_token.to_string(),
+    })
 }
 
 /// Process a single Microsoft Graph user
@@ -2142,11 +2489,12 @@ async fn create_new_user_from_microsoft_optimized(
 }
 
 /// Sync devices from Microsoft Graph (Intune managed devices)
-#[instrument(level = "info", skip(conn), fields(provider_id = provider_id, session_id = session_id))]
+#[instrument(level = "info", skip(conn), fields(provider_id = provider_id, session_id = session_id, use_delta = use_delta))]
 async fn sync_devices(
     conn: &mut DbConnection,
     provider_id: i32,
     session_id: &str,
+    use_delta: bool,
 ) -> SyncProgress {
     let mut stats = DeviceSyncStats {
         new_devices_created: 0,
@@ -2155,13 +2503,14 @@ async fn sync_devices(
         errors: Vec::new(),
     };
 
-    update_sync_progress_with_type(session_id, "devices", 0, 0, "running", "Fetching devices from Microsoft Graph", "devices");
+    let sync_mode_msg = if use_delta { "delta" } else { "full" };
+    update_sync_progress_with_type(session_id, "devices", 0, 0, "running", &format!("Fetching devices from Microsoft Graph ({})", sync_mode_msg), "devices", None);
 
-    // Step 1: Fetch devices from Microsoft Graph
-    let (mut microsoft_devices, access_token) = match fetch_microsoft_graph_devices(provider_id).await {
+    // Step 1: Fetch devices from Microsoft Graph using delta query
+    let delta_result = match fetch_microsoft_graph_devices_delta(conn, use_delta).await {
         Ok(result) => result,
         Err(error) => {
-            update_sync_progress_with_type(session_id, "devices", 0, 0, "error", &format!("Failed to fetch devices: {}", error), "devices");
+            update_sync_progress_with_type(session_id, "devices", 0, 0, "error", &format!("Failed to fetch devices: {}", error), "devices", None);
             return SyncProgress {
                 entity: "devices".to_string(),
                 processed: 0,
@@ -2172,11 +2521,28 @@ async fn sync_devices(
         }
     };
 
-    let total_devices = microsoft_devices.len();
-    info!(device_count = total_devices, "Fetched devices from Microsoft Graph");
+    let entra_devices = delta_result.devices;
+    let removed_device_ids = delta_result.removed_device_ids;
+    let _access_token = delta_result.access_token;
+
+    // Handle removed devices first (if delta sync returned any)
+    if !removed_device_ids.is_empty() {
+        info!(count = removed_device_ids.len(), "Processing removed devices from delta response");
+        for removed_id in &removed_device_ids {
+            // Find the device by Entra ID and mark it as removed/inactive
+            // The removed_id is the Entra Object ID from the /devices endpoint
+            if let Ok(device) = device_repo::get_device_by_entra_id(conn, removed_id) {
+                info!(device_id = %device.id, device_name = %device.name, entra_id = %removed_id, "Device removed from Entra ID - consider deactivating");
+                // TODO: Implement device deactivation if desired
+            }
+        }
+    }
+
+    let total_devices = entra_devices.len();
+    info!(device_count = total_devices, was_delta = delta_result.was_full_sync == false, "Fetched devices from Entra ID");
 
     if total_devices == 0 {
-        update_sync_progress_with_type(session_id, "devices", 0, 0, "completed", "No devices found to sync", "devices");
+        update_sync_progress_with_type(session_id, "devices", 0, 0, "completed", "No devices found to sync", "devices", None);
         return SyncProgress {
         entity: "devices".to_string(),
         processed: 0,
@@ -2186,57 +2552,30 @@ async fn sync_devices(
         };
     }
 
-    // Step 1b: Resolve Entra Object IDs for devices
-    // Group membership uses Object IDs, not deviceIds, so we need to resolve these
-    update_sync_progress_with_type(session_id, "devices", 0, total_devices, "running", "Resolving Entra Object IDs", "devices");
+    // Note: No need to resolve Entra Object IDs - the /devices endpoint already returns them as the `id` field
+    update_sync_progress_with_type(session_id, "devices", 0, total_devices, "running", &format!("Processing {} Entra devices", total_devices), "devices", None);
 
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .unwrap_or_default();
-
-    for device in &mut microsoft_devices {
-        if let Some(azure_ad_device_id) = &device.azure_ad_device_id {
-            device.entra_object_id = resolve_entra_object_id(&client, &access_token, azure_ad_device_id).await;
-            if device.entra_object_id.is_some() {
-                debug!(
-                    device_name = %device.device_name.as_deref().unwrap_or(&device.id),
-                    azure_ad_device_id = %azure_ad_device_id,
-                    entra_object_id = %device.entra_object_id.as_ref().unwrap(),
-                    "Resolved Entra Object ID"
-                );
-            } else {
-                debug!(
-                    device_name = %device.device_name.as_deref().unwrap_or(&device.id),
-                    azure_ad_device_id = %azure_ad_device_id,
-                    "Could not resolve Entra Object ID"
-                );
-            }
-        }
-    }
-
-    update_sync_progress_with_type(session_id, "devices", 0, total_devices, "running", &format!("Processing {} devices", total_devices), "devices");
-
-    // Step 2: Process devices
+    // Step 2: Process Entra devices
     let mut processed_count = 0;
 
-    for ms_device in microsoft_devices {
+    for entra_device in entra_devices {
         // Check for cancellation before processing each device
         if is_sync_cancelled(session_id) {
             let processed = stats.new_devices_created + stats.existing_devices_updated;
-            let cancel_message = format!("Sync was cancelled by user request. Processed {} of {} devices ({} created, {} updated)", 
+            let cancel_message = format!("Sync was cancelled by user request. Processed {} of {} devices ({} created, {} updated)",
                 processed_count, total_devices, stats.new_devices_created, stats.existing_devices_updated);
-            
+
             update_sync_progress_with_type(
-                session_id, 
-                "devices", 
-                processed_count, 
-                total_devices, 
-                "cancelled", 
-                &cancel_message, 
-                "devices"
+                session_id,
+                "devices",
+                processed_count,
+                total_devices,
+                "cancelled",
+                &cancel_message,
+                "devices",
+                None
             );
-            
+
             return SyncProgress {
                 entity: "devices".to_string(),
                 processed,
@@ -2245,26 +2584,29 @@ async fn sync_devices(
                 errors: stats.errors,
             };
         }
-        
+
         processed_count += 1;
-        
+
+        let device_name = entra_device.display_name.as_deref().unwrap_or(&entra_device.id);
+
         update_sync_progress_with_type(
-            session_id, 
-            "devices", 
-            processed_count - 1, 
-            total_devices, 
-            "running", 
-            &format!("Processing device: {}", ms_device.device_name.as_deref().unwrap_or(&ms_device.id)),
-            "devices"
+            session_id,
+            "devices",
+            processed_count - 1,
+            total_devices,
+            "running",
+            &format!("Processing device: {}", device_name),
+            "devices",
+            None
         );
 
-        match process_microsoft_device(conn, provider_id, &ms_device, &mut stats).await {
+        match process_entra_device(conn, provider_id, &entra_device, &mut stats).await {
             Ok(_) => {
-                debug!(device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Successfully processed device");
+                debug!(device_name = %device_name, "Successfully processed Entra device");
             },
             Err(error) => {
-                let error_msg = format!("Failed to process device {}: {}", ms_device.device_name.as_deref().unwrap_or(&ms_device.id), error);
-                error!(device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), error = %error, "Failed to process device");
+                let error_msg = format!("Failed to process device {}: {}", device_name, error);
+                error!(device_name = %device_name, error = %error, "Failed to process Entra device");
                 stats.errors.push(error_msg);
             }
         }
@@ -2273,15 +2615,16 @@ async fn sync_devices(
         if processed_count % 5 == 0 || processed_count == total_devices {
             let processed = stats.new_devices_created + stats.existing_devices_updated;
             update_sync_progress_with_type(
-                session_id, 
-                "devices", 
-                processed_count, 
-                total_devices, 
-                "running", 
-                &format!("Processed {}/{} devices ({} created, {} updated, {} assigned, {} errors)", 
-                    processed_count, total_devices, stats.new_devices_created, stats.existing_devices_updated, 
+                session_id,
+                "devices",
+                processed_count,
+                total_devices,
+                "running",
+                &format!("Processed {}/{} devices ({} created, {} updated, {} assigned, {} errors)",
+                    processed_count, total_devices, stats.new_devices_created, stats.existing_devices_updated,
                     stats.devices_assigned, stats.errors.len()),
-                "devices"
+                "devices",
+                None
             );
         }
 
@@ -2294,14 +2637,15 @@ async fn sync_devices(
     let processed = stats.new_devices_created + stats.existing_devices_updated;
 
     update_sync_progress_with_type(
-        session_id, 
-        "devices", 
-        total_devices, 
-        total_devices, 
-        "completed", 
-        &format!("Completed: {} created, {} updated, {} assigned, {} errors", 
+        session_id,
+        "devices",
+        total_devices,
+        total_devices,
+        "completed",
+        &format!("Completed: {} created, {} updated, {} assigned, {} errors",
             stats.new_devices_created, stats.existing_devices_updated, stats.devices_assigned, stats.errors.len()),
-        "devices"
+        "devices",
+        None
     );
 
     SyncProgress {
@@ -2314,23 +2658,26 @@ async fn sync_devices(
 }
 
 /// Sync groups from Microsoft Graph
+#[instrument(level = "info", skip(conn), fields(session_id = session_id, use_delta = use_delta))]
 async fn sync_groups(
     conn: &mut DbConnection,
     _provider_id: i32,
     session_id: &str,
+    use_delta: bool,
 ) -> SyncProgress {
     let mut stats = GroupSyncStats::default();
 
-    update_sync_progress_with_type(session_id, "groups", 0, 0, "running", "Fetching groups from Microsoft Graph", "groups");
+    let sync_mode_msg = if use_delta { "delta" } else { "full" };
+    update_sync_progress_with_type(session_id, "groups", 0, 0, "running", &format!("Fetching groups from Microsoft Graph ({})", sync_mode_msg), "groups", None);
 
     // Load sync configuration
     let config = GroupSyncConfig::from_env();
 
-    // Step 1: Fetch all groups from Microsoft Graph
-    let (microsoft_groups, access_token) = match fetch_microsoft_graph_groups().await {
+    // Step 1: Fetch groups from Microsoft Graph using delta query
+    let delta_result = match fetch_microsoft_graph_groups_delta(conn, use_delta).await {
         Ok(result) => result,
         Err(error) => {
-            update_sync_progress_with_type(session_id, "groups", 0, 0, "error", &format!("Failed to fetch groups: {}", error), "groups");
+            update_sync_progress_with_type(session_id, "groups", 0, 0, "error", &format!("Failed to fetch groups: {}", error), "groups", None);
             return SyncProgress {
                 entity: "groups".to_string(),
                 processed: 0,
@@ -2341,17 +2688,37 @@ async fn sync_groups(
         }
     };
 
-    // Filter groups based on configuration
-    let groups_to_sync: Vec<_> = microsoft_groups
+    let access_token = delta_result.access_token;
+    let was_full_sync = delta_result.was_full_sync;
+
+    // Filter groups based on configuration (only for non-removed groups)
+    let groups_to_sync: Vec<_> = delta_result.groups
         .into_iter()
-        .filter(|g| config.should_sync_group(g))
+        .filter(|item| {
+            // Always include removed groups for cleanup
+            if item.is_removed {
+                return true;
+            }
+            // Filter non-removed groups based on configuration
+            if let Some(ref g) = item.group {
+                config.should_sync_group(g)
+            } else {
+                false
+            }
+        })
         .collect();
 
     let total_groups = groups_to_sync.len();
-    info!(group_count = total_groups, "Fetched and filtered groups from Microsoft Graph");
+    let removed_count = groups_to_sync.iter().filter(|g| g.is_removed).count();
+    info!(
+        group_count = total_groups,
+        removed_count = removed_count,
+        was_delta = !was_full_sync,
+        "Fetched and filtered groups from Microsoft Graph"
+    );
 
     if total_groups == 0 {
-        update_sync_progress_with_type(session_id, "groups", 0, 0, "completed", "No groups found to sync (check filter settings)", "groups");
+        update_sync_progress_with_type(session_id, "groups", 0, 0, "completed", "No groups found to sync (check filter settings)", "groups", None);
         return SyncProgress {
             entity: "groups".to_string(),
             processed: 0,
@@ -2361,9 +2728,9 @@ async fn sync_groups(
         };
     }
 
-    update_sync_progress_with_type(session_id, "groups", 0, total_groups, "running", &format!("Processing {} groups", total_groups), "groups");
+    update_sync_progress_with_type(session_id, "groups", 0, total_groups, "running", &format!("Processing {} groups", total_groups), "groups", None);
 
-    // Create HTTP client for member fetches
+    // Create HTTP client for member fetches (needed for full sync or fallback)
     let client = reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .pool_max_idle_per_host(10)
@@ -2375,14 +2742,14 @@ async fn sync_groups(
     let mut processed_count = 0;
     let mut synced_external_ids: Vec<String> = Vec::new();
 
-    for ms_group in groups_to_sync {
+    for group_item in groups_to_sync {
         // Check for cancellation
         if is_sync_cancelled(session_id) {
             let cancel_message = format!(
                 "Sync cancelled. Processed {} of {} groups ({} created, {} updated)",
                 processed_count, total_groups, stats.groups_created, stats.groups_updated
             );
-            update_sync_progress_with_type(session_id, "groups", processed_count, total_groups, "cancelled", &cancel_message, "groups");
+            update_sync_progress_with_type(session_id, "groups", processed_count, total_groups, "cancelled", &cancel_message, "groups", None);
             return SyncProgress {
                 entity: "groups".to_string(),
                 processed: processed_count,
@@ -2393,6 +2760,24 @@ async fn sync_groups(
         }
 
         processed_count += 1;
+
+        // Handle removed groups
+        if group_item.is_removed {
+            info!(group_id = %group_item.group_id, "Group removed from Microsoft - consider deactivating");
+            // TODO: Implement group deactivation if desired
+            // For now, we skip removed groups
+            continue;
+        }
+
+        // Get the actual group data
+        let ms_group = match &group_item.group {
+            Some(g) => g,
+            None => {
+                warn!(group_id = %group_item.group_id, "Skipping group without data");
+                continue;
+            }
+        };
+
         let group_name = ms_group.display_name.as_deref().unwrap_or(&ms_group.id);
 
         update_sync_progress_with_type(
@@ -2402,7 +2787,8 @@ async fn sync_groups(
             total_groups,
             "running",
             &format!("Processing group: {}", group_name),
-            "groups"
+            "groups",
+            None
         );
 
         // Upsert the group
@@ -2426,33 +2812,52 @@ async fn sync_groups(
                 }
                 synced_external_ids.push(ms_group.id.clone());
 
-                // Sync user group membership
-                match sync_group_membership(conn, &client, &access_token, &ms_group.id, group.id).await {
-                    Ok(changes) => {
-                        stats.user_membership_changes += changes;
-                        if changes > 0 {
-                            debug!(group_name = %group_name, changes = changes, "Synced user membership changes");
+                // Sync membership based on whether we have delta changes or need full fetch
+                if !was_full_sync && (!group_item.members_added.is_empty() || !group_item.members_removed.is_empty()) {
+                    // Delta sync: apply incremental membership changes
+                    match apply_delta_group_membership(conn, group.id, &group_item.members_added, &group_item.members_removed).await {
+                        Ok(changes) => {
+                            stats.user_membership_changes += changes;
+                            if changes > 0 {
+                                debug!(group_name = %group_name, changes = changes, "Applied delta membership changes");
+                            }
+                        }
+                        Err(e) => {
+                            let error_msg = format!("Failed to apply delta membership for group {}: {}", group_name, e);
+                            warn!("{}", error_msg);
+                            stats.errors.push(error_msg);
                         }
                     }
-                    Err(e) => {
-                        let error_msg = format!("Failed to sync user membership for group {}: {}", group_name, e);
-                        warn!("{}", error_msg);
-                        stats.errors.push(error_msg);
+                } else {
+                    // Full sync or no delta changes: fetch all members
+                    // Sync user group membership
+                    match sync_group_membership(conn, &client, &access_token, &ms_group.id, group.id).await {
+                        Ok(changes) => {
+                            stats.user_membership_changes += changes;
+                            if changes > 0 {
+                                debug!(group_name = %group_name, changes = changes, "Synced user membership changes");
+                            }
+                        }
+                        Err(e) => {
+                            let error_msg = format!("Failed to sync user membership for group {}: {}", group_name, e);
+                            warn!("{}", error_msg);
+                            stats.errors.push(error_msg);
+                        }
                     }
-                }
 
-                // Sync device group membership
-                match sync_device_group_membership(conn, &client, &access_token, &ms_group.id, group.id).await {
-                    Ok(changes) => {
-                        stats.device_membership_changes += changes;
-                        if changes > 0 {
-                            debug!(group_name = %group_name, changes = changes, "Synced device membership changes");
+                    // Sync device group membership
+                    match sync_device_group_membership(conn, &client, &access_token, &ms_group.id, group.id).await {
+                        Ok(changes) => {
+                            stats.device_membership_changes += changes;
+                            if changes > 0 {
+                                debug!(group_name = %group_name, changes = changes, "Synced device membership changes");
+                            }
                         }
-                    }
-                    Err(e) => {
-                        let error_msg = format!("Failed to sync device membership for group {}: {}", group_name, e);
-                        warn!("{}", error_msg);
-                        stats.errors.push(error_msg);
+                        Err(e) => {
+                            let error_msg = format!("Failed to sync device membership for group {}: {}", group_name, e);
+                            warn!("{}", error_msg);
+                            stats.errors.push(error_msg);
+                        }
                     }
                 }
             }
@@ -2475,7 +2880,8 @@ async fn sync_groups(
                     "Processed {}/{} groups ({} created, {} updated, {} errors)",
                     processed_count, total_groups, stats.groups_created, stats.groups_updated, stats.errors.len()
                 ),
-                "groups"
+                "groups",
+                None
             );
         }
 
@@ -2504,7 +2910,8 @@ async fn sync_groups(
         total_groups,
         "completed",
         &final_message,
-        "groups"
+        "groups",
+        None
     );
 
     SyncProgress {
@@ -2562,6 +2969,256 @@ async fn fetch_microsoft_graph_groups() -> Result<(Vec<MicrosoftGraphGroup>, Str
 
     info!(total_groups = all_groups.len(), "Fetched groups from Microsoft Graph");
     Ok((all_groups, access_token))
+}
+
+/// Delta response for a group, including membership changes
+#[derive(Debug)]
+struct GroupDeltaItem {
+    /// The group data (None if this is a removal notification only)
+    group: Option<MicrosoftGraphGroup>,
+    /// Group ID (always present)
+    group_id: String,
+    /// Whether this group was removed
+    is_removed: bool,
+    /// Members added (from members@delta without @removed)
+    members_added: Vec<MicrosoftGraphGroupMember>,
+    /// Member IDs removed (from members@delta with @removed)
+    members_removed: Vec<String>,
+}
+
+/// Result of a delta sync fetch operation for groups
+struct GroupDeltaFetchResult {
+    /// Groups with their membership changes
+    groups: Vec<GroupDeltaItem>,
+    /// The new delta link to store for next sync (if any)
+    new_delta_link: Option<String>,
+    /// Whether this was a full sync (no delta token or token expired)
+    was_full_sync: bool,
+    /// Access token for any additional API calls
+    access_token: String,
+}
+
+/// Fetch groups from Microsoft Graph API with delta sync support
+///
+/// Delta queries return only changes since the last sync, including membership changes
+/// via the members@delta property. This is much more efficient than fetching all groups
+/// and their members on each sync.
+#[instrument(level = "info", skip(conn), fields(use_delta = use_delta))]
+async fn fetch_microsoft_graph_groups_delta(
+    conn: &mut DbConnection,
+    use_delta: bool,
+) -> Result<GroupDeltaFetchResult, String> {
+    let (client, access_token) = get_msgraph_client_and_token().await?;
+
+    // Select fields for groups - include members to track membership changes
+    let select_fields = "id,displayName,description,mailEnabled,securityEnabled,groupTypes,mail,members";
+
+    // Check for existing delta token
+    let delta_token = if use_delta {
+        match crate::repository::sync_history::get_delta_token(conn, "microsoft", "groups") {
+            Ok(token) => {
+                info!("Found existing delta token for groups, using incremental sync");
+                Some(token.delta_link)
+            }
+            Err(diesel::result::Error::NotFound) => {
+                info!("No delta token found for groups, performing initial delta sync");
+                None
+            }
+            Err(e) => {
+                warn!(error = %e, "Error retrieving delta token for groups, performing full sync");
+                None
+            }
+        }
+    } else {
+        info!("Full sync requested for groups, ignoring any existing delta token");
+        // Clear existing delta token when doing a full sync
+        if let Err(e) = crate::repository::sync_history::delete_delta_token(conn, "microsoft", "groups") {
+            if !matches!(e, diesel::result::Error::NotFound) {
+                warn!(error = %e, "Failed to clear delta token for groups");
+            }
+        }
+        None
+    };
+
+    // Build initial URL
+    let mut url = match &delta_token {
+        Some(link) => {
+            // Use the stored delta link for incremental sync
+            link.clone()
+        }
+        None => {
+            // Start fresh delta sync
+            format!(
+                "https://graph.microsoft.com/v1.0/groups/delta?$select={}",
+                urlencoding::encode(select_fields)
+            )
+        }
+    };
+
+    let mut was_full_sync = delta_token.is_none();
+
+    debug!(url = %url, was_full_sync = was_full_sync, "Microsoft Graph group delta query URL");
+
+    let mut all_groups: Vec<GroupDeltaItem> = Vec::new();
+    let mut page_count = 0;
+    let mut new_delta_link = None;
+
+    loop {
+        page_count += 1;
+        debug!("Fetching group delta page {} from Microsoft Graph", page_count);
+
+        let graph_response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", "application/json")
+            .send()
+            .await
+            .map_err(|e| format!("Failed to send Microsoft Graph group delta request (page {}): {}", page_count, e))?;
+
+        let status = graph_response.status();
+
+        // Handle 410 Gone - delta token expired, need to do full sync
+        if status == reqwest::StatusCode::GONE {
+            warn!("Group delta token expired (410 Gone), falling back to full sync");
+
+            // Clear the expired token
+            let _ = crate::repository::sync_history::delete_delta_token(conn, "microsoft", "groups");
+
+            // Reset to full sync - rebuild the initial URL without delta token
+            url = format!(
+                "https://graph.microsoft.com/v1.0/groups/delta?$select={}",
+                urlencoding::encode(select_fields)
+            );
+            was_full_sync = true;
+            all_groups.clear();
+            page_count = 0;
+            continue;
+        }
+
+        let response_data: serde_json::Value = graph_response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse Microsoft Graph group delta response (page {}): {}", page_count, e))?;
+
+        if !status.is_success() {
+            let error_msg = response_data
+                .get("error")
+                .and_then(|err| err.get("message"))
+                .and_then(|msg| msg.as_str())
+                .unwrap_or("Unknown Microsoft Graph error");
+            return Err(format!("Microsoft Graph API error (page {}, {}): {}", page_count, status, error_msg));
+        }
+
+        // Parse groups from this page
+        let groups_array = response_data
+            .get("value")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| format!("Microsoft Graph group delta response missing 'value' array (page {})", page_count))?;
+
+        for group_value in groups_array {
+            let group_id = group_value
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            if group_id.is_empty() {
+                continue;
+            }
+
+            // Check if this is a removed group
+            let is_removed = group_value.get("@removed").is_some();
+
+            // Parse membership changes from members@delta
+            let mut members_added = Vec::new();
+            let mut members_removed = Vec::new();
+
+            if let Some(members_delta) = group_value.get("members@delta").and_then(|v| v.as_array()) {
+                for member_value in members_delta {
+                    // Check if this member was removed
+                    if member_value.get("@removed").is_some() {
+                        if let Some(member_id) = member_value.get("id").and_then(|v| v.as_str()) {
+                            members_removed.push(member_id.to_string());
+                        }
+                    } else {
+                        // Parse the member
+                        if let Ok(member) = serde_json::from_value::<MicrosoftGraphGroupMember>(member_value.clone()) {
+                            members_added.push(member);
+                        }
+                    }
+                }
+            }
+
+            // Parse the group data (may be None for removal-only notifications)
+            let group = if is_removed {
+                None
+            } else {
+                match serde_json::from_value::<MicrosoftGraphGroup>(group_value.clone()) {
+                    Ok(g) => Some(g),
+                    Err(e) => {
+                        warn!(page = page_count, error = %e, group_id = %group_id, "Failed to parse group from delta response");
+                        None
+                    }
+                }
+            };
+
+            all_groups.push(GroupDeltaItem {
+                group,
+                group_id,
+                is_removed,
+                members_added,
+                members_removed,
+            });
+        }
+
+        debug!(
+            "Group delta page {}: {} groups processed",
+            page_count,
+            all_groups.len()
+        );
+
+        // Check for deltaLink (end of changes) or nextLink (more pages)
+        if let Some(delta_link) = response_data.get("@odata.deltaLink").and_then(|v| v.as_str()) {
+            new_delta_link = Some(delta_link.to_string());
+            debug!("Received group deltaLink, finished fetching changes");
+            break;
+        } else if let Some(next_link) = response_data.get("@odata.nextLink").and_then(|v| v.as_str()) {
+            url = next_link.to_string();
+            trace!("Found nextLink, continuing to page {}...", page_count + 1);
+        } else {
+            warn!("No deltaLink or nextLink found in group delta response");
+            break;
+        }
+
+        // Small delay between requests
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+
+    // Store the new delta link for next sync
+    if let Some(ref delta_link) = new_delta_link {
+        match crate::repository::sync_history::upsert_delta_token(conn, "microsoft", "groups", delta_link) {
+            Ok(_) => info!("Saved delta token for groups"),
+            Err(e) => warn!(error = %e, "Failed to save delta token for groups"),
+        }
+    }
+
+    let removed_count = all_groups.iter().filter(|g| g.is_removed).count();
+    let updated_count = all_groups.len() - removed_count;
+
+    info!(
+        groups_updated = updated_count,
+        groups_removed = removed_count,
+        pages = page_count,
+        was_full_sync = was_full_sync,
+        "Group delta fetch completed"
+    );
+
+    Ok(GroupDeltaFetchResult {
+        groups: all_groups,
+        new_delta_link,
+        was_full_sync,
+        access_token: access_token.to_string(),
+    })
 }
 
 /// Fetch members of a specific group
@@ -2672,6 +3329,95 @@ async fn sync_group_membership(
             }
         } else {
             debug!(user_uuid = %user_uuid, group_id = local_group_id, "Preserving manually added user in group");
+        }
+    }
+
+    Ok(changes)
+}
+
+/// Apply delta membership changes to a group (from Microsoft Graph delta query)
+///
+/// This function processes incremental membership changes instead of fetching
+/// all members. It's much more efficient for subsequent syncs.
+async fn apply_delta_group_membership(
+    conn: &mut DbConnection,
+    local_group_id: i32,
+    members_added: &[MicrosoftGraphGroupMember],
+    members_removed: &[String],
+) -> Result<usize, String> {
+    let mut changes = 0;
+
+    // Process added members (users only for now)
+    let user_members_added: Vec<_> = members_added.iter().filter(|m| m.is_user()).collect();
+    if !user_members_added.is_empty() {
+        let external_ids: Vec<&str> = user_members_added.iter().map(|m| m.id.as_str()).collect();
+        let user_mappings = identity_repo::get_user_uuids_by_external_ids(&external_ids, "microsoft", conn)
+            .map_err(|e| format!("Failed to lookup users for adding: {}", e))?;
+
+        for (external_id, user_uuid) in user_mappings {
+            // Check if user is already a member
+            let current_members = groups_repo::get_member_uuids_for_group(conn, local_group_id)
+                .unwrap_or_default();
+
+            if !current_members.contains(&user_uuid) {
+                if let Err(e) = groups_repo::add_user_to_group(conn, user_uuid, local_group_id, None) {
+                    warn!(user_uuid = %user_uuid, group_id = local_group_id, external_id = %external_id, error = %e, "Failed to add user to group from delta");
+                } else {
+                    debug!(user_uuid = %user_uuid, group_id = local_group_id, "Added user to group from delta");
+                    changes += 1;
+                }
+            }
+        }
+    }
+
+    // Process removed members
+    if !members_removed.is_empty() {
+        let external_ids_refs: Vec<&str> = members_removed.iter().map(|s| s.as_str()).collect();
+        let user_mappings = identity_repo::get_user_uuids_by_external_ids(&external_ids_refs, "microsoft", conn)
+            .map_err(|e| format!("Failed to lookup users for removal: {}", e))?;
+
+        for (external_id, user_uuid) in user_mappings {
+            if let Err(e) = groups_repo::remove_user_from_group(conn, &user_uuid, local_group_id) {
+                warn!(user_uuid = %user_uuid, group_id = local_group_id, external_id = %external_id, error = %e, "Failed to remove user from group from delta");
+            } else {
+                debug!(user_uuid = %user_uuid, group_id = local_group_id, "Removed user from group from delta");
+                changes += 1;
+            }
+        }
+    }
+
+    // Process added device members
+    let device_members_added: Vec<_> = members_added.iter().filter(|m| m.is_device()).collect();
+    if !device_members_added.is_empty() {
+        for device_member in device_members_added {
+            // Try to find the device by Entra Object ID
+            if let Ok(device) = device_repo::get_device_by_entra_id(conn, &device_member.id) {
+                // Check if device is already a member
+                let current_devices = groups_repo::get_device_ids_for_group(conn, local_group_id)
+                    .unwrap_or_default();
+
+                if !current_devices.contains(&device.id) {
+                    if let Err(e) = groups_repo::add_device_to_group(conn, device.id, local_group_id, None, Some("microsoft")) {
+                        warn!(device_id = device.id, group_id = local_group_id, error = %e, "Failed to add device to group from delta");
+                    } else {
+                        debug!(device_id = device.id, group_id = local_group_id, "Added device to group from delta");
+                        changes += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // Process removed device members
+    for removed_id in members_removed {
+        // Try to find the device by Entra Object ID
+        if let Ok(device) = device_repo::get_device_by_entra_id(conn, removed_id) {
+            if let Err(e) = groups_repo::remove_device_from_group(conn, device.id, local_group_id) {
+                warn!(device_id = device.id, group_id = local_group_id, error = %e, "Failed to remove device from group from delta");
+            } else {
+                debug!(device_id = device.id, group_id = local_group_id, "Removed device from group from delta");
+                changes += 1;
+            }
         }
     }
 
@@ -3154,7 +3900,207 @@ async fn fetch_microsoft_graph_devices(_provider_id: i32) -> Result<(Vec<Microso
     Ok((all_devices, access_token.to_string()))
 }
 
-/// Process a single Microsoft Graph device
+/// Result of a delta sync fetch operation for Entra ID devices
+struct DeviceDeltaFetchResult {
+    /// Entra ID devices to create or update
+    devices: Vec<EntraDevice>,
+    /// IDs of devices that were removed (from @removed marker in delta response)
+    removed_device_ids: Vec<String>,
+    /// The new delta link to store for next sync (if any)
+    new_delta_link: Option<String>,
+    /// Whether this was a full sync (no delta token or token expired)
+    was_full_sync: bool,
+    /// Access token for any additional API calls
+    access_token: String,
+}
+
+/// Fetch Entra ID devices from Microsoft Graph API with delta sync support
+///
+/// Delta queries return only changes since the last sync, making subsequent syncs much faster.
+/// Uses the /devices/delta endpoint for Entra ID device identity.
+/// Note: This is separate from Intune managed devices - Entra ID handles device identity,
+/// while Intune handles device configuration and compliance.
+#[instrument(level = "info", skip(conn), fields(use_delta = use_delta))]
+async fn fetch_microsoft_graph_devices_delta(
+    conn: &mut DbConnection,
+    use_delta: bool,
+) -> Result<DeviceDeltaFetchResult, String> {
+    let (client, access_token) = get_msgraph_client_and_token().await?;
+
+    // Select fields for EntraDevice struct
+    let select_fields = "id,deviceId,displayName,operatingSystem,operatingSystemVersion,trustType,isManaged,isCompliant,accountEnabled,approximateLastSignInDateTime,manufacturer,model,profileType,registrationDateTime";
+
+    // Check for existing delta token
+    let delta_token = if use_delta {
+        match crate::repository::sync_history::get_delta_token(conn, "microsoft", "devices") {
+            Ok(token) => {
+                info!("Found existing delta token for devices, using incremental sync");
+                Some(token.delta_link)
+            }
+            Err(diesel::result::Error::NotFound) => {
+                info!("No delta token found for devices, performing initial delta sync");
+                None
+            }
+            Err(e) => {
+                warn!(error = %e, "Error retrieving delta token for devices, performing full sync");
+                None
+            }
+        }
+    } else {
+        info!("Full sync requested for devices, ignoring any existing delta token");
+        // Clear existing delta token when doing a full sync
+        if let Err(e) = crate::repository::sync_history::delete_delta_token(conn, "microsoft", "devices") {
+            if !matches!(e, diesel::result::Error::NotFound) {
+                warn!(error = %e, "Failed to clear delta token for devices");
+            }
+        }
+        None
+    };
+
+    // Build initial URL - use Entra ID /devices/delta endpoint
+    let mut url = match &delta_token {
+        Some(link) => {
+            // Use the stored delta link for incremental sync
+            link.clone()
+        }
+        None => {
+            // Start fresh delta sync with Entra ID devices
+            format!(
+                "https://graph.microsoft.com/v1.0/devices/delta?$select={}",
+                urlencoding::encode(select_fields)
+            )
+        }
+    };
+
+    let mut was_full_sync = delta_token.is_none();
+
+    debug!(url = %url, was_full_sync = was_full_sync, "Microsoft Graph device delta query URL");
+
+    let mut all_devices = Vec::new();
+    let mut removed_device_ids = Vec::new();
+    let mut page_count = 0;
+    let mut new_delta_link = None;
+
+    loop {
+        page_count += 1;
+        debug!("Fetching device delta page {} from Microsoft Graph", page_count);
+
+        let graph_response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", "application/json")
+            .send()
+            .await
+            .map_err(|e| format!("Failed to send Microsoft Graph device delta request (page {}): {}", page_count, e))?;
+
+        let status = graph_response.status();
+
+        // Handle 410 Gone - delta token expired, need to do full sync
+        if status == reqwest::StatusCode::GONE {
+            warn!("Device delta token expired (410 Gone), falling back to full sync");
+
+            // Clear the expired token
+            let _ = crate::repository::sync_history::delete_delta_token(conn, "microsoft", "devices");
+
+            // Reset to full sync - rebuild the initial URL without delta token
+            url = format!(
+                "https://graph.microsoft.com/v1.0/devices/delta?$select={}",
+                urlencoding::encode(select_fields)
+            );
+            was_full_sync = true;
+            all_devices.clear();
+            removed_device_ids.clear();
+            page_count = 0;
+            continue;
+        }
+
+        let response_data: serde_json::Value = graph_response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse Microsoft Graph device delta response (page {}): {}", page_count, e))?;
+
+        if !status.is_success() {
+            let error_msg = response_data
+                .get("error")
+                .and_then(|err| err.get("message"))
+                .and_then(|msg| msg.as_str())
+                .unwrap_or("Unknown Microsoft Graph error");
+            return Err(format!("Microsoft Graph API error (page {}, {}): {}", page_count, status, error_msg));
+        }
+
+        // Parse devices from this page
+        let devices_array = response_data
+            .get("value")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| format!("Microsoft Graph device delta response missing 'value' array (page {})", page_count))?;
+
+        for device_value in devices_array {
+            // Check if this is a removed device
+            if device_value.get("@removed").is_some() {
+                if let Some(id) = device_value.get("id").and_then(|v| v.as_str()) {
+                    debug!(device_id = %id, "Device marked as removed in delta response");
+                    removed_device_ids.push(id.to_string());
+                }
+                continue;
+            }
+
+            // Parse Entra ID device
+            match serde_json::from_value::<EntraDevice>(device_value.clone()) {
+                Ok(device) => all_devices.push(device),
+                Err(e) => {
+                    warn!(page = page_count, error = %e, data = %device_value, "Failed to parse Entra device from delta response");
+                }
+            }
+        }
+
+        debug!("Entra device delta page {}: {} devices, {} removed", page_count, all_devices.len(), removed_device_ids.len());
+
+        // Check for deltaLink (end of changes) or nextLink (more pages)
+        if let Some(delta_link) = response_data.get("@odata.deltaLink").and_then(|v| v.as_str()) {
+            new_delta_link = Some(delta_link.to_string());
+            debug!("Received device deltaLink, finished fetching changes");
+            break;
+        } else if let Some(next_link) = response_data.get("@odata.nextLink").and_then(|v| v.as_str()) {
+            url = next_link.to_string();
+            trace!("Found nextLink, continuing to page {}...", page_count + 1);
+        } else {
+            warn!("No deltaLink or nextLink found in device delta response");
+            break;
+        }
+
+        // Small delay between requests
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+
+    // Store the new delta link for next sync
+    if let Some(ref delta_link) = new_delta_link {
+        match crate::repository::sync_history::upsert_delta_token(conn, "microsoft", "devices", delta_link) {
+            Ok(_) => info!("Saved delta token for devices"),
+            Err(e) => warn!(error = %e, "Failed to save delta token for devices"),
+        }
+    }
+
+    info!(
+        devices = all_devices.len(),
+        removed = removed_device_ids.len(),
+        pages = page_count,
+        was_full_sync = was_full_sync,
+        "Device delta fetch completed"
+    );
+
+    Ok(DeviceDeltaFetchResult {
+        devices: all_devices,
+        removed_device_ids,
+        new_delta_link,
+        was_full_sync,
+        access_token: access_token.to_string(),
+    })
+}
+
+/// Process a single Microsoft Graph device from Intune (managedDevices endpoint)
+/// This is preserved for future Intune-specific sync functionality.
+/// Currently unused - device sync uses process_entra_device for /devices delta queries.
+#[allow(dead_code)]
 async fn process_microsoft_device(
     conn: &mut DbConnection,
     provider_id: i32,
@@ -3290,7 +4236,7 @@ async fn process_microsoft_device(
             device_type: None, // Keep existing device type
             location: None, // Keep existing location
             notes: None, // Keep existing notes
-            azure_device_id: ms_device.azure_ad_device_id.clone(),
+            microsoft_device_id: ms_device.azure_ad_device_id.clone(),
             compliance_state: ms_device.compliance_state.clone(),
             last_sync_time: parse_microsoft_datetime(&ms_device.last_sync_date_time),
             operating_system: ms_device.operating_system.clone(),
@@ -3325,7 +4271,7 @@ async fn process_microsoft_device(
             device_type: Some("Computer".to_string()), // Default for Intune devices
             location: None,
             notes: None,
-            azure_device_id: ms_device.azure_ad_device_id.clone(),
+            microsoft_device_id: ms_device.azure_ad_device_id.clone(),
             compliance_state: ms_device.compliance_state.clone(),
             last_sync_time: parse_microsoft_datetime(&ms_device.last_sync_date_time),
             operating_system: ms_device.operating_system.clone(),
@@ -3343,6 +4289,128 @@ async fn process_microsoft_device(
         if primary_user_uuid.is_some() {
             stats.devices_assigned += 1;
         }
+    }
+
+    Ok(())
+}
+
+/// Process a single Entra ID device (from /devices endpoint)
+/// This handles device identity from Entra ID using delta sync.
+/// Entra ID devices provide identity info; Intune provides management/compliance data.
+async fn process_entra_device(
+    conn: &mut DbConnection,
+    _provider_id: i32,
+    entra_device: &EntraDevice,
+    stats: &mut DeviceSyncStats,
+) -> Result<(), String> {
+    let device_name = entra_device.display_name.as_deref().unwrap_or(&entra_device.id);
+    debug!(device_name = %device_name, entra_id = %entra_device.id, "Processing Entra device");
+
+    // Step 1: Check if this device already exists by Entra Object ID
+    // The `id` field from /devices IS the Entra Object ID
+    let existing_device = device_repo::get_device_by_entra_id(conn, &entra_device.id).ok();
+
+    // Step 2: If not found by Entra ID, try by Microsoft Device ID (the deviceId field)
+    let existing_device = if existing_device.is_none() {
+        if let Some(microsoft_device_id) = &entra_device.device_id {
+            device_repo::get_device_by_microsoft_id(conn, microsoft_device_id).ok()
+        } else {
+            None
+        }
+    } else {
+        existing_device
+    };
+
+    // Step 3: Prepare device data
+    let device_display_name = entra_device.display_name
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| format!("Device-{}", entra_device.id));
+
+    let hostname = device_display_name.clone();
+
+    let model = entra_device.model
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| "Unknown Model".to_string());
+
+    let manufacturer = entra_device.manufacturer
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| "Unknown Manufacturer".to_string());
+
+    // Map compliance state from isCompliant boolean
+    let compliance_state = match entra_device.is_compliant {
+        Some(true) => Some("compliant".to_string()),
+        Some(false) => Some("noncompliant".to_string()),
+        None => None,
+    };
+
+    // Parse registration date time
+    let registration_date = parse_microsoft_datetime(&entra_device.registration_date_time);
+
+    // Parse last sign in time for last_sync_time
+    let last_sign_in = parse_microsoft_datetime(&entra_device.approximate_last_sign_in_date_time);
+
+    if let Some(existing) = existing_device {
+        // Update existing device
+        let device_update = crate::models::DeviceUpdate {
+            name: Some(device_display_name.clone()),
+            hostname: Some(hostname),
+            serial_number: None, // Entra doesn't provide serial number
+            model: Some(model),
+            warranty_status: None, // Keep existing
+            manufacturer: Some(manufacturer),
+            primary_user_uuid: None, // Entra /devices doesn't provide user info; keep existing
+            intune_device_id: None, // Keep existing if set by Intune sync
+            entra_device_id: Some(entra_device.id.clone()), // The Object ID
+            device_type: None, // Keep existing device type
+            location: None, // Keep existing location
+            notes: None, // Keep existing notes
+            microsoft_device_id: entra_device.device_id.clone(), // The deviceId field
+            compliance_state,
+            last_sync_time: last_sign_in,
+            operating_system: entra_device.operating_system.clone(),
+            os_version: entra_device.operating_system_version.clone(),
+            is_managed: entra_device.is_managed,
+            enrollment_date: registration_date,
+            updated_at: Some(chrono::Utc::now().naive_utc()),
+        };
+
+        device_repo::update_device(conn, existing.id, device_update)
+            .map_err(|e| format!("Failed to update device: {}", e))?;
+
+        debug!(device_name = %device_display_name, "Updated existing Entra device");
+        stats.existing_devices_updated += 1;
+    } else {
+        // Create new device
+        let new_device = crate::models::NewDevice {
+            name: device_display_name.clone(),
+            hostname: Some(hostname),
+            serial_number: None, // Entra doesn't provide serial number
+            model: Some(model),
+            warranty_status: Some("Unknown".to_string()),
+            manufacturer: Some(manufacturer),
+            primary_user_uuid: None, // Entra /devices doesn't provide user info
+            intune_device_id: None, // Not from Intune
+            entra_device_id: Some(entra_device.id.clone()), // The Object ID
+            device_type: Some("Computer".to_string()), // Default type
+            location: None,
+            notes: None,
+            microsoft_device_id: entra_device.device_id.clone(), // The deviceId field
+            compliance_state,
+            last_sync_time: last_sign_in,
+            operating_system: entra_device.operating_system.clone(),
+            os_version: entra_device.operating_system_version.clone(),
+            is_managed: entra_device.is_managed,
+            enrollment_date: registration_date,
+        };
+
+        device_repo::create_device(conn, new_device)
+            .map_err(|e| format!("Failed to create device: {}", e))?;
+
+        info!(device_name = %device_display_name, "Created new Entra device");
+        stats.new_devices_created += 1;
     }
 
     Ok(())
@@ -3607,7 +4675,8 @@ async fn background_photo_sync_task(
         0,
         "starting",
         "Finding users without profile photos...",
-        "photos"
+        "photos",
+        None
     );
 
     // Get database connection
@@ -3626,7 +4695,8 @@ async fn background_photo_sync_task(
             0,
             "completed",
             "No users found needing photo sync",
-            "photos"
+            "photos",
+            None
         );
         return Ok(());
     }
@@ -3678,7 +4748,8 @@ async fn background_photo_sync_task(
                 total_users,
                 "running",
                 &format!("Processed {}/{} photos ({} success)", processed, total_users, success_count),
-                "photos"
+                "photos",
+                None
             );
         }
     }
@@ -3693,7 +4764,8 @@ async fn background_photo_sync_task(
         total_users,
         "completed",
         &final_message,
-        "photos"
+        "photos",
+        None
     );
 
     Ok(())

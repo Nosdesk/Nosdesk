@@ -71,7 +71,8 @@ const configValidation = ref<ConfigValidation | null>(null);
 const isValidatingConfig = ref(false);
 
 // Import options
-const selectedEntities = ref(["users", "devices"]);
+const selectedEntities = ref(["users", "devices", "groups"]);
+const fullSyncMode = ref(false);
 const availableEntities = [
   {
     id: "users",
@@ -253,8 +254,8 @@ const cancelSync = async (sessionId: string) => {
 
 
 
-// Start sync process
-const startSync = async () => {
+// Start sync process with specified mode
+const startSyncWithMode = async (useDelta: boolean) => {
   isLoading.value = true;
   errorMessage.value = null;
   syncResults.value = null; // Clear previous results
@@ -263,6 +264,7 @@ const startSync = async () => {
     // Use the real Microsoft Graph integration endpoint
     const response = await apiClient.post("/integrations/graph/sync", {
       entities: selectedEntities.value,
+      use_delta: useDelta,
     });
 
     showSyncModal.value = false;
@@ -444,6 +446,22 @@ onMounted(async () => {
         fallbackRoute="/admin/data-import"
         label="Back to Data Import"
       />
+
+      <!-- Sync button - prominent position -->
+      <button
+        @click="syncData"
+        :disabled="connectionStatus !== 'connected' || isLoading || isSyncing"
+        class="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+      >
+        <svg v-if="isSyncing" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        {{ isSyncing ? 'Syncing...' : 'Sync Data' }}
+      </button>
     </div>
 
     <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
@@ -495,22 +513,6 @@ onMounted(async () => {
                 {{ getStatusDisplay(connectionStatus).text }}
               </span>
             </div>
-
-            <!-- Sync button -->
-            <button
-                @click="syncData"
-                :disabled="connectionStatus !== 'connected' || isLoading || isSyncing"
-                class="px-3 py-1.5 bg-status-success/20 text-status-success border border-status-success/50 rounded-lg text-sm hover:bg-status-success/30 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
-              >
-                <svg v-if="isSyncing" class="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                {{ isSyncing ? 'Syncing...' : 'Sync' }}
-            </button>
           </div>
 
           <!-- Last sync info -->
@@ -871,18 +873,10 @@ onMounted(async () => {
           <div v-else-if="lastSyncDetails">
             <!-- Compact stats row -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-sm">
-              <div><span class="text-tertiary">Type:</span> <span class="text-primary">{{ formatSyncType(lastSyncDetails.sync_type) }}</span></div>
+              <div><span class="text-tertiary">Type:</span> <span class="text-primary">{{ lastSyncDetails.is_delta ? 'Delta' : 'Full' }}</span></div>
               <div><span class="text-tertiary">Started:</span> <span class="text-primary">{{ formatTimeAgo(lastSyncDetails.started_at) }}</span></div>
               <div><span class="text-tertiary">Duration:</span> <span class="text-primary">{{ formatDuration(lastSyncDetails.started_at, lastSyncDetails.updated_at) }}</span></div>
-              <div>
-                <span class="text-tertiary">Progress:</span>
-                <span class="text-primary">
-                  <span v-if="lastSyncDetails.total > 0">{{ lastSyncDetails.current }} / {{ lastSyncDetails.total }}</span>
-                  <span v-else-if="lastSyncDetails.status === 'cancelled'">Cancelled</span>
-                  <span v-else-if="lastSyncDetails.status === 'error'">Failed</span>
-                  <span v-else>-</span>
-                </span>
-              </div>
+              <div><span class="text-tertiary">Progress:</span> <span class="text-primary"><span v-if="lastSyncDetails.total > 0">{{ lastSyncDetails.current }} / {{ lastSyncDetails.total }}</span><span v-else-if="lastSyncDetails.status === 'cancelled'">Cancelled</span><span v-else-if="lastSyncDetails.status === 'error'">Failed</span><span v-else>-</span></span></div>
             </div>
 
             <!-- Progress Bar -->
@@ -947,6 +941,7 @@ onMounted(async () => {
               :id="`sync-${entity.id}`"
               :model-value="selectedEntities.includes(entity.id)"
               :label="entity.name"
+              class="pointer-events-none"
             />
           </div>
         </div>
@@ -1025,23 +1020,23 @@ onMounted(async () => {
         </div>
 
         <!-- Action buttons -->
-        <div class="flex justify-end gap-2 pt-2">
+        <div class="flex flex-col gap-3 pt-2">
+          <Checkbox
+            id="full-sync-mode"
+            v-model="fullSyncMode"
+            label="Full sync"
+          />
+
           <button
-            @click="showSyncModal = false"
-            class="px-3 py-1.5 bg-surface-alt text-secondary border border-default rounded-lg text-sm hover:bg-surface-hover hover:text-primary font-medium transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            @click="startSync"
+            @click="startSyncWithMode(!fullSyncMode)"
             :disabled="isLoading || isSyncing || selectedEntities.length === 0"
-            class="px-3 py-1.5 bg-status-success/20 text-status-success border border-status-success/50 rounded-lg text-sm hover:bg-status-success/30 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            class="w-full px-4 py-2.5 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            <svg v-if="isLoading || isSyncing" class="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+            <svg v-if="isLoading || isSyncing" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
             {{ isLoading ? 'Starting...' : isSyncing ? 'Syncing...' : 'Start Sync' }}

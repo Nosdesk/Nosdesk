@@ -162,9 +162,9 @@ onMounted(() => {
     <!-- Group Details -->
     <div v-else-if="group" class="flex flex-col">
       <!-- Navigation bar -->
-      <div class="pt-4 px-4 sm:px-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
+      <div class="pt-4 px-4 sm:px-6 flex flex-row justify-between items-center gap-3 sm:gap-4">
         <div class="flex items-center gap-3 sm:gap-4">
-          <BackButton fallbackRoute="/admin/groups" label="Go back" />
+          <BackButton fallbackRoute="/admin/groups" />
 
           <!-- Sync indicator -->
           <div v-if="group.external_source" class="hidden sm:flex items-center gap-2 text-sm">
@@ -285,13 +285,8 @@ onMounted(() => {
               </div>
             </div>
 
-            <div v-else class="p-6 sm:p-8 text-center">
-              <div class="w-10 h-10 sm:w-12 sm:h-12 bg-surface-alt rounded-full inline-flex items-center justify-center mx-auto mb-3">
-                <svg class="w-5 h-5 sm:w-6 sm:h-6 shrink-0 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </div>
-              <p class="text-secondary text-sm">No members in this group</p>
+            <div v-else class="p-4 text-center">
+              <p class="text-tertiary text-sm">No members</p>
             </div>
           </SectionCard>
 
@@ -334,13 +329,8 @@ onMounted(() => {
               </div>
             </div>
 
-            <div v-else class="p-6 sm:p-8 text-center">
-              <div class="w-10 h-10 sm:w-12 sm:h-12 bg-surface-alt rounded-full inline-flex items-center justify-center mx-auto mb-3">
-                <svg class="w-5 h-5 sm:w-6 sm:h-6 shrink-0 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <p class="text-secondary text-sm">No devices in this group</p>
+            <div v-else class="p-4 text-center">
+              <p class="text-tertiary text-sm">No devices</p>
             </div>
           </SectionCard>
         </div>

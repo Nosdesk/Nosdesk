@@ -165,7 +165,7 @@ pub struct Device {
     pub created_by: Option<Uuid>,
     pub notes: Option<String>,
     pub primary_user_uuid: Option<Uuid>,
-    pub azure_device_id: Option<String>,
+    pub microsoft_device_id: Option<String>,
     pub intune_device_id: Option<String>,
     pub entra_device_id: Option<String>,
     pub compliance_state: Option<String>,
@@ -189,7 +189,7 @@ pub struct NewDevice {
     pub location: Option<String>,
     pub notes: Option<String>,
     pub primary_user_uuid: Option<Uuid>,
-    pub azure_device_id: Option<String>,
+    pub microsoft_device_id: Option<String>,
     pub intune_device_id: Option<String>,
     pub entra_device_id: Option<String>,
     pub compliance_state: Option<String>,
@@ -213,7 +213,7 @@ pub struct DeviceUpdate {
     pub location: Option<String>,
     pub notes: Option<String>,
     pub primary_user_uuid: Option<Uuid>,
-    pub azure_device_id: Option<String>,
+    pub microsoft_device_id: Option<String>,
     pub intune_device_id: Option<String>,
     pub entra_device_id: Option<String>,
     pub compliance_state: Option<String>,
@@ -1298,6 +1298,7 @@ pub struct SyncHistory {
     pub records_failed: Option<i32>,
     pub tenant_id: Option<String>,
     pub initiated_by: Option<Uuid>,
+    pub is_delta: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -1313,6 +1314,7 @@ pub struct NewSyncHistory {
     pub records_updated: Option<i32>,
     pub records_failed: Option<i32>,
     pub tenant_id: Option<String>,
+    pub is_delta: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, AsChangeset)]

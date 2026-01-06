@@ -762,6 +762,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/groups/{id}", web::put().to(handlers::groups::update_group))
                     .route("/groups/{id}", web::delete().to(handlers::groups::delete_group))
                     .route("/groups/{id}/members", web::put().to(handlers::groups::set_group_members))
+                    .route("/groups/{id}/devices", web::put().to(handlers::groups::set_group_devices))
+                    .route("/groups/{id}/unmanage", web::post().to(handlers::groups::unmanage_group))
                     .route("/users/{uuid}/groups", web::get().to(handlers::groups::get_user_groups))
                     .route("/users/{uuid}/groups", web::put().to(handlers::groups::set_user_groups))
 

@@ -8,7 +8,8 @@ import type {
   CreateGroupRequest,
   UpdateGroupRequest,
   SetGroupMembersRequest,
-  SetUserGroupsRequest
+  SetUserGroupsRequest,
+  SetGroupDevicesRequest
 } from '@/types/group';
 
 export const groupService = {
@@ -77,6 +78,17 @@ export const groupService = {
     }
   },
 
+  // Set group devices (admin only)
+  async setGroupDevices(id: number, request: SetGroupDevicesRequest): Promise<GroupDetails> {
+    try {
+      const response = await apiClient.put<GroupDetails>(`/groups/${id}/devices`, request);
+      return response.data;
+    } catch (error) {
+      logger.error(`Error setting devices for group ${id}:`, error);
+      throw error;
+    }
+  },
+
   // Get groups for a user (admin only)
   async getUserGroups(userUuid: string): Promise<Group[]> {
     try {
@@ -106,6 +118,17 @@ export const groupService = {
       return response.data;
     } catch (error) {
       logger.error(`Error fetching group details for ${uuid}:`, error);
+      throw error;
+    }
+  },
+
+  // Unmanage a group (remove external sync) - admin only
+  async unmanageGroup(id: number): Promise<Group> {
+    try {
+      const response = await apiClient.post<Group>(`/groups/${id}/unmanage`);
+      return response.data;
+    } catch (error) {
+      logger.error(`Error unmanaging group ${id}:`, error);
       throw error;
     }
   }

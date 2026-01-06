@@ -292,7 +292,7 @@ const statCards = computed(() => [
 const secondaryStats = computed(() => {
   const stats = [];
   if (ticketCounts.value.unassigned > 0) {
-    stats.push({ label: 'Unassigned', value: ticketCounts.value.unassigned, to: '/tickets?assignee=unassigned&status=open', color: 'text-amber-500', border: 'border-amber-500/30 hover:border-amber-500/50' });
+    stats.push({ label: 'Unassigned', value: ticketCounts.value.unassigned, to: '/tickets?assignee=unassigned&status=open', color: 'text-primary' });
   }
   stats.push({ label: 'All Tickets', value: ticketCounts.value.all, to: '/tickets', color: 'text-secondary', span: ticketCounts.value.unassigned === 0 });
   return stats;
@@ -395,12 +395,11 @@ defineExpose({
               :key="stat.label"
               :to="stat.to"
               :class="[
-                'bg-surface rounded-lg border transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left',
-                stat.border || 'border-default hover:border-strong',
+                'bg-surface rounded-lg border border-default hover:border-strong transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left',
                 stat.span ? 'col-span-2' : ''
               ]"
             >
-              <h3 :class="['text-[10px] sm:text-xs font-medium uppercase tracking-wide', stat.color]">
+              <h3 class="text-tertiary text-[10px] sm:text-xs font-medium uppercase tracking-wide">
                 {{ stat.label }}
               </h3>
               <p :class="['text-base sm:text-xl font-semibold mt-0.5 sm:mt-1 group-hover:text-accent transition-colors', stat.color]">

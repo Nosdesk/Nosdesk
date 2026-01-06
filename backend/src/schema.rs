@@ -208,7 +208,7 @@ diesel::table! {
         notes -> Nullable<Text>,
         primary_user_uuid -> Nullable<Uuid>,
         #[max_length = 255]
-        azure_device_id -> Nullable<Varchar>,
+        microsoft_device_id -> Nullable<Varchar>,
         #[max_length = 255]
         intune_device_id -> Nullable<Varchar>,
         #[max_length = 255]
@@ -445,6 +445,7 @@ diesel::table! {
         #[max_length = 255]
         tenant_id -> Nullable<Varchar>,
         initiated_by -> Nullable<Uuid>,
+        is_delta -> Bool,
     }
 }
 

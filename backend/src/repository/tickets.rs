@@ -569,7 +569,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
             location: None,
             notes: None,
             primary_user_uuid: None, // Will be populated during Microsoft Entra sync
-            azure_device_id: None,
+            microsoft_device_id: None,
             intune_device_id: None,
             entra_device_id: None,
             compliance_state: None,

@@ -66,3 +66,7 @@ export interface SetGroupMembersRequest {
 export interface SetUserGroupsRequest {
   group_ids: number[]
 }
+
+export interface SetGroupDevicesRequest {
+  device_ids: number[]
+}

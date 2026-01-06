@@ -184,6 +184,43 @@ pub async fn delete_group(
     }
 }
 
+/// Unmanage a group (remove external source to make it fully editable) - admin only
+pub async fn unmanage_group(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+) -> impl Responder {
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+
+    let group_id = path.into_inner();
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Check if group exists and is externally synced
+    let group = match repository::groups::get_group_by_id(&mut conn, group_id) {
+        Ok(group) => group,
+        Err(Error::NotFound) => return HttpResponse::NotFound().json("Group not found"),
+        Err(_) => return HttpResponse::InternalServerError().json("Failed to get group"),
+    };
+
+    if group.external_source.is_none() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Group is not externally managed",
+            "message": "This group is already manually managed and doesn't need to be unmanaged."
+        }));
+    }
+
+    // Clear external management fields
+    match repository::groups::unmanage_group(&mut conn, group_id) {
+        Ok(updated_group) => HttpResponse::Ok().json(updated_group),
+        Err(_) => HttpResponse::InternalServerError().json("Failed to unmanage group"),
+    }
+}
+
 // ============================================================================
 // Group Membership Endpoints
 // ============================================================================
@@ -195,6 +232,7 @@ pub struct SetGroupMembersRequest {
 }
 
 /// Set members of a group (replaces existing members)
+/// Note: Externally synced groups (e.g., from Microsoft) cannot have their membership modified
 pub async fn set_group_members(
     req: HttpRequest,
     pool: web::Data<Pool>,
@@ -217,6 +255,20 @@ pub async fn set_group_members(
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
+
+    // Check if group is externally synced - membership cannot be modified
+    match repository::groups::get_group_by_id(&mut conn, group_id) {
+        Ok(group) => {
+            if group.external_source.is_some() {
+                return HttpResponse::BadRequest().json(serde_json::json!({
+                    "error": "Cannot modify membership",
+                    "message": "This group is synced from an external source. Membership is managed externally and updated during sync."
+                }));
+            }
+        }
+        Err(Error::NotFound) => return HttpResponse::NotFound().json("Group not found"),
+        Err(_) => return HttpResponse::InternalServerError().json("Failed to get group"),
+    }
 
     match repository::groups::set_group_members(&mut conn, group_id, body.member_uuids.clone(), created_by) {
         Ok(_) => {
@@ -298,5 +350,71 @@ pub async fn set_user_groups(
             }
         }
         Err(_) => HttpResponse::InternalServerError().json("Failed to set user groups"),
+    }
+}
+
+// ============================================================================
+// Device-Group Membership Endpoints
+// ============================================================================
+
+/// Request body for setting group devices
+#[derive(Debug, Deserialize)]
+pub struct SetGroupDevicesRequest {
+    pub device_ids: Vec<i32>,
+}
+
+/// Set devices of a group (replaces existing manually-added devices, preserves synced ones)
+/// Note: Externally synced groups (e.g., from Microsoft) cannot have their device membership modified
+pub async fn set_group_devices(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+    body: web::Json<SetGroupDevicesRequest>,
+) -> impl Responder {
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    };
+
+    let created_by = Uuid::parse_str(&claims.sub).ok();
+    let group_id = path.into_inner();
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Check if group is externally synced - membership cannot be modified
+    match repository::groups::get_group_by_id(&mut conn, group_id) {
+        Ok(group) => {
+            if group.external_source.is_some() {
+                return HttpResponse::BadRequest().json(serde_json::json!({
+                    "error": "Cannot modify membership",
+                    "message": "This group is synced from an external source. Device membership is managed externally and updated during sync."
+                }));
+            }
+        }
+        Err(Error::NotFound) => return HttpResponse::NotFound().json("Group not found"),
+        Err(_) => return HttpResponse::InternalServerError().json("Failed to get group"),
+    }
+
+    match repository::groups::set_group_devices(&mut conn, group_id, body.device_ids.clone(), created_by) {
+        Ok(_) => {
+            // Return the updated group details
+            match repository::groups::get_group_by_id(&mut conn, group_id) {
+                Ok(group) => {
+                    match repository::groups::get_group_details(&mut conn, &group.uuid) {
+                        Ok(details) => HttpResponse::Ok().json(details),
+                        Err(_) => HttpResponse::InternalServerError().json("Failed to get updated group details"),
+                    }
+                }
+                Err(_) => HttpResponse::InternalServerError().json("Failed to get group"),
+            }
+        }
+        Err(_) => HttpResponse::InternalServerError().json("Failed to set group devices"),
     }
 }

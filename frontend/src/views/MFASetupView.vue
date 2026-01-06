@@ -4,7 +4,7 @@
       <div class="flex flex-col gap-6 w-full max-w-4xl">
       <!-- Header -->
       <div class="flex flex-col gap-2 items-center">
-        <LogoIcon class="h-8 px-4 text-accent" aria-label="Nosdesk Logo" />
+        <LogoIcon class="h-12 px-4 text-accent" aria-label="Nosdesk Logo" />
         <h1 class="text-2xl font-bold text-primary mt-4 text-center">Complete Your Account Setup</h1>
         <p class="text-secondary text-center">
           Your account type requires multi-factor authentication for security

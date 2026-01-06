@@ -311,7 +311,7 @@ const handleOidcLogoutClick = async () => {
           :alt="brandingStore.appName + ' Logo'"
           class="h-12 max-w-full px-4 object-contain"
         />
-        <LogoIcon v-else class="h-8 px-4 text-accent" aria-label="Nosdesk Logo" />
+        <LogoIcon v-else class="h-12 px-4 text-accent" aria-label="Nosdesk Logo" />
         <p class="text-secondary mt-2">Sign in to your account</p>
       </div>
 

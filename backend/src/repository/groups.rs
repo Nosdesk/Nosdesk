@@ -129,6 +129,17 @@ pub fn delete_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<usize
     diesel::delete(groups::table.find(group_id)).execute(conn)
 }
 
+/// Unmanage a group (clear external source fields to make it locally managed)
+pub fn unmanage_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Group> {
+    diesel::update(groups::table.find(group_id))
+        .set((
+            groups::external_source.eq::<Option<String>>(None),
+            groups::external_id.eq::<Option<String>>(None),
+            groups::last_synced_at.eq::<Option<chrono::NaiveDateTime>>(None),
+        ))
+        .get_result(conn)
+}
+
 // ============================================================================
 // User-Group Membership Operations
 // ============================================================================
@@ -522,4 +533,48 @@ pub fn is_device_in_group(
         .get_result::<i64>(conn)?;
 
     Ok(count > 0)
+}
+
+/// Set all devices of a group (replaces existing non-synced devices)
+/// Note: This only removes manually-added devices, not externally synced ones
+pub fn set_group_devices(
+    conn: &mut DbConnection,
+    group_id: i32,
+    device_ids: Vec<i32>,
+    created_by: Option<Uuid>,
+) -> QueryResult<Vec<DeviceGroup>> {
+    // Delete all existing devices that were NOT synced from an external source
+    // This preserves Microsoft-synced device memberships
+    diesel::delete(
+        device_groups::table
+            .filter(device_groups::group_id.eq(group_id))
+            .filter(device_groups::external_source.is_null())
+    ).execute(conn)?;
+
+    // Add new devices (manually added, so no external_source)
+    let new_memberships: Vec<NewDeviceGroup> = device_ids
+        .iter()
+        .map(|device_id| NewDeviceGroup {
+            device_id: *device_id,
+            group_id,
+            created_by,
+            external_source: None,
+        })
+        .collect();
+
+    if new_memberships.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Use ON CONFLICT DO NOTHING to handle devices that are already in the group via sync
+    diesel::insert_into(device_groups::table)
+        .values(&new_memberships)
+        .on_conflict((device_groups::device_id, device_groups::group_id))
+        .do_nothing()
+        .execute(conn)?;
+
+    // Return the current state of device memberships
+    device_groups::table
+        .filter(device_groups::group_id.eq(group_id))
+        .load(conn)
 }

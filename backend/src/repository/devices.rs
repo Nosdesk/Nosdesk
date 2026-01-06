@@ -145,6 +145,12 @@ pub fn get_device_by_entra_id(conn: &mut DbConnection, entra_device_id: &str) ->
         .first(conn)
 }
 
+pub fn get_device_by_microsoft_id(conn: &mut DbConnection, microsoft_device_id: &str) -> QueryResult<Device> {
+    devices::table
+        .filter(devices::microsoft_device_id.eq(microsoft_device_id))
+        .first(conn)
+}
+
 #[allow(dead_code)]
 pub fn get_devices_by_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<Vec<Device>> {
     devices::table

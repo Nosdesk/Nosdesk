@@ -734,7 +734,7 @@ onMounted(() => {
             <div v-else class="bg-surface rounded-xl border border-default hover:border-strong transition-colors">
               <!-- Header -->
               <div class="px-4 py-3 bg-surface-alt rounded-t-xl border-b border-default">
-                <h2 class="text-lg font-medium text-primary">Microsoft Entra/Intune</h2>
+                <h2 class="text-lg font-medium text-primary">Microsoft Integration</h2>
               </div>
 
               <!-- Content -->
@@ -764,43 +764,53 @@ onMounted(() => {
                   </div>
                 </div>
 
-                <!-- Action Buttons -->
+                <!-- External Links -->
                 <div class="flex flex-col gap-4 pt-4 border-t border-default">
-                  <h3 class="text-sm font-medium text-primary uppercase tracking-wide mb-4">Quick Actions</h3>
                   <div class="flex flex-wrap gap-3">
                     <button
                       v-if="device.intune_device_id"
                       @click="openInIntune"
-                      class="flex-1 min-w-[200px] flex items-center justify-center gap-3 px-4 py-3 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors duration-200 text-sm font-medium"
+                      class="flex-1 min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors duration-200 text-sm font-medium"
                     >
-                      <IntuneIcon size="18" class="text-white flex-shrink-0" />
-                      <span>Open in Intune</span>
+                      <IntuneIcon size="16" class="text-white flex-shrink-0" />
+                      <span>View in Intune</span>
+                      <svg class="w-3.5 h-3.5 flex-shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
                     </button>
 
                     <button
                       v-if="device.entra_device_id"
                       @click="openInEntra"
-                      class="flex-1 min-w-[200px] flex items-center justify-center gap-3 px-4 py-3 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors duration-200 text-sm font-medium"
+                      class="flex-1 min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors duration-200 text-sm font-medium border border-default"
                     >
-                      <EntraIcon size="18" class="text-white flex-shrink-0" />
-                      <span>Open in Entra Admin Center</span>
+                      <EntraIcon size="16" class="flex-shrink-0" />
+                      <span>View in Entra</span>
+                      <svg class="w-3.5 h-3.5 flex-shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
                     </button>
                   </div>
 
                   <!-- Unmanage Button -->
-                  <div class="pt-4 border-t border-default">
+                  <div class="pt-4 border-t border-default flex flex-col gap-3">
                     <button
                       @click="handleUnmanageDevice"
                       :disabled="isSaving"
                       class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-status-warning/20 text-status-warning rounded-lg hover:bg-status-warning/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
                       title="Remove from Microsoft Intune/Entra management"
                     >
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18.84 12.25l1.72-1.71h-.02a5.004 5.004 0 00-.12-7.07 5.006 5.006 0 00-6.95 0l-1.72 1.71" />
+                        <path d="M5.17 11.75l-1.71 1.71a5.004 5.004 0 00.12 7.07 5.006 5.006 0 006.95 0l1.71-1.71" />
+                        <path d="M8 2v3" />
+                        <path d="M2 8h3" />
+                        <path d="M16 22v-3" />
+                        <path d="M22 16h-3" />
                       </svg>
                       {{ isSaving ? 'Processing...' : 'Unmanage from Intune/Entra' }}
                     </button>
-                    <p class="text-xs text-tertiary mt-2 text-center">This will convert the device to manual management</p>
+                    <p class="text-xs text-tertiary text-center">This will convert the device to manual management</p>
                   </div>
 
                   <!-- Additional Details Dropdown -->

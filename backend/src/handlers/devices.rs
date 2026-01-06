@@ -540,7 +540,7 @@ pub async fn unmanage_device(
         location: None,
         notes: None,
         primary_user_uuid: None,
-        azure_device_id: None,
+        microsoft_device_id: None,
         intune_device_id: Some(String::new()),
         entra_device_id: Some(String::new()),
         compliance_state: None,

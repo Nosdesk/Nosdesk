@@ -17,10 +17,10 @@ const emit = defineEmits<{
 
 const sizeClasses = computed(() => {
   switch (props.size) {
-    case 'sm': return 'sm:max-w-md'
-    case 'lg': return 'sm:max-w-xl md:max-w-3xl lg:max-w-5xl'
-    case 'xl': return 'sm:max-w-2xl md:max-w-4xl lg:max-w-6xl'
-    default: return 'sm:max-w-lg md:max-w-2xl lg:max-w-4xl'
+    case 'sm': return 'max-w-none sm:max-w-md'
+    case 'lg': return 'max-w-none sm:max-w-xl md:max-w-3xl lg:max-w-5xl'
+    case 'xl': return 'max-w-none sm:max-w-2xl md:max-w-4xl lg:max-w-6xl'
+    default: return 'max-w-none sm:max-w-lg md:max-w-2xl lg:max-w-4xl'
   }
 })
 
@@ -60,7 +60,7 @@ onUnmounted(() => {
             'modal-content relative w-full bg-surface shadow-xl flex flex-col pointer-events-auto',
             'max-h-[90vh] sm:max-h-[85vh]',
             'rounded-t-2xl sm:rounded-xl',
-            'sm:mx-4',
+            'mx-0 sm:mx-4',
             sizeClasses,
             contentClass
           ]"

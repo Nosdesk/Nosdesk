@@ -93,7 +93,6 @@ const checkboxStyle = computed(() =>
     </button>
     <label
       v-if="label"
-      :for="id"
       class="text-sm text-primary cursor-pointer select-none"
       :class="disabled ? 'opacity-50 cursor-not-allowed' : ''"
       @click="toggle"
