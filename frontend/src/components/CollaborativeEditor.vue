@@ -72,6 +72,7 @@ import {
 import { createImageUploadPlugin } from "./editor/imageUploadPlugin";
 import { syntaxHighlightPlugin } from "./editor/syntaxHighlightPlugin";
 import { twemojiPlugin } from "@/plugins/prosemirror-twemoji";
+import { createTicketDropIndicatorPlugin } from "./editor/ticketDropIndicatorPlugin";
 
 // Yjs awareness user state structure
 interface AwarenessUser {
@@ -698,6 +699,7 @@ const initEditor = async () => {
                     buildInputRules(schema), // Custom markdown input rules
                     keymap(baseKeymap), // Basic key bindings
                     dropCursor(), // Shows cursor when dragging
+                    createTicketDropIndicatorPlugin(), // Shows drop indicator for ticket cards
                     // NOTE: gapCursor() removed - causes null reference errors with empty Yjs documents
                     createImageUploadPlugin({
                         ticketId: props.ticketId,
@@ -2755,6 +2757,154 @@ defineExpose({
 
 .ProseMirror a:hover {
     color: var(--color-accent-hover, var(--color-accent));
+}
+
+/* Ticket Drop Preview - shows ticket preview when dragging over editor */
+.ProseMirror .ticket-drop-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    margin: 8px 0;
+    background: var(--color-surface-alt);
+    border: 2px dashed var(--color-accent);
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+    width: 100%;
+    max-width: 100%;
+    pointer-events: none;
+    opacity: 0.85;
+    animation: ticket-drop-preview-pulse 1.5s ease-in-out infinite;
+    box-shadow: 0 0 12px rgba(var(--color-accent-rgb, 59, 130, 246), 0.3);
+}
+
+@keyframes ticket-drop-preview-pulse {
+    0%, 100% {
+        opacity: 0.75;
+        box-shadow: 0 0 8px rgba(var(--color-accent-rgb, 59, 130, 246), 0.2);
+    }
+    50% {
+        opacity: 0.95;
+        box-shadow: 0 0 16px rgba(var(--color-accent-rgb, 59, 130, 246), 0.4);
+    }
+}
+
+.ProseMirror .ticket-drop-preview-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ProseMirror .ticket-drop-preview-id {
+    font-weight: 600;
+    color: var(--color-accent);
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.ProseMirror .ticket-drop-preview-title {
+    color: var(--color-text-primary, #fff);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.ProseMirror .ticket-drop-preview-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 11px;
+}
+
+.ProseMirror .ticket-drop-preview-person {
+    color: var(--color-text-secondary, #aaa);
+}
+
+.ProseMirror .ticket-drop-preview-label {
+    color: var(--color-text-tertiary, #666);
+}
+
+/* Status badges for drop preview */
+.ProseMirror .ticket-drop-preview-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.ProseMirror .ticket-drop-preview-status-open {
+    background: var(--color-status-open-muted, rgba(59, 130, 246, 0.15));
+    color: var(--color-status-open, #3b82f6);
+}
+
+.ProseMirror .ticket-drop-preview-status-in-progress {
+    background: var(--color-status-in-progress-muted, rgba(245, 158, 11, 0.15));
+    color: var(--color-status-in-progress, #f59e0b);
+}
+
+.ProseMirror .ticket-drop-preview-status-closed {
+    background: var(--color-status-closed-muted, rgba(34, 197, 94, 0.15));
+    color: var(--color-status-closed, #22c55e);
+}
+
+/* Priority badges for drop preview */
+.ProseMirror .ticket-drop-preview-priority {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+.ProseMirror .ticket-drop-preview-priority-high {
+    background: var(--color-priority-high-muted, rgba(239, 68, 68, 0.15));
+    color: var(--color-priority-high, #ef4444);
+}
+
+.ProseMirror .ticket-drop-preview-priority-medium {
+    background: var(--color-priority-medium-muted, rgba(245, 158, 11, 0.15));
+    color: var(--color-priority-medium, #f59e0b);
+}
+
+.ProseMirror .ticket-drop-preview-priority-low {
+    background: var(--color-priority-low-muted, rgba(34, 197, 94, 0.15));
+    color: var(--color-priority-low, #22c55e);
+}
+
+/* Skeleton loading for drop preview fallback */
+.ProseMirror .ticket-drop-preview-skeleton {
+    display: inline-block;
+    height: 14px;
+    min-width: 80px;
+    background: linear-gradient(
+        90deg,
+        var(--color-surface-hover) 25%,
+        var(--color-surface-alt) 50%,
+        var(--color-surface-hover) 75%
+    );
+    background-size: 200% 100%;
+    animation: ticket-drop-skeleton-shimmer 1.5s ease-in-out infinite;
+    border-radius: 4px;
+}
+
+@keyframes ticket-drop-skeleton-shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 /* Ticket Link Card Styles - Full width card layout */

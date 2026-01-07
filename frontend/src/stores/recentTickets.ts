@@ -62,12 +62,29 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
     }
   }
 
+  // Reorder tickets in the list (local only - persists until next fetch)
+  const reorderTickets = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return
+    if (fromIndex < 0 || fromIndex >= recentTickets.value.length) return
+    if (toIndex < 0 || toIndex >= recentTickets.value.length) return
+
+    const tickets = [...recentTickets.value]
+    const [moved] = tickets.splice(fromIndex, 1)
+    tickets.splice(toIndex, 0, moved)
+    recentTickets.value = tickets
+
+    if (import.meta.env.DEV) {
+      logger.debug(`Reordered ticket from index ${fromIndex} to ${toIndex}`)
+    }
+  }
+
   return {
     recentTickets,
     isLoading,
     error,
     fetchRecentTickets,
     recordTicketView,
-    updateTicketData
+    updateTicketData,
+    reorderTickets
   }
 })

@@ -105,34 +105,29 @@ const formattedDate = (dateString: string) => {
 <template>
   <div
     v-if="linkedTicket && !isSameAsCurrentTicket"
-    class="group bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors"
+    @click="viewTicket"
+    class="group bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors cursor-pointer"
   >
     <!-- Header with status and actions -->
-    <div class="px-4 py-3 bg-surface-alt border-b border-default flex items-center">
-      <div class="flex items-center gap-3 min-w-0 flex-1">
-        <!-- Ticket Number Badge -->
-        <div class="flex-shrink-0">
-          <span class="inline-flex items-center px-2.5 py-1.5 rounded-md text-xs font-semibold" :class="ticketBadgeColors">
-            #{{ linkedTicket.id }}
-          </span>
-        </div>
-        
-        <!-- Title - clickable to navigate to ticket -->
-        <div class="min-w-0 flex-1">
-          <h3
-            @click="viewTicket"
-            class="text-primary font-medium truncate text-md cursor-pointer hover:text-accent transition-colors"
-          >
-            {{ linkedTicket.title }}
-          </h3>
-        </div>
-      </div>
-      
-      <!-- Action button -->
+    <div class="px-4 py-3 bg-surface-alt border-b border-default flex items-center gap-3">
+      <!-- Ticket Number Badge -->
+      <span
+        class="flex-shrink-0 inline-flex items-center px-2.5 py-1.5 rounded-md text-xs font-semibold"
+        :class="ticketBadgeColors"
+      >
+        #{{ linkedTicket.id }}
+      </span>
+
+      <!-- Title -->
+      <h3 class="text-primary font-medium truncate text-md group-hover:text-accent transition-colors min-w-0 flex-1">
+        {{ linkedTicket.title }}
+      </h3>
+
+      <!-- Unlink button -->
       <button
-        @click="emit('unlink')"
+        @click.stop="emit('unlink')"
         :disabled="isNavigating"
-        class="p-1.5 ml-3 flex-shrink-0 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors disabled:opacity-50"
+        class="p-1.5 flex-shrink-0 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors disabled:opacity-50"
         title="Unlink ticket"
       >
         <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -162,26 +157,36 @@ const formattedDate = (dateString: string) => {
           </div>
           <div class="flex flex-col gap-1">
             <span class="text-xs text-tertiary uppercase tracking-wide">Requester</span>
-            <UserAvatar
+            <div
               v-if="linkedTicket.requester_user || linkedTicket.requester"
-              :name="linkedTicket.requester_user?.uuid || linkedTicket.requester"
-              :userName="linkedTicket.requester_user?.name"
-              :avatar="linkedTicket.requester_user?.avatar_thumb"
-              size="xs"
-              :showName="true"
-            />
+              @click.stop="router.push(`/users/${linkedTicket.requester_user?.uuid || linkedTicket.requester}`)"
+              class="cursor-pointer hover:opacity-80 transition-opacity"
+            >
+              <UserAvatar
+                :name="linkedTicket.requester_user?.uuid || linkedTicket.requester"
+                :userName="linkedTicket.requester_user?.name"
+                :avatar="linkedTicket.requester_user?.avatar_thumb"
+                size="xs"
+                :showName="true"
+              />
+            </div>
             <span v-else class="text-tertiary text-sm">Unassigned</span>
           </div>
           <div class="flex flex-col gap-1">
             <span class="text-xs text-tertiary uppercase tracking-wide">Assignee</span>
-            <UserAvatar
+            <div
               v-if="linkedTicket.assignee_user || linkedTicket.assignee"
-              :name="linkedTicket.assignee_user?.uuid || linkedTicket.assignee"
-              :userName="linkedTicket.assignee_user?.name"
-              :avatar="linkedTicket.assignee_user?.avatar_thumb"
-              size="xs"
-              :showName="true"
-            />
+              @click.stop="router.push(`/users/${linkedTicket.assignee_user?.uuid || linkedTicket.assignee}`)"
+              class="cursor-pointer hover:opacity-80 transition-opacity"
+            >
+              <UserAvatar
+                :name="linkedTicket.assignee_user?.uuid || linkedTicket.assignee"
+                :userName="linkedTicket.assignee_user?.name"
+                :avatar="linkedTicket.assignee_user?.avatar_thumb"
+                size="xs"
+                :showName="true"
+              />
+            </div>
             <span v-else class="text-tertiary text-sm">Unassigned</span>
           </div>
         </div>

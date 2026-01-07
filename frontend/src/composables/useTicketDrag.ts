@@ -64,15 +64,38 @@ export function useTicketDrag() {
   const handleDragStart = (ticket: DraggableTicket, source: 'recent-tickets' | 'kanban', event: DragEvent) => {
     startDrag(ticket, source)
     if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move'
+      // Allow all effects for maximum compatibility with external apps
+      event.dataTransfer.effectAllowed = 'all'
+
+      // Build ticket URL
+      const ticketUrl = `${window.location.origin}/tickets/${ticket.id}`
+      const ticketLabel = `#${ticket.id} ${ticket.title}`
+
+      // Set multiple data formats for maximum compatibility
+      // text/plain - most apps use this (Slack, Discord, etc.)
+      event.dataTransfer.setData('text/plain', ticketUrl)
+
+      // text/uri-list - URL-aware apps
+      event.dataTransfer.setData('text/uri-list', ticketUrl)
+
+      // text/html - apps that support rich text (creates clickable link)
+      event.dataTransfer.setData('text/html', `<a href="${ticketUrl}">${ticketLabel}</a>`)
+
+      // Internal app data for in-app drops
       event.dataTransfer.setData('application/json', JSON.stringify({
         ticketId: ticket.id,
         source
       }))
-      // Set a custom drag image (transparent 1x1 pixel)
-      const img = new Image()
-      img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs='
-      event.dataTransfer.setDragImage(img, 0, 0)
+
+      // Create a minimal drag ghost to prevent browser from using element text
+      // Using a small element with just the ticket ID
+      const ghost = document.createElement('div')
+      ghost.textContent = `#${ticket.id}`
+      ghost.style.cssText = 'position:absolute;top:-1000px;left:-1000px;padding:4px 8px;background:#333;color:#fff;border-radius:4px;font-size:12px;white-space:nowrap;'
+      document.body.appendChild(ghost)
+      event.dataTransfer.setDragImage(ghost, 0, 0)
+      // Clean up after a frame
+      requestAnimationFrame(() => ghost.remove())
     }
   }
 

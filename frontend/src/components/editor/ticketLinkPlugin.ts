@@ -9,25 +9,21 @@ import {
   getStatusIndicatorSvg,
   getPriorityIndicatorSvg
 } from '@/utils/indicatorSvg'
+import {
+  type TicketCardData,
+  getStatusClass,
+  getPriorityClass,
+  escapeHtml,
+  renderTicketCardHtml
+} from './ticketCardRenderer'
 
 export const ticketLinkPluginKey = new PluginKey('ticketLink')
 
 type TicketStatus = 'open' | 'in-progress' | 'closed'
 type TicketPriority = 'low' | 'medium' | 'high'
 
-interface TicketCacheData {
-  id: number
-  title: string
-  status: string
-  priority: string
-  requester?: string
-  assignee?: string
-  loading?: boolean
-  error?: boolean
-}
-
 // Cache for ticket data to avoid repeated API calls
-const ticketCache = new Map<number, TicketCacheData>()
+const ticketCache = new Map<number, TicketCardData>()
 
 // Navigation callback - set by the component that creates the plugin
 let navigateToTicket: ((ticketId: number) => void) | null = null
@@ -37,14 +33,14 @@ export function setTicketNavigationHandler(handler: (ticketId: number) => void) 
 }
 
 // Fetch ticket data with caching
-async function fetchTicketData(ticketId: number): Promise<TicketCacheData> {
+async function fetchTicketData(ticketId: number): Promise<TicketCardData> {
   const cached = ticketCache.get(ticketId)
   if (cached && !cached.loading) {
     return cached
   }
 
   // Set loading state
-  const loadingData: TicketCacheData = {
+  const loadingData: TicketCardData = {
     id: ticketId,
     title: 'Loading...',
     status: '',
@@ -55,7 +51,7 @@ async function fetchTicketData(ticketId: number): Promise<TicketCacheData> {
 
   try {
     const ticket = await getTicketById(ticketId)
-    const data: TicketCacheData = {
+    const data: TicketCardData = {
       id: ticket.id,
       title: ticket.title,
       status: ticket.status,
@@ -68,7 +64,7 @@ async function fetchTicketData(ticketId: number): Promise<TicketCacheData> {
     return data
   } catch (err) {
     console.error(`Failed to fetch ticket ${ticketId}:`, err)
-    const errorData: TicketCacheData = {
+    const errorData: TicketCardData = {
       id: ticketId,
       title: `Ticket #${ticketId} not found`,
       status: '',
@@ -77,34 +73,6 @@ async function fetchTicketData(ticketId: number): Promise<TicketCacheData> {
     }
     ticketCache.set(ticketId, errorData)
     return errorData
-  }
-}
-
-// Get status color class
-function getStatusClass(status: string): string {
-  switch (status?.toLowerCase()) {
-    case 'open':
-      return 'ticket-link-status-open'
-    case 'in-progress':
-      return 'ticket-link-status-in-progress'
-    case 'closed':
-      return 'ticket-link-status-closed'
-    default:
-      return ''
-  }
-}
-
-// Get priority color class
-function getPriorityClass(priority: string): string {
-  switch (priority?.toLowerCase()) {
-    case 'high':
-      return 'ticket-link-priority-high'
-    case 'medium':
-      return 'ticket-link-priority-medium'
-    case 'low':
-      return 'ticket-link-priority-low'
-    default:
-      return ''
   }
 }
 
@@ -149,7 +117,7 @@ class TicketLinkView implements NodeView {
     this.render(data)
   }
 
-  private render(data: TicketCacheData) {
+  private render(data: TicketCardData) {
     const colorBlindMode = isColorBlindMode()
     const statusClass = getStatusClass(data.status)
     const priorityClass = getPriorityClass(data.priority)
@@ -181,21 +149,15 @@ class TicketLinkView implements NodeView {
     this.dom.innerHTML = `
       <div class="ticket-link-header">
         <span class="ticket-link-id">#${data.id}</span>
-        <span class="ticket-link-title">${this.escapeHtml(data.title)}</span>
+        <span class="ticket-link-title">${escapeHtml(data.title)}</span>
       </div>
       <div class="ticket-link-meta">
-        ${data.requester ? `<span class="ticket-link-person"><span class="ticket-link-label">From:</span> ${this.escapeHtml(data.requester)}</span>` : ''}
-        ${data.assignee ? `<span class="ticket-link-person"><span class="ticket-link-label">To:</span> ${this.escapeHtml(data.assignee)}</span>` : ''}
+        ${data.requester ? `<span class="ticket-link-person"><span class="ticket-link-label">From:</span> ${escapeHtml(data.requester)}</span>` : ''}
+        ${data.assignee ? `<span class="ticket-link-person"><span class="ticket-link-label">To:</span> ${escapeHtml(data.assignee)}</span>` : ''}
         ${data.status ? `<span class="ticket-link-status ${statusClass}">${statusIndicator}${statusText}</span>` : ''}
         ${data.priority ? `<span class="ticket-link-priority ${priorityClass}">${priorityIndicator}${priorityText}</span>` : ''}
       </div>
     `
-  }
-
-  private escapeHtml(text: string): string {
-    const div = document.createElement('div')
-    div.textContent = text
-    return div.innerHTML
   }
 
   update(node: ProseMirrorNode): boolean {
@@ -286,11 +248,36 @@ export function createTicketLinkPlugin(): Plugin {
       handleDrop(view, event, slice, moved) {
         if (moved) return false // Let normal move handling work
 
-        const text = event.dataTransfer?.getData('text/plain')
-        if (!text) return false
+        // Try to get ticket data from multiple sources
+        let ticketId: number | null = null
+        let href: string | null = null
 
-        const ticketId = parseTicketUrl(text.trim())
-        if (!ticketId) return false
+        // First try: Parse URL from text/plain
+        const text = event.dataTransfer?.getData('text/plain')
+        if (text) {
+          ticketId = parseTicketUrl(text.trim())
+          if (ticketId) {
+            href = text.trim()
+          }
+        }
+
+        // Second try: Get ticket ID from application/json (internal drag from RecentTickets)
+        if (!ticketId) {
+          const jsonData = event.dataTransfer?.getData('application/json')
+          if (jsonData) {
+            try {
+              const data = JSON.parse(jsonData)
+              if (data.ticketId) {
+                ticketId = data.ticketId
+                href = `${window.location.origin}/tickets/${ticketId}`
+              }
+            } catch {
+              // Invalid JSON, ignore
+            }
+          }
+        }
+
+        if (!ticketId || !href) return false
 
         const { schema, tr } = view.state
         const ticketLinkType = schema.nodes.ticket_link
@@ -298,15 +285,23 @@ export function createTicketLinkPlugin(): Plugin {
         if (!ticketLinkType) return false
 
         // Get drop position
-        const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })
-        if (!pos) return false
+        const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
+        if (!coords) return false
+
+        // Snap to block boundaries (start or end of line)
+        const $pos = view.state.doc.resolve(coords.pos)
+        const parentStart = $pos.start($pos.depth)
+        const parentEnd = $pos.end($pos.depth)
+        const distToStart = coords.pos - parentStart
+        const distToEnd = parentEnd - coords.pos
+        const insertPos = distToStart <= distToEnd ? parentStart : parentEnd
 
         const node = ticketLinkType.create({
           ticketId: String(ticketId),
-          href: text.trim()
+          href
         })
 
-        const transaction = tr.insert(pos.pos, node)
+        const transaction = tr.insert(insertPos, node)
         view.dispatch(transaction)
         return true
       }

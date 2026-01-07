@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /// <reference types="node" />
-import { computed, onMounted, watch, ref } from "vue";
+import { computed, onMounted, onUnmounted, watch, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
@@ -17,6 +17,8 @@ import { useTicketRelationships } from "@/composables/useTicketRelationships";
 import { useTicketComments } from "@/composables/useTicketComments";
 import { useTitleManager } from "@/composables/useTitleManager";
 import { useRecentTicketsStore } from "@/stores/recentTickets";
+import { useTicketDrag } from "@/composables/useTicketDrag";
+import { parseTicketUrl } from "@/components/editor/ticketLinkPlugin";
 
 // Components
 import CollaborativeTicketArticle from "@/components/ticketComponents/CollaborativeTicketArticle.vue";
@@ -102,6 +104,88 @@ const {
     addToProject,
     removeFromProject,
 } = useTicketRelationships(ticket, refreshTicket);
+
+// Drag-to-link state
+const { dragState } = useTicketDrag();
+const isLinkDropTarget = ref(false);
+let inactiveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+// Show drop zone affordance when dragging a ticket (that isn't this ticket)
+const showDropAffordance = computed(() => {
+    return dragState.value.isDragging &&
+           dragState.value.ticket?.id !== ticket.value?.id;
+});
+
+const setDropTargetActive = () => {
+    isLinkDropTarget.value = true;
+    if (inactiveTimeout) {
+        clearTimeout(inactiveTimeout);
+        inactiveTimeout = null;
+    }
+};
+
+const setDropTargetInactive = () => {
+    // Debounce to prevent flickering when moving over child elements
+    inactiveTimeout = setTimeout(() => {
+        isLinkDropTarget.value = false;
+    }, 50);
+};
+
+const resetDropState = () => {
+    isLinkDropTarget.value = false;
+    if (inactiveTimeout) {
+        clearTimeout(inactiveTimeout);
+        inactiveTimeout = null;
+    }
+};
+
+const handleLinkDrop = async (event: DragEvent) => {
+    event.preventDefault();
+    resetDropState();
+
+    // Try to get ticket ID from JSON data first
+    let droppedTicketId: number | null = null;
+
+    const jsonData = event.dataTransfer?.getData('application/json');
+    if (jsonData) {
+        try {
+            const data = JSON.parse(jsonData);
+            if (data.ticketId) {
+                droppedTicketId = data.ticketId;
+            }
+        } catch {
+            // Invalid JSON
+        }
+    }
+
+    // Fallback to URL parsing
+    if (!droppedTicketId) {
+        const text = event.dataTransfer?.getData('text/plain');
+        if (text) {
+            droppedTicketId = parseTicketUrl(text.trim());
+        }
+    }
+
+    if (droppedTicketId && droppedTicketId !== ticket.value?.id) {
+        await linkTicket(droppedTicketId);
+    }
+};
+
+// Document-level dragend cleanup (fires when drag ends anywhere)
+const handleDocumentDragEnd = () => {
+    resetDropState();
+};
+
+onMounted(() => {
+    document.addEventListener('dragend', handleDocumentDragEnd);
+});
+
+onUnmounted(() => {
+    document.removeEventListener('dragend', handleDocumentDragEnd);
+    if (inactiveTimeout) {
+        clearTimeout(inactiveTimeout);
+    }
+});
 
 // Comments
 const { addComment, deleteAttachment, deleteComment } = useTicketComments(
@@ -360,41 +444,57 @@ defineExpose({
                             </a>
                         </div>
 
-                        <!-- Linked Tickets -->
+                        <!-- Linked Tickets (drop zone) -->
                         <div
-                            v-if="ticket.linkedTickets?.length"
+                            @dragenter.prevent="setDropTargetActive"
+                            @dragover.prevent="setDropTargetActive"
+                            @dragleave.prevent="setDropTargetInactive"
+                            @drop.prevent="handleLinkDrop"
                             class="flex flex-col gap-2"
                         >
-                            <div class="flex items-center justify-between">
-                                <h3 class="text-sm font-medium text-secondary">
-                                    Linked Tickets
-                                </h3>
+                            <!-- Header (only when has tickets) -->
+                            <div v-if="ticket.linkedTickets?.length" class="flex items-center justify-between">
+                                <h3 class="text-sm font-medium text-secondary">Linked Tickets</h3>
                                 <a
                                     href="#"
-                                    @click.prevent="
-                                        showLinkedTicketModal = true
-                                    "
+                                    @click.prevent="showLinkedTicketModal = true"
                                     class="text-accent hover:text-accent/80 text-sm hover:underline"
                                 >
-                                    + Add linked ticket
+                                    + Add
                                 </a>
                             </div>
-                            <div class="flex flex-col gap-2">
-                                <LinkedTicketPreview
-                                    v-for="linkedId in ticket.linkedTickets"
-                                    :key="linkedId"
-                                    :linked-ticket-id="linkedId"
-                                    :current-ticket-id="ticket.id"
-                                    @unlink="() => unlinkTicket(linkedId)"
-                                    @view="() => {}"
-                                />
+
+                            <!-- Drop zone (single instance, shown when dragging) -->
+                            <div
+                                v-if="showDropAffordance || isLinkDropTarget"
+                                class="rounded-lg border-2 border-dashed p-3 text-center text-sm transition-colors"
+                                :class="isLinkDropTarget
+                                    ? 'border-accent bg-accent/10 text-accent'
+                                    : 'border-accent/40 text-accent/70'"
+                            >
+                                <template v-if="isLinkDropTarget && dragState.ticket">
+                                    <span class="font-mono">#{{ dragState.ticket.id }}</span>
+                                    {{ dragState.ticket.title }}
+                                </template>
+                                <template v-else>Drop to link ticket</template>
                             </div>
-                        </div>
-                        <div v-else>
+
+                            <!-- Existing linked tickets -->
+                            <LinkedTicketPreview
+                                v-for="linkedId in ticket.linkedTickets"
+                                :key="linkedId"
+                                :linked-ticket-id="linkedId"
+                                :current-ticket-id="ticket.id"
+                                @unlink="() => unlinkTicket(linkedId)"
+                                @view="() => {}"
+                            />
+
+                            <!-- Add link (only when no tickets and not dragging) -->
                             <a
+                                v-if="!ticket.linkedTickets?.length && !showDropAffordance && !isLinkDropTarget"
                                 href="#"
                                 @click.prevent="showLinkedTicketModal = true"
-                                class="block text-accent hover:underline"
+                                class="text-accent hover:underline"
                             >
                                 + Add linked ticket
                             </a>
