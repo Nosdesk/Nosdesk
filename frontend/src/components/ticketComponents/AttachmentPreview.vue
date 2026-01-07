@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { useRouter } from 'vue-router';
 import AudioPlayer from "@/components/ticketComponents/AudioPlayer.vue";
 import VideoPlayer from "@/components/ticketComponents/VideoPlayer.vue";
 import FilePreview from "@/components/ticketComponents/FilePreview.vue";
-import PDFViewer from "@/components/ticketComponents/PDFViewer.vue";
 import Modal from "@/components/Modal.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import { convertToAuthenticatedPath } from '@/services/fileService';
 
+const router = useRouter();
+
 interface Props {
-  attachment: { id?: number; url: string; name: string; comment_id?: number; transcription?: string };
+  attachment: { id?: number; url: string; name: string; comment_id?: number; transcription?: string; thumbnail_url?: string };
   author: string;
   timestamp: string;
   isNew?: boolean;
@@ -139,10 +141,16 @@ const attachmentType = computed(() => {
 });
 
 const openImagePreview = async (src: string) => {
-  // For PDF files, always use the original authenticated URL
+  // For PDF files, navigate to full page PDF viewer
   if (isPdfFile(props.attachment.name)) {
-    previewImageSrc.value = src;
-    showPreviewModal.value = true;
+    const queryParams = {
+      src: encodeURIComponent(src),
+      filename: encodeURIComponent(props.attachment.name),
+    };
+    const queryString = Object.entries(queryParams)
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&');
+    router.push(`/pdf-viewer?${queryString}`);
     emit('preview', src);
     return;
   }
@@ -157,18 +165,55 @@ const closeImagePreview = () => {
   showPreviewModal.value = false;
 };
 
+// Derive server thumbnail URL from attachment URL (convention: .pdf -> _thumb.webp)
+const getServerThumbnailUrl = () => {
+  const url = props.attachment.url;
+  if (!url) return null;
+  // Replace .pdf or .PDF with _thumb.webp
+  const thumbUrl = url.replace(/\.pdf$/i, '_thumb.webp');
+  return thumbUrl !== url ? thumbUrl : null;
+};
+
+// Try to load server-generated thumbnail, fall back to client-side if it fails
+const tryLoadServerThumbnail = async (): Promise<boolean> => {
+  const thumbUrl = props.attachment.thumbnail_url || getServerThumbnailUrl();
+  if (!thumbUrl) return false;
+
+  const authenticatedUrl = convertToAuthenticatedPath(thumbUrl);
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      debugLog('Using server-generated PDF thumbnail', { url: thumbUrl });
+      pdfThumbnailSrc.value = authenticatedUrl;
+      showPlaceholder.value = false;
+      resolve(true);
+    };
+    img.onerror = () => {
+      debugLog('Server thumbnail not found, will use client-side generation', { url: thumbUrl });
+      resolve(false);
+    };
+    img.src = authenticatedUrl;
+  });
+};
+
 // Set up lazy loading for PDF thumbnails
-onMounted(() => {
+onMounted(async () => {
   debugLog('Component onMounted hook started');
 
   if (isPdfFile(props.attachment.name)) {
+    // Try server-generated thumbnail first
+    const hasServerThumb = await tryLoadServerThumbnail();
+    if (hasServerThumb) return;
+
+    // Fall back to client-side generation
     // Use Intersection Observer to lazy load PDF thumbnails
     if (pdfContainerRef.value && 'IntersectionObserver' in window) {
       pdfIntersectionObserver = new IntersectionObserver(
         (entries) => {
           entries.forEach((entry) => {
             if (entry.isIntersecting && !pdfThumbnailSrc.value && !isPdfThumbnailLoading.value) {
-              generatePdfThumbnail(props.attachment.url);
+              generatePdfThumbnail();
               // Disconnect after first intersection
               pdfIntersectionObserver?.disconnect();
             }
@@ -182,12 +227,12 @@ onMounted(() => {
       pdfIntersectionObserver.observe(pdfContainerRef.value);
     } else {
       // Fallback for browsers without IntersectionObserver
-      generatePdfThumbnail(props.attachment.url);
+      generatePdfThumbnail();
     }
   }
 });
 
-// Clean up object URLs when component is unmounted
+// Clean up resources when component is unmounted
 onBeforeUnmount(() => {
   debugLog('Component unmounting, cleaning up resources');
 
@@ -195,11 +240,6 @@ onBeforeUnmount(() => {
   if (pdfIntersectionObserver) {
     pdfIntersectionObserver.disconnect();
     pdfIntersectionObserver = null;
-  }
-
-  if (pdfThumbnailSrc.value) {
-    URL.revokeObjectURL(pdfThumbnailSrc.value);
-    debugLog('Revoked PDF thumbnail URL');
   }
 });
 
@@ -272,45 +312,53 @@ const pdfContainerRef = ref<HTMLElement | null>(null);
 let pdfIntersectionObserver: IntersectionObserver | null = null;
 
 // Function to generate PDF thumbnails for the grid view
-const generatePdfThumbnail = async (url: string) => {
+const generatePdfThumbnail = async () => {
   isPdfThumbnailLoading.value = true;
   showPlaceholder.value = true;
-  
+
   try {
+    debugLog('Starting PDF thumbnail generation', { url: authenticatedUrl.value });
+
     const pdfjsLib = await import('pdfjs-dist');
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.js';
-    
-    const response = await fetch(authenticatedUrl.value);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href;
+
+    const response = await fetch(authenticatedUrl.value, { credentials: 'include' });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
+    }
+
     const arrayBuffer = await response.arrayBuffer();
+    debugLog('PDF fetched successfully', { size: arrayBuffer.byteLength });
+
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
     const page = await pdf.getPage(1);
-    
-    const scale = 2;
+
+    const scale = 1.5; // Slightly lower scale for thumbnails
     const viewport = page.getViewport({ scale });
-    
+
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Could not get canvas context');
-    
+
     canvas.height = viewport.height;
     canvas.width = viewport.width;
-    
+
     await page.render({
       canvasContext: context,
       viewport: viewport
     }).promise;
-    
-    canvas.toBlob((blob) => {
-      if (blob) {
-        // Store PDF thumbnail separately - don't overwrite previewImageSrc
-        pdfThumbnailSrc.value = URL.createObjectURL(blob);
-        showPlaceholder.value = false;
-      }
-      isPdfThumbnailLoading.value = false;
-    }, 'image/png', 0.8);
-    
+
+    debugLog('PDF page rendered to canvas');
+
+    // Use data URL instead of blob URL to comply with CSP
+    pdfThumbnailSrc.value = canvas.toDataURL('image/png', 0.85);
+    showPlaceholder.value = false;
+    isPdfThumbnailLoading.value = false;
+    debugLog('PDF thumbnail created successfully');
+
   } catch (error) {
     console.error('Error generating PDF thumbnail:', error);
+    debugLog('PDF thumbnail generation failed', { error });
     isPdfThumbnailLoading.value = false;
     showPlaceholder.value = false;
   }
@@ -383,7 +431,7 @@ const generatePdfThumbnail = async (url: string) => {
     </template>
     <template v-else-if="attachmentType === 'image'">
       <!-- Image container -->
-      <div class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-surface-alt attachment-container">
+      <div class="relative group w-full min-w-[168px] h-56 rounded-lg overflow-hidden bg-surface-alt attachment-container">
         <button
           v-if="showDelete"
           type="button"
@@ -463,7 +511,7 @@ const generatePdfThumbnail = async (url: string) => {
       </div>
     </template>
     <template v-else-if="attachmentType === 'pdf'">
-      <div ref="pdfContainerRef" class="relative group w-full min-w-42 h-58 rounded-lg overflow-hidden bg-surface-alt attachment-container">
+      <div ref="pdfContainerRef" class="relative group w-full min-w-[168px] h-56 rounded-lg overflow-hidden bg-surface-alt attachment-container">
         <!-- Delete button -->
         <button
           v-if="showDelete"
@@ -500,10 +548,11 @@ const generatePdfThumbnail = async (url: string) => {
         </div>
 
         <!-- Fallback PDF icon when no thumbnail -->
-        <div v-else-if="!isPdfThumbnailLoading" class="w-full h-full flex items-center justify-center bg-surface-hover">
-          <svg class="w-16 h-16 text-status-error" viewBox="0 0 20 20" fill="currentColor">
+        <div v-else-if="!isPdfThumbnailLoading" class="w-full h-full flex flex-col items-center justify-center bg-surface-hover gap-2">
+          <svg class="w-20 h-20 text-status-error" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
           </svg>
+          <span class="text-xs text-tertiary uppercase font-medium">PDF</span>
         </div>
 
         <!-- PDF overlay with icon -->
@@ -511,7 +560,7 @@ const generatePdfThumbnail = async (url: string) => {
           class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-surface/90 to-transparent"
         >
           <div class="flex items-center gap-2">
-            <svg class="w-5 h-5 text-status-error" viewBox="0 0 20 20" fill="currentColor">
+            <svg class="w-6 h-6 text-status-error flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
             </svg>
             <span class="text-sm text-primary font-medium truncate">{{ getDisplayName(attachment.name) }}</span>
@@ -579,85 +628,52 @@ const generatePdfThumbnail = async (url: string) => {
       </button>
     </div>
     
-    <!-- Image Preview Modal -->
-    <Modal 
-      :show="showPreviewModal" 
-      :title="
-        isPdfFile(attachment.name) ? 'PDF Document' : 
-        isAnimatedImage(attachment.name) ? 'Animated Image Preview' : 
-        'Image Preview'
-      "
-      :contentClass="isPdfFile(attachment.name) ? 'modal-content-pdf-fullscreen' : ''"
-      :headerClass="isPdfFile(attachment.name) ? 'pdf-modal-header' : ''"
-      :removePadding="isPdfFile(attachment.name)"
+    <!-- Image Preview Modal (PDFs open in full page view) -->
+    <Modal
+      :show="showPreviewModal"
+      :title="isAnimatedImage(attachment.name) ? 'Animated Image Preview' : 'Image Preview'"
+      size="lg"
       @close="closeImagePreview"
     >
-      <div class="flex flex-col items-center gap-1" :class="{ 'h-full': isPdfFile(attachment.name) }">
-        <!-- Content preview with transition -->
-        <transition name="fade" mode="out-in" appear>
-          <!-- PDF Viewer Component -->
-          <PDFViewer 
-            v-if="isPdfFile(attachment.name)" 
-            :src="previewImageSrc" 
-            :filename="attachment.name"
-            :initialPage="1"
-            class="w-full h-full"
-            @error="(error) => console.error('PDF Viewer error:', error)"
+      <div class="flex flex-col items-center gap-1">
+        <!-- Image Preview -->
+        <div class="relative">
+          <img
+            :src="previewImageSrc"
+            :alt="attachment.name"
+            class="max-w-full max-h-[70vh] object-contain bg-transparent attachment-image"
+            :class="{
+              'animated-preview-modal': isAnimatedImage(attachment.name)
+            }"
           />
-          
-          <!-- Image Preview (Non-PDF) -->
-          <div v-else class="relative">
-            <img
-              :src="previewImageSrc"
-              :alt="attachment.name"
-              class="max-w-full max-h-[70vh] object-contain bg-transparent attachment-image"
-              :class="{
-                'animated-preview-modal': isAnimatedImage(attachment.name)
-              }"
-            />
-            
-            <!-- Animation indicator for GIF/APNG -->
-            <div
-              v-if="isAnimatedImage(attachment.name)"
-              class="absolute top-2 right-2 bg-accent px-3 py-1 rounded-full text-xs text-white font-medium animate-pulse"
-            >
-              ANIMATED
-            </div>
+
+          <!-- Animation indicator for GIF/APNG -->
+          <div
+            v-if="isAnimatedImage(attachment.name)"
+            class="absolute top-2 right-2 bg-accent px-3 py-1 rounded-full text-xs text-white font-medium animate-pulse"
+          >
+            ANIMATED
           </div>
-        </transition>
-        
-        <div v-if="!isPdfFile(attachment.name)" class="mt-4 text-center text-sm text-secondary">
+        </div>
+
+        <div class="mt-4 text-center text-sm text-secondary">
           {{ getDisplayName(attachment.name) }}
         </div>
 
-        <!-- Show download buttons only for non-PDF files since PDFViewer has its own -->
-        <div v-if="!isPdfFile(attachment.name)" class="mt-4 flex gap-3">
-          <!-- For animated images, add a special title -->
+        <!-- Download button -->
+        <div class="mt-4 flex gap-3">
           <a
-            v-if="isAnimatedImage(attachment.name)"
             :href="previewImageSrc"
             target="_blank"
             :download="attachment.name"
-            class="px-4 py-2 bg-accent text-white text-sm rounded hover:opacity-90 transition-colors flex items-center gap-2"
+            :class="isAnimatedImage(attachment.name)
+              ? 'px-4 py-2 bg-accent text-white text-sm rounded hover:opacity-90 transition-colors flex items-center gap-2'
+              : 'px-4 py-2 bg-surface-alt text-primary text-sm rounded hover:bg-surface-hover transition-colors flex items-center gap-2'"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
             </svg>
-            Download animated image
-          </a>
-
-          <!-- For regular images, show the standard download button -->
-          <a
-            v-else
-            :href="previewImageSrc"
-            target="_blank"
-            :download="attachment.name"
-            class="px-4 py-2 bg-surface-alt text-primary text-sm rounded hover:bg-surface-hover transition-colors flex items-center gap-2"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-            </svg>
-            Download image
+            {{ isAnimatedImage(attachment.name) ? 'Download animated image' : 'Download image' }}
           </a>
         </div>
       </div>
@@ -769,40 +785,4 @@ const generatePdfThumbnail = async (url: string) => {
   }
 }
 
-/* PDF container and canvas styles */
-.pdf-container {
-  max-height: 70vh;
-  border: 1px solid rgba(30, 41, 59, 0.5);
-}
-
-.pdf-canvas-wrapper {
-  min-height: 500px;
-}
-
-/* Make the modal content wider and taller for PDFs */
-:deep(.modal-content-pdf-fullscreen) {
-  max-width: 95vw;
-  width: 95vw;
-  height: 90vh;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-}
-
-:deep(.modal-content-pdf-fullscreen > div) {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-:deep(.modal-content-pdf-fullscreen .pdf-container) {
-  min-height: calc(90vh - 140px);
-  max-height: calc(90vh - 140px);
-}
-
-:deep(.pdf-modal-header) {
-  padding: 0.75rem 1rem;
-  background-color: rgba(15, 23, 42, 0.8);
-  border-bottom-color: rgba(51, 65, 85, 0.5);
-}
 </style>

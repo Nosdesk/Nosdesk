@@ -10,7 +10,8 @@ import TicketsListView from '../views/TicketsListView.vue'
 import ProjectsView from '../views/ProjectsView.vue'
 import ProjectDetailView from '../views/ProjectDetailView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
-import DocumentationPageView from '@/views/DocumentationPageView.vue'
+import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
+import DocumentView from '@/views/DocumentView.vue'
 import ProfileSettingsView from '@/views/ProfileSettingsView.vue'
 import PDFViewerView from '@/views/PDFViewerView.vue'
 import authService from '@/services/authService'
@@ -22,7 +23,8 @@ declare module 'vue-router' {
     layout?: string;
     adminRequired?: boolean;
     createButtonText?: string;
-    createButtonAction?: string; // Name of the method to call on the component
+    createButtonIcon?: 'plus' | 'ticket' | 'user' | 'device' | 'project' | 'document';
+    createButtonAction?: string;
   }
 }
 
@@ -97,6 +99,7 @@ const router = createRouter({
         requiresAuth: true,
         title: 'Dashboard',
         createButtonText: 'Create Ticket',
+        createButtonIcon: 'ticket',
         createButtonAction: 'handleCreateTicket'
       }
     },
@@ -108,6 +111,7 @@ const router = createRouter({
         requiresAuth: true,
         title: 'Tickets',
         createButtonText: 'Create Ticket',
+        createButtonIcon: 'ticket',
         createButtonAction: 'handleCreateTicket'
       }
     },
@@ -120,6 +124,7 @@ const router = createRouter({
         requiresAuth: true,
         title: 'View Ticket',
         createButtonText: 'Create Ticket',
+        createButtonIcon: 'ticket',
         createButtonAction: 'handleCreateTicket'
       },
       beforeEnter: (to) => {
@@ -176,6 +181,7 @@ const router = createRouter({
         requiresAuth: true,
         title: 'Projects',
         createButtonText: 'Create Project',
+        createButtonIcon: 'project',
         createButtonAction: 'openCreateModal'
       }
     },
@@ -188,6 +194,7 @@ const router = createRouter({
         requiresAuth: true,
         title: 'Project Details',
         createButtonText: 'Add Ticket',
+        createButtonIcon: 'ticket',
         createButtonAction: 'openAddTicketModal'
       },
       beforeEnter: (to) => {
@@ -213,6 +220,7 @@ const router = createRouter({
         requiresAuth: true,
         title: 'Users',
         createButtonText: 'Create User',
+        createButtonIcon: 'user',
         createButtonAction: 'navigateToCreateUser'
       }
     },
@@ -224,6 +232,7 @@ const router = createRouter({
         requiresAuth: true,
         title: 'Devices',
         createButtonText: 'Create Device',
+        createButtonIcon: 'device',
         createButtonAction: 'navigateToCreateDevice'
       }
     },
@@ -249,23 +258,22 @@ const router = createRouter({
     {
       path: '/documentation',
       name: 'documentation',
-      component: DocumentationPageView,
+      component: DocumentationIndexView,
       meta: {
         requiresAuth: true,
         title: 'Documentation',
         createButtonText: 'Create Document',
+        createButtonIcon: 'document',
         createButtonAction: 'createNewPage'
       }
     },
     {
       path: '/documentation/:path',
       name: 'documentation-page',
-      component: DocumentationPageView,
+      component: DocumentView,
       meta: {
         requiresAuth: true,
-        title: 'Documentation',
-        createButtonText: 'Create Document',
-        createButtonAction: 'createNewPage'
+        title: 'Documentation'
       },
       props: true,
       beforeEnter: async (to) => {
@@ -432,7 +440,8 @@ const router = createRouter({
       component: PDFViewerView,
       meta: {
         requiresAuth: true,
-        title: 'PDF Viewer'
+        title: 'PDF Viewer',
+        titleIcon: 'pdf'
       }
     },
     {

@@ -11,7 +11,8 @@ mod services;
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Error, HttpMessage};
-use actix_files::Files;
+use actix_web::dev::{ServiceRequest, ServiceResponse, fn_service};
+use actix_files::{Files, NamedFile};
 use actix_limitation::{Limiter, RateLimiter};
 use dotenv::dotenv;
 use serde_json;
@@ -852,20 +853,33 @@ async fn main() -> std::io::Result<()> {
             .route("/uploads/tickets/{path:.*}", web::get().to(handlers::serve_protected_file))
             .route("/uploads/temp/{path:.*}", web::get().to(handlers::serve_protected_file))
             
-            // === FRONTEND STATIC FILES (CATCH-ALL) ===
-            // Serve static frontend files - this must be LAST to not interfere with API routes
+            // === FRONTEND STATIC FILES ===
+            // Serve static frontend files with SPA fallback using default_handler
+            // This is the recommended actix-web pattern for SPAs
             .service(
                 Files::new("/assets", "./public/assets")
-                    .show_files_listing()
+                    .use_last_modified(true)
+                    .use_etag(true)
+            )
+            .service(
+                Files::new("/pdfjs", "./public/pdfjs")
+                    .use_last_modified(true)
+                    .use_etag(true)
             )
             .service(
                 Files::new("/", "./public")
                     .index_file("index.html")
                     .use_last_modified(true)
                     .use_etag(true)
+                    // SPA fallback: serve index.html for any path not found
+                    // This allows Vue Router to handle client-side routes like /pdf-viewer
+                    .default_handler(fn_service(|req: ServiceRequest| async move {
+                        let (req, _) = req.into_parts();
+                        let file = NamedFile::open_async("./public/index.html").await?;
+                        let res = file.into_response(&req);
+                        Ok(ServiceResponse::new(req, res))
+                    }))
             )
-            // SPA fallback - serve index.html for all non-API routes
-            .default_service(web::route().to(serve_spa))
     })
     .bind((host, port))?
     .run()

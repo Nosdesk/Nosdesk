@@ -3,7 +3,6 @@ import { ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import PDFViewer from '@/components/ticketComponents/PDFViewer.vue';
 import { useTitleManager } from '@/composables/useTitleManager';
-import BackButton from '@/components/common/BackButton.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -20,27 +19,27 @@ const errorMessage = ref<string | null>(null);
 onMounted(() => {
   try {
     isLoading.value = true;
-    
+
     // Get source from query parameters
     if (route.query.src) {
       pdfSrc.value = decodeURIComponent(route.query.src as string);
     } else {
       throw new Error('No PDF source provided');
     }
-    
+
     // Get filename
     if (route.query.filename) {
       filename.value = decodeURIComponent(route.query.filename as string);
     }
-    
+
     // Get starting page if provided
     if (route.query.page && !isNaN(Number(route.query.page))) {
       startPage.value = Number(route.query.page);
     }
-    
-    // Set document title
-    titleManager.setCustomTitle(`PDF - ${filename.value}`);
-    
+
+    // Set document title (just filename, SiteHeader shows the icon)
+    titleManager.setCustomTitle(filename.value);
+
     isLoading.value = false;
   } catch (error) {
     console.error('Error loading PDF:', error);
@@ -64,38 +63,57 @@ const goBack = () => {
   if (window.history.length > 1) {
     router.back();
   } else {
-    // If no history, navigate to a safe default
     router.push('/');
+  }
+};
+
+// Share document - copy link to clipboard
+const shareDocument = async () => {
+  try {
+    await navigator.clipboard.writeText(window.location.href);
+    // Could add a toast notification here
+    console.log('Link copied to clipboard');
+  } catch (err) {
+    console.error('Failed to copy link:', err);
   }
 };
 
 // Update title when filename changes
 watch(filename, (newFilename) => {
-  titleManager.setCustomTitle(`PDF - ${newFilename}`);
+  titleManager.setCustomTitle(newFilename);
 });
 </script>
 
 <template>
   <div class="bg-app flex flex-col h-full">
-    <!-- Header with back button -->
-    <div class="bg-gradient-to-r from-app to-surface border-b border-default px-6 py-3">
-      <div class="flex items-center justify-between">
+    <!-- Toolbar with back and share -->
+    <div class="bg-surface border-b border-default px-4 py-2">
+      <div class="flex items-center justify-between max-w-5xl mx-auto">
         <!-- Back button -->
-        <BackButton @click="goBack" label="Back" class="hover:scale-105 transition-transform duration-200" />
-        
-        <!-- Document title -->
-        <h1 class="text-primary font-medium text-lg flex items-center">
-          <svg class="w-5 h-5 text-status-error mr-2" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
+        <button
+          @click="goBack"
+          class="flex items-center gap-2 px-3 py-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
-          {{ filename }}
-        </h1>
-        
-        <!-- Spacer to balance the layout -->
-        <div class="w-24"></div>
+          <span class="text-sm font-medium">Back</span>
+        </button>
+
+        <!-- Share button -->
+        <button
+          @click="shareDocument"
+          class="flex items-center gap-2 px-3 py-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
+          title="Copy link to clipboard"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+          </svg>
+          <span class="text-sm font-medium hidden sm:inline">Share</span>
+        </button>
       </div>
     </div>
-    
+
     <!-- Main content area -->
     <div class="flex-grow overflow-hidden">
       <!-- Loading state -->
@@ -108,7 +126,7 @@ watch(filename, (newFilename) => {
           <span class="text-secondary">Loading PDF document...</span>
         </div>
       </div>
-      
+
       <!-- Error state -->
       <div v-else-if="errorMessage" class="h-full flex items-center justify-center p-6">
         <div class="bg-status-error/30 text-status-error p-6 rounded-lg border border-status-error/70 shadow-lg max-w-md">
@@ -129,14 +147,14 @@ watch(filename, (newFilename) => {
           </div>
         </div>
       </div>
-      
+
       <!-- PDF Viewer -->
-      <div v-else class="h-full pb-4 px-4">
-        <PDFViewer 
-          :src="pdfSrc" 
+      <div v-else class="h-full overflow-hidden">
+        <PDFViewer
+          :src="pdfSrc"
           :filename="filename"
           :initialPage="startPage"
-          class="h-full max-w-6xl mx-auto"
+          class="h-full w-full"
           @ready="handlePdfReady"
           @error="handlePdfError"
         />
@@ -146,14 +164,8 @@ watch(filename, (newFilename) => {
 </template>
 
 <style scoped>
-/* Remove margin/padding from root container to maximize space */
-:deep(.pdf-container) {
-  min-height: calc(100vh - 180px);
-  max-height: calc(100vh - 180px);
-}
-
-/* Full viewport height minus header */
-.overflow-hidden {
-  height: calc(100vh - 56px);
+/* Ensure content area fills available space without overflow */
+.flex-grow {
+  min-height: 0;
 }
 </style> 

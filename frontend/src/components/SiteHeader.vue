@@ -1,15 +1,5 @@
 <script setup lang="ts">
-import { useRouter, useRoute } from "vue-router";
-import { computed, ref, onMounted, onUnmounted } from "vue";
-
-// Debounce utility for resize events
-function debounce<T extends (...args: unknown[]) => void>(fn: T, delay: number): T {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null
-  return ((...args: Parameters<T>) => {
-    if (timeoutId) clearTimeout(timeoutId)
-    timeoutId = setTimeout(() => fn(...args), delay)
-  }) as T
-}
+import { computed, ref } from "vue";
 import UserAvatar from "./UserAvatar.vue";
 import UserDropdownMenu from "./UserDropdownMenu.vue";
 import HeaderTitle from "./HeaderTitle.vue";
@@ -17,19 +7,17 @@ import DocumentIconSelector from "./DocumentIconSelector.vue";
 import ItemIdentifier from "./ItemIdentifier.vue";
 import PageUrlDisplay from "./PageUrlDisplay.vue";
 import CreateActionIcon, { type CreateIconType } from "./common/CreateActionIcon.vue";
-import ticketService from '@/services/ticketService';
 import { useAuthStore } from '@/stores/auth';
 import { useMobileDetection } from '@/composables/useMobileDetection';
 
 // Detect mobile for responsive component sizing
 const { isMobile } = useMobileDetection('sm')
 
-const router = useRouter();
-const route = useRoute();
 const authStore = useAuthStore();
 
 interface Props {
   title?: string;
+  titleIcon?: string;
   showCreateButton?: boolean;
   createButtonText?: string;
   createButtonIcon?: CreateIconType;
@@ -87,8 +75,7 @@ const displayTitle = computed(() => {
   return '';
 });
 
-// Responsive sizes for header elements
-const iconSize = computed(() => isMobile.value ? 'md' : 'sm')
+// Responsive avatar size
 const avatarSize = computed(() => isMobile.value ? 'lg' : 'md')
 
 const handleUpdateDocumentTitle = (newTitle: string) => {
@@ -151,68 +138,9 @@ const closeUserMenu = () => {
   showUserMenu.value = false;
 };
 
-// Add isCreating ref (generic for any create action)
-const isCreating = ref(false);
-
-const handleCreateClick = async () => {
-  if (import.meta.env.DEV) {
-    console.log('handleCreateClick called');
-  }
-  if (isCreating.value) {
-    if (import.meta.env.DEV) {
-      console.log('Already creating, returning');
-    }
-    return; // Prevent multiple clicks
-  }
-
-  // Emit event to parent - parent can handle the action
+const handleCreateClick = () => {
   emit('create');
-
-  // Default behavior for tickets if no listener is provided (backward compatibility)
-  // Only execute on tickets-related routes
-  if (route.path.includes('/tickets') || route.path === '/') {
-    try {
-      if (import.meta.env.DEV) {
-        console.log('Setting isCreating to true');
-      }
-      isCreating.value = true;
-
-      if (import.meta.env.DEV) {
-        console.log('Creating empty ticket');
-      }
-      // Create an empty ticket
-      const newTicket = await ticketService.createEmptyTicket();
-
-      if (import.meta.env.DEV) {
-        console.log('Empty ticket created:', newTicket);
-      }
-      // Navigate to the new ticket
-      router.push(`/tickets/${newTicket.id}`);
-    } catch (error) {
-      console.error('Failed to create empty ticket:', error);
-
-      if (import.meta.env.DEV) {
-        console.log('Falling back to create ticket page');
-      }
-      // Fallback to the tickets page if creation fails
-      router.push("/tickets");
-    } finally {
-      if (import.meta.env.DEV) {
-        console.log('Setting isCreating to false');
-      }
-      isCreating.value = false;
-    }
-  }
 };
-
-// Event listeners for click outside
-onMounted(() => {
-  // Mobile detection is handled by useMobileDetection composable
-});
-
-onUnmounted(() => {
-  // Cleanup handled by useMobileDetection composable
-});
 
 // Add a ref for the header avatar component
 interface AvatarComponentType {
@@ -279,22 +207,27 @@ defineExpose({
           </div>
         </template>
         <template v-else>
-          <h1 class="text-xl font-semibold text-primary truncate">{{ displayTitle }}</h1>
+          <div class="flex items-center gap-2 min-w-0">
+            <!-- PDF icon -->
+            <svg v-if="props.titleIcon === 'pdf'" class="w-6 h-6 text-status-error flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
+            </svg>
+            <h1 class="text-xl font-semibold text-primary truncate">{{ displayTitle }}</h1>
+          </div>
         </template>
       </div>
 
       <!-- Right side -->
       <div class="flex items-center gap-3 sm:gap-2 md:gap-4 flex-shrink-0">
-        <!-- Create Button (generic - can be ticket, project, etc.) - icon only on mobile -->
+        <!-- Create Button -->
         <button
           v-if="props.showCreateButton"
           @click="handleCreateClick"
-          :disabled="isCreating"
-          class="flex create-button px-2.5 py-2 sm:px-4 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed items-center gap-2"
-          :aria-label="isCreating ? `Creating...` : `Create ${props.createButtonText}`"
+          class="group flex create-button px-2.5 py-2 sm:px-4 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors items-center gap-2"
+          :aria-label="`Create ${props.createButtonText}`"
         >
-          <CreateActionIcon :icon="props.createButtonIcon" :loading="isCreating" :size="iconSize" />
-          <span class="create-button-text">{{ isCreating ? 'Creating...' : props.createButtonText }}</span>
+          <CreateActionIcon :icon="props.createButtonIcon" />
+          <span class="create-button-text">{{ props.createButtonText }}</span>
         </button>
 
         <!-- User Profile Menu -->

@@ -79,25 +79,27 @@ const initializationChecked = ref(false);
 // Ref to access the current route view component
 const currentViewComponent = ref<any>(null);
 
-// Computed property for create button text from route meta
+// Computed properties for create button from route meta
 const createButtonText = computed(() => {
   return route.meta.createButtonText || 'Create Ticket';
 });
+
+const createButtonIcon = computed(() => route.meta.createButtonIcon ?? 'plus');
+
+// Title icon from route meta (e.g., 'pdf' for PDF viewer)
+const titleIcon = computed(() => route.meta.titleIcon as string | undefined);
 
 // Only show create button if the route has a createButtonAction defined
 const showCreateButton = computed(() => {
   return !!route.meta.createButtonAction;
 });
 
-// Handle create button click using route meta configuration
+// Handle create button click - calls the view component's exposed method
 const handleCreateClick = () => {
   const actionName = route.meta.createButtonAction;
-
-  // If route specifies an action and the component has that method, call it
   if (actionName && currentViewComponent.value?.[actionName]) {
     currentViewComponent.value[actionName]();
   }
-  // Otherwise, the SiteHeader's default ticket creation will handle it
 };
 
 onMounted(async () => {
@@ -146,8 +148,10 @@ onMounted(async () => {
         class="flex-shrink-0 border-b border-default bg-surface"
         :useRouteTitle="!isDocumentationPage"
         :title="titleManager.pageTitle.value"
+        :titleIcon="titleIcon"
         :showCreateButton="showCreateButton"
         :createButtonText="createButtonText"
+        :createButtonIcon="createButtonIcon"
         :ticket="titleManager.currentTicket.value"
         :device="titleManager.currentDevice.value"
         :document="titleManager.currentDocument.value"
@@ -177,7 +181,7 @@ onMounted(async () => {
           @update:title="titleManager.setCustomTitle"
         >
           <Transition name="page" mode="out-in">
-            <KeepAlive :include="['TicketsListView', 'UsersListView', 'DevicesListView', 'ProjectsView']">
+            <KeepAlive :include="['TicketsListView', 'UsersListView', 'DevicesListView', 'ProjectsView', 'DocumentationIndexView']">
               <component :is="Component" :key="viewRoute.fullPath" ref="currentViewComponent" class="h-full overflow-auto" />
             </KeepAlive>
           </Transition>
