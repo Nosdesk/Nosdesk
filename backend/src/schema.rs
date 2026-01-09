@@ -184,6 +184,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    device_groups (device_id, group_id) {
+        device_id -> Int4,
+        group_id -> Int4,
+        created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+        #[max_length = 50]
+        external_source -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
     devices (id) {
         id -> Int4,
         #[max_length = 255]
@@ -222,17 +233,6 @@ diesel::table! {
         os_version -> Nullable<Varchar>,
         is_managed -> Nullable<Bool>,
         enrollment_date -> Nullable<Timestamptz>,
-    }
-}
-
-diesel::table! {
-    device_groups (device_id, group_id) {
-        device_id -> Int4,
-        group_id -> Int4,
-        created_at -> Timestamptz,
-        created_by -> Nullable<Uuid>,
-        #[max_length = 50]
-        external_source -> Nullable<Varchar>,
     }
 }
 
@@ -318,6 +318,66 @@ diesel::table! {
         description -> Nullable<Text>,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    notification_preferences (id) {
+        id -> Int4,
+        user_uuid -> Uuid,
+        notification_type_id -> Int4,
+        #[max_length = 20]
+        channel -> Varchar,
+        enabled -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    notification_rate_limits (id) {
+        id -> Int4,
+        user_uuid -> Uuid,
+        notification_type_id -> Int4,
+        #[max_length = 50]
+        entity_type -> Varchar,
+        entity_id -> Int4,
+        last_notified_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    notification_types (id) {
+        id -> Int4,
+        #[max_length = 50]
+        code -> Varchar,
+        #[max_length = 100]
+        name -> Varchar,
+        description -> Nullable<Text>,
+        #[max_length = 50]
+        category -> Varchar,
+        default_channels -> Jsonb,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    notifications (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        user_uuid -> Uuid,
+        notification_type_id -> Int4,
+        #[max_length = 50]
+        entity_type -> Varchar,
+        entity_id -> Int4,
+        #[max_length = 255]
+        title -> Varchar,
+        body -> Nullable<Text>,
+        metadata -> Nullable<Jsonb>,
+        channels_delivered -> Jsonb,
+        is_read -> Bool,
+        read_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
     }
 }
 
@@ -613,6 +673,12 @@ diesel::joinable!(documentation_revisions -> documentation_pages (page_id));
 diesel::joinable!(documentation_revisions -> users (created_by));
 diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(linked_tickets -> users (created_by));
+diesel::joinable!(notification_preferences -> notification_types (notification_type_id));
+diesel::joinable!(notification_preferences -> users (user_uuid));
+diesel::joinable!(notification_rate_limits -> notification_types (notification_type_id));
+diesel::joinable!(notification_rate_limits -> users (user_uuid));
+diesel::joinable!(notifications -> notification_types (notification_type_id));
+diesel::joinable!(notifications -> users (user_uuid));
 diesel::joinable!(project_tickets -> projects (project_id));
 diesel::joinable!(project_tickets -> tickets (ticket_id));
 diesel::joinable!(project_tickets -> users (created_by));
@@ -633,4 +699,4 @@ diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_pages,documentation_revisions,groups,linked_tickets,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,);
+    active_sessions,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_pages,documentation_revisions,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,);

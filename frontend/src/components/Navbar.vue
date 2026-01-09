@@ -5,15 +5,9 @@ import RecentTickets from "@/components/RecentTickets.vue";
 import CollapsibleSection from "@/components/common/CollapsibleSection.vue";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import FaviconIcon from "@/components/icons/FaviconIcon.vue";
-import {
-    ref,
-    watch,
-    computed,
-    onMounted,
-    onBeforeUnmount,
-    nextTick,
-} from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { useResizableSidebar } from "@/composables/useResizableSidebar";
+import { useNavbarState } from "@/composables/useNavbarState";
 import { useBrandingStore } from "@/stores/branding";
 import { useThemeStore } from "@/stores/theme";
 
@@ -31,18 +25,21 @@ const route = useRoute();
 const router = useRouter();
 const searchTerm = ref("");
 
-// State for collapsed/expanded navbar
-const isCollapsed = ref(false);
-const isMobile = ref(false); // <640px - shows bottom nav (phones)
-const isTablet = ref(false); // 640-1023px - shows collapsed sidebar (tablets/landscape phones)
-const isDesktop = ref(false); // ≥1024px - shows expandable sidebar
-
-// State for section collapsing
-const isDocsCollapsed = ref(false);
-const isTicketsCollapsed = ref(false);
-
-// State for compact nav mode (small viewport height)
-const isCompactNav = ref(false);
+// Use centralized navbar state composable
+const {
+    isCollapsed,
+    isMobile,
+    isTablet,
+    isDesktop,
+    isCompactNav,
+    isDocsCollapsed,
+    isTicketsCollapsed,
+    toggleCollapsed,
+    toggleDocs,
+    toggleTickets,
+    initialize: initNavbarState,
+    cleanup: cleanupNavbarState
+} = useNavbarState();
 
 // Refs for DOM elements - These will be passed to the composable
 const navbarRef = ref<HTMLElement | null>(null);
@@ -72,106 +69,18 @@ const {
     resizerRef,
 );
 
-// Provide/inject for sharing with App.vue
+// Emit collapsed state changes to parent (App.vue)
 const emit = defineEmits(["update:collapsed"]);
 
-// Toggle navbar collapsed state
-const toggleNav = () => {
-    // Don't allow toggling on mobile (bottom nav is shown instead)
-    if (isMobile.value) return;
-
-    isCollapsed.value = !isCollapsed.value;
-    emit("update:collapsed", isCollapsed.value);
-    // Store preference in localStorage
-    localStorage.setItem("navbarCollapsed", isCollapsed.value.toString());
-};
-
-// Toggle documentation section
-const toggleDocs = () => {
-    isDocsCollapsed.value = !isDocsCollapsed.value;
-    localStorage.setItem("docsCollapsed", isDocsCollapsed.value.toString());
-};
-
-// Toggle tickets section
-const toggleTickets = () => {
-    isTicketsCollapsed.value = !isTicketsCollapsed.value;
-    localStorage.setItem(
-        "ticketsCollapsed",
-        isTicketsCollapsed.value.toString(),
-    );
-};
-
-// Check screen size and set navbar state accordingly
-const checkScreenSize = () => {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    const previousMobile = isMobile.value;
-    const previousTablet = isTablet.value;
-    const previousDesktop = isDesktop.value;
-
-    // Determine current screen size category
-    isMobile.value = width < 640; // sm breakpoint (phones only)
-    isTablet.value = width >= 640 && width < 1024; // sm to lg (tablets and landscape phones)
-    isDesktop.value = width >= 1024; // lg and above
-
-    // Check if viewport height is small (compact nav mode)
-    isCompactNav.value = height < 750;
-
-    // Get stored user preference
-    const storedPref = localStorage.getItem("navbarCollapsed");
-
-    // Only update collapsed state when transitioning between size categories
-    if (isMobile.value && !previousMobile) {
-        // Just became mobile: hide sidebar
-        isCollapsed.value = true;
-    } else if (isTablet.value && !previousTablet) {
-        // Just became tablet: always collapse
-        isCollapsed.value = true;
-    } else if (isDesktop.value && !previousDesktop) {
-        // Just became desktop: respect user preference (default expanded)
-        isCollapsed.value = storedPref === "true";
-    }
-
-    // Emit the current state
-    emit("update:collapsed", isCollapsed.value);
-};
+// Watch for collapsed state changes and emit to parent
+watch(isCollapsed, (value) => {
+    emit("update:collapsed", value);
+}, { immediate: true });
 
 // Initialize on mount
 onMounted(() => {
-    // Load stored preferences
-    const storedPref = localStorage.getItem("navbarCollapsed");
-    const storedDocsCollapsed = localStorage.getItem("docsCollapsed");
-    const storedTicketsCollapsed = localStorage.getItem("ticketsCollapsed");
-
-    // Determine initial screen size
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    isMobile.value = width < 640;
-    isTablet.value = width >= 640 && width < 1024;
-    isDesktop.value = width >= 1024;
-    isCompactNav.value = height < 750;
-
-    // Set initial collapsed state based on screen size
-    if (isMobile.value) {
-        // Mobile: hidden (bottom nav shows)
-        isCollapsed.value = true;
-    } else if (isTablet.value) {
-        // Tablet: always collapsed
-        isCollapsed.value = true;
-    } else {
-        // Desktop: respect user preference (default expanded)
-        isCollapsed.value = storedPref === "true";
-    }
-
-    // Set sections collapsed state from localStorage
-    isDocsCollapsed.value = storedDocsCollapsed === "true";
-    isTicketsCollapsed.value = storedTicketsCollapsed === "true";
-
-    // Emit initial state
-    emit("update:collapsed", isCollapsed.value);
-
-    // Add resize listener for screen size changes
-    window.addEventListener("resize", checkScreenSize);
+    // Initialize navbar state (handles localStorage and resize listener)
+    initNavbarState();
 
     // Set initial sizes after mount
     nextTick(() => {
@@ -189,8 +98,7 @@ onMounted(() => {
 
 // Clean up on unmount
 onBeforeUnmount(() => {
-    window.removeEventListener("resize", checkScreenSize);
-    // Global listeners for resizing are handled by the composable's onBeforeUnmount
+    cleanupNavbarState();
 });
 
 // Computed property to check if on a documentation page
@@ -403,7 +311,7 @@ const isRouteActive = (path: string, exact = false) => {
         <!-- Toggle button at the bottom of sidebar (hidden on mobile) -->
         <div class="flex-shrink-0 border-t border-default" v-if="!isMobile">
             <button
-                @click="toggleNav"
+                @click="toggleCollapsed"
                 class="w-full h-8 px-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors group flex items-center justify-center"
                 aria-label="Toggle sidebar"
             >

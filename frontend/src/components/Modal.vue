@@ -11,6 +11,9 @@ const props = defineProps<{
   size?: 'sm' | 'md' | 'lg' | 'xl'
 }>()
 
+// Generate unique ID for aria-labelledby
+const titleId = computed(() => `modal-title-${Math.random().toString(36).slice(2, 9)}`)
+
 const emit = defineEmits<{
   close: []
 }>()
@@ -56,6 +59,9 @@ onUnmounted(() => {
 
         <!-- Modal -->
         <div
+          role="dialog"
+          aria-modal="true"
+          :aria-labelledby="titleId"
           :class="[
             'modal-content relative w-full bg-surface shadow-xl flex flex-col pointer-events-auto',
             'max-h-[90vh] sm:max-h-[85vh]',
@@ -67,7 +73,7 @@ onUnmounted(() => {
         >
           <!-- Header -->
           <div :class="['flex items-center justify-between p-4 bg-surface-alt border-b border-default flex-shrink-0 rounded-t-2xl sm:rounded-t-xl', headerClass]">
-            <h3 class="text-lg font-semibold text-primary truncate pr-4">{{ title }}</h3>
+            <h3 :id="titleId" class="text-lg font-semibold text-primary truncate pr-4">{{ title }}</h3>
             <button
               type="button"
               @click="emit('close')"

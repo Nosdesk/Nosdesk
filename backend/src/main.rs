@@ -497,6 +497,37 @@ async fn main() -> std::io::Result<()> {
     // Initialize SSE state for real-time ticket updates (must be created before YjsAppState)
     let sse_state = web::Data::new(handlers::sse::SseState::new());
 
+    // Initialize notification service for in-app and email notifications
+    let notification_service = {
+        use std::sync::Arc;
+        let service = services::notifications::NotificationService::new(pool.clone());
+
+        // Register in-app channel (SSE)
+        // web::Data<T> wraps Arc<T>, so we can get the inner Arc directly
+        let sse_state_arc: Arc<handlers::sse::SseState> = sse_state.clone().into_inner();
+        let in_app_channel = Arc::new(services::notifications::channels::in_app::InAppChannel::new(sse_state_arc));
+        service.register_channel(in_app_channel);
+
+        // Register email channel if email service is configured
+        match utils::email::EmailService::from_env() {
+            Ok(email_service) => {
+                let app_name = std::env::var("APP_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
+                let email_channel = Arc::new(services::notifications::channels::email::EmailChannel::new(
+                    Arc::new(email_service),
+                    pool.clone(),
+                    frontend_url.clone(),
+                    app_name,
+                ));
+                service.register_channel(email_channel);
+            }
+            Err(e) => {
+                info!(error = ?e, "Email service not configured - email notifications disabled");
+            }
+        }
+
+        web::Data::new(service)
+    };
+
     // Initialize WebSocket app state for collaborative editing (includes SseState for broadcasting)
     let yjs_app_state = web::Data::new(handlers::collaboration::YjsAppState::new(web::Data::new(pool.clone()), redis_cache, sse_state.clone()));
 
@@ -559,6 +590,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(sse_state.clone())
             .app_data(system_state.clone())
             .app_data(storage_data.clone())
+            .app_data(notification_service.clone())
             .app_data(json_config)
             .app_data(multipart_config)
             
@@ -712,7 +744,16 @@ async fn main() -> std::io::Result<()> {
                     
                     // ===== SERVER-SENT EVENTS (SSE) =====
                     .route("/events/token", web::post().to(handlers::sse::get_sse_token))
-                    
+
+                    // ===== NOTIFICATIONS =====
+                    .route("/notifications", web::get().to(handlers::notifications::get_notifications))
+                    .route("/notifications/count", web::get().to(handlers::notifications::get_unread_count))
+                    .route("/notifications/read", web::post().to(handlers::notifications::mark_notifications_read))
+                    .route("/notifications/read-all", web::post().to(handlers::notifications::mark_all_notifications_read))
+                    .route("/notifications/preferences", web::get().to(handlers::notifications::get_preferences))
+                    .route("/notifications/preferences", web::put().to(handlers::notifications::update_preference))
+                    .route("/notifications/delete", web::post().to(handlers::notifications::delete_notifications))
+
                     // ===== TICKET MANAGEMENT =====
                     .route("/tickets", web::get().to(handlers::get_tickets))
                     .route("/tickets/paginated", web::get().to(handlers::get_paginated_tickets))

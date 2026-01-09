@@ -3,12 +3,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, warn, info};
 use uuid::Uuid;
 
 use crate::models::{AssignmentTrigger, Claims, NewTicket, TicketPriority, TicketStatus, TicketUpdate, TicketsJson, UserRole};
 use crate::repository;
 use crate::services::assignment::AssignmentEngine;
+use crate::services::notifications::{
+    NotificationService,
+    types::{NotificationTypeCode, NotificationPayload, NotificationEntity, NotificationActor},
+};
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
 use crate::utils::sse::SseBroadcaster;
 
@@ -545,6 +549,7 @@ pub async fn import_tickets_from_json_string(
 // Create an empty ticket with default values
 pub async fn create_empty_ticket(
     pool: web::Data<crate::db::Pool>,
+    notification_service: web::Data<NotificationService>,
     req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match get_db_conn(&pool).await {
@@ -597,13 +602,43 @@ pub async fn create_empty_ticket(
                 };
                 if let Ok(updated) = repository::update_ticket_partial(&mut conn, ticket.id, assign_update) {
                     ticket = updated;
-                    log::info!(
-                        "Auto-assigned ticket {} to user {} via rule '{}' ({})",
-                        ticket.id,
-                        assigned_uuid,
-                        result.rule_name,
-                        result.method
+                    info!(
+                        ticket_id = ticket.id,
+                        assignee = %assigned_uuid,
+                        rule = %result.rule_name,
+                        method = %result.method,
+                        "Auto-assigned new ticket"
                     );
+
+                    // Send notification to the auto-assigned user
+                    let notification_service = notification_service.clone();
+                    let ticket_id = ticket.id;
+                    let ticket_title = ticket.title.clone();
+                    let rule_name = result.rule_name.clone();
+
+                    tokio::spawn(async move {
+                        let payload = NotificationPayload::new(
+                            NotificationTypeCode::TicketAssigned,
+                            assigned_uuid,
+                            NotificationActor {
+                                uuid: Uuid::nil(), // System actor
+                                name: "System".to_string(),
+                                avatar_thumb: None,
+                            },
+                            NotificationEntity::Ticket {
+                                id: ticket_id,
+                                title: ticket_title,
+                            },
+                        )
+                        .with_body(format!(
+                            "You have been auto-assigned to ticket #{} (Rule: {})",
+                            ticket_id, rule_name
+                        ));
+
+                        if let Err(e) = notification_service.notify(payload).await {
+                            warn!(error = %e, "Failed to send auto-assignment notification");
+                        }
+                    });
                 }
             }
         }
@@ -634,6 +669,7 @@ pub async fn create_empty_ticket(
 pub async fn update_ticket_partial(
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    notification_service: web::Data<NotificationService>,
     req: HttpRequest,
     params: web::Path<i32>,
     body: web::Json<Value>,
@@ -650,6 +686,9 @@ pub async fn update_ticket_partial(
         Some(claims) => claims.clone(),
         None => return HttpResponse::Unauthorized().json("Authentication required"),
     };
+
+    // Get the current ticket state for detecting changes (for notifications)
+    let old_ticket = repository::get_ticket_by_id(&mut conn, ticket_id).ok();
 
     // Parse JSON and build TicketUpdate with user lookups
     let mut ticket_update = TicketUpdate {
@@ -762,18 +801,23 @@ pub async fn update_ticket_partial(
                             ..Default::default()
                         };
                         if repository::update_ticket_partial(&mut conn, ticket_id, assign_update).is_ok() {
-                            log::info!(
-                                "Auto-assigned ticket {} to user {} via rule '{}' ({}) on category change",
+                            info!(
                                 ticket_id,
-                                assigned_uuid,
-                                result.rule_name,
-                                result.method
+                                assignee = %assigned_uuid,
+                                rule = %result.rule_name,
+                                method = %result.method,
+                                "Auto-assigned ticket on category change"
                             );
 
                             // Get user info for the SSE event
-                            let user_info = repository::get_user_by_uuid(&assigned_uuid, &mut conn)
-                                .ok()
-                                .map(|u| crate::models::UserInfoWithAvatar::from(u));
+                            let assignee_user = repository::get_user_by_uuid(&assigned_uuid, &mut conn).ok();
+                            let user_info_for_sse = assignee_user.as_ref()
+                                .map(|u| crate::models::UserInfoWithAvatar {
+                                    uuid: u.uuid,
+                                    name: u.name.clone(),
+                                    avatar_url: u.avatar_url.clone(),
+                                    avatar_thumb: u.avatar_thumb.clone(),
+                                });
 
                             // Broadcast the assignment SSE event with user info
                             broadcast_sse_simple(
@@ -784,7 +828,7 @@ pub async fn update_ticket_partial(
                                     "key": "assignee",
                                     "value": {
                                         "uuid": assigned_uuid.to_string(),
-                                        "user_info": user_info
+                                        "user_info": user_info_for_sse
                                     },
                                     "user_sub": "system",
                                     "auto_assigned": true,
@@ -792,6 +836,38 @@ pub async fn update_ticket_partial(
                                 }),
                             )
                             .await;
+
+                            // Send notification to the auto-assigned user
+                            if let Some(ref assignee) = assignee_user {
+                                let notification_service = notification_service.clone();
+                                let ticket_title = updated_ticket.title.clone();
+                                let assignee_uuid = assignee.uuid;
+                                let rule_name = result.rule_name.clone();
+
+                                tokio::spawn(async move {
+                                    let payload = NotificationPayload::new(
+                                        NotificationTypeCode::TicketAssigned,
+                                        assignee_uuid,
+                                        NotificationActor {
+                                            uuid: Uuid::nil(), // System actor
+                                            name: "System".to_string(),
+                                            avatar_thumb: None,
+                                        },
+                                        NotificationEntity::Ticket {
+                                            id: ticket_id,
+                                            title: ticket_title,
+                                        },
+                                    )
+                                    .with_body(format!(
+                                        "You have been auto-assigned to ticket #{} (Rule: {})",
+                                        ticket_id, rule_name
+                                    ));
+
+                                    if let Err(e) = notification_service.notify(payload).await {
+                                        warn!(error = %e, "Failed to send auto-assignment notification");
+                                    }
+                                });
+                            }
                         }
                     }
                 }
@@ -823,6 +899,83 @@ pub async fn update_ticket_partial(
                         .json("Failed to fetch updated ticket")
                 }
             };
+
+            // Trigger notifications for relevant changes (runs async, doesn't block response)
+            if let Some(ref old) = old_ticket {
+                // Get actor info for notifications
+                let actor_uuid = Uuid::parse_str(&user_info.sub).ok();
+                let actor = actor_uuid.and_then(|uuid| {
+                    repository::get_user_by_uuid(&uuid, &mut conn).ok().map(|user| {
+                        NotificationActor {
+                            uuid: user.uuid,
+                            name: user.name.clone(),
+                            avatar_thumb: user.avatar_thumb.clone(),
+                        }
+                    })
+                });
+
+                if let Some(actor) = actor {
+                    let notification_service = notification_service.clone();
+                    let ticket_title = updated_ticket.ticket.title.clone();
+                    let new_assignee = updated_ticket.ticket.assignee_uuid;
+                    let old_assignee = old.assignee_uuid;
+                    let new_status = updated_ticket.ticket.status.clone();
+                    let old_status = old.status.clone();
+                    let requester_uuid = updated_ticket.ticket.requester_uuid;
+                    let actor_clone = actor.clone();
+
+                    // Spawn async task for notifications to not block response
+                    tokio::spawn(async move {
+                        // Notify new assignee if assignment changed
+                        if new_assignee != old_assignee {
+                            if let Some(assignee_uuid) = new_assignee {
+                                let payload = NotificationPayload::new(
+                                    NotificationTypeCode::TicketAssigned,
+                                    assignee_uuid,
+                                    actor_clone.clone(),
+                                    NotificationEntity::Ticket {
+                                        id: ticket_id,
+                                        title: ticket_title.clone(),
+                                    },
+                                )
+                                .with_body(format!("You have been assigned to ticket #{}", ticket_id));
+
+                                if let Err(e) = notification_service.notify(payload).await {
+                                    warn!(error = %e, "Failed to send assignment notification");
+                                }
+                            }
+                        }
+
+                        // Notify requester if status changed to closed
+                        if new_status != old_status {
+                            if let Some(requester) = requester_uuid {
+                                let payload = NotificationPayload::new(
+                                    NotificationTypeCode::TicketStatusChanged,
+                                    requester,
+                                    actor_clone.clone(),
+                                    NotificationEntity::Ticket {
+                                        id: ticket_id,
+                                        title: ticket_title.clone(),
+                                    },
+                                )
+                                .with_body(format!(
+                                    "Ticket #{} status changed to {}",
+                                    ticket_id,
+                                    match new_status {
+                                        TicketStatus::Open => "open",
+                                        TicketStatus::InProgress => "in-progress",
+                                        TicketStatus::Closed => "closed",
+                                    }
+                                ));
+
+                                if let Err(e) = notification_service.notify(payload).await {
+                                    warn!(error = %e, "Failed to send status change notification");
+                                }
+                            }
+                        }
+                    });
+                }
+            }
 
             // Return the updated complete ticket
             HttpResponse::Ok().json(updated_ticket)

@@ -309,8 +309,78 @@ export function createTicketLinkPlugin(): Plugin {
   })
 }
 
-// CSS styles are defined in CollaborativeEditor.vue
-// This export is kept for reference but styles are applied via the component
-export const ticketLinkStyles = `
-/* Styles are defined in CollaborativeEditor.vue */
-`
+/**
+ * Enhance ticket link elements in rendered markdown content.
+ * Finds [data-ticket-link] elements and converts them to full ticket cards.
+ * Used by MarkdownRenderer to display ticket references in comments.
+ */
+export function enhanceTicketLinks(container: HTMLElement): void {
+  const ticketLinks = container.querySelectorAll('[data-ticket-link]:not([data-enhanced])')
+
+  ticketLinks.forEach(async (el) => {
+    const element = el as HTMLElement
+    const ticketIdStr = element.getAttribute('data-ticket-id')
+    const href = element.getAttribute('data-href')
+
+    if (!ticketIdStr) return
+
+    const ticketId = parseInt(ticketIdStr, 10)
+    if (isNaN(ticketId)) return
+
+    // Mark as enhanced to prevent re-processing
+    element.setAttribute('data-enhanced', 'true')
+    element.className = 'ticket-link-card'
+
+    // Show loading state
+    element.innerHTML = renderTicketCardHtml({
+      id: ticketId,
+      title: 'Loading...',
+      loading: true
+    })
+
+    // Fetch and render full ticket data
+    const data = await fetchTicketData(ticketId)
+
+    // Check for colorblind mode indicators
+    const colorBlindMode = isColorBlindMode()
+    const statusIndicator = colorBlindMode && data.status
+      ? getStatusIndicatorSvg(data.status.toLowerCase() as TicketStatus)
+      : ''
+    const priorityIndicator = colorBlindMode && data.priority
+      ? getPriorityIndicatorSvg(data.priority.toLowerCase() as TicketPriority)
+      : ''
+
+    const statusClass = getStatusClass(data.status)
+    const priorityClass = getPriorityClass(data.priority)
+    const statusText = data.status ? data.status.replace('-', ' ') : ''
+    const priorityText = data.priority
+      ? data.priority.charAt(0).toUpperCase() + data.priority.slice(1)
+      : ''
+
+    element.className = `ticket-link-card ${data.loading ? 'ticket-link-loading' : ''} ${data.error ? 'ticket-link-error' : ''}`
+    element.innerHTML = `
+      <div class="ticket-link-header">
+        <span class="ticket-link-id">#${data.id}</span>
+        <span class="ticket-link-title">${escapeHtml(data.title)}</span>
+      </div>
+      <div class="ticket-link-meta">
+        ${data.requester ? `<span class="ticket-link-person"><span class="ticket-link-label">From:</span> ${escapeHtml(data.requester)}</span>` : ''}
+        ${data.assignee ? `<span class="ticket-link-person"><span class="ticket-link-label">To:</span> ${escapeHtml(data.assignee)}</span>` : ''}
+        ${data.status ? `<span class="ticket-link-status ${statusClass}">${statusIndicator}${statusText}</span>` : ''}
+        ${data.priority ? `<span class="ticket-link-priority ${priorityClass}">${priorityIndicator}${priorityText}</span>` : ''}
+      </div>
+    `
+
+    // Add click handler for navigation
+    element.style.cursor = 'pointer'
+    element.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (navigateToTicket) {
+        navigateToTicket(ticketId)
+      } else if (href) {
+        window.location.href = href
+      }
+    })
+  })
+}

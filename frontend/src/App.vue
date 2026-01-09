@@ -5,12 +5,15 @@ import { computed, ref, onMounted } from 'vue'
 import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
 import MobileSearchBar from './components/MobileSearchBar.vue'
+import ToastContainer from './components/common/ToastContainer.vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useMobileSearch } from '@/composables/useMobileSearch'
 import { useCursorScanlines } from '@/composables/useCursorScanlines'
 import { useCrtEffect } from '@/composables/useCrtEffect'
 import { useSnowfall } from '@/composables/useSnowfall'
 import { useFavicon } from '@/composables/useFavicon'
+import { useNotificationSSE } from '@/composables/useNotificationSSE'
+import { setMentionNavigationHandler } from '@/plugins/prosemirror-mention-view'
 import authService from '@/services/authService'
 import { useBrandingStore } from '@/stores/branding'
 
@@ -21,7 +24,13 @@ const brandingStore = useBrandingStore()
 useFavicon(() => brandingStore.faviconUrl)
 
 const route = useRoute()
+const router = useRouter()
 const isBlankLayout = computed(() => route.meta.layout === 'blank')
+
+// Set up global mention click navigation
+setMentionNavigationHandler((uuid: string) => {
+  router.push(`/admin/users/${uuid}`)
+})
 
 // State for navbar collapse
 const navbarCollapsed = ref(false)
@@ -39,6 +48,9 @@ const { isActive: isMobileSearchActive } = useMobileSearch();
 useCursorScanlines();  // Red-horizon: Crosshair lines following cursor
 useCrtEffect();        // Red-horizon: Full-screen CRT monitor effect
 useSnowfall();         // Christmas: Ambient falling snow
+
+// Real-time notification handling
+useNotificationSSE();
 
 // Handle route-based ticket information
 const ticketInfo = computed(() => {
@@ -73,7 +85,6 @@ const currentPageUrl = computed(() => {
 // No need for complex computed properties - flexbox handles it automatically
 
 // Security: Check if system requires initial setup on app initialization
-const router = useRouter();
 const initializationChecked = ref(false);
 
 // Ref to access the current route view component
@@ -189,6 +200,9 @@ onMounted(async () => {
       </main>
     </div>
   </div>
+
+  <!-- Global Toast Container -->
+  <ToastContainer />
 </template>
 
 <style>

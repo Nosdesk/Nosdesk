@@ -106,6 +106,34 @@ export interface ViewerCountEventData {
 }
 
 /**
+ * Actor who triggered a notification
+ */
+export interface NotificationActor {
+  uuid: string
+  name: string
+  avatar_thumb?: string
+}
+
+/**
+ * notification-received event data
+ */
+export interface NotificationReceivedEventData {
+  recipient_uuid: string
+  notification: {
+    id: string
+    notification_type: string
+    title: string
+    body?: string
+    entity_type: string
+    entity_id: number
+    ticket_id: number
+    actor: NotificationActor
+    metadata?: Record<string, unknown>
+    timestamp: string
+  }
+}
+
+/**
  * Union type of all SSE event data types (for generic handling)
  */
 export type SSEEventData =
@@ -117,6 +145,7 @@ export type SSEEventData =
   | TicketLinkEventData
   | ProjectEventData
   | ViewerCountEventData
+  | NotificationReceivedEventData
 
 /**
  * SSE event handler function type

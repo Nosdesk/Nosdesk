@@ -22,6 +22,7 @@ pub mod branding;
 pub mod backup;
 pub mod groups;
 pub mod categories;
+pub mod notifications;
 
 // Import all handlers from modules
 pub use auth::*;
@@ -61,6 +62,68 @@ use actix_web::{web, HttpResponse, HttpMessage, Responder};
 use serde_json::json;
 use std::sync::Arc;
 use tracing::{info, warn, error, debug};
+use uuid::Uuid;
+
+use crate::services::notifications::{
+    NotificationService,
+    types::{NotificationTypeCode, NotificationPayload, NotificationEntity, NotificationActor},
+};
+
+use once_cell::sync::Lazy;
+use regex::Regex;
+
+// Pre-compiled regexes for performance (compiled once, reused)
+static MENTION_UUID_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"@\[[^\]]+\]\(([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\)").unwrap()
+});
+static MENTION_DISPLAY_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"@\[([^\]]+)\]\([a-f0-9-]+\)").unwrap()
+});
+static HTML_TAG_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"<[^>]+>").unwrap()
+});
+static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\s+").unwrap()
+});
+
+/// Parse @mentions from comment content
+/// Returns a list of unique UUIDs mentioned
+/// Supports format: @[Display Name](uuid)
+fn parse_mentions(content: &str) -> Vec<Uuid> {
+    let mut mentions: Vec<Uuid> = MENTION_UUID_RE
+        .captures_iter(content)
+        .filter_map(|cap| {
+            cap.get(1)
+                .and_then(|m| Uuid::parse_str(m.as_str()).ok())
+        })
+        .collect();
+
+    // Remove duplicates while preserving order
+    mentions.sort();
+    mentions.dedup();
+    mentions
+}
+
+/// Strip HTML tags and clean up text for notification previews
+/// Also removes @mention syntax: @[Name](uuid) -> @Name
+fn strip_html_for_preview(content: &str) -> String {
+    // Convert @[Name](uuid) mentions to just @Name
+    let with_clean_mentions = MENTION_DISPLAY_RE.replace_all(content, "@$1");
+    // Strip HTML tags
+    let without_html = HTML_TAG_RE.replace_all(&with_clean_mentions, "");
+    // Normalize whitespace (collapse multiple spaces/newlines)
+    let normalized = WHITESPACE_RE.replace_all(&without_html, " ");
+    normalized.trim().to_string()
+}
+
+/// Truncate text for notification preview (adds "..." if truncated)
+fn truncate_preview(text: &str, max_len: usize) -> String {
+    if text.len() > max_len {
+        format!("{}...", text.chars().take(max_len).collect::<String>())
+    } else {
+        text.to_string()
+    }
+}
 
 // Re-export validation utilities
 // pub use crate::utils::validation;
@@ -116,6 +179,7 @@ pub async fn add_comment_to_ticket(
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
+    notification_service: web::Data<NotificationService>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
@@ -143,17 +207,28 @@ pub async fn add_comment_to_ticket(
         Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid user UUID in token"})),
     };
 
-    // Get the authenticated user's information
-    let user_info = match crate::repository::users::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
+    // Get the authenticated user's full information for notifications
+    let commenter_user = match crate::repository::users::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => {
             debug!(user_name = %user.name, user_uuid = %user.uuid, "Authenticated user");
-            Some(crate::models::UserInfoWithAvatar::from(user))
+            user
         },
         Err(e) => {
             error!(user_uuid = %claims.sub, error = ?e, "Authenticated user UUID not found in database");
             return HttpResponse::InternalServerError().json(json!({"error": "User account not found"}));
         }
     };
+
+    // Extract user info for the response
+    let user_info = Some(crate::models::UserInfoWithAvatar {
+        uuid: commenter_user.uuid,
+        name: commenter_user.name.clone(),
+        avatar_url: commenter_user.avatar_url.clone(),
+        avatar_thumb: commenter_user.avatar_thumb.clone(),
+    });
+
+    // Get ticket info for notifications
+    let ticket = crate::repository::get_ticket_by_id(&mut conn, ticket_id).ok();
 
     // Create the new comment using the authenticated user's UUID
     let new_comment = crate::models::NewComment {
@@ -195,6 +270,27 @@ pub async fn add_comment_to_ticket(
                                     debug!(from = %old_storage_path, to = %new_storage_path, "Moved file using storage");
                                     // Update the URL to point to the new location (keep /uploads prefix for frontend compatibility)
                                     attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
+
+                                    // Also move PDF thumbnail if it exists
+                                    if attachment.mime_type.as_deref() == Some("application/pdf") {
+                                        let thumb_suffix = "_thumb.webp";
+                                        let old_thumb_path = old_storage_path
+                                            .strip_suffix(".pdf")
+                                            .or_else(|| old_storage_path.strip_suffix(".PDF"))
+                                            .map(|base| format!("{}{}", base, thumb_suffix));
+                                        let new_thumb_path = new_storage_path
+                                            .strip_suffix(".pdf")
+                                            .or_else(|| new_storage_path.strip_suffix(".PDF"))
+                                            .map(|base| format!("{}{}", base, thumb_suffix));
+
+                                        if let (Some(old_thumb), Some(new_thumb)) = (old_thumb_path, new_thumb_path) {
+                                            if let Err(e) = storage.move_file(&old_thumb, &new_thumb).await {
+                                                debug!(error = ?e, "PDF thumbnail not found or couldn't be moved (this is OK if no thumbnail was generated)");
+                                            } else {
+                                                debug!(from = %old_thumb, to = %new_thumb, "Moved PDF thumbnail");
+                                            }
+                                        }
+                                    }
                                 },
                                 Err(e) => {
                                     warn!(error = ?e, "Error moving file with storage, falling back to filesystem");
@@ -224,10 +320,26 @@ pub async fn add_comment_to_ticket(
                                             }
                                             // Update the URL to point to the new location
                                             attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
+
+                                            // Also move PDF thumbnail if it exists (filesystem fallback)
+                                            if attachment.mime_type.as_deref() == Some("application/pdf") {
+                                                let old_thumb = old_fs_path.replace(".pdf", "_thumb.webp").replace(".PDF", "_thumb.webp");
+                                                let new_thumb = new_fs_path.replace(".pdf", "_thumb.webp").replace(".PDF", "_thumb.webp");
+                                                let _ = std::fs::rename(&old_thumb, &new_thumb)
+                                                    .or_else(|_| std::fs::copy(&old_thumb, &new_thumb).map(|_| ()));
+                                            }
                                         }
                                     } else {
                                         // Update the URL to point to the new location
                                         attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
+
+                                        // Also move PDF thumbnail if it exists (filesystem fallback)
+                                        if attachment.mime_type.as_deref() == Some("application/pdf") {
+                                            let old_thumb = old_fs_path.replace(".pdf", "_thumb.webp").replace(".PDF", "_thumb.webp");
+                                            let new_thumb = new_fs_path.replace(".pdf", "_thumb.webp").replace(".PDF", "_thumb.webp");
+                                            let _ = std::fs::rename(&old_thumb, &new_thumb)
+                                                .or_else(|_| std::fs::copy(&old_thumb, &new_thumb).map(|_| ()));
+                                        }
                                     }
                                 }
                             }
@@ -315,6 +427,86 @@ pub async fn add_comment_to_ticket(
             ).await;
 
             debug!(ticket_id, "SSE: Successfully broadcasted comment-added and modified events");
+
+            // Send notifications to ticket participants (requester, assignee, and @mentioned users)
+            if let Some(ref ticket_info) = ticket {
+                let commenter_uuid = commenter_user.uuid;
+                let commenter_name = commenter_user.name.clone();
+                let commenter_avatar = commenter_user.avatar_thumb.clone();
+                let ticket_title = ticket_info.title.clone();
+                let ticket_requester = ticket_info.requester_uuid;
+                let ticket_assignee = ticket_info.assignee_uuid;
+                let comment_id = comment.id;
+                // Strip HTML and clean up mentions for notification preview
+                let comment_preview = truncate_preview(&strip_html_for_preview(&comment_data.content), 100);
+
+                // Parse @mentions from comment content (now extracts UUIDs directly)
+                let mentioned_users: Vec<Uuid> = parse_mentions(&comment_data.content)
+                    .into_iter()
+                    .filter(|uuid| *uuid != commenter_uuid)
+                    .collect();
+                debug!(mentioned_users = ?mentioned_users, "Parsed @mentions from comment");
+
+                let notification_service = notification_service.clone();
+                tokio::spawn(async move {
+                    let actor = NotificationActor {
+                        uuid: commenter_uuid,
+                        name: commenter_name,
+                        avatar_thumb: commenter_avatar,
+                    };
+
+                    // Collect recipients for CommentAdded (requester and assignee, excluding commenter and mentioned users)
+                    let mut comment_recipients = Vec::new();
+                    if let Some(requester) = ticket_requester {
+                        if requester != commenter_uuid && !mentioned_users.contains(&requester) {
+                            comment_recipients.push(requester);
+                        }
+                    }
+                    if let Some(assignee) = ticket_assignee {
+                        if assignee != commenter_uuid && !comment_recipients.contains(&assignee) && !mentioned_users.contains(&assignee) {
+                            comment_recipients.push(assignee);
+                        }
+                    }
+
+                    // Send CommentAdded notification to requester/assignee
+                    for recipient in comment_recipients {
+                        let payload = NotificationPayload::new(
+                            NotificationTypeCode::CommentAdded,
+                            recipient,
+                            actor.clone(),
+                            NotificationEntity::Comment {
+                                id: comment_id,
+                                ticket_id,
+                                ticket_title: ticket_title.clone(),
+                            },
+                        )
+                        .with_body(&comment_preview);
+
+                        if let Err(e) = notification_service.notify(payload).await {
+                            warn!(error = %e, recipient = %recipient, "Failed to send comment notification");
+                        }
+                    }
+
+                    // Send Mentioned notification to @mentioned users
+                    for mentioned_uuid in mentioned_users {
+                        let payload = NotificationPayload::new(
+                            NotificationTypeCode::Mentioned,
+                            mentioned_uuid,
+                            actor.clone(),
+                            NotificationEntity::Comment {
+                                id: comment_id,
+                                ticket_id,
+                                ticket_title: ticket_title.clone(),
+                            },
+                        )
+                        .with_body(&comment_preview);
+
+                        if let Err(e) = notification_service.notify(payload).await {
+                            warn!(error = %e, recipient = %mentioned_uuid, "Failed to send mention notification");
+                        }
+                    }
+                });
+            }
 
             info!(ticket_id, attachments_count = attachments.len(), "Successfully created comment");
             debug!(response = %response, "Returning JSON response");

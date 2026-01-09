@@ -14,6 +14,7 @@ pub mod file_validation;
 pub mod rate_limit;
 pub mod redis_yjs_cache;
 pub mod rbac;
+pub mod pdf;
 
 use uuid::Uuid;
 use crate::models::{UserRole, UserInfo};

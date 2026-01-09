@@ -32,6 +32,7 @@ import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectio
 import ProjectInfo from "@/components/ticketComponents/ProjectInfo.vue";
 import BackButton from "@/components/common/BackButton.vue";
 import DeleteButton from "@/components/common/DeleteButton.vue";
+import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -300,7 +301,24 @@ defineExpose({
 
 <template>
     <div class="flex-1">
-        <div v-if="ticket" class="flex flex-col">
+        <!-- Loading state -->
+        <div v-if="loading" class="flex items-center justify-center h-64">
+            <div class="animate-spin rounded-full h-8 w-8 border-2 border-accent border-t-transparent"></div>
+        </div>
+
+        <!-- Error state -->
+        <div v-else-if="error" class="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] px-4 gap-4">
+            <NotFoundIllustration />
+            <router-link
+                to="/tickets"
+                class="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors"
+            >
+                Back to Tickets
+            </router-link>
+        </div>
+
+        <!-- Ticket content -->
+        <div v-else-if="ticket" class="flex flex-col">
             <!-- Navigation and actions bar -->
             <div class="pt-4 px-4 sm:px-6 flex justify-between items-center">
                 <div class="flex items-center gap-4">

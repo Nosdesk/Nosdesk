@@ -2537,3 +2537,142 @@ pub struct AssignmentResult {
     pub assigned_user_uuid: Option<Uuid>,
     pub method: AssignmentMethod,
 }
+
+// ============================================================================
+// Notification Models
+// ============================================================================
+
+/// Notification type definition
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Clone)]
+#[diesel(table_name = crate::schema::notification_types)]
+pub struct NotificationType {
+    pub id: i32,
+    pub code: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub category: String,
+    pub default_channels: serde_json::Value,
+    pub created_at: NaiveDateTime,
+}
+
+/// User notification preference
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
+#[diesel(table_name = crate::schema::notification_preferences)]
+#[diesel(belongs_to(User, foreign_key = user_uuid))]
+#[diesel(belongs_to(NotificationType, foreign_key = notification_type_id))]
+pub struct NotificationPreference {
+    pub id: i32,
+    pub user_uuid: Uuid,
+    pub notification_type_id: i32,
+    pub channel: String,
+    pub enabled: bool,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::notification_preferences)]
+pub struct NewNotificationPreference {
+    pub user_uuid: Uuid,
+    pub notification_type_id: i32,
+    pub channel: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::notification_preferences)]
+pub struct NotificationPreferenceUpdate {
+    pub enabled: Option<bool>,
+    pub updated_at: Option<NaiveDateTime>,
+}
+
+/// Persistent notification record
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
+#[diesel(table_name = crate::schema::notifications)]
+#[diesel(belongs_to(User, foreign_key = user_uuid))]
+#[diesel(belongs_to(NotificationType, foreign_key = notification_type_id))]
+pub struct Notification {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub user_uuid: Uuid,
+    pub notification_type_id: i32,
+    pub entity_type: String,
+    pub entity_id: i32,
+    pub title: String,
+    pub body: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub channels_delivered: serde_json::Value,
+    pub is_read: bool,
+    pub read_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::notifications)]
+pub struct NewNotification {
+    pub uuid: Uuid,
+    pub user_uuid: Uuid,
+    pub notification_type_id: i32,
+    pub entity_type: String,
+    pub entity_id: i32,
+    pub title: String,
+    pub body: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub channels_delivered: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::notifications)]
+pub struct NotificationUpdate {
+    pub is_read: Option<bool>,
+    pub read_at: Option<NaiveDateTime>,
+    pub channels_delivered: Option<serde_json::Value>,
+}
+
+/// Rate limit tracking for email notifications
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
+#[diesel(table_name = crate::schema::notification_rate_limits)]
+#[diesel(belongs_to(User, foreign_key = user_uuid))]
+#[diesel(belongs_to(NotificationType, foreign_key = notification_type_id))]
+pub struct NotificationRateLimit {
+    pub id: i32,
+    pub user_uuid: Uuid,
+    pub notification_type_id: i32,
+    pub entity_type: String,
+    pub entity_id: i32,
+    pub last_notified_at: NaiveDateTime,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::notification_rate_limits)]
+pub struct NewNotificationRateLimit {
+    pub user_uuid: Uuid,
+    pub notification_type_id: i32,
+    pub entity_type: String,
+    pub entity_id: i32,
+}
+
+/// API response for notification preferences (grouped by type)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NotificationPreferenceResponse {
+    pub notification_type: String,
+    pub notification_name: String,
+    pub description: Option<String>,
+    pub category: String,
+    pub channels: std::collections::HashMap<String, bool>,
+}
+
+/// API response for a notification
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NotificationResponse {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub notification_type: String,
+    pub entity_type: String,
+    pub entity_id: i32,
+    pub title: String,
+    pub body: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub is_read: bool,
+    pub created_at: NaiveDateTime,
+}

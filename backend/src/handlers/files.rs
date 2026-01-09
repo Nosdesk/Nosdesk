@@ -119,6 +119,31 @@ pub async fn upload_files(
                 actix_web::error::ErrorInternalServerError("Failed to store file")
             })?;
 
+        // Generate PDF thumbnail if applicable
+        let thumbnail_url = if detected_mime == "application/pdf" {
+            let storage_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "uploads".to_string());
+            match crate::utils::pdf::generate_and_store_pdf_thumbnail(
+                &file_data,
+                &stored_file.path,
+                &storage_path,
+            ).await {
+                Ok(Some(url)) => {
+                    info!(thumbnail_url = %url, filename = %sanitized_filename, "Generated PDF thumbnail");
+                    Some(url)
+                }
+                Ok(None) => {
+                    debug!(filename = %sanitized_filename, "PDF thumbnail generation not available");
+                    None
+                }
+                Err(e) => {
+                    warn!(error = %e, filename = %sanitized_filename, "Failed to generate PDF thumbnail");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         // Create a new attachment record in the database
         let new_attachment = NewAttachment {
             url: stored_file.url.clone(),
@@ -140,7 +165,8 @@ pub async fn upload_files(
                     "id": attachment.id,
                     "url": stored_file.url,
                     "name": sanitized_filename,
-                    "transcription": attachment.transcription
+                    "transcription": attachment.transcription,
+                    "thumbnail_url": thumbnail_url
                 });
                 info!(attachment_id = attachment.id, filename = %sanitized_filename, "Attachment created successfully");
                 uploaded_attachments.push(attachment_json);

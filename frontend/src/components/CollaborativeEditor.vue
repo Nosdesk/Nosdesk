@@ -7,7 +7,7 @@
 // - To enable verbose logging in production: localStorage.setItem('editor-verbose-logging', 'true')
 // - To disable: localStorage.removeItem('editor-verbose-logging')
 
-import { ref, onMounted, onBeforeUnmount, watch, computed } from "vue";
+import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import * as Y from "yjs";
 import { PermanentUserData } from "yjs";
@@ -73,6 +73,15 @@ import { createImageUploadPlugin } from "./editor/imageUploadPlugin";
 import { syntaxHighlightPlugin } from "./editor/syntaxHighlightPlugin";
 import { twemojiPlugin } from "@/plugins/prosemirror-twemoji";
 import { createTicketDropIndicatorPlugin } from "./editor/ticketDropIndicatorPlugin";
+import {
+    createMentionPlugins,
+    insertMention,
+    closeMention,
+    type MentionState,
+    type MentionUser,
+} from "@/plugins/prosemirror-mentions";
+import { createMentionViewPlugin } from "@/plugins/prosemirror-mention-view";
+import { useDataStore } from "@/stores/dataStore";
 
 // Yjs awareness user state structure
 interface AwarenessUser {
@@ -95,6 +104,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 // Get auth store for user info
 const authStore = useAuthStore();
+const dataStore = useDataStore();
 
 // Set up Vue Router navigation for ticket link cards
 const router = useRouter();
@@ -114,6 +124,21 @@ let connectionTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // State for connected users
 const connectedUsers = ref<{ id: string; user: AwarenessUser }[]>([]);
+
+// Mention state
+const editorWrapper = ref<HTMLElement | null>(null);
+const mentionDropdownRef = ref<HTMLElement | null>(null);
+const mentionState = ref<MentionState>({
+    active: false,
+    query: '',
+    from: 0,
+    to: 0,
+    position: null,
+});
+const mentionUsers = ref<MentionUser[]>([]);
+const mentionSelectedIndex = ref(0);
+const isMentionSearching = ref(false);
+let mentionSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Remove save status tracking since backend handles saves automatically
 
@@ -194,6 +219,109 @@ const linkTooltipState = ref<LinkTooltipState>({
     from: 0,
     to: 0,
 });
+
+// Mention dropdown position using fixed positioning for viewport awareness
+const mentionDropdownStyle = computed(() => {
+    if (!mentionState.value.active || !mentionState.value.position) {
+        return { display: 'none' };
+    }
+
+    const { top, left } = mentionState.value.position;
+    const dropdownHeight = 280;
+    const dropdownWidth = 300;
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const padding = 8;
+
+    // Check if dropdown would overflow bottom of viewport
+    const wouldOverflowBottom = top + dropdownHeight + padding > viewportHeight;
+
+    // Calculate left position, ensuring it doesn't overflow right edge
+    const adjustedLeft = Math.min(left, viewportWidth - dropdownWidth - padding);
+
+    return {
+        display: 'block',
+        position: 'fixed',
+        top: wouldOverflowBottom ? 'auto' : `${top + padding}px`,
+        bottom: wouldOverflowBottom ? `${viewportHeight - top + padding}px` : 'auto',
+        left: `${Math.max(padding, adjustedLeft)}px`,
+    };
+});
+
+// Mention handlers
+const searchMentionUsers = async (query: string) => {
+    isMentionSearching.value = true;
+    try {
+        const result = await dataStore.getPaginatedUsers({
+            page: 1,
+            pageSize: 8,
+            search: query || undefined,
+        });
+        mentionUsers.value = result.data as MentionUser[];
+        mentionSelectedIndex.value = 0;
+    } catch (error) {
+        console.error('Failed to search users:', error);
+        mentionUsers.value = [];
+    } finally {
+        isMentionSearching.value = false;
+    }
+};
+
+const debouncedMentionSearch = (query: string) => {
+    if (mentionSearchTimer) clearTimeout(mentionSearchTimer);
+    mentionSearchTimer = setTimeout(() => searchMentionUsers(query), 150);
+};
+
+const handleMentionStateChange = (state: MentionState) => {
+    mentionState.value = state;
+    if (state.active) {
+        debouncedMentionSearch(state.query);
+    }
+};
+
+const selectMentionUser = (user: MentionUser) => {
+    if (!editorView) return;
+    insertMention(editorView, user, schema.nodes.mention);
+};
+
+// Handle keyboard navigation in mention dropdown (called by ProseMirror plugin)
+// Returns true if the key was handled to prevent default ProseMirror behavior
+const handleMentionKeyDown = (key: 'ArrowUp' | 'ArrowDown' | 'Enter' | 'Tab' | 'Escape'): boolean => {
+    if (!mentionState.value.active || !editorView) return false;
+
+    switch (key) {
+        case 'ArrowDown':
+            mentionSelectedIndex.value = Math.min(mentionSelectedIndex.value + 1, mentionUsers.value.length - 1);
+            scrollMentionToSelected();
+            return true;
+        case 'ArrowUp':
+            mentionSelectedIndex.value = Math.max(mentionSelectedIndex.value - 1, 0);
+            scrollMentionToSelected();
+            return true;
+        case 'Enter':
+        case 'Tab':
+            if (mentionUsers.value.length > 0) {
+                selectMentionUser(mentionUsers.value[mentionSelectedIndex.value]);
+                return true;
+            }
+            return false;
+        case 'Escape':
+            closeMention(editorView);
+            return true;
+    }
+    return false;
+};
+
+const scrollMentionToSelected = () => {
+    nextTick(() => {
+        const dropdown = mentionDropdownRef.value;
+        if (!dropdown) return;
+        const selected = dropdown.querySelector('.selected') as HTMLElement;
+        if (selected) {
+            selected.scrollIntoView({ block: 'nearest' });
+        }
+    });
+};
 
 // Global variables - mirroring the demo approach exactly
 let ydoc: Y.Doc | null = null;
@@ -697,6 +825,11 @@ const initEditor = async () => {
                     keymap(createListKeymap(schema)),
                     // Add individual plugins instead of exampleSetup
                     buildInputRules(schema), // Custom markdown input rules
+                    // Mention plugins must come BEFORE baseKeymap to intercept Enter/Tab/Arrow keys
+                    ...createMentionPlugins({
+                        onStateChange: handleMentionStateChange,
+                        onKeyDown: handleMentionKeyDown,
+                    }),
                     keymap(baseKeymap), // Basic key bindings
                     dropCursor(), // Shows cursor when dragging
                     createTicketDropIndicatorPlugin(), // Shows drop indicator for ticket cards
@@ -708,10 +841,14 @@ const initEditor = async () => {
                         onUploadError: (error) => log.error('Image upload failed:', error)
                     }),
                     syntaxHighlightPlugin,
+                    createMentionViewPlugin(),
                     twemojiPlugin,
                 ],
             }),
         });
+
+        // Load initial users for mentions
+        searchMentionUsers('');
 
         // 7. Set up connection status handler with enhanced logging
         // Store handler reference for proper cleanup
@@ -1689,6 +1826,12 @@ onBeforeUnmount(() => {
         visibilityTimeout = null;
     }
 
+    // Clear mention search timer
+    if (mentionSearchTimer) {
+        clearTimeout(mentionSearchTimer);
+        mentionSearchTimer = null;
+    }
+
     // Remove visibility change listener
     document.removeEventListener("visibilitychange", handleVisibilityChange);
 });
@@ -2243,12 +2386,80 @@ defineExpose({
         </div>
 
         <!-- Editor content with click handler -->
-        <div
-            id="editor"
-            ref="editorElement"
-            @click="focusEditor"
-            class="editor-container"
-        ></div>
+        <div ref="editorWrapper" class="editor-wrapper">
+            <div
+                id="editor"
+                ref="editorElement"
+                @click="focusEditor"
+                class="editor-container"
+            ></div>
+
+        </div>
+
+        <!-- Mention Dropdown (teleported to body for proper positioning) -->
+        <Teleport to="body">
+            <Transition
+                enter-active-class="transition ease-out duration-100"
+                enter-from-class="transform opacity-0 scale-95"
+                enter-to-class="transform opacity-100 scale-100"
+                leave-active-class="transition ease-in duration-75"
+                leave-from-class="transform opacity-100 scale-100"
+                leave-to-class="transform opacity-0 scale-95"
+            >
+                <div
+                    v-if="mentionState.active"
+                    ref="mentionDropdownRef"
+                    class="mention-dropdown"
+                    :style="mentionDropdownStyle"
+                >
+                    <!-- Search indicator -->
+                    <div v-if="mentionState.query" class="px-3 py-2 text-xs text-tertiary border-b border-default bg-surface-alt">
+                        Searching for "<span class="text-primary font-medium">{{ mentionState.query }}</span>"
+                    </div>
+
+                    <!-- Loading -->
+                    <div v-if="isMentionSearching" class="px-3 py-4 flex items-center justify-center">
+                        <div class="animate-spin rounded-full h-4 w-4 border-2 border-accent border-t-transparent"></div>
+                    </div>
+
+                    <!-- User list -->
+                    <div v-else-if="mentionUsers.length > 0" class="max-h-48 overflow-y-auto">
+                        <button
+                            v-for="(user, index) in mentionUsers"
+                            :key="user.uuid"
+                            type="button"
+                            @click="selectMentionUser(user)"
+                            @mouseenter="mentionSelectedIndex = index"
+                            class="w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-surface-alt transition-colors"
+                            :class="{ 'bg-surface-alt selected': index === mentionSelectedIndex }"
+                        >
+                            <UserAvatar
+                                :name="user.name"
+                                :avatar="user.avatar_thumb || user.avatar_url"
+                                size="sm"
+                                :showName="false"
+                            />
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-primary truncate">{{ user.name }}</p>
+                                <p v-if="user.email" class="text-xs text-tertiary truncate">{{ user.email }}</p>
+                            </div>
+                        </button>
+                    </div>
+
+                    <!-- No results -->
+                    <div v-else class="px-3 py-4 text-center text-sm text-tertiary">
+                        No users found
+                    </div>
+
+                    <!-- Hint -->
+                    <div class="px-3 py-2 text-xs text-tertiary border-t border-default bg-surface-alt flex items-center gap-4">
+                        <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">↑↓</kbd> Navigate</span>
+                        <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Enter</kbd> Select</span>
+                        <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Esc</kbd> Close</span>
+                    </div>
+                </div>
+            </Transition>
+        </Teleport>
 
         <!-- Link Tooltip -->
         <LinkTooltip
@@ -2400,6 +2611,86 @@ defineExpose({
     border-radius: 0.375rem;
     background-color: var(--color-status-error-bg, rgba(239, 68, 68, 0.15));
     border: 1px solid var(--color-status-error-border, rgba(239, 68, 68, 0.3));
+}
+
+.editor-wrapper {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.mention-dropdown {
+    z-index: 9999;
+    min-width: 250px;
+    max-width: 350px;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-default);
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+}
+
+/* Mention typing highlight */
+.ProseMirror .mention-typing {
+    background-color: color-mix(in srgb, var(--color-accent) 15%, transparent);
+    border-radius: 0.25rem;
+}
+
+/* Mention chip styles */
+.ProseMirror .mention-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.1875rem;
+    padding: 0.0625em 0.375em 0.0625em 0.1875em;
+    margin: 0 0.0625em;
+    border-radius: 9999px;
+    background-color: color-mix(in srgb, var(--color-accent) 12%, transparent);
+    color: var(--color-accent);
+    font-weight: 500;
+    font-size: inherit;
+    line-height: 1;
+    vertical-align: text-bottom;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s ease;
+}
+
+.ProseMirror .mention-chip:hover {
+    background-color: color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+.ProseMirror .mention-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1em;
+    height: 1em;
+    border-radius: 9999px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.ProseMirror .mention-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.ProseMirror .mention-avatar-fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 0.5em;
+    font-weight: 600;
+}
+
+.ProseMirror .mention-name {
+    white-space: nowrap;
 }
 
 .editor-container {
