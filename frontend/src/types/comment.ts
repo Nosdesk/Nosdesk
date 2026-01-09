@@ -11,6 +11,7 @@ export interface Attachment {
   name: string
   comment_id: number
   transcription?: string
+  thumbnail_url?: string
 }
 
 export interface Comment {

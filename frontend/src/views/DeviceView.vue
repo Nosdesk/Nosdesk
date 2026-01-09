@@ -9,6 +9,7 @@ import SectionCard from '@/components/common/SectionCard.vue';
 import UserCard from '@/components/UserCard.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import DeviceGroups from '@/components/DeviceGroups.vue';
+import Modal from '@/components/Modal.vue';
 import { getDeviceById, updateDevice, createDevice, deleteDevice, unmanageDevice } from '@/services/deviceService';
 import { IntuneIcon, EntraIcon } from '@/components/icons';
 import type { Device, DeviceFormData } from '@/types/device';
@@ -21,6 +22,8 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const showUserSelectionModal = ref(false);
 const showAdditionalDetails = ref(false);
+const showUnmanageModal = ref(false);
+const unmanageError = ref<string | null>(null);
 
 // Creation and editing state
 const isCreationMode = ref(false);
@@ -349,21 +352,26 @@ const handleDeleteDevice = async () => {
   }
 };
 
-// Handle unmanage device
-const handleUnmanageDevice = async () => {
+// Handle unmanage device - show confirmation modal
+const handleUnmanageDevice = () => {
   if (!device.value) return;
+  unmanageError.value = null;
+  showUnmanageModal.value = true;
+};
 
-  const confirmed = confirm(`Are you sure you want to unmanage "${device.value.hostname || device.value.name}" from Microsoft Intune/Entra? This will allow manual editing but the device will no longer sync with Microsoft.`);
-  if (!confirmed) return;
+// Confirm and execute unmanage
+const confirmUnmanageDevice = async () => {
+  if (!device.value) return;
 
   try {
     isSaving.value = true;
+    unmanageError.value = null;
     const updatedDevice = await unmanageDevice(device.value.id);
-    // Update the device data
     device.value = updatedDevice;
-  } catch (error) {
-    console.error('Error unmanaging device:', error);
-    alert('Failed to unmanage device. Please try again.');
+    showUnmanageModal.value = false;
+  } catch (err) {
+    console.error('Error unmanaging device:', err);
+    unmanageError.value = 'Failed to unmanage device. Please try again.';
   } finally {
     isSaving.value = false;
   }
@@ -963,6 +971,56 @@ onMounted(() => {
       @close="showUserSelectionModal = false"
       @select-user="handleUserSelection"
     />
+
+    <!-- Unmanage Device Confirmation Modal -->
+    <Modal
+      :show="showUnmanageModal"
+      title="Unmanage Device"
+      @close="showUnmanageModal = false"
+    >
+      <div class="flex flex-col items-center gap-4">
+        <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-status-warning/20">
+          <!-- Broken chain icon -->
+          <svg class="h-6 w-6 text-status-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18.84 12.25l1.72-1.71h-.02a5.004 5.004 0 00-.12-7.07 5.006 5.006 0 00-6.95 0l-1.72 1.71" />
+            <path d="M5.17 11.75l-1.71 1.71a5.004 5.004 0 00.12 7.07 5.006 5.006 0 006.95 0l1.71-1.71" />
+            <path d="M8 2v3" />
+            <path d="M2 8h3" />
+            <path d="M16 22v-3" />
+            <path d="M22 16h-3" />
+          </svg>
+        </div>
+
+        <h3 class="text-xl font-medium text-primary">Unmanage from Microsoft</h3>
+        <p class="text-sm text-secondary text-center max-w-sm">
+          Are you sure you want to unmanage <strong class="text-primary">{{ device?.hostname || device?.name }}</strong> from Microsoft Intune/Entra?
+        </p>
+        <p class="text-xs text-tertiary text-center max-w-sm">
+          This will convert the device to manual management. You'll be able to edit all fields, but the device will no longer sync with Microsoft.
+        </p>
+
+        <!-- Error message -->
+        <p v-if="unmanageError" class="text-sm text-status-error text-center">
+          {{ unmanageError }}
+        </p>
+
+        <div class="flex justify-center gap-3 mt-2 w-full">
+          <button
+            @click="showUnmanageModal = false"
+            class="flex-1 px-4 py-2.5 bg-surface text-primary rounded-lg hover:bg-surface-hover transition-colors border border-default"
+          >
+            Cancel
+          </button>
+          <button
+            @click="confirmUnmanageDevice"
+            :disabled="isSaving"
+            class="flex-1 px-4 py-2.5 bg-status-warning text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
+          >
+            {{ isSaving ? 'Processing...' : 'Unmanage' }}
+          </button>
+        </div>
+      </div>
+    </Modal>
   </div>
 </template>
 

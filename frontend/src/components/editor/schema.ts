@@ -185,6 +185,41 @@ export const nodes: {[key: string]: NodeSpec} = {
     }
   },
   
+  // A mention node - renders as an inline @user chip with avatar
+  mention: {
+    inline: true,
+    attrs: {
+      ychange: { default: null },
+      uuid: {},
+      name: {},
+      avatarUrl: { default: null }
+    },
+    group: 'inline',
+    draggable: true,
+    atom: true, // Treated as a single unit, not editable
+    parseDOM: [{
+      tag: 'span[data-mention]',
+      getAttrs(dom: HTMLElement) {
+        return {
+          uuid: dom.getAttribute('data-uuid'),
+          name: dom.getAttribute('data-name'),
+          avatarUrl: dom.getAttribute('data-avatar-url')
+        };
+      }
+    }],
+    toDOM(node) {
+      const domAttrs = calcYchangeDomAttrs(node.attrs, {
+        'data-mention': 'true',
+        'data-uuid': node.attrs.uuid,
+        'data-name': node.attrs.name,
+        'data-avatar-url': node.attrs.avatarUrl || '',
+        'class': 'mention-chip',
+        'contenteditable': 'false'
+      });
+      return ['span', domAttrs, `@${node.attrs.name}`];
+    }
+  },
+
   // For lists
   bullet_list: {
     attrs: { ychange: { default: null } },

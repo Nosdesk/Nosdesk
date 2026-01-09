@@ -12,6 +12,16 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
+# Install pdfium library for PDF thumbnail generation
+# https://github.com/bblanchon/pdfium-binaries
+RUN mkdir -p /tmp/pdfium && \
+    cd /tmp/pdfium && \
+    wget -q https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz && \
+    tar -xzf pdfium-linux-x64.tgz && \
+    cp lib/libpdfium.so /usr/local/lib/ && \
+    ldconfig && \
+    rm -rf /tmp/pdfium
+
 # Install useful development tools with BuildKit cache mounts
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo install diesel_cli --no-default-features --features postgres && \

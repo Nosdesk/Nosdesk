@@ -72,6 +72,9 @@ mime = "0.3.17"
 # Image processing for thumbnail generation (v0.25+ has native EXIF orientation support)
 image = { version = "0.25", features = ["webp", "jpeg", "png"] }
 
+# PDF rendering for thumbnail generation
+pdfium-render = { version = "0.8", features = ["image", "thread_safe"] }
+
 # Rate limiting for security
 actix-limitation = "0.5.1"
 redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }

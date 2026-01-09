@@ -2,6 +2,7 @@
 import type { Page } from '@/services/documentationService'
 import DocumentationCard from './DocumentationCard.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import { useStaggeredList } from '@/composables/useStaggeredList'
 
 defineProps<{
   pages: Page[]
@@ -10,6 +11,12 @@ defineProps<{
 const emit = defineEmits<{
   create: []
 }>()
+
+// Staggered animation for cards
+const { getStyle } = useStaggeredList({
+  staggerDelay: 40,
+  maxStaggerItems: 12
+})
 </script>
 
 <template>
@@ -20,9 +27,11 @@ const emit = defineEmits<{
       class="grid-container"
     >
       <DocumentationCard
-        v-for="page in pages"
+        v-for="(page, index) in pages"
         :key="page.id"
         :page="page"
+        :style="getStyle(index)"
+        class="card-animate"
       />
     </div>
 
@@ -73,6 +82,34 @@ const emit = defineEmits<{
 @media (min-width: 1400px) {
   .grid-container {
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+}
+
+/* Staggered card animation */
+.card-animate {
+  animation: cardFadeIn var(--animation-duration, 150ms) ease-out forwards;
+  animation-delay: var(--stagger-delay, 0ms);
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+@keyframes cardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .card-animate {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 }
 </style>

@@ -122,6 +122,12 @@ pub enum TicketEvent {
     Heartbeat {
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    /// Notification received (targeted to specific user)
+    NotificationReceived {
+        recipient_uuid: String,
+        notification: serde_json::Value,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
 }
 
 // Client connection info
@@ -168,6 +174,20 @@ impl SseState {
                 tracing::warn!("SSE: Event dropped - no active receivers: {:?}", event);
             }
         }
+    }
+
+    /// Broadcast a notification to a specific user via SSE
+    pub async fn broadcast_notification(
+        &self,
+        recipient_uuid: String,
+        notification: crate::services::notifications::NotificationEvent,
+    ) {
+        let event = TicketEvent::NotificationReceived {
+            recipient_uuid,
+            notification: serde_json::to_value(&notification).unwrap_or_default(),
+            timestamp: chrono::Utc::now(),
+        };
+        self.broadcast_event(event).await;
     }
 
     pub fn add_client(&self, client_id: String, user_id: String) {
@@ -264,6 +284,7 @@ impl Stream for SseStream {
                     TicketEvent::UserCreated { .. } => "user-created",
                     TicketEvent::UserDeleted { .. } => "user-deleted",
                     TicketEvent::Heartbeat { .. } => "heartbeat",
+                    TicketEvent::NotificationReceived { .. } => "notification-received",
                 };
 
                 // Serialize event data

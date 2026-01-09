@@ -5,6 +5,8 @@ import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
 import AttachmentPreview from "@/components/ticketComponents/AttachmentPreview.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
+import SimpleEditor from "@/components/common/SimpleEditor.vue";
+import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
 import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
 
@@ -325,14 +327,13 @@ const handleDrop = async (event: DragEvent) => {
                         @submit.prevent="addComment"
                         class="flex flex-col gap-2"
                     >
-                        <div class="relative">
-                            <textarea
-                                v-model="newCommentContent"
-                                class="w-full bg-surface-alt text-primary border border-default rounded-md p-3 placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent resize-none"
-                                placeholder="Add a new comment..."
-                                rows="3"
-                            ></textarea>
-                        </div>
+                        <SimpleEditor
+                            v-model="newCommentContent"
+                            placeholder="Add a new comment..."
+                            min-height="60px"
+                            max-height="200px"
+                            @submit="addComment"
+                        />
 
                         <!-- New attachments -->
                         <div
@@ -436,41 +437,108 @@ const handleDrop = async (event: DragEvent) => {
                     <div
                         v-for="comment in props.comments"
                         :key="comment.id"
-                        class="flex flex-col gap-3 p-3 rounded-lg border transition-all duration-300"
+                        class="flex flex-col gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg border transition-all duration-300"
                         :class="[
                             props.recentlyAddedCommentIds?.has(comment.id)
                                 ? 'bg-accent/20 border-accent/50 animate-pulse'
                                 : 'bg-surface-alt border-subtle',
                         ]"
                     >
-                        <div class="flex flex-row gap-2 justify-between">
-                            <div class="flex gap-2 items-start flex-1 min-w-0">
+                        <!-- Mobile: Compact header with avatar, name, date, and actions inline -->
+                        <!-- Desktop: Avatar on left, content beside it -->
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <!-- Header row: avatar, name/date, actions -->
+                            <div class="flex items-center gap-2 sm:hidden">
                                 <UserAvatar
                                     :name="comment.user?.uuid || comment.user_uuid"
                                     :userName="comment.user?.name"
                                     :avatar="comment.user?.avatar_thumb || comment.user?.avatar_url"
                                     :showName="false"
-                                    size="md"
+                                    size="sm"
                                     class="flex-shrink-0"
                                 />
-                                <div class="flex flex-col flex-1 min-w-0">
-                                    <!-- Text content or "Voice Message" for audio-only -->
-                                    <p v-if="hasRealContent(comment)" class="text-primary">
-                                        {{ comment.content }}
-                                    </p>
-                                    <p v-else-if="isAudioOnlyComment(comment)" class="text-primary">
-                                        {{ getAudioDisplayName(comment.attachments[0].name) }}
-                                    </p>
-                                    <small class="text-secondary">
+                                <div class="flex-1 min-w-0">
+                                    <span class="text-sm text-primary font-medium truncate block">
                                         {{ comment.user?.name || comment.user_uuid }}
-                                        -
+                                    </span>
+                                    <span class="text-xs text-tertiary">
                                         {{ formattedDate(comment.createdAt) }}
-                                    </small>
+                                    </span>
+                                </div>
+                                <!-- Mobile action buttons -->
+                                <div class="flex items-center gap-1 flex-shrink-0">
+                                    <a
+                                        v-if="isAudioOnlyComment(comment)"
+                                        :href="convertToAuthenticatedPath(comment.attachments[0].url)"
+                                        :download="comment.attachments[0].name"
+                                        target="_blank"
+                                        class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                                        title="Download"
+                                        @click.stop
+                                    >
+                                        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                        </svg>
+                                    </a>
+                                    <button
+                                        v-if="hasRealContent(comment) || isAudioOnlyComment(comment)"
+                                        type="button"
+                                        @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
+                                        class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                                        :title="isAudioOnlyComment(comment) ? 'Delete voice message' : 'Delete comment'"
+                                    >
+                                        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                        </svg>
+                                    </button>
                                 </div>
                             </div>
-                            <!-- Action buttons -->
-                            <div class="flex items-center gap-1 flex-shrink-0 self-start">
-                                <!-- Download button for audio-only comments -->
+
+                            <!-- Mobile: Full-width content below header -->
+                            <div class="sm:hidden w-full">
+                                <MarkdownRenderer
+                                    v-if="hasRealContent(comment)"
+                                    :content="comment.content"
+                                    class="text-primary"
+                                />
+                                <p v-else-if="isAudioOnlyComment(comment)" class="text-primary text-sm">
+                                    {{ getAudioDisplayName(comment.attachments[0].name) }}
+                                </p>
+                            </div>
+
+                            <!-- Desktop: Header row with avatar, name, date, then content below -->
+                            <div class="hidden sm:flex sm:flex-col gap-2 flex-1 min-w-0">
+                                <!-- Header: avatar, name/date, actions -->
+                                <div class="flex items-center gap-2">
+                                    <UserAvatar
+                                        :name="comment.user?.uuid || comment.user_uuid"
+                                        :userName="comment.user?.name"
+                                        :avatar="comment.user?.avatar_thumb || comment.user?.avatar_url"
+                                        :showName="false"
+                                        size="sm"
+                                        class="flex-shrink-0"
+                                    />
+                                    <span class="text-sm text-primary font-medium">
+                                        {{ comment.user?.name || comment.user_uuid }}
+                                    </span>
+                                    <span class="text-xs text-tertiary">
+                                        {{ formattedDate(comment.createdAt) }}
+                                    </span>
+                                </div>
+                                <!-- Content below header -->
+                                <div class="min-w-0">
+                                    <MarkdownRenderer
+                                        v-if="hasRealContent(comment)"
+                                        :content="comment.content"
+                                        class="text-primary"
+                                    />
+                                    <p v-else-if="isAudioOnlyComment(comment)" class="text-primary text-sm">
+                                        {{ getAudioDisplayName(comment.attachments[0].name) }}
+                                    </p>
+                                </div>
+                            </div>
+                            <!-- Desktop action buttons -->
+                            <div class="hidden sm:flex items-center gap-1 flex-shrink-0 self-start">
                                 <a
                                     v-if="isAudioOnlyComment(comment)"
                                     :href="convertToAuthenticatedPath(comment.attachments[0].url)"
@@ -484,7 +552,6 @@ const handleDrop = async (event: DragEvent) => {
                                         <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
                                     </svg>
                                 </a>
-                                <!-- Delete button -->
                                 <button
                                     v-if="hasRealContent(comment) || isAudioOnlyComment(comment)"
                                     type="button"
@@ -493,11 +560,7 @@ const handleDrop = async (event: DragEvent) => {
                                     :title="isAudioOnlyComment(comment) ? 'Delete voice message' : 'Delete comment'"
                                 >
                                     <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                                        <path
-                                            fill-rule="evenodd"
-                                            d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                                            clip-rule="evenodd"
-                                        />
+                                        <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
                                     </svg>
                                 </button>
                             </div>

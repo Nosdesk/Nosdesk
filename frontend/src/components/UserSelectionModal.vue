@@ -162,8 +162,7 @@ const clearUser = () => {
           <span
             class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium flex-shrink-0"
             :class="{
-              'bg-accent/20 text-accent border border-accent/30': user.role === 'admin',
-              'bg-accent/20 text-accent border border-accent/30': user.role === 'technician',
+              'bg-accent/20 text-accent border border-accent/30': user.role === 'admin' || user.role === 'technician',
               'bg-surface-alt text-secondary border border-default': user.role === 'user'
             }"
           >

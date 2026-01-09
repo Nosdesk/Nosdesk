@@ -7,6 +7,7 @@ import DocumentIconSelector from "./DocumentIconSelector.vue";
 import ItemIdentifier from "./ItemIdentifier.vue";
 import PageUrlDisplay from "./PageUrlDisplay.vue";
 import CreateActionIcon, { type CreateIconType } from "./common/CreateActionIcon.vue";
+import NotificationBell from "./NotificationBell.vue";
 import { useAuthStore } from '@/stores/auth';
 import { useMobileDetection } from '@/composables/useMobileDetection';
 
@@ -229,6 +230,9 @@ defineExpose({
           <CreateActionIcon :icon="props.createButtonIcon" />
           <span class="create-button-text">{{ props.createButtonText }}</span>
         </button>
+
+        <!-- Notification Bell -->
+        <NotificationBell />
 
         <!-- User Profile Menu -->
         <div class="relative">

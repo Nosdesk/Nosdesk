@@ -82,6 +82,17 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
+# Install pdfium library for PDF thumbnail generation
+# Using pdfium-binaries from bblanchon's GitHub releases (widely used, regularly updated)
+# https://github.com/bblanchon/pdfium-binaries
+RUN mkdir -p /tmp/pdfium && \
+    cd /tmp/pdfium && \
+    wget -q https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz && \
+    tar -xzf pdfium-linux-x64.tgz && \
+    cp lib/libpdfium.so /usr/local/lib/ && \
+    ldconfig && \
+    rm -rf /tmp/pdfium
+
 # Create non-root user for security
 RUN useradd -m -u 1001 appuser
 

@@ -44,6 +44,7 @@ export type SSEEventType =
   | "user-updated"
   | "user-created"
   | "user-deleted"
+  | "notification-received"
   | "heartbeat"
   | "reconnect";
 
@@ -163,6 +164,7 @@ class SSEService {
       "user-updated",
       "user-created",
       "user-deleted",
+      "notification-received",
       "heartbeat",
       "reconnect",
     ];

@@ -360,17 +360,11 @@ a {
 
 .twemoji {
   display: inline-block;
-  width: 1em;
-  height: 1em;
-  margin: 0 0.05em 0 0.1em;
-  vertical-align: -0.15em;
-  background-size: contain;
+  background-size: 1em 1em;
   background-repeat: no-repeat;
   background-position: center;
   color: transparent;
-  overflow: hidden;
-  font-size: inherit;
-  line-height: 1;
+  caret-color: var(--color-primary);
 }
 
 /* Size variants for directive usage */

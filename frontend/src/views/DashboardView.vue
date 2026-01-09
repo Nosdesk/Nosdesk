@@ -261,7 +261,7 @@ const subtitle = computed(() => {
 // Get username from auth store
 const username = computed(() => {
   if (!authStore.user?.name) return 'Guest';
-  
+
   // Split the full name and take the first part as the first name
   const firstName = authStore.user.name.split(' ')[0];
   return firstName;
@@ -270,7 +270,11 @@ const username = computed(() => {
 // Current user UUID for filtering
 const currentUserUuid = computed(() => authStore.user?.uuid || '');
 
-// Raw ticket counts
+// Role-based dashboard - regular users see simplified view
+const isRegularUser = computed(() => authStore.user?.role === 'user');
+const isStaff = computed(() => authStore.user?.role === 'technician' || authStore.user?.role === 'admin');
+
+// Raw ticket counts (for staff dashboard)
 const ticketCounts = ref({
   assigned: 0,
   open: 0,
@@ -280,12 +284,28 @@ const ticketCounts = ref({
   all: 0
 });
 
-// Stat cards configuration - computed to react to count changes
+// User's requested ticket counts (for user dashboard)
+const requestedTicketCounts = ref({
+  total: 0,
+  open: 0,
+  inProgress: 0,
+  closed: 0
+});
+
+// Stat cards configuration - computed to react to count changes (staff dashboard)
 const statCards = computed(() => [
   { label: 'Assigned', value: ticketCounts.value.assigned, to: '/tickets?assignee=current', color: 'text-primary' },
   { label: 'Open', value: ticketCounts.value.open, to: '/tickets?assignee=current&status=open', color: 'text-status-open' },
   { label: 'In Progress', shortLabel: 'Progress', value: ticketCounts.value.inProgress, to: '/tickets?assignee=current&status=in-progress', color: 'text-status-in-progress' },
   { label: 'Closed', value: ticketCounts.value.closed, to: '/tickets?assignee=current&status=closed', color: 'text-tertiary' },
+]);
+
+// User's requested ticket stat cards (user dashboard)
+const userStatCards = computed(() => [
+  { label: 'My Requests', value: requestedTicketCounts.value.total, to: '/tickets?requester=current', color: 'text-primary' },
+  { label: 'Open', value: requestedTicketCounts.value.open, to: '/tickets?requester=current&status=open', color: 'text-status-open' },
+  { label: 'In Progress', shortLabel: 'Progress', value: requestedTicketCounts.value.inProgress, to: '/tickets?requester=current&status=in-progress', color: 'text-status-in-progress' },
+  { label: 'Resolved', value: requestedTicketCounts.value.closed, to: '/tickets?requester=current&status=closed', color: 'text-status-closed' },
 ]);
 
 // Secondary stats (unassigned + all)
@@ -304,16 +324,32 @@ const fetchTicketStats = async () => {
 
   try {
     const tickets = await getTickets();
-    const myTickets = tickets.filter(ticket => ticket.assignee === currentUserUuid.value);
 
-    ticketCounts.value = {
-      assigned: myTickets.length,
-      open: myTickets.filter(t => t.status === 'open').length,
-      inProgress: myTickets.filter(t => t.status === 'in-progress').length,
-      closed: myTickets.filter(t => t.status === 'closed').length,
-      unassigned: tickets.filter(t => !t.assignee && t.status === 'open').length,
-      all: tickets.length
-    };
+    // Staff dashboard stats (assigned tickets)
+    if (isStaff.value) {
+      const myTickets = tickets.filter(ticket => ticket.assignee === currentUserUuid.value);
+
+      ticketCounts.value = {
+        assigned: myTickets.length,
+        open: myTickets.filter(t => t.status === 'open').length,
+        inProgress: myTickets.filter(t => t.status === 'in-progress').length,
+        closed: myTickets.filter(t => t.status === 'closed').length,
+        unassigned: tickets.filter(t => !t.assignee && t.status === 'open').length,
+        all: tickets.length
+      };
+    }
+
+    // User dashboard stats (requested tickets)
+    if (isRegularUser.value) {
+      const myRequests = tickets.filter(ticket => ticket.requester === currentUserUuid.value);
+
+      requestedTicketCounts.value = {
+        total: myRequests.length,
+        open: myRequests.filter(t => t.status === 'open').length,
+        inProgress: myRequests.filter(t => t.status === 'in-progress').length,
+        closed: myRequests.filter(t => t.status === 'closed').length
+      };
+    }
   } catch (error) {
     console.error('Error fetching ticket stats:', error);
   }
@@ -358,8 +394,10 @@ defineExpose({
         </p>
       </div>
 
-      <!-- Main Content Grid - 2 columns on desktop -->
-      <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <!-- ============================================ -->
+      <!-- STAFF DASHBOARD (Technicians & Admins) -->
+      <!-- ============================================ -->
+      <div v-if="isStaff" class="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <!-- Left Column: Heatmap + Stats -->
         <div class="xl:col-span-2 flex flex-col gap-4">
           <!-- Your Closed Tickets Heatmap -->
@@ -413,6 +451,37 @@ defineExpose({
         <div class="xl:col-span-1">
           <UserAssignedTickets :limit="10" />
         </div>
+      </div>
+
+      <!-- ============================================ -->
+      <!-- USER DASHBOARD (Regular Users / Requesters) -->
+      <!-- ============================================ -->
+      <div v-else class="flex flex-col gap-4 max-w-4xl">
+        <!-- Request Stats -->
+        <div class="grid grid-cols-4 gap-1.5 sm:gap-3">
+          <router-link
+            v-for="stat in userStatCards"
+            :key="stat.label"
+            :to="stat.to"
+            class="bg-surface rounded-lg border border-default hover:border-strong transition-colors p-2 sm:p-4 cursor-pointer group text-center sm:text-left"
+          >
+            <h3 class="text-tertiary text-[10px] sm:text-xs font-medium uppercase tracking-wide">
+              <span v-if="stat.shortLabel" class="hidden min-[400px]:inline">{{ stat.label }}</span>
+              <span v-if="stat.shortLabel" class="min-[400px]:hidden">{{ stat.shortLabel }}</span>
+              <span v-if="!stat.shortLabel">{{ stat.label }}</span>
+            </h3>
+            <p :class="['text-base sm:text-xl font-semibold mt-0.5 sm:mt-1 group-hover:text-accent transition-colors', stat.color]">
+              {{ stat.value }}
+            </p>
+          </router-link>
+        </div>
+
+        <!-- User's Requested Tickets -->
+        <UserAssignedTickets
+          ticketType="requested"
+          :limit="10"
+          title="Your Requests"
+        />
       </div>
     </div>
   </div>
