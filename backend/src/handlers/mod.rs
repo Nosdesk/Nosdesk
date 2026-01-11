@@ -1,4 +1,5 @@
 // Reexport handlers
+pub mod api_tokens;
 pub mod assignment_rules;
 pub mod collaboration;
 pub mod auth;

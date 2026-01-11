@@ -9,6 +9,7 @@ pub mod groups;
 pub mod linked_tickets;
 pub mod projects;
 pub mod sync_history;
+pub mod ticket_query;
 pub mod tickets;
 pub mod user_auth_identities;
 pub mod user_emails;
@@ -17,6 +18,7 @@ pub mod users;
 
 // Security and session management repositories
 pub mod active_sessions;
+pub mod api_tokens;
 pub mod refresh_tokens;
 pub mod reset_tokens;
 pub mod user_ticket_views;

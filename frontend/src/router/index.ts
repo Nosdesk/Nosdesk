@@ -536,6 +536,16 @@ const router = createRouter({
       }
     },
     {
+      path: '/admin/api-tokens',
+      name: 'admin-api-tokens',
+      component: () => import('../views/ApiTokensView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'API Tokens',
+        adminRequired: true
+      }
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/error/404'
     }

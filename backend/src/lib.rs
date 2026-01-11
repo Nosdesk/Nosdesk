@@ -1,5 +1,6 @@
 pub mod config_utils;
 pub mod db;
+pub mod extractors;
 pub mod handlers;
 pub mod middleware;
 pub mod models;

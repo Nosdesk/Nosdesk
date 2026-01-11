@@ -1,4 +1,5 @@
 mod db;
+mod extractors;
 mod handlers;
 mod models;
 mod repository;
@@ -682,9 +683,10 @@ async fn main() -> std::io::Result<()> {
             )
             
             // === PROTECTED ROUTES (AUTHENTICATION REQUIRED) ===
+            // Supports both cookie-based auth (browser) and Bearer token auth (API clients)
             .service(
                 web::scope("/api")
-                    .wrap(actix_web::middleware::from_fn(cookie_auth_middleware))
+                    .wrap(actix_web::middleware::from_fn(middleware::dual_auth_middleware))
                     
                     // Authentication Provider management (admin only) - simplified for environment-based config
                     .route("/admin/auth/providers", web::get().to(handlers::get_auth_providers))
@@ -727,7 +729,7 @@ async fn main() -> std::io::Result<()> {
                     // Microsoft Graph Integration endpoints
                     .service(
                         web::scope("/integrations/graph")
-                            .wrap(actix_web::middleware::from_fn(cookie_auth_middleware))
+                            // Auth already handled by parent /api scope
                             .route("/config", web::get().to(handlers::get_config_validation))
                             .route("/status", web::get().to(handlers::get_connection_status))
                             .route("/test", web::post().to(handlers::test_connection))
@@ -830,6 +832,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/assignment-rules/{id}", web::get().to(handlers::assignment_rules::get_rule))
                     .route("/admin/assignment-rules/{id}", web::patch().to(handlers::assignment_rules::update_rule))
                     .route("/admin/assignment-rules/{id}", web::delete().to(handlers::assignment_rules::delete_rule))
+
+                    // ===== API TOKEN MANAGEMENT =====
+                    .route("/admin/api-tokens", web::get().to(handlers::api_tokens::list_api_tokens))
+                    .route("/admin/api-tokens", web::post().to(handlers::api_tokens::create_api_token))
+                    .route("/admin/api-tokens/{uuid}", web::get().to(handlers::api_tokens::get_api_token))
+                    .route("/admin/api-tokens/{uuid}", web::delete().to(handlers::api_tokens::revoke_api_token))
 
                     // ===== USER MANAGEMENT =====
                     // Note: Specific routes must come BEFORE generic {uuid} routes to avoid matching conflicts

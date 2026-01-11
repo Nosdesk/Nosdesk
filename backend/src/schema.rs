@@ -46,6 +46,27 @@ diesel::table! {
 }
 
 diesel::table! {
+    api_tokens (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        #[max_length = 64]
+        token_hash -> Varchar,
+        #[max_length = 8]
+        token_prefix -> Varchar,
+        user_uuid -> Uuid,
+        #[max_length = 255]
+        name -> Varchar,
+        scopes -> Nullable<Array<Nullable<Text>>>,
+        created_at -> Timestamptz,
+        created_by -> Uuid,
+        expires_at -> Nullable<Timestamptz>,
+        revoked_at -> Nullable<Timestamptz>,
+        last_used_at -> Nullable<Timestamptz>,
+        last_used_ip -> Nullable<Inet>,
+    }
+}
+
+diesel::table! {
     article_content_revisions (id) {
         id -> Int4,
         article_content_id -> Int4,
@@ -546,7 +567,6 @@ diesel::table! {
         id -> Int4,
         #[max_length = 255]
         title -> Varchar,
-        description -> Nullable<Text>,
         status -> TicketStatus,
         priority -> TicketPriority,
         requester_uuid -> Nullable<Uuid>,
@@ -699,4 +719,4 @@ diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_pages,documentation_revisions,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_pages,documentation_revisions,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,);
