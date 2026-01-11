@@ -6,8 +6,10 @@ use std::path::Path;
 use tracing::{debug, error, warn, info};
 use uuid::Uuid;
 
+use crate::extractors::AuthContext;
 use crate::models::{AssignmentTrigger, Claims, NewTicket, TicketPriority, TicketStatus, TicketUpdate, TicketsJson, UserRole};
 use crate::repository;
+use crate::repository::ticket_query::TicketQuery;
 use crate::services::assignment::AssignmentEngine;
 use crate::services::notifications::{
     NotificationService,
@@ -224,8 +226,19 @@ pub struct PaginatedResponse<T> {
     total_pages: i64,
 }
 
-// Get all tickets
-pub async fn get_tickets(pool: web::Data<crate::db::Pool>) -> impl Responder {
+// Get all tickets (technicians and admins only)
+pub async fn get_tickets(
+    pool: web::Data<crate::db::Pool>,
+    auth: AuthContext,
+) -> impl Responder {
+    // Only technicians and admins can see all tickets via this endpoint
+    if !auth.is_technician_or_admin() {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and admins can access all tickets"
+        }));
+    }
+
     let mut conn = match get_db_conn(&pool).await {
         Ok(conn) => conn,
         Err(e) => return e,
@@ -241,53 +254,34 @@ pub async fn get_tickets(pool: web::Data<crate::db::Pool>) -> impl Responder {
 pub async fn get_paginated_tickets(
     pool: web::Data<crate::db::Pool>,
     query: web::Query<PaginationParams>,
+    auth: AuthContext,
 ) -> impl Responder {
     let mut conn = match get_db_conn(&pool).await {
         Ok(conn) => conn,
         Err(e) => return e,
     };
 
-    // Extract and validate pagination parameters
-    let page = query.page.unwrap_or(1).max(1);
-    let page_size = query.page_size.unwrap_or(10).clamp(1, 100);
+    // Build query with automatic permission filtering via AuthContext
+    let result = TicketQuery::new()
+        .visible_to(&auth)
+        .search(query.search.clone())
+        .status(query.status.clone())
+        .priority(query.priority.clone())
+        .category(query.category.clone())
+        .assignee(query.assignee.clone())
+        .requester(query.requester.clone())
+        .created_between(query.created_after.clone(), query.created_before.clone())
+        .created_on(query.created_on.clone())
+        .modified_between(query.modified_after.clone(), query.modified_before.clone())
+        .modified_on(query.modified_on.clone())
+        .closed_between(query.closed_after.clone(), query.closed_before.clone())
+        .closed_on(query.closed_on.clone())
+        .paginate(query.page.unwrap_or(1), query.page_size.unwrap_or(10))
+        .sort(query.sort_field.clone(), query.sort_direction.clone())
+        .execute_with_users(&mut conn);
 
-    match repository::get_paginated_tickets_with_users(
-        &mut conn,
-        page,
-        page_size,
-        query.sort_field.clone(),
-        query.sort_direction.clone(),
-        query.search.clone(),
-        query.status.clone(),
-        query.priority.clone(),
-        query.category.clone(),
-        query.assignee.clone(),
-        query.requester.clone(),
-        query.created_after.clone(),
-        query.created_before.clone(),
-        query.created_on.clone(),
-        query.modified_after.clone(),
-        query.modified_before.clone(),
-        query.modified_on.clone(),
-        query.closed_after.clone(),
-        query.closed_before.clone(),
-        query.closed_on.clone(),
-    ) {
-        Ok((tickets, total)) => {
-            // Calculate total pages
-            let total_pages = (total as f64 / page_size as f64).ceil() as i64;
-
-            // Create paginated response
-            let response = PaginatedResponse {
-                data: tickets,
-                total,
-                page,
-                page_size,
-                total_pages,
-            };
-
-            HttpResponse::Ok().json(response)
-        }
+    match result {
+        Ok(paginated) => HttpResponse::Ok().json(paginated),
         Err(e) => {
             error!(error = ?e, "Failed to fetch paginated tickets");
             HttpResponse::InternalServerError().json("Failed to get paginated tickets")
@@ -572,7 +566,6 @@ pub async fn create_empty_ticket(
     // Create a new ticket with default values using the authenticated user's UUID
     let empty_ticket = NewTicket {
         title: "New Ticket".to_string(),
-        description: Some("".to_string()),
         status: TicketStatus::Open,
         priority: TicketPriority::Medium,
         requester_uuid: Some(user_uuid), // Use authenticated user's UUID
@@ -693,7 +686,6 @@ pub async fn update_ticket_partial(
     // Parse JSON and build TicketUpdate with user lookups
     let mut ticket_update = TicketUpdate {
         title: None,
-        description: None,
         status: None,
         priority: None,
         requester_uuid: None,
@@ -706,10 +698,6 @@ pub async fn update_ticket_partial(
     // Handle simple string fields
     if let Some(title) = body.get("title").and_then(|v| v.as_str()) {
         ticket_update.title = Some(title.to_string());
-    }
-
-    if let Some(description) = body.get("description").and_then(|v| v.as_str()) {
-        ticket_update.description = Some(description.to_string());
     }
 
     // Handle enum fields
@@ -1339,7 +1327,6 @@ pub async fn bulk_tickets(
             for id in ids {
                 let update = TicketUpdate {
                     title: None,
-                    description: None,
                     status: Some(status.clone()),
                     priority: None,
                     requester_uuid: None,
@@ -1392,7 +1379,6 @@ pub async fn bulk_tickets(
             for id in ids {
                 let update = TicketUpdate {
                     title: None,
-                    description: None,
                     status: None,
                     priority: Some(priority.clone()),
                     requester_uuid: None,
@@ -1443,7 +1429,6 @@ pub async fn bulk_tickets(
             for id in ids {
                 let update = TicketUpdate {
                     title: None,
-                    description: None,
                     status: None,
                     priority: None,
                     requester_uuid: None,

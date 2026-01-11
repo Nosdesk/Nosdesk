@@ -102,7 +102,6 @@ impl FromSql<crate::schema::sql_types::TicketPriority, Pg> for TicketPriority {
 pub struct Ticket {
     pub id: i32,
     pub title: String,
-    pub description: Option<String>,
     pub status: TicketStatus,
     pub priority: TicketPriority,
     #[serde(serialize_with = "serialize_optional_uuid_as_string", rename = "requester")]
@@ -125,7 +124,6 @@ pub struct Ticket {
 #[diesel(table_name = crate::schema::tickets)]
 pub struct NewTicket {
     pub title: String,
-    pub description: Option<String>,
     pub status: TicketStatus,
     pub priority: TicketPriority,
     pub requester_uuid: Option<Uuid>,
@@ -138,7 +136,6 @@ pub struct NewTicket {
 #[diesel(table_name = crate::schema::tickets)]
 pub struct TicketUpdate {
     pub title: Option<String>,
-    pub description: Option<String>,
     pub status: Option<TicketStatus>,
     pub priority: Option<TicketPriority>,
     pub requester_uuid: Option<Option<Uuid>>,
@@ -1391,7 +1388,6 @@ pub struct AdminSetupResponse {
 pub struct CompleteTicketResponse {
     pub id: i32,
     pub title: String,
-    pub description: Option<String>,
     pub status: TicketStatus,
     pub priority: TicketPriority,
     pub requester: String,
@@ -1415,7 +1411,6 @@ impl CompleteTicketResponse {
         Self {
             id: complete_ticket.ticket.id,
             title: complete_ticket.ticket.title,
-            description: complete_ticket.ticket.description,
             status: complete_ticket.ticket.status,
             priority: complete_ticket.ticket.priority,
             requester: requester_name,
@@ -1570,6 +1565,78 @@ pub struct NewRefreshToken {
     pub token_hash: String,
     pub user_uuid: Uuid,
     pub expires_at: chrono::NaiveDateTime,
+}
+
+// ===== API TOKEN MODELS =====
+
+/// API token for programmatic access (stored in database)
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::api_tokens)]
+pub struct ApiToken {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub token_hash: String,
+    pub token_prefix: String,
+    pub user_uuid: Uuid,
+    pub name: String,
+    pub scopes: Option<Vec<Option<String>>>,
+    pub created_at: chrono::NaiveDateTime,
+    pub created_by: Uuid,
+    pub expires_at: Option<chrono::NaiveDateTime>,
+    pub revoked_at: Option<chrono::NaiveDateTime>,
+    pub last_used_at: Option<chrono::NaiveDateTime>,
+    pub last_used_ip: Option<ipnetwork::IpNetwork>,
+}
+
+/// New API token for insertion
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::api_tokens)]
+pub struct NewApiToken {
+    pub token_hash: String,
+    pub token_prefix: String,
+    pub user_uuid: Uuid,
+    pub name: String,
+    pub scopes: Option<Vec<Option<String>>>,
+    pub created_by: Uuid,
+    pub expires_at: Option<chrono::NaiveDateTime>,
+}
+
+/// Request to create a new API token
+#[derive(Debug, Deserialize)]
+pub struct CreateApiTokenRequest {
+    pub name: String,
+    pub user_uuid: Uuid,
+    #[serde(default)]
+    pub expires_in_days: Option<i64>,
+    #[serde(default)]
+    pub scopes: Option<Vec<String>>,
+}
+
+/// Response when an API token is created (includes the raw token - only shown once!)
+#[derive(Debug, Serialize)]
+pub struct ApiTokenCreatedResponse {
+    pub uuid: Uuid,
+    pub token: String,
+    pub token_prefix: String,
+    pub name: String,
+    pub user_uuid: Uuid,
+    pub expires_at: Option<chrono::NaiveDateTime>,
+}
+
+/// API token info for listing (no sensitive data)
+#[derive(Debug, Serialize)]
+pub struct ApiTokenInfo {
+    pub uuid: Uuid,
+    pub token_prefix: String,
+    pub name: String,
+    pub user_uuid: Uuid,
+    pub user_name: String,
+    pub scopes: Vec<String>,
+    pub created_at: chrono::NaiveDateTime,
+    pub created_by_name: String,
+    pub expires_at: Option<chrono::NaiveDateTime>,
+    pub revoked_at: Option<chrono::NaiveDateTime>,
+    pub last_used_at: Option<chrono::NaiveDateTime>,
 }
 
 /// Response model for active sessions in user profile

@@ -27,6 +27,12 @@ const adminMenuItems = [
     route: '/admin/assignment-rules'
   },
   {
+    title: 'API Tokens',
+    description: 'Manage API tokens for programmatic access',
+    icon: 'key',
+    route: '/admin/api-tokens'
+  },
+  {
     title: 'Authentication Providers',
     description: 'Configure SSO, Microsoft Entra, and local authentication settings',
     icon: 'lock',

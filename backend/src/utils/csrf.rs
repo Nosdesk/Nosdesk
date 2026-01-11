@@ -74,6 +74,24 @@ where
             });
         }
 
+        // Check if this request is authenticated via Bearer token (API token)
+        // API tokens don't need CSRF validation as they can't be used in CSRF attacks
+        let has_bearer_token = req
+            .headers()
+            .get("Authorization")
+            .and_then(|h| h.to_str().ok())
+            .map(|auth| auth.starts_with("Bearer "))
+            .unwrap_or(false);
+
+        if has_bearer_token {
+            tracing::debug!("🔒 CSRF: Skipping validation for Bearer token request to {}", req.path());
+            let fut = self.service.call(req);
+            return Box::pin(async move {
+                let res = fut.await?;
+                Ok(res)
+            });
+        }
+
         // Check if this is a public endpoint that doesn't require CSRF
         let path = req.path();
         let is_public_endpoint = path == "/api/auth/login"

@@ -72,9 +72,18 @@ pub fn get_paginated_tickets(
     closed_after: Option<String>,
     closed_before: Option<String>,
     closed_on: Option<String>,
+    visible_to_user: Option<uuid::Uuid>,
 ) -> Result<(Vec<Ticket>, i64), Error> {
     // Build the main query
     let mut query = tickets::table.into_boxed();
+
+    // If visible_to_user is set, only show tickets where user is requester OR assignee
+    if let Some(user_uuid) = visible_to_user {
+        query = query.filter(
+            tickets::requester_uuid.eq(Some(user_uuid))
+                .or(tickets::assignee_uuid.eq(Some(user_uuid)))
+        );
+    }
     
     // Apply filters if provided
     if let Some(search_term) = search.clone() {
@@ -82,7 +91,6 @@ pub fn get_paginated_tickets(
             let search_pattern = format!("%{}%", search_term.to_lowercase());
             query = query.filter(
                 tickets::title.ilike(search_pattern.clone())
-                    .or(tickets::description.ilike(search_pattern.clone()))
                     .or(tickets::id.eq_any(
                         search_term.parse::<i32>().ok().map(|id| vec![id]).unwrap_or_default()
                     ))
@@ -119,14 +127,21 @@ pub fn get_paginated_tickets(
 
     // Build a separate count query with the same filters
     let mut count_query = tickets::table.into_boxed();
-    
+
+    // Apply visible_to_user filter to count query as well
+    if let Some(user_uuid) = visible_to_user {
+        count_query = count_query.filter(
+            tickets::requester_uuid.eq(Some(user_uuid))
+                .or(tickets::assignee_uuid.eq(Some(user_uuid)))
+        );
+    }
+
     // Apply the same filters to the count query
     if let Some(search_term) = search {
         if !search_term.is_empty() {
             let search_pattern = format!("%{}%", search_term.to_lowercase());
             count_query = count_query.filter(
                 tickets::title.ilike(search_pattern.clone())
-                    .or(tickets::description.ilike(search_pattern.clone()))
                     .or(tickets::id.eq_any(
                         search_term.parse::<i32>().ok().map(|id| vec![id]).unwrap_or_default()
                     ))
@@ -320,6 +335,7 @@ pub fn get_paginated_tickets_with_users(
     closed_after: Option<String>,
     closed_before: Option<String>,
     closed_on: Option<String>,
+    visible_to_user: Option<uuid::Uuid>,
 ) -> Result<(Vec<crate::models::TicketListItem>, i64), Error> {
     // First get the basic tickets and total count
     let (tickets, total) = get_paginated_tickets(
@@ -327,7 +343,8 @@ pub fn get_paginated_tickets_with_users(
         search, status, priority, category, assignee, requester,
         created_after, created_before, created_on,
         modified_after, modified_before, modified_on,
-        closed_after, closed_before, closed_on
+        closed_after, closed_before, closed_on,
+        visible_to_user,
     )?;
 
     // Convert to TicketListItem with user information
@@ -542,7 +559,6 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
     // Create the ticket
     let new_ticket = NewTicket {
         title: ticket_json.title.clone(),
-        description: None, // No description field in TicketJson
         status,
         priority,
         requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7())),
