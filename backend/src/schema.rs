@@ -668,6 +668,48 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    webhook_deliveries (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        webhook_id -> Int4,
+        #[max_length = 100]
+        event_type -> Varchar,
+        payload -> Jsonb,
+        request_headers -> Nullable<Jsonb>,
+        response_status -> Nullable<Int4>,
+        response_body -> Nullable<Text>,
+        response_headers -> Nullable<Jsonb>,
+        attempt_number -> Int4,
+        duration_ms -> Nullable<Int4>,
+        error_message -> Nullable<Text>,
+        delivered_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        next_retry_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    webhooks (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        #[max_length = 255]
+        name -> Varchar,
+        url -> Text,
+        #[max_length = 255]
+        secret -> Varchar,
+        events -> Array<Nullable<Text>>,
+        enabled -> Bool,
+        headers -> Nullable<Jsonb>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+        last_triggered_at -> Nullable<Timestamptz>,
+        failure_count -> Int4,
+        disabled_reason -> Nullable<Text>,
+    }
+}
+
 diesel::joinable!(active_sessions -> users (user_uuid));
 diesel::joinable!(article_content_revisions -> article_contents (article_content_id));
 diesel::joinable!(article_contents -> tickets (ticket_id));
@@ -717,6 +759,8 @@ diesel::joinable!(user_emails -> users (user_uuid));
 diesel::joinable!(user_groups -> groups (group_id));
 diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
+diesel::joinable!(webhook_deliveries -> webhooks (webhook_id));
+diesel::joinable!(webhooks -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_pages,documentation_revisions,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_pages,documentation_revisions,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);

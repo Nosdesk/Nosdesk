@@ -29,6 +29,9 @@ pub mod site_settings;
 // Backup and restore
 pub mod backup;
 
+// Webhooks
+pub mod webhooks;
+
 // Re-export all functions
 pub use article_content::*;
 pub use comments::*;

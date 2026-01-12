@@ -33,6 +33,12 @@ const adminMenuItems = [
     route: '/admin/api-tokens'
   },
   {
+    title: 'Webhooks',
+    description: 'Configure webhooks to send events to external services',
+    icon: 'link',
+    route: '/admin/webhooks'
+  },
+  {
     title: 'Authentication Providers',
     description: 'Configure SSO, Microsoft Entra, and local authentication settings',
     icon: 'lock',

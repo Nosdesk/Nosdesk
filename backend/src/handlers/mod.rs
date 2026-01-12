@@ -24,6 +24,7 @@ pub mod backup;
 pub mod groups;
 pub mod categories;
 pub mod notifications;
+pub mod webhooks;
 
 // Import all handlers from modules
 pub use auth::*;

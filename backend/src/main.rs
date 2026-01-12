@@ -529,6 +529,13 @@ async fn main() -> std::io::Result<()> {
         web::Data::new(service)
     };
 
+    // Initialize webhook service for external integrations
+    let webhook_service = {
+        use std::sync::Arc;
+        let sse_state_arc: Arc<handlers::sse::SseState> = sse_state.clone().into_inner();
+        web::Data::new(services::webhooks::WebhookService::new(pool.clone(), sse_state_arc))
+    };
+
     // Initialize WebSocket app state for collaborative editing (includes SseState for broadcasting)
     let yjs_app_state = web::Data::new(handlers::collaboration::YjsAppState::new(web::Data::new(pool.clone()), redis_cache, sse_state.clone()));
 
@@ -592,6 +599,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(system_state.clone())
             .app_data(storage_data.clone())
             .app_data(notification_service.clone())
+            .app_data(webhook_service.clone())
             .app_data(json_config)
             .app_data(multipart_config)
             
@@ -838,6 +846,16 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/api-tokens", web::post().to(handlers::api_tokens::create_api_token))
                     .route("/admin/api-tokens/{uuid}", web::get().to(handlers::api_tokens::get_api_token))
                     .route("/admin/api-tokens/{uuid}", web::delete().to(handlers::api_tokens::revoke_api_token))
+
+                    // ===== WEBHOOK MANAGEMENT =====
+                    .route("/admin/webhooks", web::get().to(handlers::webhooks::list_webhooks))
+                    .route("/admin/webhooks", web::post().to(handlers::webhooks::create_webhook))
+                    .route("/admin/webhooks/event-types", web::get().to(handlers::webhooks::get_event_types))
+                    .route("/admin/webhooks/{uuid}", web::get().to(handlers::webhooks::get_webhook))
+                    .route("/admin/webhooks/{uuid}", web::put().to(handlers::webhooks::update_webhook))
+                    .route("/admin/webhooks/{uuid}", web::delete().to(handlers::webhooks::delete_webhook))
+                    .route("/admin/webhooks/{uuid}/deliveries", web::get().to(handlers::webhooks::get_deliveries))
+                    .route("/admin/webhooks/{uuid}/test", web::post().to(handlers::webhooks::test_webhook))
 
                     // ===== USER MANAGEMENT =====
                     // Note: Specific routes must come BEFORE generic {uuid} routes to avoid matching conflicts
