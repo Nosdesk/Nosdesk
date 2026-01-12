@@ -546,6 +546,16 @@ const router = createRouter({
       }
     },
     {
+      path: '/admin/webhooks',
+      name: 'admin-webhooks',
+      component: () => import('../views/WebhooksView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Webhooks',
+        adminRequired: true
+      }
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/error/404'
     }
