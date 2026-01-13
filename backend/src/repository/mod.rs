@@ -32,6 +32,9 @@ pub mod backup;
 // Webhooks
 pub mod webhooks;
 
+// Plugins
+pub mod plugins;
+
 // Re-export all functions
 pub use article_content::*;
 pub use comments::*;

@@ -536,6 +536,9 @@ async fn main() -> std::io::Result<()> {
         web::Data::new(services::webhooks::WebhookService::new(pool.clone(), sse_state_arc))
     };
 
+    // Initialize plugin proxy service for external requests
+    let plugin_proxy_service = web::Data::new(services::plugins::PluginProxyService::new());
+
     // Initialize WebSocket app state for collaborative editing (includes SseState for broadcasting)
     let yjs_app_state = web::Data::new(handlers::collaboration::YjsAppState::new(web::Data::new(pool.clone()), redis_cache, sse_state.clone()));
 
@@ -600,6 +603,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(storage_data.clone())
             .app_data(notification_service.clone())
             .app_data(webhook_service.clone())
+            .app_data(plugin_proxy_service.clone())
             .app_data(json_config)
             .app_data(multipart_config)
             
@@ -856,6 +860,24 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/webhooks/{uuid}", web::delete().to(handlers::webhooks::delete_webhook))
                     .route("/admin/webhooks/{uuid}/deliveries", web::get().to(handlers::webhooks::get_deliveries))
                     .route("/admin/webhooks/{uuid}/test", web::post().to(handlers::webhooks::test_webhook))
+
+                    // ===== PLUGIN MANAGEMENT (Admin) =====
+                    .route("/admin/plugins", web::get().to(handlers::plugins::list_plugins))
+                    .route("/admin/plugins", web::post().to(handlers::plugins::install_plugin))
+                    .route("/admin/plugins/{uuid}", web::get().to(handlers::plugins::get_plugin))
+                    .route("/admin/plugins/{uuid}", web::put().to(handlers::plugins::update_plugin))
+                    .route("/admin/plugins/{uuid}", web::delete().to(handlers::plugins::uninstall_plugin))
+                    .route("/admin/plugins/{uuid}/settings", web::get().to(handlers::plugins::get_plugin_settings))
+                    .route("/admin/plugins/{uuid}/settings", web::post().to(handlers::plugins::set_plugin_setting))
+                    .route("/admin/plugins/{uuid}/settings/{key}", web::delete().to(handlers::plugins::delete_plugin_setting))
+                    .route("/admin/plugins/{uuid}/activity", web::get().to(handlers::plugins::get_plugin_activity))
+
+                    // ===== PLUGIN API (For plugins to use) =====
+                    .route("/plugins/enabled", web::get().to(handlers::plugins::list_enabled_plugins))
+                    .route("/plugins/{uuid}/storage/{key}", web::get().to(handlers::plugins::get_plugin_storage))
+                    .route("/plugins/{uuid}/storage", web::post().to(handlers::plugins::set_plugin_storage))
+                    .route("/plugins/{uuid}/storage/{key}", web::delete().to(handlers::plugins::delete_plugin_storage))
+                    .route("/plugins/{uuid}/proxy", web::post().to(handlers::plugins::proxy_plugin_request))
 
                     // ===== USER MANAGEMENT =====
                     // Note: Specific routes must come BEFORE generic {uuid} routes to avoid matching conflicts

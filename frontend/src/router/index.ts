@@ -556,6 +556,16 @@ const router = createRouter({
       }
     },
     {
+      path: '/admin/plugins',
+      name: 'admin-plugins',
+      component: () => import('../views/PluginsView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Plugins',
+        adminRequired: true
+      }
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/error/404'
     }
