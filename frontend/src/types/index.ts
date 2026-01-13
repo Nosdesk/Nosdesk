@@ -8,3 +8,5 @@ export * from './device';
 export * from './group';
 export * from './category';
 export * from './microsoft-graph';
+export * from './webhook';
+export * from './plugin';

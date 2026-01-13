@@ -39,6 +39,12 @@ const adminMenuItems = [
     route: '/admin/webhooks'
   },
   {
+    title: 'Plugins',
+    description: 'Manage installed plugins and integrations',
+    icon: 'puzzle',
+    route: '/admin/plugins'
+  },
+  {
     title: 'Authentication Providers',
     description: 'Configure SSO, Microsoft Entra, and local authentication settings',
     icon: 'lock',

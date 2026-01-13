@@ -403,6 +403,56 @@ diesel::table! {
 }
 
 diesel::table! {
+    plugin_activity (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        plugin_id -> Int4,
+        #[max_length = 100]
+        action -> Varchar,
+        details -> Nullable<Jsonb>,
+        user_uuid -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    plugin_data (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        plugin_id -> Int4,
+        #[max_length = 20]
+        data_type -> Varchar,
+        #[max_length = 255]
+        key -> Varchar,
+        value -> Nullable<Jsonb>,
+        is_secret -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    plugins (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        #[max_length = 100]
+        name -> Varchar,
+        #[max_length = 255]
+        display_name -> Varchar,
+        #[max_length = 50]
+        version -> Varchar,
+        description -> Nullable<Text>,
+        manifest -> Jsonb,
+        enabled -> Bool,
+        #[max_length = 50]
+        trust_level -> Varchar,
+        installed_by -> Nullable<Uuid>,
+        installed_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     project_tickets (project_id, ticket_id) {
         project_id -> Int4,
         ticket_id -> Int4,
@@ -741,6 +791,10 @@ diesel::joinable!(notification_rate_limits -> notification_types (notification_t
 diesel::joinable!(notification_rate_limits -> users (user_uuid));
 diesel::joinable!(notifications -> notification_types (notification_type_id));
 diesel::joinable!(notifications -> users (user_uuid));
+diesel::joinable!(plugin_activity -> plugins (plugin_id));
+diesel::joinable!(plugin_activity -> users (user_uuid));
+diesel::joinable!(plugin_data -> plugins (plugin_id));
+diesel::joinable!(plugins -> users (installed_by));
 diesel::joinable!(project_tickets -> projects (project_id));
 diesel::joinable!(project_tickets -> tickets (ticket_id));
 diesel::joinable!(project_tickets -> users (created_by));
@@ -755,12 +809,14 @@ diesel::joinable!(ticket_devices -> devices (device_id));
 diesel::joinable!(ticket_devices -> tickets (ticket_id));
 diesel::joinable!(ticket_devices -> users (created_by));
 diesel::joinable!(tickets -> ticket_categories (category_id));
-diesel::joinable!(user_emails -> users (user_uuid));
 diesel::joinable!(user_groups -> groups (group_id));
 diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
 diesel::joinable!(webhook_deliveries -> webhooks (webhook_id));
 diesel::joinable!(webhooks -> users (created_by));
 
+// Manual joinable for user_emails (diesel doesn't auto-generate this because the FK is named user_uuid not users_id)
+diesel::joinable!(user_emails -> users (user_uuid));
+
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_pages,documentation_revisions,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_pages,documentation_revisions,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_data,plugins,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);

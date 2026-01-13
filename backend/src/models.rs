@@ -2931,3 +2931,361 @@ pub struct WebhookDeliveryResponse {
     pub created_at: NaiveDateTime,
     pub attempt_number: i32,
 }
+
+// ===== PLUGIN SYSTEM TYPES =====
+
+/// Plugin trust level
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum PluginTrustLevel {
+    Official,
+    Verified,
+    Community,
+}
+
+impl Default for PluginTrustLevel {
+    fn default() -> Self {
+        PluginTrustLevel::Community
+    }
+}
+
+impl std::fmt::Display for PluginTrustLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PluginTrustLevel::Official => write!(f, "official"),
+            PluginTrustLevel::Verified => write!(f, "verified"),
+            PluginTrustLevel::Community => write!(f, "community"),
+        }
+    }
+}
+
+impl std::str::FromStr for PluginTrustLevel {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "official" => Ok(PluginTrustLevel::Official),
+            "verified" => Ok(PluginTrustLevel::Verified),
+            "community" => Ok(PluginTrustLevel::Community),
+            _ => Err(anyhow::anyhow!("Unknown trust level: {}", s)),
+        }
+    }
+}
+
+/// Installed plugin
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::plugins)]
+pub struct Plugin {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub name: String,
+    pub display_name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub manifest: serde_json::Value,
+    pub enabled: bool,
+    pub trust_level: String,
+    pub installed_by: Option<Uuid>,
+    pub installed_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+/// New plugin for insertion
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::plugins)]
+pub struct NewPlugin {
+    pub name: String,
+    pub display_name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub manifest: serde_json::Value,
+    pub enabled: bool,
+    pub trust_level: String,
+    pub installed_by: Option<Uuid>,
+}
+
+/// Plugin update changeset
+#[derive(Debug, Default, AsChangeset)]
+#[diesel(table_name = crate::schema::plugins)]
+pub struct PluginUpdate {
+    pub display_name: Option<String>,
+    pub version: Option<String>,
+    pub description: Option<String>,
+    pub manifest: Option<serde_json::Value>,
+    pub enabled: Option<bool>,
+    pub trust_level: Option<String>,
+}
+
+/// Plugin data type - settings (admin-configured) or storage (plugin-managed)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PluginDataType {
+    Setting,
+    Storage,
+}
+
+impl std::fmt::Display for PluginDataType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PluginDataType::Setting => write!(f, "setting"),
+            PluginDataType::Storage => write!(f, "storage"),
+        }
+    }
+}
+
+/// Consolidated plugin data (settings and storage in one table)
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::plugin_data)]
+pub struct PluginData {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub plugin_id: i32,
+    pub data_type: String,
+    pub key: String,
+    pub value: Option<serde_json::Value>,
+    pub is_secret: bool,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+impl PluginData {
+    /// Check if this is a setting (admin-configured)
+    pub fn is_setting(&self) -> bool {
+        self.data_type == "setting"
+    }
+
+    /// Check if this is storage (plugin-managed)
+    pub fn is_storage(&self) -> bool {
+        self.data_type == "storage"
+    }
+}
+
+/// New plugin data for insertion
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::plugin_data)]
+pub struct NewPluginData {
+    pub plugin_id: i32,
+    pub data_type: String,
+    pub key: String,
+    pub value: Option<serde_json::Value>,
+    pub is_secret: bool,
+}
+
+/// Plugin data update changeset
+#[derive(Debug, Default, AsChangeset)]
+#[diesel(table_name = crate::schema::plugin_data)]
+pub struct PluginDataUpdate {
+    pub value: Option<Option<serde_json::Value>>,
+}
+
+/// Plugin activity log entry
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::plugin_activity)]
+pub struct PluginActivity {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub plugin_id: i32,
+    pub action: String,
+    pub details: Option<serde_json::Value>,
+    pub user_uuid: Option<Uuid>,
+    pub created_at: NaiveDateTime,
+}
+
+/// New plugin activity entry for insertion
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::plugin_activity)]
+pub struct NewPluginActivity {
+    pub plugin_id: i32,
+    pub action: String,
+    pub details: Option<serde_json::Value>,
+    pub user_uuid: Option<Uuid>,
+}
+
+// ===== PLUGIN API TYPES =====
+
+/// Plugin manifest structure (matches frontend manifest.json format)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginManifest {
+    pub name: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    pub version: String,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    #[serde(default)]
+    pub components: std::collections::HashMap<String, PluginComponentConfig>,
+    #[serde(default)]
+    pub events: Vec<String>,
+    #[serde(default)]
+    pub settings: Vec<PluginSettingDefinition>,
+}
+
+/// Plugin component configuration in manifest
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginComponentConfig {
+    pub slot: String,
+    pub entry: String,
+    #[serde(default)]
+    pub context: Vec<String>,
+    pub label: Option<String>,
+    pub icon: Option<String>,
+}
+
+/// Plugin setting definition in manifest
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginSettingDefinition {
+    pub key: String,
+    #[serde(rename = "type")]
+    pub setting_type: String,
+    pub label: String,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    pub default: Option<serde_json::Value>,
+}
+
+/// Request to install a plugin
+#[derive(Debug, Deserialize)]
+pub struct InstallPluginRequest {
+    pub manifest: PluginManifest,
+    #[serde(default)]
+    pub trust_level: Option<String>,
+}
+
+/// Request to update a plugin
+#[derive(Debug, Deserialize)]
+pub struct UpdatePluginRequest {
+    pub enabled: Option<bool>,
+    pub manifest: Option<PluginManifest>,
+}
+
+/// Plugin response (for API)
+#[derive(Debug, Serialize)]
+pub struct PluginResponse {
+    pub uuid: Uuid,
+    pub name: String,
+    pub display_name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub manifest: PluginManifest,
+    pub enabled: bool,
+    pub trust_level: String,
+    pub installed_by: Option<Uuid>,
+    pub installed_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+impl Plugin {
+    /// Parse the manifest JSON into a PluginManifest struct
+    pub fn parse_manifest(&self) -> Result<PluginManifest, serde_json::Error> {
+        serde_json::from_value(self.manifest.clone())
+    }
+}
+
+impl TryFrom<Plugin> for PluginResponse {
+    type Error = serde_json::Error;
+
+    fn try_from(p: Plugin) -> Result<Self, Self::Error> {
+        let manifest = p.parse_manifest()?;
+        Ok(PluginResponse {
+            uuid: p.uuid,
+            name: p.name,
+            display_name: p.display_name,
+            version: p.version,
+            description: p.description,
+            manifest,
+            enabled: p.enabled,
+            trust_level: p.trust_level,
+            installed_by: p.installed_by,
+            installed_at: p.installed_at,
+            updated_at: p.updated_at,
+        })
+    }
+}
+
+/// Plugin setting response (hides secret values)
+#[derive(Debug, Serialize)]
+pub struct PluginSettingResponse {
+    pub key: String,
+    pub value: Option<serde_json::Value>,
+    pub is_secret: bool,
+}
+
+impl From<PluginData> for PluginSettingResponse {
+    fn from(d: PluginData) -> Self {
+        PluginSettingResponse {
+            key: d.key,
+            // Hide secret values in response
+            value: if d.is_secret { None } else { d.value },
+            is_secret: d.is_secret,
+        }
+    }
+}
+
+/// Request to set a plugin setting or storage
+#[derive(Debug, Deserialize)]
+pub struct SetPluginDataRequest {
+    pub key: String,
+    pub value: serde_json::Value,
+}
+
+/// Plugin storage response
+#[derive(Debug, Serialize)]
+pub struct PluginStorageResponse {
+    pub key: String,
+    pub value: Option<serde_json::Value>,
+}
+
+impl From<PluginData> for PluginStorageResponse {
+    fn from(d: PluginData) -> Self {
+        PluginStorageResponse {
+            key: d.key,
+            value: d.value,
+        }
+    }
+}
+
+/// Plugin activity response
+#[derive(Debug, Serialize)]
+pub struct PluginActivityResponse {
+    pub uuid: Uuid,
+    pub action: String,
+    pub details: Option<serde_json::Value>,
+    pub user_uuid: Option<Uuid>,
+    pub created_at: NaiveDateTime,
+}
+
+impl From<PluginActivity> for PluginActivityResponse {
+    fn from(a: PluginActivity) -> Self {
+        PluginActivityResponse {
+            uuid: a.uuid,
+            action: a.action,
+            details: a.details,
+            user_uuid: a.user_uuid,
+            created_at: a.created_at,
+        }
+    }
+}
+
+/// Request for proxied external API calls
+#[derive(Debug, Deserialize)]
+pub struct PluginProxyRequest {
+    pub url: String,
+    #[serde(default = "default_method")]
+    pub method: String,
+    pub headers: Option<std::collections::HashMap<String, String>>,
+    pub body: Option<serde_json::Value>,
+}
+
+fn default_method() -> String {
+    "GET".to_string()
+}
+
+/// Response from proxied external API call
+#[derive(Debug, Serialize)]
+pub struct PluginProxyResponse {
+    pub status: u16,
+    pub headers: std::collections::HashMap<String, String>,
+    pub body: Option<serde_json::Value>,
+}
