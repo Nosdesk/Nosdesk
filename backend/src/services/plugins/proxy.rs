@@ -68,12 +68,48 @@ impl PluginProxyService {
         false
     }
 
+    /// Get the authorization token for a URL based on plugin secrets
+    ///
+    /// Supports common patterns:
+    /// - `github_token` -> Authorization header for api.github.com
+    /// - `gitlab_token` -> Authorization header for gitlab.com
+    /// - Future: more generic domain -> token mapping
+    fn get_auth_for_url(&self, url: &str, secrets: &HashMap<String, String>) -> Option<String> {
+        let parsed = url::Url::parse(url).ok()?;
+        let host = parsed.host_str()?;
+
+        // GitHub API
+        if host == "api.github.com" || host.ends_with(".github.com") {
+            if let Some(token) = secrets.get("github_token") {
+                return Some(format!("Bearer {}", token));
+            }
+        }
+
+        // GitLab API
+        if host == "gitlab.com" || host.ends_with(".gitlab.com") {
+            if let Some(token) = secrets.get("gitlab_token") {
+                return Some(format!("Bearer {}", token));
+            }
+        }
+
+        // Generic: check for auth_token setting
+        if let Some(token) = secrets.get("auth_token") {
+            return Some(format!("Bearer {}", token));
+        }
+
+        None
+    }
+
     /// Execute a proxied request for a plugin
+    ///
+    /// The `secrets` parameter contains plugin settings marked as secrets,
+    /// which are used to inject Authorization headers for known APIs.
     pub async fn proxy_request(
         &self,
         plugin_name: &str,
         manifest: &PluginManifest,
         request: PluginProxyRequest,
+        secrets: &HashMap<String, String>,
     ) -> Result<PluginProxyResponse, String> {
         // Check permission
         if !self.has_permission(manifest, &request.url) {
@@ -110,16 +146,22 @@ impl PluginProxyService {
         // Build the request
         let mut req = self.client.request(method, &request.url);
 
-        // Add headers
+        // Add headers from request
         if let Some(headers) = request.headers {
             for (key, value) in headers {
                 // Don't allow certain headers to be set by plugins
                 let key_lower = key.to_lowercase();
-                if key_lower == "host" || key_lower == "user-agent" {
+                if key_lower == "host" || key_lower == "user-agent" || key_lower == "authorization" {
                     continue;
                 }
                 req = req.header(&key, &value);
             }
+        }
+
+        // Inject authorization from secrets if available
+        if let Some(auth) = self.get_auth_for_url(&request.url, secrets) {
+            debug!(plugin = plugin_name, "Injecting authorization header from secrets");
+            req = req.header("Authorization", auth);
         }
 
         // Add custom User-Agent

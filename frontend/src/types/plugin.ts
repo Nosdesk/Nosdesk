@@ -41,6 +41,7 @@ export interface PluginSettingDefinition {
 // =============================================================================
 
 export type PluginTrustLevel = 'official' | 'verified' | 'community';
+export type PluginSource = 'provisioned' | 'uploaded';
 
 export interface Plugin {
   uuid: string;
@@ -51,9 +52,14 @@ export interface Plugin {
   manifest: PluginManifest;
   enabled: boolean;
   trust_level: PluginTrustLevel;
+  source: PluginSource;
   installed_by: string | null;
   installed_at: string;
   updated_at: string;
+  // Bundle metadata
+  bundle_hash: string | null;
+  bundle_size: number | null;
+  bundle_uploaded_at: string | null;
 }
 
 export interface PluginSetting {

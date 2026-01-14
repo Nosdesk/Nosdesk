@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{
-    NewPlugin, NewPluginActivity, NewPluginData, Plugin, PluginActivity, PluginData,
-    PluginDataUpdate, PluginUpdate,
+    NewPlugin, NewPluginActivity, NewPluginData, Plugin, PluginActivity, PluginBundleUpdate,
+    PluginData, PluginDataUpdate, PluginUpdate,
 };
 use crate::schema::{plugin_activity, plugin_data, plugins};
 
@@ -78,6 +78,17 @@ pub fn delete_plugin_by_uuid(
     plugin_uuid: Uuid,
 ) -> Result<usize, diesel::result::Error> {
     diesel::delete(plugins::table.filter(plugins::uuid.eq(plugin_uuid))).execute(conn)
+}
+
+/// Update a plugin's bundle metadata
+pub fn update_plugin_bundle(
+    conn: &mut DbConnection,
+    plugin_uuid: Uuid,
+    update: PluginBundleUpdate,
+) -> Result<Plugin, diesel::result::Error> {
+    diesel::update(plugins::table.filter(plugins::uuid.eq(plugin_uuid)))
+        .set(&update)
+        .get_result(conn)
 }
 
 // =============================================================================

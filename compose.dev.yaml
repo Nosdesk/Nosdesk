@@ -7,6 +7,11 @@ services:
     container_name: nosdesk-backend-dev
     stdin_open: true
     tty: true
+    env_file: docker.env
+    networks:
+      - nosdesk_nosdesk-network
+    ports:
+      - "8080:8080"
     volumes:
       # Source code with :delegated for better macOS performance
       - ./backend/src:/app/src:delegated
@@ -19,6 +24,8 @@ services:
       - backend_cargo_cache:/usr/local/cargo/registry
       - backend_target_cache:/app/target # Cache compiled artifacts
       - backend_uploads:/app/uploads
+      # Plugins provisioning directory
+      - ./examples/plugins:/app/plugins:ro
     environment:
       - RUST_LOG=debug,actix_web=debug,actix_server=info,diesel=debug
       - RUST_BACKTRACE=1
@@ -47,3 +54,9 @@ volumes:
     driver: local
   backend_target_cache:
     driver: local
+  backend_uploads:
+    driver: local
+
+networks:
+  nosdesk_nosdesk-network:
+    external: true

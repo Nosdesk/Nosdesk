@@ -10,6 +10,7 @@ pub mod email_branding;
 pub mod reset_tokens;
 pub mod csrf;
 pub mod cookies;
+pub mod encryption;
 pub mod file_validation;
 pub mod rate_limit;
 pub mod redis_yjs_cache;

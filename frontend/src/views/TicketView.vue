@@ -33,6 +33,7 @@ import ProjectInfo from "@/components/ticketComponents/ProjectInfo.vue";
 import BackButton from "@/components/common/BackButton.vue";
 import DeleteButton from "@/components/common/DeleteButton.vue";
 import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
+import PluginSlot from "@/plugins/components/PluginSlot.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -554,6 +555,9 @@ defineExpose({
                                 + Add to project
                             </a>
                         </div>
+
+                        <!-- Plugin Components -->
+                        <PluginSlot slot-name="ticket-sidebar" :ticket="ticket" />
                         </div>
 
                         <!-- Comments (inside left-column for tablet 2-col layout) -->

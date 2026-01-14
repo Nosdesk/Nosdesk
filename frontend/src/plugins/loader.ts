@@ -5,7 +5,7 @@
  * Plugins are loaded from the backend and their components are registered with the UI slot system.
  */
 
-import { ref, shallowRef, type Ref, type ShallowRef } from 'vue';
+import { ref, shallowRef, reactive, type ShallowRef } from 'vue';
 import pluginService from '@/services/pluginService';
 import { logger } from '@/utils/logger';
 import type { Plugin, PluginSlot, PluginManifest } from '@/types/plugin';
@@ -36,7 +36,8 @@ export interface PluginSlotRegistration {
 const loadedPlugins: ShallowRef<Map<string, LoadedPlugin>> = shallowRef(new Map());
 
 // Slot registrations (slot name -> array of registered components)
-const slotRegistrations: Ref<Map<PluginSlot, PluginSlotRegistration[]>> = ref(new Map());
+// Using reactive() for deep reactivity with Map operations
+const slotRegistrations = reactive(new Map<PluginSlot, PluginSlotRegistration[]>());
 
 // Loading state
 const isLoading = ref(false);
@@ -63,7 +64,7 @@ export async function loadPlugins(): Promise<void> {
 
     // Clear existing registrations
     loadedPlugins.value = new Map();
-    slotRegistrations.value = new Map();
+    slotRegistrations.clear();
 
     for (const plugin of enabledPlugins) {
       try {
@@ -110,8 +111,14 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
       context: config.context || [],
     };
 
-    const existing = slotRegistrations.value.get(slot) || [];
-    slotRegistrations.value.set(slot, [...existing, registration]);
+    const existing = slotRegistrations.get(slot) || [];
+    slotRegistrations.set(slot, [...existing, registration]);
+
+    logger.info(`Registered component in slot: ${slot}`, {
+      pluginName: plugin.name,
+      componentName,
+      totalInSlot: slotRegistrations.get(slot)?.length,
+    });
   }
 
   logger.debug(`Loaded plugin: ${plugin.name}`, {
@@ -125,7 +132,7 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
  * Get all registrations for a slot
  */
 export function getSlotRegistrations(slot: PluginSlot): PluginSlotRegistration[] {
-  return slotRegistrations.value.get(slot) || [];
+  return slotRegistrations.get(slot) || [];
 }
 
 /**

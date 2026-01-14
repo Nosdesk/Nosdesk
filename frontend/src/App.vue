@@ -16,6 +16,8 @@ import { useNotificationSSE } from '@/composables/useNotificationSSE'
 import { setMentionNavigationHandler } from '@/plugins/prosemirror-mention-view'
 import authService from '@/services/authService'
 import { useBrandingStore } from '@/stores/branding'
+import { loadPlugins, initializeEventDispatcher } from '@/plugins'
+import { useAuthStore } from '@/stores/auth'
 
 // Initialize branding store and load config
 const brandingStore = useBrandingStore()
@@ -113,6 +115,21 @@ const handleCreateClick = () => {
   }
 };
 
+// Initialize plugins after authentication
+const authStore = useAuthStore();
+let eventDispatcherCleanup: (() => void) | null = null;
+
+async function initializePlugins() {
+  if (!authStore.isAuthenticated) return;
+
+  try {
+    await loadPlugins();
+    eventDispatcherCleanup = initializeEventDispatcher();
+  } catch (error) {
+    console.error('Failed to initialize plugins:', error);
+  }
+}
+
 onMounted(async () => {
   // Load branding configuration (public endpoint, no auth required)
   brandingStore.loadBranding();
@@ -130,6 +147,9 @@ onMounted(async () => {
       if (setupStatus.requires_setup) {
         console.log('🔄 App: System requires setup, redirecting to onboarding');
         router.push({ name: 'onboarding' });
+      } else {
+        // Initialize plugins if authenticated
+        await initializePlugins();
       }
     }
   } catch (error) {
