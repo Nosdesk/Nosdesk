@@ -461,7 +461,7 @@ async fn main() -> std::io::Result<()> {
 
     // Create uploads directory structure if it doesn't exist
     let uploads_dir = "/app/uploads";
-    let directories = ["", "temp", "tickets", "users", "users/avatars", "users/banners", "users/thumbs"];
+    let directories = ["", "temp", "tickets", "users", "users/avatars", "users/banners", "users/thumbs", "plugins"];
     for dir in directories.iter() {
         let full_path = format!("{}/{}", uploads_dir, dir);
         match std::fs::create_dir_all(&full_path) {
@@ -469,6 +469,26 @@ async fn main() -> std::io::Result<()> {
             Err(e) => {
                 error!(path = %full_path, error = %e, "Failed to create directory");
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create directory: {}", full_path)));
+            }
+        }
+    }
+
+    // Provision plugins from /app/plugins/ directory
+    {
+        let mut conn = pool.get().expect("Failed to get connection for plugin provisioning");
+        let results = services::plugins::provision_plugins(&mut conn);
+        for result in results {
+            match result {
+                services::plugins::provisioning::ProvisionResult::Created(name) => {
+                    info!(plugin = %name, "Provisioned new plugin");
+                }
+                services::plugins::provisioning::ProvisionResult::Updated(name) => {
+                    info!(plugin = %name, "Updated provisioned plugin");
+                }
+                services::plugins::provisioning::ProvisionResult::Failed(name, err) => {
+                    warn!(plugin = %name, error = %err, "Failed to provision plugin");
+                }
+                _ => {}
             }
         }
     }
@@ -871,9 +891,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/plugins/{uuid}/settings", web::post().to(handlers::plugins::set_plugin_setting))
                     .route("/admin/plugins/{uuid}/settings/{key}", web::delete().to(handlers::plugins::delete_plugin_setting))
                     .route("/admin/plugins/{uuid}/activity", web::get().to(handlers::plugins::get_plugin_activity))
+                    .route("/admin/plugins/{uuid}/bundle", web::post().to(handlers::plugins::upload_plugin_bundle))
+                    .route("/admin/plugins/install", web::post().to(handlers::plugins::install_plugin_from_zip))
 
                     // ===== PLUGIN API (For plugins to use) =====
                     .route("/plugins/enabled", web::get().to(handlers::plugins::list_enabled_plugins))
+                    .route("/plugins/{uuid}/bundle", web::get().to(handlers::plugins::serve_plugin_bundle))
                     .route("/plugins/{uuid}/storage/{key}", web::get().to(handlers::plugins::get_plugin_storage))
                     .route("/plugins/{uuid}/storage", web::post().to(handlers::plugins::set_plugin_storage))
                     .route("/plugins/{uuid}/storage/{key}", web::delete().to(handlers::plugins::delete_plugin_storage))

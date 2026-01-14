@@ -2,19 +2,29 @@
 //!
 //! Admin endpoints for managing plugins, settings, storage, and activity.
 
+use actix_multipart::Multipart;
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use chrono::Utc;
 use diesel::result::Error as DieselError;
+use futures::StreamExt;
+use hex;
+use ring::digest::{Context, SHA256};
 use serde::Deserialize;
-use tracing::{error, info};
+use std::path::PathBuf;
+use tokio::fs;
+use tokio::io::AsyncWriteExt;
+use tracing::{error, info, warn};
 use uuid::Uuid;
+use zip;
 
 use crate::db::{DbConnection, Pool};
 use crate::models::{
-    Claims, InstallPluginRequest, NewPlugin, PluginActivityResponse, PluginResponse,
-    PluginSettingResponse, PluginStorageResponse, PluginUpdate, SetPluginDataRequest,
-    UpdatePluginRequest,
+    Claims, InstallPluginRequest, NewPlugin, PluginActivityResponse, PluginBundleUpdate,
+    PluginResponse, PluginSettingResponse, PluginStorageResponse, PluginUpdate,
+    SetPluginDataRequest, UpdatePluginRequest,
 };
 use crate::repository::plugins as plugin_repo;
+use crate::utils::encryption;
 use crate::utils::rbac::require_admin;
 
 /// Query parameters for pagination
@@ -183,6 +193,7 @@ pub async fn install_plugin(
         enabled: true,
         trust_level,
         installed_by,
+        source: "uploaded".to_string(),
     };
 
     match plugin_repo::create_plugin(&mut conn, new_plugin) {
@@ -431,11 +442,33 @@ pub async fn set_plugin_setting(
         })
         .unwrap_or(false);
 
+    // Encrypt secret values before storing
+    let value_to_store = if is_secret {
+        match body.value.as_str() {
+            Some(plaintext) => {
+                match encryption::encrypt(plaintext) {
+                    Ok(encrypted) => serde_json::Value::String(encrypted),
+                    Err(e) => {
+                        error!("Failed to encrypt plugin secret: {}", e);
+                        return HttpResponse::InternalServerError()
+                            .json("Failed to encrypt secret. Ensure ENCRYPTION_KEY is configured.");
+                    }
+                }
+            }
+            None => {
+                return HttpResponse::BadRequest()
+                    .json("Secret settings must be string values");
+            }
+        }
+    } else {
+        body.value.clone()
+    };
+
     match plugin_repo::set_plugin_setting(
         &mut conn,
         plugin.id,
         body.key.clone(),
-        Some(body.value.clone()),
+        Some(value_to_store),
         is_secret,
     ) {
         Ok(setting) => {
@@ -672,12 +705,477 @@ pub async fn proxy_plugin_request(
         }
     };
 
-    // Execute the proxied request
-    match proxy_service.proxy_request(&plugin.name, &manifest, body.into_inner()).await {
+    // Fetch plugin settings for auth injection
+    let settings = match crate::repository::plugins::get_plugin_settings(&mut conn, plugin.id) {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to get plugin settings: {}", e);
+            vec![]
+        }
+    };
+
+    // Build secrets map for auth injection (decrypt encrypted secrets)
+    let mut secrets = std::collections::HashMap::new();
+    for setting in settings {
+        if setting.is_secret {
+            if let Some(value) = setting.value {
+                if let Some(encrypted) = value.as_str() {
+                    match encryption::decrypt(encrypted) {
+                        Ok(decrypted) => {
+                            secrets.insert(setting.key, decrypted);
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to decrypt secret '{}' for plugin '{}': {}",
+                                setting.key, plugin.name, e
+                            );
+                            // Fail closed - don't use potentially compromised data
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Execute the proxied request with secrets for auth injection
+    match proxy_service.proxy_request(&plugin.name, &manifest, body.into_inner(), &secrets).await {
         Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => {
             error!("Proxy request failed: {}", e);
             HttpResponse::BadRequest().json(e)
+        }
+    }
+}
+
+// =============================================================================
+// Plugin Bundle Handlers
+// =============================================================================
+
+/// Get the bundle storage path for a plugin
+fn get_bundle_path(plugin_uuid: Uuid) -> PathBuf {
+    PathBuf::from("/app/uploads/plugins")
+        .join(plugin_uuid.to_string())
+        .join("bundle.js")
+}
+
+/// Maximum bundle size (500 KB)
+const MAX_BUNDLE_SIZE: usize = 500 * 1024;
+
+/// Upload a plugin bundle (admin only)
+pub async fn upload_plugin_bundle(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<Uuid>,
+    mut payload: Multipart,
+) -> impl Responder {
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+
+    let plugin_uuid = path.into_inner();
+
+    let mut conn = match get_connection(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    // Verify plugin exists
+    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+
+    // Read the bundle from multipart
+    let mut bundle_data: Vec<u8> = Vec::new();
+
+    while let Some(item) = payload.next().await {
+        let mut field = match item {
+            Ok(f) => f,
+            Err(e) => {
+                error!("Multipart error: {}", e);
+                return HttpResponse::BadRequest().json("Invalid multipart data");
+            }
+        };
+
+        // Only accept "file" field
+        if field.name() != "file" {
+            continue;
+        }
+
+        // Check content type
+        let content_type = field.content_type().map(|m| m.to_string());
+        if !matches!(
+            content_type.as_deref(),
+            Some("application/javascript") | Some("text/javascript") | Some("application/octet-stream")
+        ) {
+            warn!("Invalid content type for plugin bundle: {:?}", content_type);
+            // Still accept it, just log the warning
+        }
+
+        // Read field data
+        while let Some(chunk) = field.next().await {
+            let data = match chunk {
+                Ok(d) => d,
+                Err(e) => {
+                    error!("Error reading multipart chunk: {}", e);
+                    return HttpResponse::BadRequest().json("Error reading file data");
+                }
+            };
+
+            if bundle_data.len() + data.len() > MAX_BUNDLE_SIZE {
+                return HttpResponse::BadRequest().json(format!(
+                    "Bundle too large. Maximum size is {} KB",
+                    MAX_BUNDLE_SIZE / 1024
+                ));
+            }
+
+            bundle_data.extend_from_slice(&data);
+        }
+    }
+
+    if bundle_data.is_empty() {
+        return HttpResponse::BadRequest().json("No file data received");
+    }
+
+    // Basic JavaScript validation - check for export
+    let content = String::from_utf8_lossy(&bundle_data);
+    if !content.contains("export") {
+        return HttpResponse::BadRequest()
+            .json("Invalid bundle: must be an ES module with exports");
+    }
+
+    // Calculate hash
+    let mut context = Context::new(&SHA256);
+    context.update(&bundle_data);
+    let digest = context.finish();
+    let hash = hex::encode(digest.as_ref());
+
+    // Create directory and write file
+    let bundle_path = get_bundle_path(plugin_uuid);
+    if let Some(parent) = bundle_path.parent() {
+        if let Err(e) = fs::create_dir_all(parent).await {
+            error!("Failed to create plugin directory: {}", e);
+            return HttpResponse::InternalServerError().json("Failed to store bundle");
+        }
+    }
+
+    let mut file = match fs::File::create(&bundle_path).await {
+        Ok(f) => f,
+        Err(e) => {
+            error!("Failed to create bundle file: {}", e);
+            return HttpResponse::InternalServerError().json("Failed to store bundle");
+        }
+    };
+
+    if let Err(e) = file.write_all(&bundle_data).await {
+        error!("Failed to write bundle file: {}", e);
+        return HttpResponse::InternalServerError().json("Failed to store bundle");
+    }
+
+    // Update plugin record
+    let bundle_update = PluginBundleUpdate {
+        bundle_hash: Some(hash.clone()),
+        bundle_size: Some(bundle_data.len() as i32),
+        bundle_uploaded_at: Some(Utc::now().naive_utc()),
+    };
+
+    match plugin_repo::update_plugin_bundle(&mut conn, plugin_uuid, bundle_update) {
+        Ok(_) => {
+            info!(
+                "Plugin bundle uploaded: {} ({} bytes, hash: {})",
+                plugin.name,
+                bundle_data.len(),
+                &hash[..8]
+            );
+            HttpResponse::Ok().json(serde_json::json!({
+                "message": "Bundle uploaded successfully",
+                "size": bundle_data.len(),
+                "hash": hash
+            }))
+        }
+        Err(e) => {
+            error!("Failed to update plugin bundle record: {}", e);
+            HttpResponse::InternalServerError().json("Failed to update plugin record")
+        }
+    }
+}
+
+/// Serve a plugin bundle (authenticated users)
+pub async fn serve_plugin_bundle(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    // Any authenticated user can request plugin bundles
+    if req.extensions().get::<Claims>().is_none() {
+        return HttpResponse::Unauthorized().json("Authentication required");
+    }
+
+    let plugin_uuid = path.into_inner();
+
+    let mut conn = match get_connection(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    // Verify plugin exists and is enabled
+    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+
+    if !plugin.enabled {
+        return HttpResponse::Forbidden().json("Plugin is disabled");
+    }
+
+    // Check if bundle has been uploaded
+    if plugin.bundle_uploaded_at.is_none() {
+        return HttpResponse::NotFound().json("Plugin bundle not found");
+    }
+
+    // Read and serve the bundle
+    let bundle_path = get_bundle_path(plugin_uuid);
+
+    match fs::read(&bundle_path).await {
+        Ok(data) => HttpResponse::Ok()
+            .content_type("application/javascript")
+            .insert_header(("Cache-Control", "private, max-age=3600"))
+            .insert_header((
+                "ETag",
+                plugin.bundle_hash.as_deref().unwrap_or("unknown"),
+            ))
+            .body(data),
+        Err(e) => {
+            error!("Failed to read plugin bundle: {}", e);
+            HttpResponse::NotFound().json("Plugin bundle not found")
+        }
+    }
+}
+
+// =============================================================================
+// Plugin Zip Upload Handler
+// =============================================================================
+
+/// Maximum zip file size (2MB)
+const MAX_ZIP_SIZE: usize = 2 * 1024 * 1024;
+
+/// Install a plugin from a zip file (admin only)
+///
+/// The zip file should contain:
+/// - manifest.json (required)
+/// - bundle.js (optional)
+pub async fn install_plugin_from_zip(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    mut payload: Multipart,
+) -> impl Responder {
+    // Check admin permission
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+
+    let claims = match req.extensions().get::<Claims>().cloned() {
+        Some(c) => c,
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    };
+
+    let mut conn = match get_connection(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    // Read the zip file from multipart
+    let mut zip_data = Vec::new();
+
+    while let Some(field) = payload.next().await {
+        let mut field = match field {
+            Ok(f) => f,
+            Err(e) => {
+                error!("Multipart field error: {}", e);
+                return HttpResponse::BadRequest().json("Invalid multipart data");
+            }
+        };
+
+        // Check content type
+        let content_type = field.content_type().map(|m| m.to_string()).unwrap_or_default();
+        if !content_type.contains("zip") && !content_type.contains("octet-stream") {
+            continue;
+        }
+
+        while let Some(chunk) = field.next().await {
+            let data = match chunk {
+                Ok(d) => d,
+                Err(e) => {
+                    error!("Failed to read multipart chunk: {}", e);
+                    return HttpResponse::BadRequest().json("Failed to read upload");
+                }
+            };
+
+            if zip_data.len() + data.len() > MAX_ZIP_SIZE {
+                return HttpResponse::BadRequest().json(format!(
+                    "Zip file too large. Maximum size is {} MB",
+                    MAX_ZIP_SIZE / (1024 * 1024)
+                ));
+            }
+
+            zip_data.extend_from_slice(&data);
+        }
+    }
+
+    if zip_data.is_empty() {
+        return HttpResponse::BadRequest().json("No zip file received");
+    }
+
+    // Extract the zip file
+    let cursor = std::io::Cursor::new(&zip_data);
+    let mut archive = match zip::ZipArchive::new(cursor) {
+        Ok(a) => a,
+        Err(e) => {
+            error!("Failed to read zip archive: {}", e);
+            return HttpResponse::BadRequest().json("Invalid zip file");
+        }
+    };
+
+    // Read manifest.json
+    let manifest_content = match archive.by_name("manifest.json") {
+        Ok(mut file) => {
+            let mut content = String::new();
+            if let Err(e) = std::io::Read::read_to_string(&mut file, &mut content) {
+                error!("Failed to read manifest.json: {}", e);
+                return HttpResponse::BadRequest().json("Failed to read manifest.json");
+            }
+            content
+        }
+        Err(_) => {
+            return HttpResponse::BadRequest().json("Zip file must contain manifest.json");
+        }
+    };
+
+    // Parse manifest
+    let manifest: crate::models::PluginManifest = match serde_json::from_str(&manifest_content) {
+        Ok(m) => m,
+        Err(e) => {
+            error!("Invalid manifest.json: {}", e);
+            return HttpResponse::BadRequest().json(format!("Invalid manifest.json: {}", e));
+        }
+    };
+
+    // Validate plugin name
+    let name = match validate_plugin_name(&manifest.name) {
+        Ok(n) => n,
+        Err(e) => return e,
+    };
+
+    // Check if plugin already exists
+    if plugin_repo::get_plugin_by_name(&mut conn, &name).is_ok() {
+        return HttpResponse::Conflict().json(format!(
+            "Plugin '{}' already exists. Uninstall it first or use the update endpoint.",
+            name
+        ));
+    }
+
+    // Read bundle.js if present
+    let bundle_data = match archive.by_name("bundle.js") {
+        Ok(mut file) => {
+            let mut data = Vec::new();
+            if let Err(e) = std::io::Read::read_to_end(&mut file, &mut data) {
+                error!("Failed to read bundle.js: {}", e);
+                return HttpResponse::BadRequest().json("Failed to read bundle.js");
+            }
+            Some(data)
+        }
+        Err(_) => None,
+    };
+
+    // Create the plugin
+    let manifest_json = match serde_json::to_value(&manifest) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Failed to serialize manifest: {}", e);
+            return HttpResponse::InternalServerError().json("Failed to process manifest");
+        }
+    };
+
+    let new_plugin = NewPlugin {
+        name,
+        display_name: manifest.display_name.clone(),
+        version: manifest.version.clone(),
+        description: manifest.description.clone(),
+        manifest: manifest_json,
+        enabled: true,
+        trust_level: "community".to_string(), // Uploaded plugins start as community
+        installed_by: Uuid::parse_str(&claims.sub).ok(),
+        source: "uploaded".to_string(),
+    };
+
+    let plugin = match plugin_repo::create_plugin(&mut conn, new_plugin) {
+        Ok(p) => p,
+        Err(e) => {
+            error!("Failed to create plugin: {}", e);
+            return HttpResponse::InternalServerError().json("Failed to create plugin");
+        }
+    };
+
+    // Store bundle if present
+    let has_bundle = bundle_data.is_some();
+    if let Some(data) = bundle_data {
+        // Validate bundle
+        let content = String::from_utf8_lossy(&data);
+        if !content.contains("export") {
+            warn!("Bundle doesn't contain exports - may not work correctly");
+        }
+
+        // Calculate hash
+        let mut context = Context::new(&SHA256);
+        context.update(&data);
+        let hash = hex::encode(context.finish().as_ref());
+
+        // Store bundle
+        let bundle_path = get_bundle_path(plugin.uuid);
+        if let Some(parent) = bundle_path.parent() {
+            if let Err(e) = fs::create_dir_all(parent).await {
+                error!("Failed to create plugin directory: {}", e);
+            }
+        }
+
+        if let Err(e) = fs::write(&bundle_path, &data).await {
+            error!("Failed to write bundle: {}", e);
+        } else {
+            // Update bundle metadata
+            let update = PluginBundleUpdate {
+                bundle_hash: Some(hash),
+                bundle_size: Some(data.len() as i32),
+                bundle_uploaded_at: Some(Utc::now().naive_utc()),
+            };
+            let _ = plugin_repo::update_plugin_bundle(&mut conn, plugin.uuid, update);
+        }
+    }
+
+    // Log activity
+    let user_uuid = Uuid::parse_str(&claims.sub).ok();
+    let _ = plugin_repo::log_plugin_activity(
+        &mut conn,
+        plugin.id,
+        "installed".to_string(),
+        Some(serde_json::json!({
+            "version": manifest.version,
+            "source": "zip_upload",
+            "has_bundle": has_bundle,
+        })),
+        user_uuid,
+    );
+
+    info!(
+        "Plugin installed from zip: {} v{} by {}",
+        manifest.name, manifest.version, claims.sub
+    );
+
+    // Return the created plugin
+    match PluginResponse::try_from(plugin) {
+        Ok(response) => HttpResponse::Created().json(response),
+        Err(e) => {
+            error!("Failed to create plugin response: {}", e);
+            HttpResponse::InternalServerError().json("Plugin created but response failed")
         }
     }
 }

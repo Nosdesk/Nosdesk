@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use base32;
 use bcrypt::{verify as bcrypt_verify, hash as bcrypt_hash, DEFAULT_COST};
 use qrcode::{QrCode, render::svg};
@@ -6,15 +6,13 @@ use base64::{Engine as _, engine::general_purpose};
 use totp_rs::{Algorithm as TotpAlgorithm, TOTP, Secret};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng, RngCore};
-use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
-use ring::rand::{SecureRandom, SystemRandom};
 use zeroize::ZeroizeOnDrop;
 use uuid::Uuid;
-// Removed unused import: use serde_json::Value;
 
 use crate::models::{User, UserRole};
 use crate::db::DbConnection;
 use crate::repository;
+use super::encryption;
 
 /// Parse a boolean environment variable in a robust, user-friendly way
 /// Accepts: true/false, 1/0, yes/no, on/off (case-insensitive)
@@ -54,76 +52,17 @@ pub struct MfaVerificationResult {
     pub requires_backup_code_regeneration: bool,
 }
 
-/// Get encryption key from environment (must be 32 bytes for AES-256-GCM)
-fn get_encryption_key() -> Result<[u8; 32]> {
-    let key_hex = std::env::var("MFA_ENCRYPTION_KEY")
-        .map_err(|_| anyhow!("MFA_ENCRYPTION_KEY environment variable not set"))?;
-    
-    if key_hex.len() != 64 {
-        return Err(anyhow!("MFA_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)"));
-    }
-    
-    let mut key = [0u8; 32];
-    hex::decode_to_slice(&key_hex, &mut key)
-        .map_err(|_| anyhow!("MFA_ENCRYPTION_KEY must be valid hexadecimal"))?;
-    
-    Ok(key)
-}
-
 /// Encrypt MFA secret using AES-256-GCM
+/// Delegates to the encryption module for the actual cryptographic operations.
 pub fn encrypt_mfa_secret(secret: &str) -> Result<String> {
-    let key_bytes = get_encryption_key()?;
-    let unbound_key = UnboundKey::new(&AES_256_GCM, &key_bytes)
-        .map_err(|_| anyhow!("Failed to create encryption key"))?;
-    let sealing_key = LessSafeKey::new(unbound_key);
-    
-    // Generate random nonce
-    let rng = SystemRandom::new();
-    let mut nonce_bytes = [0u8; 12];
-    rng.fill(&mut nonce_bytes)
-        .map_err(|_| anyhow!("Failed to generate nonce"))?;
-    let nonce = Nonce::assume_unique_for_key(nonce_bytes);
-    
-    // Encrypt the secret
-    let mut in_out = secret.as_bytes().to_vec();
-    sealing_key.seal_in_place_append_tag(nonce, Aad::empty(), &mut in_out)
-        .map_err(|_| anyhow!("Encryption failed"))?;
-    
-    // Combine nonce + ciphertext and encode as hex
-    let mut result = nonce_bytes.to_vec();
-    result.extend_from_slice(&in_out);
-    Ok(hex::encode(result))
+    encryption::encrypt(secret)
 }
 
 /// Decrypt MFA secret using AES-256-GCM
+/// Delegates to the encryption module for the actual cryptographic operations.
 pub fn decrypt_mfa_secret(encrypted_hex: &str) -> Result<SecretString> {
-    let key_bytes = get_encryption_key()?;
-    let unbound_key = UnboundKey::new(&AES_256_GCM, &key_bytes)
-        .map_err(|_| anyhow!("Failed to create decryption key"))?;
-    let opening_key = LessSafeKey::new(unbound_key);
-    
-    // Decode from hex
-    let encrypted_data = hex::decode(encrypted_hex)
-        .map_err(|_| anyhow!("Invalid encrypted data format"))?;
-    
-    if encrypted_data.len() < 12 {
-        return Err(anyhow!("Encrypted data too short"));
-    }
-    
-    // Split nonce and ciphertext
-    let (nonce_bytes, ciphertext) = encrypted_data.split_at(12);
-    let nonce = Nonce::try_assume_unique_for_key(nonce_bytes)
-        .map_err(|_| anyhow!("Invalid nonce"))?;
-    
-    // Decrypt
-    let mut in_out = ciphertext.to_vec();
-    let plaintext = opening_key.open_in_place(nonce, Aad::empty(), &mut in_out)
-        .map_err(|_| anyhow!("Decryption failed"))?;
-    
-    let secret = String::from_utf8(plaintext.to_vec())
-        .map_err(|_| anyhow!("Invalid UTF-8 in decrypted secret"))?;
-    
-    Ok(SecretString::new(secret))
+    let decrypted = encryption::decrypt(encrypted_hex)?;
+    Ok(SecretString::new(decrypted))
 }
 
 /// Generate a cryptographically secure random string for TOTP secret

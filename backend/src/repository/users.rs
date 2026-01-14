@@ -34,8 +34,9 @@ pub fn get_paginated_users(
         let search_pattern = format!("%{}%", search_term.to_lowercase());
 
         // Get distinct user UUIDs that match the search (by name OR by any email)
+        // Note: Explicit join condition needed because user_emails has two FKs to users
         let matching_uuids: Vec<Uuid> = users::table
-            .left_join(user_emails::table)
+            .left_join(user_emails::table.on(user_emails::user_uuid.eq(users::uuid)))
             .select(users::uuid)
             .filter(
                 users::name.ilike(search_pattern.clone())

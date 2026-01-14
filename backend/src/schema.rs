@@ -449,6 +449,12 @@ diesel::table! {
         installed_by -> Nullable<Uuid>,
         installed_at -> Timestamptz,
         updated_at -> Timestamptz,
+        #[max_length = 64]
+        bundle_hash -> Nullable<Varchar>,
+        bundle_size -> Nullable<Int4>,
+        bundle_uploaded_at -> Nullable<Timestamptz>,
+        #[max_length = 20]
+        source -> Varchar,
     }
 }
 
@@ -814,9 +820,6 @@ diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
 diesel::joinable!(webhook_deliveries -> webhooks (webhook_id));
 diesel::joinable!(webhooks -> users (created_by));
-
-// Manual joinable for user_emails (diesel doesn't auto-generate this because the FK is named user_uuid not users_id)
-diesel::joinable!(user_emails -> users (user_uuid));
 
 diesel::allow_tables_to_appear_in_same_query!(
     active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_pages,documentation_revisions,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_data,plugins,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);

@@ -9,6 +9,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // Use full Vue build with runtime compiler for plugin template strings
+      "vue": "vue/dist/vue.esm-bundler.js",
     },
   },
   define: {

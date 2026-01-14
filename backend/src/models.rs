@@ -2988,6 +2988,10 @@ pub struct Plugin {
     pub installed_by: Option<Uuid>,
     pub installed_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub bundle_hash: Option<String>,
+    pub bundle_size: Option<i32>,
+    pub bundle_uploaded_at: Option<NaiveDateTime>,
+    pub source: String,
 }
 
 /// New plugin for insertion
@@ -3002,6 +3006,7 @@ pub struct NewPlugin {
     pub enabled: bool,
     pub trust_level: String,
     pub installed_by: Option<Uuid>,
+    pub source: String,
 }
 
 /// Plugin update changeset
@@ -3014,6 +3019,15 @@ pub struct PluginUpdate {
     pub manifest: Option<serde_json::Value>,
     pub enabled: Option<bool>,
     pub trust_level: Option<String>,
+}
+
+/// Plugin bundle update changeset
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::plugins)]
+pub struct PluginBundleUpdate {
+    pub bundle_hash: Option<String>,
+    pub bundle_size: Option<i32>,
+    pub bundle_uploaded_at: Option<NaiveDateTime>,
 }
 
 /// Plugin data type - settings (admin-configured) or storage (plugin-managed)
@@ -3174,6 +3188,10 @@ pub struct PluginResponse {
     pub installed_by: Option<Uuid>,
     pub installed_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub bundle_hash: Option<String>,
+    pub bundle_size: Option<i32>,
+    pub bundle_uploaded_at: Option<NaiveDateTime>,
+    pub source: String,
 }
 
 impl Plugin {
@@ -3200,6 +3218,10 @@ impl TryFrom<Plugin> for PluginResponse {
             installed_by: p.installed_by,
             installed_at: p.installed_at,
             updated_at: p.updated_at,
+            bundle_hash: p.bundle_hash,
+            bundle_size: p.bundle_size,
+            bundle_uploaded_at: p.bundle_uploaded_at,
+            source: p.source,
         })
     }
 }

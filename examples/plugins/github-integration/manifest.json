@@ -1,0 +1,47 @@
+{
+  "name": "github-integration",
+  "displayName": "GitHub Integration",
+  "version": "1.0.0",
+  "description": "Link tickets to GitHub issues and view repository information",
+  "permissions": [
+    "tickets:read",
+    "tickets:comment",
+    "storage",
+    "external:api.github.com"
+  ],
+  "components": {
+    "GitHubPanel": {
+      "slot": "ticket-sidebar",
+      "entry": "GitHubPanel",
+      "label": "GitHub",
+      "context": ["ticket"]
+    }
+  },
+  "events": [
+    "ticket:created",
+    "ticket:updated"
+  ],
+  "settings": [
+    {
+      "key": "github_token",
+      "type": "secret",
+      "label": "GitHub Personal Access Token",
+      "description": "Fine-grained: 'Issues' read-only. Classic: 'repo' (private) or 'public_repo' (public only)",
+      "required": true
+    },
+    {
+      "key": "default_owner",
+      "type": "string",
+      "label": "Default Owner/Organization",
+      "description": "Default GitHub owner or organization (e.g., 'nosdesk')",
+      "required": false
+    },
+    {
+      "key": "default_repo",
+      "type": "string",
+      "label": "Default Repository",
+      "description": "Default repository name (e.g., 'helpdesk')",
+      "required": false
+    }
+  ]
+}
