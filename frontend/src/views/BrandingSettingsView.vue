@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import BackButton from '@/components/common/BackButton.vue'
 import AlertMessage from '@/components/common/AlertMessage.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import ColorHueSlider from '@/components/common/ColorHueSlider.vue'
 import brandingService, { type BrandingConfig } from '@/services/brandingService'
 import uploadService from '@/services/uploadService'
 import { useBrandingStore } from '@/stores/branding'
@@ -289,22 +290,7 @@ onMounted(() => {
 
             <!-- Primary Color -->
             <div class="flex flex-col gap-2">
-              <label for="primaryColor" class="text-sm font-medium text-primary">Primary Color</label>
-              <div class="flex items-center gap-3">
-                <input
-                  id="primaryColor"
-                  v-model="primaryColor"
-                  type="text"
-                  class="flex-1 bg-surface-alt border border-default rounded-lg px-3 py-2 text-primary font-mono focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
-                  placeholder="#2C80FF"
-                />
-                <input
-                  type="color"
-                  :value="primaryColor || '#2C80FF'"
-                  @input="primaryColor = ($event.target as HTMLInputElement).value"
-                  class="w-10 h-10 rounded-lg border border-default cursor-pointer"
-                />
-              </div>
+              <ColorHueSlider v-model="primaryColor" label="Primary Color" />
               <p class="text-xs text-tertiary">Hex color code for accent elements (e.g., #2C80FF)</p>
             </div>
 
@@ -509,13 +495,12 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Configuration status -->
+        <!-- Configuration status (only shown when custom branding is configured) -->
         <div
-          class="p-4 rounded-lg border flex items-center gap-3"
-          :class="isConfigured ? 'bg-status-success-muted border-status-success/30' : 'bg-surface-alt border-default'"
+          v-if="isConfigured"
+          class="p-4 rounded-lg border flex items-center gap-3 bg-status-success-muted border-status-success/30"
         >
           <svg
-            v-if="isConfigured"
             class="w-5 h-5 text-status-success"
             fill="none"
             viewBox="0 0 24 24"
@@ -523,12 +508,7 @@ onMounted(() => {
           >
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <svg v-else class="w-5 h-5 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span :class="isConfigured ? 'text-status-success' : 'text-tertiary'">
-            {{ isConfigured ? 'Custom branding configured' : 'Using default branding' }}
-          </span>
+          <span class="text-status-success">Custom branding configured</span>
         </div>
       </div>
     </div>

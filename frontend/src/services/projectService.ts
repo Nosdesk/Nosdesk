@@ -137,6 +137,16 @@ export const projectService = {
       logger.error(`Error removing ticket ${ticketId} from project ${projectId}:`, error);
       throw error;
     }
+  },
+
+  // Update the order of tickets within a project
+  async updateTicketOrder(projectId: number, ticketIds: number[]): Promise<void> {
+    try {
+      await apiClient.put(`/projects/${projectId}/tickets/order`, { ticket_ids: ticketIds });
+    } catch (error) {
+      logger.error(`Error updating ticket order for project ${projectId}:`, error);
+      throw error;
+    }
   }
 };
 

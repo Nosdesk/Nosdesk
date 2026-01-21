@@ -13,7 +13,7 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Modal from '@/components/Modal.vue';
 import { logger } from '@/utils/logger';
-import type { Plugin, PluginSetting, PluginActivity, PluginTrustLevel, PluginSource } from '@/types/plugin';
+import type { Plugin, PluginSetting, PluginTrustLevel, PluginSource } from '@/types/plugin';
 
 // State
 const plugins = ref<Plugin[]>([]);
@@ -22,16 +22,12 @@ const errorMessage = ref('');
 const successMessage = ref('');
 const selectedPlugin = ref<Plugin | null>(null);
 const showSettingsModal = ref(false);
-const showActivityModal = ref(false);
 
 // Settings modal state
 const settings = ref<PluginSetting[]>([]);
 const settingsLoading = ref(false);
 const settingValues = ref<Record<string, unknown>>({});
-
-// Activity modal state
-const activity = ref<PluginActivity[]>([]);
-const activityLoading = ref(false);
+const editingSecrets = ref<Set<string>>(new Set());
 
 // Confirmation
 const showUninstallConfirm = ref(false);
@@ -88,6 +84,7 @@ async function openSettings(plugin: Plugin) {
   selectedPlugin.value = plugin;
   showSettingsModal.value = true;
   settingsLoading.value = true;
+  editingSecrets.value = new Set(); // Reset editing state
 
   try {
     settings.value = await pluginService.getPluginSettings(plugin.uuid);
@@ -115,24 +112,33 @@ async function saveSetting(key: string) {
       key,
       value: settingValues.value[key],
     });
+    // If this was a secret being edited, mark it as configured and stop editing
+    if (editingSecrets.value.has(key) && settingValues.value[key]) {
+      editingSecrets.value.delete(key);
+      // Reload settings to get fresh state
+      settings.value = await pluginService.getPluginSettings(selectedPlugin.value.uuid);
+    }
   } catch (err) {
     logger.error('Failed to save setting', { error: err, key });
   }
 }
 
-// Open activity modal
-async function openActivity(plugin: Plugin) {
-  selectedPlugin.value = plugin;
-  showActivityModal.value = true;
-  activityLoading.value = true;
+// Check if a secret setting is configured (exists in backend but value is hidden)
+function isSecretConfigured(key: string): boolean {
+  const setting = settings.value.find(s => s.key === key);
+  return setting?.is_secret === true;
+}
 
-  try {
-    activity.value = await pluginService.getPluginActivity(plugin.uuid);
-  } catch (err) {
-    logger.error('Failed to load plugin activity', { error: err });
-  } finally {
-    activityLoading.value = false;
-  }
+// Start editing a secret
+function editSecret(key: string) {
+  editingSecrets.value.add(key);
+  settingValues.value[key] = ''; // Clear the placeholder
+}
+
+// Cancel editing a secret
+function cancelEditSecret(key: string) {
+  editingSecrets.value.delete(key);
+  settingValues.value[key] = null; // Reset to null (configured state)
 }
 
 // Confirm uninstall
@@ -231,6 +237,21 @@ function getSourceBadge(source: PluginSource): { label: string; class: string } 
     default:
       return { label: 'Unknown', class: 'bg-surface-alt text-secondary' };
   }
+}
+
+// Determine plugin icon type
+function getPluginIconType(icon?: string): 'image' | 'emoji' | 'none' {
+  if (!icon) return 'none';
+  // URLs and data URIs are images
+  if (icon.startsWith('http://') || icon.startsWith('https://') || icon.startsWith('/') || icon.startsWith('data:')) {
+    return 'image';
+  }
+  // Short strings (1-4 chars) are likely emojis
+  if (icon.length <= 4) {
+    return 'emoji';
+  }
+  // Fallback to none for unrecognized formats
+  return 'none';
 }
 
 // Format date
@@ -367,8 +388,23 @@ async function executeInstall() {
             <div class="p-4">
               <div class="flex items-start gap-3">
                 <!-- Icon -->
-                <div class="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <div class="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  <!-- Custom image icon -->
+                  <img
+                    v-if="getPluginIconType(plugin.manifest.icon) === 'image'"
+                    :src="plugin.manifest.icon"
+                    :alt="plugin.display_name"
+                    class="w-full h-full object-cover"
+                  />
+                  <!-- Emoji icon -->
+                  <span
+                    v-else-if="getPluginIconType(plugin.manifest.icon) === 'emoji'"
+                    class="text-xl"
+                  >
+                    {{ plugin.manifest.icon }}
+                  </span>
+                  <!-- Default plugin icon -->
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
                   </svg>
                 </div>
@@ -435,15 +471,19 @@ async function executeInstall() {
                       <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
                   </button>
-                  <button
-                    @click="openActivity(plugin)"
+                  <a
+                    v-if="plugin.manifest.repository"
+                    :href="plugin.manifest.repository"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-                    title="Activity log"
+                    title="View source"
+                    @click.stop
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                     </svg>
-                  </button>
+                  </a>
                   <button
                     @click="confirmUninstall(plugin)"
                     class="p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
@@ -471,15 +511,19 @@ async function executeInstall() {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                 </button>
-                <button
-                  @click="openActivity(plugin)"
+                <a
+                  v-if="plugin.manifest.repository"
+                  :href="plugin.manifest.repository"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-                  title="Activity log"
+                  title="View source"
+                  @click.stop
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
-                </button>
+                </a>
                 <button
                   @click="confirmUninstall(plugin)"
                   class="p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
@@ -638,12 +682,53 @@ async function executeInstall() {
 
           <!-- String input -->
           <input
-            v-if="def.type === 'string' || def.type === 'secret'"
+            v-if="def.type === 'string'"
             v-model="settingValues[def.key]"
-            :type="def.type === 'secret' ? 'password' : 'text'"
+            type="text"
             @blur="saveSetting(def.key)"
             class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
           />
+
+          <!-- Secret input with configured state -->
+          <div v-else-if="def.type === 'secret'">
+            <!-- Configured state - show indicator with update option -->
+            <div
+              v-if="isSecretConfigured(def.key) && !editingSecrets.has(def.key)"
+              class="flex items-center gap-3"
+            >
+              <div class="flex-1 flex items-center gap-2 px-3 py-2 bg-surface-alt border border-default rounded-lg">
+                <svg class="w-4 h-4 text-status-success flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+                <span class="text-sm text-secondary">Configured</span>
+              </div>
+              <button
+                type="button"
+                @click="editSecret(def.key)"
+                class="px-3 py-2 text-sm text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
+              >
+                Update
+              </button>
+            </div>
+            <!-- Not configured or editing - show password input -->
+            <div v-else class="flex items-center gap-2">
+              <input
+                v-model="settingValues[def.key]"
+                type="password"
+                :placeholder="editingSecrets.has(def.key) ? 'Enter new value' : 'Enter value'"
+                @blur="saveSetting(def.key)"
+                class="flex-1 px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
+              />
+              <button
+                v-if="editingSecrets.has(def.key)"
+                type="button"
+                @click="cancelEditSecret(def.key)"
+                class="px-3 py-2 text-sm text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
 
           <!-- Number input -->
           <input
@@ -676,32 +761,6 @@ async function executeInstall() {
               {{ opt.label }}
             </option>
           </select>
-        </div>
-      </div>
-    </Modal>
-
-    <!-- Activity Modal -->
-    <Modal
-      :show="showActivityModal && selectedPlugin !== null"
-      :title="`${selectedPlugin?.display_name} Activity`"
-      size="sm"
-      @close="showActivityModal = false"
-    >
-      <LoadingSpinner v-if="activityLoading" text="Loading activity..." />
-      <div v-else-if="activity.length === 0" class="text-center py-8 text-tertiary">
-        No activity yet
-      </div>
-      <div v-else class="space-y-3">
-        <div
-          v-for="item in activity"
-          :key="item.uuid"
-          class="p-3 bg-surface-alt border border-default rounded-xl text-sm"
-        >
-          <div class="flex items-center justify-between">
-            <span class="font-medium text-primary">{{ item.action }}</span>
-            <span class="text-xs text-tertiary">{{ formatDate(item.created_at) }}</span>
-          </div>
-          <pre v-if="item.details" class="mt-2 p-2 bg-surface rounded-lg text-xs text-secondary font-mono overflow-x-auto">{{ JSON.stringify(item.details, null, 2) }}</pre>
         </div>
       </div>
     </Modal>

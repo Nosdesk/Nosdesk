@@ -863,6 +863,7 @@ pub struct ProjectTicket {
     pub ticket_id: i32,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    pub display_order: i32,
 }
 
 // New Project Ticket for creating associations
@@ -871,6 +872,7 @@ pub struct ProjectTicket {
 pub struct NewProjectTicket {
     pub project_id: i32,
     pub ticket_id: i32,
+    pub display_order: i32,
 }
 
 // Project with ticket count for API responses
@@ -3125,6 +3127,10 @@ pub struct PluginManifest {
     pub display_name: String,
     pub version: String,
     pub description: Option<String>,
+    pub icon: Option<String>,
+    pub repository: Option<String>,
+    pub homepage: Option<String>,
+    pub author: Option<String>,
     #[serde(default)]
     pub permissions: Vec<String>,
     #[serde(default)]

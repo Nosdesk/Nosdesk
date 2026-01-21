@@ -12,6 +12,10 @@ export interface PluginManifest {
   displayName: string;
   version: string;
   description?: string;
+  icon?: string; // URL, data URI, or emoji for plugin icon
+  repository?: string; // URL to source repository (GitHub, etc.)
+  homepage?: string; // Plugin homepage or documentation URL
+  author?: string; // Author name or organization
   permissions: string[];
   components: Record<string, PluginComponentConfig>;
   events: string[];

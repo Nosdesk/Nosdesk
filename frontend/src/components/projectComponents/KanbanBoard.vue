@@ -1,6 +1,6 @@
 <!-- KanbanBoard.vue -->
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { projectService } from '@/services/projectService'
 import UserAvatar from '@/components/UserAvatar.vue'
@@ -15,6 +15,9 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
+
+// Create a ref for projectId to pass to useKanbanDragDrop
+const projectIdRef = computed(() => props.projectId)
 const isLoading = ref(true)
 const error = ref<string | null>(null)
 
@@ -93,21 +96,17 @@ async function handleExternalTicketDrop(ticketId: number, targetColumnId: string
   }
 }
 
+const openTicket = (ticketId: number) => {
+  router.push(`/tickets/${ticketId}`)
+}
+
 // Use drag-drop composable (after fetchProjectTickets is defined)
 const {
   dragState,
-  handleDragStart,
-  handleDragEnd,
-  handleColumnDragOver,
-  handleColumnDragLeave,
-  handleColumnDrop,
-  handleTouchStart,
-  handleTouchMove,
-  handleTouchEnd,
-  handleTouchCancel,
+  handlePointerDown,
   isDraggedTicket,
   isColumnDragOver
-} = useKanbanDragDrop(columns, fetchProjectTickets, handleExternalTicketDrop)
+} = useKanbanDragDrop(columns, fetchProjectTickets, handleExternalTicketDrop, projectIdRef, openTicket)
 
 watch(() => props.projectId, (newProjectId) => {
   if (newProjectId) fetchProjectTickets()
@@ -116,12 +115,6 @@ watch(() => props.projectId, (newProjectId) => {
 onMounted(() => {
   if (props.projectId) fetchProjectTickets()
 })
-
-const openTicket = (ticketId: number) => {
-  if (!dragState.value.isDragging) {
-    router.push(`/tickets/${ticketId}`)
-  }
-}
 
 const createTicket = async (columnId: string) => {
   currentColumnId.value = columnId
@@ -186,9 +179,6 @@ const handleAddTicket = (ticketId: number) => {
           <div
             class="flex-1 flex flex-col gap-2 p-3 relative overflow-y-auto"
             :data-column-id="column.id"
-            @dragover="handleColumnDragOver(column.id, $event)"
-            @dragleave="handleColumnDragLeave"
-            @drop="handleColumnDrop(column.id, $event)"
           >
             <!-- Single global drop indicator for this column -->
             <div
@@ -198,70 +188,58 @@ const handleAddTicket = (ticketId: number) => {
             />
 
             <!-- Tickets -->
-            <div
-              v-for="ticket in column.tickets"
-              :key="ticket.id"
-              :data-ticket-id="ticket.id"
-              class="bg-surface rounded-lg border border-default p-3
-                     cursor-grab hover:border-strong hover:shadow-sm transition-all group
-                     select-none flex-shrink-0"
-              :class="[
-                { 'opacity-50 scale-95': isDraggedTicket(ticket.id) },
-                { 'touch-none': dragState.isDragging }
-              ]"
-              draggable="true"
-              @dragstart="handleDragStart(column.id, ticket, $event)"
-              @dragend="handleDragEnd"
-              @touchstart="handleTouchStart(column.id, ticket, $event)"
-              @touchmove="handleTouchMove"
-              @touchend="handleTouchEnd"
-              @touchcancel="handleTouchCancel"
-              @click="openTicket(ticket.id)"
-            >
-              <!-- Header: ID + Priority -->
-              <div class="flex items-center justify-between gap-2 mb-2">
-                <span class="text-xs text-tertiary font-mono">#{{ ticket.id }}</span>
-                <PriorityIndicator :priority="ticket.priority" size="xs" />
-              </div>
-
-              <!-- Title -->
-              <h4 class="text-sm font-medium text-primary line-clamp-2
-                         group-hover:text-accent transition-colors leading-snug">
-                {{ ticket.title }}
-              </h4>
-
-              <!-- Requester -->
-              <div v-if="ticket.requester_name" class="flex items-center gap-1 mt-2 text-[11px] text-tertiary">
-                <span>From:</span>
-                <UserAvatar
-                  :name="ticket.requester_name"
-                  :avatar="ticket.requester_avatar"
-                  size="xxs"
-                  :showName="true"
-                  :clickable="false"
-                />
-              </div>
-
-              <!-- Footer: Assignee + Modified -->
-              <div class="flex items-center justify-between mt-2.5 pt-2 border-t border-subtle">
-                <div class="flex items-center gap-1 min-w-0">
-                  <template v-if="ticket.assignee_name">
-                    <UserAvatar
-                      :name="ticket.assignee_name"
-                      :avatar="ticket.assignee_avatar"
-                      size="xxs"
-                      :showName="false"
-                      :clickable="false"
-                    />
-                    <span class="text-[11px] text-secondary truncate">{{ ticket.assignee_name }}</span>
-                  </template>
-                  <span v-else class="text-[11px] text-tertiary italic">Unassigned</span>
+            <TransitionGroup name="kanban-ticket" tag="div" class="flex flex-col gap-2">
+              <div
+                v-for="ticket in column.tickets"
+                :key="ticket.id"
+                :data-ticket-id="ticket.id"
+                class="ticket-card bg-surface rounded-lg border border-default p-3 cursor-grab hover:border-strong hover:shadow-sm group select-none flex-shrink-0"
+                :class="{ 'opacity-50 scale-95': isDraggedTicket(ticket.id) }"
+                style="touch-action: none"
+                @pointerdown="handlePointerDown(column.id, ticket, $event)"
+              >
+                <!-- Header: ID + Priority -->
+                <div class="flex items-center justify-between gap-2 mb-2">
+                  <span class="text-xs text-tertiary font-mono">#{{ ticket.id }}</span>
+                  <PriorityIndicator :priority="ticket.priority" size="xs" />
                 </div>
-                <span v-if="ticket.modified" class="text-[10px] text-tertiary flex-shrink-0">
-                  {{ formatCompactRelativeTime(ticket.modified) }}
-                </span>
+
+                <!-- Title -->
+                <h4 class="text-sm font-medium text-primary line-clamp-2 group-hover:text-accent transition-colors leading-snug">
+                  {{ ticket.title }}
+                </h4>
+
+                <!-- Footer: Users + Modified -->
+                <div class="flex items-center justify-between mt-2.5 pt-2 border-t border-subtle gap-2">
+                  <!-- Requester & Assignee -->
+                  <div class="flex items-center gap-3 min-w-0 text-[11px]">
+                    <!-- Requester -->
+                    <div v-if="ticket.requester_name" class="flex items-center gap-1 min-w-0" :title="`From: ${ticket.requester_name}`">
+                      <svg class="w-3 h-3 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                      <UserAvatar :name="ticket.requester_name" :avatar="ticket.requester_avatar" size="xxs" :showName="false" :clickable="false" />
+                      <span class="text-secondary truncate max-w-[60px]">{{ ticket.requester_name }}</span>
+                    </div>
+                    <!-- Assignee -->
+                    <div class="flex items-center gap-1 min-w-0" :title="ticket.assignee_name ? `Assigned: ${ticket.assignee_name}` : 'Unassigned'">
+                      <svg class="w-3 h-3 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      <template v-if="ticket.assignee_name">
+                        <UserAvatar :name="ticket.assignee_name" :avatar="ticket.assignee_avatar" size="xxs" :showName="false" :clickable="false" />
+                        <span class="text-secondary truncate max-w-[60px]">{{ ticket.assignee_name }}</span>
+                      </template>
+                      <span v-else class="text-tertiary italic">—</span>
+                    </div>
+                  </div>
+                  <!-- Modified time -->
+                  <span v-if="ticket.modified" class="text-[10px] text-tertiary flex-shrink-0">
+                    {{ formatCompactRelativeTime(ticket.modified) }}
+                  </span>
+                </div>
               </div>
-            </div>
+            </TransitionGroup>
 
             <!-- Empty state / Drop zone filler -->
             <div
@@ -292,13 +270,13 @@ const handleAddTicket = (ticketId: number) => {
         </div>
       </div>
 
-    <!-- Floating drag preview for touch -->
+    <!-- Floating drag preview -->
     <div
-      v-if="dragState.isDragging && dragState.touchDragPosition && dragState.draggedTicket"
+      v-if="dragState.isDragging && dragState.dragPosition && dragState.draggedTicket"
       class="fixed pointer-events-none z-50 w-48"
       :style="{
-        left: `${dragState.touchDragPosition.x}px`,
-        top: `${dragState.touchDragPosition.y}px`,
+        left: `${dragState.dragPosition.x}px`,
+        top: `${dragState.dragPosition.y}px`,
         transform: 'translate(-50%, -50%)'
       }"
     >
@@ -355,13 +333,13 @@ const handleAddTicket = (ticketId: number) => {
 }
 
 /* Enhanced drag feedback */
-[draggable="true"] {
+.cursor-grab {
   cursor: grab;
   -webkit-user-select: none;
   user-select: none;
 }
 
-[draggable="true"]:active {
+.cursor-grab:active {
   cursor: grabbing;
 }
 
@@ -398,6 +376,11 @@ const handleAddTicket = (ticketId: number) => {
 
 .fixed.pointer-events-none {
   animation: drag-pickup 0.15s ease-out forwards;
+}
+
+/* FLIP animation for ticket reordering */
+.kanban-ticket-move {
+  transition: transform 0.3s ease;
 }
 
 </style> 

@@ -24,6 +24,7 @@ pub enum WebhookEventType {
     AttachmentDeleted,
 
     // Device events
+    DeviceCreated,
     DeviceLinked,
     DeviceUnlinked,
     DeviceUpdated,
@@ -37,6 +38,7 @@ pub enum WebhookEventType {
     TicketUnlinked,
 
     // Documentation events
+    DocumentationCreated,
     DocumentationUpdated,
 
     // User events
@@ -56,6 +58,7 @@ impl WebhookEventType {
             Self::CommentDeleted => "comment.deleted",
             Self::AttachmentAdded => "attachment.added",
             Self::AttachmentDeleted => "attachment.deleted",
+            Self::DeviceCreated => "device.created",
             Self::DeviceLinked => "device.linked",
             Self::DeviceUnlinked => "device.unlinked",
             Self::DeviceUpdated => "device.updated",
@@ -63,6 +66,7 @@ impl WebhookEventType {
             Self::ProjectUnassigned => "project.unassigned",
             Self::TicketLinked => "ticket.linked",
             Self::TicketUnlinked => "ticket.unlinked",
+            Self::DocumentationCreated => "documentation.created",
             Self::DocumentationUpdated => "documentation.updated",
             Self::UserCreated => "user.created",
             Self::UserUpdated => "user.updated",
@@ -80,6 +84,7 @@ impl WebhookEventType {
             "comment.deleted" => Some(Self::CommentDeleted),
             "attachment.added" => Some(Self::AttachmentAdded),
             "attachment.deleted" => Some(Self::AttachmentDeleted),
+            "device.created" => Some(Self::DeviceCreated),
             "device.linked" => Some(Self::DeviceLinked),
             "device.unlinked" => Some(Self::DeviceUnlinked),
             "device.updated" => Some(Self::DeviceUpdated),
@@ -87,6 +92,7 @@ impl WebhookEventType {
             "project.unassigned" => Some(Self::ProjectUnassigned),
             "ticket.linked" => Some(Self::TicketLinked),
             "ticket.unlinked" => Some(Self::TicketUnlinked),
+            "documentation.created" => Some(Self::DocumentationCreated),
             "documentation.updated" => Some(Self::DocumentationUpdated),
             "user.created" => Some(Self::UserCreated),
             "user.updated" => Some(Self::UserUpdated),
@@ -105,6 +111,7 @@ impl WebhookEventType {
             "comment.deleted",
             "attachment.added",
             "attachment.deleted",
+            "device.created",
             "device.linked",
             "device.unlinked",
             "device.updated",
@@ -112,6 +119,7 @@ impl WebhookEventType {
             "project.unassigned",
             "ticket.linked",
             "ticket.unlinked",
+            "documentation.created",
             "documentation.updated",
             "user.created",
             "user.updated",
@@ -129,6 +137,7 @@ impl WebhookEventType {
             TicketEvent::CommentDeleted { .. } => Some(Self::CommentDeleted),
             TicketEvent::AttachmentAdded { .. } => Some(Self::AttachmentAdded),
             TicketEvent::AttachmentDeleted { .. } => Some(Self::AttachmentDeleted),
+            TicketEvent::DeviceCreated { .. } => Some(Self::DeviceCreated),
             TicketEvent::DeviceLinked { .. } => Some(Self::DeviceLinked),
             TicketEvent::DeviceUnlinked { .. } => Some(Self::DeviceUnlinked),
             TicketEvent::DeviceUpdated { .. } => Some(Self::DeviceUpdated),
@@ -136,6 +145,7 @@ impl WebhookEventType {
             TicketEvent::ProjectUnassigned { .. } => Some(Self::ProjectUnassigned),
             TicketEvent::TicketLinked { .. } => Some(Self::TicketLinked),
             TicketEvent::TicketUnlinked { .. } => Some(Self::TicketUnlinked),
+            TicketEvent::DocumentationCreated { .. } => Some(Self::DocumentationCreated),
             TicketEvent::DocumentationUpdated { .. } => Some(Self::DocumentationUpdated),
             TicketEvent::UserCreated { .. } => Some(Self::UserCreated),
             TicketEvent::UserUpdated { .. } => Some(Self::UserUpdated),

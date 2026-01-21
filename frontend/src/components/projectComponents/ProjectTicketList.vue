@@ -194,14 +194,14 @@ const getPriorityClass = (priority: TicketPriority) => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full sm:p-4 sm:gap-4">
     <!-- Desktop Header (hidden on mobile) -->
-    <div class="hidden sm:flex items-center justify-between gap-4 sm:mb-3">
+    <div class="hidden sm:flex items-center justify-between gap-4">
       <DebouncedSearchInput
         :model-value="searchQuery"
         @update:model-value="handleSearch"
         placeholder="Search tickets..."
-        class="flex-1 max-w-md"
+        class="flex-1 max-w-xl"
       />
       <button
         @click="emit('add-ticket')"

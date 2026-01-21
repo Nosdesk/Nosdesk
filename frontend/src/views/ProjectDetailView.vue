@@ -64,7 +64,7 @@ const fetchExistingTicketIds = async () => {
   }
 }
 
-const handleEditProject = async (projectData: Omit<Project, 'id' | 'ticketCount'> & { id?: number }) => {
+const handleEditProject = async (projectData: Omit<Project, 'id' | 'ticket_count'> & { id?: number }) => {
   if (!project.value) return
 
   try {
@@ -159,7 +159,7 @@ const handleRemoveTicket = async (ticketId: number) => {
 
 const handleTicketCountChange = (count: number) => {
   if (project.value) {
-    project.value = { ...project.value, ticketCount: count }
+    project.value = { ...project.value, ticket_count: count }
   }
 }
 
@@ -206,37 +206,10 @@ defineExpose({
 
 <template>
   <div class="flex flex-col h-full">
-    <!-- Header section - compact, information-dense -->
+    <!-- Header section - compact two-row layout -->
     <div class="flex-shrink-0 bg-surface border-b border-default">
-      <!-- Top bar: Back + Actions -->
-      <div class="flex items-center justify-between gap-2 px-2 sm:px-4 py-1.5 border-b border-subtle">
-        <BackButton fallbackRoute="/projects" label="Projects" compact />
-
-        <!-- Action buttons - always visible -->
-        <div v-if="project && !isLoading" class="flex items-center gap-0.5">
-          <button
-            @click="showEditModal = true"
-            class="p-1.5 text-tertiary hover:text-primary transition-colors rounded-md hover:bg-surface-hover"
-            title="Edit project"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-            </svg>
-          </button>
-          <button
-            @click="handleDeleteProject"
-            class="p-1.5 text-tertiary hover:text-status-error transition-colors rounded-md hover:bg-surface-hover"
-            title="Delete project"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
       <!-- Error message -->
-      <div v-if="error" class="mx-2 sm:mx-4 my-2 bg-status-error/20 border border-status-error/50 text-status-error px-3 py-2 rounded-lg text-sm">
+      <div v-if="error" class="mx-2 sm:mx-4 mt-2 bg-status-error/20 border border-status-error/50 text-status-error px-3 py-2 rounded-lg text-sm">
         {{ error }}
       </div>
 
@@ -245,10 +218,11 @@ defineExpose({
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-accent"></div>
       </div>
 
-      <!-- Project info + tabs -->
       <template v-else-if="project">
-        <!-- Title row: Name + Status + Ticket count -->
+        <!-- Row 1: Back + Title + Status + Ticket count + Actions -->
         <div class="flex items-center gap-2 px-2 sm:px-4 py-2">
+          <BackButton fallbackRoute="/projects" label="Projects" compact />
+
           <div class="min-w-0 flex-1 flex items-center gap-2">
             <InlineEdit
               :modelValue="project.name"
@@ -258,43 +232,69 @@ defineExpose({
               :truncate="true"
               @update:modelValue="handleTitleUpdate"
             />
+          </div>
+
+          <!-- Status + Ticket count + Actions -->
+          <div class="flex items-center gap-2 flex-shrink-0">
             <span
               :class="getStatusClass(project.status)"
-              class="px-1.5 py-0.5 rounded text-[11px] font-medium border flex-shrink-0 capitalize"
+              class="px-1.5 py-0.5 rounded text-[11px] font-medium border capitalize"
             >
               {{ project.status }}
             </span>
-          </div>
-          <!-- Ticket count badge -->
-          <div class="flex items-center gap-1 text-xs text-tertiary flex-shrink-0">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-            <span>{{ project.ticketCount || 0 }}</span>
+            <span class="text-xs text-tertiary">•</span>
+            <div class="flex items-center gap-1 text-xs text-tertiary">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              <span>{{ project.ticket_count || 0 }}</span>
+            </div>
+            <div class="flex items-center gap-0.5 ml-1">
+              <button
+                @click="showEditModal = true"
+                class="p-1.5 text-tertiary hover:text-primary transition-colors rounded-md hover:bg-surface-hover"
+                title="Edit project"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                </svg>
+              </button>
+              <button
+                @click="handleDeleteProject"
+                class="p-1.5 text-tertiary hover:text-status-error transition-colors rounded-md hover:bg-surface-hover"
+                title="Delete project"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 
-        <!-- Description (if present) - single line on mobile -->
-        <p v-if="project.description" class="text-xs text-secondary px-2 sm:px-4 pb-2 line-clamp-1 sm:line-clamp-2">
-          {{ project.description }}
-        </p>
-
-        <!-- Tabs - flush with content -->
-        <div class="flex gap-0.5 px-2 sm:px-4 border-t border-subtle">
-          <button
-            @click="setActiveTab('kanban')"
-            class="py-2 px-3 text-sm font-medium transition-colors border-b-2 -mb-px"
-            :class="activeTab === 'kanban' ? 'border-accent text-accent' : 'border-transparent text-tertiary hover:text-secondary'"
-          >
-            Kanban
-          </button>
-          <button
-            @click="setActiveTab('list')"
-            class="py-2 px-3 text-sm font-medium transition-colors border-b-2 -mb-px"
-            :class="activeTab === 'list' ? 'border-accent text-accent' : 'border-transparent text-tertiary hover:text-secondary'"
-          >
-            List
-          </button>
+        <!-- Row 2: Tabs + Description -->
+        <div class="flex items-center justify-between gap-4 px-2 sm:px-4 border-t border-subtle">
+          <!-- Tabs -->
+          <div class="flex gap-0.5 flex-shrink-0">
+            <button
+              @click="setActiveTab('kanban')"
+              class="py-1.5 px-3 text-sm font-medium transition-colors border-b-2 -mb-px"
+              :class="activeTab === 'kanban' ? 'border-accent text-accent' : 'border-transparent text-tertiary hover:text-secondary'"
+            >
+              Kanban
+            </button>
+            <button
+              @click="setActiveTab('list')"
+              class="py-1.5 px-3 text-sm font-medium transition-colors border-b-2 -mb-px"
+              :class="activeTab === 'list' ? 'border-accent text-accent' : 'border-transparent text-tertiary hover:text-secondary'"
+            >
+              List
+            </button>
+          </div>
+          <!-- Description (inline, truncated) -->
+          <p v-if="project.description" class="text-xs text-tertiary truncate min-w-0 py-1.5">
+            {{ project.description }}
+          </p>
         </div>
       </template>
     </div>
@@ -310,7 +310,7 @@ defineExpose({
     </div>
 
     <!-- List View -->
-    <div v-else-if="!isLoading && project && activeTab === 'list'" class="flex-1 flex flex-col min-h-0 sm:px-4 sm:pb-4">
+    <div v-else-if="!isLoading && project && activeTab === 'list'" class="flex-1 flex flex-col min-h-0 overflow-auto">
       <ProjectTicketList
         ref="ticketListRef"
         :project-id="project.id"

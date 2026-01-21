@@ -10,11 +10,11 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'submit', project: Omit<Project, 'id' | 'ticketCount'> & { id?: number }): void;
+  (e: 'submit', project: Omit<Project, 'id' | 'ticket_count'> & { id?: number }): void;
   (e: 'cancel'): void;
 }>()
 
-const formData = ref<Omit<Project, 'id' | 'ticketCount'> & { id?: number }>({
+const formData = ref<Omit<Project, 'id' | 'ticket_count'> & { id?: number }>({
   name: '',
   description: undefined,
   status: 'active'
@@ -23,7 +23,7 @@ const formData = ref<Omit<Project, 'id' | 'ticketCount'> & { id?: number }>({
 // Initialize form data if editing
 watch(() => props.project, (newProject) => {
   if (newProject) {
-    const { ticketCount, ...rest } = newProject
+    const { ticket_count, ...rest } = newProject
     formData.value = { ...rest }
   }
 }, { immediate: true })

@@ -4,7 +4,6 @@ import type {
   Plugin,
   PluginSetting,
   PluginStorage,
-  PluginActivity,
   InstallPluginRequest,
   UpdatePluginRequest,
   SetPluginSettingRequest,
@@ -168,25 +167,6 @@ const pluginService = {
       await apiClient.delete(`/admin/plugins/${uuid}/settings/${key}`);
     } catch (error) {
       logger.error('Failed to delete plugin setting', { error, uuid, key });
-      throw error;
-    }
-  },
-
-  // ===========================================================================
-  // Plugin Activity (Admin)
-  // ===========================================================================
-
-  /**
-   * Get activity log for a plugin (admin only)
-   */
-  async getPluginActivity(uuid: string, limit = 50, offset = 0): Promise<PluginActivity[]> {
-    try {
-      const response = await apiClient.get(`/admin/plugins/${uuid}/activity`, {
-        params: { limit, offset },
-      });
-      return response.data || [];
-    } catch (error) {
-      logger.error('Failed to get plugin activity', { error, uuid });
       throw error;
     }
   },

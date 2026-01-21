@@ -279,6 +279,7 @@ pub async fn create_documentation_page(
     req: HttpRequest,
     page_request: web::Json<CreateDocumentationPageRequest>,
     pool: web::Data<Pool>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
     let mut conn = match pool.get() {
         Ok(conn) => conn,
@@ -339,8 +340,18 @@ pub async fn create_documentation_page(
 
     match repository::create_documentation_page(new_page, &mut conn) {
         Ok(created_page) => {
-            match to_page_response(created_page, &mut conn) {
-                Ok(response) => HttpResponse::Created().json(response),
+            match to_page_response(created_page.clone(), &mut conn) {
+                Ok(response) => {
+                    // Broadcast SSE event for documentation creation
+                    use crate::utils::sse::SseBroadcaster;
+                    SseBroadcaster::broadcast_documentation_created(
+                        &sse_state,
+                        created_page.id,
+                        serde_json::to_value(&response).unwrap_or_default(),
+                    ).await;
+
+                    HttpResponse::Created().json(response)
+                },
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
@@ -902,6 +913,7 @@ pub async fn create_documentation_page_from_ticket(
     pool: web::Data<Pool>,
     path: web::Path<i32>,
     page_data: web::Json<CreateDocPageFromTicket>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
     let mut conn = match pool.get() {
@@ -977,7 +989,17 @@ pub async fn create_documentation_page_from_ticket(
 
     // Create the documentation page
     match repository::create_documentation_page(new_page, &mut conn) {
-        Ok(page) => HttpResponse::Created().json(page),
+        Ok(page) => {
+            // Broadcast SSE event for documentation creation
+            use crate::utils::sse::SseBroadcaster;
+            SseBroadcaster::broadcast_documentation_created(
+                &sse_state,
+                page.id,
+                serde_json::to_value(&page).unwrap_or_default(),
+            ).await;
+
+            HttpResponse::Created().json(page)
+        },
         Err(e) => {
             error!(ticket_id = ticket_id, error = ?e, "Error creating documentation page from ticket");
             HttpResponse::InternalServerError().json("Failed to create documentation page")

@@ -129,12 +129,21 @@ pub fn add_ticket_to_project(conn: &mut DbConnection, project_id: i32, ticket_id
         return Ok(association);
     }
 
+    // Get max display_order for this project and add 1
+    let max_order: Option<i32> = project_tickets::table
+        .filter(project_tickets::project_id.eq(project_id))
+        .select(diesel::dsl::max(project_tickets::display_order))
+        .first(conn)?;
+
+    let new_order = max_order.unwrap_or(0) + 1;
+
     let new_association = NewProjectTicket {
         project_id,
         ticket_id,
+        display_order: new_order,
     };
 
-    debug!(project_id, ticket_id, "Creating new project-ticket association");
+    debug!(project_id, ticket_id, display_order = new_order, "Creating new project-ticket association");
     diesel::insert_into(project_tickets::table)
         .values(&new_association)
         .get_result(conn)
@@ -149,15 +158,16 @@ pub fn remove_ticket_from_project(conn: &mut DbConnection, project_id: i32, tick
 }
 
 pub fn get_project_tickets(conn: &mut DbConnection, project_id: i32) -> QueryResult<Vec<TicketListItem>> {
-    let raw_tickets: Vec<Ticket> = project_tickets::table
+    let raw_tickets: Vec<(Ticket, i32)> = project_tickets::table
         .filter(project_tickets::project_id.eq(project_id))
         .inner_join(tickets::table)
-        .select(tickets::all_columns)
-        .load::<Ticket>(conn)?;
+        .select((tickets::all_columns, project_tickets::display_order))
+        .order(project_tickets::display_order.asc())
+        .load::<(Ticket, i32)>(conn)?;
 
     // Enrich tickets with user information
     let mut ticket_list_items = Vec::new();
-    for ticket in raw_tickets {
+    for (ticket, _display_order) in raw_tickets {
         let requester_user = ticket.requester_uuid.as_ref()
             .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
             .map(UserInfoWithAvatar::from);
@@ -185,4 +195,26 @@ pub fn get_projects_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> Query
         .inner_join(projects::table)
         .select(projects::all_columns)
         .load::<Project>(conn)
+}
+
+/// Update the display order of tickets within a project
+/// Takes a list of (ticket_id, display_order) pairs
+pub fn update_project_ticket_orders(
+    conn: &mut DbConnection,
+    project_id: i32,
+    orders: Vec<(i32, i32)>,
+) -> QueryResult<()> {
+    debug!(project_id, count = orders.len(), "Updating project ticket orders");
+
+    for (ticket_id, new_order) in orders {
+        diesel::update(
+            project_tickets::table
+                .filter(project_tickets::project_id.eq(project_id))
+                .filter(project_tickets::ticket_id.eq(ticket_id)),
+        )
+        .set(project_tickets::display_order.eq(new_order))
+        .execute(conn)?;
+    }
+
+    Ok(())
 } 

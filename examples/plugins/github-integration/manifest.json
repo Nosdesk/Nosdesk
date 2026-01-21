@@ -1,8 +1,11 @@
 {
   "name": "github-integration",
   "displayName": "GitHub Integration",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "description": "Link tickets to GitHub issues and view repository information",
+  "icon": "data:image/svg+xml,%3Csvg viewBox='0 0 16 16' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='16' height='16' rx='3' fill='%23181717'/%3E%3Cpath fill='%23ffffff' d='M8 1.5C4.42 1.5 1.5 4.42 1.5 8c0 2.87 1.86 5.3 4.44 6.16.32.06.44-.14.44-.31 0-.15-.01-.67-.01-1.21-1.63.3-2.05-.4-2.18-.76-.07-.19-.39-.76-.67-.92-.23-.12-.55-.42-.01-.43.51-.01.88.47 1 .67.58.98 1.52.7 1.89.53.06-.42.23-.7.41-.87-1.44-.16-2.95-.72-2.95-3.2 0-.71.25-1.29.67-1.75-.07-.16-.29-.83.06-1.72 0 0 .54-.17 1.78.67.52-.15 1.07-.22 1.62-.22s1.1.07 1.62.22c1.24-.84 1.78-.67 1.78-.67.35.89.13 1.56.06 1.72.42.46.67 1.04.67 1.75 0 2.49-1.52 3.04-2.96 3.2.23.2.44.59.44 1.2 0 .87-.01 1.57-.01 1.78 0 .17.12.37.44.31A6.503 6.503 0 0014.5 8c0-3.58-2.92-6.5-6.5-6.5z'/%3E%3C/svg%3E",
+  "repository": "https://github.com/kylephillipsau/Nosdesk",
+  "author": "Nosdesk",
   "permissions": [
     "tickets:read",
     "tickets:comment",

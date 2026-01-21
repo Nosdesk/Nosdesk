@@ -1,7 +1,7 @@
 // App.vue
 <script setup lang="ts">
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
 import MobileSearchBar from './components/MobileSearchBar.vue'
@@ -119,16 +119,26 @@ const handleCreateClick = () => {
 const authStore = useAuthStore();
 let eventDispatcherCleanup: (() => void) | null = null;
 
-async function initializePlugins() {
-  if (!authStore.isAuthenticated) return;
-
-  try {
-    await loadPlugins();
-    eventDispatcherCleanup = initializeEventDispatcher();
-  } catch (error) {
-    console.error('Failed to initialize plugins:', error);
-  }
-}
+// Watch auth state and load plugins when authenticated
+// immediate: true handles initial state, watch handles subsequent changes
+watch(
+  () => authStore.isAuthenticated,
+  async (isAuthenticated, wasAuthenticated) => {
+    if (isAuthenticated && !wasAuthenticated) {
+      try {
+        await loadPlugins();
+        eventDispatcherCleanup = initializeEventDispatcher();
+      } catch (error) {
+        console.error('Failed to initialize plugins:', error);
+      }
+    } else if (!isAuthenticated && wasAuthenticated) {
+      // Cleanup on logout
+      eventDispatcherCleanup?.();
+      eventDispatcherCleanup = null;
+    }
+  },
+  { immediate: true }
+);
 
 onMounted(async () => {
   // Load branding configuration (public endpoint, no auth required)
@@ -147,9 +157,6 @@ onMounted(async () => {
       if (setupStatus.requires_setup) {
         console.log('🔄 App: System requires setup, redirecting to onboarding');
         router.push({ name: 'onboarding' });
-      } else {
-        // Initialize plugins if authenticated
-        await initializePlugins();
       }
     }
   } catch (error) {

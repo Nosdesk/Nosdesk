@@ -35,11 +35,13 @@ export type SSEEventType =
   | "comment-deleted"
   | "device-linked"
   | "device-unlinked"
+  | "device-created"
   | "device-updated"
   | "ticket-linked"
   | "ticket-unlinked"
   | "project-assigned"
   | "project-unassigned"
+  | "documentation-created"
   | "documentation-updated"
   | "user-updated"
   | "user-created"
@@ -155,11 +157,13 @@ class SSEService {
       "comment-deleted",
       "device-linked",
       "device-unlinked",
+      "device-created",
       "device-updated",
       "ticket-linked",
       "ticket-unlinked",
       "project-assigned",
       "project-unassigned",
+      "documentation-created",
       "documentation-updated",
       "user-updated",
       "user-created",
