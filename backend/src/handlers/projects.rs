@@ -192,4 +192,44 @@ pub async fn remove_ticket_from_project(
         },
         Err(_) => HttpResponse::InternalServerError().json("Failed to remove ticket from project"),
     }
+}
+
+/// Request body for updating ticket order within a project
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateTicketOrderRequest {
+    /// List of ticket IDs in their new order
+    pub ticket_ids: Vec<i32>,
+}
+
+// Update the order of tickets within a project (technician or admin only)
+pub async fn update_ticket_order(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+    body: web::Json<UpdateTicketOrderRequest>,
+) -> impl Responder {
+    if let Err(e) = require_technician_or_admin(&req) {
+        return e;
+    }
+
+    let project_id = path.into_inner();
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Convert ticket_ids to (ticket_id, display_order) pairs
+    let orders: Vec<(i32, i32)> = body
+        .ticket_ids
+        .iter()
+        .enumerate()
+        .map(|(idx, &ticket_id)| (ticket_id, idx as i32))
+        .collect();
+
+    debug!(project_id, count = orders.len(), "Updating ticket order");
+
+    match repository::update_project_ticket_orders(&mut conn, project_id, orders) {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({"success": true})),
+        Err(_) => HttpResponse::InternalServerError().json("Failed to update ticket order"),
+    }
 } 

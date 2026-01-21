@@ -464,6 +464,7 @@ diesel::table! {
         ticket_id -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+        display_order -> Int4,
     }
 }
 

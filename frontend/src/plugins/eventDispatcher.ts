@@ -22,8 +22,20 @@ const SSE_TO_PLUGIN_EVENT: Partial<Record<SSEEventType, PluginEvent>> = {
   'ticket-created': 'ticket:created',
   'ticket-updated': 'ticket:updated',
   'comment-added': 'ticket:comment_added',
+  'device-created': 'device:created',
   'device-updated': 'device:updated',
+  'documentation-created': 'document:created',
   'documentation-updated': 'document:updated',
+};
+
+/**
+ * Map ticket update fields to specialized plugin events
+ * These are derived from ticket-updated events based on the field changed
+ */
+const TICKET_FIELD_TO_EVENT: Record<string, PluginEvent> = {
+  'status': 'ticket:status_changed',
+  'assignee': 'ticket:assigned',
+  'assigned_to': 'ticket:assigned',
 };
 
 /**
@@ -76,6 +88,15 @@ export function initializeEventDispatcher(): () => void {
   for (const [sseEvent, pluginEvent] of Object.entries(SSE_TO_PLUGIN_EVENT)) {
     const handler = (data: unknown) => {
       dispatchToPlugins(pluginEvent as PluginEvent, data);
+
+      // For ticket-updated, also check if we need to dispatch specialized events
+      if (sseEvent === 'ticket-updated' && data && typeof data === 'object') {
+        const eventData = data as { data?: { field?: string } };
+        const field = eventData.data?.field;
+        if (field && TICKET_FIELD_TO_EVENT[field]) {
+          dispatchToPlugins(TICKET_FIELD_TO_EVENT[field], data);
+        }
+      }
     };
 
     handlers.set(sseEvent as SSEEventType, handler);

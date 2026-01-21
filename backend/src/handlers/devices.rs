@@ -290,6 +290,7 @@ pub async fn create_device(
     req: HttpRequest,
     pool: web::Data<Pool>,
     device: web::Json<NewDevice>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
@@ -314,12 +315,23 @@ pub async fn create_device(
 
     match repository::create_device(&mut conn, device.into_inner()) {
         Ok(device) => {
+            let device_id = device.id;
+
             // Get user data if device has a primary user
             let user = device.primary_user_uuid.as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
 
             // Newly created device has no groups yet
             let device_response = DeviceResponse::from_device_and_user(device, user, vec![], &mut conn);
+
+            // Broadcast SSE event for device creation
+            use crate::utils::sse::SseBroadcaster;
+            SseBroadcaster::broadcast_device_created(
+                &sse_state,
+                device_id,
+                serde_json::to_value(&device_response).unwrap_or_default(),
+            ).await;
+
             HttpResponse::Created().json(device_response)
         },
         Err(e) => {

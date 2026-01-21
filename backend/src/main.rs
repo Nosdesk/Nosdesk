@@ -13,7 +13,7 @@ mod services;
 use actix_cors::Cors;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Error, HttpMessage};
 use actix_web::dev::{ServiceRequest, ServiceResponse, fn_service};
-use actix_files::{Files, NamedFile};
+use actix_files::Files;
 use actix_limitation::{Limiter, RateLimiter};
 use dotenv::dotenv;
 use serde_json;
@@ -74,36 +74,36 @@ fn handle_missing_asset(path: &str) -> HttpResponse {
 
 /// Serve the SPA index.html for all non-API routes (SPA routing)
 /// This follows Actix best practices for SPA applications
-async fn serve_spa(req: HttpRequest) -> actix_web::Either<actix_files::NamedFile, HttpResponse> {
-    use actix_web::Either;
-
+async fn serve_spa(_req: HttpRequest) -> HttpResponse {
     // Check if this is a static asset request (has file extension and not HTML)
-    let path = req.path();
+    let path = _req.path();
 
     // If it's a hashed asset request (contains hash pattern), handle as missing asset
     if path.starts_with("/assets/") && path.contains('-') {
-        return Either::Right(handle_missing_asset(path));
+        return handle_missing_asset(path);
     }
 
     // If it's a static asset request, return 404 to let the Files service handle it
     if path.contains('.') && !path.ends_with(".html") {
-        return Either::Right(HttpResponse::NotFound().finish());
+        return HttpResponse::NotFound().finish();
     }
 
     // For all other routes (SPA routes), serve index.html
-    match actix_files::NamedFile::open_async("./public/index.html").await {
-        Ok(file) => Either::Left(
-            file.use_last_modified(true)
-                .set_content_disposition(actix_web::http::header::ContentDisposition {
-                    disposition: actix_web::http::header::DispositionType::Inline,
-                    parameters: vec![],
-                })
-        ),
+    // Use no-cache so browsers always check for updated versions after deployments
+    match tokio::fs::read("./public/index.html").await {
+        Ok(content) => {
+            HttpResponse::Ok()
+                .content_type("text/html; charset=utf-8")
+                // no-cache: browser may cache but must revalidate with server before using
+                // This ensures users get new frontend builds while still benefiting from 304s
+                .insert_header(("Cache-Control", "no-cache"))
+                .body(content)
+        }
         Err(_) => {
             // Fallback if index.html doesn't exist
             let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
             if environment != "production" {
-                Either::Right(HttpResponse::NotFound()
+                HttpResponse::NotFound()
                     .content_type("text/html")
                     .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
                     .body(r#"<!DOCTYPE html>
@@ -119,11 +119,11 @@ async fn serve_spa(req: HttpRequest) -> actix_web::Either<actix_files::NamedFile
     </div>
     <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 </body>
-</html>"#))
+</html>"#)
             } else {
-                Either::Right(HttpResponse::NotFound()
+                HttpResponse::NotFound()
                     .content_type("text/plain")
-                    .body("Frontend not found"))
+                    .body("Frontend not found")
             }
         }
     }
@@ -827,6 +827,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/projects/{id}/tickets", web::get().to(handlers::get_project_tickets))
                     .route("/projects/{project_id}/tickets/{ticket_id}", web::post().to(handlers::add_ticket_to_project))
                     .route("/projects/{project_id}/tickets/{ticket_id}", web::delete().to(handlers::remove_ticket_from_project))
+                    .route("/projects/{id}/tickets/order", web::put().to(handlers::update_ticket_order))
 
                     // ===== GROUP DETAIL (All authenticated users) =====
                     .route("/groups/details/{uuid}", web::get().to(handlers::groups::get_group_details))
@@ -972,24 +973,65 @@ async fn main() -> std::io::Result<()> {
                 Files::new("/assets", "./public/assets")
                     .use_last_modified(true)
                     .use_etag(true)
+                    // Handle missing assets gracefully in development (frontend rebuild scenario)
+                    .default_handler(fn_service(|req: ServiceRequest| async move {
+                        let path = req.path().to_string();
+                        let (req, _) = req.into_parts();
+                        let res = handle_missing_asset(&path);
+                        Ok(ServiceResponse::new(req, res))
+                    }))
             )
             .service(
                 Files::new("/pdfjs", "./public/pdfjs")
                     .use_last_modified(true)
                     .use_etag(true)
             )
+            // Root path handler - serves index.html or rebuilding message
+            .route("/", web::get().to(serve_spa))
             .service(
                 Files::new("/", "./public")
-                    .index_file("index.html")
                     .use_last_modified(true)
                     .use_etag(true)
                     // SPA fallback: serve index.html for any path not found
-                    // This allows Vue Router to handle client-side routes like /pdf-viewer
                     .default_handler(fn_service(|req: ServiceRequest| async move {
                         let (req, _) = req.into_parts();
-                        let file = NamedFile::open_async("./public/index.html").await?;
-                        let res = file.into_response(&req);
-                        Ok(ServiceResponse::new(req, res))
+                        // Use no-cache so browsers always check for updated frontend builds
+                        match tokio::fs::read("./public/index.html").await {
+                            Ok(content) => {
+                                let res = HttpResponse::Ok()
+                                    .content_type("text/html; charset=utf-8")
+                                    .insert_header(("Cache-Control", "no-cache"))
+                                    .body(content);
+                                Ok(ServiceResponse::new(req, res))
+                            }
+                            Err(_) => {
+                                // Frontend not built yet - show friendly rebuilding message
+                                let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
+                                let body = if environment != "production" {
+                                    r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>Building...</title>
+    <meta http-equiv="refresh" content="3">
+</head>
+<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1a2e;font-family:system-ui,sans-serif;">
+    <div style="text-align:center;color:#fff;">
+        <div style="width:40px;height:40px;border:3px solid #333;border-top-color:#6366f1;border-radius:50%;margin:0 auto 16px;animation:spin 1s linear infinite;"></div>
+        <p style="margin:0;font-size:16px;opacity:0.8;">Frontend is rebuilding...</p>
+    </div>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+</body>
+</html>"#
+                                } else {
+                                    "Frontend not found"
+                                };
+                                let res = HttpResponse::ServiceUnavailable()
+                                    .content_type("text/html")
+                                    .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
+                                    .body(body);
+                                Ok(ServiceResponse::new(req, res))
+                            }
+                        }
                     }))
             )
     })

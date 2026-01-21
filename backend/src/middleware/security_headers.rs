@@ -105,12 +105,35 @@ where
         let csp_header = self.csp_header.clone();
         let enable_hsts = self.enable_hsts;
 
+        // Capture request path for cache control decisions
+        let path = req.path().to_string();
+
         let fut = self.service.call(req);
 
         Box::pin(async move {
             let mut res = fut.await?;
 
             let headers = res.headers_mut();
+
+            // Cache-Control headers based on path
+            // Only add if not already set by the handler
+            if !headers.contains_key(header::CACHE_CONTROL) {
+                if path.starts_with("/assets/") {
+                    // Hashed assets can be cached forever (immutable)
+                    // Vite uses content hashes, so different content = different URL
+                    headers.insert(
+                        header::CACHE_CONTROL,
+                        "public, max-age=31536000, immutable".parse().unwrap(),
+                    );
+                } else if path.starts_with("/pdfjs/") {
+                    // PDF.js assets can also be cached long-term
+                    headers.insert(
+                        header::CACHE_CONTROL,
+                        "public, max-age=31536000, immutable".parse().unwrap(),
+                    );
+                }
+                // For other paths, let the specific handlers set Cache-Control
+            }
 
             // Content-Security-Policy
             if !headers.contains_key(header::CONTENT_SECURITY_POLICY) {

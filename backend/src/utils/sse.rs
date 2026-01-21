@@ -130,6 +130,21 @@ impl SseBroadcaster {
         }).await;
     }
 
+    /// Broadcast a device creation to all connected clients
+    pub async fn broadcast_device_created(
+        state: &web::Data<SseState>,
+        device_id: i32,
+        device: serde_json::Value,
+    ) {
+        Self::broadcast_generic_event(state, |timestamp| {
+            TicketEvent::DeviceCreated {
+                device_id,
+                device,
+                timestamp,
+            }
+        }).await;
+    }
+
     /// Broadcast a device update event to all connected clients
     pub async fn broadcast_device_updated(
         state: &web::Data<SseState>,
@@ -204,6 +219,21 @@ impl SseBroadcaster {
             TicketEvent::ProjectUnassigned {
                 ticket_id,
                 project_id,
+                timestamp,
+            }
+        }).await;
+    }
+
+    /// Broadcast a documentation page creation to all connected clients
+    pub async fn broadcast_documentation_created(
+        state: &web::Data<SseState>,
+        document_id: i32,
+        document: serde_json::Value,
+    ) {
+        Self::broadcast_generic_event(state, |timestamp| {
+            TicketEvent::DocumentationCreated {
+                document_id,
+                document,
                 timestamp,
             }
         }).await;

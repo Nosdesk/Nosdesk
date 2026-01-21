@@ -5,6 +5,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Modal from '@/components/Modal.vue';
+import ColorHueSlider from '@/components/common/ColorHueSlider.vue';
 import { categoryService } from '@/services/categoryService';
 import { groupService } from '@/services/groupService';
 import type { CategoryWithVisibility, CreateCategoryRequest, UpdateCategoryRequest } from '@/types/category';
@@ -40,12 +41,6 @@ const categoryForm = ref<{
   is_active: true,
   visible_to_group_ids: []
 });
-
-// Predefined colors
-const colorOptions = [
-  '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f97316',
-  '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6'
-];
 
 // Available icons
 const iconOptions = [
@@ -497,20 +492,7 @@ onMounted(() => {
         </div>
 
         <!-- Color -->
-        <div>
-          <label class="block text-sm font-medium text-primary mb-2">Color</label>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="color in colorOptions"
-              :key="color"
-              type="button"
-              @click="categoryForm.color = color"
-              class="w-8 h-8 rounded-lg transition-transform hover:scale-110"
-              :class="{ 'ring-2 ring-offset-2 ring-accent ring-offset-surface': categoryForm.color === color }"
-              :style="{ backgroundColor: color }"
-            />
-          </div>
-        </div>
+        <ColorHueSlider v-model="categoryForm.color" label="Color" />
 
         <!-- Active status (only for editing) -->
         <div v-if="editingCategory" class="flex items-center gap-3">

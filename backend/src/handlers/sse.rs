@@ -64,6 +64,11 @@ pub enum TicketEvent {
         device_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    DeviceCreated {
+        device_id: i32,
+        device: serde_json::Value,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     DeviceUpdated {
         device_id: i32,
         field: String,
@@ -89,6 +94,11 @@ pub enum TicketEvent {
     TicketUnlinked {
         ticket_id: i32,
         linked_ticket_id: i32,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+    DocumentationCreated {
+        document_id: i32,
+        document: serde_json::Value,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
     DocumentationUpdated {
@@ -273,11 +283,13 @@ impl Stream for SseStream {
                     TicketEvent::AttachmentDeleted { .. } => "attachment-deleted",
                     TicketEvent::DeviceLinked { .. } => "device-linked",
                     TicketEvent::DeviceUnlinked { .. } => "device-unlinked",
+                    TicketEvent::DeviceCreated { .. } => "device-created",
                     TicketEvent::DeviceUpdated { .. } => "device-updated",
                     TicketEvent::ProjectAssigned { .. } => "project-assigned",
                     TicketEvent::ProjectUnassigned { .. } => "project-unassigned",
                     TicketEvent::TicketLinked { .. } => "ticket-linked",
                     TicketEvent::TicketUnlinked { .. } => "ticket-unlinked",
+                    TicketEvent::DocumentationCreated { .. } => "documentation-created",
                     TicketEvent::DocumentationUpdated { .. } => "documentation-updated",
                     TicketEvent::ViewerCountChanged { .. } => "viewer-count-changed",
                     TicketEvent::UserUpdated { .. } => "user-updated",
