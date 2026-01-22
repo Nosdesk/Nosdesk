@@ -712,6 +712,19 @@ async fn main() -> std::io::Result<()> {
                             .route("/regenerate-backup-codes", web::post().to(handlers::mfa_regenerate_backup_codes))
                             .route("/status", web::get().to(handlers::mfa_status))
                     )
+                    // Passkey login endpoints (public - no auth required)
+                    .route("/passkeys/login/start", web::post().to(handlers::start_passkey_login))
+                    .route("/passkeys/login/finish", web::post().to(handlers::finish_passkey_login))
+                    // Passkey management endpoints (protected - requires cookie auth)
+                    .service(
+                        web::scope("/passkeys")
+                            .wrap(actix_web::middleware::from_fn(cookie_auth_middleware))
+                            .route("/register/start", web::post().to(handlers::start_passkey_registration))
+                            .route("/register/finish", web::post().to(handlers::finish_passkey_registration))
+                            .route("", web::get().to(handlers::list_passkeys))
+                            .route("/{credential_id}", web::patch().to(handlers::rename_passkey))
+                            .route("/{credential_id}", web::delete().to(handlers::delete_passkey))
+                    )
             )
             
             // === PROTECTED ROUTES (AUTHENTICATION REQUIRED) ===

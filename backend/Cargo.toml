@@ -103,6 +103,10 @@ infer = "0.16"             # Detect file types from magic numbers for secure upl
 openidconnect = "3.5"      # OIDC client library with PKCE, discovery, and token validation
 once_cell = "1.19"         # Lazy initialization for OIDC client cache
 
+# WebAuthn/Passkey support
+webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation", "conditional-ui"] }
+webauthn-rs-proto = "0.5"  # Protocol types for WebAuthn
+
 # Backup and restore dependencies
 zip = "0.6"                # ZIP archive creation/extraction
 walkdir = "2.5"            # Directory walking for file backup

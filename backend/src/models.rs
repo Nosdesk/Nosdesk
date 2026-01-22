@@ -1506,6 +1506,14 @@ pub struct UserMfaUpdate {
     pub updated_at: Option<chrono::NaiveDateTime>,
 }
 
+/// Update struct for user passkey credentials
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::users)]
+pub struct UserPasskeyUpdate {
+    pub passkey_credentials: Option<serde_json::Value>,
+    pub updated_at: Option<chrono::NaiveDateTime>,
+}
+
 // ===== SESSION MANAGEMENT MODELS =====
 
 /// Active user sessions for session management and revocation

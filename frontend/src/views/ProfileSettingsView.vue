@@ -11,7 +11,8 @@ import {
   NotificationSettings,
   SecuritySettings,
   MFASettings,
-  AuthMethodsSettings
+  AuthMethodsSettings,
+  PasskeySettings
 } from '@/components/settings';
 import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import userService from '@/services/userService';
@@ -672,6 +673,10 @@ const cancelDelete = () => {
             />
             <MFASettings
               :target-user-uuid="targetUserUuid"
+              @success="handleSuccess"
+              @error="handleError"
+            />
+            <PasskeySettings
               @success="handleSuccess"
               @error="handleError"
             />

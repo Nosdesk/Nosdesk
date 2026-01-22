@@ -1057,38 +1057,6 @@ defineExpose({
                     </div>
                 </div>
 
-                <!-- Enabled State -->
-                <div
-                    v-if="mfa.showEnabledState.value"
-                    class="bg-status-success-muted border border-status-success/20 rounded-lg p-4"
-                >
-                    <div class="flex flex-col gap-1">
-                        <div class="flex items-center gap-1">
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                class="h-5 w-5 text-status-success flex-shrink-0"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                                />
-                            </svg>
-                            <h3 class="text-sm font-medium text-status-success">
-                                2FA is enabled
-                            </h3>
-                        </div>
-                        <p class="text-sm text-secondary">
-                            Your account is protected with two-factor
-                            authentication. You'll need to enter a code from
-                            your authenticator app when signing in.
-                        </p>
-                    </div>
-                </div>
             </div>
         </div>
     </div>

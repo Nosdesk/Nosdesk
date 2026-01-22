@@ -111,6 +111,8 @@ where
             || path.starts_with("/api/auth/password-reset/")
             || path.starts_with("/api/auth/mfa-reset/")
             || path.starts_with("/api/auth/invitation/")
+            || path == "/api/auth/passkeys/login/start"
+            || path == "/api/auth/passkeys/login/finish"
             || path == "/api/debug/frontend-logs";
 
         if is_public_endpoint {
