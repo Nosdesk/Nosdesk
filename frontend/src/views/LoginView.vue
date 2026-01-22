@@ -7,6 +7,7 @@ import { useMfaSetupStore } from "@/stores/mfaSetup";
 import { useBrandingStore } from "@/stores/branding";
 import { useThemeStore } from "@/stores/theme";
 import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";
+import { usePasskeys } from "@/composables/usePasskeys";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
 import MFARecoveryModal from "@/components/auth/MFARecoveryModal.vue";
 import Checkbox from "@/components/common/Checkbox.vue";
@@ -27,12 +28,19 @@ const route = useRoute();
 const authStore = useAuthStore();
 const mfaSetupStore = useMfaSetupStore();
 const { handleMicrosoftLogin, handleMicrosoftLogout, error: microsoftError } = useMicrosoftAuth();
+const {
+  isSupported: passkeySupported,
+  authenticating: passkeyAuthenticating,
+  loginWithPasskey,
+  error: passkeyError,
+  checkSupport: checkPasskeySupport,
+} = usePasskeys();
 const email = ref("");
 const password = ref("");
 const showPassword = ref(false);
 const rememberMe = ref(false);
 // Track which specific action is loading (null = nothing loading)
-const loadingAction = ref<'login' | 'mfa' | 'microsoft' | 'oidc' | null>(null);
+const loadingAction = ref<'login' | 'mfa' | 'microsoft' | 'oidc' | 'passkey' | null>(null);
 // Computed for convenience - true if any action is loading
 const isLoading = computed(() => loadingAction.value !== null);
 const errorMessage = ref("");
@@ -52,6 +60,9 @@ onMounted(async () => {
   if (!brandingStore.isLoaded) {
     brandingStore.loadBranding();
   }
+
+  // Check passkey support
+  await checkPasskeySupport();
 
   // Check if onboarding is required before showing login
   try {
@@ -196,6 +207,37 @@ const handleMfaPaste = (event: ClipboardEvent) => {
   } else {
     // If less than 6 chars, just set the value without submitting
     mfaToken.value = cleanValue;
+  }
+};
+
+const handlePasskeyLogin = async () => {
+  loadingAction.value = 'passkey';
+  errorMessage.value = "";
+  successMessage.value = "";
+
+  try {
+    // If email is entered, use email-based lookup (works with all passkeys)
+    // If no email, use discoverable auth (requires resident key passkeys)
+    const emailToUse = email.value.trim() || undefined;
+    const result = await loginWithPasskey(emailToUse);
+
+    if (result) {
+      // Update auth store with the logged in user
+      authStore.user = result.user;
+      authStore.csrfToken = result.csrf_token;
+      authStore.isAuthenticated = true;
+
+      // Redirect to dashboard or intended page
+      const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
+      router.push(redirectPath);
+    } else if (passkeyError.value) {
+      errorMessage.value = passkeyError.value;
+    }
+  } catch (error) {
+    console.error("Passkey login error:", error);
+    errorMessage.value = passkeyError.value || "Failed to sign in with passkey";
+  } finally {
+    loadingAction.value = null;
   }
 };
 
@@ -595,6 +637,37 @@ const handleOidcLogoutClick = async () => {
         >
           <span v-if="loadingAction === 'login'">Signing in...</span>
           <span v-else>Sign in</span>
+        </button>
+
+        <!-- Passkey Login Button -->
+        <button
+          v-if="passkeySupported"
+          type="button"
+          @click="handlePasskeyLogin"
+          :disabled="isLoading"
+          class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <svg
+            v-if="loadingAction === 'passkey'"
+            class="animate-spin h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <svg
+            v-else
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-5 w-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+          </svg>
+          <span v-if="loadingAction === 'passkey'">Authenticating...</span>
+          <span v-else>Sign in with passkey</span>
         </button>
 
         <div v-if="microsoftAuthEnabled || oidcEnabled" class="relative flex gap-2 items-center justify-center">

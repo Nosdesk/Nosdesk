@@ -61,8 +61,8 @@ const changePassword = async () => {
 <template>
   <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
     <div class="px-4 py-3 bg-surface-alt border-b border-default">
-      <h2 class="text-lg font-medium text-primary">Security</h2>
-      <p class="text-sm text-tertiary mt-1">Change your password and manage account security</p>
+      <h2 class="text-lg font-medium text-primary">Password</h2>
+      <p class="text-sm text-tertiary mt-1">Update your account password</p>
     </div>
     
     <div class="p-6">

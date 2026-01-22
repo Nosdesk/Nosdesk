@@ -24,6 +24,10 @@ const bannerFile = ref<File | null>(null);
 const avatarPreview = ref<string | null>(null);
 const bannerPreview = ref<string | null>(null);
 
+// Image loading states
+const bannerLoaded = ref(false);
+const avatarLoaded = ref(false);
+
 // Form data
 const formData = ref({
     name: "",
@@ -127,6 +131,15 @@ watch(
     },
     { immediate: true },
 );
+
+// Reset loading states when URLs change
+watch(() => formData.value.banner_url, () => {
+    bannerLoaded.value = false;
+});
+
+watch(() => formData.value.avatar_url, () => {
+    avatarLoaded.value = false;
+});
 
 // File handling functions
 const handleAvatarClick = () => {
@@ -445,18 +458,32 @@ const getRoleDisplayName = (role: string) => {
         <!-- Cover/Banner Image -->
         <div
             v-if="showBanner"
-            class="profile-banner bg-accent relative"
+            class="profile-banner bg-surface-alt relative overflow-hidden"
             :class="bannerHeight"
-            :style="
-                formData.banner_url
-                    ? `background-image: url('${formData.banner_url}'); background-size: cover; background-position: center;`
-                    : ''
-            "
         >
+            <!-- Skeleton loading state -->
+            <div
+                v-if="formData.banner_url && !bannerLoaded"
+                class="absolute inset-0 bg-surface-alt animate-pulse"
+            />
+            <!-- Actual banner image -->
+            <img
+                v-if="formData.banner_url"
+                :src="formData.banner_url"
+                alt="Profile banner"
+                class="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+                :class="bannerLoaded ? 'opacity-100' : 'opacity-0'"
+                @load="bannerLoaded = true"
+            />
+            <!-- Default accent background when no banner -->
+            <div
+                v-if="!formData.banner_url"
+                class="absolute inset-0 bg-accent"
+            />
             <!-- Banner upload button (only when editable) -->
             <button
                 v-if="isEditable"
-                class="absolute bottom-2 right-2 bg-surface/50 hover:bg-surface/80 text-white rounded-full w-11 h-11 flex items-center justify-center transition-colors"
+                class="absolute bottom-2 right-2 bg-surface/50 hover:bg-surface/80 text-white rounded-full w-11 h-11 flex items-center justify-center transition-colors z-10"
                 @click="handleBannerClick"
             >
                 <svg
@@ -574,13 +601,12 @@ const getRoleDisplayName = (role: string) => {
             <!-- EDITABLE MODE -->
             <template v-if="isEditable">
                 <!-- Name and role badge - positioned to the right of avatar -->
-                <!-- On mobile (flex-col), add bottom padding when content wraps; on desktop, vertical padding handles alignment -->
                 <div
-                    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-                    :class="showBanner ? 'pt-16 pb-4 sm:pb-0 sm:py-6 sm:pl-[9.5rem]' : 'pt-4 pb-4 sm:pb-0'"
+                    class="flex flex-wrap items-center gap-3 pb-4 sm:pb-0"
+                    :class="showBanner ? 'pt-16 sm:py-6 sm:pl-[9.5rem]' : 'pt-4'"
                 >
                     <!-- Left: Name with inline edit -->
-                    <div class="flex flex-col gap-1 min-w-0 flex-1 name-input-field">
+                    <div class="min-w-0 flex-1 basis-48 name-input-field">
                         <InlineEdit
                             v-model="formData.name"
                             :placeholder="
@@ -594,33 +620,32 @@ const getRoleDisplayName = (role: string) => {
 
                     <!-- Right: Role badge -->
                     <div
-                        class="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap self-start sm:self-center flex-shrink-0"
+                        class="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap flex-shrink-0"
                         :class="getRoleBadgeClass(displayUser?.role || 'user')"
                     >
                         {{ getRoleDisplayName(displayUser?.role || "user") }}
                     </div>
                 </div>
 
-                <!-- Editable fields - full width below avatar -->
-                <div v-if="showPronouns" class="pt-2 pb-6 sm:pl-[9.5rem]">
-                    <!-- Pronouns -->
+                <!-- Pronouns field - full width below name/badge -->
+                <div v-if="showPronouns" class="pt-2 pb-6">
                     <div class="flex flex-col gap-1.5">
                         <h3
                             class="text-xs font-medium text-tertiary uppercase tracking-wide"
                         >
                             Pronouns
                         </h3>
-                        <div class="flex flex-col sm:flex-row gap-3">
+                        <div class="flex flex-wrap gap-3">
                             <input
                                 v-model="formData.pronouns"
                                 type="text"
-                                class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-accent focus:outline-none"
+                                class="flex-1 min-w-48 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-accent focus:outline-none"
                                 placeholder="Add pronouns (e.g., he/him, she/her, they/them)"
                             />
                             <button
                                 @click="updatePronouns"
                                 :disabled="!pronounsModified || loading"
-                                class="px-4 py-2.5 bg-accent text-white rounded-lg hover:opacity-90 focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="px-4 py-2.5 bg-accent text-white rounded-lg hover:opacity-90 focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                             >
                                 Save
                             </button>
@@ -632,13 +657,12 @@ const getRoleDisplayName = (role: string) => {
             <!-- READ-ONLY MODE -->
             <template v-else>
                 <!-- Content area - uses same padding top as avatar offset to align vertically -->
-                <!-- On mobile (flex-col), add bottom padding when content wraps; on desktop, vertical padding handles alignment -->
                 <div
-                    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-                    :class="showBanner ? 'pt-16 pb-4 sm:py-6 sm:pl-[9.5rem]' : 'pt-4 pb-4 sm:pb-0'"
+                    class="flex flex-wrap items-start gap-3 pb-4"
+                    :class="showBanner ? 'pt-16 sm:pt-6 sm:pl-[9.5rem]' : 'pt-4'"
                 >
                     <!-- Left: Name, email, pronouns -->
-                    <div class="flex flex-col gap-1 min-w-0">
+                    <div class="flex flex-col gap-1 min-w-0 flex-1 basis-48">
                         <!-- Name with pronouns inline -->
                         <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                             <h2 class="text-2xl font-semibold text-primary">
@@ -659,7 +683,7 @@ const getRoleDisplayName = (role: string) => {
 
                     <!-- Right: Role badge -->
                     <div
-                        class="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap self-start sm:self-center flex-shrink-0"
+                        class="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap flex-shrink-0"
                         :class="getRoleBadgeClass(displayUser?.role || 'user')"
                     >
                         {{ getRoleDisplayName(displayUser?.role || "user") }}

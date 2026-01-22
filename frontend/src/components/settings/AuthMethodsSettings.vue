@@ -247,7 +247,7 @@ const getAuthMethodIcon = (type: string) => {
             <button
               @click="addAuthMethod('microsoft')"
               :disabled="loading || hasMicrosoftConnection"
-              class="flex items-center gap-3 p-3 bg-surface-alt hover:bg-surface-alt rounded-lg border border-subtle hover:border-strong transition-colors disabled:opacity-50 max-w-sm"
+              class="flex items-center gap-3 p-3 bg-surface-alt hover:bg-surface-hover rounded-lg border border-subtle hover:border-default transition-colors disabled:opacity-50 w-full"
             >
               <div class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center flex-shrink-0">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none">
