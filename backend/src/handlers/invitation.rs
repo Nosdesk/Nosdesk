@@ -175,7 +175,7 @@ pub async fn accept_invitation(
         .ok()
         .flatten();
 
-    if let Some(_) = existing_identity {
+    if existing_identity.is_some() {
         // Update existing local auth identity
         if let Err(e) = diesel::update(
             user_auth_identities::table

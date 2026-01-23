@@ -27,7 +27,7 @@ impl RedisYjsCache {
 
     /// Generate Redis key for a document
     fn document_key(doc_id: &str) -> String {
-        format!("{}:{}", KEY_PREFIX, doc_id)
+        format!("{KEY_PREFIX}:{doc_id}")
     }
 
     /// Get document state from Redis

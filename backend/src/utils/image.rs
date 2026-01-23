@@ -1,7 +1,7 @@
 use image::{ImageFormat, ImageReader};
 use tokio::fs;
 use std::io::Cursor;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, warn, error};
 
 /// Process and resize an uploaded avatar image to WebP format with fixed dimensions
 /// This ensures consistent sizing and optimal storage
@@ -17,7 +17,7 @@ pub async fn process_avatar_image(
     let image_bytes = image_bytes.to_vec();
     let avatar_result = tokio::task::spawn_blocking(move || {
         // Load the image with EXIF orientation support
-        let mut img = match load_image_with_orientation(&image_bytes) {
+        let img = match load_image_with_orientation(&image_bytes) {
             Ok(img) => img,
             Err(e) => {
                 error!(error = %e, "Failed to load image");
@@ -62,20 +62,20 @@ pub async fn process_avatar_image(
     cleanup_old_user_avatars(avatar_dir, &user_uuid).await?;
     
     // Save the processed avatar using storage abstraction
-    let avatar_filename = format!("{}_avatar.webp", user_uuid);
-    let avatar_path = format!("{}/{}", avatar_dir, avatar_filename);
+    let avatar_filename = format!("{user_uuid}_avatar.webp");
+    let avatar_path = format!("{avatar_dir}/{avatar_filename}");
     
     // For now, use direct filesystem access since storage abstraction needs to be passed in
     // TODO: Refactor to accept storage instance as parameter
-    let full_avatar_path = format!("uploads/{}", avatar_path);
-    if let Err(e) = fs::create_dir_all(format!("uploads/{}", avatar_dir)).await {
-        return Err(format!("Failed to create avatar directory: {}", e));
+    let full_avatar_path = format!("uploads/{avatar_path}");
+    if let Err(e) = fs::create_dir_all(format!("uploads/{avatar_dir}")).await {
+        return Err(format!("Failed to create avatar directory: {e}"));
     }
     
     match fs::write(&full_avatar_path, &webp_bytes).await {
         Ok(_) => {
             debug!(path = %full_avatar_path, "Successfully saved processed avatar");
-            let avatar_url = format!("/uploads/{}", avatar_path);
+            let avatar_url = format!("/uploads/{avatar_path}");
             Ok(Some(avatar_url))
         },
         Err(e) => {
@@ -92,7 +92,7 @@ pub async fn generate_user_avatar_thumbnail(
 ) -> Result<Option<String>, String> {
     // Convert URL path to file system path if needed
     let file_path = if image_path.starts_with('/') {
-        format!(".{}", image_path) // Remove leading slash and add current directory
+        format!(".{image_path}") // Remove leading slash and add current directory
     } else {
         image_path.to_string()
     };
@@ -145,23 +145,23 @@ pub async fn generate_user_avatar_thumbnail(
     
     // Create thumbnail directory
     let thumb_dir = "users/thumbs";
-    let full_thumb_dir = format!("uploads/{}", thumb_dir);
+    let full_thumb_dir = format!("uploads/{thumb_dir}");
     if let Err(e) = fs::create_dir_all(&full_thumb_dir).await {
-        return Err(format!("Failed to create thumbnail directory: {}", e));
+        return Err(format!("Failed to create thumbnail directory: {e}"));
     }
     
     // Clean up any existing thumbnails for this user
     cleanup_old_user_thumbnails(&full_thumb_dir, &user_uuid).await?;
     
     // Save the thumbnail
-    let thumb_filename = format!("{}_thumb.webp", user_uuid);
-    let thumb_path = format!("{}/{}", thumb_dir, thumb_filename);
-    let full_thumb_path = format!("uploads/{}", thumb_path);
+    let thumb_filename = format!("{user_uuid}_thumb.webp");
+    let thumb_path = format!("{thumb_dir}/{thumb_filename}");
+    let full_thumb_path = format!("uploads/{thumb_path}");
     
     match fs::write(&full_thumb_path, &webp_bytes).await {
         Ok(_) => {
             debug!(path = %full_thumb_path, "Successfully saved thumbnail");
-            let thumb_url = format!("/uploads/{}", thumb_path);
+            let thumb_url = format!("/uploads/{thumb_path}");
             Ok(Some(thumb_url))
         },
         Err(e) => {
@@ -183,7 +183,7 @@ async fn cleanup_old_user_avatars(
     };
 
     // Look for files matching the pattern: {user_uuid}_avatar.{ext}
-    let pattern_prefix = format!("{}_avatar", user_uuid);
+    let pattern_prefix = format!("{user_uuid}_avatar");
     
     while let Ok(Some(entry)) = dir.next_entry().await {
         if let Some(filename) = entry.file_name().to_str() {
@@ -215,7 +215,7 @@ async fn cleanup_old_user_thumbnails(
     };
 
     // Look for files matching the pattern: {user_uuid}_thumb.{ext}
-    let pattern_prefix = format!("{}_thumb", user_uuid);
+    let pattern_prefix = format!("{user_uuid}_thumb");
     
     while let Ok(Some(entry)) = dir.next_entry().await {
         if let Some(filename) = entry.file_name().to_str() {
@@ -290,23 +290,23 @@ pub async fn process_banner_image(
     
     // Create banner directory
     let banner_dir = "users/banners";
-    let full_banner_dir = format!("uploads/{}", banner_dir);
+    let full_banner_dir = format!("uploads/{banner_dir}");
     if let Err(e) = fs::create_dir_all(&full_banner_dir).await {
-        return Err(format!("Failed to create banner directory: {}", e));
+        return Err(format!("Failed to create banner directory: {e}"));
     }
     
     // Clean up any existing banners for this user
     cleanup_old_user_banners(&full_banner_dir, &user_uuid).await?;
     
     // Save the processed banner
-    let banner_filename = format!("{}_banner.webp", user_uuid);
-    let banner_path = format!("{}/{}", banner_dir, banner_filename);
-    let full_banner_path = format!("uploads/{}", banner_path);
+    let banner_filename = format!("{user_uuid}_banner.webp");
+    let banner_path = format!("{banner_dir}/{banner_filename}");
+    let full_banner_path = format!("uploads/{banner_path}");
     
     match fs::write(&full_banner_path, &webp_bytes).await {
         Ok(_) => {
             debug!(path = %full_banner_path, "Successfully saved processed banner");
-            let banner_url = format!("/uploads/{}", banner_path);
+            let banner_url = format!("/uploads/{banner_path}");
             Ok(Some(banner_url))
         },
         Err(e) => {
@@ -328,7 +328,7 @@ async fn cleanup_old_user_banners(
     };
 
     // Look for files matching the pattern: {user_uuid}_banner.{ext}
-    let pattern_prefix = format!("{}_banner", user_uuid);
+    let pattern_prefix = format!("{user_uuid}_banner");
     
     while let Ok(Some(entry)) = dir.next_entry().await {
         if let Some(filename) = entry.file_name().to_str() {
@@ -443,18 +443,18 @@ fn load_image_with_orientation(image_bytes: &[u8]) -> Result<image::DynamicImage
     let cursor = Cursor::new(image_bytes);
     let reader = ImageReader::new(cursor)
         .with_guessed_format()
-        .map_err(|e| format!("Failed to guess image format: {}", e))?;
+        .map_err(|e| format!("Failed to guess image format: {e}"))?;
 
     let mut decoder = reader
         .into_decoder()
-        .map_err(|e| format!("Failed to create decoder: {}", e))?;
+        .map_err(|e| format!("Failed to create decoder: {e}"))?;
 
     // Get the EXIF orientation (defaults to no rotation if not present)
     let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
 
     // Decode the image
     let mut img = image::DynamicImage::from_decoder(decoder)
-        .map_err(|e| format!("Failed to decode image: {}", e))?;
+        .map_err(|e| format!("Failed to decode image: {e}"))?;
 
     // Apply the orientation transformation
     img.apply_orientation(orientation);

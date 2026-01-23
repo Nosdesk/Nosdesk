@@ -72,13 +72,13 @@ pub enum BackupError {
 impl std::fmt::Display for BackupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BackupError::IoError(e) => write!(f, "IO error: {}", e),
-            BackupError::ZipError(e) => write!(f, "ZIP error: {}", e),
-            BackupError::JsonError(e) => write!(f, "JSON error: {}", e),
-            BackupError::DatabaseError(e) => write!(f, "Database error: {}", e),
-            BackupError::EncryptionError(e) => write!(f, "Encryption error: {}", e),
+            BackupError::IoError(e) => write!(f, "IO error: {e}"),
+            BackupError::ZipError(e) => write!(f, "ZIP error: {e}"),
+            BackupError::JsonError(e) => write!(f, "JSON error: {e}"),
+            BackupError::DatabaseError(e) => write!(f, "Database error: {e}"),
+            BackupError::EncryptionError(e) => write!(f, "Encryption error: {e}"),
             BackupError::InvalidPassword => write!(f, "Invalid password"),
-            BackupError::CorruptedBackup(e) => write!(f, "Corrupted backup: {}", e),
+            BackupError::CorruptedBackup(e) => write!(f, "Corrupted backup: {e}"),
         }
     }
 }
@@ -168,7 +168,7 @@ fn export_table_data(
     use diesel::sql_types::Text;
 
     // Get all rows as JSON
-    let query = format!("SELECT row_to_json(t) FROM {} t", table_name);
+    let query = format!("SELECT row_to_json(t) FROM {table_name} t");
 
     #[derive(QueryableByName)]
     struct JsonRow {
@@ -229,7 +229,7 @@ pub fn create_backup(
     fs::create_dir_all(&backups_dir)?;
 
     let timestamp = Utc::now().format("%Y-%m-%d-%H%M%S");
-    let filename = format!("backup-{}.zip", timestamp);
+    let filename = format!("backup-{timestamp}.zip");
     let backup_path = backups_dir.join(&filename);
 
     let file = File::create(&backup_path)?;
@@ -247,7 +247,7 @@ pub fn create_backup(
         let (data, count) = export_table_data(conn, table_name, false)?;
 
         let json_content = serde_json::to_string_pretty(&data)?;
-        let path = format!("data/{}.json", table_name);
+        let path = format!("data/{table_name}.json");
 
         zip.start_file(&path, options)?;
         zip.write_all(json_content.as_bytes())?;
@@ -255,12 +255,11 @@ pub fn create_backup(
         table_manifests.insert(table_name.to_string(), TableManifest { count });
 
         // If including sensitive data, also export the sensitive fields separately
-        if include_sensitive && password.is_some() {
-            if SENSITIVE_FIELDS.iter().any(|(t, _)| *t == *table_name) {
+        if include_sensitive && password.is_some()
+            && SENSITIVE_FIELDS.iter().any(|(t, _)| *t == *table_name) {
                 let (full_data, _) = export_table_data(conn, table_name, true)?;
                 sensitive_data.insert(table_name.to_string(), full_data);
             }
-        }
     }
 
     // Export files
@@ -282,8 +281,8 @@ pub fn create_backup(
             if entry.file_type().is_file() {
                 let file_path = entry.path();
                 let relative_path = file_path.strip_prefix(&uploads_dir)
-                    .map_err(|e| BackupError::IoError(std::io::Error::new(
-                        std::io::ErrorKind::Other, e.to_string()
+                    .map_err(|e| BackupError::IoError(std::io::Error::other(
+                        e.to_string()
                     )))?;
 
                 let archive_path = format!("files/{}", relative_path.display());
@@ -322,8 +321,8 @@ pub fn create_backup(
         Some(EncryptionManifest {
             algorithm: "AES-256-GCM".to_string(),
             kdf: "PBKDF2-HMAC-SHA256".to_string(),
-            salt: hex::encode(&salt),
-            nonce: hex::encode(&nonce),
+            salt: hex::encode(salt),
+            nonce: hex::encode(nonce),
         })
     } else {
         None
@@ -460,9 +459,9 @@ pub fn verify_backup_password(backup_path: &Path, password: &str) -> Result<bool
 
     // Decode salt and nonce
     let salt = hex::decode(&encryption.salt)
-        .map_err(|e| BackupError::EncryptionError(format!("Invalid salt: {}", e)))?;
+        .map_err(|e| BackupError::EncryptionError(format!("Invalid salt: {e}")))?;
     let nonce = hex::decode(&encryption.nonce)
-        .map_err(|e| BackupError::EncryptionError(format!("Invalid nonce: {}", e)))?;
+        .map_err(|e| BackupError::EncryptionError(format!("Invalid nonce: {e}")))?;
 
     if salt.len() != SALT_LENGTH || nonce.len() != NONCE_LEN {
         return Err(BackupError::CorruptedBackup("Invalid encryption parameters".to_string()));
@@ -541,7 +540,7 @@ pub fn restore_database(
 
     // Restore each table
     for table_name in &restore_order {
-        let data_path = format!("data/{}.json", table_name);
+        let data_path = format!("data/{table_name}.json");
 
         // Try to read the file, skip if not in backup
         let content = match archive.by_name(&data_path) {
@@ -591,9 +590,9 @@ pub fn restore_database(
             if let Some(enc_info) = &manifest.encryption {
                 let password = password.unwrap();
                 let salt = hex::decode(&enc_info.salt)
-                    .map_err(|e| BackupError::EncryptionError(format!("Invalid salt: {}", e)))?;
+                    .map_err(|e| BackupError::EncryptionError(format!("Invalid salt: {e}")))?;
                 let nonce = hex::decode(&enc_info.nonce)
-                    .map_err(|e| BackupError::EncryptionError(format!("Invalid nonce: {}", e)))?;
+                    .map_err(|e| BackupError::EncryptionError(format!("Invalid nonce: {e}")))?;
 
                 let mut salt_arr = [0u8; SALT_LENGTH];
                 let mut nonce_arr = [0u8; NONCE_LEN];
@@ -650,17 +649,16 @@ fn reset_sequences(conn: &mut DbConnection) -> Result<(), BackupError> {
     ];
 
     for table in tables_with_sequences {
-        let seq_name = format!("{}_id_seq", table);
+        let seq_name = format!("{table}_id_seq");
         let query = format!(
-            "SELECT setval('{}', COALESCE((SELECT MAX(id) FROM {}), 0) + 1, false)",
-            seq_name, table
+            "SELECT setval('{seq_name}', COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)"
         );
 
         if let Err(e) = sql_query(&query).execute(conn) {
             // Log but don't fail - some sequences might not exist
-            log::warn!("Could not reset sequence {}: {}", seq_name, e);
+            log::warn!("Could not reset sequence {seq_name}: {e}");
         } else {
-            log::debug!("Reset sequence {} for table {}", seq_name, table);
+            log::debug!("Reset sequence {seq_name} for table {table}");
         }
     }
 
@@ -689,7 +687,7 @@ fn restore_table_data(
 
             // Build values string for the query
             let values: Vec<String> = map.values()
-                .map(|v| json_to_sql_value(v))
+                .map(json_to_sql_value)
                 .collect();
 
             // Execute as raw SQL with formatted values
@@ -703,7 +701,7 @@ fn restore_table_data(
             match sql_query(&full_query).execute(conn) {
                 Ok(count) => inserted += count,
                 Err(e) => {
-                    log::warn!("Failed to insert into {}: {}", table_name, e);
+                    log::warn!("Failed to insert into {table_name}: {e}");
                     // Continue with other rows
                 }
             }
@@ -781,7 +779,7 @@ fn update_sensitive_fields(
             );
 
             if let Err(e) = sql_query(&query).execute(conn) {
-                log::warn!("Failed to update sensitive fields in {}: {}", table_name, e);
+                log::warn!("Failed to update sensitive fields in {table_name}: {e}");
             }
         }
     }

@@ -101,7 +101,7 @@ pub async fn generate_pdf_thumbnail(
         generate_thumbnail_sync(&pdf_bytes, max_width, max_height)
     })
     .await
-    .map_err(|e| format!("PDF thumbnail task panicked: {}", e))?;
+    .map_err(|e| format!("PDF thumbnail task panicked: {e}"))?;
 
     let webp_bytes = match thumbnail_result {
         Ok(Some(bytes)) => bytes,
@@ -113,12 +113,12 @@ pub async fn generate_pdf_thumbnail(
     };
 
     // Save the thumbnail
-    let thumb_path = format!("{}.webp", output_path);
+    let thumb_path = format!("{output_path}.webp");
 
     // Ensure parent directory exists
     if let Some(parent) = std::path::Path::new(&thumb_path).parent() {
         if let Err(e) = fs::create_dir_all(parent).await {
-            return Err(format!("Failed to create thumbnail directory: {}", e));
+            return Err(format!("Failed to create thumbnail directory: {e}"));
         }
     }
 
@@ -129,7 +129,7 @@ pub async fn generate_pdf_thumbnail(
         }
         Err(e) => {
             error!(error = %e, path = %thumb_path, "Failed to save PDF thumbnail");
-            Err(format!("Failed to save thumbnail: {}", e))
+            Err(format!("Failed to save thumbnail: {e}"))
         }
     }
 }
@@ -148,13 +148,13 @@ fn generate_thumbnail_sync(
     // Load the PDF from bytes
     let document = pdfium
         .load_pdf_from_byte_slice(pdf_bytes, None)
-        .map_err(|e| format!("Failed to load PDF: {}", e))?;
+        .map_err(|e| format!("Failed to load PDF: {e}"))?;
 
     // Get the first page
     let page = document
         .pages()
         .get(0)
-        .map_err(|e| format!("Failed to get first page: {}", e))?;
+        .map_err(|e| format!("Failed to get first page: {e}"))?;
 
     // Configure rendering
     let render_config = PdfRenderConfig::new()
@@ -165,7 +165,7 @@ fn generate_thumbnail_sync(
     // Render the page to an image
     let image = page
         .render_with_config(&render_config)
-        .map_err(|e| format!("Failed to render PDF page: {}", e))?
+        .map_err(|e| format!("Failed to render PDF page: {e}"))?
         .as_image();
 
     // Convert to RGB8 for WebP encoding
@@ -186,7 +186,7 @@ fn generate_thumbnail_sync(
             &mut std::io::Cursor::new(&mut webp_bytes),
             ImageFormat::WebP,
         )
-        .map_err(|e| format!("Failed to encode thumbnail as WebP: {}", e))?;
+        .map_err(|e| format!("Failed to encode thumbnail as WebP: {e}"))?;
 
     debug!(size_bytes = webp_bytes.len(), "Generated PDF thumbnail");
 
@@ -204,10 +204,10 @@ pub async fn generate_and_store_pdf_thumbnail(
     let thumb_path = original_file_path
         .strip_suffix(".pdf")
         .or_else(|| original_file_path.strip_suffix(".PDF"))
-        .map(|base| format!("{}_thumb", base))
-        .unwrap_or_else(|| format!("{}_thumb", original_file_path));
+        .map(|base| format!("{base}_thumb"))
+        .unwrap_or_else(|| format!("{original_file_path}_thumb"));
 
-    let full_thumb_path = format!("{}/{}", storage_base, thumb_path);
+    let full_thumb_path = format!("{storage_base}/{thumb_path}");
 
     // Generate thumbnail (300px max width/height for grid view)
     match generate_pdf_thumbnail(pdf_bytes, &full_thumb_path, 300, 400).await? {
@@ -215,8 +215,8 @@ pub async fn generate_and_store_pdf_thumbnail(
             // Convert filesystem path to URL path
             let url_path = saved_path
                 .strip_prefix(storage_base)
-                .map(|p| format!("/uploads{}", p))
-                .unwrap_or_else(|| format!("/uploads/{}.webp", thumb_path));
+                .map(|p| format!("/uploads{p}"))
+                .unwrap_or_else(|| format!("/uploads/{thumb_path}.webp"));
 
             Ok(Some(url_path))
         }

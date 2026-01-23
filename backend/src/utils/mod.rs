@@ -32,9 +32,9 @@ pub enum ValidationError {
 impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidUuid(s) => write!(f, "Invalid UUID format: {}", s),
-            Self::InvalidRole(s) => write!(f, "Invalid role: {}. Must be 'admin', 'technician', or 'user'", s),
-            Self::ValidationFailed(s) => write!(f, "Validation failed: {}", s),
+            Self::InvalidUuid(s) => write!(f, "Invalid UUID format: {s}"),
+            Self::InvalidRole(s) => write!(f, "Invalid role: {s}. Must be 'admin', 'technician', or 'user'"),
+            Self::ValidationFailed(s) => write!(f, "Validation failed: {s}"),
         }
     }
 }

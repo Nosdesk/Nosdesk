@@ -28,7 +28,7 @@ pub fn get_webhooks_for_event(
         .filter(webhooks::enabled.eq(true))
         .filter(webhooks::events.contains(vec![Some(event_type.to_string())]))
         .load::<Webhook>(conn)
-        .map_err(|e| format!("Database error: {}", e))
+        .map_err(|e| format!("Database error: {e}"))
 }
 
 /// Create a new webhook
@@ -64,7 +64,7 @@ pub fn get_webhook_by_id(
     webhooks::table
         .filter(webhooks::id.eq(webhook_id))
         .first::<Webhook>(conn)
-        .map_err(|e| format!("Database error: {}", e))
+        .map_err(|e| format!("Database error: {e}"))
 }
 
 /// Get a webhook by UUID
@@ -86,7 +86,7 @@ pub fn update_webhook(
     diesel::update(webhooks::table.filter(webhooks::id.eq(webhook_id)))
         .set(&update)
         .get_result(conn)
-        .map_err(|e| format!("Database error: {}", e))
+        .map_err(|e| format!("Database error: {e}"))
 }
 
 /// Update a webhook by UUID
@@ -118,7 +118,7 @@ pub fn create_delivery(
     diesel::insert_into(webhook_deliveries::table)
         .values(&new_delivery)
         .get_result(conn)
-        .map_err(|e| format!("Database error: {}", e))
+        .map_err(|e| format!("Database error: {e}"))
 }
 
 /// Update a webhook delivery
@@ -130,7 +130,7 @@ pub fn update_delivery(
     diesel::update(webhook_deliveries::table.filter(webhook_deliveries::id.eq(delivery_id)))
         .set(&update)
         .get_result(conn)
-        .map_err(|e| format!("Database error: {}", e))
+        .map_err(|e| format!("Database error: {e}"))
 }
 
 /// Get deliveries for a specific webhook (paginated)
@@ -159,7 +159,7 @@ pub fn get_pending_retries(conn: &mut DbConnection) -> Result<Vec<WebhookDeliver
         .order(webhook_deliveries::next_retry_at.asc())
         .limit(100) // Process up to 100 retries at a time
         .load::<WebhookDelivery>(conn)
-        .map_err(|e| format!("Database error: {}", e))
+        .map_err(|e| format!("Database error: {e}"))
 }
 
 /// Delete old deliveries (for cleanup)

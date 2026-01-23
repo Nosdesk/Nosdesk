@@ -276,7 +276,7 @@ pub async fn store_registration_state(
     let client = redis::Client::open(redis_url.as_str())?;
     let mut con = client.get_multiplexed_async_connection().await?;
 
-    let key = format!("webauthn:reg_challenge:{}", user_uuid);
+    let key = format!("webauthn:reg_challenge:{user_uuid}");
     let state_json = serde_json::to_string(state)?;
 
     con.set_ex::<_, _, ()>(&key, state_json, CHALLENGE_TTL_SECONDS).await?;
@@ -291,7 +291,7 @@ pub async fn get_registration_state(user_uuid: &Uuid) -> Result<PasskeyRegistrat
     let client = redis::Client::open(redis_url.as_str())?;
     let mut con = client.get_multiplexed_async_connection().await?;
 
-    let key = format!("webauthn:reg_challenge:{}", user_uuid);
+    let key = format!("webauthn:reg_challenge:{user_uuid}");
 
     // Get and delete atomically
     let state_json: Option<String> = con.get_del(&key).await?;
@@ -314,7 +314,7 @@ pub async fn store_authentication_state(
 
     // Hash email for privacy
     let email_hash = hash_email(email);
-    let key = format!("webauthn:auth_challenge:{}", email_hash);
+    let key = format!("webauthn:auth_challenge:{email_hash}");
     let state_json = serde_json::to_string(state)?;
 
     con.set_ex::<_, _, ()>(&key, state_json, CHALLENGE_TTL_SECONDS).await?;
@@ -330,7 +330,7 @@ pub async fn get_authentication_state(email: &str) -> Result<PasskeyAuthenticati
     let mut con = client.get_multiplexed_async_connection().await?;
 
     let email_hash = hash_email(email);
-    let key = format!("webauthn:auth_challenge:{}", email_hash);
+    let key = format!("webauthn:auth_challenge:{email_hash}");
 
     // Get and delete atomically
     let state_json: Option<String> = con.get_del(&key).await?;
@@ -366,7 +366,7 @@ pub async fn store_discoverable_auth_state(
     let client = redis::Client::open(redis_url.as_str())?;
     let mut con = client.get_multiplexed_async_connection().await?;
 
-    let key = format!("webauthn:discoverable_auth:{}", session_id);
+    let key = format!("webauthn:discoverable_auth:{session_id}");
     let state_json = serde_json::to_string(state)?;
 
     con.set_ex::<_, _, ()>(&key, state_json, CHALLENGE_TTL_SECONDS).await?;
@@ -381,7 +381,7 @@ pub async fn get_discoverable_auth_state(session_id: &str) -> Result<Discoverabl
     let client = redis::Client::open(redis_url.as_str())?;
     let mut con = client.get_multiplexed_async_connection().await?;
 
-    let key = format!("webauthn:discoverable_auth:{}", session_id);
+    let key = format!("webauthn:discoverable_auth:{session_id}");
 
     // Get and delete atomically
     let state_json: Option<String> = con.get_del(&key).await?;

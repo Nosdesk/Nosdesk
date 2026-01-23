@@ -47,7 +47,7 @@ pub fn validate_env_vars() {
     
     for var in required_vars.iter() {
         if env::var(var).is_err() {
-            panic!("Required environment variable {} is not set", var);
+            panic!("Required environment variable {var} is not set");
         }
     }
 }
@@ -60,7 +60,7 @@ pub enum ConfigError {
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigError::Missing(key) => write!(f, "Missing environment variable: {}", key),
+            ConfigError::Missing(key) => write!(f, "Missing environment variable: {key}"),
         }
     }
 }

@@ -73,17 +73,17 @@ pub async fn start_export(
         let mut conn = match pool_clone.get() {
             Ok(conn) => conn,
             Err(e) => {
-                log::error!("Failed to get database connection for backup: {}", e);
+                log::error!("Failed to get database connection for backup: {e}");
                 return;
             }
         };
 
         match backup_service::create_backup(&mut conn, job_id, include_sensitive, password.as_deref()) {
             Ok(path) => {
-                log::info!("Backup completed successfully: {:?}", path);
+                log::info!("Backup completed successfully: {path:?}");
             }
             Err(e) => {
-                log::error!("Backup failed: {}", e);
+                log::error!("Backup failed: {e}");
                 // Update job with error
                 let _ = backup_repo::update_backup_job(&mut conn, job_id, BackupJobUpdate {
                     status: Some("failed".to_string()),
@@ -270,7 +270,7 @@ pub async fn upload_restore(
         let filename = field
             .content_disposition()
             .get_filename()
-            .map(|f| sanitize_filename::sanitize(f))
+            .map(sanitize_filename::sanitize)
             .unwrap_or_else(|| format!("restore-{}.zip", Uuid::new_v4()));
 
         let filepath = backups_dir.join(&filename);
@@ -526,7 +526,7 @@ pub async fn delete_job(
     // Delete associated file if exists
     if let Some(file_path) = &job.file_path {
         if let Err(e) = backup_service::delete_backup_file(file_path) {
-            log::warn!("Failed to delete backup file: {}", e);
+            log::warn!("Failed to delete backup file: {e}");
         }
     }
 
@@ -591,7 +591,7 @@ pub async fn onboarding_upload_restore(
         let filename = field
             .content_disposition()
             .get_filename()
-            .map(|f| sanitize_filename::sanitize(f))
+            .map(sanitize_filename::sanitize)
             .unwrap_or_else(|| format!("onboarding-restore-{}.zip", Uuid::new_v4()));
 
         let filepath = backups_dir.join(&filename);
@@ -686,14 +686,14 @@ pub async fn onboarding_execute_restore(
             let files_restored = match backup_service::restore_backup_files(&file_path) {
                 Ok(count) => count,
                 Err(e) => {
-                    log::warn!("File restore had issues: {}", e);
+                    log::warn!("File restore had issues: {e}");
                     0
                 }
             };
 
             // Regenerate thumbnails for all users with avatars
             let thumbnails_regenerated = regenerate_user_thumbnails(&mut conn).await;
-            log::info!("Regenerated {} user thumbnails after restore", thumbnails_regenerated);
+            log::info!("Regenerated {thumbnails_regenerated} user thumbnails after restore");
 
             // Clean up the uploaded backup file
             let _ = std::fs::remove_file(&file_path);
@@ -741,7 +741,7 @@ async fn regenerate_user_thumbnails(conn: &mut crate::db::DbConnection) -> u64 {
     ).load(conn) {
         Ok(avatars) => avatars,
         Err(e) => {
-            log::error!("Failed to query users for thumbnail regeneration: {}", e);
+            log::error!("Failed to query users for thumbnail regeneration: {e}");
             return 0;
         }
     };

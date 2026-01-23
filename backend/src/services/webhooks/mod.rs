@@ -9,4 +9,4 @@ pub mod types;
 
 pub use service::WebhookService;
 pub use signature::generate_secret;
-pub use types::{WebhookEventType, WebhookPayload};
+pub use types::WebhookEventType;

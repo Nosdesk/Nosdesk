@@ -326,7 +326,7 @@ impl SseBroadcaster {
 macro_rules! broadcast_sse_event {
     ($state:expr, $method:ident, $($arg:expr),*) => {
         if let Some(state) = $state.as_ref() {
-            crate::utils::sse::SseBroadcaster::$method(state, $($arg),*);
+            $crate::utils::sse::SseBroadcaster::$method(state, $($arg),*);
         }
     };
 } 

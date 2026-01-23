@@ -73,14 +73,14 @@ impl PreferenceService {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
 
-        let mut conn = self.pool.get().map_err(|e| format!("Database error: {}", e))?;
+        let mut conn = self.pool.get().map_err(|e| format!("Database error: {e}"))?;
 
         // Get notification type ID and defaults
         let type_info: (i32, serde_json::Value) = notification_types::table
             .filter(notification_types::code.eq(type_code))
             .select((notification_types::id, notification_types::default_channels))
             .first(&mut conn)
-            .map_err(|e| format!("Notification type not found: {}", e))?;
+            .map_err(|e| format!("Notification type not found: {e}"))?;
 
         let (type_id, default_channels) = type_info;
 
@@ -127,14 +127,14 @@ impl PreferenceService {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
 
-        let mut conn = self.pool.get().map_err(|e| format!("Database error: {}", e))?;
+        let mut conn = self.pool.get().map_err(|e| format!("Database error: {e}"))?;
 
         // Get notification type ID
         let type_id: i32 = notification_types::table
             .filter(notification_types::code.eq(notification_type.as_str()))
             .select(notification_types::id)
             .first(&mut conn)
-            .map_err(|e| format!("Notification type not found: {}", e))?;
+            .map_err(|e| format!("Notification type not found: {e}"))?;
 
         // Upsert preference
         diesel::insert_into(notification_preferences)
@@ -153,7 +153,7 @@ impl PreferenceService {
                 updated_at.eq(Utc::now().naive_utc()),
             ))
             .execute(&mut conn)
-            .map_err(|e| format!("Failed to update preference: {}", e))?;
+            .map_err(|e| format!("Failed to update preference: {e}"))?;
 
         // Invalidate cache for this user
         {
@@ -172,13 +172,13 @@ impl PreferenceService {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
 
-        let mut conn = self.pool.get().map_err(|e| format!("Database error: {}", e))?;
+        let mut conn = self.pool.get().map_err(|e| format!("Database error: {e}"))?;
 
         // Get all notification types
         let types: Vec<NotificationTypeModel> = notification_types::table
             .order(notification_types::id)
             .load(&mut conn)
-            .map_err(|e| format!("Failed to load notification types: {}", e))?;
+            .map_err(|e| format!("Failed to load notification types: {e}"))?;
 
         // Get all user preferences
         let user_prefs: Vec<(i32, String, bool)> = notification_preferences

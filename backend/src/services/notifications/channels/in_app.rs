@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use super::{ChannelError, ChannelResult, NotificationDeliveryChannel};
+use super::{ChannelResult, NotificationDeliveryChannel};
 use crate::handlers::sse::SseState;
 use crate::services::notifications::types::{
     DeliverableNotification, NotificationChannel, NotificationEvent,

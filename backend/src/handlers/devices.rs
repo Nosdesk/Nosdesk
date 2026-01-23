@@ -246,10 +246,10 @@ pub async fn get_device_by_id(
         },
         Err(e) => {
             match e {
-                Error::NotFound => HttpResponse::NotFound().json(format!("Device {} not found", device_id)),
+                Error::NotFound => HttpResponse::NotFound().json(format!("Device {device_id} not found")),
                 _ => {
                     error!(device_id, error = ?e, "Database error getting device");
-                    HttpResponse::InternalServerError().json(format!("Failed to get device {}", device_id))
+                    HttpResponse::InternalServerError().json(format!("Failed to get device {device_id}"))
                 }
             }
         }
@@ -280,7 +280,7 @@ pub async fn get_user_devices(
         },
         Err(e) => {
             error!(user_uuid = %user_uuid_str, error = ?e, "Error getting devices for user");
-            HttpResponse::InternalServerError().json(format!("Failed to get devices for user {}", user_uuid_str))
+            HttpResponse::InternalServerError().json(format!("Failed to get devices for user {user_uuid_str}"))
         }
     }
 }
@@ -377,10 +377,10 @@ pub async fn update_device(
         Ok(device) => device,
         Err(e) => {
             return match e {
-                Error::NotFound => HttpResponse::NotFound().json(format!("Device {} not found", device_id)),
+                Error::NotFound => HttpResponse::NotFound().json(format!("Device {device_id} not found")),
                 _ => {
                     error!(device_id, error = ?e, "Database error getting device");
-                    HttpResponse::InternalServerError().json(format!("Failed to get device {}", device_id))
+                    HttpResponse::InternalServerError().json(format!("Failed to get device {device_id}"))
                 }
             }
         }
@@ -432,10 +432,10 @@ pub async fn update_device(
         },
         Err(e) => {
             match e {
-                Error::NotFound => HttpResponse::NotFound().json(format!("Device {} not found", device_id)),
+                Error::NotFound => HttpResponse::NotFound().json(format!("Device {device_id} not found")),
                 _ => {
                     error!(device_id, error = ?e, "Database error updating device");
-                    HttpResponse::InternalServerError().json(format!("Failed to update device {}", device_id))
+                    HttpResponse::InternalServerError().json(format!("Failed to update device {device_id}"))
                 }
             }
         }
@@ -477,12 +477,12 @@ pub async fn delete_device(
                     "message": format!("Device {} deleted successfully", device_id)
                 }))
             } else {
-                HttpResponse::NotFound().json(format!("Device {} not found", device_id))
+                HttpResponse::NotFound().json(format!("Device {device_id} not found"))
             }
         }
         Err(e) => {
             error!(device_id, error = ?e, "Database error deleting device");
-            HttpResponse::InternalServerError().json(format!("Failed to delete device {}", device_id))
+            HttpResponse::InternalServerError().json(format!("Failed to delete device {device_id}"))
         }
     }
 }
@@ -521,10 +521,10 @@ pub async fn unmanage_device(
         Ok(device) => device,
         Err(e) => {
             return match e {
-                Error::NotFound => HttpResponse::NotFound().json(format!("Device {} not found", device_id)),
+                Error::NotFound => HttpResponse::NotFound().json(format!("Device {device_id} not found")),
                 _ => {
                     error!(device_id, error = ?e, "Database error getting device");
-                    HttpResponse::InternalServerError().json(format!("Failed to get device {}", device_id))
+                    HttpResponse::InternalServerError().json(format!("Failed to get device {device_id}"))
                 }
             }
         }
@@ -578,7 +578,7 @@ pub async fn unmanage_device(
         },
         Err(e) => {
             error!(device_id, error = ?e, "Database error unmanaging device");
-            HttpResponse::InternalServerError().json(format!("Failed to unmanage device {}", device_id))
+            HttpResponse::InternalServerError().json(format!("Failed to unmanage device {device_id}"))
         }
     }
 }

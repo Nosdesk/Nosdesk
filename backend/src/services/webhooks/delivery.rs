@@ -76,7 +76,7 @@ impl WebhookDeliveryWorker {
     /// Deliver a single webhook
     async fn deliver(&self, task: DeliveryTask) -> Result<(), String> {
         let payload_json = serde_json::to_string(&task.payload)
-            .map_err(|e| format!("Failed to serialize payload: {}", e))?;
+            .map_err(|e| format!("Failed to serialize payload: {e}"))?;
 
         // Generate signature
         let signature = sign_payload(&payload_json, &task.webhook_secret);
@@ -105,7 +105,7 @@ impl WebhookDeliveryWorker {
         let start = std::time::Instant::now();
 
         // Create delivery record
-        let mut conn = self.pool.get().map_err(|e| format!("DB error: {}", e))?;
+        let mut conn = self.pool.get().map_err(|e| format!("DB error: {e}"))?;
         let delivery = webhook_repo::create_delivery(
             &mut conn,
             NewWebhookDelivery {
@@ -130,7 +130,7 @@ impl WebhookDeliveryWorker {
                 let status = response.status().as_u16() as i32;
                 let response_body = response.text().await.ok();
 
-                if status >= 200 && status < 300 {
+                if (200..300).contains(&status) {
                     // Success
                     self.handle_success(&mut conn, &task, delivery.id, status, response_body, duration_ms)?;
                 } else {
@@ -257,8 +257,7 @@ impl WebhookDeliveryWorker {
         if new_failure_count >= AUTO_DISABLE_THRESHOLD {
             update.enabled = Some(false);
             update.disabled_reason = Some(Some(format!(
-                "Auto-disabled after {} consecutive failures",
-                new_failure_count
+                "Auto-disabled after {new_failure_count} consecutive failures"
             )));
             tracing::warn!(
                 webhook_id = task.webhook_id,

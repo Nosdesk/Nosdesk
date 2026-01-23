@@ -136,7 +136,7 @@ impl Storage for LocalStorage {
         match std::fs::read(&full_path) {
             Ok(data) => Ok(data),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                Err(StorageError::NotFound(format!("File not found: {}", path)))
+                Err(StorageError::NotFound(format!("File not found: {path}")))
             }
             Err(e) => Err(StorageError::Io(e)),
         }
@@ -275,7 +275,7 @@ pub async fn serve_file_from_storage(
     req: &HttpRequest,
 ) -> Result<HttpResponse, actix_web::Error> {
     // Extract filename from path for content type detection
-    let filename = path.split('/').last().unwrap_or("file");
+    let filename = path.split('/').next_back().unwrap_or("file");
     
     // Get file data from storage
     let file_data = storage.get_file(path).await.map_err(|e| {
@@ -302,8 +302,8 @@ pub async fn serve_file_from_storage(
     let range_header = req.headers().get("Range");
             if let Some(range_value) = range_header {
             if let Ok(range_str) = range_value.to_str() {
-            if range_str.starts_with("bytes=") {
-                let range_spec = &range_str[6..]; // Remove "bytes="
+            if let Some(range_spec) = range_str.strip_prefix("bytes=") {
+                // Remove "bytes="
                 
                 // Parse range like "0-1023" or "1024-"
                 if let Some((start_str, end_str)) = range_spec.split_once('-') {

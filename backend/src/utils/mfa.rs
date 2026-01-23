@@ -123,8 +123,7 @@ pub struct QrCodeResult {
 pub fn generate_qr_code(secret: &str, user_email: &str, service_name: &str) -> Result<QrCodeResult> {
     // Create TOTP URL for authenticator apps
     let totp_url = format!(
-        "otpauth://totp/{}:{}?secret={}&issuer={}",
-        service_name, user_email, secret, service_name
+        "otpauth://totp/{service_name}:{user_email}?secret={secret}&issuer={service_name}"
     );
 
     let code = QrCode::new(&totp_url)
@@ -149,7 +148,7 @@ pub fn generate_qr_code(secret: &str, user_email: &str, service_name: &str) -> R
 
     // Convert SVG to base64 data URL for frontend
     let base64_svg = general_purpose::STANDARD.encode(svg);
-    let svg_data_url = format!("data:image/svg+xml;base64,{}", base64_svg);
+    let svg_data_url = format!("data:image/svg+xml;base64,{base64_svg}");
 
     Ok(QrCodeResult { svg_data_url, matrix })
 }
@@ -310,7 +309,7 @@ async fn check_totp_replay(user_uuid: &Uuid, token: &str) -> bool {
     let mut hasher = DefaultHasher::new();
     token.hash(&mut hasher);
     let token_hash = hasher.finish();
-    let key = format!("totp_used:{}:{}", user_uuid, token_hash);
+    let key = format!("totp_used:{user_uuid}:{token_hash}");
 
     let exists: bool = con.exists(&key).await.unwrap_or(false);
     exists
@@ -336,7 +335,7 @@ async fn mark_totp_used(user_uuid: &Uuid, token: &str) {
     let mut hasher = DefaultHasher::new();
     token.hash(&mut hasher);
     let token_hash = hasher.finish();
-    let key = format!("totp_used:{}:{}", user_uuid, token_hash);
+    let key = format!("totp_used:{user_uuid}:{token_hash}");
 
     // Set with 90-second TTL (TOTP validity window + clock drift tolerance)
     let _: Result<(), _> = con.set_ex(&key, "1", 90).await;

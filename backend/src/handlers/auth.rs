@@ -39,7 +39,7 @@ fn get_local_password_hash(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<
         .select(user_auth_identities::password_hash)
         .first::<Option<String>>(conn)
         .optional()
-        .map_err(|e| format!("Database error: {}", e))?
+        .map_err(|e| format!("Database error: {e}"))?
         .flatten();
 
     password_hash.ok_or_else(|| "No local password found for this user".to_string())
@@ -154,22 +154,22 @@ pub async fn create_session_record(
         .map(|s| s.to_string());
 
     // Parse device name from user agent (simple parsing)
-    let device_name = user_agent.as_ref().and_then(|ua| {
+    let device_name = user_agent.as_ref().map(|ua| {
         // Simple device name extraction - can be enhanced later
         if ua.contains("iPhone") {
-            Some("iPhone".to_string())
+            "iPhone".to_string()
         } else if ua.contains("iPad") {
-            Some("iPad".to_string())
+            "iPad".to_string()
         } else if ua.contains("Android") {
-            Some("Android Device".to_string())
+            "Android Device".to_string()
         } else if ua.contains("Macintosh") || ua.contains("Mac OS") {
-            Some("Mac".to_string())
+            "Mac".to_string()
         } else if ua.contains("Windows") {
-            Some("Windows PC".to_string())
+            "Windows PC".to_string()
         } else if ua.contains("Linux") {
-            Some("Linux".to_string())
+            "Linux".to_string()
         } else {
-            Some("Unknown Device".to_string())
+            "Unknown Device".to_string()
         }
     });
 
@@ -519,7 +519,7 @@ pub async fn register(
     let password_validation = validate_password(&user_data.password);
     if !password_validation.valid {
         for error in password_validation.errors {
-            validation_errors.push(format!("password: {}", error));
+            validation_errors.push(format!("password: {error}"));
         }
     }
 
@@ -564,7 +564,7 @@ pub async fn register(
     }
 
     // Check if user with this email already exists
-    if let Ok(_) = repository::get_user_by_email(&user_data.email, &mut conn) {
+    if repository::get_user_by_email(&user_data.email, &mut conn).is_ok() {
         return HttpResponse::BadRequest().json(json!({
             "status": "error",
             "message": "User with this email already exists"
@@ -646,7 +646,7 @@ pub async fn register(
             error!(error = ?e, "Error creating user");
             
             // Provide more specific error messages for common issues
-            let error_message = if format!("{:?}", e).contains("duplicate") || format!("{:?}", e).contains("unique") {
+            let error_message = if format!("{e:?}").contains("duplicate") || format!("{e:?}").contains("unique") {
                 "Email address already exists in the system"
             } else {
                 "Error creating user"
@@ -1193,7 +1193,7 @@ pub async fn setup_initial_admin(
             error!(error = ?e, "Error creating admin user");
             
             // Provide more specific error messages for common issues
-            let error_message = if format!("{:?}", e).contains("duplicate") || format!("{:?}", e).contains("unique") {
+            let error_message = if format!("{e:?}").contains("duplicate") || format!("{e:?}").contains("unique") {
                 "Email address already exists in the system"
             } else {
                 "Error creating admin user"

@@ -16,14 +16,12 @@ use actix_web::dev::{ServiceRequest, ServiceResponse, fn_service};
 use actix_files::Files;
 use actix_limitation::{Limiter, RateLimiter};
 use dotenv::dotenv;
-use serde_json;
 use std::env;
 use std::time::Duration;
 use tracing::{info, warn, error, debug};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use utils::storage::{get_storage_config, create_storage};
 use utils::redis_yjs_cache::create_redis_cache;
-use std::sync::Arc;
 
 async fn health_check() -> impl Responder {
     HttpResponse::Ok().body("Helpdesk API is running!")
@@ -48,8 +46,7 @@ fn handle_missing_asset(path: &str) -> HttpResponse {
     if environment != "production" {
         // Log helpful message for developers
         log::warn!(
-            "Asset not found: {} - Frontend may have been rebuilt. Try refreshing the page.",
-            path
+            "Asset not found: {path} - Frontend may have been rebuilt. Try refreshing the page."
         );
 
         // For JS files, return code that triggers a page reload
@@ -183,7 +180,7 @@ async fn main() -> std::io::Result<()> {
     // Load .env file if it exists (for local development), but don't fail if it doesn't exist
     // In Docker, environment variables are already loaded via docker-compose
     if let Err(e) = dotenv() {
-        eprintln!("Could not load .env file: {}. This is normal in Docker environments.", e);
+        eprintln!("Could not load .env file: {e}. This is normal in Docker environments.");
     }
 
     // Critical check: Verify DATABASE_URL exists
@@ -367,7 +364,7 @@ async fn main() -> std::io::Result<()> {
                 Ok(limiter) => limiter,
                 Err(fallback_err) => {
                     error!(error = %fallback_err, "Failed to initialize fallback rate limiter");
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "Rate limiter initialization failed"));
+                    return Err(std::io::Error::other("Rate limiter initialization failed"));
                 }
             }
         }
@@ -392,7 +389,7 @@ async fn main() -> std::io::Result<()> {
                 Ok(limiter) => limiter,
                 Err(fallback_err) => {
                     error!(error = %fallback_err, "Failed to initialize fallback auth rate limiter");
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "Auth rate limiter initialization failed"));
+                    return Err(std::io::Error::other("Auth rate limiter initialization failed"));
                 }
             }
         }
@@ -436,11 +433,11 @@ async fn main() -> std::io::Result<()> {
         .collect();
 
     // Set up database connection pool
-    let pool = match std::panic::catch_unwind(|| db::establish_connection_pool()) {
+    let pool = match std::panic::catch_unwind(db::establish_connection_pool) {
         Ok(pool) => pool,
         Err(e) => {
             error!(error = ?e, "Database connection pool initialization panicked");
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Database connection pool failed"));
+            return Err(std::io::Error::other("Database connection pool failed"));
         }
     };
 
@@ -449,26 +446,26 @@ async fn main() -> std::io::Result<()> {
         Ok(_) => {},
         Err(e) => {
             error!(error = %e, "Database initialization failed");
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Database initialization failed: {}", e)));
+            return Err(std::io::Error::other(format!("Database initialization failed: {e}")));
         }
     }
 
     // Security: Verify initialization was successful
     if !db::is_initialized() {
         error!("Database initialization verification failed");
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, "Database initialization verification failed"));
+        return Err(std::io::Error::other("Database initialization verification failed"));
     }
 
     // Create uploads directory structure if it doesn't exist
     let uploads_dir = "/app/uploads";
     let directories = ["", "temp", "tickets", "users", "users/avatars", "users/banners", "users/thumbs", "plugins"];
     for dir in directories.iter() {
-        let full_path = format!("{}/{}", uploads_dir, dir);
+        let full_path = format!("{uploads_dir}/{dir}");
         match std::fs::create_dir_all(&full_path) {
             Ok(_) => {},
             Err(e) => {
                 error!(path = %full_path, error = %e, "Failed to create directory");
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create directory: {}", full_path)));
+                return Err(std::io::Error::other(format!("Failed to create directory: {full_path}")));
             }
         }
     }
@@ -511,7 +508,7 @@ async fn main() -> std::io::Result<()> {
             error!(error = ?e, "Failed to initialize Redis cache for Yjs");
             error!("CRITICAL: Yjs documents will NOT persist across server restarts");
             error!("Please ensure Redis is running and REDIS_URL is configured correctly");
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Redis initialization failed: {:?}", e)));
+            return Err(std::io::Error::other(format!("Redis initialization failed: {e:?}")));
         }
     };
 

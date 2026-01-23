@@ -21,12 +21,9 @@ use crate::repository;
 /// Safely get string content from a Yjs XmlFragment
 /// Returns None if the fragment contains invalid UTF-8 data (which can cause yrs to panic)
 fn safe_get_fragment_string(fragment: &yrs::XmlFragmentRef, txn: &yrs::Transaction) -> Option<String> {
-    match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+    panic::catch_unwind(panic::AssertUnwindSafe(|| {
         fragment.get_string(txn)
-    })) {
-        Ok(s) => Some(s),
-        Err(_) => None,
-    }
+    })).ok()
 }
 
 /// Get a preview of document content for logging
@@ -42,9 +39,9 @@ fn get_content_preview(awareness: &Awareness, max_chars: usize) -> String {
 
         // Empty text with children - log structure info
         if text_content.is_empty() && children_count > 0 {
-            format!("[{} children, text: '']", children_count)
+            format!("[{children_count} children, text: '']")
         } else if text_content.is_empty() {
-            format!("[0 children]")
+            "[0 children]".to_string()
         } else {
             text_content
         }
@@ -133,8 +130,8 @@ impl DocumentType {
 
     fn to_string(&self) -> String {
         match self {
-            DocumentType::Ticket(id) => format!("ticket-{}", id),
-            DocumentType::Documentation(id) => format!("doc-{}", id),
+            DocumentType::Ticket(id) => format!("ticket-{id}"),
+            DocumentType::Documentation(id) => format!("doc-{id}"),
         }
     }
 }
@@ -687,7 +684,7 @@ impl YjsAppState {
         let mut documents = self.documents.write().await;
 
         // Create new Awareness with the new Doc
-        let mut awareness = Awareness::new(new_doc);
+        let awareness = Awareness::new(new_doc);
 
         // Initialize awareness with basic server info
         let local_state = r#"{"server": true, "name": "Server"}"#;
@@ -1246,7 +1243,7 @@ impl YjsWebSocket {
         let doc_id = self.doc_id.clone();
         let session_id = self.id.clone();
         let msg_vec = msg.to_vec();
-        let is_sync_message = msg.get(0) == Some(&0); // MESSAGE_SYNC
+        let is_sync_message = msg.first() == Some(&0); // MESSAGE_SYNC
         let user_uuid = self.user_uuid; // Capture for contributor tracking
 
         // Spawn async work
@@ -1625,7 +1622,7 @@ pub async fn restore_ticket_revision(
     };
 
     // Get the document ID
-    let doc_id = format!("ticket-{}", ticket_id);
+    let doc_id = format!("ticket-{ticket_id}");
 
     // Decode the stored Yjs update (this is the full document state at that revision)
     use yrs::updates::decoder::Decode;
@@ -1683,7 +1680,7 @@ pub async fn restore_ticket_revision(
 
     // Broadcast the full restored state to all connected clients
     use yrs::sync::Message;
-    let sync_message = Message::Sync(yrs::sync::SyncMessage::Update(full_state.into()));
+    let sync_message = Message::Sync(yrs::sync::SyncMessage::Update(full_state));
     let encoded = sync_message.encode_v1();
     app_state.broadcast(&doc_id, "", &encoded).await;
 
@@ -1771,7 +1768,7 @@ pub async fn restore_doc_revision(
     };
 
     // Get the document ID string
-    let doc_id_str = format!("doc-{}", doc_id);
+    let doc_id_str = format!("doc-{doc_id}");
 
     // Decode the stored Yjs update (this is the full document state at that revision)
     use yrs::updates::decoder::Decode;
@@ -1828,7 +1825,7 @@ pub async fn restore_doc_revision(
 
     // Broadcast the full restored state to all connected clients
     use yrs::sync::Message;
-    let sync_message = Message::Sync(yrs::sync::SyncMessage::Update(full_state.into()));
+    let sync_message = Message::Sync(yrs::sync::SyncMessage::Update(full_state));
     let encoded = sync_message.encode_v1();
     app_state.broadcast(&doc_id_str, "", &encoded).await;
 
