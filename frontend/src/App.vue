@@ -176,14 +176,14 @@ onMounted(async () => {
 
   <!-- Default layout with responsive navigation - Simple flexbox layout -->
   <div v-else v-twemoji class="flex w-full h-full bg-app overflow-hidden">
-    <!-- Sidebar (includes both sidebar and mobile bottom nav) -->
-    <Navbar @update:collapsed="handleNavCollapse" />
+    <!-- Sidebar (includes both sidebar and mobile bottom nav, hidden on print) -->
+    <Navbar class="print:hidden" @update:collapsed="handleNavCollapse" />
 
     <!-- Main content area - takes remaining space -->
     <div class="flex flex-col flex-1 min-w-0">
-      <!-- Header - sticky at top of content area -->
+      <!-- Header - sticky at top of content area (hidden on print) -->
       <PageHeader
-        class="flex-shrink-0 border-b border-default bg-surface"
+        class="print:hidden flex-shrink-0 border-b border-default bg-surface"
         :useRouteTitle="!isDocumentationPage"
         :title="titleManager.pageTitle.value"
         :titleIcon="titleIcon"
@@ -203,8 +203,8 @@ onMounted(async () => {
         @create="handleCreateClick"
       />
 
-      <!-- Mobile Search Bar (positioned above bottom nav) -->
-      <MobileSearchBar />
+      <!-- Mobile Search Bar (positioned above bottom nav, hidden on print) -->
+      <MobileSearchBar class="print:hidden" />
 
       <!-- Scrollable content with bottom padding for mobile nav (+ search bar when active) -->
       <main
@@ -228,8 +228,8 @@ onMounted(async () => {
     </div>
   </div>
 
-  <!-- Global Toast Container -->
-  <ToastContainer />
+  <!-- Global Toast Container (hidden on print) -->
+  <ToastContainer class="print:hidden" />
 </template>
 
 <style>

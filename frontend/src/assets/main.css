@@ -1013,3 +1013,441 @@ html[data-theme="red-horizon"] body,
   z-index: 11;
   border-radius: inherit;
 }
+
+/* ============================================
+   PRINT STYLES
+   Ink-efficient, readable printouts
+   ============================================ */
+@media print {
+  /* Override fixed/scroll layout to allow natural content flow */
+  html, body, #app {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Remove all overflow restrictions for print */
+  * {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* Specific layout containers that need to flow naturally */
+  .overflow-hidden,
+  .overflow-auto,
+  .overflow-y-auto,
+  .overflow-x-auto,
+  .overflow-scroll {
+    overflow: visible !important;
+  }
+
+  /* Fixed height containers should be auto */
+  .h-full,
+  .h-screen,
+  .min-h-screen,
+  .min-h-full {
+    height: auto !important;
+    min-height: auto !important;
+  }
+
+  /* Flex containers that restrict height */
+  .flex-1 {
+    flex: none !important;
+    height: auto !important;
+  }
+
+  /* Force light theme colors for print */
+  :root {
+    --color-app: #ffffff !important;
+    --color-surface: #ffffff !important;
+    --color-surface-alt: #f8f9fa !important;
+    --color-surface-hover: #f3f4f6 !important;
+    --color-primary: #000000 !important;
+    --color-secondary: #333333 !important;
+    --color-tertiary: #666666 !important;
+    --color-default: #cccccc !important;
+    --color-subtle: #e5e5e5 !important;
+    --color-strong: #999999 !important;
+    --color-accent: #000000 !important;
+    --color-accent-hover: #000000 !important;
+    --color-accent-muted: rgba(0, 0, 0, 0.1) !important;
+  }
+
+  /* Page setup - compact margins */
+  @page {
+    margin: 0.5in;
+  }
+
+  /* Base print settings */
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt;
+    line-height: 1.4;
+  }
+
+  /* Hide non-printable elements */
+  .print\:hidden,
+  nav,
+  .navbar,
+  .sidebar,
+  header,
+  .page-header,
+  button:not(.print\:visible),
+  .animate-spin,
+  .animate-pulse,
+  [data-print="hide"] {
+    display: none !important;
+  }
+
+  /* Remove shadows, rounded corners for cleaner print */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Links - show as plain text for print */
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+
+  /* Page break control */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  pre, blockquote, table, img, figure {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Keep section cards together */
+  .section-card,
+  .ticket-details,
+  .comment {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Images - reasonable sizing */
+  img {
+    max-width: 100% !important;
+    max-height: 4in !important;
+    filter: none !important;
+  }
+
+  /* Remove theme-specific filters */
+  .avatar-themed,
+  .profile-banner,
+  .twemoji {
+    filter: none !important;
+  }
+
+  .avatar-themed::before,
+  .avatar-themed::after,
+  .profile-banner::before,
+  .profile-banner::after {
+    display: none !important;
+  }
+
+  /* Disable transitions for print */
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  /* Sticky elements should be static for print */
+  .sticky {
+    position: static !important;
+  }
+
+  /* Fixed elements should be hidden or static */
+  .fixed {
+    position: absolute !important;
+  }
+
+  /* Main app layout - allow content to flow */
+  #app > div,
+  #app > div > div,
+  #app > div > main,
+  main {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    flex: none !important;
+  }
+
+  /* App wrapper flex container */
+  #app > .flex {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Main content area */
+  main.flex-1 {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding-bottom: 0 !important;
+  }
+
+  /* View components */
+  main > div,
+  main [class*="overflow-auto"] {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* KeepAlive wrapper and transitions */
+  .page-enter-active,
+  .page-leave-active {
+    transition: none !important;
+  }
+
+  /* Ticket grid - linearize to single column */
+  .ticket-grid {
+    display: block !important;
+  }
+
+  .ticket-left-column {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    gap: 0 !important;
+  }
+
+  .ticket-article,
+  .ticket-comments {
+    width: 100% !important;
+    max-width: none !important;
+    margin-bottom: 1rem;
+    order: unset !important;
+  }
+
+  /* Ticket article content - add padding for print */
+  .ticket-article .ProseMirror {
+    padding: 0.75rem !important;
+    border: 1px solid #e5e5e5 !important;
+    background: #fafafa !important;
+  }
+
+  /* Print ticket details card (the print-only section) */
+  .print-ticket-details {
+    margin-bottom: 1rem !important;
+  }
+
+  /* Ticket details wrapper - reset flex gap and remove card styling */
+  .ticket-details {
+    display: block !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    margin-bottom: 0 !important;
+  }
+
+  /* Hide empty sections in ticket details for print */
+  .ticket-details > div:empty,
+  .ticket-details > .print\:hidden {
+    display: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Plugin slot containers should hide when empty on print */
+  .ticket-details .plugin-slot-item:empty,
+  .ticket-details [data-plugin]:empty {
+    display: none !important;
+  }
+
+  /* Status/priority badges for print */
+  .ticket-status-badge,
+  .ticket-priority-badge {
+    display: inline-block !important;
+    border: 1px solid currentColor !important;
+    padding: 0.125rem 0.5rem !important;
+    font-size: 9pt !important;
+    background: transparent !important;
+  }
+
+  /* Documentation page - full width, natural flow */
+  .documentation-content {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .documentation-header {
+    border-bottom: 1px solid #ccc !important;
+    padding-bottom: 0.5rem !important;
+    margin-bottom: 1rem !important;
+  }
+
+  .documentation-meta {
+    font-size: 9pt !important;
+    color: #666 !important;
+  }
+
+  /* Documentation page view specific overrides */
+  .bg-app.flex.flex-col.h-full {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Gradient backgrounds - remove for print */
+  [class*="bg-gradient"] {
+    background: white !important;
+  }
+
+  /* Comments section */
+  .comment,
+  [class*="comment"] > div {
+    border: 1px solid #e5e5e5 !important;
+    padding: 0.5rem !important;
+    margin-bottom: 0.5rem !important;
+    background: #fafafa !important;
+  }
+
+  /* Form elements hidden on print */
+  form,
+  input,
+  textarea,
+  select,
+  .dropdown,
+  [contenteditable="true"] {
+    border: none !important;
+    background: transparent !important;
+  }
+
+  /* Print-visible utility - elements that should show only in print */
+  .print\:visible {
+    display: block !important;
+  }
+
+  .print\:inline {
+    display: inline !important;
+  }
+
+  /* Section cards - remove decoration */
+  .section-card,
+  .bg-surface,
+  .bg-surface-alt {
+    background: white !important;
+    border: 1px solid #e5e5e5 !important;
+  }
+
+  /* Code blocks - light border, no heavy background */
+  pre {
+    background: #f8f9fa !important;
+    border: 1px solid #e5e5e5 !important;
+    padding: 0.5rem !important;
+    font-size: 9pt !important;
+    page-break-inside: avoid !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+  }
+
+  /* Code inside pre - no additional border */
+  pre code,
+  .ProseMirror pre code,
+  .ticket-article pre code {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    font-size: inherit !important;
+  }
+
+  /* Inline code - subtle styling */
+  :not(pre) > code {
+    background: #f0f0f0 !important;
+    border: none !important;
+    padding: 0.1rem 0.3rem !important;
+    border-radius: 3px !important;
+    font-size: 9pt !important;
+  }
+
+  /* Tables */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  th, td {
+    border: 1px solid #ccc !important;
+    padding: 0.25rem 0.5rem !important;
+    text-align: left !important;
+  }
+
+  th {
+    background: #f3f4f6 !important;
+    font-weight: 600 !important;
+  }
+
+  /* Blockquotes */
+  blockquote {
+    border-left: 2px solid #666 !important;
+    background: transparent !important;
+    padding-left: 0.75rem !important;
+    margin-left: 0 !important;
+    font-style: italic !important;
+  }
+
+  /* UserAvatar - keep avatars visible in print ticket details */
+  .print-ticket-details .avatar-themed,
+  .print-ticket-details .avatar-themed img {
+    display: inline-flex !important;
+    width: 18pt !important;
+    height: 18pt !important;
+    max-height: 18pt !important;
+    max-width: 18pt !important;
+    border-radius: 50% !important;
+    flex-shrink: 0 !important;
+  }
+
+  .print-ticket-details .avatar-themed img {
+    display: block !important;
+    object-fit: cover !important;
+  }
+
+  /* Attachment previews - simplified for print */
+  .attachment-preview,
+  .attachment-container {
+    border: 1px solid #ccc !important;
+    padding: 0.5rem !important;
+    background: #fafafa !important;
+  }
+
+  /* Hide interactive/decorative elements */
+  .crt-effect::before,
+  .crt-effect::after,
+  [class*="scanline"],
+  [class*="glow"] {
+    display: none !important;
+  }
+
+  /* Dropdown menus hidden */
+  .dropdown-menu,
+  .dropdown-menu-fixed,
+  [class*="dropdown"] {
+    display: none !important;
+  }
+
+  /* Modal overlays hidden */
+  .modal,
+  [class*="modal"],
+  .overlay {
+    display: none !important;
+  }
+
+  /* Toolbar hidden */
+  .toolbar,
+  .editor-toolbar {
+    display: none !important;
+  }
+
+  /* Hide elements marked as empty for print */
+  [data-print-empty="true"] {
+    display: none !important;
+  }
+}

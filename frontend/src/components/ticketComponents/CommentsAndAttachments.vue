@@ -251,10 +251,10 @@ const handleDrop = async (event: DragEvent) => {
 
         <template #default>
             <div class="flex flex-col gap-3">
-                <!-- Conversion Status Message -->
+                <!-- Conversion Status Message (hidden on print) -->
                 <div
                     v-if="conversionMessage"
-                    class="bg-accent/20 border border-accent/50 text-accent px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                    class="print:hidden bg-accent/20 border border-accent/50 text-accent px-4 py-2 rounded-lg text-sm flex items-center gap-2"
                 >
                     <svg
                         v-if="conversionMessage.includes('Converting')"
@@ -291,9 +291,9 @@ const handleDrop = async (event: DragEvent) => {
                     {{ conversionMessage }}
                 </div>
 
-                <!-- Add New Comment Form -->
+                <!-- Add New Comment Form (hidden on print) -->
                 <div
-                    class="bg-surface rounded-lg relative"
+                    class="print:hidden bg-surface rounded-lg relative"
                     @dragenter="handleDragEnter"
                     @dragleave="handleDragLeave"
                     @dragover="handleDragOver"
@@ -465,8 +465,8 @@ const handleDrop = async (event: DragEvent) => {
                                         {{ formattedDate(comment.createdAt) }}
                                     </span>
                                 </div>
-                                <!-- Mobile action buttons -->
-                                <div class="flex items-center gap-1 flex-shrink-0">
+                                <!-- Mobile action buttons (hidden on print) -->
+                                <div class="print:hidden flex items-center gap-1 flex-shrink-0">
                                     <a
                                         v-if="isAudioOnlyComment(comment)"
                                         :href="convertToAuthenticatedPath(comment.attachments[0].url)"
@@ -537,8 +537,8 @@ const handleDrop = async (event: DragEvent) => {
                                     </p>
                                 </div>
                             </div>
-                            <!-- Desktop action buttons -->
-                            <div class="hidden sm:flex items-center gap-1 flex-shrink-0 self-start">
+                            <!-- Desktop action buttons (hidden on print) -->
+                            <div class="print:hidden hidden sm:flex items-center gap-1 flex-shrink-0 self-start">
                                 <a
                                     v-if="isAudioOnlyComment(comment)"
                                     :href="convertToAuthenticatedPath(comment.attachments[0].url)"

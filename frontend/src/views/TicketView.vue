@@ -118,6 +118,16 @@ const showDropAffordance = computed(() => {
            dragState.value.ticket?.id !== ticket.value?.id;
 });
 
+// Check if there are any comments with actual content (for print visibility)
+const hasCommentsWithContent = computed(() => {
+    if (!comments.value || comments.value.length === 0) return false;
+    // Check if any comment has content or attachments
+    return comments.value.some(comment =>
+        (comment.content && comment.content.trim().length > 0) ||
+        (comment.attachments && comment.attachments.length > 0)
+    );
+});
+
 const setDropTargetActive = () => {
     isLinkDropTarget.value = true;
     if (inactiveTimeout) {
@@ -302,8 +312,8 @@ defineExpose({
 
 <template>
     <div class="flex-1">
-        <!-- Loading state -->
-        <div v-if="loading" class="flex items-center justify-center h-64">
+        <!-- Loading state (hidden on print) -->
+        <div v-if="loading" class="print:hidden flex items-center justify-center h-64">
             <div class="animate-spin rounded-full h-8 w-8 border-2 border-accent border-t-transparent"></div>
         </div>
 
@@ -320,8 +330,8 @@ defineExpose({
 
         <!-- Ticket content -->
         <div v-else-if="ticket" class="flex flex-col">
-            <!-- Navigation and actions bar -->
-            <div class="pt-4 px-4 sm:px-6 flex justify-between items-center">
+            <!-- Navigation and actions bar (hidden on print) -->
+            <div class="print:hidden pt-4 px-4 sm:px-6 flex justify-between items-center">
                 <div class="flex items-center gap-4">
                     <BackButton
                         v-if="ticket.project"
@@ -390,7 +400,7 @@ defineExpose({
                                 <a
                                     href="#"
                                     @click.prevent="showDeviceModal = true"
-                                    class="text-accent hover:text-accent/80 text-sm hover:underline"
+                                    class="print:hidden text-accent hover:text-accent/80 text-sm hover:underline"
                                 >
                                     + Add device
                                 </a>
@@ -453,7 +463,7 @@ defineExpose({
                                 />
                             </div>
                         </div>
-                        <div v-else>
+                        <div v-else class="print:hidden">
                             <a
                                 href="#"
                                 @click.prevent="showDeviceModal = true"
@@ -463,13 +473,14 @@ defineExpose({
                             </a>
                         </div>
 
-                        <!-- Linked Tickets (drop zone) -->
+                        <!-- Linked Tickets (drop zone) - hidden on print when no linked tickets -->
                         <div
                             @dragenter.prevent="setDropTargetActive"
                             @dragover.prevent="setDropTargetActive"
                             @dragleave.prevent="setDropTargetInactive"
                             @drop.prevent="handleLinkDrop"
                             class="flex flex-col gap-2"
+                            :class="{ 'print:hidden': !ticket.linkedTickets?.length }"
                         >
                             <!-- Header (only when has tickets) -->
                             <div v-if="ticket.linkedTickets?.length" class="flex items-center justify-between">
@@ -477,16 +488,16 @@ defineExpose({
                                 <a
                                     href="#"
                                     @click.prevent="showLinkedTicketModal = true"
-                                    class="text-accent hover:text-accent/80 text-sm hover:underline"
+                                    class="print:hidden text-accent hover:text-accent/80 text-sm hover:underline"
                                 >
                                     + Add
                                 </a>
                             </div>
 
-                            <!-- Drop zone (single instance, shown when dragging) -->
+                            <!-- Drop zone (single instance, shown when dragging) - hidden on print -->
                             <div
                                 v-if="showDropAffordance || isLinkDropTarget"
-                                class="rounded-lg border-2 border-dashed p-3 text-center text-sm transition-colors"
+                                class="print:hidden rounded-lg border-2 border-dashed p-3 text-center text-sm transition-colors"
                                 :class="isLinkDropTarget
                                     ? 'border-accent bg-accent/10 text-accent'
                                     : 'border-accent/40 text-accent/70'"
@@ -508,12 +519,12 @@ defineExpose({
                                 @view="() => {}"
                             />
 
-                            <!-- Add link (only when no tickets and not dragging) -->
+                            <!-- Add link (only when no tickets and not dragging) - hidden on print -->
                             <a
                                 v-if="!ticket.linkedTickets?.length && !showDropAffordance && !isLinkDropTarget"
                                 href="#"
                                 @click.prevent="showLinkedTicketModal = true"
-                                class="text-accent hover:underline"
+                                class="print:hidden text-accent hover:underline"
                             >
                                 + Add linked ticket
                             </a>
@@ -531,7 +542,7 @@ defineExpose({
                                 <a
                                     href="#"
                                     @click.prevent="showProjectModal = true"
-                                    class="text-accent hover:text-accent/80 text-sm hover:underline"
+                                    class="print:hidden text-accent hover:text-accent/80 text-sm hover:underline"
                                 >
                                     + Add to project
                                 </a>
@@ -546,7 +557,7 @@ defineExpose({
                                 />
                             </div>
                         </div>
-                        <div v-else>
+                        <div v-else class="print:hidden">
                             <a
                                 href="#"
                                 @click.prevent="showProjectModal = true"
@@ -561,7 +572,11 @@ defineExpose({
                         </div>
 
                         <!-- Comments (inside left-column for tablet 2-col layout) -->
-                        <div class="ticket-comments rounded-xl">
+                        <!-- Hidden on print if no comments exist -->
+                        <div
+                            class="ticket-comments rounded-xl"
+                            :class="{ 'print:hidden': !hasCommentsWithContent }"
+                        >
                             <CommentsAndAttachments
                                 :comments="comments"
                                 :current-user="
@@ -593,35 +608,37 @@ defineExpose({
             Loading ticket...
         </div>
 
-        <!-- Modals -->
-        <DeviceSelectionModal
-            v-if="ticket"
-            :show="showDeviceModal"
-            :current-ticket-id="ticket.id"
-            :existing-device-ids="devices.map((d) => d.id)"
-            :requester-uuid="ticket.requester"
-            @close="showDeviceModal = false"
-            @select-device="addDevice"
-        />
+        <!-- Modals (hidden on print) -->
+        <div class="print:hidden">
+            <DeviceSelectionModal
+                v-if="ticket"
+                :show="showDeviceModal"
+                :current-ticket-id="ticket.id"
+                :existing-device-ids="devices.map((d) => d.id)"
+                :requester-uuid="ticket.requester"
+                @close="showDeviceModal = false"
+                @select-device="addDevice"
+            />
 
-        <LinkedTicketModal
-            v-if="ticket"
-            :show="showLinkedTicketModal"
-            :current-ticket-id="ticket.id"
-            :existing-linked-tickets="ticket.linkedTickets"
-            @close="showLinkedTicketModal = false"
-            @select-ticket="linkTicket"
-        />
+            <LinkedTicketModal
+                v-if="ticket"
+                :show="showLinkedTicketModal"
+                :current-ticket-id="ticket.id"
+                :existing-linked-tickets="ticket.linkedTickets"
+                @close="showLinkedTicketModal = false"
+                @select-ticket="linkTicket"
+            />
 
-        <ProjectSelectionModal
-            v-if="ticket"
-            :show="showProjectModal"
-            :existing-project-ids="
-                ticket.projects?.map(id => Number(id)) || []
-            "
-            @close="showProjectModal = false"
-            @select-project="addToProject"
-        />
+            <ProjectSelectionModal
+                v-if="ticket"
+                :show="showProjectModal"
+                :existing-project-ids="
+                    ticket.projects?.map(id => Number(id)) || []
+                "
+                @close="showProjectModal = false"
+                @select-project="addToProject"
+            />
+        </div>
     </div>
 </template>
 
