@@ -159,6 +159,12 @@ pub struct SseState {
     pub clients: Arc<Mutex<HashMap<String, ClientInfo>>>,
 }
 
+impl Default for SseState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SseState {
     pub fn new() -> Self {
         // Optimized buffer: 1000 events is sufficient for most use cases
@@ -301,7 +307,7 @@ impl Stream for SseStream {
 
                 // Serialize event data
                 let event_data = serde_json::to_string(&event).unwrap_or_default();
-                let sse_data = format!("event: {}\ndata: {}\n\n", event_type, event_data);
+                let sse_data = format!("event: {event_type}\ndata: {event_data}\n\n");
 
                 return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(sse_data))));
             }
@@ -321,7 +327,7 @@ impl Stream for SseStream {
         }
 
         // Check for heartbeat
-        if let Poll::Ready(_) = this.heartbeat_interval.poll_tick(cx) {
+        if this.heartbeat_interval.poll_tick(cx).is_ready() {
             let sse_data = "event: heartbeat\ndata: {}\n\n";
             return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(sse_data))));
         }

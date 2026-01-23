@@ -58,7 +58,7 @@ async fn send_user_invitation(
         invitation_token.expires_at,
         None,
     ) {
-        return SendInvitationResult::TokenStorageError(format!("{:?}", e));
+        return SendInvitationResult::TokenStorageError(format!("{e:?}"));
     }
 
     // Get frontend base URL
@@ -70,7 +70,7 @@ async fn send_user_invitation(
     // Initialize email service
     let email_service = match crate::utils::email::EmailService::from_env() {
         Ok(service) => service,
-        Err(e) => return SendInvitationResult::EmailServiceError(format!("{:?}", e)),
+        Err(e) => return SendInvitationResult::EmailServiceError(format!("{e:?}")),
     };
 
     // Get branding for email
@@ -84,7 +84,7 @@ async fn send_user_invitation(
         &branding,
         admin_name,
     ).await {
-        return SendInvitationResult::EmailSendError(format!("{:?}", e));
+        return SendInvitationResult::EmailSendError(format!("{e:?}"));
     }
 
     SendInvitationResult::Success
@@ -436,7 +436,7 @@ pub async fn create_user(
     }
 
     // Check if user with this email already exists
-    if let Ok(_) = repository::get_user_by_email(&user_data.email, &mut conn) {
+    if repository::get_user_by_email(&user_data.email, &mut conn).is_ok() {
         return HttpResponse::BadRequest().json(json!({
             "status": "error",
             "message": "User with this email already exists"
@@ -570,10 +570,10 @@ pub async fn create_user(
             error!(error = ?e, "Error creating user");
 
             // Provide more specific error messages for common issues
-            let error_message = if format!("{:?}", e).contains("duplicate") || format!("{:?}", e).contains("unique") {
-                if format!("{:?}", e).contains("email") {
+            let error_message = if format!("{e:?}").contains("duplicate") || format!("{e:?}").contains("unique") {
+                if format!("{e:?}").contains("email") {
                     "Email address already exists in the system"
-                } else if format!("{:?}", e).contains("uuid") {
+                } else if format!("{e:?}").contains("uuid") {
                     "UUID already exists in the system"
                 } else {
                     "Duplicate entry detected"
@@ -915,10 +915,10 @@ pub async fn get_user_auth_identities_by_uuid(
         Ok(identities) => HttpResponse::Ok().json(identities),
         Err(e) => {
             error!(user_uuid = %user_uuid, error = ?e, "Error fetching auth identities for UUID");
-            return HttpResponse::NotFound().json(json!({
+            HttpResponse::NotFound().json(json!({
                 "status": "error",
                 "message": "User not found or no auth identities"
-            }));
+            }))
         }
     }
 }
@@ -1163,12 +1163,12 @@ pub async fn upload_user_image(
     };
 
     // Ensure the directory exists using storage abstraction
-    let full_storage_path = format!("{}/{}", storage_path, user_uuid);
+    let full_storage_path = format!("{storage_path}/{user_uuid}");
 
     debug!(image_type = %image_type, user_uuid = %user_uuid, "Processing image upload");
 
-    // Process the uploaded image
-    while let Ok(Some(mut field)) = payload.try_next().await {
+    // Process the uploaded image (we only handle the first field)
+    if let Ok(Some(mut field)) = payload.try_next().await {
         debug!(field_name = ?field.name(), "Received multipart field");
 
         // Get content type
@@ -1206,14 +1206,14 @@ pub async fn upload_user_image(
         };
         
         // Clean up old files for this user and image type before saving new one
-        cleanup_old_user_images(&storage_path, &user_uuid, image_type).await
+        cleanup_old_user_images(storage_path, &user_uuid, image_type).await
             .map_err(|e| {
                 warn!(error = %e, "Failed to cleanup old images");
                 // Continue even if cleanup fails
             }).ok();
         
-        let filename = format!("{}_{}.{}", user_uuid, image_type, file_ext);
-        let file_path = format!("{}/{}", storage_path, filename);
+        let filename = format!("{user_uuid}_{image_type}.{file_ext}");
+        let file_path = format!("{storage_path}/{filename}");
         
         // Read file data
         let mut file_data = Vec::new();
@@ -1353,7 +1353,7 @@ async fn cleanup_old_user_images(
     };
 
     // Look for files matching the pattern: {user_uuid}_{image_type}.{ext}
-    let pattern_prefix = format!("{}_{}", user_uuid, image_type);
+    let pattern_prefix = format!("{user_uuid}_{image_type}");
     
     while let Ok(Some(entry)) = dir.next_entry().await {
         if let Some(filename) = entry.file_name().to_str() {
@@ -1429,7 +1429,7 @@ pub async fn cleanup_stale_images(
         &["avatar", "48x48", "120x120", "default"], 
         &mut cleanup_stats
     ).await {
-        cleanup_stats.errors.push(format!("Avatar cleanup error: {}", e));
+        cleanup_stats.errors.push(format!("Avatar cleanup error: {e}"));
     }
 
     // Clean up banner directory  
@@ -1439,7 +1439,7 @@ pub async fn cleanup_stale_images(
         &["banner"], 
         &mut cleanup_stats
     ).await {
-        cleanup_stats.errors.push(format!("Banner cleanup error: {}", e));
+        cleanup_stats.errors.push(format!("Banner cleanup error: {e}"));
     }
 
     // Clean up thumbnail directory
@@ -1449,7 +1449,7 @@ pub async fn cleanup_stale_images(
         &["thumb"], 
         &mut cleanup_stats
     ).await {
-        cleanup_stats.errors.push(format!("Thumbnail cleanup error: {}", e));
+        cleanup_stats.errors.push(format!("Thumbnail cleanup error: {e}"));
     }
 
     HttpResponse::Ok().json(json!({
@@ -1515,7 +1515,7 @@ async fn cleanup_directory_stale_files(
                         }
                     },
                     Err(e) => {
-                        let error_msg = format!("Failed to remove {:?}: {}", file_path, e);
+                        let error_msg = format!("Failed to remove {file_path:?}: {e}");
                         warn!(file_path = ?file_path, error = %e, "Failed to remove file");
                         stats.errors.push(error_msg);
                     }
@@ -1926,7 +1926,7 @@ pub async fn add_user_email(
     };
 
     // Check if email already exists
-    if let Ok(_) = user_emails_repo::find_user_by_any_email(&mut conn, &email) {
+    if user_emails_repo::find_user_by_any_email(&mut conn, &email).is_ok() {
         return HttpResponse::BadRequest().json(json!({
             "status": "error",
             "message": "Email address already in use"
@@ -2202,10 +2202,7 @@ pub async fn resend_invitation(
     };
 
     // Check if user already has a password set (completed setup)
-    let auth_identities = match repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn) {
-        Ok(identities) => identities,
-        Err(_) => Vec::new(),
-    };
+    let auth_identities = repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn).unwrap_or_default();
 
     let has_password = auth_identities.iter().any(|identity| {
         identity.provider_type == "local" && identity.password_hash.is_some()
@@ -2480,7 +2477,7 @@ pub async fn bulk_users(
 
                 let user_update = crate::models::UserUpdate {
                     name: None,
-                    role: Some(role.clone()),
+                    role: Some(role),
                     pronouns: None,
                     avatar_url: None,
                     banner_url: None,

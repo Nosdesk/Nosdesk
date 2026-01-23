@@ -33,11 +33,11 @@ pub enum ChannelError {
 impl fmt::Display for ChannelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DeliveryFailed(msg) => write!(f, "Delivery failed: {}", msg),
+            Self::DeliveryFailed(msg) => write!(f, "Delivery failed: {msg}"),
             Self::RateLimited => write!(f, "Rate limited"),
             Self::ChannelDisabled => write!(f, "Channel disabled"),
-            Self::InvalidRecipient(msg) => write!(f, "Invalid recipient: {}", msg),
-            Self::DatabaseError(msg) => write!(f, "Database error: {}", msg),
+            Self::InvalidRecipient(msg) => write!(f, "Invalid recipient: {msg}"),
+            Self::DatabaseError(msg) => write!(f, "Database error: {msg}"),
         }
     }
 }

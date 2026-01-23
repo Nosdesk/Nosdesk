@@ -5,7 +5,6 @@
 use chrono::Utc;
 use diesel::prelude::*;
 use diesel::result::Error;
-use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;

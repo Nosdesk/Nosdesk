@@ -7,6 +7,12 @@ pub struct SystemState {
     pub start_time: Instant,
 }
 
+impl Default for SystemState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SystemState {
     pub fn new() -> Self {
         Self {
@@ -51,13 +57,13 @@ fn format_uptime(duration: Duration) -> String {
     let seconds = total_seconds % 60;
 
     if days > 0 {
-        format!("{}d {}h {}m", days, hours, minutes)
+        format!("{days}d {hours}h {minutes}m")
     } else if hours > 0 {
-        format!("{}h {}m {}s", hours, minutes, seconds)
+        format!("{hours}h {minutes}m {seconds}s")
     } else if minutes > 0 {
-        format!("{}m {}s", minutes, seconds)
+        format!("{minutes}m {seconds}s")
     } else {
-        format!("{}s", seconds)
+        format!("{seconds}s")
     }
 }
 

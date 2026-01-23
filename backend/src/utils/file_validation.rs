@@ -72,18 +72,16 @@ impl std::fmt::Display for FileValidationError {
             Self::BlockedMimeType { detected } => {
                 write!(
                     f,
-                    "File type '{}' is not allowed for security reasons",
-                    detected
+                    "File type '{detected}' is not allowed for security reasons"
                 )
             }
             Self::BlockedExtension { extension } => {
                 write!(
                     f,
-                    "File extension '.{}' is not allowed for security reasons",
-                    extension
+                    "File extension '.{extension}' is not allowed for security reasons"
                 )
             }
-            Self::InvalidFilename(msg) => write!(f, "Invalid filename: {}", msg),
+            Self::InvalidFilename(msg) => write!(f, "Invalid filename: {msg}"),
         }
     }
 }

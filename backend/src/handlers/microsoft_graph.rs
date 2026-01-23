@@ -128,7 +128,7 @@ pub async fn process_graph_request(
     request_data: web::Json<MicrosoftGraphRequest>,
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
+    let conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -241,7 +241,7 @@ pub async fn process_graph_request(
     // Make the token request
     let client = reqwest::Client::new();
     let token_response = match client
-        .post(format!("https://login.microsoftonline.com/{}/oauth2/v2.0/token", tenant_id))
+        .post(format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"))
         .form(&params)
         .send()
         .await
@@ -283,7 +283,7 @@ pub async fn process_graph_request(
     let method = request_data.method.as_deref().unwrap_or("GET");
     
     // Build the URL with query parameters if provided
-    let mut url = format!("https://graph.microsoft.com/v1.0{}", endpoint);
+    let mut url = format!("https://graph.microsoft.com/v1.0{endpoint}");
     
     if let Some(query) = &request_data.query_params {
         if let Some(obj) = query.as_object() {
@@ -323,7 +323,7 @@ pub async fn process_graph_request(
     };
 
     // Add the authorization header
-    request_builder = request_builder.header("Authorization", format!("Bearer {}", access_token));
+    request_builder = request_builder.header("Authorization", format!("Bearer {access_token}"));
     
     // Add custom headers if provided
     if let Some(headers) = &request_data.headers {
@@ -365,7 +365,7 @@ pub async fn process_graph_request(
                             .unwrap_or("Authorization_RequestDenied");
 
                         // Provide helpful permission guidance based on the endpoint
-                        let permission_help = get_permission_help_message(&endpoint);
+                        let permission_help = get_permission_help_message(endpoint);
 
                         return HttpResponse::Forbidden().json(json!({
                             "status": "error",
@@ -379,7 +379,7 @@ pub async fn process_graph_request(
                         return HttpResponse::Forbidden().json(json!({
                             "status": "error",
                             "message": "Insufficient permissions to access Microsoft Graph API",
-                            "permission_help": get_permission_help_message(&endpoint),
+                            "permission_help": get_permission_help_message(endpoint),
                             "documentation": "https://learn.microsoft.com/en-us/graph/permissions-reference"
                         }));
                     }

@@ -71,7 +71,7 @@ pub async fn upload_files(
         let sanitized_filename = FileValidator::sanitize_filename(original_filename)
             .map_err(|e| {
                 warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid filename: {}", e))
+                actix_web::error::ErrorBadRequest(format!("Invalid filename: {e}"))
             })?;
 
         debug!(original_filename = %original_filename, sanitized_filename = %sanitized_filename, "Processing uploaded file");
@@ -101,7 +101,7 @@ pub async fn upload_files(
         let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
                 warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid file: {}", e))
+                actix_web::error::ErrorBadRequest(format!("Invalid file: {e}"))
             })?;
 
         debug!(mime_type = %detected_mime, filename = %sanitized_filename, "File validated");
@@ -109,7 +109,7 @@ pub async fn upload_files(
         // SECURITY: Compute SHA-256 checksum for file integrity verification
         use ring::digest;
         let checksum_bytes = digest::digest(&digest::SHA256, &file_data);
-        let checksum = checksum_bytes.as_ref().iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        let checksum = checksum_bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect::<String>();
 
         // Store the file using the storage abstraction with validated MIME type
         let stored_file = storage.store_file(&file_data, &sanitized_filename, &detected_mime, "temp")
@@ -204,7 +204,7 @@ pub async fn serve_ticket_file(
     validate_file_access_token(&token, &mut conn).await?;
 
     // Use our centralized storage method instead of hardcoded paths
-    let file_path = format!("tickets/{}", filename);
+    let file_path = format!("tickets/{filename}");
     match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
         Ok(response) => Ok(response),
         Err(e) => {
@@ -236,7 +236,7 @@ pub async fn serve_temp_file(
     validate_file_access_token(&token, &mut conn).await?;
 
     // Use our centralized storage method instead of hardcoded paths
-    let file_path = format!("temp/{}", filename);
+    let file_path = format!("temp/{filename}");
     match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
         Ok(response) => Ok(response),
         Err(e) => {
@@ -346,7 +346,7 @@ pub async fn upload_ticket_note_image(
         let sanitized_filename = FileValidator::sanitize_filename(original_filename)
             .map_err(|e| {
                 warn!(error = ?e, original_filename = %original_filename, "Filename sanitization failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid filename: {}", e))
+                actix_web::error::ErrorBadRequest(format!("Invalid filename: {e}"))
             })?;
 
         debug!(original_filename = %original_filename, sanitized_filename = %sanitized_filename, "Processing ticket note image");
@@ -377,7 +377,7 @@ pub async fn upload_ticket_note_image(
         let detected_mime = FileValidator::validate_file(&file_data, Some(&sanitized_filename))
             .map_err(|e| {
                 warn!(error = ?e, filename = %sanitized_filename, "File validation failed");
-                actix_web::error::ErrorBadRequest(format!("Invalid file: {}", e))
+                actix_web::error::ErrorBadRequest(format!("Invalid file: {e}"))
             })?;
 
         // Only allow image types for ticket note images
@@ -388,7 +388,7 @@ pub async fn upload_ticket_note_image(
         debug!(mime_type = %detected_mime, filename = %sanitized_filename, "File validated");
 
         // Store in tickets/{ticket_id}/notes/ folder
-        let folder = format!("tickets/{}/notes", ticket_id);
+        let folder = format!("tickets/{ticket_id}/notes");
         let stored_file = storage.store_file(&file_data, &sanitized_filename, &detected_mime, &folder)
             .await
             .map_err(|e| {
@@ -431,7 +431,7 @@ pub async fn serve_ticket_note_image(
     validate_file_access_token(&token, &mut conn).await?;
 
     // Serve from tickets/{ticket_id}/notes/ folder
-    let file_path = format!("tickets/{}/notes/{}", ticket_id, filename);
+    let file_path = format!("tickets/{ticket_id}/notes/{filename}");
     match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
         Ok(response) => Ok(response),
         Err(e) => {
@@ -463,7 +463,7 @@ pub async fn cleanup_temp_files(
     }
 
     let storage_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "uploads".to_string());
-    let temp_dir = format!("{}/temp", storage_path);
+    let temp_dir = format!("{storage_path}/temp");
     let max_age = std::time::Duration::from_secs(24 * 60 * 60); // 24 hours
 
     let mut files_removed = 0;
@@ -483,7 +483,7 @@ pub async fn cleanup_temp_files(
                             if age > max_age {
                                 let size = metadata.len();
                                 if let Err(e) = std::fs::remove_file(&path) {
-                                    errors.push(format!("Failed to delete {:?}: {}", path, e));
+                                    errors.push(format!("Failed to delete {path:?}: {e}"));
                                 } else {
                                     files_removed += 1;
                                     bytes_freed += size;

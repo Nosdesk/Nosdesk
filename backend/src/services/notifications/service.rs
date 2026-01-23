@@ -11,7 +11,7 @@ use tokio::sync::RwLock as TokioRwLock;
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::models::{NewNotification, Notification, NotificationResponse, NotificationUpdate};
+use crate::models::{NewNotification, Notification, NotificationResponse};
 
 use super::channels::{ChannelError, NotificationDeliveryChannel};
 use super::preferences::PreferenceService;
@@ -202,7 +202,7 @@ impl NotificationService {
         let mut conn = self
             .pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            .map_err(|e| format!("Database error: {e}"))?;
 
         let type_id = self
             .get_notification_type_id(payload.notification_type.as_str())
@@ -233,7 +233,7 @@ impl NotificationService {
         let notification: Notification = diesel::insert_into(notifications::table)
             .values(&new_notification)
             .get_result(&mut conn)
-            .map_err(|e| format!("Failed to persist notification: {}", e))?;
+            .map_err(|e| format!("Failed to persist notification: {e}"))?;
 
         Ok(notification.id)
     }
@@ -249,13 +249,13 @@ impl NotificationService {
         let mut conn = self
             .pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            .map_err(|e| format!("Database error: {e}"))?;
 
         // Get current channels_delivered
         let current: Notification = notifications
             .find(notification_id)
             .first(&mut conn)
-            .map_err(|e| format!("Notification not found: {}", e))?;
+            .map_err(|e| format!("Notification not found: {e}"))?;
 
         // Add new channel to the array
         let mut delivered: Vec<String> = current
@@ -275,7 +275,7 @@ impl NotificationService {
         diesel::update(notifications.find(notification_id))
             .set(channels_delivered.eq(serde_json::json!(delivered)))
             .execute(&mut conn)
-            .map_err(|e| format!("Failed to update channels_delivered: {}", e))?;
+            .map_err(|e| format!("Failed to update channels_delivered: {e}"))?;
 
         Ok(())
     }
@@ -296,13 +296,13 @@ impl NotificationService {
         let mut conn = self
             .pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            .map_err(|e| format!("Database error: {e}"))?;
 
         let type_id: i32 = notification_types
             .filter(code.eq(type_code))
             .select(id_col)
             .first(&mut conn)
-            .map_err(|e| format!("Notification type '{}' not found: {}", type_code, e))?;
+            .map_err(|e| format!("Notification type '{type_code}' not found: {e}"))?;
 
         // Update cache
         {
@@ -325,7 +325,7 @@ impl NotificationService {
         let mut conn = self
             .pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            .map_err(|e| format!("Database error: {e}"))?;
 
         let results: Vec<(Notification, String)> = notifications
             .inner_join(notification_types::table)
@@ -338,7 +338,7 @@ impl NotificationService {
                 notification_types::code,
             ))
             .load(&mut conn)
-            .map_err(|e| format!("Query failed: {}", e))?;
+            .map_err(|e| format!("Query failed: {e}"))?;
 
         Ok(results
             .into_iter()
@@ -370,7 +370,7 @@ impl NotificationService {
         let mut conn = self
             .pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            .map_err(|e| format!("Database error: {e}"))?;
 
         let results: Vec<(Notification, String)> = notifications
             .inner_join(notification_types::table)
@@ -383,7 +383,7 @@ impl NotificationService {
                 notification_types::code,
             ))
             .load(&mut conn)
-            .map_err(|e| format!("Query failed: {}", e))?;
+            .map_err(|e| format!("Query failed: {e}"))?;
 
         Ok(results
             .into_iter()
@@ -409,14 +409,14 @@ impl NotificationService {
         let mut conn = self
             .pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            .map_err(|e| format!("Database error: {e}"))?;
 
         notifications
             .filter(user_uuid.eq(user_uuid_val))
             .filter(is_read.eq(false))
             .count()
             .get_result(&mut conn)
-            .map_err(|e| format!("Query failed: {}", e))
+            .map_err(|e| format!("Query failed: {e}"))
     }
 
     /// Mark notifications as read
@@ -430,7 +430,7 @@ impl NotificationService {
         let mut conn = self
             .pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            .map_err(|e| format!("Database error: {e}"))?;
 
         let count = diesel::update(
             notifications
@@ -439,7 +439,7 @@ impl NotificationService {
         )
         .set((is_read.eq(true), read_at.eq(Some(Utc::now().naive_utc()))))
         .execute(&mut conn)
-        .map_err(|e| format!("Update failed: {}", e))?;
+        .map_err(|e| format!("Update failed: {e}"))?;
 
         Ok(count)
     }
@@ -451,7 +451,7 @@ impl NotificationService {
         let mut conn = self
             .pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            .map_err(|e| format!("Database error: {e}"))?;
 
         let count = diesel::update(
             notifications
@@ -460,7 +460,7 @@ impl NotificationService {
         )
         .set((is_read.eq(true), read_at.eq(Some(Utc::now().naive_utc()))))
         .execute(&mut conn)
-        .map_err(|e| format!("Update failed: {}", e))?;
+        .map_err(|e| format!("Update failed: {e}"))?;
 
         Ok(count)
     }
@@ -476,7 +476,7 @@ impl NotificationService {
         let mut conn = self
             .pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            .map_err(|e| format!("Database error: {e}"))?;
 
         let count = diesel::delete(
             notifications
@@ -484,7 +484,7 @@ impl NotificationService {
                 .filter(id.eq(notification_id)),
         )
         .execute(&mut conn)
-        .map_err(|e| format!("Delete failed: {}", e))?;
+        .map_err(|e| format!("Delete failed: {e}"))?;
 
         Ok(count > 0)
     }
@@ -500,7 +500,7 @@ impl NotificationService {
         let mut conn = self
             .pool
             .get()
-            .map_err(|e| format!("Database error: {}", e))?;
+            .map_err(|e| format!("Database error: {e}"))?;
 
         let count = diesel::delete(
             notifications
@@ -508,7 +508,7 @@ impl NotificationService {
                 .filter(id.eq_any(notification_ids)),
         )
         .execute(&mut conn)
-        .map_err(|e| format!("Delete failed: {}", e))?;
+        .map_err(|e| format!("Delete failed: {e}"))?;
 
         Ok(count)
     }

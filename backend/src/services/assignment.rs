@@ -30,7 +30,7 @@ impl AssignmentEngine {
         let rules = match Self::get_active_rules_by_priority(conn) {
             Ok(r) => r,
             Err(e) => {
-                log::error!("Failed to get assignment rules: {:?}", e);
+                log::error!("Failed to get assignment rules: {e:?}");
                 return None;
             }
         };
@@ -103,7 +103,7 @@ impl AssignmentEngine {
     /// All conditions must match (AND logic).
     fn evaluate_conditions(rule: &AssignmentRule, ticket: &Ticket) -> bool {
         let conditions = match &rule.conditions {
-            Some(c) if !c.is_null() && c.as_object().map_or(false, |o| !o.is_empty()) => c,
+            Some(c) if !c.is_null() && c.as_object().is_some_and(|o| !o.is_empty()) => c,
             _ => return true, // No conditions = always match
         };
 
@@ -177,11 +177,11 @@ impl AssignmentEngine {
         let members = match crate::repository::groups::get_users_in_group(conn, group_id) {
             Ok(m) if !m.is_empty() => m,
             Ok(_) => {
-                log::warn!("Group {} has no members for round-robin", group_id);
+                log::warn!("Group {group_id} has no members for round-robin");
                 return None;
             }
             Err(e) => {
-                log::error!("Failed to get group members: {:?}", e);
+                log::error!("Failed to get group members: {e:?}");
                 return None;
             }
         };
@@ -208,11 +208,11 @@ impl AssignmentEngine {
         let members = match crate::repository::groups::get_users_in_group(conn, group_id) {
             Ok(m) if !m.is_empty() => m,
             Ok(_) => {
-                log::warn!("Group {} has no members for random assignment", group_id);
+                log::warn!("Group {group_id} has no members for random assignment");
                 return None;
             }
             Err(e) => {
-                log::error!("Failed to get group members: {:?}", e);
+                log::error!("Failed to get group members: {e:?}");
                 return None;
             }
         };

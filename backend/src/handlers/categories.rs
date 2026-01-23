@@ -122,10 +122,7 @@ pub async fn create_category(
     };
 
     // Get next display order
-    let display_order = match repository::categories::get_next_display_order(&mut conn) {
-        Ok(order) => order,
-        Err(_) => 0,
-    };
+    let display_order = repository::categories::get_next_display_order(&mut conn).unwrap_or_default();
 
     let new_category = NewTicketCategory {
         name: body.name.clone(),

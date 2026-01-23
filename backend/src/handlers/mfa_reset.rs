@@ -25,7 +25,7 @@ fn get_local_password_hash(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<
         .select(user_auth_identities::password_hash)
         .first::<Option<String>>(conn)
         .optional()
-        .map_err(|e| format!("Database error: {}", e))?
+        .map_err(|e| format!("Database error: {e}"))?
         .flatten();
 
     password_hash.ok_or_else(|| "No local password found for this user".to_string())

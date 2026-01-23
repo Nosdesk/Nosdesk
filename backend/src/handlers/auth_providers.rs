@@ -118,7 +118,7 @@ pub async fn get_auth_providers(
     req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
+    let conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -270,7 +270,7 @@ pub async fn oauth_authorize(
     req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
+    let conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -375,8 +375,7 @@ pub async fn oauth_authorize(
         
         // Create the authorization URL
         let auth_url = format!(
-            "https://login.microsoftonline.com/{}/oauth2/v2.0/authorize?client_id={}&response_type=code&redirect_uri={}&response_mode=query&scope=User.Read&state={}",
-            tenant_id, client_id, redirect_uri_config, state
+            "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=User.Read&state={state}"
         );
 
         HttpResponse::Ok().json(json!({
@@ -704,7 +703,7 @@ pub async fn oauth_callback(
                             // Successful connection
                             let redirect_parts: Vec<&str> = state_data.redirect_uri.split('?').collect();
                             let redirect_path = redirect_parts[0];
-                            let success_url = format!("{}?auth_success=true", redirect_path);
+                            let success_url = format!("{redirect_path}?auth_success=true");
 
                             // Redirect to success page
                             HttpResponse::Found()
@@ -719,7 +718,7 @@ pub async fn oauth_callback(
                             let redirect_path = redirect_parts[0];
                             let error_url = format!("{}?auth_error={}",
                                 redirect_path,
-                                urlencoding::encode(&format!("Failed to connect account: {}", e)));
+                                urlencoding::encode(&format!("Failed to connect account: {e}")));
 
                             HttpResponse::Found()
                                 .append_header(("Location", error_url))
@@ -915,7 +914,7 @@ pub async fn oauth_callback(
                         Ok(_) => {
                             let redirect_parts: Vec<&str> = state_data.redirect_uri.split('?').collect();
                             let redirect_path = redirect_parts[0];
-                            let success_url = format!("{}?auth_success=true", redirect_path);
+                            let success_url = format!("{redirect_path}?auth_success=true");
 
                             HttpResponse::Found()
                                 .append_header(("Location", success_url))
@@ -927,7 +926,7 @@ pub async fn oauth_callback(
                             let redirect_path = redirect_parts[0];
                             let error_url = format!("{}?auth_error={}",
                                 redirect_path,
-                                urlencoding::encode(&format!("Failed to connect account: {}", e)));
+                                urlencoding::encode(&format!("Failed to connect account: {e}")));
 
                             HttpResponse::Found()
                                 .append_header(("Location", error_url))
@@ -1062,8 +1061,7 @@ pub async fn oauth_logout(
 
             // Create the logout URL
             let logout_url = format!(
-                "https://login.microsoftonline.com/{}/oauth2/v2.0/logout?post_logout_redirect_uri={}",
-                tenant_id, encoded_redirect
+                "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/logout?post_logout_redirect_uri={encoded_redirect}"
             );
 
             HttpResponse::Ok().json(json!({
@@ -1142,7 +1140,7 @@ fn create_oauth_state_with_oidc(
         &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
     ) {
         Ok(token) => Ok(token),
-        Err(e) => Err(format!("Failed to create state JWT: {}", e)),
+        Err(e) => Err(format!("Failed to create state JWT: {e}")),
     }
 }
 
@@ -1158,7 +1156,7 @@ fn verify_oauth_state(token: &str) -> Result<OAuthState, String> {
         &jsonwebtoken::Validation::default(),
     ) {
         Ok(data) => Ok(data.claims),
-        Err(e) => Err(format!("Invalid state JWT: {}", e)),
+        Err(e) => Err(format!("Invalid state JWT: {e}")),
     }
 }
 
@@ -1171,22 +1169,22 @@ async fn exchange_microsoft_code_for_token(
     // Get provider configuration from environment variables
     let client_id = match config_utils::get_microsoft_client_id() {
         Ok(val) => val,
-        Err(e) => return Err(format!("Failed to get client_id: {}", e)),
+        Err(e) => return Err(format!("Failed to get client_id: {e}")),
     };
     
     let tenant_id = match config_utils::get_microsoft_tenant_id() {
         Ok(val) => val,
-        Err(e) => return Err(format!("Failed to get tenant_id: {}", e)),
+        Err(e) => return Err(format!("Failed to get tenant_id: {e}")),
     };
     
     let client_secret = match config_utils::get_microsoft_client_secret() {
         Ok(val) => val,
-        Err(e) => return Err(format!("Failed to get client_secret: {}", e)),
+        Err(e) => return Err(format!("Failed to get client_secret: {e}")),
     };
     
     let redirect_uri_config = match config_utils::get_microsoft_redirect_uri() {
         Ok(val) => val,
-        Err(e) => return Err(format!("Failed to get redirect_uri: {}", e)),
+        Err(e) => return Err(format!("Failed to get redirect_uri: {e}")),
     };
     
     // Prepare the token request
@@ -1201,19 +1199,19 @@ async fn exchange_microsoft_code_for_token(
     // Make the token request
     let client = reqwest::Client::new();
     let res = match client
-        .post(format!("https://login.microsoftonline.com/{}/oauth2/v2.0/token", tenant_id))
+        .post(format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"))
         .form(&params)
         .send()
         .await
     {
         Ok(res) => res,
-        Err(e) => return Err(format!("Failed to send token request: {}", e)),
+        Err(e) => return Err(format!("Failed to send token request: {e}")),
     };
     
     // Parse the response
     let token_response = match res.json::<serde_json::Value>().await {
         Ok(json) => json,
-        Err(e) => return Err(format!("Failed to parse token response: {}", e)),
+        Err(e) => return Err(format!("Failed to parse token response: {e}")),
     };
     
     // Extract tokens
@@ -1235,17 +1233,17 @@ async fn get_microsoft_user_info(access_token: &str) -> Result<serde_json::Value
     let client = reqwest::Client::new();
     let res = match client
         .get("https://graph.microsoft.com/v1.0/me")
-        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Authorization", format!("Bearer {access_token}"))
         .send()
         .await
     {
         Ok(res) => res,
-        Err(e) => return Err(format!("Failed to get user info: {}", e)),
+        Err(e) => return Err(format!("Failed to get user info: {e}")),
     };
     
     match res.json::<serde_json::Value>().await {
         Ok(json) => Ok(json),
-        Err(e) => Err(format!("Failed to parse user info response: {}", e)),
+        Err(e) => Err(format!("Failed to parse user info response: {e}")),
     }
 }
 
@@ -1290,7 +1288,7 @@ async fn find_or_create_oauth_user(
             // User found by identity, return the user
             match crate::repository::users::get_user_by_uuid(&user_uuid, conn) {
                 Ok(user) => return Ok(user),
-                Err(e) => return Err(format!("Error retrieving user: {:?}", e)),
+                Err(e) => return Err(format!("Error retrieving user: {e:?}")),
             }
         },
         Ok(None) => {
@@ -1355,7 +1353,7 @@ async fn find_or_create_oauth_user(
     let random_password = format!("{:x}", rand::random::<u128>());
     let password_hash = match crate::utils::auth::hash_password(&random_password) {
         Ok(hash) => hash,
-        Err(e) => return Err(format!("Failed to hash password: {}", e)),
+        Err(e) => return Err(format!("Failed to hash password: {e}")),
     };
     
     // Create local user (password will be stored in user_auth_identities)
@@ -1375,10 +1373,10 @@ async fn find_or_create_oauth_user(
             
             match crate::repository::user_auth_identities::create_identity(new_identity, conn) {
                 Ok(_) => Ok(user),
-                Err(e) => Err(format!("User created but failed to create identity: {:?}", e)),
+                Err(e) => Err(format!("User created but failed to create identity: {e:?}")),
             }
         },
-        Err(e) => Err(format!("Failed to create user: {:?}", e)),
+        Err(e) => Err(format!("Failed to create user: {e:?}")),
     }
 }
 
@@ -1392,13 +1390,13 @@ async fn add_oauth_identity_to_user(
     // Parse UUID from string
     let parsed_uuid = match crate::utils::parse_uuid(user_uuid) {
         Ok(uuid) => uuid,
-        Err(e) => return Err(format!("Invalid UUID format: {}", e)),
+        Err(e) => return Err(format!("Invalid UUID format: {e}")),
     };
 
     // First find the user by UUID
     let user = match crate::repository::get_user_by_uuid(&parsed_uuid, conn) {
         Ok(user) => user,
-        Err(e) => return Err(format!("User not found: {:?}", e)),
+        Err(e) => return Err(format!("User not found: {e:?}")),
     };
 
     // Extract unique identifier for Microsoft (object ID)
@@ -1429,7 +1427,7 @@ async fn add_oauth_identity_to_user(
     // Save the identity to the database
     match crate::repository::user_auth_identities::create_identity(new_identity, conn) {
         Ok(_) => {},
-        Err(e) => return Err(format!("Failed to create auth identity: {:?}", e)),
+        Err(e) => return Err(format!("Failed to create auth identity: {e:?}")),
     }
 
     // Also add the OAuth provider email to user_emails table if present
@@ -1569,7 +1567,7 @@ pub async fn oauth_connect(
         };
 
         // Prepare redirect URI with user UUID
-        let mut actual_redirect_uri = oauth_request.redirect_uri.clone().unwrap_or_else(|| format!("/profile/settings"));
+        let mut actual_redirect_uri = oauth_request.redirect_uri.clone().unwrap_or_else(|| "/profile/settings".to_string());
         if !actual_redirect_uri.contains("user_uuid=") {
             let separator = if actual_redirect_uri.contains('?') { "&" } else { "?" };
             actual_redirect_uri = format!("{}{}user_uuid={}", actual_redirect_uri, separator, user.uuid);
@@ -1589,8 +1587,7 @@ pub async fn oauth_connect(
         
         // Create the authorization URL
         let auth_url = format!(
-            "https://login.microsoftonline.com/{}/oauth2/v2.0/authorize?client_id={}&response_type=code&redirect_uri={}&response_mode=query&scope=User.Read&state={}",
-            tenant_id, client_id, redirect_uri_config, state
+            "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=User.Read&state={state}"
         );
         
         HttpResponse::Ok().json(json!({
@@ -1613,7 +1610,7 @@ pub async fn test_microsoft_config(
     path: web::Path<i32>,
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
+    let conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -1711,7 +1708,7 @@ pub async fn test_microsoft_config(
     // Make the token request
     let client = reqwest::Client::new();
     match client
-        .post(format!("https://login.microsoftonline.com/{}/oauth2/v2.0/token", tenant_id))
+        .post(format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"))
         .form(&params)
         .send()
         .await
@@ -1765,7 +1762,7 @@ pub async fn set_default_auth_provider(
     request_data: web::Json<serde_json::Value>,
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
+    let conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",

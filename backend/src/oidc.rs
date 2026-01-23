@@ -21,7 +21,7 @@ use openidconnect::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::config_utils;
 
@@ -47,11 +47,11 @@ impl OidcConfig {
     /// Load OIDC configuration from environment variables
     pub fn from_env() -> Result<Self, String> {
         let client_id = config_utils::get_oidc_client_id()
-            .map_err(|e| format!("OIDC_CLIENT_ID: {}", e))?;
+            .map_err(|e| format!("OIDC_CLIENT_ID: {e}"))?;
         let client_secret = config_utils::get_oidc_client_secret()
-            .map_err(|e| format!("OIDC_CLIENT_SECRET: {}", e))?;
+            .map_err(|e| format!("OIDC_CLIENT_SECRET: {e}"))?;
         let redirect_uri = config_utils::get_oidc_redirect_uri()
-            .map_err(|e| format!("OIDC_REDIRECT_URI: {}", e))?;
+            .map_err(|e| format!("OIDC_REDIRECT_URI: {e}"))?;
 
         let issuer_url = config_utils::get_oidc_issuer_url().ok();
         let auth_uri = config_utils::get_oidc_auth_uri().ok();
@@ -95,7 +95,7 @@ lazy_static::lazy_static! {
             Ok(config) => Some(config),
             Err(e) => {
                 // Note: Using eprintln here because tracing may not be initialized yet during lazy_static initialization
-                eprintln!("Failed to load OIDC config: {}", e);
+                eprintln!("Failed to load OIDC config: {e}");
                 None
             }
         }
@@ -171,7 +171,7 @@ pub async fn generate_logout_url(
 
     // Append query to endpoint URL
     let separator = if end_session_endpoint.contains('?') { "&" } else { "?" };
-    let logout_url = format!("{}{}{}", end_session_endpoint, separator, query_string);
+    let logout_url = format!("{end_session_endpoint}{separator}{query_string}");
 
     info!("OIDC: Generated logout URL: {}", logout_url);
     Some(logout_url)
@@ -273,20 +273,20 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<CoreClient, String> {
     let client_id = ClientId::new(config.client_id.clone());
     let client_secret = ClientSecret::new(config.client_secret.clone());
     let redirect_url = RedirectUrl::new(config.redirect_uri.clone())
-        .map_err(|e| format!("Invalid redirect URI: {}", e))?;
+        .map_err(|e| format!("Invalid redirect URI: {e}"))?;
 
     if let Some(issuer_url) = &config.issuer_url {
         // Auto-discovery mode
         info!("OIDC: Using auto-discovery from issuer: {}", issuer_url);
 
         let issuer = IssuerUrl::new(issuer_url.clone())
-            .map_err(|e| format!("Invalid issuer URL: {}", e))?;
+            .map_err(|e| format!("Invalid issuer URL: {e}"))?;
 
         // Discover provider metadata with logout support
         let provider_metadata: ProviderMetadataWithLogout =
             ProviderMetadataWithLogout::discover_async(issuer, async_http_client)
                 .await
-                .map_err(|e| format!("OIDC discovery failed: {}", e))?;
+                .map_err(|e| format!("OIDC discovery failed: {e}"))?;
 
         // Cache the end_session_endpoint if available from discovery or config fallback
         if let Some(end_session_url) = provider_metadata.additional_metadata().end_session_endpoint.as_ref() {
@@ -308,7 +308,7 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<CoreClient, String> {
         let core_metadata = CoreProviderMetadata::discover_async(
             IssuerUrl::new(issuer_url.clone()).unwrap(),
             async_http_client
-        ).await.map_err(|e| format!("OIDC discovery failed: {}", e))?;
+        ).await.map_err(|e| format!("OIDC discovery failed: {e}"))?;
 
         let client = CoreClient::from_provider_metadata(
             core_metadata,
@@ -323,9 +323,9 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<CoreClient, String> {
         info!("OIDC: Using manual configuration");
 
         let auth_url = AuthUrl::new(config.auth_uri.clone().unwrap())
-            .map_err(|e| format!("Invalid auth URI: {}", e))?;
+            .map_err(|e| format!("Invalid auth URI: {e}"))?;
         let token_url = TokenUrl::new(config.token_uri.clone().unwrap())
-            .map_err(|e| format!("Invalid token URI: {}", e))?;
+            .map_err(|e| format!("Invalid token URI: {e}"))?;
 
         // Cache the logout_uri from config if provided (for manual configuration)
         if let Some(ref logout_uri) = config.logout_uri {
@@ -343,7 +343,7 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<CoreClient, String> {
             IssuerUrl::new("https://placeholder.invalid".to_string()).unwrap(), // Placeholder
             auth_url,
             Some(token_url),
-            config.userinfo_uri.as_ref().map(|u| UserInfoUrl::new(u.clone()).ok()).flatten(),
+            config.userinfo_uri.as_ref().and_then(|u| UserInfoUrl::new(u.clone()).ok()),
             Default::default(), // Empty JWKS - tokens won't be verified
         )
         .set_redirect_uri(redirect_url);
@@ -427,7 +427,7 @@ pub async fn exchange_code(
         .set_pkce_verifier(pkce_verifier)
         .request_async(async_http_client)
         .await
-        .map_err(|e| format!("Token exchange failed: {}", e))?;
+        .map_err(|e| format!("Token exchange failed: {e}"))?;
 
     // Get ID token
     let id_token = token_response
@@ -456,8 +456,7 @@ fn verify_id_token(
 
     id_token
         .claims(&verifier, nonce)
-        .map_err(|e| format!("ID token verification failed: {}", e))
-        .map(|c| c.clone())
+        .map_err(|e| format!("ID token verification failed: {e}")).cloned()
 }
 
 /// Extract user info from ID token claims

@@ -98,7 +98,7 @@ impl WebhookService {
         let event_type_str = event_type.as_str();
 
         // Get enabled webhooks subscribed to this event
-        let mut conn = pool.get().map_err(|e| format!("DB error: {}", e))?;
+        let mut conn = pool.get().map_err(|e| format!("DB error: {e}"))?;
         let webhooks = webhook_repo::get_webhooks_for_event(&mut conn, event_type_str)?;
 
         if webhooks.is_empty() {
@@ -162,7 +162,7 @@ impl WebhookService {
         pool: &Pool,
         delivery_tx: &mpsc::Sender<DeliveryTask>,
     ) -> Result<(), String> {
-        let mut conn = pool.get().map_err(|e| format!("DB error: {}", e))?;
+        let mut conn = pool.get().map_err(|e| format!("DB error: {e}"))?;
 
         // Get deliveries ready for retry
         let pending = webhook_repo::get_pending_retries(&mut conn)?;
@@ -220,7 +220,7 @@ impl WebhookService {
 
     /// Send a test event to a webhook
     pub async fn send_test_event(&self, webhook_id: i32) -> Result<(), String> {
-        let mut conn = self.pool.get().map_err(|e| format!("DB error: {}", e))?;
+        let mut conn = self.pool.get().map_err(|e| format!("DB error: {e}"))?;
         let webhook = webhook_repo::get_webhook_by_id(&mut conn, webhook_id)?;
 
         let payload = WebhookPayload {
@@ -246,6 +246,6 @@ impl WebhookService {
         self.delivery_tx
             .send(task)
             .await
-            .map_err(|e| format!("Failed to queue test delivery: {}", e))
+            .map_err(|e| format!("Failed to queue test delivery: {e}"))
     }
 }

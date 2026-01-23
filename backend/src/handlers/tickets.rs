@@ -386,7 +386,7 @@ pub async fn update_ticket(
     match repository::update_ticket(&mut conn, ticket_id, new_ticket) {
         Ok(ticket) => HttpResponse::Ok().json(ticket),
         Err(e) => {
-            HttpResponse::InternalServerError().json(format!("Failed to update ticket: {}", e))
+            HttpResponse::InternalServerError().json(format!("Failed to update ticket: {e}"))
         }
     }
 }
@@ -579,7 +579,7 @@ pub async fn create_empty_ticket(
         Err(e) => {
             error!(error = ?e, "Failed to create empty ticket");
             return HttpResponse::InternalServerError()
-                .json(format!("Failed to create empty ticket: {}", e));
+                .json(format!("Failed to create empty ticket: {e}"));
         }
     };
 
@@ -624,8 +624,7 @@ pub async fn create_empty_ticket(
                             },
                         )
                         .with_body(format!(
-                            "You have been auto-assigned to ticket #{} (Rule: {})",
-                            ticket_id, rule_name
+                            "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
                         ));
 
                         if let Err(e) = notification_service.notify(payload).await {
@@ -847,8 +846,7 @@ pub async fn update_ticket_partial(
                                         },
                                     )
                                     .with_body(format!(
-                                        "You have been auto-assigned to ticket #{} (Rule: {})",
-                                        ticket_id, rule_name
+                                        "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
                                     ));
 
                                     if let Err(e) = notification_service.notify(payload).await {
@@ -907,8 +905,8 @@ pub async fn update_ticket_partial(
                     let ticket_title = updated_ticket.ticket.title.clone();
                     let new_assignee = updated_ticket.ticket.assignee_uuid;
                     let old_assignee = old.assignee_uuid;
-                    let new_status = updated_ticket.ticket.status.clone();
-                    let old_status = old.status.clone();
+                    let new_status = updated_ticket.ticket.status;
+                    let old_status = old.status;
                     let requester_uuid = updated_ticket.ticket.requester_uuid;
                     let actor_clone = actor.clone();
 
@@ -926,7 +924,7 @@ pub async fn update_ticket_partial(
                                         title: ticket_title.clone(),
                                     },
                                 )
-                                .with_body(format!("You have been assigned to ticket #{}", ticket_id));
+                                .with_body(format!("You have been assigned to ticket #{ticket_id}"));
 
                                 if let Err(e) = notification_service.notify(payload).await {
                                     warn!(error = %e, "Failed to send assignment notification");
@@ -1327,7 +1325,7 @@ pub async fn bulk_tickets(
             for id in ids {
                 let update = TicketUpdate {
                     title: None,
-                    status: Some(status.clone()),
+                    status: Some(status),
                     priority: None,
                     requester_uuid: None,
                     assignee_uuid: None,
@@ -1380,7 +1378,7 @@ pub async fn bulk_tickets(
                 let update = TicketUpdate {
                     title: None,
                     status: None,
-                    priority: Some(priority.clone()),
+                    priority: Some(priority),
                     requester_uuid: None,
                     assignee_uuid: None,
                     updated_at: Some(chrono::Utc::now().naive_utc()),

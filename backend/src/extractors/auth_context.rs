@@ -101,7 +101,7 @@ impl std::fmt::Display for AuthContextError {
             Self::Unauthorized => write!(f, "Authentication required"),
             Self::InvalidUuid => write!(f, "Invalid user UUID in token"),
             Self::UserNotFound => write!(f, "User not found"),
-            Self::DatabaseError(e) => write!(f, "Database error: {}", e),
+            Self::DatabaseError(e) => write!(f, "Database error: {e}"),
         }
     }
 }

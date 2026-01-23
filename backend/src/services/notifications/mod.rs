@@ -47,9 +47,8 @@ pub mod preferences;
 pub mod service;
 pub mod types;
 
-pub use preferences::PreferenceService;
 pub use service::NotificationService;
 pub use types::{
-    DeliverableNotification, NotificationActor, NotificationChannel, NotificationEntity,
-    NotificationEvent, NotificationPayload, NotificationTypeCode,
+    NotificationChannel,
+    NotificationEvent, NotificationTypeCode,
 };

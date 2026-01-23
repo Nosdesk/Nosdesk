@@ -12,11 +12,11 @@ fn main() {
     let password = &args[1];
     match hash(password, DEFAULT_COST) {
         Ok(hashed) => {
-            println!("Password: {}", password);
-            println!("Bcrypt hash: {}", hashed);
+            println!("Password: {password}");
+            println!("Bcrypt hash: {hashed}");
         },
         Err(e) => {
-            eprintln!("Error hashing password: {}", e);
+            eprintln!("Error hashing password: {e}");
         }
     }
 } 

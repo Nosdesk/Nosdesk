@@ -114,7 +114,7 @@ fn provision_plugin(conn: &mut DbConnection, plugin_dir: &Path) -> ProvisionResu
         Err(e) => {
             return ProvisionResult::Failed(
                 dir_name.to_string(),
-                format!("Failed to read manifest.json: {}", e),
+                format!("Failed to read manifest.json: {e}"),
             );
         }
     };
@@ -124,7 +124,7 @@ fn provision_plugin(conn: &mut DbConnection, plugin_dir: &Path) -> ProvisionResu
         Err(e) => {
             return ProvisionResult::Failed(
                 dir_name.to_string(),
-                format!("Invalid manifest.json: {}", e),
+                format!("Invalid manifest.json: {e}"),
             );
         }
     };
@@ -167,7 +167,7 @@ fn provision_plugin(conn: &mut DbConnection, plugin_dir: &Path) -> ProvisionResu
                 Err(e) => {
                     return ProvisionResult::Failed(
                         manifest.name.clone(),
-                        format!("Failed to serialize manifest: {}", e),
+                        format!("Failed to serialize manifest: {e}"),
                     );
                 }
             };
@@ -184,7 +184,7 @@ fn provision_plugin(conn: &mut DbConnection, plugin_dir: &Path) -> ProvisionResu
             if let Err(e) = plugin_repo::update_plugin_by_uuid(conn, plugin.uuid, update) {
                 return ProvisionResult::Failed(
                     manifest.name.clone(),
-                    format!("Failed to update plugin: {}", e),
+                    format!("Failed to update plugin: {e}"),
                 );
             }
 
@@ -207,7 +207,7 @@ fn provision_plugin(conn: &mut DbConnection, plugin_dir: &Path) -> ProvisionResu
                 Err(e) => {
                     return ProvisionResult::Failed(
                         manifest.name.clone(),
-                        format!("Failed to serialize manifest: {}", e),
+                        format!("Failed to serialize manifest: {e}"),
                     );
                 }
             };
@@ -229,7 +229,7 @@ fn provision_plugin(conn: &mut DbConnection, plugin_dir: &Path) -> ProvisionResu
                 Err(e) => {
                     return ProvisionResult::Failed(
                         manifest.name.clone(),
-                        format!("Failed to create plugin: {}", e),
+                        format!("Failed to create plugin: {e}"),
                     );
                 }
             };
@@ -249,7 +249,7 @@ fn provision_plugin(conn: &mut DbConnection, plugin_dir: &Path) -> ProvisionResu
         Err(e) => {
             ProvisionResult::Failed(
                 manifest.name.clone(),
-                format!("Database error: {}", e),
+                format!("Database error: {e}"),
             )
         }
     }
@@ -261,7 +261,7 @@ fn update_bundle(
     plugin: &crate::models::Plugin,
     bundle_path: &Path,
 ) -> Result<(), String> {
-    let content = fs::read(bundle_path).map_err(|e| format!("Failed to read bundle: {}", e))?;
+    let content = fs::read(bundle_path).map_err(|e| format!("Failed to read bundle: {e}"))?;
 
     // Calculate hash
     let mut context = Context::new(&SHA256);
@@ -270,10 +270,10 @@ fn update_bundle(
 
     // Copy bundle to uploads directory
     let upload_dir = PathBuf::from("/app/uploads/plugins").join(plugin.uuid.to_string());
-    fs::create_dir_all(&upload_dir).map_err(|e| format!("Failed to create upload dir: {}", e))?;
+    fs::create_dir_all(&upload_dir).map_err(|e| format!("Failed to create upload dir: {e}"))?;
 
     let dest_path = upload_dir.join("bundle.js");
-    fs::copy(bundle_path, &dest_path).map_err(|e| format!("Failed to copy bundle: {}", e))?;
+    fs::copy(bundle_path, &dest_path).map_err(|e| format!("Failed to copy bundle: {e}"))?;
 
     // Update database
     let update = PluginBundleUpdate {
@@ -283,7 +283,7 @@ fn update_bundle(
     };
 
     plugin_repo::update_plugin_bundle(conn, plugin.uuid, update)
-        .map_err(|e| format!("Failed to update bundle metadata: {}", e))?;
+        .map_err(|e| format!("Failed to update bundle metadata: {e}"))?;
 
     debug!("Updated bundle for plugin: {}", plugin.name);
     Ok(())
@@ -300,7 +300,7 @@ fn update_bundle_if_changed(
         Err(e) => {
             return Some(ProvisionResult::Failed(
                 plugin.name.clone(),
-                format!("Failed to read bundle: {}", e),
+                format!("Failed to read bundle: {e}"),
             ));
         }
     };

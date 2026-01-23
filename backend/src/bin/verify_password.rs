@@ -15,24 +15,24 @@ fn main() {
     // Verify the password against the hash
     match verify(password, hash_str) {
         Ok(result) => {
-            println!("Password verification result: {}", result);
+            println!("Password verification result: {result}");
             if !result {
                 println!("Password does not match the hash.");
             }
         },
         Err(e) => {
-            println!("Error verifying password: {:?}", e);
+            println!("Error verifying password: {e:?}");
         }
     }
 
     // Generate a new hash for the password
     match bcrypt::hash(password, DEFAULT_COST) {
         Ok(new_hash) => {
-            println!("New hash for '{}': {}", password, new_hash);
+            println!("New hash for '{password}': {new_hash}");
             println!("Bytes: {:?}", new_hash.as_bytes());
         },
         Err(e) => {
-            println!("Error generating hash: {:?}", e);
+            println!("Error generating hash: {e:?}");
         }
     }
 } 

@@ -18,7 +18,7 @@ pub enum RateLimitError {
 impl std::fmt::Display for RateLimitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::RedisError(msg) => write!(f, "Redis error: {}", msg),
+            Self::RedisError(msg) => write!(f, "Redis error: {msg}"),
             Self::ConnectionFailed => write!(f, "Failed to connect to Redis"),
         }
     }
@@ -98,7 +98,7 @@ impl RateLimiter {
         key: &str,
         ttl_seconds: u64,
     ) -> Result<(), RateLimitError> {
-        use redis::AsyncCommands;
+        
 
         let client = redis::Client::open(redis_url)
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
@@ -137,7 +137,7 @@ impl RateLimiter {
     /// # Returns
     /// Formatted Redis key for MFA rate limiting
     pub fn mfa_attempt_key(user_uuid: &Uuid) -> String {
-        format!("mfa_attempts:{}", user_uuid)
+        format!("mfa_attempts:{user_uuid}")
     }
 
     /// Generate a standardized rate limit key for login attempts (by email)
@@ -157,7 +157,7 @@ impl RateLimiter {
             .await
             .map_err(|_| RateLimitError::ConnectionFailed)?;
 
-        con.del(key)
+        con.del::<_, ()>(key)
             .await
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
 
@@ -205,7 +205,7 @@ impl RateLimiter {
         key: &str,
         lockout_seconds: u64,
     ) -> Result<u32, RateLimitError> {
-        use redis::AsyncCommands;
+        
 
         let client = redis::Client::open(redis_url)
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;

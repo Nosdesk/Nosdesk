@@ -121,7 +121,7 @@ pub async fn start_passkey_registration(
 
     // Rate limiting: 5 passkey registrations per hour per user
     let redis_url = get_redis_url();
-    let rate_key = format!("passkey_registration:{}", user_uuid);
+    let rate_key = format!("passkey_registration:{user_uuid}");
     match RateLimiter::check_rate_limit(&redis_url, &rate_key, 5, 3600).await {
         Ok(false) => {
             return HttpResponse::TooManyRequests().json(json!({
@@ -396,12 +396,12 @@ pub async fn start_passkey_login(
 
     // Rate limit key - use IP for usernameless, email for email-based
     let rate_key = if let Some(ref email) = email {
-        format!("passkey_login_attempts:{}", email)
+        format!("passkey_login_attempts:{email}")
     } else {
         let ip = req.connection_info().realip_remote_addr()
             .unwrap_or("unknown")
             .to_string();
-        format!("passkey_login_attempts:ip:{}", ip)
+        format!("passkey_login_attempts:ip:{ip}")
     };
 
     match RateLimiter::check_rate_limit(&redis_url, &rate_key, 10, 300).await {
@@ -714,8 +714,7 @@ fn find_user_by_credential_id(
     let user: Option<crate::models::User> = users::table
         .filter(users::passkey_credentials.is_not_null())
         .filter(sql::<Bool>(&format!(
-            "passkey_credentials->'credentials' @> '{}'::jsonb",
-            search_pattern
+            "passkey_credentials->'credentials' @> '{search_pattern}'::jsonb"
         )))
         .first(conn)
         .ok();
@@ -966,7 +965,7 @@ fn get_local_password_hash(user_uuid: &Uuid, conn: &mut crate::db::DbConnection)
         .select(user_auth_identities::password_hash)
         .first::<Option<String>>(conn)
         .optional()
-        .map_err(|e| format!("Database error: {}", e))?
+        .map_err(|e| format!("Database error: {e}"))?
         .flatten();
 
     password_hash.ok_or_else(|| "No local password found for this user".to_string())

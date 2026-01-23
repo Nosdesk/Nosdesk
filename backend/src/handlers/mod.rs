@@ -264,8 +264,8 @@ pub async fn add_comment_to_ticket(
                             
                             // Get the file path from the URL and use storage abstraction
                             let file_path = attachment.url.trim_start_matches("/uploads/temp/");
-                            let old_storage_path = format!("temp/{}", file_path);
-                            let new_storage_path = format!("tickets/{}/{}", ticket_id, file_path);
+                            let old_storage_path = format!("temp/{file_path}");
+                            let new_storage_path = format!("tickets/{ticket_id}/{file_path}");
 
                             debug!(from = %old_storage_path, to = %new_storage_path, "Moving file using storage abstraction");
                             
@@ -274,7 +274,7 @@ pub async fn add_comment_to_ticket(
                                 Ok(_) => {
                                     debug!(from = %old_storage_path, to = %new_storage_path, "Moved file using storage");
                                     // Update the URL to point to the new location (keep /uploads prefix for frontend compatibility)
-                                    attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
+                                    attachment.url = format!("/uploads/tickets/{ticket_id}/{file_path}");
 
                                     // Also move PDF thumbnail if it exists
                                     if attachment.mime_type.as_deref() == Some("application/pdf") {
@@ -282,11 +282,11 @@ pub async fn add_comment_to_ticket(
                                         let old_thumb_path = old_storage_path
                                             .strip_suffix(".pdf")
                                             .or_else(|| old_storage_path.strip_suffix(".PDF"))
-                                            .map(|base| format!("{}{}", base, thumb_suffix));
+                                            .map(|base| format!("{base}{thumb_suffix}"));
                                         let new_thumb_path = new_storage_path
                                             .strip_suffix(".pdf")
                                             .or_else(|| new_storage_path.strip_suffix(".PDF"))
-                                            .map(|base| format!("{}{}", base, thumb_suffix));
+                                            .map(|base| format!("{base}{thumb_suffix}"));
 
                                         if let (Some(old_thumb), Some(new_thumb)) = (old_thumb_path, new_thumb_path) {
                                             if let Err(e) = storage.move_file(&old_thumb, &new_thumb).await {
@@ -300,9 +300,9 @@ pub async fn add_comment_to_ticket(
                                 Err(e) => {
                                     warn!(error = ?e, "Error moving file with storage, falling back to filesystem");
                                     // Fallback to filesystem operations if storage fails
-                                    let old_fs_path = format!("uploads/{}", old_storage_path);
-                                    let new_fs_path = format!("uploads/{}", new_storage_path);
-                                    let new_fs_dir = format!("uploads/tickets/{}", ticket_id);
+                                    let old_fs_path = format!("uploads/{old_storage_path}");
+                                    let new_fs_path = format!("uploads/{new_storage_path}");
+                                    let new_fs_dir = format!("uploads/tickets/{ticket_id}");
                                     
                                     // Create directory if it doesn't exist
                                     if !std::path::Path::new(&new_fs_dir).exists() {
@@ -324,7 +324,7 @@ pub async fn add_comment_to_ticket(
                                                 warn!(error = %e, path = %old_fs_path, "Error removing original file");
                                             }
                                             // Update the URL to point to the new location
-                                            attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
+                                            attachment.url = format!("/uploads/tickets/{ticket_id}/{file_path}");
 
                                             // Also move PDF thumbnail if it exists (filesystem fallback)
                                             if attachment.mime_type.as_deref() == Some("application/pdf") {
@@ -336,7 +336,7 @@ pub async fn add_comment_to_ticket(
                                         }
                                     } else {
                                         // Update the URL to point to the new location
-                                        attachment.url = format!("/uploads/tickets/{}/{}", ticket_id, file_path);
+                                        attachment.url = format!("/uploads/tickets/{ticket_id}/{file_path}");
 
                                         // Also move PDF thumbnail if it exists (filesystem fallback)
                                         if attachment.mime_type.as_deref() == Some("application/pdf") {
@@ -380,7 +380,7 @@ pub async fn add_comment_to_ticket(
                         },
                         Err(e) => {
                             error!(attachment_id = id, error = %e, "Error finding attachment");
-                            attachment_errors.push(format!("Failed to find attachment ID {}: {}", id, e));
+                            attachment_errors.push(format!("Failed to find attachment ID {id}: {e}"));
                         }
                     }
                 }
@@ -646,11 +646,11 @@ pub async fn serve_public_file(
     // Determine the storage path based on the request URI
     let uri = req.uri().to_string();
     let storage_path = if uri.starts_with("/uploads/users/avatars/") {
-        format!("users/avatars/{}", filename)
+        format!("users/avatars/{filename}")
     } else if uri.starts_with("/uploads/users/banners/") {
-        format!("users/banners/{}", filename)
+        format!("users/banners/{filename}")
     } else if uri.starts_with("/uploads/users/thumbs/") {
-        format!("users/thumbs/{}", filename)
+        format!("users/thumbs/{filename}")
     } else {
         warn!(filename = %filename, "Security violation: Attempted to access non-avatar/banner/thumb file");
         return HttpResponse::Forbidden().finish();

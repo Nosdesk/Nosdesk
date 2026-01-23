@@ -1056,7 +1056,7 @@ pub async fn install_plugin_from_zip(
         Ok(m) => m,
         Err(e) => {
             error!("Invalid manifest.json: {}", e);
-            return HttpResponse::BadRequest().json(format!("Invalid manifest.json: {}", e));
+            return HttpResponse::BadRequest().json(format!("Invalid manifest.json: {e}"));
         }
     };
 
@@ -1069,8 +1069,7 @@ pub async fn install_plugin_from_zip(
     // Check if plugin already exists
     if plugin_repo::get_plugin_by_name(&mut conn, &name).is_ok() {
         return HttpResponse::Conflict().json(format!(
-            "Plugin '{}' already exists. Uninstall it first or use the update endpoint.",
-            name
+            "Plugin '{name}' already exists. Uninstall it first or use the update endpoint."
         ));
     }
 

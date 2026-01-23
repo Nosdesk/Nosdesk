@@ -27,13 +27,10 @@ pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::
     // Wait for database to be ready
     let mut attempts = 0;
     while attempts < 30 {
-        match pool.get() {
-            Ok(mut conn) => {
-                if diesel::sql_query("SELECT 1").execute(&mut conn).is_ok() {
-                    break;
-                }
+        if let Ok(mut conn) = pool.get() {
+            if diesel::sql_query("SELECT 1").execute(&mut conn).is_ok() {
+                break;
             }
-            Err(_) => {}
         }
 
         attempts += 1;
@@ -51,7 +48,7 @@ pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::
 
     // Run migrations
     let mut conn = pool.get()
-        .map_err(|e| format!("Failed to get database connection: {}", e))?;
+        .map_err(|e| format!("Failed to get database connection: {e}"))?;
 
     match conn.run_pending_migrations(MIGRATIONS) {
         Ok(migrations) => {
@@ -61,7 +58,7 @@ pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::
         }
         Err(e) => {
             error!(error = %e, "Failed to run migrations");
-            return Err(e.into());
+            return Err(e);
         }
     }
 

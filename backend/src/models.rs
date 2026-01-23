@@ -7,9 +7,7 @@ use diesel::serialize::{self, IsNull, Output, ToSql};
 // Removed unused import: use diesel::sql_types::Text;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use serde_json;
 use uuid::Uuid;
-use anyhow;
 
 // Simple UUID serialization helpers
 #[allow(dead_code)]
@@ -1782,7 +1780,7 @@ impl std::str::FromStr for SecurityEventType {
             "session_revoked" => Ok(Self::SessionRevoked),
             "account_locked" => Ok(Self::AccountLocked),
             "suspicious_activity" => Ok(Self::SuspiciousActivity),
-            _ => Err(format!("Invalid security event type: {}", s)),
+            _ => Err(format!("Invalid security event type: {s}")),
         }
     }
 }
@@ -1822,7 +1820,7 @@ impl std::str::FromStr for SecurityEventSeverity {
             "info" => Ok(Self::Info),
             "warning" => Ok(Self::Warning),
             "critical" => Ok(Self::Critical),
-            _ => Err(format!("Invalid security event severity: {}", s)),
+            _ => Err(format!("Invalid security event severity: {s}")),
         }
     }
 }
@@ -2460,7 +2458,7 @@ impl std::fmt::Display for AssignmentMethod {
             AssignmentMethod::GroupRandom => "group_random",
             AssignmentMethod::GroupQueue => "group_queue",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -2947,17 +2945,14 @@ pub struct WebhookDeliveryResponse {
 /// Plugin trust level
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum PluginTrustLevel {
     Official,
     Verified,
+    #[default]
     Community,
 }
 
-impl Default for PluginTrustLevel {
-    fn default() -> Self {
-        PluginTrustLevel::Community
-    }
-}
 
 impl std::fmt::Display for PluginTrustLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

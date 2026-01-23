@@ -81,20 +81,20 @@ impl PluginProxyService {
         // GitHub API
         if host == "api.github.com" || host.ends_with(".github.com") {
             if let Some(token) = secrets.get("github_token") {
-                return Some(format!("Bearer {}", token));
+                return Some(format!("Bearer {token}"));
             }
         }
 
         // GitLab API
         if host == "gitlab.com" || host.ends_with(".gitlab.com") {
             if let Some(token) = secrets.get("gitlab_token") {
-                return Some(format!("Bearer {}", token));
+                return Some(format!("Bearer {token}"));
             }
         }
 
         // Generic: check for auth_token setting
         if let Some(token) = secrets.get("auth_token") {
-            return Some(format!("Bearer {}", token));
+            return Some(format!("Bearer {token}"));
         }
 
         None
@@ -183,7 +183,7 @@ impl PluginProxyService {
                 error = %e,
                 "Failed to execute proxied request"
             );
-            format!("Request failed: {}", e)
+            format!("Request failed: {e}")
         })?;
 
         let status = response.status().as_u16();

@@ -268,8 +268,7 @@ impl<'a> EmailTemplate<'a> {
         let items_html: String = items
             .iter()
             .map(|item| format!(
-                r#"<li style="margin: 0 0 8px 0; color: #374151; font-size: 14px; line-height: 1.5;">{}</li>"#,
-                item
+                r#"<li style="margin: 0 0 8px 0; color: #374151; font-size: 14px; line-height: 1.5;">{item}</li>"#
             ))
             .collect();
 
@@ -286,10 +285,6 @@ impl<'a> EmailTemplate<'a> {
                     </td>
                 </tr>
             </table>"#,
-            bg_color = bg_color,
-            border_color = border_color,
-            title = title,
-            items_html = items_html,
         )
     }
 }
@@ -372,7 +367,7 @@ impl EmailConfig {
     pub fn from_mailbox(&self) -> Result<Mailbox, String> {
         format!("{} <{}>", self.from_name, self.from_email)
             .parse()
-            .map_err(|e| format!("Invalid from address: {}", e))
+            .map_err(|e| format!("Invalid from address: {e}"))
     }
 
     /// Check if email is properly configured
@@ -410,7 +405,7 @@ impl EmailService {
 
         // Use starttls_relay for explicit STARTTLS on port 587
         let transport = SmtpTransport::starttls_relay(&self.config.smtp_host)
-            .map_err(|e| format!("Failed to create SMTP transport: {}", e))?
+            .map_err(|e| format!("Failed to create SMTP transport: {e}"))?
             .port(self.config.smtp_port)
             .credentials(creds)
             .build();
@@ -430,7 +425,7 @@ impl EmailService {
         }
 
         let to_mailbox: Mailbox = to.parse()
-            .map_err(|e| format!("Invalid recipient email: {}", e))?;
+            .map_err(|e| format!("Invalid recipient email: {e}"))?;
 
         let email = Message::builder()
             .from(self.config.from_mailbox()?)
@@ -438,12 +433,12 @@ impl EmailService {
             .subject(subject)
             .header(ContentType::TEXT_PLAIN)
             .body(body.to_string())
-            .map_err(|e| format!("Failed to build email: {}", e))?;
+            .map_err(|e| format!("Failed to build email: {e}"))?;
 
         let mailer = self.build_transport()?;
 
         mailer.send(&email)
-            .map_err(|e| format!("Failed to send email: {}", e))?;
+            .map_err(|e| format!("Failed to send email: {e}"))?;
 
         Ok(())
     }
@@ -460,7 +455,7 @@ impl EmailService {
         }
 
         let to_mailbox: Mailbox = to.parse()
-            .map_err(|e| format!("Invalid recipient email: {}", e))?;
+            .map_err(|e| format!("Invalid recipient email: {e}"))?;
 
         let email = Message::builder()
             .from(self.config.from_mailbox()?)
@@ -468,12 +463,12 @@ impl EmailService {
             .subject(subject)
             .header(ContentType::TEXT_HTML)
             .body(html_body.to_string())
-            .map_err(|e| format!("Failed to build email: {}", e))?;
+            .map_err(|e| format!("Failed to build email: {e}"))?;
 
         let mailer = self.build_transport()?;
 
         mailer.send(&email)
-            .map_err(|e| format!("Failed to send email: {}", e))?;
+            .map_err(|e| format!("Failed to send email: {e}"))?;
 
         Ok(())
     }

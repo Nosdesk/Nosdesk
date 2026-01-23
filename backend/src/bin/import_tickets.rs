@@ -23,7 +23,7 @@ fn main() {
     let json_content = match fs::read_to_string(path) {
         Ok(content) => content,
         Err(e) => {
-            println!("Failed to read JSON file: {}", e);
+            println!("Failed to read JSON file: {e}");
             return;
         }
     };
@@ -32,7 +32,7 @@ fn main() {
     let tickets_json: TicketsJson = match serde_json::from_str(&json_content) {
         Ok(tickets) => tickets,
         Err(e) => {
-            println!("Failed to parse JSON: {}", e);
+            println!("Failed to parse JSON: {e}");
             return;
         }
     };
@@ -42,7 +42,7 @@ fn main() {
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(e) => {
-            println!("Database connection error: {}", e);
+            println!("Database connection error: {e}");
             return;
         }
     };
@@ -60,10 +60,10 @@ fn main() {
             }
             Err(e) => {
                 failed_count += 1;
-                println!("  Failed: {}", e);
+                println!("  Failed: {e}");
             }
         }
     }
 
-    println!("Import complete. Imported: {}, Failed: {}", imported_count, failed_count);
+    println!("Import complete. Imported: {imported_count}, Failed: {failed_count}");
 } 

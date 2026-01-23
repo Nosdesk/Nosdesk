@@ -8,7 +8,7 @@ use crate::models::{PasswordResetRequest, PasswordResetResponse, PasswordResetCo
 use crate::repository;
 use crate::utils::auth::hash_password;
 use crate::utils::reset_tokens::{TokenType, ResetTokenUtils};
-use crate::utils::email::{EmailService, EmailBranding};
+use crate::utils::email::EmailService;
 use crate::utils::email_branding::get_email_branding;
 
 /// Rate limiting: Maximum password reset requests per user within time window
@@ -118,7 +118,7 @@ pub async fn request_password_reset(
                 "http"
             };
             let host = http_request.connection_info().host().to_string();
-            format!("{}://{}", scheme, host)
+            format!("{scheme}://{host}")
         });
 
     // Get user's primary email for sending reset link

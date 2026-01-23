@@ -218,19 +218,19 @@ pub enum JwtError {
 impl std::fmt::Display for JwtError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::EncodingError(e) => write!(f, "JWT encoding error: {}", e),
+            Self::EncodingError(e) => write!(f, "JWT encoding error: {e}"),
             Self::SystemTime => write!(f, "System time error"),
             Self::InvalidUserUuid => write!(f, "Invalid user UUID in token"),
             Self::UserNotFound => write!(f, "User not found or inactive"),
             Self::RoleMismatch { token_role, current_role } => {
-                write!(f, "Role mismatch - token has '{}', current role is '{}'", token_role, current_role)
+                write!(f, "Role mismatch - token has '{token_role}', current role is '{current_role}'")
             }
             Self::MissingToken => write!(f, "Missing authentication token"),
             Self::InsufficientPermissions { required, actual } => {
-                write!(f, "Insufficient permissions - required: {}, actual: {}", required, actual)
+                write!(f, "Insufficient permissions - required: {required}, actual: {actual}")
             }
             Self::InsufficientScope { required, actual } => {
-                write!(f, "Insufficient token scope - required: {}, actual: {}", required, actual)
+                write!(f, "Insufficient token scope - required: {required}, actual: {actual}")
             }
             Self::SessionRevoked => write!(f, "Session has been revoked"),
         }

@@ -144,7 +144,7 @@ impl EmailChannel {
             .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
 
         email_result.ok_or_else(|| {
-            ChannelError::InvalidRecipient(format!("No primary email for user {}", recipient_uuid))
+            ChannelError::InvalidRecipient(format!("No primary email for user {recipient_uuid}"))
         })
     }
 
@@ -200,7 +200,7 @@ impl EmailChannel {
             .filter(code.eq(type_code))
             .select(id_col)
             .first(&mut conn)
-            .map_err(|e| ChannelError::DatabaseError(format!("Notification type not found: {}", e)))
+            .map_err(|e| ChannelError::DatabaseError(format!("Notification type not found: {e}")))
     }
 }
 

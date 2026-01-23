@@ -4,10 +4,9 @@ use futures::{StreamExt, TryStreamExt};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::models::{SiteSettings, SiteSettingsResponse, UpdateSiteSettings};
+use crate::models::{SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;
 
@@ -184,8 +183,8 @@ pub async fn upload_branding_image(
 
     info!(image_type = %image_type, user_id = %user_uuid, "Processing branding image upload");
 
-    // Process the uploaded file
-    while let Ok(Some(mut field)) = payload.try_next().await {
+    // Process the uploaded file (we only handle the first field)
+    if let Ok(Some(mut field)) = payload.try_next().await {
         let content_type = field
             .content_type()
             .map(|ct| ct.to_string())
@@ -257,12 +256,12 @@ pub async fn upload_branding_image(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let filename = format!("{}_{}.{}", image_type, timestamp, file_ext);
-        let storage_path = format!("{}/{}", storage_dir, filename);
-        let url = format!("/uploads/{}", storage_path);
+        let filename = format!("{image_type}_{timestamp}.{file_ext}");
+        let storage_path = format!("{storage_dir}/{filename}");
+        let url = format!("/uploads/{storage_path}");
 
         // Ensure directory exists
-        let dir_path = format!("uploads/{}", storage_dir);
+        let dir_path = format!("uploads/{storage_dir}");
         if let Err(e) = std::fs::create_dir_all(&dir_path) {
             error!(error = ?e, dir_path = %dir_path, "Error creating branding directory");
             return HttpResponse::InternalServerError().json(json!({
@@ -275,7 +274,7 @@ pub async fn upload_branding_image(
         cleanup_old_branding_images(&dir_path, image_type).await;
 
         // Save the file
-        let file_path = format!("uploads/{}", storage_path);
+        let file_path = format!("uploads/{storage_path}");
         if let Err(e) = std::fs::write(&file_path, &file_data) {
             error!(error = ?e, file_path = %file_path, "Error writing file");
             return HttpResponse::InternalServerError().json(json!({
@@ -442,7 +441,7 @@ async fn cleanup_old_branding_images(dir: &str, image_type: &str) {
             if let Some(stem) = path.file_stem() {
                 let stem_str = stem.to_string_lossy();
                 // Match files that start with the image type (e.g., "logo_1234567890")
-                if stem_str == image_type || stem_str.starts_with(&format!("{}_", image_type)) {
+                if stem_str == image_type || stem_str.starts_with(&format!("{image_type}_")) {
                     if let Err(e) = std::fs::remove_file(&path) {
                         warn!(error = ?e, path = ?path, "Failed to cleanup old file");
                     } else {
@@ -474,7 +473,7 @@ pub async fn serve_branding_file(
         }));
     }
 
-    let file_path = format!("uploads/branding/{}", filename);
+    let file_path = format!("uploads/branding/{filename}");
 
     match std::fs::read(&file_path) {
         Ok(content) => {

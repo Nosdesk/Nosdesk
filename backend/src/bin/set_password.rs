@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Hash the password
     let hashed_password = hash(password, DEFAULT_COST)?;
-    println!("Generated hash: {}", hashed_password);
+    println!("Generated hash: {hashed_password}");
     
     // Convert to bytes for storage
     let password_bytes = hashed_password.into_bytes();
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     .bind::<diesel::sql_types::Text, _>(email)
     .execute(&mut conn)?;
 
-    println!("Updated {} user(s) with email: {}", affected_rows, email);
+    println!("Updated {affected_rows} user(s) with email: {email}");
 
     Ok(())
 } 

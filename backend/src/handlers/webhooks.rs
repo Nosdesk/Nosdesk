@@ -63,7 +63,7 @@ fn validate_events(events: &[String]) -> Result<(), HttpResponse> {
     }
     let valid_events = WebhookEventType::all();
     if let Some(invalid) = events.iter().find(|e| !valid_events.contains(&e.as_str())) {
-        return Err(HttpResponse::BadRequest().json(format!("Invalid event type: {}", invalid)));
+        return Err(HttpResponse::BadRequest().json(format!("Invalid event type: {invalid}")));
     }
     Ok(())
 }
@@ -392,7 +392,7 @@ pub async fn test_webhook(
         }
         Err(e) => {
             error!("Failed to send test event: {}", e);
-            HttpResponse::InternalServerError().json(format!("Failed to send test event: {}", e))
+            HttpResponse::InternalServerError().json(format!("Failed to send test event: {e}"))
         }
     }
 }
