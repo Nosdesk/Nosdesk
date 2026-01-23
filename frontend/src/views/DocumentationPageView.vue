@@ -897,8 +897,8 @@ watch(searchQuery, (value) => {
 
 <template>
   <div class="bg-app flex flex-col h-full">
-    <!-- Header bar matching TicketsListView style -->
-    <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
+    <!-- Header bar matching TicketsListView style (hidden on print) -->
+    <div class="print:hidden sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2 flex-wrap" ref="searchRef">
         <!-- Back button -->
         <BackButton :fallbackRoute="fallbackRoute" :label="backButtonLabel" />
@@ -1052,9 +1052,9 @@ watch(searchQuery, (value) => {
                   <span class="text-secondary">{{ (page || article)?.created_by?.name || 'Unknown' }}</span>
                 </div>
 
-                <!-- SSE Connection Status Indicator -->
+                <!-- SSE Connection Status Indicator (hidden on print) -->
                 <div
-                  class="w-2 h-2 rounded-full flex-shrink-0"
+                  class="print:hidden w-2 h-2 rounded-full flex-shrink-0"
                   :class="{
                     'bg-status-success animate-pulse': isConnected,
                     'bg-status-warning animate-pulse': isConnecting && !isConnected,
@@ -1078,8 +1078,8 @@ watch(searchQuery, (value) => {
                 </template>
               </div>
 
-              <!-- Action Buttons -->
-              <div class="flex items-center gap-2">
+              <!-- Action Buttons (hidden on print) -->
+              <div class="print:hidden flex items-center gap-2">
                 <!-- Linked Ticket Button -->
                 <RouterLink
                   v-if="page?.ticket_id || article?.ticket_id"
@@ -1121,12 +1121,12 @@ watch(searchQuery, (value) => {
           </div>
         </div>
 
-        <!-- Revision History Sidebar -->
+        <!-- Revision History Sidebar (hidden on print) -->
         <RevisionHistory
           v-if="showRevisionHistory && (page?.id || article?.id)"
           type="documentation"
           :document-id="Number(page?.id || article?.id)"
-          class="flex-shrink-0"
+          class="print:hidden flex-shrink-0"
           @close="handleCloseRevisionHistory"
           @select-revision="handleSelectRevision"
           @restored="handleRevisionRestored"
@@ -1175,10 +1175,10 @@ watch(searchQuery, (value) => {
       </div>
     </div>
 
-    <!-- Success message toast -->
+    <!-- Success message toast (hidden on print) -->
     <div
       v-if="showSuccessMessage"
-      class="fixed bottom-4 right-4 bg-status-success text-white px-4 py-2 rounded-md shadow-lg flex items-center gap-2 animate-fadeIn"
+      class="print:hidden fixed bottom-4 right-4 bg-status-success text-white px-4 py-2 rounded-md shadow-lg flex items-center gap-2 animate-fadeIn"
     >
       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />

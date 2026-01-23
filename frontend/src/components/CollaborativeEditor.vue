@@ -2880,17 +2880,8 @@ defineExpose({
     border-radius: 0;
     color: var(--color-primary);
     display: block;
-    overflow-x: auto;
-    white-space: pre;
-}
-
-/* Responsive code blocks - wrap on mobile for better readability */
-@media (max-width: 768px) {
-    .ProseMirror pre code {
-        white-space: pre-wrap;
-        word-break: break-word;
-        overflow-x: visible;
-    }
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 /* Syntax highlighting using theme variables (via prosemirror-highlight + lowlight) */
@@ -3490,5 +3481,175 @@ defineExpose({
     to {
         transform: rotate(360deg);
     }
+}
+
+/* ============================================
+   PRINT STYLES
+   ============================================ */
+@media print {
+  /* Hide toolbar and interactive elements */
+  .toolbar,
+  .editor-toolbar,
+  .connection-status-connecting,
+  .connection-status-disconnected,
+  .mention-dropdown,
+  .dropdown-menu,
+  .dropdown-menu-fixed {
+    display: none !important;
+  }
+
+  /* Editor container - clean for print */
+  .collaborative-editor {
+    background: white !important;
+    border: none !important;
+  }
+
+  .editor-container {
+    background: white !important;
+    border: none !important;
+  }
+
+  .ProseMirror {
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    min-height: auto !important;
+  }
+
+  /* Remove cursor indicators */
+  .ProseMirror-yjs-cursor,
+  .ProseMirror .yRemoteSelection,
+  .ProseMirror .yRemoteSelectionHead {
+    display: none !important;
+  }
+
+  /* Code blocks - visible border, light background */
+  .ProseMirror pre {
+    border: 1px solid #ccc !important;
+    background: #f8f9fa !important;
+    padding: 0.5rem !important;
+    font-size: 9pt !important;
+    page-break-inside: avoid !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+  }
+
+  .ProseMirror pre code {
+    background: transparent !important;
+    color: #000 !important;
+  }
+
+  /* Syntax highlighting - print in grayscale */
+  .ProseMirror pre code .hljs-comment,
+  .ProseMirror pre code .hljs-quote {
+    color: #666 !important;
+  }
+
+  .ProseMirror pre code .hljs-keyword,
+  .ProseMirror pre code .hljs-string,
+  .ProseMirror pre code .hljs-number,
+  .ProseMirror pre code .hljs-title,
+  .ProseMirror pre code .hljs-variable,
+  .ProseMirror pre code .hljs-type {
+    color: #333 !important;
+  }
+
+  /* Tables */
+  .ProseMirror table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  .ProseMirror th,
+  .ProseMirror td {
+    border: 1px solid #ccc !important;
+    padding: 0.25rem 0.5rem !important;
+  }
+
+  .ProseMirror th {
+    background: #f3f4f6 !important;
+  }
+
+  /* Images - reasonable max size */
+  .ProseMirror img {
+    max-height: 4in !important;
+    object-fit: contain !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Blockquotes */
+  .ProseMirror blockquote {
+    border-left: 2px solid #666 !important;
+    background: transparent !important;
+    padding-left: 0.75rem !important;
+    margin-left: 0 !important;
+    color: #333 !important;
+  }
+
+  /* Inline code */
+  .ProseMirror code {
+    background: #f3f4f6 !important;
+    border: 1px solid #e5e5e5 !important;
+    color: #000 !important;
+  }
+
+  /* Links - show as regular text */
+  .ProseMirror a {
+    color: #000 !important;
+    text-decoration: underline !important;
+  }
+
+  /* Ticket link cards - simplified for print */
+  .ProseMirror .ticket-link-card {
+    border: 1px solid #ccc !important;
+    background: #fafafa !important;
+    page-break-inside: avoid !important;
+  }
+
+  .ProseMirror .ticket-link-id,
+  .ProseMirror .ticket-link-title,
+  .ProseMirror .ticket-link-meta {
+    color: #000 !important;
+  }
+
+  .ProseMirror .ticket-link-status,
+  .ProseMirror .ticket-link-priority {
+    background: transparent !important;
+    border: 1px solid currentColor !important;
+  }
+
+  /* Hide loading states and drop previews */
+  .ProseMirror .ticket-drop-preview,
+  .ProseMirror .ticket-link-loading,
+  .ProseMirror .ticket-link-loader,
+  .ProseMirror .image-upload-placeholder {
+    display: none !important;
+  }
+
+  /* Mention chips - simplified */
+  .ProseMirror .mention-chip {
+    background: transparent !important;
+    color: #000 !important;
+    border: 1px solid #ccc !important;
+  }
+
+  /* Headings */
+  .ProseMirror h1,
+  .ProseMirror h2,
+  .ProseMirror h3,
+  .ProseMirror h4 {
+    color: #000 !important;
+    page-break-after: avoid !important;
+  }
+
+  .ProseMirror h1 {
+    border-bottom: 1px solid #ccc !important;
+  }
+
+  /* Lists */
+  .ProseMirror ul,
+  .ProseMirror ol {
+    color: #000 !important;
+  }
 }
 </style>

@@ -27,6 +27,11 @@ export interface PluginContext {
   device: Device | null;
 }
 
+export interface PluginUIHelpers {
+  /** Check if the page is currently being printed (via matchMedia) */
+  isPrinting(): boolean;
+}
+
 export type EventHandler = (data: unknown) => void | Promise<void>;
 
 // =============================================================================
@@ -219,6 +224,13 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
       logger.info(`Plugin notification [${type}]: ${message}`, { plugin: plugin.name });
     },
 
+    // === UI: UI state helpers ===
+    ui: {
+      isPrinting(): boolean {
+        return window.matchMedia?.('print').matches ?? false;
+      },
+    },
+
     // === CONTEXT: Current state ===
     get context(): PluginContext {
       return context;
@@ -278,6 +290,9 @@ export interface PluginAPI {
 
   // User feedback
   notify(message: string, type?: 'info' | 'success' | 'warning' | 'error'): void;
+
+  // UI helpers
+  ui: PluginUIHelpers;
 
   // Current context
   context: PluginContext;

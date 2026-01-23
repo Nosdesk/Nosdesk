@@ -264,7 +264,7 @@ const GitHubPanel = {
   },
 
   template: `
-    <div class="github-panel flex flex-col gap-2">
+    <div class="github-panel flex flex-col gap-2" :data-print-empty="!hasLinkedIssues">
       <!-- Section Header (matches TicketView sidebar sections) -->
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
@@ -274,19 +274,19 @@ const GitHubPanel = {
         <a
           @click.prevent="showSearch = !showSearch"
           href="#"
-          class="text-accent hover:underline text-sm"
+          class="print:hidden text-accent hover:underline text-sm"
         >
           {{ showSearch ? 'Cancel' : 'Link Issue' }}
         </a>
       </div>
 
-      <!-- Error -->
-      <div v-if="error" class="p-3 rounded-xl bg-status-error/10 border border-status-error/30 text-status-error text-sm">
+      <!-- Error (hidden on print) -->
+      <div v-if="error" class="print:hidden p-3 rounded-xl bg-status-error/10 border border-status-error/30 text-status-error text-sm">
         {{ error }}
       </div>
 
-      <!-- Search Panel -->
-      <div v-if="showSearch" class="p-3 rounded-xl bg-surface border border-default">
+      <!-- Search Panel (hidden on print) -->
+      <div v-if="showSearch" class="print:hidden p-3 rounded-xl bg-surface border border-default">
         <div class="flex gap-2 mb-2">
           <input
             v-model="searchQuery"
@@ -333,8 +333,8 @@ const GitHubPanel = {
         </div>
       </div>
 
-      <!-- Loading -->
-      <div v-if="isLoading" class="flex items-center justify-center py-4">
+      <!-- Loading (hidden on print) -->
+      <div v-if="isLoading" class="print:hidden flex items-center justify-center py-4">
         <span v-html="icons.spinner" class="text-tertiary"></span>
       </div>
 
@@ -363,7 +363,7 @@ const GitHubPanel = {
             </a>
             <button
               @click="unlinkIssue(issue)"
-              class="p-1.5 flex-shrink-0 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors"
+              class="print:hidden p-1.5 flex-shrink-0 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors"
               title="Unlink issue"
             >
               <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -408,8 +408,8 @@ const GitHubPanel = {
         </div>
       </div>
 
-      <!-- Empty State -->
-      <div v-else class="text-tertiary text-sm">
+      <!-- Empty State (hidden on print - entire panel is hidden when empty) -->
+      <div v-else class="print:hidden text-tertiary text-sm">
         No linked GitHub issues
       </div>
     </div>

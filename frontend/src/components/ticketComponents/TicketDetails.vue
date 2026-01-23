@@ -1,13 +1,24 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watchEffect } from 'vue';
+import QRCode from 'qrcode';
 import UserAutocomplete from "@/components/ticketComponents/UserSelection.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
 import ContentEditable from "@/components/ticketComponents/ContentEditable.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
+import UserAvatar from "@/components/UserAvatar.vue";
+import LogoIcon from "@/components/icons/LogoIcon.vue";
+import { useBrandingStore } from "@/stores/branding";
 
 // Refs for user autocomplete components
 const requesterRef = ref<InstanceType<typeof UserAutocomplete> | null>(null);
 const assigneeRef = ref<InstanceType<typeof UserAutocomplete> | null>(null);
+
+// QR code for print
+const qrCodeDataUrl = ref<string | null>(null);
+
+// Branding for print header
+const brandingStore = useBrandingStore();
+const customLogoUrl = computed(() => brandingStore.getLogoUrl(false)); // Light mode logo for print
 
 interface UserInfo {
   uuid: string;
@@ -70,11 +81,138 @@ const selectedAssignee = computed(() =>
 const handleTitleUpdate = (newTitle: string) => {
   emit('update:title', newTitle);
 };
+
+// Print-friendly display values
+const statusLabel = computed(() => {
+  const option = props.statusOptions.find(o => o.value === props.selectedStatus);
+  return option?.label || props.selectedStatus || 'Unknown';
+});
+
+const priorityLabel = computed(() => {
+  const option = props.priorityOptions.find(o => o.value === props.selectedPriority);
+  return option?.label || props.selectedPriority || 'Unknown';
+});
+
+const categoryLabel = computed(() => {
+  if (!props.selectedCategory) return null;
+  const option = props.categoryOptions?.find(o => o.value === String(props.selectedCategory));
+  return option?.label || props.ticket.category?.name || null;
+});
+
+// Generate QR code for ticket URL (for print)
+const ticketUrl = computed(() => {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.origin}/tickets/${props.ticket.id}`;
+});
+
+watchEffect(async () => {
+  if (props.ticket.id) {
+    try {
+      qrCodeDataUrl.value = await QRCode.toDataURL(ticketUrl.value, {
+        width: 80,
+        margin: 1,
+        color: {
+          dark: '#000000',
+          light: '#ffffff'
+        }
+      });
+    } catch (err) {
+      console.error('Failed to generate QR code:', err);
+    }
+  }
+});
 </script>
 
 <template>
   <div class="w-full">
-    <SectionCard>
+    <!-- Print-only branding header -->
+    <div class="hidden print:block print-branding-header">
+      <img v-if="customLogoUrl" :src="customLogoUrl" alt="Logo" class="print-logo-image" />
+      <LogoIcon v-else class="print-logo-icon" />
+    </div>
+
+    <!-- Print-only compact layout -->
+    <div class="hidden print:block print-ticket-details">
+      <!-- Header with ID and Title (full width) -->
+      <div class="print-ticket-header">
+        <span class="print-ticket-id">#{{ ticket.id }}</span>
+        <h1 class="print-ticket-title">{{ ticket.title }}</h1>
+      </div>
+
+      <!-- Metadata Grid -->
+      <div class="print-ticket-meta">
+        <!-- Status & Priority Row -->
+        <div class="print-meta-row">
+          <div class="print-meta-item">
+            <span class="print-meta-label">Status</span>
+            <span class="print-badge" :class="`print-badge-${selectedStatus}`">{{ statusLabel }}</span>
+          </div>
+          <div class="print-meta-item">
+            <span class="print-meta-label">Priority</span>
+            <span class="print-badge" :class="`print-badge-${selectedPriority}`">{{ priorityLabel }}</span>
+          </div>
+          <div v-if="categoryLabel" class="print-meta-item">
+            <span class="print-meta-label">Category</span>
+            <span class="print-badge">{{ categoryLabel }}</span>
+          </div>
+        </div>
+
+        <!-- People Row -->
+        <div class="print-meta-row print-people-row">
+          <div class="print-meta-item print-person">
+            <span class="print-meta-label">Requester</span>
+            <div v-if="ticket.requester_user" class="print-user">
+              <UserAvatar
+                :name="ticket.requester_user.uuid"
+                :userName="ticket.requester_user.name"
+                :avatar="ticket.requester_user.avatar_thumb || ticket.requester_user.avatar_url"
+                size="sm"
+                :showName="false"
+                :clickable="false"
+              />
+              <span class="print-user-name">{{ ticket.requester_user.name }}</span>
+            </div>
+            <span v-else class="print-meta-empty">Unassigned</span>
+          </div>
+          <div class="print-meta-item print-person">
+            <span class="print-meta-label">Assignee</span>
+            <div v-if="ticket.assignee_user" class="print-user">
+              <UserAvatar
+                :name="ticket.assignee_user.uuid"
+                :userName="ticket.assignee_user.name"
+                :avatar="ticket.assignee_user.avatar_thumb || ticket.assignee_user.avatar_url"
+                size="sm"
+                :showName="false"
+                :clickable="false"
+              />
+              <span class="print-user-name">{{ ticket.assignee_user.name }}</span>
+            </div>
+            <span v-else class="print-meta-empty">Unassigned</span>
+          </div>
+        </div>
+
+        <!-- Dates Row -->
+        <div class="print-meta-row print-dates-row">
+          <div class="print-meta-item">
+            <span class="print-meta-label">Created</span>
+            <span class="print-meta-value">{{ createdDate }}</span>
+          </div>
+          <div class="print-meta-item">
+            <span class="print-meta-label">Modified</span>
+            <span class="print-meta-value">{{ modifiedDate }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- QR Code (bottom right) -->
+      <div v-if="qrCodeDataUrl" class="print-qr-code">
+        <span class="print-qr-label">Scan to open</span>
+        <img :src="qrCodeDataUrl" alt="Ticket QR Code" />
+      </div>
+    </div>
+
+    <!-- Screen-only interactive layout -->
+    <SectionCard class="print:hidden">
       <template #title>Ticket Details</template>
 
       <template #default>
@@ -96,7 +234,7 @@ const handleTitleUpdate = (newTitle: string) => {
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
                 <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Requester</h3>
-                <div class="flex items-center gap-0.5">
+                <div class="print:hidden flex items-center gap-0.5">
                   <button
                     v-if="selectedRequester"
                     @click="emit('update:requester', '')"
@@ -138,7 +276,7 @@ const handleTitleUpdate = (newTitle: string) => {
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
                 <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Assignee</h3>
-                <div class="flex items-center gap-0.5">
+                <div class="print:hidden flex items-center gap-0.5">
                   <button
                     v-if="selectedAssignee"
                     @click="emit('update:assignee', '')"
@@ -244,3 +382,198 @@ const handleTitleUpdate = (newTitle: string) => {
     </SectionCard>
   </div>
 </template>
+
+<style scoped>
+/* Print-specific ticket details layout */
+@media print {
+  /* Branding header above ticket details */
+  .print-branding-header {
+    margin-bottom: 12pt;
+    display: flex;
+    align-items: center;
+  }
+
+  .print-logo-image {
+    height: 24pt !important;
+    width: auto !important;
+    max-height: 24pt !important;
+  }
+
+  .print-logo-icon {
+    height: 20pt !important;
+    width: auto !important;
+    color: #000 !important;
+  }
+
+  .print-ticket-details {
+    border: 1px solid #ccc;
+    padding: 12pt;
+    margin-bottom: 12pt;
+    background: #fafafa;
+  }
+
+  .print-ticket-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8pt;
+    margin-bottom: 10pt;
+    padding-bottom: 8pt;
+    border-bottom: 1px solid #ddd;
+  }
+
+  .print-ticket-id {
+    font-family: ui-monospace, monospace;
+    font-size: 11pt;
+    font-weight: 600;
+    color: #666;
+  }
+
+  .print-ticket-title {
+    font-size: 14pt;
+    font-weight: 600;
+    color: #000;
+    margin: 0;
+    flex: 1;
+  }
+
+  .print-ticket-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 8pt;
+  }
+
+  .print-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16pt;
+  }
+
+  .print-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2pt;
+    min-width: 80pt;
+  }
+
+  .print-meta-label {
+    font-size: 8pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5pt;
+    color: #666;
+  }
+
+  .print-meta-value {
+    font-size: 10pt;
+    color: #333;
+  }
+
+  .print-meta-empty {
+    font-size: 10pt;
+    color: #999;
+    font-style: italic;
+  }
+
+  .print-badge {
+    display: inline-block;
+    font-size: 9pt;
+    font-weight: 500;
+    padding: 2pt 6pt;
+    border: 1px solid currentColor;
+    border-radius: 3pt;
+  }
+
+  /* Status badge colors for print */
+  .print-badge-open {
+    color: #b45309;
+    border-color: #b45309;
+  }
+
+  .print-badge-in_progress,
+  .print-badge-in-progress {
+    color: #1d4ed8;
+    border-color: #1d4ed8;
+  }
+
+  .print-badge-closed {
+    color: #047857;
+    border-color: #047857;
+  }
+
+  /* Priority badge colors for print */
+  .print-badge-high {
+    color: #dc2626;
+    border-color: #dc2626;
+  }
+
+  .print-badge-medium {
+    color: #b45309;
+    border-color: #b45309;
+  }
+
+  .print-badge-low {
+    color: #047857;
+    border-color: #047857;
+  }
+
+  .print-people-row {
+    padding-top: 6pt;
+    border-top: 1px solid #eee;
+  }
+
+  .print-person {
+    min-width: 120pt;
+  }
+
+  .print-user {
+    display: flex;
+    align-items: center;
+    gap: 6pt;
+  }
+
+  .print-user-name {
+    font-size: 10pt;
+    color: #333;
+  }
+
+  .print-dates-row {
+    padding-top: 6pt;
+    border-top: 1px solid #eee;
+    font-size: 9pt;
+  }
+
+  /* Card needs relative positioning for QR code */
+  .print-ticket-details {
+    position: relative;
+  }
+
+  /* QR Code - top right of card */
+  .print-qr-code {
+    position: absolute;
+    top: 12pt;
+    right: 12pt;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2pt;
+  }
+
+  /* Offset header to make room for QR code */
+  .print-ticket-header {
+    margin-right: 72pt;
+  }
+
+  .print-qr-code img {
+    width: 56pt !important;
+    height: 56pt !important;
+    max-width: 56pt !important;
+    max-height: 56pt !important;
+  }
+
+  .print-qr-label {
+    font-size: 6pt;
+    color: #666;
+    text-align: center;
+  }
+}
+</style>

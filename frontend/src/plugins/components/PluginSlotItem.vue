@@ -57,8 +57,8 @@ watchEffect(() => {
     :data-plugin="registration.pluginName"
     :data-component="registration.componentName"
   >
-    <!-- Error state -->
-    <div v-if="error" class="p-3 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-400">
+    <!-- Error state (hidden on print) -->
+    <div v-if="error" class="print:hidden p-3 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-400">
       <div class="font-medium">Plugin Error</div>
       <div class="text-xs mt-1">{{ error }}</div>
     </div>
@@ -98,5 +98,12 @@ watchEffect(() => {
 
 .plugin-placeholder:hover {
   border-color: var(--accent);
+}
+
+/* Hide plugin placeholders on print - errors already have print:hidden class */
+@media print {
+  .plugin-placeholder {
+    display: none !important;
+  }
 }
 </style>
