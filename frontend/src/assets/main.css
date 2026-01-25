@@ -1226,11 +1226,17 @@ html[data-theme="red-horizon"] body,
     order: unset !important;
   }
 
+  /* Ticket article - remove rounded corners for print */
+  .ticket-article,
+  .ticket-article > *,
+  .ticket-article .editor-container,
+  .ticket-article .collaborative-editor {
+    border-radius: 0 !important;
+  }
+
   /* Ticket article content - add padding for print */
   .ticket-article .ProseMirror {
     padding: 0.75rem !important;
-    border: 1px solid #e5e5e5 !important;
-    background: #fafafa !important;
   }
 
   /* Print ticket details card (the print-only section) */
@@ -1334,7 +1340,7 @@ html[data-theme="red-horizon"] body,
   .bg-surface,
   .bg-surface-alt {
     background: white !important;
-    border: 1px solid #e5e5e5 !important;
+    border: none !important;
   }
 
   /* Code blocks - light border, no heavy background */

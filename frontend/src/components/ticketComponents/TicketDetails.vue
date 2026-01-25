@@ -66,6 +66,8 @@ const emit = defineEmits<{
   (e: "update:requester", value: string): void;
   (e: "update:assignee", value: string): void;
   (e: "update:title", value: string): void;
+  (e: "titleFocus"): void;
+  (e: "titleBlur"): void;
 }>();
 
 // Computed values - single source of truth from props
@@ -224,6 +226,8 @@ watchEffect(async () => {
               <ContentEditable
                 :modelValue="ticket.title || ''"
                 @update:modelValue="handleTitleUpdate"
+                @focus="emit('titleFocus')"
+                @blur="emit('titleBlur')"
               />
             </div>
           </div>

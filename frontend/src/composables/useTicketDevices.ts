@@ -3,92 +3,71 @@ import ticketService from '@/services/ticketService';
 import * as deviceService from '@/services/deviceService';
 import type { Device } from '@/types/device';
 import type { Ticket } from '@/types/ticket';
-
-// Subset of Device fields used in ticket context
-type TicketDevice = Pick<Device, 'id' | 'name' | 'hostname' | 'serial_number' | 'model' | 'manufacturer' | 'warranty_status'>;
+import { useTicketMutations } from './useTicketMutations';
 
 /**
  * Composable for managing ticket devices
+ *
+ * Uses centralized mutations from useTicketMutations for consistent
+ * array operations with built-in deduplication.
  */
-export function useTicketDevices(ticket: Ref<Ticket | null>, refreshTicket: () => Promise<void>) {
+export function useTicketDevices(ticket: Ref<Ticket | null>) {
+  const mutations = useTicketMutations(ticket);
   const showDeviceModal = ref(false);
 
-  // Transform backend device to ticket device format
-  function transformDevice(backendDevice: Device): TicketDevice {
-    return {
-      id: backendDevice.id,
-      name: backendDevice.name,
-      hostname: backendDevice.hostname,
-      serial_number: backendDevice.serial_number,
-      model: backendDevice.model,
-      manufacturer: backendDevice.manufacturer,
-      warranty_status: backendDevice.warranty_status,
-    };
-  }
-
-  // Add device to ticket
+  // Add device to ticket with optimistic update
   async function addDevice(device: Device): Promise<void> {
-    if (!ticket.value) return;
+    if (!ticket.value || mutations.hasDevice(device.id)) return;
+
+    // Optimistic update
+    mutations.addDevice(device);
+    showDeviceModal.value = false;
 
     try {
       await ticketService.addDeviceToTicket(ticket.value.id, device.id);
-
-      // Optimistically update local state - use direct mutation to preserve array reference
-      const transformedDevice = transformDevice(device);
-      if (ticket.value.devices) {
-        ticket.value.devices.push(transformedDevice);
-      } else {
-        ticket.value.devices = [transformedDevice];
-      }
-
-      showDeviceModal.value = false;
     } catch (err) {
       console.error('Error adding device to ticket:', err);
-      await refreshTicket();
+      mutations.removeDevice(device.id);
     }
   }
 
-  // Remove device from ticket
+  // Remove device from ticket with optimistic update
   async function removeDevice(deviceId: number): Promise<void> {
     if (!ticket.value) return;
 
+    // Store device for potential rollback
+    const device = ticket.value.devices?.find(d => d.id === deviceId);
+    if (!device) return;
+
+    // Optimistic update
+    mutations.removeDevice(deviceId);
+
     try {
       await ticketService.removeDeviceFromTicket(ticket.value.id, deviceId);
-
-      // Optimistically update local state - use splice to preserve array reference
-      if (ticket.value.devices) {
-        const index = ticket.value.devices.findIndex((d) => d.id === deviceId);
-        if (index !== -1) {
-          ticket.value.devices.splice(index, 1);
-        }
-      }
     } catch (err) {
       console.error('Error removing device from ticket:', err);
-      await refreshTicket();
+      mutations.addDevice(device);
     }
   }
 
-  // Update device field
+  // Update device field with optimistic update
   async function updateDeviceField(deviceId: number, field: string, newValue: string): Promise<void> {
     if (!ticket.value?.devices) return;
 
-    const deviceIndex = ticket.value.devices.findIndex((d) => d.id === deviceId);
-    if (deviceIndex === -1) return;
+    const device = ticket.value.devices.find(d => d.id === deviceId);
+    if (!device) return;
 
-    const oldValue = ticket.value.devices[deviceIndex][field];
+    const oldValue = (device as Record<string, unknown>)[field];
     if (oldValue === newValue) return;
 
-    try {
-      // Optimistic update - use direct mutation to preserve array and object references
-      ticket.value.devices[deviceIndex][field] = newValue;
+    // Optimistic update
+    mutations.updateDeviceField(deviceId, field, newValue);
 
-      // Send to backend
+    try {
       await deviceService.updateDevice(deviceId, { [field]: newValue });
     } catch (err) {
       console.error('Error updating device field:', err);
-
-      // Revert on error - use direct mutation
-      ticket.value.devices[deviceIndex][field] = oldValue;
+      mutations.updateDeviceField(deviceId, field, oldValue);
     }
   }
 

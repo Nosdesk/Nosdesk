@@ -86,18 +86,24 @@ const loadCategories = async () => {
 const ticketId = computed(() =>
     route.params.id ? Number(route.params.id) : undefined,
 );
-const { isConnected, recentlyAddedCommentIds, activeViewerCount } = useTicketSSE(
+const {
+    isConnected,
+    recentlyAddedCommentIds,
+    activeViewerCount,
+    startEditing,
+    stopEditing,
+} = useTicketSSE(
     ticket,
     ticketId,
     selectedStatus,
     selectedPriority,
 );
 
-// Device management
+// Device management - uses centralized mutations with optimistic updates
 const { showDeviceModal, addDevice, removeDevice, updateDeviceField } =
-    useTicketDevices(ticket, refreshTicket);
+    useTicketDevices(ticket);
 
-// Relationships (linked tickets & projects)
+// Relationships (linked tickets & projects) - SSE handles state updates
 const {
     showLinkedTicketModal,
     showProjectModal,
@@ -105,7 +111,7 @@ const {
     unlinkTicket,
     addToProject,
     removeFromProject,
-} = useTicketRelationships(ticket, refreshTicket);
+} = useTicketRelationships(ticket);
 
 // Drag-to-link state
 const { dragState } = useTicketDrag();
@@ -208,6 +214,17 @@ const { addComment, deleteAttachment, deleteComment } = useTicketComments(
 // Debounced backend save for title
 let titleUpdateTimeout: NodeJS.Timeout | null = null;
 let lastSavedTitle: string | null = null;
+
+// Called when user starts editing the title (focus)
+const handleTitleFocus = () => {
+    startEditing('title');
+};
+
+// Called when user stops editing the title (blur)
+const handleTitleBlur = () => {
+    stopEditing('title');
+    lastSavedTitle = null; // Reset for next edit session
+};
 
 const handleTitleUpdate = (newTitle: string) => {
     // Update local ticket immediately for instant UI feedback
@@ -389,6 +406,8 @@ defineExpose({
                             @update:requester="updateRequester"
                             @update:assignee="updateAssignee"
                             @update:title="handleTitleUpdate"
+                            @titleFocus="handleTitleFocus"
+                            @titleBlur="handleTitleBlur"
                         />
 
                         <!-- Devices -->
