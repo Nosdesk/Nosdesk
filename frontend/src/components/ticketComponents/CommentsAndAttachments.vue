@@ -429,10 +429,10 @@ const handleDrop = async (event: DragEvent) => {
                     </form>
                 </div>
 
-                <!-- List of Comments -->
+                <!-- List of Comments - Screen layout -->
                 <div
                     v-if="props.comments.length > 0"
-                    class="flex flex-col gap-3"
+                    class="print:hidden flex flex-col gap-3"
                 >
                     <div
                         v-for="comment in props.comments"
@@ -583,8 +583,113 @@ const handleDrop = async (event: DragEvent) => {
                         </div>
                     </div>
                 </div>
+
+                <!-- Print-only compact comments layout -->
+                <div
+                    v-if="props.comments.length > 0"
+                    class="hidden print:block print-comments-container"
+                >
+                    <div
+                        v-for="comment in props.comments"
+                        :key="'print-' + comment.id"
+                        class="print-comment"
+                    >
+                        <!-- Inline format: "Author (Date): Content" -->
+                        <span class="print-comment-author">{{ comment.user?.name || 'Unknown' }}</span>
+                        <span class="print-comment-date">({{ formattedDate(comment.createdAt) }}):</span>
+                        <span v-if="hasRealContent(comment)" class="print-comment-content">
+                            <MarkdownRenderer :content="comment.content" />
+                        </span>
+                        <span v-else-if="isAudioOnlyComment(comment)" class="print-comment-audio">
+                            [Voice: {{ getAudioDisplayName(comment.attachments[0].name) }}<template v-if="comment.attachments[0].transcription"> — "{{ comment.attachments[0].transcription }}"</template>]
+                        </span>
+                        <span
+                            v-if="comment.attachments && comment.attachments.length > 0 && !isAudioOnlyComment(comment)"
+                            class="print-attachments"
+                        >
+                            <span
+                                v-for="(attachment, idx) in comment.attachments"
+                                :key="attachment.id"
+                            >{{ idx > 0 ? ', ' : ' ' }}[{{ attachment.name }}]</span>
+                        </span>
+                    </div>
+                </div>
             </div>
         </template>
     </SectionCard>
 </template>
+
+<style scoped>
+@media print {
+    .print-comments-container {
+        font-size: 9pt;
+        line-height: 1.4;
+    }
+
+    .print-comment {
+        margin-bottom: 4pt;
+        page-break-inside: avoid;
+    }
+
+    .print-comment-author {
+        font-weight: 600;
+        color: #000;
+    }
+
+    .print-comment-date {
+        color: #666;
+        font-size: 8pt;
+        margin-right: 4pt;
+    }
+
+    .print-comment-content {
+        color: #333;
+    }
+
+    .print-comment-content :deep(p) {
+        display: inline;
+        margin: 0;
+    }
+
+    .print-comment-content :deep(p + p)::before {
+        content: " ";
+    }
+
+    .print-comment-content :deep(ul),
+    .print-comment-content :deep(ol) {
+        display: block;
+        margin: 2pt 0 2pt 12pt;
+        padding-left: 0;
+    }
+
+    .print-comment-content :deep(li) {
+        margin-bottom: 1pt;
+    }
+
+    .print-comment-content :deep(code) {
+        background: #f0f0f0;
+        padding: 0 2pt;
+        font-size: 8pt;
+    }
+
+    .print-comment-content :deep(pre) {
+        display: block;
+        background: #f5f5f5;
+        border: 1px solid #ddd;
+        padding: 3pt 5pt;
+        margin: 3pt 0;
+        font-size: 8pt;
+    }
+
+    .print-comment-audio {
+        color: #555;
+        font-style: italic;
+    }
+
+    .print-attachments {
+        color: #666;
+        font-size: 8pt;
+    }
+}
+</style>
 

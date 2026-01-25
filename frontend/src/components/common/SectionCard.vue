@@ -60,3 +60,33 @@ const headerPadding = {
     </div>
   </div>
 </template>
+
+<style scoped>
+@media print {
+  /* Compact header for print */
+  .bg-surface-alt {
+    background: transparent !important;
+    padding: 0 0 4pt 0 !important;
+    border-bottom: 1px solid #ccc !important;
+    margin-bottom: 6pt;
+  }
+
+  .bg-surface-alt :deep(h2) {
+    font-size: 10pt !important;
+    font-weight: 600 !important;
+    margin: 0 !important;
+  }
+
+  /* Remove card styling for print */
+  .bg-surface {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* Reduce content padding */
+  .p-3 {
+    padding: 0 !important;
+  }
+}
+</style>

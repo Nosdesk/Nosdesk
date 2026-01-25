@@ -252,7 +252,8 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
 </script>
 
 <template>
-  <div class="bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors">
+  <!-- Screen-only interactive layout -->
+  <div class="print:hidden bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors">
     <!-- Header with device name and actions -->
     <div class="px-4 py-3 bg-surface-alt border-b border-default">
       <div class="flex items-center justify-between">
@@ -415,4 +416,86 @@ const warrantyStatusOptions = ['Active', 'Warning', 'Expired', 'Unknown'];
       </div>
     </div>
   </div>
+
+  <!-- Print-only compact layout -->
+  <div class="hidden print:block print-device-card">
+    <div class="print-device-header">
+      <span class="print-device-name">{{ editableName || 'Unnamed Device' }}</span>
+      <span v-if="editableWarrantyStatus" class="print-device-warranty" :class="`print-warranty-${editableWarrantyStatus.toLowerCase()}`">
+        {{ editableWarrantyStatus }}
+      </span>
+    </div>
+    <div class="print-device-details">
+      <span v-if="editableSerialNumber" class="print-device-field">
+        <span class="print-field-label">S/N:</span> {{ editableSerialNumber }}
+      </span>
+      <span v-if="editableModel" class="print-device-field">
+        <span class="print-field-label">Model:</span> {{ editableModel }}
+      </span>
+      <span v-if="editableManufacturer" class="print-device-field">
+        <span class="print-field-label">Mfr:</span> {{ editableManufacturer }}
+      </span>
+      <span v-if="editableHostname" class="print-device-field">
+        <span class="print-field-label">Host:</span> {{ editableHostname }}
+      </span>
+    </div>
+  </div>
 </template>
+
+<style scoped>
+@media print {
+  .print-device-card {
+    border: 1px solid #ccc;
+    padding: 6pt 8pt;
+    margin-bottom: 4pt;
+    background: #fafafa;
+    font-size: 9pt;
+  }
+
+  .print-device-header {
+    display: flex;
+    align-items: center;
+    gap: 8pt;
+    margin-bottom: 4pt;
+  }
+
+  .print-device-name {
+    font-weight: 600;
+    color: #000;
+  }
+
+  .print-device-warranty {
+    font-size: 8pt;
+    padding: 1pt 4pt;
+    border: 1px solid currentColor;
+    border-radius: 2pt;
+  }
+
+  .print-warranty-active {
+    color: #047857;
+  }
+
+  .print-warranty-warning {
+    color: #b45309;
+  }
+
+  .print-warranty-expired {
+    color: #dc2626;
+  }
+
+  .print-device-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8pt;
+    color: #333;
+  }
+
+  .print-device-field {
+    white-space: nowrap;
+  }
+
+  .print-field-label {
+    color: #666;
+  }
+}
+</style>

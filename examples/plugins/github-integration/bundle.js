@@ -60,6 +60,25 @@ const GitHubPanel = {
     await this.loadLinkedIssues();
   },
 
+  watch: {
+    // Auto-fetch when a valid URL or issue reference is detected
+    searchQuery(newVal) {
+      // Clear any pending debounce
+      if (this._autoFetchTimeout) {
+        clearTimeout(this._autoFetchTimeout);
+      }
+
+      // Check if it's a valid issue reference
+      const issueRef = this.parseIssueReference(newVal);
+      if (issueRef) {
+        // Debounce to allow for paste completion
+        this._autoFetchTimeout = setTimeout(() => {
+          this.searchIssues();
+        }, 300);
+      }
+    },
+  },
+
   methods: {
     // Load plugin settings
     async loadSettings() {
@@ -132,6 +151,25 @@ const GitHubPanel = {
       }
     },
 
+    // Parse issue reference from various formats
+    parseIssueReference(input) {
+      const trimmed = input.trim();
+
+      // Try GitHub URL format: https://github.com/owner/repo/issues/123
+      const urlMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/);
+      if (urlMatch) {
+        return { owner: urlMatch[1], repo: urlMatch[2], number: urlMatch[3] };
+      }
+
+      // Try shorthand format: owner/repo#123
+      const shortMatch = trimmed.match(/^([^/]+)\/([^#]+)#(\d+)$/);
+      if (shortMatch) {
+        return { owner: shortMatch[1], repo: shortMatch[2], number: shortMatch[3] };
+      }
+
+      return null;
+    },
+
     // Search for issues
     async searchIssues() {
       if (!this.searchQuery.trim()) return;
@@ -140,13 +178,12 @@ const GitHubPanel = {
       this.error = null;
 
       try {
-        // Parse search query - could be "owner/repo#123" or just search terms
-        const issueMatch = this.searchQuery.match(/^([^/]+)\/([^#]+)#(\d+)$/);
+        // Parse search query - could be URL, "owner/repo#123", or just search terms
+        const issueRef = this.parseIssueReference(this.searchQuery);
 
-        if (issueMatch) {
-          // Direct issue reference
-          const [, owner, repo, number] = issueMatch;
-          const issue = await this.fetchIssue(owner, repo, number);
+        if (issueRef) {
+          // Direct issue reference (URL or shorthand)
+          const issue = await this.fetchIssue(issueRef.owner, issueRef.repo, issueRef.number);
           this.searchResults = issue ? [issue] : [];
         } else {
           // Search by text in default repo
@@ -286,13 +323,13 @@ const GitHubPanel = {
       </div>
 
       <!-- Search Panel (hidden on print) -->
-      <div v-if="showSearch" class="print:hidden p-3 rounded-xl bg-surface border border-default">
-        <div class="flex gap-2 mb-2">
+      <div v-if="showSearch" class="print:hidden p-3 rounded-xl bg-surface border border-default flex flex-col gap-3">
+        <div class="flex gap-2">
           <input
             v-model="searchQuery"
             @keyup.enter="searchIssues"
             type="text"
-            placeholder="owner/repo#123 or search text"
+            placeholder="Paste URL, owner/repo#123, or search"
             class="flex-1 px-3 py-2 text-sm bg-surface-alt border border-default rounded-lg focus:border-accent focus:outline-none text-primary placeholder:text-tertiary"
           />
           <button
@@ -306,7 +343,7 @@ const GitHubPanel = {
         </div>
 
         <!-- Search Results -->
-        <div v-if="searchResults.length > 0" class="space-y-2 mt-3">
+        <div v-if="searchResults.length > 0" class="space-y-2">
           <div
             v-for="issue in searchResults"
             :key="issue.owner + '/' + issue.repo + '#' + issue.number"

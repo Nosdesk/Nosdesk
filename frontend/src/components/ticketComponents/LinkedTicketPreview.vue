@@ -103,10 +103,11 @@ const formattedDate = (dateString: string) => {
 </script>
 
 <template>
+  <!-- Screen-only interactive layout -->
   <div
     v-if="linkedTicket && !isSameAsCurrentTicket"
     @click="viewTicket"
-    class="group bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors cursor-pointer"
+    class="print:hidden group bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors cursor-pointer"
   >
     <!-- Header with status and actions -->
     <div class="px-4 py-3 bg-surface-alt border-b border-default flex items-center gap-3">
@@ -193,4 +194,89 @@ const formattedDate = (dateString: string) => {
       </div>
     </div>
   </div>
+
+  <!-- Print-only compact layout -->
+  <div v-if="linkedTicket && !isSameAsCurrentTicket" class="hidden print:block print-linked-ticket">
+    <span class="print-ticket-badge" :class="`print-status-${linkedTicket.status}`">#{{ linkedTicket.id }}</span>
+    <span class="print-ticket-title">{{ linkedTicket.title }}</span>
+    <span class="print-ticket-meta">
+      <span class="print-priority" :class="`print-priority-${linkedTicket.priority}`">{{ linkedTicket.priority }}</span>
+      <span v-if="linkedTicket.requester_user" class="print-ticket-user">{{ linkedTicket.requester_user.name }}</span>
+    </span>
+  </div>
 </template>
+
+<style scoped>
+@media print {
+  .print-linked-ticket {
+    border: 1px solid #ccc;
+    padding: 6pt 8pt;
+    margin-bottom: 4pt;
+    background: #fafafa;
+    font-size: 9pt;
+    display: flex;
+    align-items: center;
+    gap: 8pt;
+    flex-wrap: wrap;
+  }
+
+  .print-ticket-badge {
+    font-family: ui-monospace, monospace;
+    font-weight: 600;
+    padding: 1pt 4pt;
+    border: 1px solid currentColor;
+    border-radius: 2pt;
+    font-size: 8pt;
+  }
+
+  .print-status-open {
+    color: #b45309;
+  }
+
+  .print-status-in-progress {
+    color: #1d4ed8;
+  }
+
+  .print-status-closed {
+    color: #047857;
+  }
+
+  .print-ticket-title {
+    font-weight: 500;
+    color: #000;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .print-ticket-meta {
+    display: flex;
+    align-items: center;
+    gap: 8pt;
+    color: #666;
+    font-size: 8pt;
+  }
+
+  .print-priority {
+    padding: 1pt 4pt;
+    border: 1px solid currentColor;
+    border-radius: 2pt;
+    text-transform: capitalize;
+  }
+
+  .print-priority-high {
+    color: #dc2626;
+  }
+
+  .print-priority-medium {
+    color: #b45309;
+  }
+
+  .print-priority-low {
+    color: #047857;
+  }
+
+  .print-ticket-user {
+    color: #333;
+  }
+}
+</style>

@@ -12,6 +12,8 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
+  'focus': [];
+  'blur': [];
 }>();
 
 const contentRef = ref<HTMLElement | null>(null);
@@ -59,6 +61,15 @@ const handleKeydown = (e: KeyboardEvent) => {
   }
 };
 
+// Emit focus/blur events for SSE coordination
+const handleFocus = () => {
+  emit('focus');
+};
+
+const handleBlur = () => {
+  emit('blur');
+};
+
 // Initialize content on mount
 onMounted(() => {
   if (contentRef.value && props.modelValue) {
@@ -75,6 +86,8 @@ onMounted(() => {
     @input="handleInput"
     @paste="handlePaste"
     @keydown="handleKeydown"
+    @focus="handleFocus"
+    @blur="handleBlur"
     class="w-full min-h-[1.75rem] px-2 py-1 text-sm text-primary rounded outline-none transition-all whitespace-pre-wrap break-words"
     spellcheck="true"
   />
