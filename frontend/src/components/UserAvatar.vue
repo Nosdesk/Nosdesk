@@ -115,8 +115,10 @@ watch(() => props.avatar, () => {
     <!-- Avatar wrapper for theme effects -->
     <div class="avatar-themed rounded-full flex-shrink-0" :class="sizeClasses.base">
       <!-- Avatar with image -->
+      <!-- :key forces element recreation when URL changes, bypassing browser cache -->
       <img
         v-if="avatar && !imageFailed"
+        :key="avatar"
         :src="avatar"
         :alt="displayName || 'User'"
         :title="displayName || 'User'"

@@ -61,8 +61,19 @@ const emit = defineEmits<{
     (e: "deleteComment", value: number): void;
 }>();
 
+/**
+ * Check if HTML content has any actual text (not just empty tags)
+ */
+const hasTextContent = (html: string): boolean => {
+    if (!html) return false;
+    // Create a temporary element to extract text content
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    return temp.textContent?.trim().length > 0;
+};
+
 const addComment = () => {
-    if (!newCommentContent.value.trim() && newAttachments.value.length === 0)
+    if (!hasTextContent(newCommentContent.value) && newAttachments.value.length === 0)
         return;
 
     console.log("Emitting addComment event with data:", {
@@ -179,10 +190,14 @@ const formattedDate = (dateString: string): string => {
     return formatDate(dateString, "MMM d, yyyy");
 };
 
-// Check if comment has real text content (not just placeholder)
+// Check if comment has real text content (not just empty HTML or placeholder)
 const hasRealContent = (comment: CommentWithAttachments): boolean => {
-    const content = comment.content?.trim() || '';
-    return content !== '' && content.toLowerCase() !== 'attachment added';
+    if (!hasTextContent(comment.content)) return false;
+    // Also check for placeholder text
+    const temp = document.createElement('div');
+    temp.innerHTML = comment.content || '';
+    const text = temp.textContent?.trim().toLowerCase() || '';
+    return text !== 'attachment added';
 };
 
 // Check if comment is audio-only (no text, single audio attachment)

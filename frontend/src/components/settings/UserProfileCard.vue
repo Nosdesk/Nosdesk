@@ -4,6 +4,7 @@ import { RouterLink } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "@/components/UserAvatar.vue";
 import InlineEdit from "@/components/common/InlineEdit.vue";
+import LoadingSpinner from "@/components/common/LoadingSpinner.vue";
 import userService from "@/services/userService";
 import uploadService from "@/services/uploadService";
 import type { User } from "@/types/user";
@@ -19,14 +20,12 @@ const userAvatarComponent = ref<UserAvatarComponentType | null>(null);
 // File inputs
 const fileInput = ref<HTMLInputElement | null>(null);
 const bannerFileInput = ref<HTMLInputElement | null>(null);
-const avatarFile = ref<File | null>(null);
-const bannerFile = ref<File | null>(null);
-const avatarPreview = ref<string | null>(null);
-const bannerPreview = ref<string | null>(null);
 
-// Image loading states
-const bannerLoaded = ref(false);
-const avatarLoaded = ref(false);
+// Upload progress states
+const avatarUploading = ref(false);
+const bannerUploading = ref(false);
+const avatarProgress = ref(0);
+const bannerProgress = ref(0);
 
 // Form data
 const formData = ref({
@@ -132,15 +131,6 @@ watch(
     { immediate: true },
 );
 
-// Reset loading states when URLs change
-watch(() => formData.value.banner_url, () => {
-    bannerLoaded.value = false;
-});
-
-watch(() => formData.value.avatar_url, () => {
-    avatarLoaded.value = false;
-});
-
 // File handling functions
 const handleAvatarClick = () => {
     fileInput.value?.click();
@@ -168,9 +158,7 @@ const handleFileChange = async (event: Event) => {
         file = await uploadService.convertHeicToJpeg(file, (message) => {
             emit("success", message);
         });
-        avatarFile.value = file;
-        avatarPreview.value = uploadService.createPreviewUrl(file);
-        await uploadAvatar();
+        await uploadImage(file, "avatar");
     } catch (error) {
         const err = error as Error;
         emit("error", err.message || "Failed to process image");
@@ -195,20 +183,33 @@ const handleBannerChange = async (event: Event) => {
         file = await uploadService.convertHeicToJpeg(file, (message) => {
             emit("success", message);
         });
-        bannerFile.value = file;
-        bannerPreview.value = uploadService.createPreviewUrl(file);
-        await uploadBanner();
+        await uploadImage(file, "banner");
     } catch (error) {
         const err = error as Error;
         emit("error", err.message || "Failed to process image");
     }
 };
 
-const uploadImage = async (type: "avatar" | "banner") => {
-    const file = type === "avatar" ? avatarFile.value : bannerFile.value;
-    if (!file) return;
-
+const uploadImage = async (file: File, type: "avatar" | "banner") => {
     loading.value = true;
+
+    // Reset and set uploading state
+    if (type === "avatar") {
+        avatarUploading.value = true;
+        avatarProgress.value = 0;
+    } else {
+        bannerUploading.value = true;
+        bannerProgress.value = 0;
+    }
+
+    // Progress callback
+    const onProgress = (progress: number) => {
+        if (type === "avatar") {
+            avatarProgress.value = progress;
+        } else {
+            bannerProgress.value = progress;
+        }
+    };
 
     try {
         const targetUserUuid = displayUser.value?.uuid;
@@ -221,6 +222,7 @@ const uploadImage = async (type: "avatar" | "banner") => {
             file,
             type,
             targetUserUuid,
+            onProgress,
         );
 
         if (!uploadedUrl) {
@@ -235,7 +237,9 @@ const uploadImage = async (type: "avatar" | "banner") => {
         emit("success", successMessage);
 
         // Add cache-busting parameter to force browser to reload the image
-        const cacheBustedUrl = `${uploadedUrl}?t=${Date.now()}`;
+        // Handle URLs that may already have query params
+        const separator = uploadedUrl.includes('?') ? '&' : '?';
+        const cacheBustedUrl = `${uploadedUrl}${separator}_cb=${Date.now()}`;
 
         // Update form data
         if (type === "avatar") {
@@ -256,19 +260,19 @@ const uploadImage = async (type: "avatar" | "banner") => {
             if (userAvatarComponent.value?.refreshUser) {
                 userAvatarComponent.value.refreshUser(targetUserUuid);
             }
-
-            setTimeout(() => authStore.fetchUserData(), 500);
         }
     } catch (err) {
         emit("error", `Failed to update ${type}`);
         console.error(`Error updating ${type}:`, err);
     } finally {
         loading.value = false;
+        if (type === "avatar") {
+            avatarUploading.value = false;
+        } else {
+            bannerUploading.value = false;
+        }
     }
 };
-
-const uploadAvatar = () => uploadImage("avatar");
-const uploadBanner = () => uploadImage("banner");
 
 // Update functions
 const updateName = async () => {
@@ -461,28 +465,43 @@ const getRoleDisplayName = (role: string) => {
             class="profile-banner bg-surface-alt relative overflow-hidden"
             :class="bannerHeight"
         >
-            <!-- Skeleton loading state -->
+            <!-- Skeleton during upload -->
             <div
-                v-if="formData.banner_url && !bannerLoaded"
-                class="absolute inset-0 bg-surface-alt animate-pulse"
-            />
-            <!-- Actual banner image -->
+                v-if="bannerUploading"
+                class="absolute inset-0 bg-surface-alt"
+            >
+                <!-- Progress bar at bottom -->
+                <div class="absolute bottom-0 left-0 right-0 h-1 bg-black/20">
+                    <div
+                        class="h-full bg-accent transition-all duration-150"
+                        :style="{ width: `${bannerProgress}%` }"
+                    />
+                </div>
+                <!-- Centered spinner with progress -->
+                <div class="absolute inset-0 flex items-center justify-center text-secondary">
+                    <div class="flex flex-col items-center gap-2">
+                        <LoadingSpinner variant="inline" />
+                        <span class="text-sm font-medium">{{ bannerProgress }}%</span>
+                    </div>
+                </div>
+            </div>
+            <!-- Actual banner image (hidden during upload) -->
+            <!-- :key forces Vue to recreate element when URL changes, bypassing browser cache -->
             <img
-                v-if="formData.banner_url"
+                v-else-if="formData.banner_url"
+                :key="formData.banner_url"
                 :src="formData.banner_url"
                 alt="Profile banner"
-                class="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
-                :class="bannerLoaded ? 'opacity-100' : 'opacity-0'"
-                @load="bannerLoaded = true"
+                class="absolute inset-0 w-full h-full object-cover"
             />
             <!-- Default accent background when no banner -->
             <div
-                v-if="!formData.banner_url"
+                v-else
                 class="absolute inset-0 bg-accent"
             />
             <!-- Banner upload button (only when editable) -->
             <button
-                v-if="isEditable"
+                v-if="isEditable && !bannerUploading"
                 class="absolute bottom-2 right-2 bg-surface/50 hover:bg-surface/80 text-white rounded-full w-11 h-11 flex items-center justify-center transition-colors z-10"
                 @click="handleBannerClick"
             >
@@ -524,7 +543,7 @@ const getRoleDisplayName = (role: string) => {
             <RouterLink
                 v-if="enableAvatarNavigation && !isEditable && displayUser?.uuid"
                 :to="`/users/${displayUser.uuid}`"
-                class="block rounded-full overflow-hidden border-4 border-surface shadow-lg hover:ring-2 hover:ring-accent transition-all"
+                class="block rounded-full overflow-hidden border-4 border-surface shadow-lg hover:ring-2 hover:ring-accent transition-all z-30"
                 :class="[
                     avatarSize,
                     showBanner ? `absolute ${avatarOffset} left-3 sm:left-4` : 'mx-auto mt-4'
@@ -542,7 +561,7 @@ const getRoleDisplayName = (role: string) => {
             <!-- Non-clickable avatar for edit mode or when navigation is disabled -->
             <div
                 v-else
-                class="rounded-full overflow-hidden border-4 border-surface shadow-lg"
+                class="rounded-full overflow-hidden border-4 border-surface shadow-lg z-30"
                 :class="[
                     avatarSize,
                     showBanner ? `absolute ${avatarOffset} left-3 sm:left-4` : 'mx-auto mt-4',
@@ -559,10 +578,18 @@ const getRoleDisplayName = (role: string) => {
                     class="w-full h-full"
                     ref="userAvatarComponent"
                 />
+                <!-- Avatar upload loading overlay with progress -->
+                <div
+                    v-if="avatarUploading"
+                    class="absolute inset-0 bg-surface-alt flex flex-col items-center justify-center rounded-full z-10 text-secondary"
+                >
+                    <LoadingSpinner variant="inline" size="sm" />
+                    <span class="text-xs font-medium mt-1">{{ avatarProgress }}%</span>
+                </div>
                 <!-- Hover overlay for editing -->
                 <div
-                    v-if="isEditable"
-                    class="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+                    v-if="isEditable && !avatarUploading"
+                    class="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity rounded-full"
                 >
                     <div class="text-white flex flex-col items-center gap-1">
                         <svg
@@ -628,7 +655,7 @@ const getRoleDisplayName = (role: string) => {
                 </div>
 
                 <!-- Pronouns field - full width below name/badge -->
-                <div v-if="showPronouns" class="pt-2 pb-6">
+                <div v-if="showPronouns" class="pt-2 pb-6" :class="showBanner ? 'sm:pl-[9.5rem]' : ''">
                     <div class="flex flex-col gap-1.5">
                         <h3
                             class="text-xs font-medium text-tertiary uppercase tracking-wide"
