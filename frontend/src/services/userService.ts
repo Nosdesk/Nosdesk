@@ -370,7 +370,12 @@ const userService = {
   },
 
   // Upload image and return the URL path
-  async uploadImage(file: File, type: 'avatar' | 'banner', targetUserUuid?: string): Promise<string | null> {
+  async uploadImage(
+    file: File,
+    type: 'avatar' | 'banner',
+    targetUserUuid?: string,
+    onProgress?: (progress: number) => void
+  ): Promise<string | null> {
     try {
       // Use the provided UUID, or fetch the current user's UUID if not provided
       let userUuid = targetUserUuid || '';
@@ -400,16 +405,22 @@ const userService = {
       }
 
       logger.debug('Uploading image for user', { userUuid, type });
-      
+
       // Create form data
       const formData = new FormData();
       formData.append('file', file);
-      
+
       // Upload the file using the new endpoint
       const response = await apiClient.post(`/users/${userUuid}/image?type_=${type}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
-        }
+        },
+        onUploadProgress: onProgress ? (progressEvent) => {
+          const progress = progressEvent.total
+            ? Math.round((progressEvent.loaded * 100) / progressEvent.total)
+            : 0;
+          onProgress(progress);
+        } : undefined
       });
 
       logger.debug('Image upload response received', { type });
