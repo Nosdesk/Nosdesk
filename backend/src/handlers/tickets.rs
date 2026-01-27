@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 use tracing::{debug, error, warn, info};
 use uuid::Uuid;
 
@@ -15,6 +16,8 @@ use crate::services::notifications::{
     NotificationService,
     types::{NotificationTypeCode, NotificationPayload, NotificationEntity, NotificationActor},
 };
+use crate::services::search::SearchService;
+use crate::services::search::indexing_tasks;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
 use crate::utils::sse::SseBroadcaster;
 
@@ -333,6 +336,7 @@ pub async fn get_ticket(
 pub async fn create_ticket(
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    search_service: web::Data<Arc<SearchService>>,
     ticket: web::Json<NewTicket>,
 ) -> impl Responder {
     let mut conn = match get_db_conn(&pool).await {
@@ -350,6 +354,13 @@ pub async fn create_ticket(
 
     match repository::create_ticket(&mut conn, new_ticket) {
         Ok(ticket) => {
+            // Index the new ticket in search
+            indexing_tasks::spawn_index_ticket(
+                search_service.get_ref().clone(),
+                ticket.clone(),
+                None,
+            );
+
             // Broadcast ticket creation via SSE
             crate::utils::sse::SseBroadcaster::broadcast_ticket_created(
                 &sse_state,
@@ -396,6 +407,7 @@ pub async fn delete_ticket(
     req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
+    search_service: web::Data<Arc<SearchService>>,
     path: web::Path<i32>,
 ) -> impl Responder {
     // Extract claims and check role
@@ -426,6 +438,8 @@ pub async fn delete_ticket(
     {
         Ok(rows_affected) => {
             if rows_affected > 0 {
+                // Remove ticket from search index
+                indexing_tasks::spawn_delete_ticket(search_service.get_ref().clone(), ticket_id);
                 HttpResponse::NoContent().finish()
             } else {
                 HttpResponse::NotFound().json("Ticket not found")
@@ -544,6 +558,7 @@ pub async fn import_tickets_from_json_string(
 pub async fn create_empty_ticket(
     pool: web::Data<crate::db::Pool>,
     notification_service: web::Data<NotificationService>,
+    search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match get_db_conn(&pool).await {
@@ -645,10 +660,14 @@ pub async fn create_empty_ticket(
     };
 
     // Try to create article content, but don't fail if it doesn't work
-    if let Err(_) = repository::create_article_content(&mut conn, new_article_content) {
-        // If article content creation fails, still return the ticket
-        return HttpResponse::Created().json(ticket);
-    }
+    let article_content = repository::create_article_content(&mut conn, new_article_content).ok();
+
+    // Index the new ticket in search
+    indexing_tasks::spawn_index_ticket(
+        search_service.get_ref().clone(),
+        ticket.clone(),
+        article_content,
+    );
 
     // Return the complete ticket with article content
     match repository::get_complete_ticket(&mut conn, ticket.id) {
@@ -662,6 +681,7 @@ pub async fn update_ticket_partial(
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     notification_service: web::Data<NotificationService>,
+    search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
     params: web::Path<i32>,
     body: web::Json<Value>,
@@ -963,6 +983,15 @@ pub async fn update_ticket_partial(
                 }
             }
 
+            // Re-index the updated ticket in search
+            // Fetch the article content if it exists for indexing
+            let article_content = repository::get_article_content_by_ticket_id(&mut conn, ticket_id).ok();
+            indexing_tasks::spawn_index_ticket(
+                search_service.get_ref().clone(),
+                updated_ticket.ticket.clone(),
+                article_content,
+            );
+
             // Return the updated complete ticket
             HttpResponse::Ok().json(updated_ticket)
         }
@@ -1253,6 +1282,7 @@ pub async fn bulk_tickets(
     pool: web::Data<crate::db::Pool>,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    search_service: web::Data<Arc<SearchService>>,
     body: web::Json<BulkActionRequest>,
 ) -> impl Responder {
     // Extract claims and check authentication
@@ -1292,7 +1322,11 @@ pub async fn bulk_tickets(
             let mut deleted = 0;
             for id in ids {
                 match repository::delete_ticket_with_cleanup(&mut conn, *id, storage.as_ref().clone()).await {
-                    Ok(rows) => deleted += rows,
+                    Ok(rows) => {
+                        deleted += rows;
+                        // Remove from search index
+                        indexing_tasks::spawn_delete_ticket(search_service.get_ref().clone(), *id);
+                    }
                     Err(e) => {
                         error!(ticket_id = id, error = ?e, "Failed to delete ticket");
                     }

@@ -2,10 +2,11 @@ use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use chrono::Utc;
 use serde::Deserialize;
 use serde_json::json;
+use std::panic;
+use std::sync::Arc;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 use yrs::{Doc, Transact, ReadTxn, WriteTxn, GetString, Options, updates::decoder::Decode, Update, XmlFragment, XmlOut};
-use std::panic;
 use regex::Regex;
 
 use crate::db::{Pool, DbConnection};
@@ -13,6 +14,8 @@ use crate::models::{Claims, NewDocumentationPage, DocumentationPageWithChildren,
 use crate::repository;
 use crate::utils;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
+use crate::services::search::SearchService;
+use crate::services::search::indexing_tasks;
 
 /// Recursively extract plain text from an XmlOut node
 fn extract_text_from_xml_node(node: &XmlOut, txn: &yrs::Transaction) -> String {
@@ -280,6 +283,7 @@ pub async fn create_documentation_page(
     page_request: web::Json<CreateDocumentationPageRequest>,
     pool: web::Data<Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     let mut conn = match pool.get() {
         Ok(conn) => conn,
@@ -340,6 +344,9 @@ pub async fn create_documentation_page(
 
     match repository::create_documentation_page(new_page, &mut conn) {
         Ok(created_page) => {
+            // Index the new documentation page in search
+            indexing_tasks::spawn_index_documentation(search_service.get_ref().clone(), created_page.clone());
+
             match to_page_response(created_page.clone(), &mut conn) {
                 Ok(response) => {
                     // Broadcast SSE event for documentation creation
@@ -383,6 +390,7 @@ pub async fn update_documentation_page(
     req: HttpRequest,
     pool: web::Data<Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    search_service: web::Data<Arc<SearchService>>,
     path: web::Path<i32>,
     page: web::Json<UpdateDocumentationPageRequest>,
 ) -> impl Responder {
@@ -444,6 +452,9 @@ pub async fn update_documentation_page(
                 Ok(updated_page) => {
                     debug!(page_id = updated_page.id, "Documentation page updated");
 
+                    // Re-index the updated documentation page in search
+                    indexing_tasks::spawn_index_documentation(search_service.get_ref().clone(), updated_page.clone());
+
                     // Broadcast SSE events for each updated field
                     if let Some(ref title) = update_req.title {
                         crate::utils::sse::SseBroadcaster::broadcast_documentation_updated(
@@ -492,6 +503,7 @@ pub async fn update_documentation_page(
 pub async fn delete_documentation_page(
     req: HttpRequest,
     pool: web::Data<Pool>,
+    search_service: web::Data<Arc<SearchService>>,
     path: web::Path<i32>,
 ) -> impl Responder {
     let page_id = path.into_inner();
@@ -522,6 +534,8 @@ pub async fn delete_documentation_page(
             // Delete the page
             match repository::delete_documentation_page(page_id, &mut conn) {
                 Ok(_) => {
+                    // Remove documentation from search index
+                    indexing_tasks::spawn_delete_documentation(search_service.get_ref().clone(), page_id);
                     info!(page_id = page_id, deleted_by = %claims.name, "Documentation page deleted");
                     HttpResponse::NoContent().finish()
                 },

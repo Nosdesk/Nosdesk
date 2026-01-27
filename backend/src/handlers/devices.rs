@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use diesel::result::Error;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::{debug, error};
 use uuid::Uuid;
 use crate::utils;
@@ -12,6 +13,8 @@ use crate::db::Pool;
 use crate::models::{Claims, NewDevice, DeviceUpdate, Device, User, Group};
 use crate::repository;
 use crate::repository::groups as groups_repo;
+use crate::services::search::SearchService;
+use crate::services::search::indexing_tasks;
 
 // Pagination query parameters
 #[derive(Deserialize)]
@@ -291,6 +294,7 @@ pub async fn create_device(
     pool: web::Data<Pool>,
     device: web::Json<NewDevice>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
@@ -316,6 +320,9 @@ pub async fn create_device(
     match repository::create_device(&mut conn, device.into_inner()) {
         Ok(device) => {
             let device_id = device.id;
+
+            // Index the new device in search
+            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device.clone());
 
             // Get user data if device has a primary user
             let user = device.primary_user_uuid.as_ref()
@@ -347,6 +354,7 @@ pub async fn update_device(
     path: web::Path<i32>,
     device_update: web::Json<DeviceUpdate>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
 ) -> impl Responder {
     let device_id = path.into_inner();
@@ -402,6 +410,9 @@ pub async fn update_device(
     
     match repository::update_device(&mut conn, device_id, update_data) {
         Ok(device) => {
+            // Re-index the updated device in search
+            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device.clone());
+
             // Broadcast SSE events for each field that was updated
             if let Some(update_obj) = update_json.as_object() {
                 for (key, value) in update_obj {
@@ -446,6 +457,7 @@ pub async fn update_device(
 pub async fn delete_device(
     req: HttpRequest,
     pool: web::Data<Pool>,
+    search_service: web::Data<Arc<SearchService>>,
     path: web::Path<i32>,
 ) -> impl Responder {
     // Extract claims and check role
@@ -473,6 +485,8 @@ pub async fn delete_device(
     match repository::delete_device(&mut conn, device_id) {
         Ok(rows_affected) => {
             if rows_affected > 0 {
+                // Remove device from search index
+                indexing_tasks::spawn_delete_device(search_service.get_ref().clone(), device_id);
                 HttpResponse::Ok().json(json!({
                     "message": format!("Device {} deleted successfully", device_id)
                 }))
@@ -645,6 +659,7 @@ pub struct BulkDeviceActionRequest {
 pub async fn bulk_devices(
     req: HttpRequest,
     pool: web::Data<Pool>,
+    search_service: web::Data<Arc<SearchService>>,
     body: web::Json<BulkDeviceActionRequest>,
 ) -> impl Responder {
     // Extract claims and check authentication
@@ -686,7 +701,11 @@ pub async fn bulk_devices(
             let mut deleted = 0;
             for id in ids {
                 match repository::delete_device(&mut conn, *id) {
-                    Ok(rows) => deleted += rows,
+                    Ok(rows) => {
+                        deleted += rows;
+                        // Remove from search index
+                        indexing_tasks::spawn_delete_device(search_service.get_ref().clone(), *id);
+                    }
                     Err(e) => {
                         error!(device_id = *id, error = ?e, "Error deleting device in bulk operation");
                     }

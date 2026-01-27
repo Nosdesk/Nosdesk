@@ -95,7 +95,7 @@ impl FromSql<crate::schema::sql_types::TicketPriority, Pg> for TicketPriority {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::tickets)]
 pub struct Ticket {
     pub id: i32,
@@ -143,7 +143,7 @@ pub struct TicketUpdate {
     pub category_id: Option<Option<i32>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::devices)]
 pub struct Device {
     pub id: i32,
@@ -239,7 +239,7 @@ pub struct NewTicketDevice {
     pub device_id: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[diesel(table_name = crate::schema::comments)]
 #[diesel(belongs_to(Ticket))]
 #[diesel(belongs_to(User, foreign_key = user_uuid))]
@@ -291,7 +291,7 @@ pub struct NewAttachment {
     pub transcription: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[diesel(table_name = crate::schema::article_contents)]
 #[diesel(belongs_to(Ticket))]
 pub struct ArticleContent {
@@ -555,7 +555,7 @@ impl FromSql<crate::schema::sql_types::UserRole, Pg> for UserRole {
 }
 
 // User model - updated to match the actual database schema
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::users)]
 #[diesel(primary_key(uuid))]
 pub struct User {

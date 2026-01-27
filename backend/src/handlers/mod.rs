@@ -27,6 +27,7 @@ pub mod notifications;
 pub mod webhooks;
 pub mod plugins;
 pub mod passkeys;
+pub mod search;
 
 // Import all handlers from modules
 pub use auth::*;
@@ -73,6 +74,8 @@ use crate::services::notifications::{
     NotificationService,
     types::{NotificationTypeCode, NotificationPayload, NotificationEntity, NotificationActor},
 };
+use crate::services::search::SearchService;
+use crate::services::search::indexing_tasks;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -185,6 +188,7 @@ pub async fn add_comment_to_ticket(
     sse_state: web::Data<crate::handlers::sse::SseState>,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     notification_service: web::Data<NotificationService>,
+    search_service: web::Data<Arc<SearchService>>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
@@ -433,6 +437,14 @@ pub async fn add_comment_to_ticket(
 
             debug!(ticket_id, "SSE: Successfully broadcasted comment-added and modified events");
 
+            // Index the new comment in search
+            let ticket_title_for_search = ticket.as_ref().map(|t| t.title.clone()).unwrap_or_else(|| format!("Ticket #{}", ticket_id));
+            indexing_tasks::spawn_index_comment(
+                search_service.get_ref().clone(),
+                comment.clone(),
+                ticket_title_for_search,
+            );
+
             // Send notifications to ticket participants (requester, assignee, and @mentioned users)
             if let Some(ref ticket_info) = ticket {
                 let commenter_uuid = commenter_user.uuid;
@@ -528,6 +540,7 @@ pub async fn delete_comment(
     path: web::Path<i32>,
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     let comment_id = path.into_inner();
     debug!(comment_id, "Deleting comment");
@@ -551,6 +564,9 @@ pub async fn delete_comment(
     match crate::repository::comments::delete_comment(&mut conn, comment_id) {
         Ok(deleted) => {
             if deleted > 0 {
+                // Remove comment from search index
+                indexing_tasks::spawn_delete_comment(search_service.get_ref().clone(), comment_id);
+
                 // Broadcast SSE event for the deleted comment using centralized utility
                 use crate::utils::sse::SseBroadcaster;
                 SseBroadcaster::broadcast_comment_deleted(&sse_state, ticket_id, comment_id).await;
