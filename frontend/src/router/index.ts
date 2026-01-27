@@ -455,6 +455,16 @@ const router = createRouter({
       }
     },
     {
+      path: '/admin/search',
+      name: 'admin-search',
+      component: () => import('../views/SearchManagementView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Search Index Management',
+        adminRequired: true
+      }
+    },
+    {
       path: '/admin/email-settings',
       name: 'admin-email-settings',
       component: () => import('../views/EmailSettingsView.vue'),

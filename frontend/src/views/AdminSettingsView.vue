@@ -51,6 +51,12 @@ const adminMenuItems = [
     route: '/admin/auth-providers'
   },
   {
+    title: 'Search',
+    description: 'Manage the search index and view indexing statistics',
+    icon: 'search',
+    route: '/admin/search'
+  },
+  {
     title: 'System Settings',
     description: 'Manage storage, cleanup stale files, and system maintenance',
     icon: 'cog',

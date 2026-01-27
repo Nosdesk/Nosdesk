@@ -6,6 +6,7 @@ import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
 import MobileSearchBar from './components/MobileSearchBar.vue'
 import ToastContainer from './components/common/ToastContainer.vue'
+import { GlobalSearchModal } from './components/GlobalSearch'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useMobileSearch } from '@/composables/useMobileSearch'
 import { useCursorScanlines } from '@/composables/useCursorScanlines'
@@ -230,6 +231,9 @@ onMounted(async () => {
 
   <!-- Global Toast Container (hidden on print) -->
   <ToastContainer class="print:hidden" />
+
+  <!-- Global Search Modal -->
+  <GlobalSearchModal />
 </template>
 
 <style>

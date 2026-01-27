@@ -8,8 +8,16 @@ import FaviconIcon from "@/components/icons/FaviconIcon.vue";
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { useResizableSidebar } from "@/composables/useResizableSidebar";
 import { useNavbarState } from "@/composables/useNavbarState";
+import { useGlobalSearch } from "@/composables/useGlobalSearch";
 import { useBrandingStore } from "@/stores/branding";
 import { useThemeStore } from "@/stores/theme";
+
+// Global search
+const { openSearch } = useGlobalSearch();
+
+// Keyboard shortcut hint based on platform
+const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+const searchShortcut = isMac ? '\u2318K' : 'Ctrl+K';
 
 // Get branding and theme stores
 const brandingStore = useBrandingStore();
@@ -203,12 +211,46 @@ const isRouteActive = (path: string, exact = false) => {
                 />
             </RouterLink>
 
+            <!-- Search Button - above nav links -->
+            <button
+                @click="openSearch"
+                class="w-full mb-1.5 rounded-md transition-colors duration-200 flex items-center bg-surface-alt border border-default text-secondary hover:bg-surface-hover hover:text-primary hover:border-subtle"
+                :class="[
+                    isCollapsed
+                        ? 'px-2 py-1.5 justify-center'
+                        : 'px-2.5 py-1 gap-2 justify-between',
+                ]"
+                :title="isCollapsed ? 'Search' : ''"
+            >
+                <div class="flex items-center gap-2">
+                    <svg
+                        class="w-4 h-4"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                        />
+                    </svg>
+                    <span v-if="!isCollapsed" class="text-sm">Search</span>
+                </div>
+                <kbd
+                    v-if="!isCollapsed"
+                    class="hidden sm:inline-flex items-center px-1 py-0 text-xs font-mono bg-surface rounded border border-default text-tertiary"
+                >
+                    {{ searchShortcut }}
+                </kbd>
+            </button>
+
             <div
-                class="mb-2"
                 :class="[
                     isCompactNav && !isCollapsed
                         ? 'grid grid-cols-6 gap-0.5'
-                        : 'flex flex-col gap-1'
+                        : 'flex flex-col gap-0.5'
                 ]"
             >
                 <RouterLink
@@ -222,7 +264,7 @@ const isRouteActive = (path: string, exact = false) => {
                             : 'text-secondary hover:bg-surface-hover hover:text-primary',
                         isCollapsed || isCompactNav
                             ? 'px-2 py-1.5 justify-center'
-                            : 'px-3 py-2 gap-3',
+                            : 'px-2.5 py-1 gap-2.5',
                     ]"
                     :title="isCollapsed || isCompactNav ? link.text : ''"
                 >
@@ -377,6 +419,28 @@ const isRouteActive = (path: string, exact = false) => {
                     />
                 </svg>
             </RouterLink>
+
+            <!-- Search button (right side) -->
+            <button
+                @click="openSearch"
+                class="flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px] text-secondary"
+                aria-label="Search"
+                title="Search"
+            >
+                <svg
+                    class="w-6 h-6"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                >
+                    <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                </svg>
+            </button>
         </div>
     </nav>
 

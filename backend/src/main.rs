@@ -556,6 +556,29 @@ async fn main() -> std::io::Result<()> {
     // Initialize plugin proxy service for external requests
     let plugin_proxy_service = web::Data::new(services::plugins::PluginProxyService::new());
 
+    // Initialize search service for full-text search
+    let search_service = {
+        use std::sync::Arc;
+        use std::path::Path;
+
+        let search_index_path = env::var("SEARCH_INDEX_PATH")
+            .unwrap_or_else(|_| "data/search_index".to_string());
+
+        match services::search::SearchService::new(Path::new(&search_index_path), &pool) {
+            Ok(service) => {
+                info!(path = %search_index_path, "Search service initialized");
+                web::Data::new(Arc::new(service))
+            }
+            Err(e) => {
+                error!(error = ?e, "Failed to initialize search service");
+                error!("Search functionality will be unavailable");
+                // Return a placeholder - search endpoints will fail gracefully
+                // In a real deployment, you might want to fail startup here
+                return Err(std::io::Error::other(format!("Search service initialization failed: {e}")));
+            }
+        }
+    };
+
     // Initialize WebSocket app state for collaborative editing (includes SseState for broadcasting)
     let yjs_app_state = web::Data::new(handlers::collaboration::YjsAppState::new(web::Data::new(pool.clone()), redis_cache, sse_state.clone()));
 
@@ -621,6 +644,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(notification_service.clone())
             .app_data(webhook_service.clone())
             .app_data(plugin_proxy_service.clone())
+            .app_data(search_service.clone())
             .app_data(json_config)
             .app_data(multipart_config)
             
@@ -788,6 +812,11 @@ async fn main() -> std::io::Result<()> {
                     
                     // ===== SERVER-SENT EVENTS (SSE) =====
                     .route("/events/token", web::post().to(handlers::sse::get_sse_token))
+
+                    // ===== SEARCH =====
+                    .route("/search", web::get().to(handlers::search::search))
+                    .route("/search/rebuild", web::post().to(handlers::search::rebuild_index))
+                    .route("/search/stats", web::get().to(handlers::search::get_stats))
 
                     // ===== NOTIFICATIONS =====
                     .route("/notifications", web::get().to(handlers::notifications::get_notifications))

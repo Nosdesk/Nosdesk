@@ -7,6 +7,7 @@ use uuid::Uuid;
 use futures::{StreamExt, TryStreamExt};
 use actix_multipart::Multipart;
 use std::collections::HashSet;
+use std::sync::Arc;
 use tracing::{debug, info, warn, error};
 
 use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword, UserProfileUpdate};
@@ -15,6 +16,8 @@ use crate::repository::user_emails as user_emails_repo;
 use crate::utils;
 use crate::utils::email_branding::get_email_branding;
 use crate::db::DbConnection;
+use crate::services::search::SearchService;
+use crate::services::search::indexing_tasks;
 
 /// Result type for invitation sending operations
 pub enum SendInvitationResult {
@@ -336,6 +339,7 @@ pub struct CreateUserRequest {
 pub async fn create_user(
     db_pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    search_service: web::Data<Arc<SearchService>>,
     user_data: web::Json<CreateUserRequest>,
     req: HttpRequest,
 ) -> impl Responder {
@@ -542,7 +546,14 @@ pub async fn create_user(
                         info!(user_name = %user.name, "New user created (password set)");
                     }
                     let user_uuid_str = user.uuid.to_string();
-                    let response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+                    let response = repository::user_helpers::get_user_with_primary_email(user.clone(), &mut conn);
+
+                    // Index the new user in search
+                    indexing_tasks::spawn_index_user(
+                        search_service.get_ref().clone(),
+                        user,
+                        Some(email.clone()),
+                    );
 
                     // Broadcast user creation via SSE
                     crate::utils::sse::SseBroadcaster::broadcast_user_created(
@@ -618,6 +629,7 @@ pub async fn delete_user(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
     body: web::Json<DeleteUserRequest>,
 ) -> impl Responder {
@@ -781,6 +793,9 @@ pub async fn delete_user(
     match repository::delete_user(&target_user.uuid, &mut conn) {
         Ok(count) if count > 0 => {
             info!("User deleted successfully: {} (uuid={})", target_user.name, target_user.uuid);
+
+            // Remove user from search index
+            indexing_tasks::spawn_delete_user(search_service.get_ref().clone(), user_uuid.clone());
 
             // Broadcast user deletion via SSE
             crate::utils::sse::SseBroadcaster::broadcast_user_deleted(
@@ -1579,6 +1594,7 @@ fn should_keep_file(filename: &str, valid_uuids: &HashSet<String>, valid_suffixe
 pub async fn update_user_by_uuid(
     db_pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
     path: web::Path<String>,
     user_data: web::Json<UserUpdateWithPassword>,
@@ -1787,6 +1803,14 @@ pub async fn update_user_by_uuid(
                     &updated_by,
                 ).await;
             }
+
+            // Re-index the updated user in search
+            let primary_email = repository::user_helpers::get_primary_email(&updated_user.uuid, &mut conn);
+            indexing_tasks::spawn_index_user(
+                search_service.get_ref().clone(),
+                updated_user.clone(),
+                primary_email,
+            );
 
             // Use helper function to fetch primary email from user_emails table
             let user_response = repository::user_helpers::get_user_with_primary_email(updated_user, &mut conn);
@@ -2378,6 +2402,7 @@ pub async fn bulk_users(
     req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    search_service: web::Data<Arc<SearchService>>,
     body: web::Json<BulkUserActionRequest>,
 ) -> impl Responder {
     // Extract claims and check authentication
@@ -2434,6 +2459,8 @@ pub async fn bulk_users(
                 match repository::users::delete_user(&uuid, &mut conn) {
                     Ok(_) => {
                         deleted += 1;
+                        // Remove from search index
+                        indexing_tasks::spawn_delete_user(search_service.get_ref().clone(), id.clone());
                         // Broadcast SSE event
                         crate::utils::sse::SseBroadcaster::broadcast_user_deleted(
                             &sse_state,

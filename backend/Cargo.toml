@@ -112,6 +112,9 @@ zip = "0.6"                # ZIP archive creation/extraction
 walkdir = "2.5"            # Directory walking for file backup
 sanitize-filename = "0.5"  # Filename sanitization for uploads
 
+# Full-text search
+tantivy = "0.22"           # Fast full-text search engine (Rust equivalent of Lucene)
+
 # For testing only
 [dev-dependencies]
 actix-rt = "2.10.0"
