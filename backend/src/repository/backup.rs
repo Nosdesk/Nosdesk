@@ -51,3 +51,52 @@ pub fn delete_backup_job(
         .execute(conn)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::setup_test_connection;
+    use crate::models::NewBackupJob;
+
+    fn minimal_job() -> NewBackupJob {
+        NewBackupJob {
+            job_type: "full".to_string(),
+            status: "pending".to_string(),
+            include_sensitive: false,
+            created_by: None,
+        }
+    }
+
+    #[test]
+    fn create_and_get_backup_job() {
+        let mut conn = setup_test_connection();
+        let job = create_backup_job(&mut conn, minimal_job()).unwrap();
+
+        let fetched = get_backup_job(&mut conn, job.id).unwrap();
+        assert_eq!(fetched.job_type, "full");
+        assert_eq!(fetched.status, "pending");
+    }
+
+    #[test]
+    fn get_all_backup_jobs_test() {
+        let mut conn = setup_test_connection();
+        let j1 = create_backup_job(&mut conn, minimal_job()).unwrap();
+        let j2 = create_backup_job(&mut conn, minimal_job()).unwrap();
+
+        let all = get_all_backup_jobs(&mut conn).unwrap();
+        let ids: Vec<Uuid> = all.iter().map(|j| j.id).collect();
+        assert!(ids.contains(&j1.id));
+        assert!(ids.contains(&j2.id));
+    }
+
+    #[test]
+    fn delete_backup_job_test() {
+        let mut conn = setup_test_connection();
+        let job = create_backup_job(&mut conn, minimal_job()).unwrap();
+
+        let count = delete_backup_job(&mut conn, job.id).unwrap();
+        assert_eq!(count, 1);
+
+        let result = get_backup_job(&mut conn, job.id);
+        assert!(result.is_err());
+    }
+}

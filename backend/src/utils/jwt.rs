@@ -517,4 +517,103 @@ pub mod helpers {
 
         Ok((response, tokens))
     }
-} 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hash_refresh_token_deterministic() {
+        let token = "test-token-value";
+        let hash1 = JwtUtils::hash_refresh_token(token);
+        let hash2 = JwtUtils::hash_refresh_token(token);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn hash_refresh_token_differs() {
+        let hash1 = JwtUtils::hash_refresh_token("token-a");
+        let hash2 = JwtUtils::hash_refresh_token("token-b");
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn generate_refresh_token_length() {
+        let token = JwtUtils::generate_refresh_token();
+        assert_eq!(token.len(), 64);
+    }
+
+    #[test]
+    fn generate_refresh_token_unique() {
+        let t1 = JwtUtils::generate_refresh_token();
+        let t2 = JwtUtils::generate_refresh_token();
+        assert_ne!(t1, t2);
+    }
+
+    #[test]
+    fn create_token_and_validate_roundtrip() {
+        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only"); }
+
+        // Force lazy_static initialization by accessing JWT_SECRET
+        let _ = &*JWT_SECRET;
+
+        let user = crate::models::User {
+            uuid: uuid::Uuid::new_v4(),
+            name: "Test User".to_string(),
+            role: crate::models::UserRole::Admin,
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            theme: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_enabled: false,
+            mfa_backup_codes: None,
+            passkey_credentials: None,
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
+            password_changed_at: None,
+        };
+
+        let token = JwtUtils::create_token(&user).expect("Failed to create token");
+        let claims = JwtUtils::validate_token(&token).expect("Failed to validate token");
+
+        assert_eq!(claims.sub, user.uuid.to_string());
+        assert_eq!(claims.name, "Test User");
+        assert_eq!(claims.scope, "full");
+    }
+
+    #[test]
+    fn create_sse_token_has_sse_scope() {
+        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only"); }
+        let _ = &*JWT_SECRET;
+
+        let user_id = uuid::Uuid::new_v4().to_string();
+        let token = JwtUtils::create_sse_token(&user_id, "admin").expect("Failed to create SSE token");
+        let claims = JwtUtils::validate_token(&token).expect("Failed to validate SSE token");
+        assert_eq!(claims.scope, "sse");
+        assert_eq!(claims.sub, user_id);
+    }
+
+    #[test]
+    fn mfa_required_response() {
+        let uuid = uuid::Uuid::new_v4();
+        let resp = helpers::create_mfa_required_response(uuid);
+        assert!(!resp.success);
+        assert_eq!(resp.mfa_required, Some(true));
+        assert_eq!(resp.mfa_setup_required, Some(false));
+        assert_eq!(resp.user_uuid, Some(uuid.to_string()));
+    }
+
+    #[test]
+    fn mfa_setup_required_response() {
+        let uuid = uuid::Uuid::new_v4();
+        let resp = helpers::create_mfa_setup_required_response(uuid);
+        assert!(!resp.success);
+        assert_eq!(resp.mfa_required, Some(false));
+        assert_eq!(resp.mfa_setup_required, Some(true));
+        assert_eq!(resp.user_uuid, Some(uuid.to_string()));
+    }
+}

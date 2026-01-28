@@ -135,3 +135,92 @@ pub fn get_users_with_primary_emails(
         }
     }).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use crate::models::UserRole;
+
+    #[test]
+    fn get_primary_email_returns_primary() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "emailuser", UserRole::User);
+        TestFixtures::create_user_email(&mut conn, user.uuid, "primary@test.com", true);
+        TestFixtures::create_user_email(&mut conn, user.uuid, "secondary@test.com", false);
+
+        let email = get_primary_email(&user.uuid, &mut conn);
+        assert_eq!(email, Some("primary@test.com".to_string()));
+    }
+
+    #[test]
+    fn get_primary_email_returns_none_when_missing() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "noemail", UserRole::User);
+
+        assert_eq!(get_primary_email(&user.uuid, &mut conn), None);
+    }
+
+    #[test]
+    fn get_user_by_email_case_insensitive() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "ciuser", UserRole::User);
+        TestFixtures::create_user_email(&mut conn, user.uuid, "alice@example.com", true);
+
+        let found = get_user_by_email("ALICE@EXAMPLE.COM", &mut conn).unwrap();
+        assert_eq!(found.uuid, user.uuid);
+    }
+
+    #[test]
+    fn get_user_by_email_only_matches_primary() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "prionly", UserRole::User);
+        TestFixtures::create_user_email(&mut conn, user.uuid, "real@test.com", true);
+        TestFixtures::create_user_email(&mut conn, user.uuid, "secondary@test.com", false);
+
+        assert!(get_user_by_email("secondary@test.com", &mut conn).is_err());
+        assert!(get_user_by_email("real@test.com", &mut conn).is_ok());
+    }
+
+    #[test]
+    fn create_user_with_email_atomic() {
+        let mut conn = setup_test_connection();
+        let new_user = crate::models::NewUser {
+            uuid: Uuid::new_v4(),
+            name: "Atomic".into(),
+            role: UserRole::User,
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            theme: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_enabled: false,
+            mfa_backup_codes: None,
+            passkey_credentials: None,
+        };
+
+        let (user, email_record) = create_user_with_email(
+            new_user, "atomic@test.com".into(), true, None, &mut conn,
+        ).unwrap();
+
+        assert_eq!(user.name, "Atomic");
+        assert_eq!(email_record.email, "atomic@test.com");
+        assert!(email_record.is_primary);
+        assert!(email_record.is_verified);
+    }
+
+    #[test]
+    fn batch_primary_emails() {
+        let mut conn = setup_test_connection();
+        let u1 = TestFixtures::create_user(&mut conn, "batch1", UserRole::User);
+        let u2 = TestFixtures::create_user(&mut conn, "batch2", UserRole::User);
+        TestFixtures::create_user_email(&mut conn, u1.uuid, "b1@test.com", true);
+        TestFixtures::create_user_email(&mut conn, u2.uuid, "b2@test.com", true);
+
+        let map = get_primary_emails_batch(&[u1.uuid, u2.uuid], &mut conn);
+        assert_eq!(map.get(&u1.uuid), Some(&"b1@test.com".to_string()));
+        assert_eq!(map.get(&u2.uuid), Some(&"b2@test.com".to_string()));
+    }
+}

@@ -167,3 +167,61 @@ pub struct WebhookPayload {
     pub timestamp: chrono::DateTime<chrono::Utc>,
     pub data: serde_json::Value,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn as_str_roundtrip() {
+        let variants = [
+            WebhookEventType::TicketCreated,
+            WebhookEventType::TicketUpdated,
+            WebhookEventType::TicketDeleted,
+            WebhookEventType::CommentAdded,
+            WebhookEventType::CommentDeleted,
+            WebhookEventType::AttachmentAdded,
+            WebhookEventType::AttachmentDeleted,
+            WebhookEventType::DeviceCreated,
+            WebhookEventType::DeviceLinked,
+            WebhookEventType::DeviceUnlinked,
+            WebhookEventType::DeviceUpdated,
+            WebhookEventType::ProjectAssigned,
+            WebhookEventType::ProjectUnassigned,
+            WebhookEventType::TicketLinked,
+            WebhookEventType::TicketUnlinked,
+            WebhookEventType::DocumentationCreated,
+            WebhookEventType::DocumentationUpdated,
+            WebhookEventType::UserCreated,
+            WebhookEventType::UserUpdated,
+            WebhookEventType::UserDeleted,
+        ];
+        for variant in &variants {
+            let s = variant.as_str();
+            let parsed = WebhookEventType::from_str(s).unwrap_or_else(|| {
+                panic!("Failed to roundtrip variant {:?} through as_str/from_str", variant);
+            });
+            assert_eq!(*variant, parsed);
+        }
+    }
+
+    #[test]
+    fn from_str_unknown_returns_none() {
+        assert!(WebhookEventType::from_str("nonexistent.event").is_none());
+        assert!(WebhookEventType::from_str("").is_none());
+        assert!(WebhookEventType::from_str("ticket").is_none());
+    }
+
+    #[test]
+    fn all_returns_correct_count() {
+        assert_eq!(WebhookEventType::all().len(), 20);
+    }
+
+    #[test]
+    fn from_sse_heartbeat_is_none() {
+        let heartbeat = TicketEvent::Heartbeat {
+            timestamp: chrono::Utc::now(),
+        };
+        assert!(WebhookEventType::from_sse_event(&heartbeat).is_none());
+    }
+}

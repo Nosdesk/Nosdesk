@@ -204,4 +204,111 @@ pub fn update_project_ticket_orders(
     }
 
     Ok(())
-} 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use crate::models::UserRole;
+
+    #[test]
+    fn create_and_get_project_with_ticket_count() {
+        let mut conn = setup_test_connection();
+        let project = TestFixtures::create_project(&mut conn, "Alpha");
+
+        let fetched = get_project_with_ticket_count(&mut conn, project.id).unwrap();
+        assert_eq!(fetched.name, "Alpha");
+        assert_eq!(fetched.ticket_count, 0);
+    }
+
+    #[test]
+    fn add_ticket_to_project_increments_count() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "projuser", UserRole::User);
+        let project = TestFixtures::create_project(&mut conn, "Beta");
+        let ticket = TestFixtures::create_ticket(&mut conn, "T1", Some(user.uuid), None);
+
+        add_ticket_to_project(&mut conn, project.id, ticket.id).unwrap();
+
+        let fetched = get_project_with_ticket_count(&mut conn, project.id).unwrap();
+        assert_eq!(fetched.ticket_count, 1);
+    }
+
+    #[test]
+    fn add_ticket_to_project_is_idempotent() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "idemproj", UserRole::User);
+        let project = TestFixtures::create_project(&mut conn, "Gamma");
+        let ticket = TestFixtures::create_ticket(&mut conn, "T1", Some(user.uuid), None);
+
+        add_ticket_to_project(&mut conn, project.id, ticket.id).unwrap();
+        add_ticket_to_project(&mut conn, project.id, ticket.id).unwrap();
+
+        let fetched = get_project_with_ticket_count(&mut conn, project.id).unwrap();
+        assert_eq!(fetched.ticket_count, 1);
+    }
+
+    #[test]
+    fn remove_ticket_from_project_works() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "rmproj", UserRole::User);
+        let project = TestFixtures::create_project(&mut conn, "Delta");
+        let ticket = TestFixtures::create_ticket(&mut conn, "T1", Some(user.uuid), None);
+
+        add_ticket_to_project(&mut conn, project.id, ticket.id).unwrap();
+        remove_ticket_from_project(&mut conn, project.id, ticket.id).unwrap();
+
+        let fetched = get_project_with_ticket_count(&mut conn, project.id).unwrap();
+        assert_eq!(fetched.ticket_count, 0);
+    }
+
+    #[test]
+    fn display_order_increments_automatically() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "orduser", UserRole::User);
+        let project = TestFixtures::create_project(&mut conn, "Order");
+        let t1 = TestFixtures::create_ticket(&mut conn, "T1", Some(user.uuid), None);
+        let t2 = TestFixtures::create_ticket(&mut conn, "T2", Some(user.uuid), None);
+
+        let pt1 = add_ticket_to_project(&mut conn, project.id, t1.id).unwrap();
+        let pt2 = add_ticket_to_project(&mut conn, project.id, t2.id).unwrap();
+
+        assert_eq!(pt1.display_order, 1);
+        assert_eq!(pt2.display_order, 2);
+    }
+
+    #[test]
+    fn get_projects_for_ticket_works() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "ptuser", UserRole::User);
+        let p1 = TestFixtures::create_project(&mut conn, "P1");
+        let p2 = TestFixtures::create_project(&mut conn, "P2");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Shared", Some(user.uuid), None);
+
+        add_ticket_to_project(&mut conn, p1.id, ticket.id).unwrap();
+        add_ticket_to_project(&mut conn, p2.id, ticket.id).unwrap();
+
+        let projects = get_projects_for_ticket(&mut conn, ticket.id).unwrap();
+        let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
+        assert!(names.contains(&"P1"));
+        assert!(names.contains(&"P2"));
+    }
+
+    #[test]
+    fn delete_project_cascades_associations() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "delproj", UserRole::User);
+        let project = TestFixtures::create_project(&mut conn, "Doomed");
+        let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
+
+        add_ticket_to_project(&mut conn, project.id, ticket.id).unwrap();
+        delete_project(&mut conn, project.id).unwrap();
+
+        // Ticket should still exist
+        assert!(crate::repository::tickets::get_ticket_by_id(&mut conn, ticket.id).is_ok());
+        // Project gone
+        let projects = get_projects_for_ticket(&mut conn, ticket.id).unwrap();
+        assert!(projects.is_empty());
+    }
+}

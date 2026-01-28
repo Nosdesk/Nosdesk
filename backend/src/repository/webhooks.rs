@@ -173,3 +173,112 @@ pub fn delete_old_deliveries(
     diesel::delete(webhook_deliveries::table.filter(webhook_deliveries::created_at.lt(cutoff)))
         .execute(conn)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::setup_test_connection;
+
+    #[test]
+    fn create_and_list_webhook() {
+        let mut conn = setup_test_connection();
+
+        let wh = create_webhook(
+            &mut conn,
+            "Test Hook".into(),
+            "https://example.com/hook".into(),
+            "secret123".into(),
+            vec!["ticket.created".into()],
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(wh.name, "Test Hook");
+
+        let all = list_all_webhooks(&mut conn).unwrap();
+        assert!(all.iter().any(|w| w.uuid == wh.uuid));
+    }
+
+    #[test]
+    fn get_webhook_by_uuid_test() {
+        let mut conn = setup_test_connection();
+
+        let wh = create_webhook(
+            &mut conn,
+            "UUID Hook".into(),
+            "https://example.com/uuid".into(),
+            "s".into(),
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        let fetched = get_webhook_by_uuid(&mut conn, wh.uuid).unwrap();
+        assert_eq!(fetched.name, "UUID Hook");
+    }
+
+    #[test]
+    fn update_webhook_by_uuid_test() {
+        let mut conn = setup_test_connection();
+
+        let wh = create_webhook(
+            &mut conn,
+            "Old Name".into(),
+            "https://example.com".into(),
+            "s".into(),
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        let update = WebhookUpdate {
+            name: Some("New Name".to_string()),
+            ..Default::default()
+        };
+        let updated = update_webhook_by_uuid(&mut conn, wh.uuid, update).unwrap();
+        assert_eq!(updated.name, "New Name");
+    }
+
+    #[test]
+    fn delete_webhook_by_uuid_test() {
+        let mut conn = setup_test_connection();
+
+        let wh = create_webhook(
+            &mut conn,
+            "Delete Me".into(),
+            "https://example.com".into(),
+            "s".into(),
+            vec![],
+            None,
+            None,
+        )
+        .unwrap();
+
+        let rows = delete_webhook_by_uuid(&mut conn, wh.uuid).unwrap();
+        assert_eq!(rows, 1);
+        assert!(get_webhook_by_uuid(&mut conn, wh.uuid).is_err());
+    }
+
+    #[test]
+    fn get_webhooks_for_event_test() {
+        let mut conn = setup_test_connection();
+
+        create_webhook(
+            &mut conn,
+            "Event Hook".into(),
+            "https://example.com/event".into(),
+            "s".into(),
+            vec!["ticket.created".into()],
+            None,
+            None,
+        )
+        .unwrap();
+
+        let hooks = get_webhooks_for_event(&mut conn, "ticket.created").unwrap();
+        assert!(!hooks.is_empty());
+        assert!(hooks.iter().any(|w| w.name == "Event Hook"));
+    }
+}

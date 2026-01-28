@@ -214,3 +214,141 @@ impl From<&DeliverableNotification> for NotificationEvent {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notification_type_code_roundtrip() {
+        let variants = [
+            NotificationTypeCode::TicketAssigned,
+            NotificationTypeCode::TicketStatusChanged,
+            NotificationTypeCode::CommentAdded,
+            NotificationTypeCode::Mentioned,
+            NotificationTypeCode::TicketCreatedRequester,
+        ];
+        for variant in &variants {
+            let s = variant.as_str();
+            let parsed = NotificationTypeCode::from_str(s).unwrap();
+            assert_eq!(*variant, parsed);
+        }
+    }
+
+    #[test]
+    fn notification_type_code_unknown_returns_none() {
+        assert!(NotificationTypeCode::from_str("unknown").is_none());
+        assert!(NotificationTypeCode::from_str("").is_none());
+    }
+
+    #[test]
+    fn notification_type_titles() {
+        let variants = [
+            NotificationTypeCode::TicketAssigned,
+            NotificationTypeCode::TicketStatusChanged,
+            NotificationTypeCode::CommentAdded,
+            NotificationTypeCode::Mentioned,
+            NotificationTypeCode::TicketCreatedRequester,
+        ];
+        for variant in &variants {
+            assert!(!variant.title().is_empty(), "{:?} has empty title", variant);
+        }
+    }
+
+    #[test]
+    fn notification_channel_roundtrip() {
+        let channels = [
+            NotificationChannel::InApp,
+            NotificationChannel::Email,
+            NotificationChannel::Push,
+        ];
+        for ch in &channels {
+            let s = ch.as_str();
+            let parsed = NotificationChannel::from_str(s).unwrap();
+            assert_eq!(*ch, parsed);
+        }
+    }
+
+    #[test]
+    fn notification_entity_ticket_methods() {
+        let entity = NotificationEntity::Ticket { id: 42, title: "Test".to_string() };
+        assert_eq!(entity.entity_type(), "ticket");
+        assert_eq!(entity.entity_id(), 42);
+        assert_eq!(entity.ticket_id(), 42);
+    }
+
+    #[test]
+    fn notification_entity_comment_methods() {
+        let entity = NotificationEntity::Comment {
+            id: 10,
+            ticket_id: 42,
+            ticket_title: "Test".to_string(),
+        };
+        assert_eq!(entity.entity_type(), "comment");
+        assert_eq!(entity.entity_id(), 10);
+        assert_eq!(entity.ticket_id(), 42);
+    }
+
+    #[test]
+    fn notification_payload_builder() {
+        let actor = NotificationActor {
+            uuid: Uuid::new_v4(),
+            name: "Actor".to_string(),
+            avatar_thumb: None,
+        };
+        let entity = NotificationEntity::Ticket { id: 1, title: "T".to_string() };
+        let payload = NotificationPayload::new(
+            NotificationTypeCode::TicketAssigned,
+            Uuid::new_v4(),
+            actor,
+            entity,
+        );
+        // Defaults
+        assert!(payload.body.is_none());
+        assert_eq!(payload.metadata, serde_json::json!({}));
+        assert_eq!(payload.title, "Assigned to Ticket");
+
+        // Builder methods
+        let payload = payload
+            .with_body("body text")
+            .with_title("Custom Title")
+            .with_metadata(serde_json::json!({"key": "val"}));
+        assert_eq!(payload.body.as_deref(), Some("body text"));
+        assert_eq!(payload.title, "Custom Title");
+        assert_eq!(payload.metadata, serde_json::json!({"key": "val"}));
+    }
+
+    #[test]
+    fn deliverable_to_event_conversion() {
+        let actor = NotificationActor {
+            uuid: Uuid::new_v4(),
+            name: "Actor".to_string(),
+            avatar_thumb: None,
+        };
+        let entity = NotificationEntity::Comment {
+            id: 5,
+            ticket_id: 10,
+            ticket_title: "Ticket".to_string(),
+        };
+        let notif_uuid = Uuid::new_v4();
+        let deliverable = DeliverableNotification {
+            id: Some(1),
+            uuid: notif_uuid,
+            payload: NotificationPayload::new(
+                NotificationTypeCode::CommentAdded,
+                Uuid::new_v4(),
+                actor,
+                entity,
+            ).with_body("hello"),
+            channels: vec![NotificationChannel::InApp],
+        };
+
+        let event = NotificationEvent::from(&deliverable);
+        assert_eq!(event.id, notif_uuid);
+        assert_eq!(event.notification_type, "comment_added");
+        assert_eq!(event.entity_type, "comment");
+        assert_eq!(event.entity_id, 5);
+        assert_eq!(event.ticket_id, 10);
+        assert_eq!(event.body.as_deref(), Some("hello"));
+    }
+}

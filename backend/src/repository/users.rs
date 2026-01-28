@@ -365,4 +365,98 @@ pub fn update_user_passkey_credentials(
     diesel::update(users::table.filter(users::uuid.eq(uuid)))
         .set(update)
         .get_result(conn)
-} 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use crate::models::UserRole;
+
+    #[test]
+    fn create_and_get_user_by_uuid() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Alice Test", UserRole::Technician);
+
+        let fetched = get_user_by_uuid(&user.uuid, &mut conn).unwrap();
+        assert_eq!(fetched.name, "Alice Test");
+        assert_eq!(fetched.role, UserRole::Technician);
+    }
+
+    #[test]
+    fn get_user_by_name_test() {
+        let mut conn = setup_test_connection();
+        TestFixtures::create_user(&mut conn, "Bob Unique", UserRole::User);
+
+        let fetched = get_user_by_name("Bob Unique", &mut conn).unwrap();
+        assert_eq!(fetched.name, "Bob Unique");
+    }
+
+    #[test]
+    fn get_users_returns_all() {
+        let mut conn = setup_test_connection();
+        let u1 = TestFixtures::create_user(&mut conn, "User A", UserRole::User);
+        let u2 = TestFixtures::create_user(&mut conn, "User B", UserRole::Admin);
+
+        let all = get_users(&mut conn).unwrap();
+        let uuids: Vec<Uuid> = all.iter().map(|u| u.uuid).collect();
+        assert!(uuids.contains(&u1.uuid));
+        assert!(uuids.contains(&u2.uuid));
+    }
+
+    #[test]
+    fn count_users_test() {
+        let mut conn = setup_test_connection();
+        let before = count_users(&mut conn).unwrap();
+        TestFixtures::create_user(&mut conn, "Count1", UserRole::User);
+        TestFixtures::create_user(&mut conn, "Count2", UserRole::User);
+        let after = count_users(&mut conn).unwrap();
+        assert_eq!(after, before + 2);
+    }
+
+    #[test]
+    fn update_user_test() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Before", UserRole::User);
+
+        let update = UserUpdate {
+            name: Some("After".to_string()),
+            role: None,
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            theme: None,
+            microsoft_uuid: None,
+            updated_at: None,
+        };
+
+        let updated = update_user(&user.uuid, update, &mut conn).unwrap();
+        assert_eq!(updated.name, "After");
+    }
+
+    #[test]
+    fn delete_user_test() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "ToDelete", UserRole::Admin);
+        // Create a second admin so delete_user can reassign docs
+        TestFixtures::create_user(&mut conn, "OtherAdmin", UserRole::Admin);
+        let _ticket = TestFixtures::create_ticket(&mut conn, "ticket", Some(user.uuid), None);
+
+        let deleted = delete_user(&user.uuid, &mut conn).unwrap();
+        assert_eq!(deleted, 1);
+
+        let result = get_user_by_uuid(&user.uuid, &mut conn);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn get_users_by_uuids_test() {
+        let mut conn = setup_test_connection();
+        let u1 = TestFixtures::create_user(&mut conn, "Batch1", UserRole::User);
+        let u2 = TestFixtures::create_user(&mut conn, "Batch2", UserRole::User);
+
+        let results = get_users_by_uuids(&[u1.uuid, u2.uuid], &mut conn).unwrap();
+        assert_eq!(results.len(), 2);
+    }
+}

@@ -539,3 +539,135 @@ pub fn set_group_devices(
         .filter(device_groups::group_id.eq(group_id))
         .load(conn)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use crate::models::UserRole;
+
+    #[test]
+    fn create_and_get_group() {
+        let mut conn = setup_test_connection();
+        let group = TestFixtures::create_group(&mut conn, "Engineering");
+
+        let fetched = get_group_by_id(&mut conn, group.id).unwrap();
+        assert_eq!(fetched.name, "Engineering");
+    }
+
+    #[test]
+    fn add_and_get_users_in_group() {
+        let mut conn = setup_test_connection();
+        let group = TestFixtures::create_group(&mut conn, "Team");
+        let u1 = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
+        let u2 = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
+
+        add_user_to_group(&mut conn, u1.uuid, group.id, None).unwrap();
+        add_user_to_group(&mut conn, u2.uuid, group.id, None).unwrap();
+
+        let members = get_users_in_group(&mut conn, group.id).unwrap();
+        let uuids: Vec<Uuid> = members.iter().map(|u| u.uuid).collect();
+        assert!(uuids.contains(&u1.uuid));
+        assert!(uuids.contains(&u2.uuid));
+    }
+
+    #[test]
+    fn add_user_to_group_is_idempotent() {
+        let mut conn = setup_test_connection();
+        let group = TestFixtures::create_group(&mut conn, "Idem");
+        let user = TestFixtures::create_user(&mut conn, "idemuser", UserRole::User);
+
+        let m1 = add_user_to_group(&mut conn, user.uuid, group.id, None).unwrap();
+        let m2 = add_user_to_group(&mut conn, user.uuid, group.id, None).unwrap();
+        assert_eq!(m1.user_uuid, m2.user_uuid);
+        assert_eq!(m1.group_id, m2.group_id);
+
+        let members = get_users_in_group(&mut conn, group.id).unwrap();
+        assert_eq!(members.len(), 1);
+    }
+
+    #[test]
+    fn remove_user_from_group_works() {
+        let mut conn = setup_test_connection();
+        let group = TestFixtures::create_group(&mut conn, "Remove");
+        let user = TestFixtures::create_user(&mut conn, "rmuser", UserRole::User);
+
+        add_user_to_group(&mut conn, user.uuid, group.id, None).unwrap();
+        remove_user_from_group(&mut conn, &user.uuid, group.id).unwrap();
+
+        assert!(get_users_in_group(&mut conn, group.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn get_groups_for_user_works() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "multigroup", UserRole::User);
+        let g1 = TestFixtures::create_group(&mut conn, "Alpha");
+        let g2 = TestFixtures::create_group(&mut conn, "Beta");
+
+        add_user_to_group(&mut conn, user.uuid, g1.id, None).unwrap();
+        add_user_to_group(&mut conn, user.uuid, g2.id, None).unwrap();
+
+        let groups = get_groups_for_user(&mut conn, &user.uuid).unwrap();
+        let names: Vec<&str> = groups.iter().map(|g| g.name.as_str()).collect();
+        assert!(names.contains(&"Alpha"));
+        assert!(names.contains(&"Beta"));
+    }
+
+    #[test]
+    fn get_group_ids_for_user_works() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "iduser", UserRole::User);
+        let g1 = TestFixtures::create_group(&mut conn, "G1");
+        let g2 = TestFixtures::create_group(&mut conn, "G2");
+
+        add_user_to_group(&mut conn, user.uuid, g1.id, None).unwrap();
+        add_user_to_group(&mut conn, user.uuid, g2.id, None).unwrap();
+
+        let ids = get_group_ids_for_user(&mut conn, &user.uuid).unwrap();
+        assert!(ids.contains(&g1.id));
+        assert!(ids.contains(&g2.id));
+    }
+
+    #[test]
+    fn set_group_members_replaces_all() {
+        let mut conn = setup_test_connection();
+        let group = TestFixtures::create_group(&mut conn, "Replace");
+        let u1 = TestFixtures::create_user(&mut conn, "old", UserRole::User);
+        let u2 = TestFixtures::create_user(&mut conn, "new1", UserRole::User);
+        let u3 = TestFixtures::create_user(&mut conn, "new2", UserRole::User);
+
+        add_user_to_group(&mut conn, u1.uuid, group.id, None).unwrap();
+
+        set_group_members(&mut conn, group.id, vec![u2.uuid, u3.uuid], None).unwrap();
+
+        let members = get_users_in_group(&mut conn, group.id).unwrap();
+        let uuids: Vec<Uuid> = members.iter().map(|u| u.uuid).collect();
+        assert!(!uuids.contains(&u1.uuid));
+        assert!(uuids.contains(&u2.uuid));
+        assert!(uuids.contains(&u3.uuid));
+    }
+
+    #[test]
+    fn delete_group_removes_it() {
+        let mut conn = setup_test_connection();
+        let group = TestFixtures::create_group(&mut conn, "Doomed");
+
+        delete_group(&mut conn, group.id).unwrap();
+        assert!(get_group_by_id(&mut conn, group.id).is_err());
+    }
+
+    #[test]
+    fn groups_with_member_counts() {
+        let mut conn = setup_test_connection();
+        let group = TestFixtures::create_group(&mut conn, "Counted");
+        let u1 = TestFixtures::create_user(&mut conn, "c1", UserRole::User);
+        let u2 = TestFixtures::create_user(&mut conn, "c2", UserRole::User);
+        add_user_to_group(&mut conn, u1.uuid, group.id, None).unwrap();
+        add_user_to_group(&mut conn, u2.uuid, group.id, None).unwrap();
+
+        let all = get_groups_with_member_counts(&mut conn).unwrap();
+        let found = all.iter().find(|g| g.group.id == group.id).unwrap();
+        assert_eq!(found.member_count, 2);
+    }
+}

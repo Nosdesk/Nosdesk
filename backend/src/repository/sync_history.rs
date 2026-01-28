@@ -121,3 +121,66 @@ pub fn delete_all_delta_tokens_for_provider(
     )
     .execute(conn)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::setup_test_connection;
+    use chrono::Utc;
+
+    #[test]
+    fn create_sync_history_test() {
+        let mut conn = setup_test_connection();
+        let now = Utc::now().naive_utc();
+
+        let new_sync = NewSyncHistory {
+            sync_type: "full".to_string(),
+            status: "running".to_string(),
+            started_at: now,
+            completed_at: None,
+            error_message: None,
+            records_processed: None,
+            records_created: None,
+            records_updated: None,
+            records_failed: None,
+            tenant_id: Some("tenant-1".to_string()),
+            is_delta: false,
+        };
+
+        let record = create_sync_history(&mut conn, new_sync).unwrap();
+        assert_eq!(record.sync_type, "full");
+        assert_eq!(record.status, "running");
+        assert_eq!(record.tenant_id, Some("tenant-1".to_string()));
+        assert!(!record.is_delta);
+    }
+
+    #[test]
+    fn upsert_and_get_delta_token() {
+        let mut conn = setup_test_connection();
+
+        let token = upsert_delta_token(&mut conn, "microsoft", "users", "https://delta.link/1").unwrap();
+        assert_eq!(token.provider_type, "microsoft");
+        assert_eq!(token.entity_type, "users");
+        assert_eq!(token.delta_link, "https://delta.link/1");
+
+        // Upsert again with new link
+        let updated = upsert_delta_token(&mut conn, "microsoft", "users", "https://delta.link/2").unwrap();
+        assert_eq!(updated.id, token.id);
+        assert_eq!(updated.delta_link, "https://delta.link/2");
+
+        // Get it back
+        let fetched = get_delta_token(&mut conn, "microsoft", "users").unwrap();
+        assert_eq!(fetched.delta_link, "https://delta.link/2");
+    }
+
+    #[test]
+    fn delete_delta_token_test() {
+        let mut conn = setup_test_connection();
+
+        upsert_delta_token(&mut conn, "microsoft", "groups", "https://delta.link/g").unwrap();
+        let deleted = delete_delta_token(&mut conn, "microsoft", "groups").unwrap();
+        assert_eq!(deleted, 1);
+
+        assert!(get_delta_token(&mut conn, "microsoft", "groups").is_err());
+    }
+}

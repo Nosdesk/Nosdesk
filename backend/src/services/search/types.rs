@@ -200,3 +200,104 @@ pub struct IndexStats {
     /// Whether the index is currently being rebuilt
     pub is_rebuilding: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entity_type_roundtrip() {
+        let variants = [
+            EntityType::Ticket,
+            EntityType::Comment,
+            EntityType::Documentation,
+            EntityType::Attachment,
+            EntityType::Device,
+            EntityType::User,
+        ];
+        for variant in &variants {
+            let s = variant.as_str();
+            let parsed = EntityType::from_str(s).unwrap();
+            assert_eq!(*variant, parsed);
+        }
+    }
+
+    #[test]
+    fn entity_type_unknown_returns_none() {
+        assert!(EntityType::from_str("unknown").is_none());
+        assert!(EntityType::from_str("").is_none());
+    }
+
+    #[test]
+    fn entity_type_display() {
+        for variant in &[EntityType::Ticket, EntityType::Comment, EntityType::User] {
+            assert_eq!(format!("{}", variant), variant.as_str());
+        }
+    }
+
+    #[test]
+    fn index_document_new() {
+        let doc = IndexDocument::new(EntityType::Ticket, 123, "Title", "Content");
+        assert_eq!(doc.id, "ticket-123");
+        assert_eq!(doc.entity_id, 123);
+        assert_eq!(doc.title, "Title");
+        assert_eq!(doc.content, "Content");
+        assert_eq!(doc.metadata, "");
+        assert_eq!(doc.url, "");
+        assert_eq!(doc.preview, "");
+    }
+
+    #[test]
+    fn index_document_with_uuid() {
+        let doc = IndexDocument::with_uuid(EntityType::User, "abc-def", "Name");
+        assert_eq!(doc.id, "user-abc-def");
+        assert_eq!(doc.entity_id, 0);
+        assert_eq!(doc.title, "Name");
+        assert_eq!(doc.content, "");
+    }
+
+    #[test]
+    fn index_document_builder_chain() {
+        let doc = IndexDocument::new(EntityType::Ticket, 1, "T", "C")
+            .metadata("meta")
+            .url("/tickets/1")
+            .preview("preview text")
+            .updated_at(1000);
+        assert_eq!(doc.metadata, "meta");
+        assert_eq!(doc.url, "/tickets/1");
+        assert_eq!(doc.preview, "preview text");
+        assert_eq!(doc.updated_at, 1000);
+    }
+
+    #[test]
+    fn search_query_entity_types_parse() {
+        let query = SearchQuery {
+            q: "test".to_string(),
+            limit: 20,
+            types: Some("ticket,comment".to_string()),
+        };
+        let types = query.entity_types().unwrap();
+        assert_eq!(types, vec![EntityType::Ticket, EntityType::Comment]);
+    }
+
+    #[test]
+    fn search_query_entity_types_none() {
+        let query = SearchQuery {
+            q: "test".to_string(),
+            limit: 20,
+            types: None,
+        };
+        assert!(query.entity_types().is_none());
+    }
+
+    #[test]
+    fn search_query_entity_types_ignores_invalid() {
+        let query = SearchQuery {
+            q: "test".to_string(),
+            limit: 20,
+            types: Some("ticket,invalid,user".to_string()),
+        };
+        let types = query.entity_types().unwrap();
+        assert_eq!(types, vec![EntityType::Ticket, EntityType::User]);
+    }
+}
