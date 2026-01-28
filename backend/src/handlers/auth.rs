@@ -2260,3 +2260,158 @@ pub async fn refresh_token(
         .cookie(crate::utils::cookies::create_csrf_token_cookie(&new_csrf_token))
         .json(response)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{test, App, http::StatusCode};
+    use crate::test_helpers::{setup_test_pool, create_test_claims, TestFixtures};
+    use crate::models::UserRole;
+
+    /// Helper to create a test app with auth routes
+    fn test_app(pool: crate::db::Pool) -> App<
+        impl actix_web::dev::ServiceFactory<
+            actix_web::dev::ServiceRequest,
+            Config = (),
+            Response = actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+            Error = actix_web::Error,
+            InitError = (),
+        >,
+    > {
+        App::new()
+            .app_data(web::Data::new(pool))
+            .route("/setup/status", web::get().to(check_setup_status))
+            .route("/login", web::post().to(login))
+            .route("/register", web::post().to(register))
+            .route("/me", web::get().to(get_current_user))
+    }
+
+    // =========================================================================
+    // PUBLIC ENDPOINT TESTS (no auth required)
+    // =========================================================================
+
+    #[actix_web::test]
+    async fn check_setup_status_returns_ok() {
+        let pool = setup_test_pool();
+        let app = test::init_service(test_app(pool)).await;
+
+        let req = test::TestRequest::get()
+            .uri("/setup/status")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Verify response structure
+        let body = test::read_body(resp).await;
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.get("requires_setup").is_some());
+        assert!(json.get("user_count").is_some());
+        assert!(json.get("microsoft_auth_enabled").is_some());
+        assert!(json.get("oidc_enabled").is_some());
+    }
+
+    #[actix_web::test]
+    async fn login_with_invalid_credentials_fails() {
+        let pool = setup_test_pool();
+        let app = test::init_service(test_app(pool)).await;
+
+        let login_request = serde_json::json!({
+            "email": "nonexistent@example.com",
+            "password": "wrongpassword"
+        });
+
+        let req = test::TestRequest::post()
+            .uri("/login")
+            .set_json(&login_request)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        let body = test::read_body(resp).await;
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("error"));
+    }
+
+    #[actix_web::test]
+    async fn register_creates_user_when_allowed() {
+        let pool = setup_test_pool();
+        let app = test::init_service(test_app(pool)).await;
+
+        // Generate unique email to avoid conflicts with existing test data
+        let unique_email = format!("testuser_{}@example.com", uuid::Uuid::new_v4());
+
+        let registration = serde_json::json!({
+            "name": "Test User",
+            "email": unique_email,
+            "role": "user",
+            "password": "SecurePassword123!"
+        });
+
+        let req = test::TestRequest::post()
+            .uri("/register")
+            .set_json(&registration)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        // Registration should succeed with 201 Created
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        let body = test::read_body(resp).await;
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.get("uuid").is_some());
+        assert_eq!(json.get("name").and_then(|v| v.as_str()), Some("Test User"));
+    }
+
+    // =========================================================================
+    // PROTECTED ENDPOINT TESTS (auth required)
+    // =========================================================================
+
+    #[actix_web::test]
+    async fn get_current_user_requires_auth() {
+        let pool = setup_test_pool();
+        let app = test::init_service(test_app(pool)).await;
+
+        // Request without authentication
+        let req = test::TestRequest::get()
+            .uri("/me")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        let body = test::read_body(resp).await;
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("error"));
+        assert_eq!(json.get("message").and_then(|v| v.as_str()), Some("Authentication required"));
+    }
+
+    #[actix_web::test]
+    async fn get_current_user_with_auth_succeeds() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().unwrap();
+
+        // Create test user
+        let user = TestFixtures::create_user(&mut conn, "authuser", UserRole::User);
+        let claims = create_test_claims(&user);
+
+        let app = test::init_service(test_app(pool.clone())).await;
+
+        // Create request with auth claims injected
+        let req = test::TestRequest::get()
+            .uri("/me")
+            .to_request();
+
+        // Inject claims into extensions (simulates auth middleware)
+        req.extensions_mut().insert(claims);
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = test::read_body(resp).await;
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.get("uuid").and_then(|v| v.as_str()), Some(user.uuid.to_string().as_str()));
+        assert_eq!(json.get("name").and_then(|v| v.as_str()), Some("authuser"));
+    }
+}

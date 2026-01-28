@@ -215,4 +215,49 @@ impl TestFixtures {
             .get_result(conn)
             .expect("Failed to create test project")
     }
+
+}
+
+// ============================================================================
+// Handler Test Utilities
+// ============================================================================
+
+/// Create a test database pool for handler tests.
+/// Unlike `setup_test_connection`, this returns a Pool that can be used with `web::Data`.
+/// Note: Tests using this pool share the same database state.
+pub fn setup_test_pool() -> crate::db::Pool {
+    dotenv::dotenv().ok();
+
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("DATABASE_URL or TEST_DATABASE_URL must be set for tests");
+
+    let manager = ConnectionManager::<PgConnection>::new(database_url);
+    r2d2::Pool::builder()
+        .max_size(2)
+        .build(manager)
+        .expect("Failed to create test pool")
+}
+
+/// Create a JWT token for a test user.
+/// Requires JWT_SECRET to be set.
+pub fn create_test_token(user: &User) -> String {
+    // Ensure JWT_SECRET is set for tests
+    if std::env::var("JWT_SECRET").is_err() {
+        std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only-32chars");
+    }
+    crate::utils::jwt::JwtUtils::create_token(user).expect("Failed to create test token")
+}
+
+/// Create test Claims for injecting into request extensions.
+pub fn create_test_claims(user: &User) -> crate::models::Claims {
+    crate::models::Claims {
+        sub: user.uuid.to_string(),
+        name: user.name.clone(),
+        email: String::new(),
+        role: format!("{:?}", user.role).to_lowercase(),
+        scope: "full".to_string(),
+        exp: (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp() as usize,
+        iat: chrono::Utc::now().timestamp() as usize,
+    }
 }
