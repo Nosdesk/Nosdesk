@@ -1,56 +1,5 @@
 /// Configuration utilities for the application
 use std::env;
-use uuid::Uuid;
-
-/// Get JWT secret from environment
-#[allow(dead_code)]
-pub fn get_jwt_secret() -> String {
-    env::var("JWT_SECRET").expect("JWT_SECRET environment variable must be set")
-}
-
-/// Get database URL from environment
-#[allow(dead_code)]
-pub fn get_database_url() -> String {
-    env::var("DATABASE_URL").expect("DATABASE_URL environment variable must be set")
-}
-
-/// Get server configuration
-#[allow(dead_code)]
-pub struct ServerConfig {
-    pub host: String,
-    pub port: u16,
-}
-
-impl ServerConfig {
-    #[allow(dead_code)]
-    pub fn from_env() -> Self {
-        Self {
-            host: env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
-            port: env::var("PORT")
-                .unwrap_or_else(|_| "8080".to_string())
-                .parse()
-                .expect("PORT must be a valid number"),
-        }
-    }
-}
-
-/// Generate a new UUID
-#[allow(dead_code)]
-pub fn generate_uuid() -> Uuid {
-    Uuid::now_v7()
-}
-
-/// Validate environment variables are set
-#[allow(dead_code)]
-pub fn validate_env_vars() {
-    let required_vars = ["JWT_SECRET", "DATABASE_URL"];
-    
-    for var in required_vars.iter() {
-        if env::var(var).is_err() {
-            panic!("Required environment variable {var} is not set");
-        }
-    }
-}
 
 #[derive(Debug)]
 pub enum ConfigError {

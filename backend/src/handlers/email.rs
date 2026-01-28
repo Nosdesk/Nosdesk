@@ -18,7 +18,7 @@ pub async fn get_email_config(
     req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => {
             return HttpResponse::InternalServerError().json(json!({

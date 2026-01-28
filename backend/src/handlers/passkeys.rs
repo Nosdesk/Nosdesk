@@ -27,6 +27,7 @@ use crate::utils::rate_limit::{get_redis_url, RateLimiter};
 // =============================================================================
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct StartRegistrationRequest {
     pub passkey_name: Option<String>,
 }

@@ -456,7 +456,7 @@ async fn cleanup_old_branding_images(dir: &str, image_type: &str) {
 // Serve branding files publicly (no auth required)
 pub async fn serve_branding_file(
     filename: web::Path<String>,
-    req: HttpRequest,
+    _req: HttpRequest,
 ) -> impl Responder {
     let filename = filename.into_inner();
 

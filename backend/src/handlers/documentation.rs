@@ -368,6 +368,7 @@ pub async fn create_documentation_page(
 
 // DTO for updating documentation pages (partial update)
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct UpdateDocumentationPageRequest {
     pub title: Option<String>,
     pub slug: Option<String>,
@@ -418,7 +419,7 @@ pub async fn update_documentation_page(
 
     // Check if the page exists and get its current state
     match repository::get_documentation_page(page_id, &mut conn) {
-        Ok(existing_page) => {
+        Ok(_existing_page) => {
             // Get the user UUID for last_edited_by
             let user_uuid = match utils::parse_uuid(&claims.sub) {
                 Ok(uuid) => uuid,
@@ -965,7 +966,7 @@ pub async fn create_documentation_page_from_ticket(
     }
 
     // Get the ticket's article content
-    let article_content = match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
+    let _article_content = match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
         Ok(content) => content,
         Err(_) => return HttpResponse::NotFound().json("Article content not found for ticket"),
     };
@@ -973,8 +974,8 @@ pub async fn create_documentation_page_from_ticket(
     // Generate a slug from the title
     let slug = page_data.title.to_lowercase().replace(" ", "-");
 
-    let now = Utc::now().naive_utc();
-    
+    let _now = Utc::now().naive_utc();
+
     // Get the user UUID for created_by and last_edited_by
     let user_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,

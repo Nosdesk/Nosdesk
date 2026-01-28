@@ -336,7 +336,9 @@ pub async fn get_ticket(
 pub async fn create_ticket(
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
+    auth: AuthContext,
     ticket: web::Json<NewTicket>,
 ) -> impl Responder {
     let mut conn = match get_db_conn(&pool).await {
@@ -344,6 +346,27 @@ pub async fn create_ticket(
         Err(e) => return e,
     };
     let new_ticket = ticket.into_inner();
+
+    // Validate category visibility if category_id is set
+    if let Some(category_id) = new_ticket.category_id {
+        match crate::repository::categories::can_user_see_category(
+            &mut conn,
+            &auth.user_uuid,
+            category_id,
+            auth.is_admin(),
+        ) {
+            Ok(true) => {}
+            Ok(false) => {
+                return HttpResponse::Forbidden().json(json!({
+                    "error": "Forbidden",
+                    "message": "You do not have access to the specified category"
+                }));
+            }
+            Err(_) => {
+                return HttpResponse::InternalServerError().json("Failed to check category visibility");
+            }
+        }
+    }
 
     // Validate assignee role if assignee is set
     if let Some(assignee_uuid) = new_ticket.assignee_uuid {
@@ -353,7 +376,59 @@ pub async fn create_ticket(
     }
 
     match repository::create_ticket(&mut conn, new_ticket) {
-        Ok(ticket) => {
+        Ok(mut ticket) => {
+            // Run automatic assignment rules if no assignee
+            if ticket.assignee_uuid.is_none() {
+                if let Some(result) = AssignmentEngine::evaluate_rules(&mut conn, &ticket, AssignmentTrigger::TicketCreated) {
+                    if let Some(assigned_uuid) = result.assigned_user_uuid {
+                        let assign_update = TicketUpdate {
+                            assignee_uuid: Some(Some(assigned_uuid)),
+                            updated_at: Some(chrono::Utc::now().naive_utc()),
+                            ..Default::default()
+                        };
+                        if let Ok(updated) = repository::update_ticket_partial(&mut conn, ticket.id, assign_update) {
+                            ticket = updated;
+                            info!(
+                                ticket_id = ticket.id,
+                                assignee = %assigned_uuid,
+                                rule = %result.rule_name,
+                                method = %result.method,
+                                "Auto-assigned new ticket via create_ticket"
+                            );
+
+                            // Send notification to the auto-assigned user
+                            let notification_service = notification_service.clone();
+                            let ticket_id = ticket.id;
+                            let ticket_title = ticket.title.clone();
+                            let rule_name = result.rule_name.clone();
+
+                            tokio::spawn(async move {
+                                let payload = NotificationPayload::new(
+                                    NotificationTypeCode::TicketAssigned,
+                                    assigned_uuid,
+                                    NotificationActor {
+                                        uuid: Uuid::nil(),
+                                        name: "System".to_string(),
+                                        avatar_thumb: None,
+                                    },
+                                    NotificationEntity::Ticket {
+                                        id: ticket_id,
+                                        title: ticket_title,
+                                    },
+                                )
+                                .with_body(format!(
+                                    "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
+                                ));
+
+                                if let Err(e) = notification_service.notify(payload).await {
+                                    warn!(error = %e, "Failed to send auto-assignment notification");
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+
             // Index the new ticket in search
             indexing_tasks::spawn_index_ticket(
                 search_service.get_ref().clone(),
@@ -784,6 +859,32 @@ pub async fn update_ticket_partial(
                 ticket_update.category_id = Some(None);
             }
             _ => {}
+        }
+    }
+
+    // Validate category visibility if category_id is being changed
+    if let Some(Some(new_category_id)) = ticket_update.category_id {
+        let user_uuid = match crate::utils::parse_uuid(&user_info.sub) {
+            Ok(uuid) => uuid,
+            Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID in token"),
+        };
+        let is_admin = crate::utils::rbac::is_admin(&user_info);
+        match crate::repository::categories::can_user_see_category(
+            &mut conn,
+            &user_uuid,
+            new_category_id,
+            is_admin,
+        ) {
+            Ok(true) => {}
+            Ok(false) => {
+                return HttpResponse::Forbidden().json(json!({
+                    "error": "Forbidden",
+                    "message": "You do not have access to the specified category"
+                }));
+            }
+            Err(_) => {
+                return HttpResponse::InternalServerError().json("Failed to check category visibility");
+            }
         }
     }
 

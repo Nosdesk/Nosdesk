@@ -140,6 +140,7 @@ impl FileValidator {
     ///
     /// # Returns
     /// The detected MIME type if safe, or "application/octet-stream" for unknown types
+    #[allow(dead_code)]
     pub fn validate_mime_type(bytes: &[u8]) -> Result<String, FileValidationError> {
         Self::validate_file(bytes, None)
     }

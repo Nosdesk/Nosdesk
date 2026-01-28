@@ -152,6 +152,7 @@ pub fn get_user_by_uuid(uuid: &Uuid, conn: &mut DbConnection) -> Result<User, Er
 }
 
 /// Get user by Microsoft UUID
+#[allow(dead_code)]
 pub fn get_user_by_microsoft_uuid(conn: &mut DbConnection, microsoft_uuid: &Uuid) -> QueryResult<User> {
     users::table.filter(users::microsoft_uuid.eq(microsoft_uuid)).first(conn)
 }

@@ -70,44 +70,11 @@ fn get_provider_by_type(provider_type: &str) -> Result<AuthProvider, diesel::res
     }
 }
 
-#[allow(dead_code)]
 fn get_provider_by_id(provider_id: i32) -> Result<AuthProvider, diesel::result::Error> {
     match provider_id {
-        1 => Ok(AuthProvider::new(
-            1,
-            "Local".to_string(),
-            "local".to_string(),
-            true,
-            true,
-        )),
-        2 => {
-            if std::env::var("MICROSOFT_CLIENT_ID").is_ok()
-                && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
-                && std::env::var("MICROSOFT_TENANT_ID").is_ok() {
-                Ok(AuthProvider::new(
-                    2,
-                    "Microsoft".to_string(),
-                    "microsoft".to_string(),
-                    true,
-                    false,
-                ))
-            } else {
-                Err(diesel::result::Error::NotFound)
-            }
-        },
-        3 => {
-            if config_utils::is_oidc_enabled() {
-                Ok(AuthProvider::new(
-                    3,
-                    crate::oidc::get_display_name_cached(),
-                    "oidc".to_string(),
-                    true,
-                    false,
-                ))
-            } else {
-                Err(diesel::result::Error::NotFound)
-            }
-        },
+        1 => get_provider_by_type("local"),
+        2 => get_provider_by_type("microsoft"),
+        3 => get_provider_by_type("oidc"),
         _ => Err(diesel::result::Error::NotFound),
     }
 }
@@ -118,7 +85,7 @@ pub async fn get_auth_providers(
     req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -218,49 +185,6 @@ pub async fn get_enabled_auth_providers(
 
 
 
-// Update an authentication provider (admin only) - now returns not implemented
-#[allow(dead_code)]
-pub async fn update_auth_provider(
-    db_pool: web::Data<Pool>,
-    req: HttpRequest,
-    _path: web::Path<i32>,
-    _provider_data: web::Json<serde_json::Value>,
-) -> impl Responder {
-    // Get database connection
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
-    };
-
-    // Extract claims from cookie auth middleware
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
-    };
-
-    // Check if the user is an admin
-    if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Only administrators can manage authentication providers"
-        }));
-    }
-
-    // Auth providers are now configured via environment variables
-    HttpResponse::BadRequest().json(json!({
-        "status": "error",
-        "message": "Authentication providers are now configured via environment variables. Please update your .env file instead."
-    }))
-}
-
-
-
 
 
 // Generate OAuth authorization URL
@@ -270,7 +194,7 @@ pub async fn oauth_authorize(
     req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -528,7 +452,7 @@ pub async fn oauth_callback(
     // Process based on provider type
     if provider.provider_type == "microsoft" {
         // Get the provider configuration from environment variables
-        let client_id = match config_utils::get_microsoft_client_id() {
+        let _client_id = match config_utils::get_microsoft_client_id() {
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_id for Microsoft provider in callback");
@@ -539,7 +463,7 @@ pub async fn oauth_callback(
             }
         };
 
-        let tenant_id = match config_utils::get_microsoft_tenant_id() {
+        let _tenant_id = match config_utils::get_microsoft_tenant_id() {
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get tenant_id for Microsoft provider in callback");
@@ -550,7 +474,7 @@ pub async fn oauth_callback(
             }
         };
 
-        let client_secret = match config_utils::get_microsoft_client_secret() {
+        let _client_secret = match config_utils::get_microsoft_client_secret() {
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_secret for Microsoft provider in callback");
@@ -561,7 +485,7 @@ pub async fn oauth_callback(
             }
         };
 
-        let redirect_uri_config = match config_utils::get_microsoft_redirect_uri() {
+        let _redirect_uri_config = match config_utils::get_microsoft_redirect_uri() {
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get redirect_uri for Microsoft provider in callback");
@@ -602,7 +526,7 @@ pub async fn oauth_callback(
                 };
 
                 // Extract email from user info
-                let email = match user_info.get("mail")
+                let _email = match user_info.get("mail")
                     .or_else(|| user_info.get("userPrincipalName"))
                     .and_then(|e| e.as_str()) {
                     Some(email) => email.to_string(),
@@ -1004,7 +928,7 @@ pub async fn oauth_logout(
     logout_request: web::Json<OAuthLogoutRequest>,
 ) -> impl Responder {
     // Get database connection
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -1162,9 +1086,9 @@ fn verify_oauth_state(token: &str) -> Result<OAuthState, String> {
 
 // Helper function to exchange Microsoft code for token
 async fn exchange_microsoft_code_for_token(
-    provider: &AuthProvider,
+    _provider: &AuthProvider,
     code: &str,
-    conn: &mut DbConnection,
+    _conn: &mut DbConnection,
 ) -> Result<(String, Option<String>), String> {
     // Get provider configuration from environment variables
     let client_id = match config_utils::get_microsoft_client_id() {
@@ -1610,7 +1534,7 @@ pub async fn test_microsoft_config(
     path: web::Path<i32>,
 ) -> impl Responder {
     // Get database connection
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -1638,7 +1562,7 @@ pub async fn test_microsoft_config(
     let provider_id = path.into_inner();
 
     // Get the provider
-    let provider = match get_provider_by_id(provider_id) {
+    let _provider = match get_provider_by_id(provider_id) {
         Ok(p) => {
             if p.provider_type != "microsoft" {
                 return HttpResponse::BadRequest().json(json!({
@@ -1689,7 +1613,7 @@ pub async fn test_microsoft_config(
         })),
     };
 
-    let redirect_uri = match config_utils::get_microsoft_redirect_uri() {
+    let _redirect_uri = match config_utils::get_microsoft_redirect_uri() {
         Ok(val) => val,
         Err(e) => return HttpResponse::BadRequest().json(json!({
             "status": "error",
@@ -1762,7 +1686,7 @@ pub async fn set_default_auth_provider(
     request_data: web::Json<serde_json::Value>,
 ) -> impl Responder {
     // Get database connection
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",

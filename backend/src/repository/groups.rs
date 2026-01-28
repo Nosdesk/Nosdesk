@@ -11,13 +11,6 @@ use crate::schema::*;
 // Group CRUD Operations
 // ============================================================================
 
-/// Get all groups
-pub fn get_all_groups(conn: &mut DbConnection) -> QueryResult<Vec<Group>> {
-    groups::table
-        .order(groups::name.asc())
-        .load(conn)
-}
-
 /// Get all groups with member and device counts
 pub fn get_groups_with_member_counts(conn: &mut DbConnection) -> Result<Vec<GroupWithMemberCount>, Error> {
     let all_groups = groups::table
@@ -50,13 +43,6 @@ pub fn get_groups_with_member_counts(conn: &mut DbConnection) -> Result<Vec<Grou
 /// Get a group by ID
 pub fn get_group_by_id(conn: &mut DbConnection, group_id: i32) -> QueryResult<Group> {
     groups::table.find(group_id).first(conn)
-}
-
-/// Get a group by UUID
-pub fn get_group_by_uuid(conn: &mut DbConnection, group_uuid: &Uuid) -> QueryResult<Group> {
-    groups::table
-        .filter(groups::uuid.eq(group_uuid))
-        .first(conn)
 }
 
 /// Get a group with its members
@@ -266,21 +252,6 @@ pub fn set_user_groups(
         .get_results(conn)
 }
 
-/// Check if a user is in a specific group
-pub fn is_user_in_group(
-    conn: &mut DbConnection,
-    user_uuid: &Uuid,
-    group_id: i32,
-) -> QueryResult<bool> {
-    let count = user_groups::table
-        .filter(user_groups::user_uuid.eq(user_uuid))
-        .filter(user_groups::group_id.eq(group_id))
-        .count()
-        .get_result::<i64>(conn)?;
-
-    Ok(count > 0)
-}
-
 /// Get group IDs for a user
 pub fn get_group_ids_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<Vec<i32>> {
     user_groups::table
@@ -294,6 +265,7 @@ pub fn get_group_ids_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> Quer
 // ============================================================================
 
 /// Get a group by its external ID
+#[allow(dead_code)]
 pub fn get_group_by_external_id(conn: &mut DbConnection, external_id: &str) -> QueryResult<Group> {
     groups::table
         .filter(groups::external_id.eq(external_id))
@@ -301,6 +273,7 @@ pub fn get_group_by_external_id(conn: &mut DbConnection, external_id: &str) -> Q
 }
 
 /// Get all groups from a specific external source
+#[allow(dead_code)]
 pub fn get_groups_by_external_source(conn: &mut DbConnection, external_source: &str) -> QueryResult<Vec<Group>> {
     groups::table
         .filter(groups::external_source.eq(external_source))
@@ -309,6 +282,7 @@ pub fn get_groups_by_external_source(conn: &mut DbConnection, external_source: &
 }
 
 /// Get all external IDs for groups from a specific source
+#[allow(dead_code)]
 pub fn get_external_ids_by_source(conn: &mut DbConnection, external_source: &str) -> QueryResult<Vec<String>> {
     groups::table
         .filter(groups::external_source.eq(external_source))
@@ -319,6 +293,7 @@ pub fn get_external_ids_by_source(conn: &mut DbConnection, external_source: &str
 }
 
 /// Create a group from external source data
+#[allow(dead_code)]
 pub fn create_external_group(conn: &mut DbConnection, new_group: NewExternalGroup) -> QueryResult<Group> {
     diesel::insert_into(groups::table)
         .values(&new_group)
@@ -326,6 +301,7 @@ pub fn create_external_group(conn: &mut DbConnection, new_group: NewExternalGrou
 }
 
 /// Update a group from external source data
+#[allow(dead_code)]
 pub fn update_external_group(
     conn: &mut DbConnection,
     group_id: i32,
@@ -518,21 +494,6 @@ pub fn get_synced_device_ids_for_group(
         .filter(device_groups::external_source.eq(external_source))
         .select(device_groups::device_id)
         .load(conn)
-}
-
-/// Check if a device is in a specific group
-pub fn is_device_in_group(
-    conn: &mut DbConnection,
-    device_id: i32,
-    group_id: i32,
-) -> QueryResult<bool> {
-    let count = device_groups::table
-        .filter(device_groups::device_id.eq(device_id))
-        .filter(device_groups::group_id.eq(group_id))
-        .count()
-        .get_result::<i64>(conn)?;
-
-    Ok(count > 0)
 }
 
 /// Set all devices of a group (replaces existing non-synced devices)

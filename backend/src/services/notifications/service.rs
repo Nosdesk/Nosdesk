@@ -195,7 +195,7 @@ impl NotificationService {
     async fn persist_notification(
         &self,
         payload: &NotificationPayload,
-        channels: &[NotificationChannel],
+        _channels: &[NotificationChannel],
     ) -> Result<i32, String> {
         use crate::schema::notifications;
 
@@ -466,6 +466,7 @@ impl NotificationService {
     }
 
     /// Delete a notification for a user
+    #[allow(dead_code)]
     pub async fn delete_notification(
         &self,
         user_uuid_val: &Uuid,

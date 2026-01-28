@@ -31,17 +31,6 @@ pub fn get_all_backup_jobs(
         .load(conn)
 }
 
-/// Get backup jobs by type (export or restore)
-pub fn get_backup_jobs_by_type(
-    conn: &mut DbConnection,
-    job_type: &str,
-) -> QueryResult<Vec<BackupJob>> {
-    backup_jobs::table
-        .filter(backup_jobs::job_type.eq(job_type))
-        .order(backup_jobs::created_at.desc())
-        .load(conn)
-}
-
 /// Update a backup job
 pub fn update_backup_job(
     conn: &mut DbConnection,
@@ -62,27 +51,3 @@ pub fn delete_backup_job(
         .execute(conn)
 }
 
-/// Get pending or processing jobs (for cleanup/monitoring)
-pub fn get_active_backup_jobs(
-    conn: &mut DbConnection,
-) -> QueryResult<Vec<BackupJob>> {
-    backup_jobs::table
-        .filter(
-            backup_jobs::status.eq("pending")
-                .or(backup_jobs::status.eq("processing"))
-        )
-        .order(backup_jobs::created_at.desc())
-        .load(conn)
-}
-
-/// Get completed export jobs with files (for listing available backups)
-pub fn get_completed_exports(
-    conn: &mut DbConnection,
-) -> QueryResult<Vec<BackupJob>> {
-    backup_jobs::table
-        .filter(backup_jobs::job_type.eq("export"))
-        .filter(backup_jobs::status.eq("completed"))
-        .filter(backup_jobs::file_path.is_not_null())
-        .order(backup_jobs::created_at.desc())
-        .load(conn)
-}

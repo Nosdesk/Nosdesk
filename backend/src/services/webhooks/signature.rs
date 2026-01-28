@@ -13,6 +13,7 @@ pub fn sign_payload(payload: &str, secret: &str) -> String {
 
 /// Verify HMAC-SHA256 signature (constant-time comparison)
 #[allow(dead_code)]
+#[allow(deprecated)]
 pub fn verify_signature(payload: &str, secret: &str, signature: &str) -> bool {
     let expected = sign_payload(payload, secret);
     ring::constant_time::verify_slices_are_equal(expected.as_bytes(), signature.as_bytes()).is_ok()

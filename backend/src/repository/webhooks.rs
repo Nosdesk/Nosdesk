@@ -163,6 +163,7 @@ pub fn get_pending_retries(conn: &mut DbConnection) -> Result<Vec<WebhookDeliver
 }
 
 /// Delete old deliveries (for cleanup)
+#[allow(dead_code)]
 pub fn delete_old_deliveries(
     conn: &mut DbConnection,
     days_old: i64,

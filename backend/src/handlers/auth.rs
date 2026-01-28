@@ -8,7 +8,7 @@ use tracing::{debug, info, warn, error};
 
 use crate::db::DbConnection;
 use crate::models::{
-    Claims, LoginRequest, PasswordChangeRequest,
+    LoginRequest, PasswordChangeRequest,
     UserRegistration, UserResponse
 };
 use crate::repository;
@@ -660,32 +660,6 @@ pub async fn register(
     }
 }
 
-// Middleware for validating JWT tokens
-#[allow(dead_code)]
-pub async fn validate_token(req: HttpRequest, db_pool: web::Data<crate::db::Pool>) -> Result<UserResponse, actix_web::Error> {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return Err(actix_web::error::ErrorInternalServerError("Database error")),
-    };
-
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return Err(actix_web::error::ErrorUnauthorized("Authentication required")),
-    };
-
-    let user_uuid = match parse_uuid(&claims.sub) {
-        Ok(uuid) => uuid,
-        Err(_) => return Err(actix_web::error::ErrorBadRequest("Invalid user UUID")),
-    };
-
-    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
-        Ok(user) => user,
-        Err(_) => return Err(actix_web::error::ErrorNotFound("User not found")),
-    };
-
-    Ok(UserResponse::from(user))
-}
-
 pub async fn change_password(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
@@ -874,17 +848,6 @@ pub async fn change_password(
             "message": "User not found"
         })),
     }
-}
-
-// Helper function to validate token internally - deprecated, use cookie middleware instead
-// This is kept for backward compatibility but should not be used with new code
-#[allow(dead_code)]
-pub async fn validate_token_internal_deprecated(req: &HttpRequest) -> Result<Claims, actix_web::Error> {
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return Err(actix_web::error::ErrorUnauthorized("Authentication required")),
-    };
-    Ok(claims)
 }
 
 #[allow(dead_code)]

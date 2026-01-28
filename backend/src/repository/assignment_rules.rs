@@ -22,6 +22,7 @@ pub fn get_all_rules(conn: &mut DbConnection) -> QueryResult<Vec<AssignmentRule>
 }
 
 /// Get active rules ordered by priority
+#[allow(dead_code)]
 pub fn get_active_rules_by_priority(conn: &mut DbConnection) -> QueryResult<Vec<AssignmentRule>> {
     assignment_rules::table
         .filter(assignment_rules::is_active.eq(true))
@@ -137,6 +138,7 @@ pub fn get_rule_state(conn: &mut DbConnection, rule_id: i32) -> QueryResult<Assi
 }
 
 /// Get or create rule state
+#[allow(dead_code)]
 pub fn get_or_create_state(conn: &mut DbConnection, rule_id: i32) -> QueryResult<AssignmentRuleState> {
     // Try to get existing
     if let Ok(state) = get_rule_state(conn, rule_id) {
@@ -156,6 +158,7 @@ pub fn get_or_create_state(conn: &mut DbConnection, rule_id: i32) -> QueryResult
 }
 
 /// Update rule state
+#[allow(dead_code)]
 pub fn update_state(
     conn: &mut DbConnection,
     rule_id: i32,
@@ -171,6 +174,7 @@ pub fn update_state(
 // ============================================================================
 
 /// Log an assignment
+#[allow(dead_code)]
 pub fn log_assignment(conn: &mut DbConnection, new_log: NewAssignmentLog) -> QueryResult<AssignmentLog> {
     diesel::insert_into(assignment_log::table)
         .values(&new_log)

@@ -92,6 +92,7 @@ pub fn delete_identity(
 
 /// Get user UUID by external ID (e.g., Microsoft Graph user ID)
 /// Used for syncing group membership from external sources
+#[allow(dead_code)]
 pub fn get_user_uuid_by_external_id(
     external_id: &str,
     conn: &mut DbConnection,
@@ -104,6 +105,7 @@ pub fn get_user_uuid_by_external_id(
 }
 
 /// Get user UUID by external ID for a specific provider type
+#[allow(dead_code)]
 pub fn get_user_uuid_by_external_id_and_provider(
     external_id: &str,
     provider_type: &str,

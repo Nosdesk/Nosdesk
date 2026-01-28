@@ -66,6 +66,7 @@ fn create_pdfium() -> Option<Pdfium> {
 }
 
 /// Check if PDF thumbnail generation is available
+#[allow(dead_code)]
 pub fn is_pdf_thumbnail_available() -> bool {
     check_pdfium_available()
 }

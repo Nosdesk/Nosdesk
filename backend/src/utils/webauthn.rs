@@ -187,6 +187,7 @@ pub struct UserPasskeyData {
 
 impl UserPasskeyData {
     /// Create empty passkey data
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self { credentials: vec![] }
     }
@@ -252,6 +253,7 @@ pub fn save_user_passkey_data(
 }
 
 /// Check if user has any passkeys registered
+#[allow(dead_code)]
 pub fn user_has_passkeys(user: &User) -> bool {
     !get_user_passkey_data(user).credentials.is_empty()
 }
@@ -403,6 +405,7 @@ pub fn credential_id_to_string(id: &CredentialID) -> String {
 }
 
 /// Parse credential ID from base64url string
+#[allow(dead_code)]
 pub fn credential_id_from_string(s: &str) -> Result<CredentialID> {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(s)

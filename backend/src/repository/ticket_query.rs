@@ -39,6 +39,7 @@ pub struct TicketQuery {
     // Visibility filters
     visible_to_user: Option<Uuid>,
     visible_to_groups: Vec<i32>,
+    visible_category_ids: Option<Vec<i32>>,
 
     // Content filters
     search: Option<String>,
@@ -84,12 +85,6 @@ impl TicketQuery {
             self.visible_to_user = Some(auth.user_uuid);
             self.visible_to_groups = auth.group_ids.clone();
         }
-        self
-    }
-
-    /// Require that user can only see their own tickets (explicit filter)
-    pub fn owned_by(mut self, user_uuid: Uuid) -> Self {
-        self.visible_to_user = Some(user_uuid);
         self
     }
 
@@ -235,19 +230,79 @@ impl TicketQuery {
         self
     }
 
+    /// Resolve visible category IDs for a non-admin user based on group memberships.
+    /// Queries category_group_visibility to find which categories the user's groups can access,
+    /// plus all public categories (those with no group restrictions).
+    fn resolve_visibility(&mut self, conn: &mut DbConnection) {
+        use crate::schema::category_group_visibility;
+        use crate::schema::ticket_categories;
+
+        if self.visible_to_user.is_none() {
+            return; // Admin/tech — no filtering needed
+        }
+
+        // Get category IDs accessible via user's groups
+        let group_category_ids: Vec<i32> = if !self.visible_to_groups.is_empty() {
+            category_group_visibility::table
+                .filter(category_group_visibility::group_id.eq_any(&self.visible_to_groups))
+                .select(category_group_visibility::category_id)
+                .distinct()
+                .load(conn)
+                .unwrap_or_default()
+        } else {
+            vec![]
+        };
+
+        // Get public category IDs (no entries in category_group_visibility)
+        // A category is public if it has zero rows in category_group_visibility
+        let restricted_category_ids: Vec<i32> = category_group_visibility::table
+            .select(category_group_visibility::category_id)
+            .distinct()
+            .load(conn)
+            .unwrap_or_default();
+
+        let public_category_ids: Vec<i32> = ticket_categories::table
+            .filter(ticket_categories::is_active.eq(true))
+            .filter(diesel::dsl::not(ticket_categories::id.eq_any(&restricted_category_ids)))
+            .select(ticket_categories::id)
+            .load(conn)
+            .unwrap_or_default();
+
+        // Combine: public + group-accessible
+        let mut visible: Vec<i32> = public_category_ids;
+        for id in group_category_ids {
+            if !visible.contains(&id) {
+                visible.push(id);
+            }
+        }
+
+        self.visible_category_ids = Some(visible);
+    }
+
     /// Build and apply all filters to a boxed query
     fn apply_filters<'a>(
         &self,
         mut query: tickets::BoxedQuery<'a, diesel::pg::Pg>,
     ) -> tickets::BoxedQuery<'a, diesel::pg::Pg> {
-        // Visibility filter - user can only see their own tickets
+        // Visibility filter - user sees own tickets + tickets in visible categories
         if let Some(user_uuid) = self.visible_to_user {
-            query = query.filter(
-                tickets::requester_uuid.eq(Some(user_uuid))
-                    .or(tickets::assignee_uuid.eq(Some(user_uuid)))
-            );
-            // Future: Add group-based visibility here
-            // .or(tickets::group_id.eq_any(&self.visible_to_groups))
+            if let Some(ref visible_cats) = self.visible_category_ids {
+                // User can see: their own tickets OR tickets in visible categories OR uncategorized tickets
+                query = query.filter(
+                    tickets::requester_uuid.eq(Some(user_uuid))
+                        .or(tickets::assignee_uuid.eq(Some(user_uuid)))
+                        .or(tickets::category_id.is_null())
+                        .or(tickets::category_id.eq_any(
+                            visible_cats.iter().map(|&id| Some(id)).collect::<Vec<Option<i32>>>()
+                        ))
+                );
+            } else {
+                // No visibility resolved (shouldn't happen), fall back to own tickets only
+                query = query.filter(
+                    tickets::requester_uuid.eq(Some(user_uuid))
+                        .or(tickets::assignee_uuid.eq(Some(user_uuid)))
+                );
+            }
         }
 
         // Search filter
@@ -338,9 +393,12 @@ impl TicketQuery {
 
     /// Execute the query and return paginated results with user info
     pub fn execute_with_users(
-        self,
+        mut self,
         conn: &mut DbConnection,
     ) -> Result<PaginatedResult<TicketListItem>, diesel::result::Error> {
+        // Resolve category visibility for non-admin users
+        self.resolve_visibility(conn);
+
         // Build count query
         let count_query = self.apply_filters(tickets::table.into_boxed());
         let total: i64 = count_query.count().get_result(conn)?;
@@ -385,31 +443,6 @@ impl TicketQuery {
         })
     }
 
-    /// Execute the query and return raw tickets (no user enrichment)
-    pub fn execute(self, conn: &mut DbConnection) -> Result<PaginatedResult<Ticket>, diesel::result::Error> {
-        // Build count query
-        let count_query = self.apply_filters(tickets::table.into_boxed());
-        let total: i64 = count_query.count().get_result(conn)?;
-
-        // Build main query with sorting and pagination
-        let mut query = self.apply_filters(tickets::table.into_boxed());
-        query = self.apply_sorting(query);
-
-        let offset = (self.page - 1) * self.page_size;
-        query = query.offset(offset).limit(self.page_size);
-
-        let tickets: Vec<Ticket> = query.load(conn)?;
-
-        let total_pages = (total as f64 / self.page_size as f64).ceil() as i64;
-
-        Ok(PaginatedResult {
-            data: tickets,
-            total,
-            page: self.page,
-            page_size: self.page_size,
-            total_pages,
-        })
-    }
 }
 
 /// Paginated query result

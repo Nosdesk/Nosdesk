@@ -13,7 +13,7 @@
 use openidconnect::{
     core::{CoreClient, CoreProviderMetadata, CoreIdToken, CoreIdTokenClaims, CoreIdTokenVerifier},
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce,
-    OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope,
     TokenResponse, AuthUrl, TokenUrl, UserInfoUrl, EndSessionUrl,
     reqwest::async_http_client,
     AdditionalProviderMetadata, ProviderMetadata,
@@ -366,8 +366,8 @@ pub fn generate_nonce() -> Nonce {
 
 /// Generate the authorization URL for OIDC login
 pub async fn generate_auth_url(
-    redirect_uri: Option<String>,
-    user_connection: Option<bool>,
+    _redirect_uri: Option<String>,
+    _user_connection: Option<bool>,
 ) -> Result<(String, OidcAuthData), String> {
     let client = get_oidc_client().await?;
     let config = OidcConfig::from_env()?;
@@ -462,7 +462,7 @@ fn verify_id_token(
 /// Extract user info from ID token claims
 fn extract_user_info(
     claims: &CoreIdTokenClaims,
-    config: &OidcConfig,
+    _config: &OidcConfig,
 ) -> Result<OidcUserInfo, String> {
     // Subject is required
     let sub = claims.subject().to_string();

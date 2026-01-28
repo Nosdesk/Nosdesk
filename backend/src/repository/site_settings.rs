@@ -61,30 +61,3 @@ pub fn update_favicon_url(
         .get_result(conn)
 }
 
-/// Update app name
-pub fn update_app_name(
-    conn: &mut DbConnection,
-    app_name: String,
-    updated_by: Uuid,
-) -> QueryResult<SiteSettings> {
-    diesel::update(site_settings::table.find(1))
-        .set((
-            site_settings::app_name.eq(app_name),
-            site_settings::updated_by.eq(Some(updated_by)),
-        ))
-        .get_result(conn)
-}
-
-/// Update primary color
-pub fn update_primary_color(
-    conn: &mut DbConnection,
-    primary_color: Option<String>,
-    updated_by: Uuid,
-) -> QueryResult<SiteSettings> {
-    diesel::update(site_settings::table.find(1))
-        .set((
-            site_settings::primary_color.eq(primary_color),
-            site_settings::updated_by.eq(Some(updated_by)),
-        ))
-        .get_result(conn)
-}

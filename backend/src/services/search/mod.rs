@@ -25,7 +25,7 @@ use tracing::{debug, info, warn};
 use crate::db::{DbConnection, Pool};
 use crate::models;
 
-pub use types::{EntityType, IndexDocument, SearchQuery, SearchResponse, SearchResult};
+pub use types::{EntityType, IndexDocument, SearchQuery, SearchResponse};
 use schema::SearchSchema;
 
 /// Memory budget for the index writer (50MB)
@@ -33,7 +33,7 @@ const INDEX_WRITER_MEMORY_BYTES: usize = 50_000_000;
 
 /// Search service that manages the Tantivy index
 pub struct SearchService {
-    index: Index,
+    _index: Index,
     schema: SearchSchema,
     reader: IndexReader,
     writer: Arc<RwLock<IndexWriter>>,
@@ -84,7 +84,7 @@ impl SearchService {
         let writer = index.writer(INDEX_WRITER_MEMORY_BYTES)?;
 
         let service = Self {
-            index,
+            _index: index,
             schema,
             reader,
             writer: Arc::new(RwLock::new(writer)),
@@ -131,29 +131,6 @@ impl SearchService {
         Ok((index, schema))
     }
 
-    /// Create a new search service with an in-memory index (for testing)
-    pub fn new_in_memory() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let schema = SearchSchema::new();
-        let index = Index::create_in_ram(schema.schema.clone());
-
-        let reader = index
-            .reader_builder()
-            .reload_policy(ReloadPolicy::OnCommitWithDelay)
-            .try_into()?;
-
-        let writer = index.writer(INDEX_WRITER_MEMORY_BYTES)?;
-
-        info!("In-memory search service initialized");
-
-        Ok(Self {
-            index,
-            schema,
-            reader,
-            writer: Arc::new(RwLock::new(writer)),
-            is_rebuilding: AtomicBool::new(false),
-        })
-    }
-
     /// Execute a search query
     pub fn search(
         &self,
@@ -193,17 +170,6 @@ impl SearchService {
         self.index_document(&doc)
     }
 
-    /// Index an attachment
-    pub fn index_attachment(
-        &self,
-        attachment: &models::Attachment,
-        ticket_id: i32,
-        ticket_title: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let doc = indexer::index_document_from_attachment(attachment, ticket_id, ticket_title);
-        self.index_document(&doc)
-    }
-
     /// Index a device
     pub fn index_device(&self, device: &models::Device) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let doc = indexer::index_document_from_device(device);
@@ -229,11 +195,6 @@ impl SearchService {
     /// Delete a documentation page from the index
     pub fn delete_documentation(&self, doc_id: i32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.delete_by_key(EntityType::Documentation, &doc_id.to_string())
-    }
-
-    /// Delete an attachment from the index
-    pub fn delete_attachment(&self, attachment_id: i32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.delete_by_key(EntityType::Attachment, &attachment_id.to_string())
     }
 
     /// Delete a device from the index

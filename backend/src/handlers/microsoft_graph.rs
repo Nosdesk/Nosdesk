@@ -128,7 +128,7 @@ pub async fn process_graph_request(
     request_data: web::Json<MicrosoftGraphRequest>,
 ) -> impl Responder {
     // Get database connection
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
