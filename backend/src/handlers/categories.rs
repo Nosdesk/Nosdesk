@@ -358,3 +358,152 @@ pub async fn set_category_visibility(
         Err(_) => HttpResponse::InternalServerError().json("Failed to set category visibility"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{test, App, http::StatusCode};
+    use crate::test_helpers::{setup_test_pool, create_test_claims, TestFixtures};
+    use crate::models::UserRole;
+
+    /// Helper to create a test app with category routes
+    fn test_app(pool: crate::db::Pool) -> App<
+        impl actix_web::dev::ServiceFactory<
+            actix_web::dev::ServiceRequest,
+            Config = (),
+            Response = actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+            Error = actix_web::Error,
+            InitError = (),
+        >,
+    > {
+        App::new()
+            .app_data(web::Data::new(pool))
+            .route("/categories", web::get().to(get_categories))
+            .route("/admin/categories", web::get().to(get_all_categories_admin))
+            .route("/admin/categories", web::post().to(create_category))
+            .route("/admin/categories/{id}", web::get().to(get_category_admin))
+            .route("/admin/categories/{id}", web::put().to(update_category))
+            .route("/admin/categories/{id}", web::delete().to(delete_category))
+    }
+
+    #[actix_web::test]
+    async fn get_categories_requires_auth() {
+        let pool = setup_test_pool();
+        let app = test::init_service(test_app(pool)).await;
+
+        let req = test::TestRequest::get().uri("/categories").to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_web::test]
+    async fn get_categories_with_auth_succeeds() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().unwrap();
+
+        // Create test user
+        let user = TestFixtures::create_user(&mut conn, "catuser", UserRole::User);
+        let claims = create_test_claims(&user);
+
+        let app = test::init_service(test_app(pool.clone())).await;
+
+        // Create request with auth claims injected
+        let req = test::TestRequest::get()
+            .uri("/categories")
+            .to_request();
+
+        // Inject claims into extensions
+        req.extensions_mut().insert(claims);
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn admin_categories_requires_admin_role() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().unwrap();
+
+        // Create regular user (not admin)
+        let user = TestFixtures::create_user(&mut conn, "regularuser", UserRole::User);
+        let claims = create_test_claims(&user);
+
+        let app = test::init_service(test_app(pool.clone())).await;
+
+        let req = test::TestRequest::get()
+            .uri("/admin/categories")
+            .to_request();
+        req.extensions_mut().insert(claims);
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[actix_web::test]
+    async fn admin_can_get_all_categories() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().unwrap();
+
+        // Create admin user
+        let admin = TestFixtures::create_user(&mut conn, "admincat", UserRole::Admin);
+        let claims = create_test_claims(&admin);
+
+        let app = test::init_service(test_app(pool.clone())).await;
+
+        let req = test::TestRequest::get()
+            .uri("/admin/categories")
+            .to_request();
+        req.extensions_mut().insert(claims);
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn admin_can_create_category() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().unwrap();
+
+        let admin = TestFixtures::create_user(&mut conn, "createcat", UserRole::Admin);
+        let claims = create_test_claims(&admin);
+
+        let app = test::init_service(test_app(pool.clone())).await;
+
+        let req = test::TestRequest::post()
+            .uri("/admin/categories")
+            .set_json(serde_json::json!({
+                "name": "Test Category",
+                "description": "A test category"
+            }))
+            .to_request();
+        req.extensions_mut().insert(claims);
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        // Parse response to verify category was created
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["name"], "Test Category");
+    }
+
+    #[actix_web::test]
+    async fn admin_can_delete_category() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().unwrap();
+
+        let admin = TestFixtures::create_user(&mut conn, "delcat", UserRole::Admin);
+        let category = TestFixtures::create_category(&mut conn, "DeleteMe");
+        let claims = create_test_claims(&admin);
+
+        let app = test::init_service(test_app(pool.clone())).await;
+
+        let req = test::TestRequest::delete()
+            .uri(&format!("/admin/categories/{}", category.id))
+            .to_request();
+        req.extensions_mut().insert(claims);
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    }
+}
