@@ -456,3 +456,140 @@ pub struct PaginatedResult<T> {
     #[serde(rename = "totalPages")]
     pub total_pages: i64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::extractors::AuthContext;
+    use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    #[test]
+    fn resolve_visibility_computes_correct_ids() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "vis_user", UserRole::User);
+        let group = TestFixtures::create_group(&mut conn, "vis_group");
+        TestFixtures::add_user_to_group(&mut conn, user.uuid, group.id);
+
+        let public_cat = TestFixtures::create_category(&mut conn, "Public");
+        let restricted_ok = TestFixtures::create_category(&mut conn, "GroupCat");
+        TestFixtures::set_category_visibility(&mut conn, restricted_ok.id, &[group.id]);
+        let other_group = TestFixtures::create_group(&mut conn, "Other");
+        let restricted_no = TestFixtures::create_category(&mut conn, "OtherCat");
+        TestFixtures::set_category_visibility(&mut conn, restricted_no.id, &[other_group.id]);
+
+        let mut query = TicketQuery::new();
+        query.visible_to_user = Some(user.uuid);
+        query.visible_to_groups = vec![group.id];
+        query.resolve_visibility(&mut conn);
+
+        let ids = query.visible_category_ids.unwrap();
+        assert!(ids.contains(&public_cat.id));
+        assert!(ids.contains(&restricted_ok.id));
+        assert!(!ids.contains(&restricted_no.id));
+    }
+
+    #[test]
+    fn regular_user_sees_own_tickets_and_visible_categories() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "reg_user", UserRole::User);
+        let other = TestFixtures::create_user(&mut conn, "other_user", UserRole::User);
+        let group = TestFixtures::create_group(&mut conn, "rg");
+        TestFixtures::add_user_to_group(&mut conn, user.uuid, group.id);
+
+        let public_cat = TestFixtures::create_category(&mut conn, "Pub");
+        let secret_cat = TestFixtures::create_category(&mut conn, "Sec");
+        let secret_group = TestFixtures::create_group(&mut conn, "sg");
+        TestFixtures::set_category_visibility(&mut conn, secret_cat.id, &[secret_group.id]);
+
+        // Ticket the user requested (should see)
+        TestFixtures::create_ticket(&mut conn, "My ticket", Some(user.uuid), None);
+        // Ticket in public category by someone else (should see)
+        TestFixtures::create_ticket(&mut conn, "Public ticket", Some(other.uuid), Some(public_cat.id));
+        // Ticket in secret category (should NOT see)
+        TestFixtures::create_ticket(&mut conn, "Secret ticket", Some(other.uuid), Some(secret_cat.id));
+
+        let auth = AuthContext::test_context(user.uuid, UserRole::User, vec![group.id]);
+        let result = TicketQuery::new()
+            .visible_to(&auth)
+            .paginate(1, 50)
+            .execute_with_users(&mut conn)
+            .unwrap();
+
+        let titles: Vec<&str> = result.data.iter().map(|i| i.ticket.title.as_str()).collect();
+        assert!(titles.contains(&"My ticket"));
+        assert!(titles.contains(&"Public ticket"));
+        assert!(!titles.contains(&"Secret ticket"));
+    }
+
+    #[test]
+    fn admin_sees_all_tickets() {
+        let mut conn = setup_test_connection();
+        let admin = TestFixtures::create_user(&mut conn, "admin", UserRole::Admin);
+        let other = TestFixtures::create_user(&mut conn, "someone", UserRole::User);
+
+        let secret_cat = TestFixtures::create_category(&mut conn, "SecretAdm");
+        let sg = TestFixtures::create_group(&mut conn, "sg2");
+        TestFixtures::set_category_visibility(&mut conn, secret_cat.id, &[sg.id]);
+
+        TestFixtures::create_ticket(&mut conn, "T1", Some(other.uuid), Some(secret_cat.id));
+        TestFixtures::create_ticket(&mut conn, "T2", Some(other.uuid), None);
+
+        let auth = AuthContext::test_context(admin.uuid, UserRole::Admin, vec![]);
+        let result = TicketQuery::new()
+            .visible_to(&auth)
+            .paginate(1, 50)
+            .execute_with_users(&mut conn)
+            .unwrap();
+
+        assert!(result.total >= 2);
+    }
+
+    #[test]
+    fn pagination_values_are_correct() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "pag_user", UserRole::Admin);
+
+        for i in 0..5 {
+            TestFixtures::create_ticket(&mut conn, &format!("Pag {i}"), Some(user.uuid), None);
+        }
+
+        let auth = AuthContext::test_context(user.uuid, UserRole::Admin, vec![]);
+        let result = TicketQuery::new()
+            .visible_to(&auth)
+            .paginate(1, 2)
+            .execute_with_users(&mut conn)
+            .unwrap();
+
+        assert_eq!(result.page, 1);
+        assert_eq!(result.page_size, 2);
+        assert_eq!(result.data.len(), 2);
+        assert!(result.total >= 5);
+        assert!(result.total_pages >= 3);
+    }
+
+    #[test]
+    fn status_and_priority_filters_work() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "flt_user", UserRole::Admin);
+
+        // Create tickets with different statuses
+        TestFixtures::create_ticket(&mut conn, "Open one", Some(user.uuid), None);
+
+        let auth = AuthContext::test_context(user.uuid, UserRole::Admin, vec![]);
+        let result = TicketQuery::new()
+            .visible_to(&auth)
+            .status(Some("open".into()))
+            .priority(Some("medium".into()))
+            .paginate(1, 50)
+            .execute_with_users(&mut conn)
+            .unwrap();
+
+        // All returned tickets should be open + medium priority
+        for item in &result.data {
+            assert_eq!(item.ticket.status, TicketStatus::Open);
+            assert_eq!(item.ticket.priority, TicketPriority::Medium);
+        }
+        assert!(result.total >= 1);
+    }
+}

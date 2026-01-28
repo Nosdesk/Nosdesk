@@ -1,14 +1,8 @@
-mod db;
-mod extractors;
-mod handlers;
-mod models;
-mod repository;
-mod schema;
-mod config_utils;
-mod utils;
-mod middleware;
-mod oidc;
-mod services;
+use backend::db;
+use backend::handlers;
+use backend::middleware;
+use backend::services;
+use backend::utils;
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Error, HttpMessage};

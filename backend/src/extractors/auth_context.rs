@@ -89,6 +89,26 @@ impl AuthContext {
     pub fn is_in_any_group(&self, group_ids: &[i32]) -> bool {
         group_ids.iter().any(|id| self.group_ids.contains(id))
     }
+
+    /// Construct an AuthContext for tests.
+    #[cfg(test)]
+    pub fn test_context(user_uuid: Uuid, role: UserRole, group_ids: Vec<i32>) -> Self {
+        Self {
+            user_uuid,
+            role,
+            name: "test-user".into(),
+            group_ids,
+            claims: Claims {
+                sub: user_uuid.to_string(),
+                name: "test-user".into(),
+                email: "test@example.com".into(),
+                role: format!("{:?}", role).to_lowercase(),
+                scope: "full".into(),
+                exp: 9999999999,
+                iat: 0,
+            },
+        }
+    }
 }
 
 /// Error type for AuthContext extraction failures

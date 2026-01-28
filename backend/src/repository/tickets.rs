@@ -336,3 +336,56 @@ pub fn get_devices_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryR
         .load(conn)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_status_known_values() {
+        assert_eq!(parse_ticket_status("open"), TicketStatus::Open);
+        assert_eq!(parse_ticket_status("in-progress"), TicketStatus::InProgress);
+        assert_eq!(parse_ticket_status("closed"), TicketStatus::Closed);
+    }
+
+    #[test]
+    fn parse_status_unknown_defaults_to_open() {
+        assert_eq!(parse_ticket_status("unknown"), TicketStatus::Open);
+        assert_eq!(parse_ticket_status(""), TicketStatus::Open);
+    }
+
+    #[test]
+    fn parse_priority_known_values() {
+        assert_eq!(parse_ticket_priority("low"), TicketPriority::Low);
+        assert_eq!(parse_ticket_priority("medium"), TicketPriority::Medium);
+        assert_eq!(parse_ticket_priority("high"), TicketPriority::High);
+    }
+
+    #[test]
+    fn parse_priority_unknown_defaults_to_medium() {
+        assert_eq!(parse_ticket_priority("critical"), TicketPriority::Medium);
+        assert_eq!(parse_ticket_priority(""), TicketPriority::Medium);
+    }
+
+    #[test]
+    fn extract_storage_path_tickets() {
+        assert_eq!(
+            extract_storage_path_from_url("/uploads/tickets/abc.pdf"),
+            Some("tickets/abc.pdf".into())
+        );
+    }
+
+    #[test]
+    fn extract_storage_path_temp() {
+        assert_eq!(
+            extract_storage_path_from_url("/uploads/temp/xyz.png"),
+            Some("temp/xyz.png".into())
+        );
+    }
+
+    #[test]
+    fn extract_storage_path_unknown_returns_none() {
+        assert_eq!(extract_storage_path_from_url("/other/path.pdf"), None);
+        assert_eq!(extract_storage_path_from_url("https://example.com/file"), None);
+    }
+}
+

@@ -308,3 +308,195 @@ impl AssignmentEngine {
             .get_result(conn)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use serde_json::json;
+    use uuid::Uuid;
+
+    /// Build a minimal `AssignmentRule` for testing pure logic functions.
+    fn make_rule(overrides: impl FnOnce(&mut AssignmentRule)) -> AssignmentRule {
+        let now = Utc::now().naive_utc();
+        let mut rule = AssignmentRule {
+            id: 1,
+            uuid: Uuid::new_v4(),
+            name: "test-rule".into(),
+            description: None,
+            priority: 10,
+            is_active: true,
+            method: AssignmentMethod::DirectUser,
+            target_user_uuid: None,
+            target_group_id: None,
+            trigger_on_create: false,
+            trigger_on_category_change: false,
+            category_id: None,
+            conditions: None,
+            created_at: now,
+            updated_at: now,
+            created_by: None,
+        };
+        overrides(&mut rule);
+        rule
+    }
+
+    /// Build a minimal `Ticket` for testing pure logic functions.
+    fn make_ticket(overrides: impl FnOnce(&mut Ticket)) -> Ticket {
+        let now = Utc::now().naive_utc();
+        let mut ticket = Ticket {
+            id: 1,
+            title: "Test ticket".into(),
+            status: TicketStatus::Open,
+            priority: TicketPriority::Medium,
+            requester_uuid: None,
+            assignee_uuid: None,
+            created_at: now,
+            updated_at: now,
+            created_by: None,
+            closed_at: None,
+            closed_by: None,
+            category_id: None,
+        };
+        overrides(&mut ticket);
+        ticket
+    }
+
+    // ── matches_trigger ──────────────────────────────────────────────
+
+    #[test]
+    fn trigger_on_create_matches_ticket_created() {
+        let rule = make_rule(|r| r.trigger_on_create = true);
+        assert!(AssignmentEngine::matches_trigger(&rule, &AssignmentTrigger::TicketCreated));
+    }
+
+    #[test]
+    fn trigger_on_create_false_does_not_match_ticket_created() {
+        let rule = make_rule(|r| r.trigger_on_create = false);
+        assert!(!AssignmentEngine::matches_trigger(&rule, &AssignmentTrigger::TicketCreated));
+    }
+
+    #[test]
+    fn trigger_on_category_change_matches() {
+        let rule = make_rule(|r| r.trigger_on_category_change = true);
+        assert!(AssignmentEngine::matches_trigger(&rule, &AssignmentTrigger::CategoryChanged));
+    }
+
+    #[test]
+    fn trigger_on_category_change_false_does_not_match() {
+        let rule = make_rule(|r| r.trigger_on_category_change = false);
+        assert!(!AssignmentEngine::matches_trigger(&rule, &AssignmentTrigger::CategoryChanged));
+    }
+
+    // ── matches_category ─────────────────────────────────────────────
+
+    #[test]
+    fn no_category_filter_matches_any_ticket() {
+        let rule = make_rule(|r| r.category_id = None);
+        assert!(AssignmentEngine::matches_category(&rule, Some(42)));
+        assert!(AssignmentEngine::matches_category(&rule, None));
+    }
+
+    #[test]
+    fn category_filter_matches_same_category() {
+        let rule = make_rule(|r| r.category_id = Some(1));
+        assert!(AssignmentEngine::matches_category(&rule, Some(1)));
+    }
+
+    #[test]
+    fn category_filter_does_not_match_different_category() {
+        let rule = make_rule(|r| r.category_id = Some(1));
+        assert!(!AssignmentEngine::matches_category(&rule, Some(2)));
+    }
+
+    #[test]
+    fn category_filter_does_not_match_none() {
+        let rule = make_rule(|r| r.category_id = Some(1));
+        assert!(!AssignmentEngine::matches_category(&rule, None));
+    }
+
+    // ── evaluate_conditions ──────────────────────────────────────────
+
+    #[test]
+    fn no_conditions_always_matches() {
+        let rule = make_rule(|r| r.conditions = None);
+        let ticket = make_ticket(|_| {});
+        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+    }
+
+    #[test]
+    fn empty_object_conditions_matches() {
+        let rule = make_rule(|r| r.conditions = Some(json!({})));
+        let ticket = make_ticket(|_| {});
+        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+    }
+
+    #[test]
+    fn priority_condition_matches() {
+        let rule = make_rule(|r| r.conditions = Some(json!({"priority": "high"})));
+        let ticket = make_ticket(|t| t.priority = TicketPriority::High);
+        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+    }
+
+    #[test]
+    fn priority_condition_mismatches() {
+        let rule = make_rule(|r| r.conditions = Some(json!({"priority": "high"})));
+        let ticket = make_ticket(|t| t.priority = TicketPriority::Low);
+        assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket));
+    }
+
+    #[test]
+    fn status_condition_matches() {
+        let rule = make_rule(|r| r.conditions = Some(json!({"status": "in-progress"})));
+        let ticket = make_ticket(|t| t.status = TicketStatus::InProgress);
+        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+    }
+
+    #[test]
+    fn status_condition_mismatches() {
+        let rule = make_rule(|r| r.conditions = Some(json!({"status": "closed"})));
+        let ticket = make_ticket(|t| t.status = TicketStatus::Open);
+        assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket));
+    }
+
+    #[test]
+    fn title_contains_condition_matches() {
+        let rule = make_rule(|r| r.conditions = Some(json!({"title_contains": "urgent"})));
+        let ticket = make_ticket(|t| t.title = "URGENT: server down".into());
+        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+    }
+
+    #[test]
+    fn title_contains_condition_mismatches() {
+        let rule = make_rule(|r| r.conditions = Some(json!({"title_contains": "urgent"})));
+        let ticket = make_ticket(|t| t.title = "Routine maintenance".into());
+        assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket));
+    }
+
+    #[test]
+    fn multiple_conditions_all_must_match() {
+        let rule = make_rule(|r| {
+            r.conditions = Some(json!({
+                "priority": "high",
+                "status": "open",
+                "title_contains": "fire"
+            }));
+        });
+
+        // All match
+        let ticket = make_ticket(|t| {
+            t.priority = TicketPriority::High;
+            t.status = TicketStatus::Open;
+            t.title = "The server is on fire".into();
+        });
+        assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
+
+        // One doesn't match
+        let ticket2 = make_ticket(|t| {
+            t.priority = TicketPriority::Low; // mismatch
+            t.status = TicketStatus::Open;
+            t.title = "The server is on fire".into();
+        });
+        assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket2));
+    }
+}
