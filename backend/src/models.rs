@@ -10,14 +10,6 @@ use std::io::Write;
 use uuid::Uuid;
 
 // Simple UUID serialization helpers
-#[allow(dead_code)]
-fn serialize_uuid_as_string<S>(uuid: &Uuid, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    serializer.serialize_str(&uuid.to_string())
-}
-
 fn serialize_optional_uuid_as_string<S>(uuid: &Option<Uuid>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -1402,28 +1394,6 @@ pub struct CompleteTicketResponse {
 }
 
 impl CompleteTicketResponse {
-    #[allow(dead_code)]
-    pub fn from_complete_ticket(
-        complete_ticket: CompleteTicket,
-        requester_name: String,
-        assignee_name: String,
-    ) -> Self {
-        Self {
-            id: complete_ticket.ticket.id,
-            title: complete_ticket.ticket.title,
-            status: complete_ticket.ticket.status,
-            priority: complete_ticket.ticket.priority,
-            requester: requester_name,
-            assignee: assignee_name,
-            created: complete_ticket.ticket.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-            modified: complete_ticket.ticket.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-            devices: complete_ticket.devices,
-            comments: complete_ticket.comments,
-            article_content: complete_ticket.article_content,
-            linked_tickets: complete_ticket.linked_tickets,
-            projects: complete_ticket.projects,
-        }
-    }
 }
 
 // === MFA (Multi-Factor Authentication) Models ===
@@ -1674,10 +1644,6 @@ impl From<ActiveSession> for ActiveSessionResponse {
 }
 
 // ===== SECURITY EVENTS MODELS =====
-
-/// Type alias for Results in security operations using anyhow for applications
-#[allow(dead_code)]
-pub type SecurityResult<T> = anyhow::Result<T>;
 
 /// Security events for MFA and authentication monitoring
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]

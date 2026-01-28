@@ -29,20 +29,24 @@ pub struct AuthContext {
     /// User's role (Admin, Technician, User)
     pub role: UserRole,
     /// User's display name
+    #[allow(dead_code)]
     pub name: String,
     /// Group IDs the user belongs to (for future group-based permissions)
     pub group_ids: Vec<i32>,
     /// Original JWT claims (for access to other fields if needed)
+    #[allow(dead_code)]
     claims: Claims,
 }
 
 impl AuthContext {
     /// Check if user is an admin
+    #[allow(dead_code)]
     pub fn is_admin(&self) -> bool {
         self.role == UserRole::Admin
     }
 
     /// Check if user is a technician
+    #[allow(dead_code)]
     pub fn is_technician(&self) -> bool {
         self.role == UserRole::Technician
     }
@@ -53,17 +57,20 @@ impl AuthContext {
     }
 
     /// Check if user is a regular user (no elevated privileges)
+    #[allow(dead_code)]
     pub fn is_regular_user(&self) -> bool {
         self.role == UserRole::User
     }
 
     /// Get the user's email from claims
+    #[allow(dead_code)]
     pub fn email(&self) -> &str {
         &self.claims.email
     }
 
     /// Check if user can view a specific ticket
     /// Returns true if user is admin/tech, or is the requester/assignee
+    #[allow(dead_code)]
     pub fn can_view_ticket(&self, requester_uuid: Option<Uuid>, assignee_uuid: Option<Uuid>) -> bool {
         if self.is_technician_or_admin() {
             return true;
@@ -72,11 +79,13 @@ impl AuthContext {
     }
 
     /// Check if user belongs to a specific group
+    #[allow(dead_code)]
     pub fn is_in_group(&self, group_id: i32) -> bool {
         self.group_ids.contains(&group_id)
     }
 
     /// Check if user belongs to any of the specified groups
+    #[allow(dead_code)]
     pub fn is_in_any_group(&self, group_ids: &[i32]) -> bool {
         group_ids.iter().any(|id| self.group_ids.contains(id))
     }
@@ -173,6 +182,7 @@ impl FromRequest for AuthContext {
 /// Optional auth context - doesn't fail if user is not authenticated
 /// Useful for endpoints that behave differently for authenticated vs anonymous users
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct OptionalAuthContext(pub Option<AuthContext>);
 
 impl FromRequest for OptionalAuthContext {

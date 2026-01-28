@@ -19,7 +19,7 @@ pub mod pdf;
 pub mod webauthn;
 
 use uuid::Uuid;
-use crate::models::{UserRole, UserInfo};
+use crate::models::UserRole;
 
 /// Custom error types for better error handling
 #[derive(Debug)]
@@ -50,24 +50,9 @@ pub fn parse_uuid(uuid_str: &str) -> ValidationResult<Uuid> {
         .map_err(|_| ValidationError::InvalidUuid(uuid_str.to_string()))
 }
 
-/// Parse optional UUID from string  
-#[allow(dead_code)]
-pub fn parse_optional_uuid(uuid_str: Option<&str>) -> ValidationResult<Option<Uuid>> {
-    match uuid_str {
-        Some(s) if !s.is_empty() => Ok(Some(parse_uuid(s)?)),
-        _ => Ok(None),
-    }
-}
-
 /// Convert UUID to string safely
 pub fn uuid_to_string(uuid: &Uuid) -> String {
     uuid.to_string()
-}
-
-/// Convert optional UUID to optional string
-#[allow(dead_code)]
-pub fn optional_uuid_to_string(uuid: &Option<Uuid>) -> Option<String> {
-    uuid.as_ref().map(|u| u.to_string())
 }
 
 /// Convert UserRole enum to string for JWT and API responses
@@ -97,37 +82,6 @@ pub fn normalize_string(input: &str) -> String {
 /// Normalize email (trim + lowercase)
 pub fn normalize_email(email: &str) -> String {
     email.trim().to_lowercase()
-}
-
-/// Convert bytes to string for content fields
-#[allow(dead_code)]
-pub fn bytes_to_string(bytes: &[u8]) -> Result<String, String> {
-    String::from_utf8(bytes.to_vec())
-        .map_err(|_| "Invalid UTF-8 content".to_string())
-}
-
-/// Convert string to bytes for content fields
-#[allow(dead_code)]
-pub fn string_to_bytes(content: &str) -> Vec<u8> {
-    content.as_bytes().to_vec()
-}
-
-/// Create UserInfo from UUID and name (helper for responses)
-#[allow(dead_code)]
-pub fn create_user_info(uuid: Uuid, name: String) -> UserInfo {
-    UserInfo { uuid, name }
-}
-
-/// Safe string unwrapping for Option<String> fields
-#[allow(dead_code)]
-pub fn unwrap_optional_string(opt_str: &Option<String>) -> String {
-    opt_str.as_ref().unwrap_or(&String::new()).clone()
-}
-
-/// Wrap string in Some() for Option<String> fields
-#[allow(dead_code)]
-pub fn wrap_string(s: String) -> Option<String> {
-    if s.is_empty() { None } else { Some(s) }
 }
 
 pub use user::*;

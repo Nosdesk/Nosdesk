@@ -133,6 +133,7 @@ pub fn get_device_by_id(conn: &mut DbConnection, device_id: i32) -> QueryResult<
         .first(conn)
 }
 
+#[allow(dead_code)]
 pub fn get_device_by_intune_id(conn: &mut DbConnection, intune_device_id: &str) -> QueryResult<Device> {
     devices::table
         .filter(devices::intune_device_id.eq(intune_device_id))
@@ -183,7 +184,7 @@ pub fn delete_device(conn: &mut DbConnection, device_id: i32) -> QueryResult<usi
 #[allow(dead_code)]
 pub fn upsert_device_by_intune_id(
     conn: &mut DbConnection,
-    intune_device_id: &str,
+    _intune_device_id: &str,
     device_data: NewDevice,
 ) -> QueryResult<Device> {
     use diesel::upsert::excluded;
@@ -209,7 +210,7 @@ pub fn upsert_device_by_intune_id(
 #[allow(dead_code)]
 pub fn upsert_device_by_entra_id(
     conn: &mut DbConnection,
-    entra_device_id: &str,
+    _entra_device_id: &str,
     device_data: NewDevice,
 ) -> QueryResult<Device> {
     use diesel::upsert::excluded;

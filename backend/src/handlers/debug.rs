@@ -4,6 +4,7 @@ use tracing::{debug, error, info, warn};
 
 /// Log entry from frontend
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct LogEntry {
     pub level: String,
     pub message: String,

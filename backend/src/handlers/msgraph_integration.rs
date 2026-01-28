@@ -43,32 +43,9 @@ lazy_static::lazy_static! {
 }
 
 // Configuration constants for optimization
-#[allow(dead_code)]
-const CONCURRENT_PHOTO_DOWNLOADS: usize = 10; // Number of concurrent photo downloads
-#[allow(dead_code)]
 const CONCURRENT_USER_PROCESSING: usize = 8; // Number of concurrent user processing tasks
-#[allow(dead_code)]
-const BATCH_SIZE: usize = 50; // Number of users to process in each batch
 const USER_BATCH_SIZE: usize = 25; // Number of users to process in each user sync batch
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30); // HTTP request timeout
-#[allow(dead_code)]
-const RETRY_ATTEMPTS: usize = 3; // Number of retry attempts for failed requests
-
-// Helper function to get configurable concurrency settings
-#[allow(dead_code)]
-fn get_concurrency_config() -> (usize, usize) {
-    let concurrent_downloads = std::env::var("MSGRAPH_CONCURRENT_DOWNLOADS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(CONCURRENT_PHOTO_DOWNLOADS);
-    
-    let batch_size = std::env::var("MSGRAPH_BATCH_SIZE")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(BATCH_SIZE);
-    
-    (concurrent_downloads, batch_size)
-}
 
 // Helper function to get user sync concurrency settings
 fn get_user_sync_config() -> (usize, usize) {
@@ -281,6 +258,7 @@ pub struct MicrosoftGraphDevice {
     /// Entra Object ID - resolved from azure_ad_device_id during sync.
     /// This is the directory object ID used for group membership matching.
     #[serde(skip)]
+    #[allow(dead_code)]
     pub entra_object_id: Option<String>,
 }
 
@@ -321,6 +299,7 @@ impl MicrosoftGraphGroup {
     }
 
     /// Check if this is a distribution list
+    #[allow(dead_code)]
     pub fn is_distribution_list(&self) -> bool {
         self.get_group_type() == "distribution"
     }
@@ -427,27 +406,6 @@ pub struct DeviceSyncStats {
     pub existing_devices_updated: usize,
     pub devices_assigned: usize,
     pub errors: Vec<String>,
-}
-
-// Optimized photo sync result
-#[derive(Debug)]
-#[allow(dead_code)]
-struct PhotoSyncResult {
-    user_id: i32,
-    user_name: String,
-    avatar_url: Option<String>,
-    success: bool,
-    error: Option<String>,
-}
-
-// User sync result for concurrent processing
-#[derive(Debug)]
-#[allow(dead_code)]
-struct UserSyncResult {
-    user_principal_name: String,
-    operation: String, // "created", "updated", "linked", "error"
-    success: bool,
-    error: Option<String>,
 }
 
 /// Parameters for updating sync progress
@@ -579,7 +537,7 @@ pub async fn get_sync_progress_endpoint(
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
 ) -> impl Responder {
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -611,7 +569,7 @@ pub async fn get_active_syncs(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
     ) -> impl Responder {
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -725,7 +683,7 @@ pub async fn cancel_sync_session(
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
 ) -> impl Responder {
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -829,7 +787,7 @@ pub async fn get_connection_status(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
     ) -> impl Responder {
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -1287,7 +1245,7 @@ async fn perform_sync(
     };
 
     // Don't overwrite entity-specific progress - just process each entity
-    for (index, entity) in entities.iter().enumerate() {
+    for (_index, entity) in entities.iter().enumerate() {
         let sync_progress = match entity.as_str() {
             "users" => sync_users(conn, provider_id, session_id, use_delta).await,
             "devices" => sync_devices(conn, provider_id, session_id, use_delta).await,
@@ -1451,7 +1409,7 @@ async fn sync_users(
 
     // Step 2: Process users in optimized batches
     let mut processed_count = 0;
-    let mut sync_was_cancelled = false;
+    let sync_was_cancelled = false;
 
     // Process users in batches with optimized database operations
     for batch in microsoft_users.chunks(user_batch_size) {
@@ -1487,7 +1445,6 @@ async fn sync_users(
                     None
                 );
                 
-                sync_was_cancelled = true;
                 return SyncProgress {
                     entity: "users".to_string(),
                     processed,
@@ -1538,7 +1495,7 @@ async fn sync_users(
 
             // Update progress more frequently
             if processed_count % 5 == 0 || processed_count == total_users {
-                let processed = stats.new_users_created + stats.existing_users_updated + stats.identities_linked;
+                let _processed = stats.new_users_created + stats.existing_users_updated + stats.identities_linked;
                 update_sync_progress(
                     session_id, 
                     "users", 
@@ -1708,6 +1665,7 @@ async fn fetch_microsoft_graph_users_optimized(_provider_id: i32) -> Result<(Vec
 }
 
 /// Result of a delta sync fetch operation
+#[allow(dead_code)]
 struct DeltaFetchResult {
     /// Users to create or update
     users: Vec<MicrosoftGraphUser>,
@@ -1981,7 +1939,7 @@ async fn process_microsoft_user_optimized_v2(
 /// Find identity by provider and user ID
 fn find_identity_by_provider_user_id(
     conn: &mut DbConnection,
-    provider_id: i32,
+    _provider_id: i32,
     provider_user_id: &str,
 ) -> Result<UserAuthIdentity, diesel::result::Error> {
     use crate::schema::user_auth_identities;
@@ -2009,7 +1967,7 @@ async fn update_existing_microsoft_user(
 
     // Update user information with latest from Microsoft Graph
     let updated_name = ms_user.display_name.as_ref().unwrap_or(&user.name);
-    let updated_email = ms_user.mail.as_ref().unwrap_or(&ms_user.user_principal_name);
+    let _updated_email = ms_user.mail.as_ref().unwrap_or(&ms_user.user_principal_name);
 
     // Only update core fields, preserve role/pronouns/avatars, but update timestamp
     let user_update = crate::models::UserUpdate {
@@ -2072,7 +2030,7 @@ fn update_identity_data(
 #[allow(dead_code)]
 async fn link_existing_user_to_microsoft(
     conn: &mut DbConnection,
-    provider_id: i32,
+    _provider_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_user: User,
     stats: &mut UserSyncStats,
@@ -2136,7 +2094,7 @@ async fn link_existing_user_to_microsoft(
 #[allow(dead_code)]
 async fn create_new_user_from_microsoft(
     conn: &mut DbConnection,
-    provider_id: i32,
+    _provider_id: i32,
     ms_user: &MicrosoftGraphUser,
     stats: &mut UserSyncStats,
     access_token: &str,
@@ -2222,7 +2180,7 @@ async fn update_existing_microsoft_user_optimized(
 
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
-    let primary_email = emails.first().map(|(email, _, _)| email.clone())
+    let _primary_email = emails.first().map(|(email, _, _)| email.clone())
         .unwrap_or_else(|| ms_user.user_principal_name.clone());
 
     // Update user information with latest from Microsoft Graph
@@ -2333,7 +2291,7 @@ async fn link_existing_user_to_microsoft_optimized(
 
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
-    let primary_email = emails.first().map(|(email, _, _)| email.clone())
+    let _primary_email = emails.first().map(|(email, _, _)| email.clone())
         .unwrap_or_else(|| ms_user.user_principal_name.clone());
 
     // Update user information with Microsoft data and store Microsoft UUID
@@ -2401,13 +2359,13 @@ async fn create_new_user_from_microsoft_optimized(
     // User info is in the span context
 
     // Generate UUID for new user (this is our local UUID, different from Microsoft's)
-    let user_uuid = Uuid::now_v7().to_string();
+    let _user_uuid = Uuid::now_v7().to_string();
     
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
     let primary_email = emails.first().map(|(email, _, _)| email.clone())
         .unwrap_or_else(|| ms_user.user_principal_name.clone());
-    
+
     // Determine name (prefer displayName, fallback to givenName + surname, fallback to userPrincipalName)
     let name = ms_user.display_name.clone()
         .or_else(|| {
@@ -2612,7 +2570,7 @@ async fn sync_devices(
 
         // Update progress more frequently
         if processed_count % 5 == 0 || processed_count == total_devices {
-            let processed = stats.new_devices_created + stats.existing_devices_updated;
+            let _processed = stats.new_devices_created + stats.existing_devices_updated;
             update_sync_progress_with_type(
                 session_id,
                 "devices",
@@ -2922,53 +2880,6 @@ async fn sync_groups(
     }
 }
 
-/// Fetch all groups from Microsoft Graph
-async fn fetch_microsoft_graph_groups() -> Result<(Vec<MicrosoftGraphGroup>, String), String> {
-    let (client, access_token) = get_msgraph_client_and_token().await?;
-
-    // Fetch groups with pagination
-    let select_fields = "id,displayName,description,mailEnabled,securityEnabled,groupTypes,mail";
-    let mut all_groups: Vec<MicrosoftGraphGroup> = Vec::new();
-    let mut next_link: Option<String> = Some(format!(
-        "https://graph.microsoft.com/v1.0/groups?$select={select_fields}&$top=999"
-    ));
-
-    while let Some(url) = next_link {
-        let response = client
-            .get(&url)
-            .bearer_auth(&access_token)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to fetch groups: {e}"))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(format!("Microsoft Graph API error ({status}): {error_text}"));
-        }
-
-        let data: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse groups response: {e}"))?;
-
-        if let Some(groups) = data["value"].as_array() {
-            for group_value in groups {
-                if let Ok(group) = serde_json::from_value::<MicrosoftGraphGroup>(group_value.clone()) {
-                    all_groups.push(group);
-                }
-            }
-        }
-
-        next_link = data["@odata.nextLink"]
-            .as_str()
-            .map(String::from);
-    }
-
-    info!(total_groups = all_groups.len(), "Fetched groups from Microsoft Graph");
-    Ok((all_groups, access_token))
-}
-
 /// Delta response for a group, including membership changes
 #[derive(Debug)]
 struct GroupDeltaItem {
@@ -2985,6 +2896,7 @@ struct GroupDeltaItem {
 }
 
 /// Result of a delta sync fetch operation for groups
+#[allow(dead_code)]
 struct GroupDeltaFetchResult {
     /// Groups with their membership changes
     groups: Vec<GroupDeltaItem>,
@@ -3759,144 +3671,8 @@ async fn sync_user_profile_photo_fallback(
     save_profile_photo_to_disk(&photo_bytes, local_user_uuid, "default").await
 }
 
-/// Resolve an Azure AD Device ID (deviceId) to its Entra Object ID.
-/// The deviceId is from device registration, while the Object ID is the directory object identifier.
-/// Group membership uses Object IDs, so we need to resolve this for proper matching.
-async fn resolve_entra_object_id(
-    client: &reqwest::Client,
-    access_token: &str,
-    azure_ad_device_id: &str,
-) -> Option<String> {
-    // Query Entra devices by deviceId filter to get the object ID
-    let url = format!(
-        "https://graph.microsoft.com/v1.0/devices?$filter=deviceId eq '{azure_ad_device_id}'&$select=id,deviceId"
-    );
-
-    let response = match client
-        .get(&url)
-        .bearer_auth(access_token)
-        .send()
-        .await
-    {
-        Ok(resp) => resp,
-        Err(e) => {
-            debug!(azure_ad_device_id = %azure_ad_device_id, error = %e, "Failed to query Entra device");
-            return None;
-        }
-    };
-
-    if !response.status().is_success() {
-        debug!(
-            azure_ad_device_id = %azure_ad_device_id,
-            status = %response.status(),
-            "Entra device lookup returned non-success status"
-        );
-        return None;
-    }
-
-    let data: serde_json::Value = match response.json().await {
-        Ok(d) => d,
-        Err(e) => {
-            debug!(azure_ad_device_id = %azure_ad_device_id, error = %e, "Failed to parse Entra device response");
-            return None;
-        }
-    };
-
-    // Extract the object ID from the first result
-    data["value"]
-        .as_array()
-        .and_then(|arr| arr.first())
-        .and_then(|device| device["id"].as_str())
-        .map(|s| s.to_string())
-}
-
-/// Fetch devices from Microsoft Graph API (Intune managed devices)
-async fn fetch_microsoft_graph_devices(_provider_id: i32) -> Result<(Vec<MicrosoftGraphDevice>, String), String> {
-    let (client, access_token) = get_msgraph_client_and_token().await?;
-
-    // Build the Microsoft Graph API request for managed devices
-    // Note: Using correct field names for managedDevice type from Microsoft Graph v1.0 API
-    let select_fields = "id,deviceName,operatingSystem,osVersion,manufacturer,model,serialNumber,azureADDeviceId,userPrincipalName,userId,complianceState,lastSyncDateTime,enrolledDateTime,deviceEnrollmentType,managementAgent";
-    
-    let mut url = format!(
-        "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$select={}",
-        urlencoding::encode(select_fields)
-    );
-
-    let mut all_devices = Vec::new();
-    let mut page_count = 0;
-
-    loop {
-        page_count += 1;
-        debug!(page = page_count, url = %url, "Fetching Intune devices page from Microsoft Graph");
-
-        let graph_response = client
-            .get(&url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .header("Content-Type", "application/json")
-            .send()
-            .await
-            .map_err(|e| format!("Failed to send Microsoft Graph request (page {page_count}): {e}"))?;
-
-        let status = graph_response.status();
-        let response_data: serde_json::Value = graph_response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse Microsoft Graph response (page {page_count}): {e}"))?;
-
-        if !status.is_success() {
-            let error_msg = response_data
-                .get("error")
-                .and_then(|err| err.get("message"))
-                .and_then(|msg| msg.as_str())
-                .unwrap_or("Unknown Microsoft Graph error");
-            return Err(format!("Microsoft Graph API error (page {page_count}, {status}): {error_msg}"));
-        }
-
-        let devices_array = response_data
-            .get("value")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| format!("Microsoft Graph response missing 'value' array (page {page_count})"))?;
-
-        let mut page_devices = Vec::new();
-        for device_value in devices_array {
-            match serde_json::from_value::<MicrosoftGraphDevice>(device_value.clone()) {
-                Ok(device) => {
-                    page_devices.push(device);
-                },
-                Err(e) => {
-                    warn!(page = page_count, error = %e, data = %device_value, "Failed to parse Intune device from Microsoft Graph");
-                }
-            }
-        }
-
-        debug!(page = page_count, device_count = page_devices.len(), "Intune devices page parsed");
-        all_devices.extend(page_devices);
-
-        if let Some(next_link) = response_data.get("@odata.nextLink").and_then(|link| link.as_str()) {
-            url = next_link.to_string();
-        } else {
-            break;
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    }
-
-    info!(device_count = all_devices.len(), page_count = page_count, "Successfully fetched devices from Microsoft Graph");
-
-    // Log a sample of devices for verification
-    for (i, device) in all_devices.iter().take(5).enumerate() {
-        debug!(index = i + 1, device_name = device.device_name.as_deref().unwrap_or("N/A"), device_id = %device.id, "Sample device");
-    }
-
-    if all_devices.len() > 5 {
-        debug!(remaining_count = all_devices.len() - 5, "Additional devices not shown");
-    }
-
-    Ok((all_devices, access_token.to_string()))
-}
-
 /// Result of a delta sync fetch operation for Entra ID devices
+#[allow(dead_code)]
 struct DeviceDeltaFetchResult {
     /// Entra ID devices to create or update
     devices: Vec<EntraDevice>,
@@ -4093,202 +3869,6 @@ async fn fetch_microsoft_graph_devices_delta(
     })
 }
 
-/// Process a single Microsoft Graph device from Intune (managedDevices endpoint)
-/// This is preserved for future Intune-specific sync functionality.
-/// Currently unused - device sync uses process_entra_device for /devices delta queries.
-#[allow(dead_code)]
-async fn process_microsoft_device(
-    conn: &mut DbConnection,
-    provider_id: i32,
-    ms_device: &MicrosoftGraphDevice,
-    stats: &mut DeviceSyncStats,
-) -> Result<(), String> {
-    debug!(device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Processing device");
-
-    // Step 1: Check if this device already exists by Intune device ID
-    let existing_device = device_repo::get_device_by_intune_id(conn, &ms_device.id).ok();
-
-    // Step 2: If not found by Intune ID, try Entra device ID
-    let existing_device = if existing_device.is_none() {
-        if let Some(entra_id) = &ms_device.azure_ad_device_id {
-            device_repo::get_device_by_entra_id(conn, entra_id).ok()
-        } else {
-            None
-        }
-    } else {
-        existing_device
-    };
-
-    // Step 3: Try to find the primary user for this device
-    let primary_user_uuid = {
-        // First, try to match by Microsoft UUID if available (most reliable)
-        if let Some(microsoft_user_id) = &ms_device.user_id {
-            match utils::parse_uuid(microsoft_user_id) {
-                Ok(microsoft_uuid) => {
-                    match user_repo::get_user_by_microsoft_uuid(conn, &microsoft_uuid) {
-                        Ok(user) => {
-                            debug!(user_name = %user.name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Found user for device by Microsoft UUID");
-                            Some(user.uuid)
-                        },
-                        Err(_) => {
-                            debug!(microsoft_uuid = %microsoft_user_id, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "User with Microsoft UUID not found for device");
-
-                            // Fallback to email matching if Microsoft UUID doesn't match
-                            if let Some(user_principal_name) = &ms_device.user_principal_name {
-                                match user_emails_repo::find_user_by_any_email(conn, user_principal_name) {
-                                    Ok(user) => {
-                                        debug!(user_name = %user.name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Found user for device by email fallback");
-                                        Some(user.uuid)
-                                    },
-                                    Err(_) => {
-                                        debug!(user_principal_name = %user_principal_name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "User not found for device (tried both Microsoft UUID and email)");
-                                        None
-                                    }
-                                }
-                            } else {
-                                None
-                            }
-                        }
-                    }
-                },
-                Err(_) => {
-                    warn!(device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), microsoft_user_id = %microsoft_user_id, "Invalid Microsoft UUID format for device");
-                    // Fallback to email matching
-                    if let Some(user_principal_name) = &ms_device.user_principal_name {
-                        match user_emails_repo::find_user_by_any_email(conn, user_principal_name) {
-                            Ok(user) => {
-                                debug!(user_name = %user.name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Found user for device by email fallback");
-                                Some(user.uuid)
-                            },
-                            Err(_) => {
-                                debug!(user_principal_name = %user_principal_name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "User not found for device");
-                                None
-                            }
-                        }
-                    } else {
-                        None
-                    }
-                }
-            }
-        }
-        // If no Microsoft UUID available, try email matching only
-        else if let Some(user_principal_name) = &ms_device.user_principal_name {
-            match user_emails_repo::find_user_by_any_email(conn, user_principal_name) {
-                Ok(user) => {
-                    debug!(user_name = %user.name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "Found user for device by email");
-                    Some(user.uuid)
-                },
-                Err(_) => {
-                    debug!(user_principal_name = %user_principal_name, device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "User not found for device");
-                    None
-                }
-            }
-        } else {
-            debug!(device_name = %ms_device.device_name.as_deref().unwrap_or(&ms_device.id), "No user information available for device");
-            None
-        }
-    };
-
-    // Step 4: Prepare device data
-    let device_name = ms_device.device_name
-        .as_ref()
-        .cloned()
-        .unwrap_or_else(|| format!("Device-{}", ms_device.id));
-
-    let hostname = device_name.clone();
-
-    let serial_number = ms_device.serial_number
-        .as_ref()
-        .cloned()
-        .unwrap_or_else(|| format!("Unknown-{}", ms_device.id));
-
-    let model = ms_device.model
-        .as_ref()
-        .cloned()
-        .unwrap_or_else(|| "Unknown Model".to_string());
-
-    let manufacturer = ms_device.manufacturer
-        .as_ref()
-        .cloned()
-        .unwrap_or_else(|| "Unknown Manufacturer".to_string());
-
-    // Set warranty status to Unknown - this field is reserved for actual warranty API data
-    // Compliance state from Intune is not warranty information
-    let warranty_status = "Unknown".to_string();
-
-    if let Some(existing) = existing_device {
-        // Update existing device
-        // Use entra_object_id (directory object ID) for group membership matching
-        let device_update = crate::models::DeviceUpdate {
-            name: Some(device_name.clone()),
-            hostname: Some(hostname),
-            serial_number: Some(serial_number),
-            model: Some(model),
-            warranty_status: Some(warranty_status),
-            manufacturer: Some(manufacturer),
-            primary_user_uuid,
-            intune_device_id: Some(ms_device.id.clone()),
-            entra_device_id: ms_device.entra_object_id.clone(),
-            device_type: None, // Keep existing device type
-            location: None, // Keep existing location
-            notes: None, // Keep existing notes
-            microsoft_device_id: ms_device.azure_ad_device_id.clone(),
-            compliance_state: ms_device.compliance_state.clone(),
-            last_sync_time: parse_microsoft_datetime(&ms_device.last_sync_date_time),
-            operating_system: ms_device.operating_system.clone(),
-            os_version: ms_device.os_version.clone(),
-            is_managed: Some(true), // Intune devices are managed
-            enrollment_date: parse_microsoft_datetime(&ms_device.enrolled_date_time),
-            updated_at: Some(chrono::Utc::now().naive_utc()),
-        };
-
-        device_repo::update_device(conn, existing.id, device_update)
-            .map_err(|e| format!("Failed to update device: {e}"))?;
-
-        debug!(device_name = %device_name, "Updated existing device");
-        stats.existing_devices_updated += 1;
-
-        if primary_user_uuid.is_some() {
-            stats.devices_assigned += 1;
-        }
-    } else {
-        // Create new device
-        // Use entra_object_id (directory object ID) for group membership matching
-        let new_device = crate::models::NewDevice {
-            name: device_name.clone(),
-            hostname: Some(hostname),
-            serial_number: Some(serial_number),
-            model: Some(model),
-            warranty_status: Some(warranty_status),
-            manufacturer: Some(manufacturer),
-            primary_user_uuid,
-            intune_device_id: Some(ms_device.id.clone()),
-            entra_device_id: ms_device.entra_object_id.clone(),
-            device_type: Some("Computer".to_string()), // Default for Intune devices
-            location: None,
-            notes: None,
-            microsoft_device_id: ms_device.azure_ad_device_id.clone(),
-            compliance_state: ms_device.compliance_state.clone(),
-            last_sync_time: parse_microsoft_datetime(&ms_device.last_sync_date_time),
-            operating_system: ms_device.operating_system.clone(),
-            os_version: ms_device.os_version.clone(),
-            is_managed: Some(true), // Intune devices are managed
-            enrollment_date: parse_microsoft_datetime(&ms_device.enrolled_date_time),
-        };
-
-        device_repo::create_device(conn, new_device)
-            .map_err(|e| format!("Failed to create device: {e}"))?;
-
-        info!(device_name = %device_name, "Created new device");
-        stats.new_devices_created += 1;
-
-        if primary_user_uuid.is_some() {
-            stats.devices_assigned += 1;
-        }
-    }
-
-    Ok(())
-}
 
 /// Process a single Entra ID device (from /devices endpoint)
 /// This handles device identity from Entra ID using delta sync.
@@ -4418,7 +3998,7 @@ pub async fn get_entra_object_id(
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
 ) -> impl Responder {
-    let conn = match db_pool.get() {
+    let _conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
             "status": "error",
@@ -4779,7 +4359,7 @@ async fn update_existing_microsoft_user_no_photos(
 
     // Extract emails and update user info
     let emails = extract_user_emails(ms_user);
-    let primary_email = emails.first().map(|(email, _, _)| email.clone())
+    let _primary_email = emails.first().map(|(email, _, _)| email.clone())
         .unwrap_or_else(|| ms_user.user_principal_name.clone());
 
     let updated_name = ms_user.display_name.as_ref().unwrap_or(&user.name);
@@ -4826,7 +4406,7 @@ async fn update_existing_microsoft_user_no_photos(
 /// Link existing user to Microsoft without photos (simplified)
 async fn link_existing_user_to_microsoft_no_photos(
     conn: &mut DbConnection,
-    provider_id: i32,
+    _provider_id: i32,
     ms_user: &MicrosoftGraphUser,
     existing_user: User,
     stats: &mut UserSyncStats,
@@ -4870,7 +4450,7 @@ async fn link_existing_user_to_microsoft_no_photos(
 /// Create new user from Microsoft without photos (simplified)
 async fn create_new_user_from_microsoft_no_photos(
     conn: &mut DbConnection,
-    provider_id: i32,
+    _provider_id: i32,
     ms_user: &MicrosoftGraphUser,
     stats: &mut UserSyncStats,
 ) -> Result<(), String> {

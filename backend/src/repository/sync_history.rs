@@ -110,6 +110,7 @@ pub fn delete_delta_token(
 }
 
 /// Delete all delta tokens for a provider (forces full sync for all entities)
+#[allow(dead_code)]
 pub fn delete_all_delta_tokens_for_provider(
     conn: &mut DbConnection,
     provider_type: &str,

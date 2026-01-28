@@ -348,7 +348,7 @@ impl Drop for SseStream {
 
 // SSE endpoint for ticket updates
 pub async fn ticket_events_stream(
-    req: HttpRequest,
+    _req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     state: web::Data<SseState>,
     query: web::Query<TicketEventsQuery>,
@@ -419,7 +419,7 @@ pub async fn get_sse_token(
 ) -> impl actix_web::Responder {
     use actix_web::HttpMessage;
 
-    let conn = match pool.get() {
+    let _conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => {
             return HttpResponse::InternalServerError().json("Database connection error");

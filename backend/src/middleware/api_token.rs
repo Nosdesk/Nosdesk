@@ -14,6 +14,7 @@ use crate::repository::api_tokens::{get_valid_api_token, hash_token, update_toke
 /// Marker struct to indicate request was authenticated via API token
 /// This is used by CSRF middleware to skip validation for API token requests
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct ApiTokenAuth {
     pub token_uuid: uuid::Uuid,
 }

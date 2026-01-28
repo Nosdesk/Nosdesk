@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, info, warn, error};
 
-use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword, UserProfileUpdate};
+use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword};
 use crate::repository;
 use crate::repository::user_emails as user_emails_repo;
 use crate::utils;
@@ -230,19 +230,6 @@ pub async fn get_paginated_users(
             HttpResponse::InternalServerError().json("Failed to get paginated users")
         },
     }
-}
-
-// DEPRECATED: Use get_user_by_uuid instead
-#[allow(dead_code)]
-pub async fn get_user_by_id(
-    id: web::Path<i32>,
-    pool: web::Data<crate::db::Pool>,
-) -> impl Responder {
-    // This function is deprecated as users no longer have integer IDs
-    HttpResponse::Gone().json(json!({
-        "status": "error",
-        "message": "This endpoint is deprecated. Use /users/:uuid instead"
-    }))
 }
 
 pub async fn get_user_by_uuid(
@@ -599,22 +586,6 @@ pub async fn create_user(
             }))
         }
     }
-}
-
-// DEPRECATED: Use update_user_by_uuid instead
-// This function used integer IDs which are no longer supported
-#[allow(dead_code)]
-pub async fn update_user(
-    _path: web::Path<String>,
-    _user_data: web::Json<UserUpdate>,
-    _req: HttpRequest,
-    _db_pool: web::Data<crate::db::Pool>,
-) -> impl Responder {
-    // This function is deprecated as users no longer have integer IDs
-    HttpResponse::Gone().json(json!({
-        "status": "error",
-        "message": "This endpoint is deprecated. Use PATCH /users/:uuid instead"
-    }))
 }
 
 /// Request body for delete user endpoint
@@ -1112,22 +1083,6 @@ pub async fn delete_user_auth_identity_by_uuid(
     }
 }
 
-// DEPRECATED: This function uses the old profile update structure
-// Use update_user_by_uuid instead
-#[allow(dead_code)]
-pub async fn update_user_profile(
-    _path: web::Path<String>,
-    _profile_data: web::Json<UserProfileUpdate>,
-    _req: HttpRequest,
-    _db_pool: web::Data<crate::db::Pool>,
-) -> impl Responder {
-    // This function is deprecated as it relied on profile_data.id which no longer exists
-    HttpResponse::Gone().json(json!({
-        "status": "error",
-        "message": "This endpoint is deprecated. Use PATCH /users/:uuid instead"
-    }))
-}
-
 // Upload user profile images (avatar or banner)
 pub async fn upload_user_image(
     uuid: web::Path<String>,
@@ -1178,7 +1133,7 @@ pub async fn upload_user_image(
     };
 
     // Ensure the directory exists using storage abstraction
-    let full_storage_path = format!("{storage_path}/{user_uuid}");
+    let _full_storage_path = format!("{storage_path}/{user_uuid}");
 
     debug!(image_type = %image_type, user_uuid = %user_uuid, "Processing image upload");
 
@@ -1228,7 +1183,7 @@ pub async fn upload_user_image(
             }).ok();
         
         let filename = format!("{user_uuid}_{image_type}.{file_ext}");
-        let file_path = format!("{storage_path}/{filename}");
+        let _file_path = format!("{storage_path}/{filename}");
         
         // Read file data
         let mut file_data = Vec::new();
@@ -1865,7 +1820,7 @@ pub async fn get_user_emails(
     };
 
     // Get user first to ensure they exist
-    let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
+    let _user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
         Err(_) => return HttpResponse::NotFound().json(json!({
             "status": "error",

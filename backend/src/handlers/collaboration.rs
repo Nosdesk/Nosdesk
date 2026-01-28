@@ -107,6 +107,7 @@ const MAX_PENDING_DURATION: Duration = Duration::from_secs(120);
 // How long to wait before doing final save on empty room
 const EMPTY_ROOM_FINAL_SAVE_DELAY: Duration = Duration::from_secs(2);
 // How long to keep document state after room becomes empty
+#[allow(dead_code)]
 const EMPTY_ROOM_CLEANUP_DELAY: Duration = Duration::from_secs(300); // 5 minutes
 
 // Document type enum to distinguish between tickets and documentation
@@ -128,6 +129,7 @@ impl DocumentType {
         }
     }
 
+    #[allow(dead_code)]
     fn to_string(&self) -> String {
         match self {
             DocumentType::Ticket(id) => format!("ticket-{id}"),
@@ -332,6 +334,7 @@ impl DocumentState {
         false
     }
     
+    #[allow(dead_code)]
     fn should_cleanup(&self) -> bool {
         // Clean up document state after room has been empty for the cleanup delay and final save is done
         if let Some(empty_since) = self.room_empty_since {
@@ -875,6 +878,7 @@ impl YjsAppState {
     }
 
     // Helper method to save a document by ID
+    #[allow(dead_code)]
     async fn save_document_by_id(&self, doc_id: &str) {
         let mut documents = self.documents.write().await;
         if let Some(doc_state) = documents.get_mut(doc_id) {
@@ -1009,6 +1013,7 @@ impl YjsAppState {
 
     // Save document state to Redis immediately for fast recovery on page refresh
     // This is called after updates are applied to ensure the latest state is cached
+    #[allow(dead_code)]
     async fn save_to_redis_immediately(&self, doc_id: &str, awareness: &Awareness) {
         // Get binary content from the document
         let binary_content = {
@@ -1160,6 +1165,7 @@ struct YjsWebSocket {
     doc_id: String,
     app_state: YjsAppState,
     hb: Instant,
+    #[allow(dead_code)]
     protocol: DefaultProtocol,
     user_uuid: Uuid, // User UUID for contributor tracking
     // Statistics for debugging

@@ -108,10 +108,6 @@ impl IndexDocument {
         self
     }
 
-    pub fn content(mut self, content: impl Into<String>) -> Self {
-        self.content = content.into();
-        self
-    }
 
     pub fn url(mut self, url: impl Into<String>) -> Self {
         self.url = url.into();

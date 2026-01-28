@@ -32,6 +32,7 @@ impl TokenType {
 
 /// Reset token information
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ResetToken {
     pub raw_token: String,  // The actual token to send to the user (never stored)
     pub token_hash: String, // SHA-256 hash stored in database
@@ -77,6 +78,7 @@ impl ResetTokenUtils {
     }
 
     /// Validate that a token hash matches a raw token
+    #[allow(dead_code)]
     pub fn validate_token_hash(raw_token: &str, stored_hash: &str) -> bool {
         let computed_hash = Self::hash_token(raw_token);
         // Use constant-time comparison to prevent timing attacks

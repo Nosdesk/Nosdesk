@@ -19,10 +19,13 @@ pub type ChannelResult<T> = Result<T, ChannelError>;
 #[derive(Debug)]
 pub enum ChannelError {
     /// Delivery failed with reason
+    #[allow(dead_code)]
     DeliveryFailed(String),
     /// User has been rate limited for this channel
+    #[allow(dead_code)]
     RateLimited,
     /// Channel is not configured/available
+    #[allow(dead_code)]
     ChannelDisabled,
     /// Invalid recipient (e.g., no email address)
     InvalidRecipient(String),

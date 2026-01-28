@@ -39,6 +39,7 @@ impl SseBroadcaster {
     }
 
     /// Broadcast a ticket deletion to all connected clients
+    #[allow(dead_code)]
     pub async fn broadcast_ticket_deleted(
         state: &web::Data<SseState>,
         ticket_id: i32,

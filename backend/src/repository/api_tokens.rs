@@ -122,17 +122,6 @@ pub fn list_all_api_tokens(conn: &mut DbConnection) -> Result<Vec<ApiToken>, die
         .load::<ApiToken>(conn)
 }
 
-/// List API tokens for a specific user
-pub fn list_user_api_tokens(
-    conn: &mut DbConnection,
-    user_uuid: Uuid,
-) -> Result<Vec<ApiToken>, diesel::result::Error> {
-    api_tokens::table
-        .filter(api_tokens::user_uuid.eq(user_uuid))
-        .order(api_tokens::created_at.desc())
-        .load::<ApiToken>(conn)
-}
-
 /// Get a token by UUID
 pub fn get_api_token_by_uuid(
     conn: &mut DbConnection,
@@ -151,20 +140,6 @@ pub fn revoke_api_token(
     diesel::update(api_tokens::table.filter(api_tokens::uuid.eq(token_uuid)))
         .set(api_tokens::revoked_at.eq(Utc::now().naive_utc()))
         .execute(conn)
-}
-
-/// Revoke all API tokens for a user
-pub fn revoke_all_user_tokens(
-    conn: &mut DbConnection,
-    user_uuid: Uuid,
-) -> Result<usize, diesel::result::Error> {
-    diesel::update(
-        api_tokens::table
-            .filter(api_tokens::user_uuid.eq(user_uuid))
-            .filter(api_tokens::revoked_at.is_null()),
-    )
-    .set(api_tokens::revoked_at.eq(Utc::now().naive_utc()))
-    .execute(conn)
 }
 
 /// Enrich API tokens with user names for display
@@ -211,10 +186,3 @@ pub fn enrich_tokens_with_users(
     Ok(enriched)
 }
 
-/// Delete all API tokens for a user (hard delete - used when deleting user)
-pub fn delete_user_api_tokens(
-    conn: &mut DbConnection,
-    user_uuid: Uuid,
-) -> Result<usize, diesel::result::Error> {
-    diesel::delete(api_tokens::table.filter(api_tokens::user_uuid.eq(user_uuid))).execute(conn)
-}

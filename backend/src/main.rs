@@ -27,17 +27,6 @@ async fn health_check() -> impl Responder {
     HttpResponse::Ok().body("Helpdesk API is running!")
 }
 
-// Custom rate limit error handler
-#[allow(dead_code)]
-async fn rate_limit_handler() -> impl Responder {
-    HttpResponse::TooManyRequests().json(serde_json::json!({
-        "status": "error",
-        "message": "Rate limit exceeded. Please slow down your requests.",
-        "code": "RATE_LIMIT_EXCEEDED",
-        "retry_after_seconds": 60
-    }))
-}
-
 /// Handle missing assets in development mode
 /// When frontend rebuilds, old asset hashes become invalid - this helps developers
 fn handle_missing_asset(path: &str) -> HttpResponse {

@@ -19,13 +19,6 @@ pub fn get_all_categories(conn: &mut DbConnection) -> QueryResult<Vec<TicketCate
         .load(conn)
 }
 
-/// Get all categories (for admin, includes inactive)
-pub fn get_all_categories_admin(conn: &mut DbConnection) -> QueryResult<Vec<TicketCategory>> {
-    ticket_categories::table
-        .order(ticket_categories::display_order.asc())
-        .load(conn)
-}
-
 /// Get all categories with visibility information (for admin)
 pub fn get_all_categories_with_visibility(conn: &mut DbConnection) -> Result<Vec<CategoryWithVisibility>, Error> {
     let all_categories = ticket_categories::table
@@ -172,6 +165,7 @@ pub fn set_category_visibility(
 }
 
 /// Add a group to category visibility
+#[allow(dead_code)]
 pub fn add_group_to_category_visibility(
     conn: &mut DbConnection,
     category_id: i32,
@@ -200,6 +194,7 @@ pub fn add_group_to_category_visibility(
 }
 
 /// Remove a group from category visibility
+#[allow(dead_code)]
 pub fn remove_group_from_category_visibility(
     conn: &mut DbConnection,
     category_id: i32,

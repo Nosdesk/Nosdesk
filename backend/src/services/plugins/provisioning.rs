@@ -41,6 +41,7 @@ const PLUGINS_DIR: &str = "/app/plugins";
 pub enum ProvisionResult {
     Created(String),
     Updated(String),
+    #[allow(dead_code)]
     Unchanged(String),
     Failed(String, String),
 }

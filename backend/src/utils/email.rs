@@ -295,6 +295,7 @@ enum NoticeType {
     Warning,
     Critical,
     Info,
+    #[allow(dead_code)]
     Success,
 }
 
