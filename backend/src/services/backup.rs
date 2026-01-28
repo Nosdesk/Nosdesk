@@ -786,3 +786,93 @@ fn update_sensitive_fields(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── derive_key ───────────────────────────────────────────────
+
+    #[test]
+    fn derive_key_produces_32_bytes() {
+        let key = derive_key("password", b"saltsaltsaltsalt");
+        assert_eq!(key.len(), 32);
+    }
+
+    #[test]
+    fn derive_key_is_deterministic() {
+        let salt = b"fixed-salt-value-for-test1234567";
+        let k1 = derive_key("pass", salt);
+        let k2 = derive_key("pass", salt);
+        assert_eq!(k1, k2);
+    }
+
+    #[test]
+    fn derive_key_differs_for_different_passwords() {
+        let salt = b"fixed-salt-value-for-test1234567";
+        let k1 = derive_key("password1", salt);
+        let k2 = derive_key("password2", salt);
+        assert_ne!(k1, k2);
+    }
+
+    // ── encrypt_data / decrypt_data roundtrip ────────────────────
+
+    #[test]
+    fn encrypt_decrypt_roundtrip() {
+        let key = derive_key("test-password", b"salt-for-encrypt-decrypt-test!!");
+        let plaintext = b"hello world, this is secret data";
+        let (ciphertext, nonce) = encrypt_data(plaintext, &key).unwrap();
+        assert_ne!(&ciphertext[..plaintext.len()], plaintext);
+
+        let decrypted = decrypt_data(&ciphertext, &key, &nonce).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn decrypt_with_wrong_key_fails() {
+        let key = derive_key("correct", b"salt-for-wrong-key-test!!!!!!!!");
+        let wrong_key = derive_key("wrong", b"salt-for-wrong-key-test!!!!!!!!");
+        let (ciphertext, nonce) = encrypt_data(b"secret", &key).unwrap();
+        assert!(decrypt_data(&ciphertext, &wrong_key, &nonce).is_err());
+    }
+
+    // ── json_to_sql_value ────────────────────────────────────────
+
+    #[test]
+    fn json_null_to_sql() {
+        assert_eq!(json_to_sql_value(&json!(null)), "NULL");
+    }
+
+    #[test]
+    fn json_bool_to_sql() {
+        assert_eq!(json_to_sql_value(&json!(true)), "TRUE");
+        assert_eq!(json_to_sql_value(&json!(false)), "FALSE");
+    }
+
+    #[test]
+    fn json_number_to_sql() {
+        assert_eq!(json_to_sql_value(&json!(42)), "42");
+        assert_eq!(json_to_sql_value(&json!(3.14)), "3.14");
+    }
+
+    #[test]
+    fn json_string_to_sql_escapes_quotes() {
+        assert_eq!(json_to_sql_value(&json!("hello")), "'hello'");
+        assert_eq!(json_to_sql_value(&json!("it's")), "'it''s'");
+    }
+
+    #[test]
+    fn json_object_to_sql_is_jsonb() {
+        let val = json!({"key": "value"});
+        let sql = json_to_sql_value(&val);
+        assert!(sql.contains("::jsonb"));
+    }
+
+    #[test]
+    fn json_array_to_sql_is_jsonb() {
+        let val = json!([1, 2, 3]);
+        let sql = json_to_sql_value(&val);
+        assert!(sql.contains("::jsonb"));
+    }
+}

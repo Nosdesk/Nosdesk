@@ -79,3 +79,63 @@ fn is_production() -> bool {
         == "production"
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn access_token_cookie_is_http_only() {
+        let cookie = create_access_token_cookie("tok123");
+        assert_eq!(cookie.name(), ACCESS_TOKEN_COOKIE);
+        assert_eq!(cookie.value(), "tok123");
+        assert!(cookie.http_only().unwrap_or(false));
+        assert_eq!(cookie.same_site(), Some(SameSite::Strict));
+        assert_eq!(cookie.path(), Some("/"));
+    }
+
+    #[test]
+    fn refresh_token_cookie_is_http_only() {
+        let cookie = create_refresh_token_cookie("ref456");
+        assert_eq!(cookie.name(), REFRESH_TOKEN_COOKIE);
+        assert!(cookie.http_only().unwrap_or(false));
+        assert_eq!(cookie.same_site(), Some(SameSite::Strict));
+    }
+
+    #[test]
+    fn csrf_cookie_is_not_http_only() {
+        let cookie = create_csrf_token_cookie("csrf789");
+        assert_eq!(cookie.name(), CSRF_TOKEN_COOKIE);
+        assert_eq!(cookie.value(), "csrf789");
+        // CSRF cookie must be readable by JavaScript
+        assert!(!cookie.http_only().unwrap_or(true));
+        assert_eq!(cookie.same_site(), Some(SameSite::Strict));
+    }
+
+    #[test]
+    fn delete_cookies_have_zero_max_age() {
+        let del_access = delete_access_token_cookie();
+        assert_eq!(del_access.value(), "");
+        assert_eq!(del_access.max_age(), Some(actix_web::cookie::time::Duration::seconds(0)));
+
+        let del_refresh = delete_refresh_token_cookie();
+        assert_eq!(del_refresh.value(), "");
+        assert_eq!(del_refresh.max_age(), Some(actix_web::cookie::time::Duration::seconds(0)));
+
+        let del_csrf = delete_csrf_token_cookie();
+        assert_eq!(del_csrf.value(), "");
+        assert_eq!(del_csrf.max_age(), Some(actix_web::cookie::time::Duration::seconds(0)));
+    }
+
+    #[test]
+    fn access_token_max_age_is_24_hours() {
+        let cookie = create_access_token_cookie("t");
+        assert_eq!(cookie.max_age(), Some(actix_web::cookie::time::Duration::hours(24)));
+    }
+
+    #[test]
+    fn refresh_token_max_age_is_7_days() {
+        let cookie = create_refresh_token_cookie("t");
+        assert_eq!(cookie.max_age(), Some(actix_web::cookie::time::Duration::days(7)));
+    }
+}
+

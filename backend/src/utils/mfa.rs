@@ -432,6 +432,77 @@ fn get_mfa_rate_limit_config() -> (u32, u64) {
 /// # Returns
 /// * `true` - Request is allowed (under limit)
 /// * `false` - Rate limit exceeded (too many attempts)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_require_mfa_for_technician() {
+        assert!(should_require_mfa(&UserRole::Technician));
+    }
+
+    #[test]
+    fn should_not_require_mfa_for_regular_user() {
+        assert!(!should_require_mfa(&UserRole::User));
+    }
+
+    #[test]
+    fn user_has_mfa_enabled_requires_both_flag_and_secret() {
+        let now = chrono::Utc::now().naive_utc();
+        let base_user = User {
+            uuid: Uuid::new_v4(),
+            name: "test".into(),
+            role: UserRole::User,
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            theme: None,
+            created_at: now,
+            updated_at: now,
+            password_changed_at: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_enabled: false,
+            mfa_backup_codes: None,
+            passkey_credentials: None,
+        };
+
+        assert!(!user_has_mfa_enabled(&base_user));
+
+        let mut enabled_no_secret = base_user.clone();
+        enabled_no_secret.mfa_enabled = true;
+        assert!(!user_has_mfa_enabled(&enabled_no_secret));
+
+        let mut has_secret_not_enabled = base_user.clone();
+        has_secret_not_enabled.mfa_secret = Some("secret".into());
+        assert!(!user_has_mfa_enabled(&has_secret_not_enabled));
+
+        let mut both = base_user.clone();
+        both.mfa_enabled = true;
+        both.mfa_secret = Some("secret".into());
+        assert!(user_has_mfa_enabled(&both));
+    }
+
+    #[test]
+    fn generate_totp_secret_is_valid_base32() {
+        let secret = generate_totp_secret();
+        let decoded = base32::decode(base32::Alphabet::RFC4648 { padding: true }, secret.as_str());
+        assert!(decoded.is_some());
+        assert_eq!(decoded.unwrap().len(), 20); // 160 bits
+    }
+
+    #[test]
+    fn generate_qr_code_produces_svg_data_url() {
+        let result = generate_qr_code("JBSWY3DPEHPK3PXP", "test@example.com", "Nosdesk");
+        assert!(result.is_ok());
+        let qr = result.unwrap();
+        assert!(qr.svg_data_url.starts_with("data:image/svg+xml;base64,"));
+        assert!(qr.matrix.size > 0);
+        assert_eq!(qr.matrix.data.len(), qr.matrix.size * qr.matrix.size);
+    }
+}
+
 pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
     use crate::utils::rate_limit::RateLimiter;
 

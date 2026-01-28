@@ -289,3 +289,76 @@ pub fn can_user_see_category(
     // Check if user is in any of the allowed groups
     Ok(user_group_ids.iter().any(|id| category_group_ids.contains(id)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use crate::models::UserRole;
+
+    #[test]
+    fn public_category_visible_to_any_user() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
+        let cat = TestFixtures::create_category(&mut conn, "Public");
+        // No group restrictions → public
+        assert!(can_user_see_category(&mut conn, &user.uuid, cat.id, false).unwrap());
+    }
+
+    #[test]
+    fn restricted_category_visible_to_allowed_group() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
+        let group = TestFixtures::create_group(&mut conn, "Support");
+        TestFixtures::add_user_to_group(&mut conn, user.uuid, group.id);
+        let cat = TestFixtures::create_category(&mut conn, "VIP");
+        TestFixtures::set_category_visibility(&mut conn, cat.id, &[group.id]);
+
+        assert!(can_user_see_category(&mut conn, &user.uuid, cat.id, false).unwrap());
+    }
+
+    #[test]
+    fn restricted_category_hidden_from_non_member() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "carol", UserRole::User);
+        let group = TestFixtures::create_group(&mut conn, "VIP Group");
+        // user is NOT added to the group
+        let cat = TestFixtures::create_category(&mut conn, "VIP Only");
+        TestFixtures::set_category_visibility(&mut conn, cat.id, &[group.id]);
+
+        assert!(!can_user_see_category(&mut conn, &user.uuid, cat.id, false).unwrap());
+    }
+
+    #[test]
+    fn admin_sees_restricted_category() {
+        let mut conn = setup_test_connection();
+        let admin = TestFixtures::create_user(&mut conn, "admin", UserRole::Admin);
+        let group = TestFixtures::create_group(&mut conn, "Secret");
+        let cat = TestFixtures::create_category(&mut conn, "Secret Cat");
+        TestFixtures::set_category_visibility(&mut conn, cat.id, &[group.id]);
+        // admin not in group but passes is_admin=true
+        assert!(can_user_see_category(&mut conn, &admin.uuid, cat.id, true).unwrap());
+    }
+
+    #[test]
+    fn get_categories_returns_public_and_accessible() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "dave", UserRole::User);
+        let group = TestFixtures::create_group(&mut conn, "Eng");
+        TestFixtures::add_user_to_group(&mut conn, user.uuid, group.id);
+
+        let public_cat = TestFixtures::create_category(&mut conn, "Public Cat");
+        let restricted_ok = TestFixtures::create_category(&mut conn, "Eng Cat");
+        TestFixtures::set_category_visibility(&mut conn, restricted_ok.id, &[group.id]);
+        let other_group = TestFixtures::create_group(&mut conn, "Finance");
+        let restricted_no = TestFixtures::create_category(&mut conn, "Finance Cat");
+        TestFixtures::set_category_visibility(&mut conn, restricted_no.id, &[other_group.id]);
+
+        let visible = get_categories_for_user(&mut conn, &user.uuid, false).unwrap();
+        let visible_ids: Vec<i32> = visible.iter().map(|c| c.id).collect();
+
+        assert!(visible_ids.contains(&public_cat.id));
+        assert!(visible_ids.contains(&restricted_ok.id));
+        assert!(!visible_ids.contains(&restricted_no.id));
+    }
+}

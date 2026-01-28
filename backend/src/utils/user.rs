@@ -136,3 +136,75 @@ pub mod normalization {
         value.map(|s| utils::normalize_string(s))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_sets_role() {
+        let user = NewUserBuilder::new("Alice".into(), "alice@example.com".into(), UserRole::Admin).build();
+        assert_eq!(user.role, UserRole::Admin);
+        assert_eq!(user.name, "Alice");
+    }
+
+    #[test]
+    fn builder_defaults_mfa_disabled() {
+        let user = NewUserBuilder::new("Bob".into(), "b@b.com".into(), UserRole::User).build();
+        assert!(!user.mfa_enabled);
+        assert!(user.mfa_secret.is_none());
+        assert!(user.mfa_backup_codes.is_none());
+    }
+
+    #[test]
+    fn build_with_email_returns_email_separately() {
+        let (user, email) = NewUserBuilder::new("Carol".into(), "carol@x.com".into(), UserRole::Technician)
+            .build_with_email();
+        assert_eq!(email, "carol@x.com");
+        assert_eq!(user.name, "Carol");
+    }
+
+    #[test]
+    fn admin_factory_sets_admin_role() {
+        let user = NewUserBuilder::admin_user("Admin".into(), "a@a.com".into()).build();
+        assert_eq!(user.role, UserRole::Admin);
+    }
+
+    #[test]
+    fn microsoft_factory_sets_microsoft_uuid() {
+        let ms_uuid = Uuid::new_v4();
+        let user = NewUserBuilder::microsoft_user("MS".into(), "ms@x.com".into(), UserRole::User, Some(ms_uuid)).build();
+        assert_eq!(user.microsoft_uuid, Some(ms_uuid));
+    }
+
+    #[test]
+    fn builder_with_methods_override_defaults() {
+        let user = NewUserBuilder::new("D".into(), "d@d.com".into(), UserRole::User)
+            .with_pronouns(Some("they/them".into()))
+            .with_avatar(Some("/avatar.png".into()), Some("/thumb.png".into()))
+            .with_banner(Some("/banner.png".into()))
+            .build();
+        assert_eq!(user.pronouns, Some("they/them".into()));
+        assert_eq!(user.avatar_url, Some("/avatar.png".into()));
+        assert_eq!(user.avatar_thumb, Some("/thumb.png".into()));
+        assert_eq!(user.banner_url, Some("/banner.png".into()));
+    }
+
+    #[test]
+    fn normalize_user_data_trims_and_lowercases_email() {
+        let (name, email) = normalization::normalize_user_data("  Alice  ", "  Alice@Example.COM  ");
+        assert_eq!(name, "Alice");
+        assert_eq!(email, "alice@example.com");
+    }
+
+    #[test]
+    fn normalize_optional_string_handles_none() {
+        assert_eq!(normalization::normalize_optional_string(None), None);
+    }
+
+    #[test]
+    fn normalize_optional_string_trims() {
+        let input = "  hello  ".to_string();
+        assert_eq!(normalization::normalize_optional_string(Some(&input)), Some("hello".to_string()));
+    }
+}

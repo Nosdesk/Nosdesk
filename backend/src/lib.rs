@@ -9,3 +9,6 @@ pub mod repository;
 pub mod schema;
 pub mod services;
 pub mod utils;
+
+#[cfg(test)]
+pub mod test_helpers;

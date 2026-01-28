@@ -19,6 +19,45 @@ pub fn validate_csrf_token(provided: &str, expected: &str) -> bool {
     constant_time_eq(provided.as_bytes(), expected.as_bytes())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_token_is_64_hex_chars() {
+        let token = generate_csrf_token();
+        assert_eq!(token.len(), 64);
+        assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn generated_tokens_are_unique() {
+        let t1 = generate_csrf_token();
+        let t2 = generate_csrf_token();
+        assert_ne!(t1, t2);
+    }
+
+    #[test]
+    fn validate_matching_tokens() {
+        assert!(validate_csrf_token("abc123", "abc123"));
+    }
+
+    #[test]
+    fn validate_mismatched_tokens() {
+        assert!(!validate_csrf_token("abc123", "xyz789"));
+    }
+
+    #[test]
+    fn validate_empty_tokens() {
+        assert!(validate_csrf_token("", ""));
+    }
+
+    #[test]
+    fn validate_different_lengths() {
+        assert!(!validate_csrf_token("short", "longer_token"));
+    }
+}
+
 // === CSRF MIDDLEWARE ===
 
 /// CSRF protection middleware using Double Submit Cookie pattern

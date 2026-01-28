@@ -86,3 +86,48 @@ pub fn normalize_email(email: &str) -> String {
 
 pub use user::*;
 pub use image::*;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_uuid_valid() {
+        let uuid = parse_uuid("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        assert_eq!(uuid.to_string(), "550e8400-e29b-41d4-a716-446655440000");
+    }
+
+    #[test]
+    fn parse_uuid_invalid() {
+        assert!(parse_uuid("not-a-uuid").is_err());
+    }
+
+    #[test]
+    fn role_to_string_conversions() {
+        assert_eq!(role_to_string(&UserRole::Admin), "admin");
+        assert_eq!(role_to_string(&UserRole::Technician), "technician");
+        assert_eq!(role_to_string(&UserRole::User), "user");
+    }
+
+    #[test]
+    fn parse_role_valid() {
+        assert_eq!(parse_role("admin").unwrap(), UserRole::Admin);
+        assert_eq!(parse_role("TECHNICIAN").unwrap(), UserRole::Technician);
+        assert_eq!(parse_role("  User  ").unwrap(), UserRole::User);
+    }
+
+    #[test]
+    fn parse_role_invalid() {
+        assert!(parse_role("superadmin").is_err());
+    }
+
+    #[test]
+    fn normalize_string_trims() {
+        assert_eq!(normalize_string("  hello  "), "hello");
+    }
+
+    #[test]
+    fn normalize_email_trims_and_lowercases() {
+        assert_eq!(normalize_email("  Alice@Example.COM  "), "alice@example.com");
+    }
+}

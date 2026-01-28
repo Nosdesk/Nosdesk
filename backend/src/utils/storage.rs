@@ -366,3 +366,61 @@ fn get_content_type(filename: &str) -> &'static str {
         _ => "application/octet-stream",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── get_content_type ─────────────────────────────────────────
+
+    #[test]
+    fn content_type_for_common_formats() {
+        assert_eq!(get_content_type("photo.jpg"), "image/jpeg");
+        assert_eq!(get_content_type("photo.jpeg"), "image/jpeg");
+        assert_eq!(get_content_type("photo.png"), "image/png");
+        assert_eq!(get_content_type("photo.gif"), "image/gif");
+        assert_eq!(get_content_type("photo.webp"), "image/webp");
+        assert_eq!(get_content_type("photo.svg"), "image/svg+xml");
+        assert_eq!(get_content_type("doc.pdf"), "application/pdf");
+        assert_eq!(get_content_type("data.json"), "application/json");
+        assert_eq!(get_content_type("archive.zip"), "application/zip");
+    }
+
+    #[test]
+    fn content_type_case_insensitive() {
+        assert_eq!(get_content_type("photo.JPG"), "image/jpeg");
+        assert_eq!(get_content_type("doc.PDF"), "application/pdf");
+    }
+
+    #[test]
+    fn content_type_unknown_returns_octet_stream() {
+        assert_eq!(get_content_type("file.xyz"), "application/octet-stream");
+        assert_eq!(get_content_type("noext"), "application/octet-stream");
+    }
+
+    // ── LocalStorage path handling ───────────────────────────────
+
+    #[test]
+    fn get_full_path_joins_correctly() {
+        let storage = LocalStorage::new("/app/uploads".into(), "/uploads".into());
+        assert_eq!(storage.get_full_path("tickets/file.pdf"), "/app/uploads/tickets/file.pdf");
+    }
+
+    #[test]
+    fn get_full_path_handles_extra_slashes() {
+        let storage = LocalStorage::new("/app/uploads/".into(), "/uploads".into());
+        assert_eq!(storage.get_full_path("/tickets/file.pdf"), "/app/uploads/tickets/file.pdf");
+    }
+
+    #[test]
+    fn get_public_url_joins_correctly() {
+        let storage = LocalStorage::new("/app/uploads".into(), "/uploads".into());
+        assert_eq!(storage.get_public_url("tickets/file.pdf"), "/uploads/tickets/file.pdf");
+    }
+
+    #[test]
+    fn get_public_url_handles_extra_slashes() {
+        let storage = LocalStorage::new("/app/uploads".into(), "/uploads/".into());
+        assert_eq!(storage.get_public_url("/tickets/file.pdf"), "/uploads/tickets/file.pdf");
+    }
+}
