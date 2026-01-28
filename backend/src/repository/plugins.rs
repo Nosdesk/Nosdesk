@@ -282,3 +282,93 @@ pub fn get_plugin_activity(
         .offset(offset)
         .load::<PluginActivity>(conn)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::setup_test_connection;
+
+    fn make_new_plugin(name: &str, enabled: bool) -> NewPlugin {
+        NewPlugin {
+            name: name.to_string(),
+            display_name: name.to_string(),
+            version: "1.0.0".to_string(),
+            description: None,
+            manifest: serde_json::json!({}),
+            enabled,
+            trust_level: "sandbox".to_string(),
+            installed_by: None,
+            source: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn create_and_get_plugin() {
+        let mut conn = setup_test_connection();
+        let plugin = create_plugin(&mut conn, make_new_plugin("test-plugin", true)).unwrap();
+
+        let fetched = get_plugin_by_uuid(&mut conn, plugin.uuid).unwrap();
+        assert_eq!(fetched.name, "test-plugin");
+        assert_eq!(fetched.id, plugin.id);
+    }
+
+    #[test]
+    fn list_all_plugins_test() {
+        let mut conn = setup_test_connection();
+        create_plugin(&mut conn, make_new_plugin("plug-a", true)).unwrap();
+        create_plugin(&mut conn, make_new_plugin("plug-b", false)).unwrap();
+
+        let all = list_all_plugins(&mut conn).unwrap();
+        let names: Vec<&str> = all.iter().map(|p| p.name.as_str()).collect();
+        assert!(names.contains(&"plug-a"));
+        assert!(names.contains(&"plug-b"));
+    }
+
+    #[test]
+    fn list_enabled_plugins_test() {
+        let mut conn = setup_test_connection();
+        create_plugin(&mut conn, make_new_plugin("enabled-plug", true)).unwrap();
+        create_plugin(&mut conn, make_new_plugin("disabled-plug", false)).unwrap();
+
+        let enabled = super::list_enabled_plugins(&mut conn).unwrap();
+        let names: Vec<&str> = enabled.iter().map(|p| p.name.as_str()).collect();
+        assert!(names.contains(&"enabled-plug"));
+        assert!(!names.contains(&"disabled-plug"));
+    }
+
+    #[test]
+    fn delete_plugin_test() {
+        let mut conn = setup_test_connection();
+        let plugin = create_plugin(&mut conn, make_new_plugin("doomed", true)).unwrap();
+
+        delete_plugin_by_uuid(&mut conn, plugin.uuid).unwrap();
+        assert!(get_plugin_by_uuid(&mut conn, plugin.uuid).is_err());
+    }
+
+    #[test]
+    fn plugin_data_crud() {
+        let mut conn = setup_test_connection();
+        let plugin = create_plugin(&mut conn, make_new_plugin("data-plug", true)).unwrap();
+
+        // Set data
+        let entry = set_plugin_data(
+            &mut conn,
+            plugin.id,
+            "setting",
+            "api_key".to_string(),
+            Some(serde_json::json!("secret123")),
+            true,
+        )
+        .unwrap();
+        assert_eq!(entry.key, "api_key");
+
+        // Get data entry
+        let fetched = get_plugin_data_entry(&mut conn, plugin.id, "setting", "api_key").unwrap();
+        assert_eq!(fetched.value, Some(serde_json::json!("secret123")));
+
+        // Delete data entry
+        let deleted = delete_plugin_data_entry(&mut conn, plugin.id, "setting", "api_key").unwrap();
+        assert_eq!(deleted, 1);
+        assert!(get_plugin_data_entry(&mut conn, plugin.id, "setting", "api_key").is_err());
+    }
+}

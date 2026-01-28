@@ -131,3 +131,57 @@ pub fn get_user_uuids_by_external_ids(
         .select((user_auth_identities::external_id, user_auth_identities::user_uuid))
         .load::<(String, Uuid)>(conn)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{NewUserAuthIdentity, UserRole};
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    fn make_identity(user_uuid: Uuid, provider: &str, external_id: &str) -> NewUserAuthIdentity {
+        NewUserAuthIdentity {
+            user_uuid,
+            provider_type: provider.to_string(),
+            external_id: external_id.to_string(),
+            email: None,
+            metadata: None,
+            password_hash: None,
+        }
+    }
+
+    #[test]
+    fn create_and_find_identity() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "iduser", UserRole::User);
+
+        create_identity(make_identity(user.uuid, "github", "gh_123"), &mut conn).unwrap();
+
+        let found = find_user_by_identity("github", "gh_123", &mut conn).unwrap();
+        assert_eq!(found, Some(user.uuid));
+    }
+
+    #[test]
+    fn delete_identity_test() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "delid", UserRole::User);
+
+        let identity = create_identity(make_identity(user.uuid, "google", "g_456"), &mut conn).unwrap();
+        let rows = delete_identity(identity.id, &user.uuid, &mut conn).unwrap();
+        assert_eq!(rows, 1);
+
+        let found = find_user_by_identity("google", "g_456", &mut conn).unwrap();
+        assert_eq!(found, None);
+    }
+
+    #[test]
+    fn get_user_identities_test() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "multiid", UserRole::User);
+
+        create_identity(make_identity(user.uuid, "github", "gh_a"), &mut conn).unwrap();
+        create_identity(make_identity(user.uuid, "google", "g_b"), &mut conn).unwrap();
+
+        let identities = get_user_identities(&user.uuid, &mut conn).unwrap();
+        assert!(identities.len() >= 2);
+    }
+}

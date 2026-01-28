@@ -61,3 +61,32 @@ pub fn update_favicon_url(
         .get_result(conn)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::setup_test_connection;
+    use crate::models::UpdateSiteSettings;
+
+    #[test]
+    fn get_site_settings_returns_row() {
+        let mut conn = setup_test_connection();
+        let settings = get_site_settings(&mut conn);
+        assert!(settings.is_ok());
+    }
+
+    #[test]
+    fn update_site_settings_test() {
+        let mut conn = setup_test_connection();
+        let update = UpdateSiteSettings {
+            app_name: Some("TestApp".to_string()),
+            logo_url: None,
+            logo_light_url: None,
+            favicon_url: None,
+            primary_color: None,
+            updated_by: None,
+        };
+
+        let updated = update_site_settings(&mut conn, update).unwrap();
+        assert_eq!(updated.app_name, "TestApp");
+    }
+}

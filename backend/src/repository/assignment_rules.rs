@@ -217,3 +217,77 @@ pub fn rule_name_exists(conn: &mut DbConnection, name: &str, exclude_id: Option<
     let count: i64 = query.count().get_result(conn)?;
     Ok(count > 0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::setup_test_connection;
+
+    fn make_rule(name: &str, priority: i32, is_active: bool) -> NewAssignmentRule {
+        NewAssignmentRule {
+            name: name.to_string(),
+            description: None,
+            priority,
+            is_active,
+            method: AssignmentMethod::DirectUser,
+            target_user_uuid: None,
+            target_group_id: None,
+            trigger_on_create: true,
+            trigger_on_category_change: false,
+            category_id: None,
+            conditions: None,
+            created_by: None,
+        }
+    }
+
+    #[test]
+    fn create_and_get_rule() {
+        let mut conn = setup_test_connection();
+        let rule = create_rule(&mut conn, make_rule("Test Rule", 1, true)).unwrap();
+        let fetched = get_rule_by_id(&mut conn, rule.id).unwrap();
+        assert_eq!(fetched.name, "Test Rule");
+    }
+
+    #[test]
+    fn get_active_rules() {
+        let mut conn = setup_test_connection();
+        create_rule(&mut conn, make_rule("Active", 1, true)).unwrap();
+        create_rule(&mut conn, make_rule("Inactive", 2, false)).unwrap();
+
+        let active = get_active_rules_by_priority(&mut conn).unwrap();
+        assert!(active.iter().all(|r| r.is_active));
+        assert!(active.iter().any(|r| r.name == "Active"));
+    }
+
+    #[test]
+    fn delete_rule_test() {
+        let mut conn = setup_test_connection();
+        let rule = create_rule(&mut conn, make_rule("Del Rule", 1, true)).unwrap();
+        let rows = delete_rule(&mut conn, rule.id).unwrap();
+        assert_eq!(rows, 1);
+        assert!(get_rule_by_id(&mut conn, rule.id).is_err());
+    }
+
+    #[test]
+    fn rule_name_exists_test() {
+        let mut conn = setup_test_connection();
+        create_rule(&mut conn, make_rule("Unique Name", 1, true)).unwrap();
+
+        assert!(rule_name_exists(&mut conn, "Unique Name", None).unwrap());
+        assert!(!rule_name_exists(&mut conn, "Nonexistent", None).unwrap());
+    }
+
+    #[test]
+    fn get_next_priority_test() {
+        let mut conn = setup_test_connection();
+
+        // With no rules the next priority should be based on max(priority) + 10
+        let first = get_next_priority(&mut conn).unwrap();
+        // Could be > 1 if other tests left data, but in a transaction it should be 10
+        assert!(first >= 10);
+
+        create_rule(&mut conn, make_rule("P Rule", first, true)).unwrap();
+        let second = get_next_priority(&mut conn).unwrap();
+        assert_eq!(second, first + 10);
+    }
+}

@@ -149,4 +149,70 @@ impl TestFixtures {
             .get_result(conn)
             .expect("Failed to create test ticket")
     }
+
+    /// Insert a comment on a ticket and return it.
+    pub fn create_comment(conn: &mut DbConnection, ticket_id: i32, user_uuid: Uuid, content: &str) -> Comment {
+        let new_comment = NewComment {
+            content: content.to_string(),
+            ticket_id,
+            user_uuid,
+        };
+
+        diesel::insert_into(comments::table)
+            .values(&new_comment)
+            .get_result(conn)
+            .expect("Failed to create test comment")
+    }
+
+    /// Insert an attachment on a comment and return it.
+    pub fn create_attachment(conn: &mut DbConnection, comment_id: i32, name: &str) -> Attachment {
+        let new_att = NewAttachment {
+            url: format!("/uploads/tickets/{name}"),
+            name: name.to_string(),
+            file_size: Some(1024),
+            mime_type: Some("application/pdf".to_string()),
+            checksum: None,
+            comment_id: Some(comment_id),
+            uploaded_by: None,
+            transcription: None,
+        };
+
+        diesel::insert_into(attachments::table)
+            .values(&new_att)
+            .get_result(conn)
+            .expect("Failed to create test attachment")
+    }
+
+    /// Insert a user email and return it.
+    pub fn create_user_email(conn: &mut DbConnection, user_uuid: Uuid, email: &str, is_primary: bool) -> UserEmail {
+        let new_email = NewUserEmail {
+            user_uuid,
+            email: email.to_string(),
+            email_type: "personal".to_string(),
+            is_primary,
+            is_verified: true,
+            source: None,
+        };
+
+        diesel::insert_into(user_emails::table)
+            .values(&new_email)
+            .get_result(conn)
+            .expect("Failed to create test user email")
+    }
+
+    /// Insert a project and return it.
+    pub fn create_project(conn: &mut DbConnection, name: &str) -> Project {
+        let new_project = NewProject {
+            name: name.to_string(),
+            description: None,
+            status: ProjectStatus::Active,
+            start_date: None,
+            end_date: None,
+        };
+
+        diesel::insert_into(projects::table)
+            .values(&new_project)
+            .get_result(conn)
+            .expect("Failed to create test project")
+    }
 }

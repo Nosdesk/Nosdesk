@@ -71,4 +71,56 @@ pub fn revoke_other_sessions(
     }
 }
 
- 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use chrono::Utc;
+
+    fn make_session(user_uuid: Uuid, token: &str) -> NewActiveSession {
+        NewActiveSession {
+            session_token: token.to_string(),
+            user_uuid,
+            device_name: None,
+            ip_address: None,
+            user_agent: Some("test-agent".to_string()),
+            location: None,
+            expires_at: (Utc::now() + chrono::Duration::hours(1)).naive_utc(),
+            is_current: false,
+        }
+    }
+
+    #[test]
+    fn create_and_get_session() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "sessuser", UserRole::User);
+
+        let session = create_session(&mut conn, make_session(user.uuid, "tok_abc")).unwrap();
+        let fetched = get_session_by_token(&mut conn, "tok_abc").unwrap();
+        assert_eq!(fetched.id, session.id);
+    }
+
+    #[test]
+    fn revoke_session_test() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "revokuser", UserRole::User);
+
+        let session = create_session(&mut conn, make_session(user.uuid, "tok_revoke")).unwrap();
+        let rows = revoke_session(&mut conn, session.id).unwrap();
+        assert_eq!(rows, 1);
+        assert!(get_session_by_token(&mut conn, "tok_revoke").is_err());
+    }
+
+    #[test]
+    fn get_user_sessions_test() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "multiuser", UserRole::User);
+
+        create_session(&mut conn, make_session(user.uuid, "tok_1")).unwrap();
+        create_session(&mut conn, make_session(user.uuid, "tok_2")).unwrap();
+
+        let sessions = get_user_sessions(&mut conn, &user.uuid).unwrap();
+        assert!(sessions.len() >= 2);
+    }
+}

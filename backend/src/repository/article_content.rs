@@ -114,4 +114,49 @@ pub fn update_ticket_modified_timestamp(
     diesel::update(tickets::table.find(ticket_id))
         .set(tickets::updated_at.eq(diesel::dsl::now))
         .execute(conn)
-} 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    #[test]
+    fn create_and_get_article_content() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "artuser", UserRole::Admin);
+        let ticket = TestFixtures::create_ticket(&mut conn, "Art Ticket", Some(user.uuid), None);
+
+        let new = NewArticleContent {
+            ticket_id: ticket.id,
+            yjs_state_vector: None,
+            yjs_document: None,
+            yjs_client_id: None,
+        };
+        let article = create_article_content(&mut conn, new).unwrap();
+        assert_eq!(article.ticket_id, Some(ticket.id));
+
+        let fetched = get_article_content_by_ticket_id(&mut conn, ticket.id).unwrap();
+        assert_eq!(fetched.id, article.id);
+    }
+
+    #[test]
+    fn increment_revision() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "revuser", UserRole::Admin);
+        let ticket = TestFixtures::create_ticket(&mut conn, "Rev Ticket", Some(user.uuid), None);
+
+        let new = NewArticleContent {
+            ticket_id: ticket.id,
+            yjs_state_vector: None,
+            yjs_document: None,
+            yjs_client_id: None,
+        };
+        let article = create_article_content(&mut conn, new).unwrap();
+        let original_rev = article.current_revision_number;
+
+        let updated = increment_article_content_revision(&mut conn, article.id).unwrap();
+        assert_eq!(updated.current_revision_number, original_rev + 1);
+    }
+}

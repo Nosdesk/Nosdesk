@@ -317,3 +317,99 @@ pub fn get_devices_by_entra_ids(
         .select((devices::entra_device_id.assume_not_null(), devices::id))
         .load::<(String, i32)>(conn)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::setup_test_connection;
+    use crate::models::NewDevice;
+
+    fn minimal_device(name: &str) -> NewDevice {
+        NewDevice {
+            name: name.to_string(),
+            hostname: None,
+            device_type: None,
+            serial_number: None,
+            manufacturer: None,
+            model: None,
+            warranty_status: None,
+            location: None,
+            notes: None,
+            primary_user_uuid: None,
+            microsoft_device_id: None,
+            intune_device_id: None,
+            entra_device_id: None,
+            compliance_state: None,
+            last_sync_time: None,
+            operating_system: None,
+            os_version: None,
+            is_managed: None,
+            enrollment_date: None,
+        }
+    }
+
+    #[test]
+    fn create_and_get_device() {
+        let mut conn = setup_test_connection();
+        let dev = create_device(&mut conn, minimal_device("TestDev")).unwrap();
+
+        let fetched = get_device_by_id(&mut conn, dev.id).unwrap();
+        assert_eq!(fetched.name, "TestDev");
+    }
+
+    #[test]
+    fn get_all_devices_test() {
+        let mut conn = setup_test_connection();
+        let d1 = create_device(&mut conn, minimal_device("Dev1")).unwrap();
+        let d2 = create_device(&mut conn, minimal_device("Dev2")).unwrap();
+
+        let all = get_all_devices(&mut conn).unwrap();
+        let ids: Vec<i32> = all.iter().map(|d| d.id).collect();
+        assert!(ids.contains(&d1.id));
+        assert!(ids.contains(&d2.id));
+    }
+
+    #[test]
+    fn update_device_test() {
+        let mut conn = setup_test_connection();
+        let dev = create_device(&mut conn, minimal_device("OldName")).unwrap();
+
+        let upd = DeviceUpdate {
+            name: Some("NewName".to_string()),
+            hostname: None,
+            device_type: None,
+            serial_number: None,
+            manufacturer: None,
+            model: None,
+            warranty_status: None,
+            location: None,
+            notes: None,
+            primary_user_uuid: None,
+            microsoft_device_id: None,
+            intune_device_id: None,
+            entra_device_id: None,
+            compliance_state: None,
+            last_sync_time: None,
+            operating_system: None,
+            os_version: None,
+            is_managed: None,
+            enrollment_date: None,
+            updated_at: None,
+        };
+
+        let updated = update_device(&mut conn, dev.id, upd).unwrap();
+        assert_eq!(updated.name, "NewName");
+    }
+
+    #[test]
+    fn delete_device_test() {
+        let mut conn = setup_test_connection();
+        let dev = create_device(&mut conn, minimal_device("Gone")).unwrap();
+
+        let count = delete_device(&mut conn, dev.id).unwrap();
+        assert_eq!(count, 1);
+
+        let result = get_device_by_id(&mut conn, dev.id);
+        assert!(result.is_err());
+    }
+}

@@ -186,3 +186,100 @@ pub fn enrich_tokens_with_users(
     Ok(enriched)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use crate::models::UserRole;
+
+    // ── Pure logic tests ─────────────────────────────────────────
+
+    #[test]
+    fn generate_token_has_prefix_and_length() {
+        let token = generate_api_token();
+        assert!(token.starts_with("nsk_"));
+        assert_eq!(token.len(), 36); // "nsk_" (4) + 32 hex chars
+    }
+
+    #[test]
+    fn hash_token_is_deterministic() {
+        let h1 = hash_token("nsk_abc123");
+        let h2 = hash_token("nsk_abc123");
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn hash_token_differs_for_different_input() {
+        assert_ne!(hash_token("nsk_aaa"), hash_token("nsk_bbb"));
+    }
+
+    #[test]
+    fn get_token_prefix_extracts_first_8() {
+        assert_eq!(get_token_prefix("nsk_abcdef1234567890"), "nsk_abcd");
+    }
+
+    // ── DB-backed tests ──────────────────────────────────────────
+
+    #[test]
+    fn create_and_retrieve_api_token() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "tokuser", UserRole::Admin);
+
+        let response = create_api_token(
+            &mut conn, user.uuid, "My Token".into(), user.uuid, Some(30), None,
+        ).unwrap();
+
+        assert!(response.token.starts_with("nsk_"));
+        assert_eq!(response.name, "My Token");
+
+        // Can retrieve by hash
+        let hash = hash_token(&response.token);
+        let fetched = get_valid_api_token(&mut conn, &hash).unwrap();
+        assert_eq!(fetched.name, "My Token");
+    }
+
+    #[test]
+    fn revoked_token_is_not_valid() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "revuser", UserRole::Admin);
+
+        let response = create_api_token(
+            &mut conn, user.uuid, "Revoke Me".into(), user.uuid, None, None,
+        ).unwrap();
+
+        revoke_api_token(&mut conn, response.uuid).unwrap();
+
+        let hash = hash_token(&response.token);
+        assert!(get_valid_api_token(&mut conn, &hash).is_err());
+    }
+
+    #[test]
+    fn expired_token_is_not_valid() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "expuser", UserRole::Admin);
+
+        // Create a token that expires in 0 days (already expired)
+        let response = create_api_token(
+            &mut conn, user.uuid, "Expired".into(), user.uuid, Some(0), None,
+        ).unwrap();
+
+        let hash = hash_token(&response.token);
+        // Token with 0-day expiry should already be expired
+        assert!(get_valid_api_token(&mut conn, &hash).is_err());
+    }
+
+    #[test]
+    fn default_scope_is_full() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "scopeuser", UserRole::Admin);
+
+        let response = create_api_token(
+            &mut conn, user.uuid, "Default Scope".into(), user.uuid, None, None,
+        ).unwrap();
+
+        let hash = hash_token(&response.token);
+        let fetched = get_valid_api_token(&mut conn, &hash).unwrap();
+        let scopes: Vec<String> = fetched.scopes.unwrap_or_default().into_iter().flatten().collect();
+        assert!(scopes.contains(&"full".to_string()));
+    }
+}
