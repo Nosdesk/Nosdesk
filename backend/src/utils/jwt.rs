@@ -24,11 +24,6 @@ impl JwtUtils {
         Self::create_scoped_token(user, "full", 24 * 60 * 60)
     }
 
-    /// Create a limited-scope JWT token for MFA recovery (15 minute expiry)
-    pub fn create_mfa_recovery_token(user: &User) -> Result<String, JwtError> {
-        Self::create_scoped_token(user, "mfa_recovery", 15 * 60)
-    }
-
     /// Create a JWT token with specified scope and expiry
     fn create_scoped_token(user: &User, scope: &str, expiry_seconds: usize) -> Result<String, JwtError> {
         let now = SystemTime::now()
@@ -399,6 +394,7 @@ pub mod helpers {
             success: true,
             mfa_required: Some(false),
             mfa_setup_required: Some(false),
+            passkey_mfa_required: None,
             user_uuid: Some(user.uuid.to_string()),
             csrf_token: Some(csrf_token.clone()),
             user: Some(user.into()),
@@ -417,12 +413,13 @@ pub mod helpers {
         Ok((response, tokens))
     }
 
-    /// Create a response indicating MFA is required
+    /// Create a response indicating TOTP MFA is required
     pub fn create_mfa_required_response(user_uuid: uuid::Uuid) -> crate::models::LoginResponse {
         crate::models::LoginResponse {
             success: false,
             mfa_required: Some(true),
             mfa_setup_required: Some(false),
+            passkey_mfa_required: None,
             user_uuid: Some(user_uuid.to_string()),
             csrf_token: None,
             user: None,
@@ -439,10 +436,28 @@ pub mod helpers {
             success: false,
             mfa_required: Some(false),
             mfa_setup_required: Some(true),
+            passkey_mfa_required: None,
             user_uuid: Some(user_uuid.to_string()),
             csrf_token: None,
             user: None,
             message: Some("Multi-factor authentication setup required for your account type".to_string()),
+            mfa_backup_code_used: None,
+            requires_backup_code_regeneration: None,
+            backup_codes: None,
+        }
+    }
+
+    /// Create a response indicating passkey verification is required after password login
+    pub fn create_passkey_mfa_required_response(user_uuid: uuid::Uuid) -> crate::models::LoginResponse {
+        crate::models::LoginResponse {
+            success: false,
+            mfa_required: None,
+            mfa_setup_required: None,
+            passkey_mfa_required: Some(true),
+            user_uuid: Some(user_uuid.to_string()),
+            csrf_token: None,
+            user: None,
+            message: Some("Passkey verification required".to_string()),
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
             backup_codes: None,
@@ -500,6 +515,7 @@ pub mod helpers {
             success: true,
             mfa_required: Some(false),
             mfa_setup_required: Some(false),
+            passkey_mfa_required: None,
             user_uuid: Some(user.uuid.to_string()),
             csrf_token: Some(csrf_token.clone()),
             user: Some(user.into()),

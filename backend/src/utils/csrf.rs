@@ -138,6 +138,8 @@ where
             || path == "/api/auth/mfa-login"
             || path == "/api/auth/mfa-setup-login"
             || path == "/api/auth/mfa-enable-login"
+            || path == "/api/auth/passkey-setup-login/start"
+            || path == "/api/auth/passkey-setup-login/finish"
             || path == "/api/auth/microsoft"
             || path.starts_with("/api/auth/microsoft/callback")
             || path == "/api/auth/oauth/authorize"
@@ -148,7 +150,6 @@ where
             || path.starts_with("/api/auth/setup/restore/")
             || path == "/api/auth/register"
             || path.starts_with("/api/auth/password-reset/")
-            || path.starts_with("/api/auth/mfa-reset/")
             || path.starts_with("/api/auth/invitation/")
             || path == "/api/auth/passkeys/login/start"
             || path == "/api/auth/passkeys/login/finish"

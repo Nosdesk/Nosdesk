@@ -15,7 +15,6 @@ pub mod microsoft_graph;
 pub mod msgraph_integration;
 pub mod sse;
 pub mod password_reset;
-pub mod mfa_reset;
 pub mod invitation;
 pub mod system;
 pub mod debug;
@@ -61,7 +60,7 @@ pub use documentation::*;
 pub use auth_providers::*;
 pub use microsoft_graph::*;
 pub use msgraph_integration::{get_connection_status, get_config_validation, test_connection, sync_data, get_sync_progress_endpoint, get_active_syncs, cancel_sync_session, get_last_sync, get_entra_object_id};
-pub use passkeys::{start_passkey_registration, finish_passkey_registration, start_passkey_login, finish_passkey_login, list_passkeys, rename_passkey, delete_passkey};
+pub use passkeys::{start_passkey_registration, finish_passkey_registration, start_passkey_login, finish_passkey_login, list_passkeys, rename_passkey, delete_passkey, start_passkey_setup_login, finish_passkey_setup_login};
 
 // Import necessary types for placeholders
 use actix_web::{web, HttpResponse, HttpMessage, Responder};

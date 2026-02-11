@@ -922,7 +922,7 @@ pub struct Claims {
     pub email: String, // User's email
     pub role: String, // User's role
     #[serde(default = "default_scope")] // Default to "full" for backward compatibility with existing tokens
-    pub scope: String, // Token scope: "full" for normal sessions, "mfa_recovery" for limited MFA management
+    pub scope: String, // Token scope: "full" for normal sessions
     pub exp: usize,   // Expiration time
     pub iat: usize,   // Issued at
 }
@@ -946,6 +946,7 @@ pub struct LoginResponse {
     pub success: bool,
     pub mfa_required: Option<bool>,
     pub mfa_setup_required: Option<bool>,
+    pub passkey_mfa_required: Option<bool>,
     pub user_uuid: Option<String>,
     pub csrf_token: Option<String>, // CSRF token for the frontend
     pub user: Option<UserResponse>,
@@ -961,6 +962,14 @@ pub struct MfaLoginRequest {
     pub email: String,
     pub password: String,
     pub mfa_token: String,
+}
+
+/// Request for recovery code login (passkey-MFA users who can't use their passkey)
+#[derive(Debug, Deserialize)]
+pub struct RecoveryLoginRequest {
+    pub email: String,
+    pub password: String,
+    pub recovery_code: String,
 }
 
 /// Request for MFA setup during login (unauthenticated)
@@ -1856,28 +1865,6 @@ pub struct ResetTokenUpdate {
     pub used_at: Option<chrono::NaiveDateTime>,
     pub is_used: Option<bool>,
     pub metadata: Option<serde_json::Value>,
-}
-
-/// Request to initiate MFA reset
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MfaResetRequest {
-    pub email: String,
-    pub password: String,
-}
-
-/// Response for MFA reset initiation
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MfaResetResponse {
-    pub message: String,
-    pub token_id: Option<String>, // Only for admin users
-    pub requires_admin_approval: bool,
-}
-
-/// Request to complete MFA reset
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MfaResetCompleteRequest {
-    pub token: String,
-    pub email_code: Option<String>, // Email verification code
 }
 
 // ===== PASSWORD RESET MODELS =====

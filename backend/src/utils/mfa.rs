@@ -354,13 +354,14 @@ pub fn should_require_mfa(user_role: &UserRole) -> bool {
 }
 
 /// Check if user has MFA enabled and enforce policy
+/// Considers both TOTP and passkeys as valid MFA methods
 pub async fn validate_mfa_policy(user: &User) -> Result<()> {
-    if should_require_mfa(&user.role) && !user.mfa_enabled {
+    if should_require_mfa(&user.role) && !user.mfa_enabled && !user_has_passkeys(user) {
         return Err(anyhow!(
-            "MFA is required for {} users. Please enable MFA on your account.", 
+            "MFA is required for {} users. Please enable MFA on your account.",
             match user.role {
                 UserRole::Admin => "administrator",
-                UserRole::Technician => "technician", 
+                UserRole::Technician => "technician",
                 UserRole::User => "user",
             }
         ));
@@ -368,9 +369,19 @@ pub async fn validate_mfa_policy(user: &User) -> Result<()> {
     Ok(())
 }
 
-/// Check if user has MFA enabled
+/// Check if user has TOTP MFA enabled
 pub fn user_has_mfa_enabled(user: &User) -> bool {
     user.mfa_enabled && user.mfa_secret.is_some()
+}
+
+/// Check if user has any passkeys registered
+pub fn user_has_passkeys(user: &User) -> bool {
+    user.passkey_credentials
+        .as_ref()
+        .and_then(|v| v.get("credentials"))
+        .and_then(|c| c.as_array())
+        .map(|arr| !arr.is_empty())
+        .unwrap_or(false)
 }
 
 /// Log security events for MFA attempts

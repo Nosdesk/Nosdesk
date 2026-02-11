@@ -543,59 +543,6 @@ impl EmailService {
         self.send_html_email(to, &subject, &html_body).await
     }
 
-    /// Send an MFA reset email with branding
-    pub async fn send_mfa_reset_email(
-        &self,
-        to: &str,
-        user_name: &str,
-        reset_token: &str,
-        branding: &EmailBranding,
-    ) -> Result<(), String> {
-        if !self.config.is_configured() {
-            return Err("Email is not configured".to_string());
-        }
-
-        let reset_link = format!("{}/mfa-recovery?token={}", branding.base_url, reset_token);
-        let template = EmailTemplate::new(branding);
-
-        let content = format!(
-            r#"<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                Hello <strong>{}</strong>,
-            </p>
-            <p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                We received a request to recover access to your Multi-Factor Authentication (MFA) protected account. If you didn't make this request, please contact your system administrator immediately.
-            </p>
-            <p style="margin: 0 0 8px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                Click the button below to access your MFA recovery session:
-            </p>"#,
-            escape_html(user_name)
-        );
-
-        // Use red for critical security emails
-        let critical_color = "#dc2626";
-
-        let html_body = template.build(
-            "MFA Account Recovery",
-            critical_color,
-            &content,
-            "Manage MFA Settings",
-            &reset_link,
-            critical_color,
-            NoticeType::Critical,
-            &[
-                "This recovery link will expire in <strong>15 minutes</strong>",
-                "This link can only be used <strong>once</strong>",
-                "You'll have a limited session to manage your MFA settings only",
-                "Never share this link with anyone",
-                "If you didn't request this recovery, your account may be compromised",
-            ],
-            "For security concerns, please contact your system administrator immediately.",
-        );
-
-        let subject = format!("MFA Account Recovery - {}", branding.app_name);
-        self.send_html_email(to, &subject, &html_body).await
-    }
-
     /// Send a user invitation email with branding
     pub async fn send_invitation_email(
         &self,

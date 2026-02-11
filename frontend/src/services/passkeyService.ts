@@ -53,7 +53,19 @@ class PasskeyService {
    * Check if WebAuthn is supported in the current browser
    */
   isSupported(): boolean {
-    return browserSupportsWebAuthn();
+    const supported = browserSupportsWebAuthn();
+
+    // Debug logging to help diagnose support issues
+    if (!supported) {
+      logger.warn('WebAuthn not supported', {
+        hasPublicKeyCredential: typeof window?.PublicKeyCredential !== 'undefined',
+        isSecureContext: window?.isSecureContext,
+        protocol: window?.location?.protocol,
+        hostname: window?.location?.hostname,
+      });
+    }
+
+    return supported;
   }
 
   /**
@@ -283,5 +295,125 @@ class PasskeyService {
   }
 }
 
+// =============================================================================
+// MFA Setup Flow Methods (credential-based, no JWT required)
+// =============================================================================
+
+export interface PasskeySetupCredentials {
+  email: string;
+  password: string;
+}
+
+export interface PasskeySetupResult {
+  success: boolean;
+  csrf_token: string;
+  user: {
+    uuid: string;
+    name: string;
+    email: string;
+    role: string;
+  };
+  passkey: {
+    id: string;
+    name: string;
+  };
+  backup_codes?: string[];
+}
+
+class PasskeySetupService {
+  /**
+   * Start passkey registration during MFA setup flow
+   * Uses email+password instead of JWT authentication
+   */
+  async startRegistration(
+    credentials: PasskeySetupCredentials,
+    passkeyName?: string
+  ): Promise<PublicKeyCredentialCreationOptionsJSON> {
+    try {
+      const response = await apiClient.post<PublicKeyCredentialCreationOptionsJSON>(
+        '/auth/passkey-setup-login/start',
+        {
+          email: credentials.email,
+          password: credentials.password,
+          passkey_name: passkeyName,
+        }
+      );
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to start passkey setup registration', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Complete passkey registration during MFA setup and log user in
+   */
+  async finishRegistration(
+    credentials: PasskeySetupCredentials,
+    credential: RegistrationResponseJSON,
+    passkeyName?: string
+  ): Promise<PasskeySetupResult> {
+    try {
+      const response = await apiClient.post<PasskeySetupResult>(
+        '/auth/passkey-setup-login/finish',
+        {
+          email: credentials.email,
+          password: credentials.password,
+          ...credential,
+          passkey_name: passkeyName,
+        }
+      );
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to finish passkey setup registration', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Full passkey registration flow during MFA setup
+   */
+  async registerPasskey(
+    credentials: PasskeySetupCredentials,
+    name?: string
+  ): Promise<PasskeySetupResult> {
+    try {
+      // Get registration options from server
+      const options = await this.startRegistration(credentials, name);
+
+      logger.debug('Registration options received from server (setup flow)', {
+        options,
+        optionsKeys: Object.keys(options || {}),
+      });
+
+      // Extract publicKey options (same as normal flow)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawOptions = options as any;
+      const publicKeyOptions: PublicKeyCredentialCreationOptionsJSON =
+        rawOptions.publicKey || rawOptions.public_key || options;
+
+      logger.debug('PublicKey options for registration (setup flow)', {
+        publicKeyOptions,
+        hasChallenge: 'challenge' in (publicKeyOptions || {}),
+        hasRp: 'rp' in (publicKeyOptions || {}),
+        hasUser: 'user' in (publicKeyOptions || {}),
+      });
+
+      // Prompt user to create credential
+      const credential = await startRegistration({ optionsJSON: publicKeyOptions });
+
+      // Send credential to server for verification and login
+      const result = await this.finishRegistration(credentials, credential, name);
+
+      logger.info('Passkey registered successfully during MFA setup', { id: result.passkey.id });
+      return result;
+    } catch (error) {
+      logger.error('Passkey registration failed during MFA setup', { error });
+      throw error;
+    }
+  }
+}
+
 export const passkeyService = new PasskeyService();
+export const passkeySetupService = new PasskeySetupService();
 export default passkeyService;

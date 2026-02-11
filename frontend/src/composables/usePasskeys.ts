@@ -22,8 +22,8 @@ export function usePasskeys() {
   const error = ref<string | null>(null);
   const successMessage = ref<string | null>(null);
 
-  // Browser support
-  const isSupported = ref(false);
+  // Browser support - check synchronously on creation to avoid flash of "not supported" message
+  const isSupported = ref(passkeyService.isSupported());
   const isConditionalUISupported = ref(false);
 
   // Computed properties

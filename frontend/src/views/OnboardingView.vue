@@ -351,12 +351,12 @@ onUnmounted(() => {
         >
           <div class="flex-shrink-0 h-10 w-10 sm:h-12 sm:w-12 rounded-lg bg-accent/15 flex items-center justify-center">
             <svg class="w-5 h-5 sm:w-6 sm:h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
             </svg>
           </div>
           <div class="flex-1 min-w-0">
             <h3 class="text-primary font-medium text-sm sm:text-base">Create New Installation</h3>
-            <p class="text-xs sm:text-sm text-secondary truncate sm:whitespace-normal">Set up a fresh Nosdesk instance with a new administrator account</p>
+            <p class="text-xs sm:text-sm text-secondary truncate sm:whitespace-normal">Launch a fresh Nosdesk instance with a new administrator account</p>
           </div>
           <svg class="flex-shrink-0 w-5 h-5 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
@@ -369,7 +369,7 @@ onUnmounted(() => {
         >
           <div class="flex-shrink-0 h-10 w-10 sm:h-12 sm:w-12 rounded-lg bg-accent/15 flex items-center justify-center">
             <svg class="w-5 h-5 sm:w-6 sm:h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" />
             </svg>
           </div>
           <div class="flex-1 min-w-0">
@@ -503,7 +503,7 @@ onUnmounted(() => {
             @dragover="handleDragOver"
             @dragleave="handleDragLeave"
             :class="[
-              'border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer',
+              'border-2 border-dashed rounded-lg p-8 flex flex-col items-center justify-center gap-4 transition-colors cursor-pointer',
               isDragging ? 'border-accent bg-accent/10' : 'border-default hover:border-accent hover:bg-surface-hover'
             ]"
             @click="($refs.fileInput as HTMLInputElement).click()"
@@ -515,11 +515,13 @@ onUnmounted(() => {
               class="hidden"
               @change="handleFileSelect"
             />
-            <svg class="w-12 h-12 mx-auto text-tertiary mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            <svg class="w-12 h-12 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
-            <p class="text-primary font-medium mb-1">Drop your backup file here</p>
-            <p class="text-sm text-secondary">or click to browse for a .zip backup file</p>
+            <div class="text-center">
+              <p class="text-primary font-medium mb-1">Drop your backup file here</p>
+              <p class="text-sm text-secondary">or click to browse for a .zip backup file</p>
+            </div>
           </div>
 
           <div class="flex gap-3">
@@ -682,7 +684,7 @@ onUnmounted(() => {
       <div v-if="mode === 'choose' || (mode === 'setup' && isSetupStep)" class="bg-surface border border-default rounded-lg p-3 sm:p-4 text-sm text-secondary">
         <div class="flex flex-row items-start gap-3">
           <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 0h12a2 2 0 002-2v-9a2 2 0 00-2-2H6a2 2 0 00-2 2v9a2 2 0 002 2zm10-12V6a4 4 0 00-8 0v3h8z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
           </svg>
           <div class="flex-1 min-w-0">
             <h4 class="font-medium text-primary mb-1 text-sm">Security Notice</h4>

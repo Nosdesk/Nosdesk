@@ -35,6 +35,7 @@ export const useAuthStore = defineStore('auth', () => {
   // Add MFA state management
   const mfaRequired = ref(false);
   const mfaSetupRequired = ref(false);
+  const passkeyMfaRequired = ref(false);
   const mfaUserUuid = ref<string>('');
 
   // Set auth provider header if available (don't auto-fetch user data)
@@ -134,15 +135,24 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null;
     mfaRequired.value = false;
     mfaSetupRequired.value = false;
+    passkeyMfaRequired.value = false;
 
     try {
       const response = await apiClient.post('/auth/login', credentials);
 
-      // Handle MFA required
+      // Handle TOTP MFA required
       if (response.data.mfa_required) {
         mfaRequired.value = true;
         mfaUserUuid.value = response.data.user_uuid || '';
         error.value = response.data.message || 'Multi-factor authentication required';
+        return false;
+      }
+
+      // Handle passkey MFA required
+      if (response.data.passkey_mfa_required) {
+        passkeyMfaRequired.value = true;
+        mfaUserUuid.value = response.data.user_uuid || '';
+        error.value = null;
         return false;
       }
 
@@ -306,6 +316,7 @@ export const useAuthStore = defineStore('auth', () => {
     function clearMfaState() {
       mfaRequired.value = false;
       mfaSetupRequired.value = false;
+      passkeyMfaRequired.value = false;
       mfaUserUuid.value = '';
     }
 
@@ -396,6 +407,7 @@ export const useAuthStore = defineStore('auth', () => {
     authProvider,
     mfaRequired,
     mfaSetupRequired,
+    passkeyMfaRequired,
     mfaUserUuid,
     isAuthenticated,
     isAdmin,

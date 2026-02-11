@@ -531,55 +531,6 @@ class AuthService {
   }
 
   /**
-   * Request MFA reset
-   */
-  async requestMFAReset(email: string, password: string): Promise<{ message: string }> {
-    try {
-      const response = await apiClient.post('/auth/mfa-reset/request', {
-        email,
-        password
-      });
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to request MFA reset', { error, email });
-      throw error;
-    }
-  }
-
-  /**
-   * Complete MFA reset (returns limited-scope token for disabling MFA)
-   */
-  async completeMFAReset(token: string): Promise<{ token: string; user_uuid: string }> {
-    try {
-      const response = await apiClient.post('/auth/mfa-reset/complete', { token });
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to complete MFA reset', { error });
-      throw error;
-    }
-  }
-
-  /**
-   * Disable MFA with limited-scope token
-   */
-  async disableMFAWithToken(bearerToken: string): Promise<{ message: string }> {
-    try {
-      const response = await apiClient.post('/auth/mfa/disable',
-        {},
-        {
-          headers: {
-            'Authorization': `Bearer ${bearerToken}`
-          }
-        }
-      );
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to disable MFA with token', { error });
-      throw error;
-    }
-  }
-
-  /**
    * Upload a backup file for onboarding restore
    * Only works during initial setup when no users exist
    */

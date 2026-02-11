@@ -3,7 +3,6 @@ import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
 import LoginView from '../views/LoginView.vue'
 import PasswordResetView from '../views/PasswordResetView.vue'
-import MFARecoveryView from '../views/MFARecoveryView.vue'
 import OnboardingView from '../views/OnboardingView.vue'
 import ErrorView from '../views/ErrorView.vue'
 import TicketsListView from '../views/TicketsListView.vue'
@@ -49,16 +48,6 @@ const router = createRouter({
         layout: 'blank',
         requiresAuth: false,
         title: 'Reset Password'
-      }
-    },
-    {
-      path: '/mfa-recovery',
-      name: 'mfa-recovery',
-      component: MFARecoveryView,
-      meta: {
-        layout: 'blank',
-        requiresAuth: false,
-        title: 'MFA Account Recovery'
       }
     },
     {

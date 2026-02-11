@@ -7,7 +7,6 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     PasswordReset,
-    MfaReset,
     Invitation,
 }
 
@@ -15,7 +14,6 @@ impl TokenType {
     pub fn as_str(&self) -> &str {
         match self {
             TokenType::PasswordReset => "password_reset",
-            TokenType::MfaReset => "mfa_reset",
             TokenType::Invitation => "invitation",
         }
     }
@@ -24,7 +22,6 @@ impl TokenType {
     pub fn expiration_duration(&self) -> Duration {
         match self {
             TokenType::PasswordReset => Duration::hours(1),  // 1 hour for password resets
-            TokenType::MfaReset => Duration::minutes(15),    // 15 minutes for MFA resets
             TokenType::Invitation => Duration::days(7),      // 7 days for user invitations
         }
     }
@@ -174,10 +171,10 @@ mod tests {
             Duration::hours(1)
         );
 
-        // MFA reset tokens expire in 15 minutes
+        // Invitation tokens expire in 7 days
         assert_eq!(
-            TokenType::MfaReset.expiration_duration(),
-            Duration::minutes(15)
+            TokenType::Invitation.expiration_duration(),
+            Duration::days(7)
         );
     }
 }

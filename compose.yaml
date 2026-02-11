@@ -16,7 +16,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-nosdesk} -d ${POSTGRES_DB:-helpdesk}",
+          "pg_isready -U ${POSTGRES_USER:-nosdesk} -d ${POSTGRES_DB:-nosdesk}",
         ]
       interval: 10s
       timeout: 5s

@@ -21,6 +21,7 @@ use crate::utils::cookies::{
 };
 use crate::utils::jwt::helpers as jwt_helpers;
 use crate::utils::rate_limit::{get_redis_url, RateLimiter};
+use crate::utils::mfa;
 
 // =============================================================================
 // Request/Response Types
@@ -970,4 +971,429 @@ fn get_local_password_hash(user_uuid: &Uuid, conn: &mut crate::db::DbConnection)
         .flatten();
 
     password_hash.ok_or_else(|| "No local password found for this user".to_string())
+}
+
+// =============================================================================
+// MFA Setup Flow Handlers (credential-based, no JWT required)
+// =============================================================================
+
+/// Request types for MFA setup flow
+#[derive(Debug, Deserialize)]
+pub struct PasskeySetupStartRequest {
+    pub email: String,
+    pub password: String,
+    pub passkey_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PasskeySetupFinishRequest {
+    pub email: String,
+    pub password: String,
+    pub id: String,
+    #[serde(rename = "rawId")]
+    pub raw_id: String,
+    pub response: serde_json::Value,
+    #[serde(rename = "type")]
+    pub credential_type: String,
+    pub passkey_name: Option<String>,
+    #[serde(rename = "clientExtensionResults")]
+    pub client_extension_results: Option<serde_json::Value>,
+    pub authenticator_attachment: Option<String>,
+}
+
+// Account lockout configuration (same as main login)
+const MAX_LOGIN_ATTEMPTS: u32 = 5;
+const LOCKOUT_DURATION_SECONDS: u64 = 900; // 15 minutes
+
+/// Start passkey registration during MFA setup flow
+/// This endpoint accepts email+password instead of requiring JWT authentication
+pub async fn start_passkey_setup_login(
+    _req: HttpRequest,
+    pool: web::Data<Pool>,
+    body: web::Json<PasskeySetupStartRequest>,
+) -> impl Responder {
+    let redis_url = get_redis_url();
+    let email_lower = body.email.to_lowercase();
+    let lockout_key = RateLimiter::login_attempt_key(&email_lower);
+
+    // Check if account is locked before any validation
+    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
+        Ok(Some(remaining_seconds)) => {
+            warn!(email = %email_lower, remaining_seconds, "Passkey setup attempt on locked account");
+            return HttpResponse::TooManyRequests().json(json!({
+                "error": format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds)
+            }));
+        }
+        Ok(None) => {} // Not locked, continue
+        Err(e) => {
+            warn!("Failed to check account lockout: {:?}", e);
+            // Continue anyway - fail open for availability, but log the issue
+        }
+    }
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": "Database connection error"
+            }));
+        }
+    };
+
+    // Find user by email
+    let user = match repository::user_helpers::get_user_by_email(&email_lower, &mut conn) {
+        Ok(user) => user,
+        Err(_) => {
+            // Record failed attempt even for non-existent users (prevents enumeration)
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+            return HttpResponse::Unauthorized().json(json!({
+                "error": "Invalid email or password"
+            }));
+        }
+    };
+
+    // Verify password
+    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
+        Ok(hash) => hash,
+        Err(_) => {
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+            return HttpResponse::Unauthorized().json(json!({
+                "error": "Invalid email or password"
+            }));
+        }
+    };
+
+    let password_valid = bcrypt::verify(&body.password, &password_hash).unwrap_or(false);
+    if !password_valid {
+        // Record failed attempt
+        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+            Ok(attempts) => {
+                let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
+                if remaining == 0 {
+                    warn!(email = %email_lower, "Account locked after failed passkey setup attempts");
+                }
+            }
+            Err(e) => warn!("Failed to record failed attempt: {:?}", e),
+        }
+        return HttpResponse::Unauthorized().json(json!({
+            "error": "Invalid email or password"
+        }));
+    }
+
+    // Clear failed attempts on successful password verification
+    if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
+        warn!(error = %e, "Failed to clear login attempts after successful passkey setup auth");
+    }
+
+    // Verify that user needs MFA setup (security check)
+    if mfa::user_has_mfa_enabled(&user) {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "MFA is already enabled for this account"
+        }));
+    }
+
+    // Verify that MFA is required for this user
+    if mfa::validate_mfa_policy(&user).await.is_ok() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "MFA is not required for this account"
+        }));
+    }
+
+    // Check passkey limit
+    if !webauthn::can_add_passkey(&user) {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Maximum number of passkeys reached",
+            "max_passkeys": webauthn::MAX_PASSKEYS_PER_USER
+        }));
+    }
+
+    // Get user's primary email
+    let primary_email = match repository::user_helpers::get_primary_email(&user.uuid, &mut conn) {
+        Some(email) => email,
+        None => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": "Could not retrieve user email"
+            }));
+        }
+    };
+
+    // Get existing credentials to exclude
+    let passkey_data = get_user_passkey_data(&user);
+    let exclude_credentials: Vec<CredentialID> = passkey_data
+        .credentials
+        .iter()
+        .map(|c| c.credential.cred_id().clone())
+        .collect();
+
+    // Create WebAuthn registration challenge
+    let webauthn = &*WEBAUTHN;
+
+    let (ccr, reg_state) = match webauthn.start_passkey_registration(
+        user.uuid,
+        &primary_email,
+        &user.name,
+        Some(exclude_credentials),
+    ) {
+        Ok(result) => result,
+        Err(e) => {
+            error!("Failed to start passkey registration: {:?}", e);
+            return HttpResponse::InternalServerError().json(json!({
+                "error": "Failed to generate registration challenge"
+            }));
+        }
+    };
+
+    // Store registration state in Redis
+    if let Err(e) = webauthn::store_registration_state(&user.uuid, &reg_state).await {
+        error!("Failed to store registration state: {:?}", e);
+        return HttpResponse::InternalServerError().json(json!({
+            "error": "Failed to store registration state"
+        }));
+    }
+
+    debug!("Started passkey setup registration for user {}", user.uuid);
+
+    // Return the challenge options
+    let ccr_json = serde_json::to_value(&ccr).unwrap_or(json!({}));
+
+    if let Some(public_key) = ccr_json.get("publicKey") {
+        let mut options = public_key.clone();
+        if let Some(obj) = options.as_object_mut() {
+            let auth_selection = obj
+                .entry("authenticatorSelection")
+                .or_insert_with(|| json!({}));
+
+            if let Some(auth_obj) = auth_selection.as_object_mut() {
+                auth_obj.insert("residentKey".to_string(), json!("required"));
+                auth_obj.insert("requireResidentKey".to_string(), json!(true));
+            }
+        }
+        HttpResponse::Ok().json(options)
+    } else {
+        HttpResponse::Ok().json(ccr_json)
+    }
+}
+
+/// Complete passkey registration during MFA setup flow and log user in
+pub async fn finish_passkey_setup_login(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    body: web::Json<PasskeySetupFinishRequest>,
+) -> impl Responder {
+    let redis_url = get_redis_url();
+    let email_lower = body.email.to_lowercase();
+    let lockout_key = RateLimiter::login_attempt_key(&email_lower);
+
+    // Check if account is locked before any validation
+    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
+        Ok(Some(remaining_seconds)) => {
+            warn!(email = %email_lower, remaining_seconds, "Passkey setup finish attempt on locked account");
+            return HttpResponse::TooManyRequests().json(json!({
+                "error": format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds)
+            }));
+        }
+        Ok(None) => {} // Not locked, continue
+        Err(e) => {
+            warn!("Failed to check account lockout: {:?}", e);
+        }
+    }
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(json!({
+                "error": "Database connection error"
+            }));
+        }
+    };
+
+    // Find user by email and verify password again (security)
+    let user = match repository::user_helpers::get_user_by_email(&email_lower, &mut conn) {
+        Ok(user) => user,
+        Err(_) => {
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+            return HttpResponse::Unauthorized().json(json!({
+                "error": "Invalid email or password"
+            }));
+        }
+    };
+
+    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
+        Ok(hash) => hash,
+        Err(_) => {
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+            return HttpResponse::Unauthorized().json(json!({
+                "error": "Invalid email or password"
+            }));
+        }
+    };
+
+    let password_valid = bcrypt::verify(&body.password, &password_hash).unwrap_or(false);
+    if !password_valid {
+        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+            Ok(attempts) => {
+                let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
+                if remaining == 0 {
+                    warn!(email = %email_lower, "Account locked after failed passkey setup finish attempts");
+                }
+            }
+            Err(e) => warn!("Failed to record failed attempt: {:?}", e),
+        }
+        return HttpResponse::Unauthorized().json(json!({
+            "error": "Invalid email or password"
+        }));
+    }
+
+    // Clear failed attempts on successful password verification
+    if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
+        warn!(error = %e, "Failed to clear login attempts after successful passkey setup finish auth");
+    }
+
+    // Security checks
+    if mfa::user_has_mfa_enabled(&user) {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "MFA is already enabled for this account"
+        }));
+    }
+
+    if mfa::validate_mfa_policy(&user).await.is_ok() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "MFA is not required for this account"
+        }));
+    }
+
+    // Retrieve registration state from Redis
+    let reg_state = match webauthn::get_registration_state(&user.uuid).await {
+        Ok(state) => state,
+        Err(e) => {
+            warn!("Registration state not found for user {}: {:?}", user.uuid, e);
+            return HttpResponse::BadRequest().json(json!({
+                "error": "Registration challenge expired or not found"
+            }));
+        }
+    };
+
+    // Parse the registration response
+    let reg_response: RegisterPublicKeyCredential = match serde_json::from_value(json!({
+        "id": body.id,
+        "rawId": body.raw_id,
+        "response": body.response,
+        "type": body.credential_type,
+        "clientExtensionResults": body.client_extension_results.clone().unwrap_or(json!({})),
+        "authenticatorAttachment": body.authenticator_attachment.clone()
+    })) {
+        Ok(r) => r,
+        Err(e) => {
+            error!("Failed to parse registration response: {:?}", e);
+            return HttpResponse::BadRequest().json(json!({
+                "error": "Invalid registration response"
+            }));
+        }
+    };
+
+    // Complete registration with WebAuthn
+    let webauthn = &*WEBAUTHN;
+    let passkey = match webauthn.finish_passkey_registration(&reg_response, &reg_state) {
+        Ok(pk) => pk,
+        Err(e) => {
+            error!("Failed to complete passkey registration: {:?}", e);
+            return HttpResponse::BadRequest().json(json!({
+                "error": "Failed to verify registration"
+            }));
+        }
+    };
+
+    // Generate passkey name
+    let user_agent = req
+        .headers()
+        .get("User-Agent")
+        .and_then(|v| v.to_str().ok());
+    let passkey_name = body
+        .passkey_name
+        .as_ref()
+        .map(|name| name.trim())
+        .filter(|name| !name.is_empty() && name.len() <= 100)
+        .map(|name| name.to_string())
+        .unwrap_or_else(|| webauthn::generate_passkey_name(user_agent));
+
+    // Create stored credential
+    let credential_id = credential_id_to_string(passkey.cred_id());
+    let stored_credential = StoredPasskeyCredential {
+        id: credential_id.clone(),
+        name: passkey_name.clone(),
+        credential: passkey,
+        transports: vec!["internal".to_string()],
+        created_at: chrono::Utc::now(),
+        last_used_at: None,
+        backup_eligible: false,
+        backup_state: false,
+    };
+
+    // Add to user's passkey data
+    let mut passkey_data = get_user_passkey_data(&user);
+    passkey_data.add_credential(stored_credential);
+
+    // Save to database
+    if let Err(e) = save_user_passkey_data(&mut conn, &user.uuid, &passkey_data) {
+        error!("Failed to save passkey: {:?}", e);
+        return HttpResponse::InternalServerError().json(json!({
+            "error": "Failed to save passkey"
+        }));
+    }
+
+    // Generate backup codes for recovery (passkey users need these too)
+    let (plaintext_codes, hashed_codes) = mfa::generate_backup_codes_async().await;
+    let hashed_json = serde_json::Value::Array(
+        hashed_codes.into_iter().map(serde_json::Value::String).collect()
+    );
+    let mfa_update = crate::models::UserMfaUpdate {
+        mfa_enabled: None,
+        mfa_secret: None,
+        mfa_backup_codes: Some(hashed_json),
+        updated_at: Some(chrono::Utc::now().naive_utc()),
+    };
+    let backup_codes_saved = match repository::update_user_mfa(&user.uuid, mfa_update, &mut conn) {
+        Ok(_) => true,
+        Err(e) => {
+            warn!("Failed to save backup codes for passkey user {}: {:?}", user.uuid, e);
+            false // Don't fail the registration - passkey is already saved
+        }
+    };
+
+    info!("Passkey registered during MFA setup for user {}: {}", user.uuid, passkey_name);
+
+    // Create session and tokens (same as mfa_enable_login)
+    let user_uuid = user.uuid;
+
+    match jwt_helpers::create_login_response(user, &mut conn) {
+        Ok((response, tokens)) => {
+            // Create session record
+            if let Err(e) = super::auth::create_session_record(&user_uuid, &tokens.access_token, &req, &mut conn).await {
+                warn!("Failed to create session record for passkey setup login: {:?}", e);
+            }
+
+            info!("Passkey setup login successful for user {}", user_uuid);
+
+            let mut response_json = json!({
+                "success": true,
+                "csrf_token": response.csrf_token,
+                "user": response.user,
+                "passkey": {
+                    "id": credential_id,
+                    "name": passkey_name
+                }
+            });
+            // Only include backup codes if they were successfully saved
+            if backup_codes_saved {
+                response_json["backup_codes"] = json!(plaintext_codes);
+            }
+
+            HttpResponse::Ok()
+                .cookie(create_access_token_cookie(&tokens.access_token))
+                .cookie(create_refresh_token_cookie(&tokens.refresh_token))
+                .cookie(create_csrf_token_cookie(&tokens.csrf_token))
+                .json(response_json)
+        }
+        Err(error_response) => error_response,
+    }
 }

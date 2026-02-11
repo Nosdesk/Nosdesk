@@ -9,9 +9,9 @@ import { useThemeStore } from "@/stores/theme";
 import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";
 import { usePasskeys } from "@/composables/usePasskeys";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
-import MFARecoveryModal from "@/components/auth/MFARecoveryModal.vue";
 import Checkbox from "@/components/common/Checkbox.vue";
 import authService from "@/services/authService";
+import apiClient from "@/services/apiConfig";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 
 // Get branding and theme stores
@@ -46,13 +46,14 @@ const isLoading = computed(() => loadingAction.value !== null);
 const errorMessage = ref("");
 const successMessage = ref("");
 const showForgotPasswordModal = ref(false);
-const showMFARecoveryModal = ref(false);
 const microsoftAuthEnabled = ref(false);
 const oidcEnabled = ref(false);
 const oidcDisplayName = ref("SSO");
 
 // MFA state
 const mfaToken = ref("");
+const recoveryMode = ref(false);
+const recoveryCode = ref("");
 
 // Check for success message and email prefill from URL query params (e.g., from onboarding)
 onMounted(async () => {
@@ -105,7 +106,7 @@ const handleLogin = async () => {
     });
 
     // Only show error if login failed and it's not due to MFA requirements
-    if (!success && authStore.error && !authStore.mfaSetupRequired && !authStore.mfaRequired) {
+    if (!success && authStore.error && !authStore.mfaSetupRequired && !authStore.mfaRequired && !authStore.passkeyMfaRequired) {
       errorMessage.value = authStore.error;
     }
 
@@ -121,9 +122,16 @@ const handleLogin = async () => {
       return;
     }
 
-    // If MFA is required, authStore.mfaRequired will be true
+    // If TOTP MFA is required, authStore.mfaRequired will be true
     // Clear any error messages since this is expected flow
     if (authStore.mfaRequired) {
+      errorMessage.value = "";
+    }
+
+    // If passkey MFA is required, show the passkey verification screen.
+    // The user must click the "Verify" button to trigger the WebAuthn ceremony
+    // because navigator.credentials.get() requires a user gesture (transient activation).
+    if (authStore.passkeyMfaRequired) {
       errorMessage.value = "";
     }
   } catch (error) {
@@ -166,6 +174,8 @@ const handleMfaLogin = async () => {
 const handleBackToLogin = () => {
   authStore.clearMfaState();
   mfaToken.value = "";
+  recoveryMode.value = false;
+  recoveryCode.value = "";
   errorMessage.value = "";
   successMessage.value = "";
 };
@@ -224,8 +234,7 @@ const handlePasskeyLogin = async () => {
     if (result) {
       // Update auth store with the logged in user
       authStore.user = result.user;
-      authStore.csrfToken = result.csrf_token;
-      authStore.isAuthenticated = true;
+      authStore.setAuthProvider('local');
 
       // Redirect to dashboard or intended page
       const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
@@ -236,6 +245,74 @@ const handlePasskeyLogin = async () => {
   } catch (error) {
     console.error("Passkey login error:", error);
     errorMessage.value = passkeyError.value || "Failed to sign in with passkey";
+  } finally {
+    loadingAction.value = null;
+  }
+};
+
+// Handle passkey MFA verification (after password login, passkey is the second factor)
+const handlePasskeyMfaVerify = async () => {
+  loadingAction.value = 'passkey';
+  errorMessage.value = "";
+
+  try {
+    // Use the email from the login form for targeted passkey lookup
+    const result = await loginWithPasskey(email.value.trim());
+
+    if (result) {
+      // Passkey verified - update auth store and redirect
+      authStore.user = result.user;
+      authStore.setAuthProvider('local');
+      authStore.passkeyMfaRequired = false;
+      authStore.mfaUserUuid = '';
+
+      const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
+      router.push(redirectPath);
+    } else if (passkeyError.value) {
+      errorMessage.value = passkeyError.value;
+    }
+  } catch (error) {
+    console.error("Passkey MFA verification error:", error);
+    errorMessage.value = passkeyError.value || "Failed to verify passkey. Please try again.";
+  } finally {
+    loadingAction.value = null;
+  }
+};
+
+// Handle recovery code login (for passkey MFA users who can't use their passkey)
+const handleRecoveryLogin = async () => {
+  if (!recoveryCode.value.trim()) {
+    errorMessage.value = "Please enter a recovery code";
+    return;
+  }
+
+  loadingAction.value = 'mfa';
+  errorMessage.value = "";
+
+  try {
+    const response = await apiClient.post('/auth/recovery-login', {
+      email: email.value.trim(),
+      password: password.value,
+      recovery_code: recoveryCode.value.trim(),
+    });
+
+    if (response.data.success && response.data.csrf_token) {
+      authStore.user = response.data.user;
+      authStore.setAuthProvider('local');
+      authStore.passkeyMfaRequired = false;
+      authStore.mfaUserUuid = '';
+      recoveryMode.value = false;
+      recoveryCode.value = '';
+
+      const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
+      router.push(redirectPath);
+    } else {
+      errorMessage.value = response.data.message || 'Recovery code verification failed';
+    }
+  } catch (error) {
+    console.error("Recovery login error:", error);
+    const axiosErr = error as { response?: { data?: { message?: string } } };
+    errorMessage.value = axiosErr.response?.data?.message || "Invalid recovery code. Please try again.";
   } finally {
     loadingAction.value = null;
   }
@@ -515,25 +592,122 @@ const handleOidcLogoutClick = async () => {
               <span v-else>Verify & Sign In</span>
             </button>
           </div>
-
-          <!-- MFA Recovery Link -->
-          <div class="text-center">
-            <button
-              type="button"
-              @click="showMFARecoveryModal = true"
-              class="text-sm text-accent hover:text-accent transition-colors"
-            >
-              Lost access to your authenticator?
-            </button>
-          </div>
         </form>
+      </div>
+
+      <!-- Passkey MFA Verification -->
+      <!-- Password verified, just need passkey tap. navigator.credentials.get() -->
+      <!-- requires a user gesture so we show the verify button inline. -->
+      <div v-else-if="authStore.passkeyMfaRequired" class="flex flex-col gap-6">
+        <div
+          v-if="errorMessage"
+          class="bg-status-error/10 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm"
+        >
+          {{ errorMessage }}
+        </div>
+
+        <div class="flex flex-col gap-1 text-center">
+          <p class="text-sm text-secondary">Password verified for <strong class="text-primary">{{ email }}</strong></p>
+        </div>
+
+        <!-- Recovery code mode -->
+        <template v-if="recoveryMode">
+          <form @submit.prevent="handleRecoveryLogin" class="flex flex-col gap-4">
+            <div class="flex flex-col gap-2">
+              <label for="recovery-code" class="block text-sm font-medium text-secondary">
+                Recovery Code
+              </label>
+              <input
+                id="recovery-code"
+                v-model="recoveryCode"
+                type="text"
+                required
+                autocomplete="off"
+                placeholder="Enter recovery code"
+                class="w-full px-4 py-3 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent text-center text-lg tracking-widest font-mono uppercase"
+                maxlength="8"
+              />
+              <p class="text-xs text-tertiary text-center">
+                Enter one of the 8-character recovery codes you saved during setup
+              </p>
+            </div>
+
+            <div class="flex gap-3">
+              <button
+                type="button"
+                @click="recoveryMode = false; errorMessage = ''"
+                class="flex-1 py-3 px-4 border border-default rounded-lg text-sm font-medium text-secondary bg-surface hover:bg-surface-hover transition-colors"
+              >
+                Back
+              </button>
+              <button
+                type="submit"
+                :disabled="isLoading || !recoveryCode.trim()"
+                class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              >
+                <svg
+                  v-if="loadingAction === 'mfa'"
+                  class="animate-spin h-4 w-4 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span v-if="loadingAction === 'mfa'">Verifying...</span>
+                <span v-else>Verify & Sign In</span>
+              </button>
+            </div>
+          </form>
+        </template>
+
+        <!-- Passkey verification mode (default) -->
+        <template v-else>
+          <button
+            type="button"
+            @click="handlePasskeyMfaVerify"
+            :disabled="isLoading"
+            class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg
+              v-if="loadingAction === 'passkey'"
+              class="animate-spin h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <svg v-else class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            </svg>
+            <span v-if="loadingAction === 'passkey'">Verifying...</span>
+            <span v-else>Verify with passkey</span>
+          </button>
+
+          <button
+            type="button"
+            @click="recoveryMode = true; errorMessage = ''"
+            class="text-sm text-tertiary hover:text-primary transition-colors"
+          >
+            Use a recovery code
+          </button>
+        </template>
+
+        <button
+          type="button"
+          @click="handleBackToLogin"
+          class="text-sm text-tertiary hover:text-primary transition-colors"
+        >
+          Back to login
+        </button>
       </div>
 
       <!-- Login Form -->
       <form v-else @submit.prevent="handleLogin" class="flex flex-col gap-6">
         <!-- Error Message within login form -->
         <div
-          v-if="errorMessage && !authStore.mfaSetupRequired && !authStore.mfaRequired"
+          v-if="errorMessage && !authStore.mfaSetupRequired && !authStore.mfaRequired && !authStore.passkeyMfaRequired"
           class="bg-status-error/10 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm"
         >
           {{ errorMessage }}
@@ -796,12 +970,6 @@ const handleOidcLogoutClick = async () => {
       <ForgotPasswordModal
         :is-open="showForgotPasswordModal"
         @close="showForgotPasswordModal = false"
-      />
-
-      <!-- MFA Recovery Modal -->
-      <MFARecoveryModal
-        :is-open="showMFARecoveryModal"
-        @close="showMFARecoveryModal = false"
       />
     </div>
   </div>

@@ -311,9 +311,15 @@ pub async fn login(
         warn!(error = %e, "Failed to clear login attempts after successful auth");
     }
 
-    // Check if user has MFA enabled - if so, require MFA verification
+    // Check if user has TOTP MFA enabled - if so, require TOTP verification
     if mfa::user_has_mfa_enabled(&user) {
         let response = jwt_helpers::create_mfa_required_response(user.uuid);
+        return HttpResponse::Ok().json(response);
+    }
+
+    // Check if user has passkeys registered - require passkey verification
+    if mfa::user_has_passkeys(&user) {
+        let response = jwt_helpers::create_passkey_mfa_required_response(user.uuid);
         return HttpResponse::Ok().json(response);
     }
 
@@ -456,6 +462,156 @@ pub async fn mfa_login(
             }
 
             // Set httpOnly cookies for tokens
+            HttpResponse::Ok()
+                .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
+                .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
+                .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
+                .json(response)
+        },
+        Err(error_response) => error_response,
+    }
+}
+
+/// Recovery code login - for users with passkey MFA who can't use their passkey
+/// Accepts email + password + recovery_code, verifies backup code directly
+pub async fn recovery_login(
+    db_pool: web::Data<crate::db::Pool>,
+    login_data: web::Json<crate::models::RecoveryLoginRequest>,
+    request: actix_web::HttpRequest,
+) -> impl Responder {
+    let redis_url = get_redis_url();
+    let lockout_key = RateLimiter::login_attempt_key(&login_data.email);
+
+    // Check if account is locked before any validation
+    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
+        Ok(Some(remaining_seconds)) => {
+            warn!(email = %login_data.email, remaining_seconds, "Recovery login attempt on locked account");
+            return HttpResponse::TooManyRequests().json(json!({
+                "status": "error",
+                "message": format!("Account temporarily locked. Try again in {} minutes.", (remaining_seconds / 60) + 1),
+                "retry_after": remaining_seconds
+            }));
+        }
+        Ok(None) => {} // Not locked, continue
+        Err(e) => {
+            error!(error = %e, "Redis error checking account lockout for recovery login");
+            let is_production = std::env::var("ENVIRONMENT")
+                .map(|v| v.to_lowercase() == "production")
+                .unwrap_or(false);
+            if is_production {
+                return HttpResponse::ServiceUnavailable().json(json!({
+                    "status": "error",
+                    "message": "Authentication service temporarily unavailable. Please try again."
+                }));
+            }
+        }
+    }
+
+    let mut conn = match db_pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Could not get database connection"
+        })),
+    };
+
+    // Find user by email
+    let user = match repository::get_user_by_email(&login_data.email, &mut conn) {
+        Ok(user) => user,
+        Err(_) => {
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+            return HttpResponse::Unauthorized().json(json!({
+                "status": "error",
+                "message": "Invalid email or password"
+            }));
+        }
+    };
+
+    // Verify password
+    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
+        Ok(hash) => hash,
+        Err(_) => {
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+            return HttpResponse::Unauthorized().json(json!({
+                "status": "error",
+                "message": "Invalid email or password"
+            }));
+        }
+    };
+
+    let password_matches = match verify(&login_data.password, &password_hash) {
+        Ok(matches) => matches,
+        Err(_) => false,
+    };
+
+    if !password_matches {
+        let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+        return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Invalid email or password"
+        }));
+    }
+
+    // Clear failed attempts on successful password verification
+    if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
+        warn!(error = %e, "Failed to clear login attempts after successful recovery auth");
+    }
+
+    // Verify the user actually has passkeys or MFA (this endpoint is for recovery)
+    if !mfa::user_has_passkeys(&user) && !mfa::user_has_mfa_enabled(&user) {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "No MFA configured for this account"
+        }));
+    }
+
+    // Check rate limiting for MFA/recovery attempts
+    if !mfa::check_mfa_rate_limit(&user.uuid).await {
+        return HttpResponse::TooManyRequests().json(json!({
+            "status": "error",
+            "message": "Too many recovery attempts. Please try again later."
+        }));
+    }
+
+    // Verify recovery code directly (bypasses TOTP check)
+    let result = match mfa::verify_backup_code(&user.uuid, &login_data.recovery_code.trim(), &mut conn).await {
+        Ok(result) => result,
+        Err(_) => {
+            mfa::log_mfa_attempt(&user.uuid, false, "recovery_login", &request).await;
+            return HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": "Invalid recovery code"
+            }));
+        }
+    };
+
+    if !result.is_valid {
+        mfa::log_mfa_attempt(&user.uuid, false, "recovery_login", &request).await;
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid recovery code"
+        }));
+    }
+
+    // Log successful recovery
+    mfa::log_mfa_attempt(&user.uuid, true, "recovery_login", &request).await;
+
+    let user_uuid = user.uuid;
+
+    // Create login response with backup code info
+    match jwt_helpers::create_mfa_login_response(
+        user,
+        result.backup_code_used.is_some(),
+        result.requires_backup_code_regeneration,
+        &mut conn,
+    ) {
+        Ok((response, tokens)) => {
+            if let Err(e) = create_session_record(&user_uuid, &tokens.access_token, &request, &mut conn).await {
+                tracing::warn!("Failed to create session record for recovery login: {}", e);
+            }
+
+            info!(user_uuid = %user_uuid, "Recovery code login successful");
+
             HttpResponse::Ok()
                 .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
                 .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
@@ -1399,7 +1555,7 @@ pub async fn mfa_enable(
     }
 }
 
-/// MFA Disable - Disable MFA for the user (accepts full or mfa_recovery scope)
+/// MFA Disable - Disable MFA for the user (requires full scope)
 pub async fn mfa_disable(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
@@ -1421,11 +1577,11 @@ pub async fn mfa_disable(
         })),
     };
 
-    // Verify scope - must be either "full" or "mfa_recovery"
-    if claims.scope != "full" && claims.scope != "mfa_recovery" {
+    // Verify scope - must be "full" (MFA disable requires being fully authenticated)
+    if claims.scope != "full" {
         return HttpResponse::Forbidden().json(json!({
             "status": "error",
-            "message": "This action requires a full session or MFA recovery session"
+            "message": "This action requires a full session"
         }));
     }
 
@@ -1635,6 +1791,25 @@ pub async fn mfa_setup_login(
     db_pool: web::Data<crate::db::Pool>,
     request: web::Json<crate::models::MfaSetupLoginRequest>,
 ) -> impl Responder {
+    let redis_url = get_redis_url();
+    let email_lower = request.email.to_lowercase();
+    let lockout_key = RateLimiter::login_attempt_key(&email_lower);
+
+    // Check if account is locked before any validation
+    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
+        Ok(Some(remaining_seconds)) => {
+            warn!(email = %email_lower, remaining_seconds, "MFA setup attempt on locked account");
+            return HttpResponse::TooManyRequests().json(json!({
+                "status": "error",
+                "message": format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds)
+            }));
+        }
+        Ok(None) => {} // Not locked, continue
+        Err(e) => {
+            warn!("Failed to check account lockout: {:?}", e);
+        }
+    }
+
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
@@ -1644,9 +1819,11 @@ pub async fn mfa_setup_login(
     };
 
     // Find user by email and verify password (same as login flow)
-    let user = match repository::get_user_by_email(&request.email, &mut conn) {
+    let user = match repository::get_user_by_email(&email_lower, &mut conn) {
         Ok(user) => user,
         Err(_) => {
+            // Record failed attempt even for non-existent users (prevents enumeration)
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
                 "message": "Invalid email or password"
@@ -1658,6 +1835,7 @@ pub async fn mfa_setup_login(
     let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
         Ok(hash) => hash,
         Err(_) => {
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
                 "message": "Invalid email or password"
@@ -1671,10 +1849,25 @@ pub async fn mfa_setup_login(
     };
 
     if !password_matches {
+        // Record failed attempt
+        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+            Ok(attempts) => {
+                let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
+                if remaining == 0 {
+                    warn!(email = %email_lower, "Account locked after failed MFA setup attempts");
+                }
+            }
+            Err(e) => warn!("Failed to record failed attempt: {:?}", e),
+        }
         return HttpResponse::Unauthorized().json(json!({
             "status": "error",
             "message": "Invalid email or password"
         }));
+    }
+
+    // Clear failed attempts on successful password verification
+    if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
+        warn!(error = %e, "Failed to clear login attempts after successful MFA setup auth");
     }
 
     // Verify that user actually needs MFA setup (security check)
@@ -1739,6 +1932,25 @@ pub async fn mfa_enable_login(
     request: web::Json<crate::models::MfaEnableLoginRequest>,
     http_request: HttpRequest,
 ) -> impl Responder {
+    let redis_url = get_redis_url();
+    let email_lower = request.email.to_lowercase();
+    let lockout_key = RateLimiter::login_attempt_key(&email_lower);
+
+    // Check if account is locked before any validation
+    match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
+        Ok(Some(remaining_seconds)) => {
+            warn!(email = %email_lower, remaining_seconds, "MFA enable attempt on locked account");
+            return HttpResponse::TooManyRequests().json(json!({
+                "status": "error",
+                "message": format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds)
+            }));
+        }
+        Ok(None) => {} // Not locked, continue
+        Err(e) => {
+            warn!("Failed to check account lockout: {:?}", e);
+        }
+    }
+
     let mut conn = match db_pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json(json!({
@@ -1748,9 +1960,10 @@ pub async fn mfa_enable_login(
     };
 
     // Find user by email and verify password again (security)
-    let user = match repository::get_user_by_email(&request.email, &mut conn) {
+    let user = match repository::get_user_by_email(&email_lower, &mut conn) {
         Ok(user) => user,
         Err(_) => {
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
                 "message": "Invalid email or password"
@@ -1762,6 +1975,7 @@ pub async fn mfa_enable_login(
     let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
         Ok(hash) => hash,
         Err(_) => {
+            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
             return HttpResponse::Unauthorized().json(json!({
                 "status": "error",
                 "message": "Invalid email or password"
@@ -1775,10 +1989,24 @@ pub async fn mfa_enable_login(
     };
 
     if !password_matches {
+        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+            Ok(attempts) => {
+                let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
+                if remaining == 0 {
+                    warn!(email = %email_lower, "Account locked after failed MFA enable attempts");
+                }
+            }
+            Err(e) => warn!("Failed to record failed attempt: {:?}", e),
+        }
         return HttpResponse::Unauthorized().json(json!({
             "status": "error",
             "message": "Invalid email or password"
         }));
+    }
+
+    // Clear failed attempts on successful password verification
+    if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
+        warn!(error = %e, "Failed to clear login attempts after successful MFA enable auth");
     }
 
     // Security checks - same as setup
@@ -1884,44 +2112,6 @@ pub async fn mfa_enable_login(
             }))
         }
     }
-}
-
-/// Enhanced MFA reset with multiple verification steps (OWASP recommendations)
-/// This function demonstrates a secure MFA reset procedure
-#[allow(dead_code)]
-async fn initiate_secure_mfa_reset(
-    user_uuid: &uuid::Uuid,
-    password: &str,
-    conn: &mut DbConnection
-) -> Result<String, String> {
-    // Step 1: Verify current password
-    let _user = repository::get_user_by_uuid(user_uuid, conn)
-        .map_err(|_| "User not found")?;
-
-    let password_hash_str = get_local_password_hash(user_uuid, conn)?;
-
-    if !bcrypt::verify(password, &password_hash_str).unwrap_or(false) {
-        return Err("Invalid password".to_string());
-    }
-    
-    // Step 2: Generate secure reset token
-    use rand::Rng;
-    let reset_token: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect();
-    
-    // Step 3: In production, you would:
-    // - Store reset token in database with expiry (15 minutes)
-    // - Send email with reset link containing token
-    // - Require user to click email link AND re-enter password
-    // - Log the reset attempt for security monitoring
-    // - Consider requiring admin approval for high-privilege users
-    
-    tracing::warn!("MFA reset initiated for user: {} (secure procedures should be implemented)", user_uuid);
-
-    Ok(reset_token)
 }
 
 // === SESSION MANAGEMENT HANDLERS ===
