@@ -5,22 +5,11 @@ import { Node as ProseMirrorNode } from 'prosemirror-model'
 import { InputRule } from 'prosemirror-inputrules'
 import { getTicketById } from '@/services/ticketService'
 import {
-  isColorBlindMode,
-  getStatusIndicatorSvg,
-  getPriorityIndicatorSvg
-} from '@/utils/indicatorSvg'
-import {
   type TicketCardData,
-  getStatusClass,
-  getPriorityClass,
-  escapeHtml,
   renderTicketCardHtml
 } from './ticketCardRenderer'
 
 export const ticketLinkPluginKey = new PluginKey('ticketLink')
-
-type TicketStatus = 'open' | 'in-progress' | 'closed'
-type TicketPriority = 'low' | 'medium' | 'high'
 
 // Cache for ticket data to avoid repeated API calls
 const ticketCache = new Map<number, TicketCardData>()
@@ -118,46 +107,8 @@ class TicketLinkView implements NodeView {
   }
 
   private render(data: TicketCardData) {
-    const colorBlindMode = isColorBlindMode()
-    const statusClass = getStatusClass(data.status)
-    const priorityClass = getPriorityClass(data.priority)
-
-    // Get colorblind-friendly indicators
-    const statusIndicator = colorBlindMode && data.status
-      ? getStatusIndicatorSvg(data.status.toLowerCase() as TicketStatus)
-      : ''
-    const priorityIndicator = colorBlindMode && data.priority
-      ? getPriorityIndicatorSvg(data.priority.toLowerCase() as TicketPriority)
-      : ''
-
     this.dom.className = `ticket-link-card ${data.loading ? 'ticket-link-loading' : ''} ${data.error ? 'ticket-link-error' : ''}`
-
-    if (data.loading) {
-      this.dom.innerHTML = `
-        <div class="ticket-link-header">
-          <span class="ticket-link-id">#${data.id}</span>
-          <span class="ticket-link-loader"></span>
-        </div>
-        <div class="ticket-link-title">Loading...</div>
-      `
-      return
-    }
-
-    const statusText = data.status ? data.status.replace('-', ' ') : ''
-    const priorityText = data.priority ? data.priority.charAt(0).toUpperCase() + data.priority.slice(1) : ''
-
-    this.dom.innerHTML = `
-      <div class="ticket-link-header">
-        <span class="ticket-link-id">#${data.id}</span>
-        <span class="ticket-link-title">${escapeHtml(data.title)}</span>
-      </div>
-      <div class="ticket-link-meta">
-        ${data.requester ? `<span class="ticket-link-person"><span class="ticket-link-label">From:</span> ${escapeHtml(data.requester)}</span>` : ''}
-        ${data.assignee ? `<span class="ticket-link-person"><span class="ticket-link-label">To:</span> ${escapeHtml(data.assignee)}</span>` : ''}
-        ${data.status ? `<span class="ticket-link-status ${statusClass}">${statusIndicator}${statusText}</span>` : ''}
-        ${data.priority ? `<span class="ticket-link-priority ${priorityClass}">${priorityIndicator}${priorityText}</span>` : ''}
-      </div>
-    `
+    this.dom.innerHTML = renderTicketCardHtml(data)
   }
 
   update(node: ProseMirrorNode): boolean {
@@ -341,35 +292,8 @@ export function enhanceTicketLinks(container: HTMLElement): void {
     // Fetch and render full ticket data
     const data = await fetchTicketData(ticketId)
 
-    // Check for colorblind mode indicators
-    const colorBlindMode = isColorBlindMode()
-    const statusIndicator = colorBlindMode && data.status
-      ? getStatusIndicatorSvg(data.status.toLowerCase() as TicketStatus)
-      : ''
-    const priorityIndicator = colorBlindMode && data.priority
-      ? getPriorityIndicatorSvg(data.priority.toLowerCase() as TicketPriority)
-      : ''
-
-    const statusClass = getStatusClass(data.status)
-    const priorityClass = getPriorityClass(data.priority)
-    const statusText = data.status ? data.status.replace('-', ' ') : ''
-    const priorityText = data.priority
-      ? data.priority.charAt(0).toUpperCase() + data.priority.slice(1)
-      : ''
-
     element.className = `ticket-link-card ${data.loading ? 'ticket-link-loading' : ''} ${data.error ? 'ticket-link-error' : ''}`
-    element.innerHTML = `
-      <div class="ticket-link-header">
-        <span class="ticket-link-id">#${data.id}</span>
-        <span class="ticket-link-title">${escapeHtml(data.title)}</span>
-      </div>
-      <div class="ticket-link-meta">
-        ${data.requester ? `<span class="ticket-link-person"><span class="ticket-link-label">From:</span> ${escapeHtml(data.requester)}</span>` : ''}
-        ${data.assignee ? `<span class="ticket-link-person"><span class="ticket-link-label">To:</span> ${escapeHtml(data.assignee)}</span>` : ''}
-        ${data.status ? `<span class="ticket-link-status ${statusClass}">${statusIndicator}${statusText}</span>` : ''}
-        ${data.priority ? `<span class="ticket-link-priority ${priorityClass}">${priorityIndicator}${priorityText}</span>` : ''}
-      </div>
-    `
+    element.innerHTML = renderTicketCardHtml(data)
 
     // Add click handler for navigation
     element.style.cursor = 'pointer'

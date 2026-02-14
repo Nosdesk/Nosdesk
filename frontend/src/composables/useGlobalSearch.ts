@@ -28,6 +28,7 @@ const error = ref<string | null>(null);
 const selectedIndex = ref(-1);
 const searchTookMs = ref(0);
 const totalResults = ref(0);
+const activeTypes = ref<string | undefined>(undefined);
 
 let keyboardListenerRegistered = false;
 
@@ -70,6 +71,7 @@ export function useGlobalSearch() {
       const response: SearchResponse = await searchService.search({
         q: searchQuery,
         limit: 50,
+        types: activeTypes.value,
       });
 
       results.value = response.results;
@@ -97,16 +99,29 @@ export function useGlobalSearch() {
     }
   });
 
-  const openSearch = () => {
+  // Re-search when activeTypes changes (e.g., clearing the filter badge)
+  watch(activeTypes, () => {
+    if (query.value.trim()) {
+      performSearch(query.value);
+    }
+  });
+
+  const openSearch = (types?: string) => {
     isOpen.value = true;
     query.value = '';
+    activeTypes.value = types;
     resetResults();
   };
 
   const closeSearch = () => {
     isOpen.value = false;
     query.value = '';
+    activeTypes.value = undefined;
     resetResults();
+  };
+
+  const clearTypes = () => {
+    activeTypes.value = undefined;
   };
 
   const navigateToResult = (result: SearchResult) => {
@@ -185,8 +200,10 @@ export function useGlobalSearch() {
     selectedIndex,
     searchTookMs,
     totalResults,
+    activeTypes: computed(() => activeTypes.value),
     openSearch,
     closeSearch,
+    clearTypes,
     navigateToResult,
     selectNext,
     selectPrevious,

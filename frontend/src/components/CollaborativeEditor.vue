@@ -28,6 +28,9 @@ import {
     type LinkTooltipState,
 } from "./editor/linkTooltipPlugin";
 import { createTicketLinkPlugin, setTicketNavigationHandler } from "./editor/ticketLinkPlugin";
+import { createEmbeddedDocumentPlugin, setDocumentNavigationHandler } from "./editor/embeddedDocumentPlugin";
+import DocumentPicker from "./editor/DocumentPicker.vue";
+import apiClient from "@/services/apiConfig";
 import {
     ySyncPlugin,
     ySyncPluginKey,
@@ -111,6 +114,66 @@ const router = useRouter();
 setTicketNavigationHandler((ticketId: number) => {
     router.push(`/tickets/${ticketId}`);
 });
+
+setDocumentNavigationHandler((uuid: string) => {
+    // Navigate to doc page by searching for it via the API
+    // For now, use the uuid directly - the router will handle lookup
+    router.push(`/documentation/${uuid}`);
+});
+
+// Document picker state
+const showDocumentPicker = ref(false);
+
+const insertEmbeddedDocument = (doc: { uuid: string; title: string }) => {
+    showDocumentPicker.value = false;
+    if (!editorView) return;
+
+    const view = editorView;
+    const { state } = view;
+    const embeddedDocType = state.schema.nodes.embedded_document;
+    if (!embeddedDocType) return;
+
+    const node = embeddedDocType.create({
+        documentUuid: doc.uuid,
+        documentTitle: doc.title,
+    });
+
+    const tr = state.tr.replaceSelectionWith(node);
+    view.dispatch(tr);
+    view.focus();
+
+    // Sync embeddings after inserting
+    syncEmbeddings();
+};
+
+// Extract embedded document UUIDs from the current editor state
+const getEmbeddedUuids = (): string[] => {
+    if (!editorView) return [];
+    const uuids: string[] = [];
+    editorView.state.doc.descendants((node) => {
+        if (node.type.name === 'embedded_document' && node.attrs.documentUuid) {
+            uuids.push(node.attrs.documentUuid);
+        }
+    });
+    return [...new Set(uuids)];
+};
+
+// Sync embeddings to the backend
+const syncEmbeddings = async () => {
+    // Only sync for documentation pages (docId starts with "doc-")
+    if (!props.docId.startsWith('doc-')) return;
+    const pageId = parseInt(props.docId.replace('doc-', ''), 10);
+    if (isNaN(pageId)) return;
+
+    const embeddedUuids = getEmbeddedUuids();
+    try {
+        await apiClient.put(`/documentation/pages/${pageId}/embeddings`, {
+            embedded_uuids: embeddedUuids,
+        });
+    } catch {
+        // Silently fail - embeddings sync is best-effort
+    }
+};
 
 
 // Refs for template
@@ -692,6 +755,7 @@ const initEditor = async () => {
                         },
                     }),
                     createTicketLinkPlugin(),
+                    createEmbeddedDocumentPlugin(),
                     keymap({
                         "Mod-z": undo,
                         "Mod-y": redo,
@@ -1805,6 +1869,9 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+    // Sync embeddings before unmounting (fire-and-forget)
+    syncEmbeddings();
+
     cleanup();
     document.removeEventListener("mousedown", handleClickOutside);
     document.removeEventListener("keydown", handleKeydown);
@@ -2270,6 +2337,16 @@ defineExpose({
                         >
                             Link
                         </button>
+                        <button
+                            @click="
+                                showDocumentPicker = true;
+                                showInsertMenu = false;
+                            "
+                            class="dropdown-item"
+                            role="menuitem"
+                        >
+                            Embed Document
+                        </button>
                     </div>
                 </Teleport>
             </div>
@@ -2485,6 +2562,15 @@ defineExpose({
                 @restored="handleRevisionRestored"
             />
         </transition>
+
+        <!-- Document Picker for embedding -->
+        <Teleport to="body">
+            <DocumentPicker
+                v-if="showDocumentPicker"
+                @select="insertEmbeddedDocument"
+                @close="showDocumentPicker = false"
+            />
+        </Teleport>
     </div>
 </template>
 
@@ -3190,49 +3276,42 @@ defineExpose({
 }
 
 /* Ticket Link Card Styles - Full width card layout */
+/* Compact inline ticket card */
 .ProseMirror .ticket-link-card {
-    display: flex;
-    flex-direction: column;
+    display: inline-flex;
+    align-items: center;
     gap: 6px;
-    padding: 10px 12px;
-    margin: 8px 0;
+    padding: 3px 10px;
+    margin: 2px 0;
     background: var(--color-surface-alt);
     border: 1px solid var(--color-border-subtle);
-    border-radius: 6px;
-    font-size: 13px;
-    line-height: 1.4;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.3;
     cursor: pointer;
-    transition: all 0.15s ease;
-    width: 100%;
+    transition: border-color 0.15s ease, background 0.15s ease;
     max-width: 100%;
+    vertical-align: middle;
 }
 
 .ProseMirror .ticket-link-card:hover {
     border-color: var(--color-accent);
     background: var(--color-surface-hover);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .ProseMirror .ticket-link-loading {
-    opacity: 0.7;
+    opacity: 0.6;
 }
 
 .ProseMirror .ticket-link-error {
     border-color: var(--color-status-error);
 }
 
-/* Header with ticket ID and title */
-.ProseMirror .ticket-link-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
 .ProseMirror .ticket-link-id {
     font-weight: 600;
-    color: var(--color-text-secondary, #888);
+    color: var(--color-text-tertiary, #888);
     font-family: var(--font-mono, monospace);
-    font-size: 12px;
+    font-size: 11px;
     flex-shrink: 0;
 }
 
@@ -3242,36 +3321,30 @@ defineExpose({
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
+    min-width: 0;
 }
 
-/* Meta row with people and badges inline */
-.ProseMirror .ticket-link-meta {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    font-size: 11px;
-}
-
-.ProseMirror .ticket-link-person {
-    color: var(--color-text-secondary, #aaa);
-}
-
-.ProseMirror .ticket-link-label {
-    color: var(--color-text-tertiary, #666);
-}
-
-/* Status badge */
-.ProseMirror .ticket-link-status {
+/* Status & priority badges */
+.ProseMirror .ticket-link-status,
+.ProseMirror .ticket-link-priority {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 4px;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
     font-weight: 500;
     text-transform: capitalize;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.ProseMirror .ticket-link-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: currentColor;
 }
 
 .ProseMirror .ticket-link-status-open {
@@ -3289,18 +3362,6 @@ defineExpose({
     color: var(--color-status-closed, #22c55e);
 }
 
-/* Priority badge */
-.ProseMirror .ticket-link-priority {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-weight: 500;
-    text-transform: capitalize;
-}
-
 .ProseMirror .ticket-link-priority-high {
     background: var(--color-priority-high-muted, rgba(239, 68, 68, 0.15));
     color: var(--color-priority-high, #ef4444);
@@ -3316,45 +3377,11 @@ defineExpose({
     color: var(--color-priority-low, #22c55e);
 }
 
-/* Colorblind mode indicator icons */
-.ProseMirror .ticket-link-status .indicator-icon,
-.ProseMirror .ticket-link-priority .indicator-icon {
-    width: 10px;
-    height: 10px;
-    flex-shrink: 0;
-}
-
-/* Status indicator colors for colorblind mode */
-.ProseMirror .text-status-open {
-    color: var(--color-status-open, #3b82f6);
-}
-
-.ProseMirror .text-status-in-progress {
-    color: var(--color-status-in-progress, #f59e0b);
-}
-
-.ProseMirror .text-status-closed {
-    color: var(--color-status-closed, #22c55e);
-}
-
-/* Priority indicator colors for colorblind mode */
-.ProseMirror .text-priority-low {
-    color: var(--color-priority-low, #22c55e);
-}
-
-.ProseMirror .text-priority-medium {
-    color: var(--color-priority-medium, #f59e0b);
-}
-
-.ProseMirror .text-priority-high {
-    color: var(--color-priority-high, #ef4444);
-}
-
 /* Loading spinner */
 .ProseMirror .ticket-link-loader {
-    width: 12px;
-    height: 12px;
-    border: 2px solid var(--color-border-default, #333);
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--color-border-default, #333);
     border-top-color: var(--color-accent);
     border-radius: 50%;
     animation: ticket-link-spin 0.8s linear infinite;
@@ -3362,6 +3389,98 @@ defineExpose({
 
 @keyframes ticket-link-spin {
     to { transform: rotate(360deg); }
+}
+
+/* Embedded Document */
+.ProseMirror .embedded-document-block {
+    margin: 0.5em 0;
+    border-left: 3px solid var(--color-accent, #3b82f6);
+}
+
+.ProseMirror .embedded-document-block:hover {
+    border-left-color: var(--color-accent-hover, #2563eb);
+}
+
+.embedded-doc-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    font-size: 10px;
+    color: var(--color-text-tertiary, #888);
+    cursor: pointer;
+    user-select: none;
+}
+
+.embedded-doc-header:hover .embedded-doc-title {
+    color: var(--color-accent);
+}
+
+.embedded-doc-header:hover .embedded-doc-open {
+    opacity: 1;
+}
+
+.embedded-doc-title {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.embedded-doc-open {
+    display: flex;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    cursor: pointer;
+}
+
+.embedded-doc-open:hover {
+    color: var(--color-accent);
+}
+
+.embedded-doc-loader {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--color-border-default, #333);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: ticket-link-spin 0.8s linear infinite;
+}
+
+.embedded-doc-content {
+    padding: 0 8px;
+}
+
+.embedded-doc-content > :first-child {
+    margin-top: 0;
+}
+
+.embedded-doc-content > :last-child {
+    margin-bottom: 0;
+}
+
+/* Skeleton loading */
+.embedded-doc-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 2px 0;
+}
+
+.skeleton-line {
+    height: 10px;
+    background: var(--color-surface-hover);
+    border-radius: 3px;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
 }
 
 .ProseMirror strong {
@@ -3603,12 +3722,10 @@ defineExpose({
   .ProseMirror .ticket-link-card {
     border: 1px solid #ccc !important;
     background: #fafafa !important;
-    page-break-inside: avoid !important;
   }
 
   .ProseMirror .ticket-link-id,
-  .ProseMirror .ticket-link-title,
-  .ProseMirror .ticket-link-meta {
+  .ProseMirror .ticket-link-title {
     color: #000 !important;
   }
 
@@ -3616,6 +3733,10 @@ defineExpose({
   .ProseMirror .ticket-link-priority {
     background: transparent !important;
     border: 1px solid currentColor !important;
+  }
+
+  .ProseMirror .ticket-link-dot {
+    display: none !important;
   }
 
   /* Hide loading states and drop previews */

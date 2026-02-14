@@ -110,7 +110,7 @@ const handleConvertToDocumentation = async () => {
 
     if (response.data && response.data.id) {
       // Navigate to the documentation page (existing or newly created)
-      router.push(`/documentation/${response.data.id}`);
+      router.push(`/documentation/${response.data.slug || response.data.id}`);
     }
   } catch (error) {
     console.error('Failed to convert to documentation:', error);

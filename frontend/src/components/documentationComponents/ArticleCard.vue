@@ -5,6 +5,7 @@ import { formatDate } from '@/utils/dateUtils'
 
 interface Props {
   id: string;
+  slug?: string;
   title: string;
   description: string;
   author: string;
@@ -26,7 +27,7 @@ const props = withDefaults(defineProps<Props>(), {
   <div class="bg-surface-alt rounded-lg hover:bg-surface-hover transition-colors">
     <div class="flex items-start justify-between">
       <RouterLink
-        :to="`/documentation/${id}`"
+        :to="`/documentation/${slug || id}`"
         class="block flex-1 p-4"
       >
         <div>
@@ -51,7 +52,7 @@ const props = withDefaults(defineProps<Props>(), {
 
         <RouterLink
           v-if="showEditButton"
-          :to="`/documentation/${id}`"
+          :to="`/documentation/${slug || id}`"
           class="ml-2 p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
           title="Edit Article"
         >

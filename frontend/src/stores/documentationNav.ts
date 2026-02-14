@@ -30,8 +30,8 @@ export const useDocumentationNavStore = defineStore('documentationNav', () => {
   // State for page hierarchy
   const pageHierarchy = ref<Record<string, string[]>>({})
 
-  // Add a flag for refreshing the navigation
-  const needsRefresh = ref(false)
+  // Counter for refreshing the navigation (incremented on each refresh request)
+  const needsRefresh = ref(0)
 
   // Centralized pages state - the single source of truth for nav pages
   const pages = ref<NavPage[]>([])
@@ -60,19 +60,14 @@ export const useDocumentationNavStore = defineStore('documentationNav', () => {
     localStorage.setItem('docNavSidebarOpen', JSON.stringify(newState))
   })
   
-  // Set refresh flag to true
+  // Increment-based refresh: each call bumps the counter so watchers always detect a change
   const refreshPages = () => {
-    needsRefresh.value = true
-    
-    // Reset it after a short delay to avoid multiple refreshes
-    setTimeout(() => {
-      needsRefresh.value = false
-    }, 100)
+    needsRefresh.value++
   }
   
-  // Check if refresh is needed
+  // Check if refresh is needed (non-zero means a refresh was requested)
   const isRefreshNeeded = () => {
-    return needsRefresh.value
+    return needsRefresh.value > 0
   }
   
   // Toggle page expansion

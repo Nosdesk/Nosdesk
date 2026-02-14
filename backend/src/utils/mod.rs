@@ -17,6 +17,8 @@ pub mod redis_yjs_cache;
 pub mod rbac;
 pub mod pdf;
 pub mod webauthn;
+pub mod markdown_export;
+pub mod slug;
 
 use uuid::Uuid;
 use crate::models::UserRole;

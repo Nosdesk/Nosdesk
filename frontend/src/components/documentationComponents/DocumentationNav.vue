@@ -1,33 +1,19 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { ref, watch, onMounted, onUnmounted, reactive } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import documentationService from '@/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import type { Page } from '@/services/documentationService'
 import DocumentationNavItem from './DocumentationNavItem.vue'
 import { storeToRefs } from 'pinia'
 import { useSSE } from '@/services/sseService'
+import { getCollections, getCollection } from '@/services/collectionService'
+import type { CollectionWithDetails, CollectionPage } from '@/services/collectionService'
+import { buildTreeFromFlat, sortByOrder } from '@/utils/treeUtils'
 
-// Define emitted events
 defineEmits<{
   'search': [query: string];
 }>();
-
-// PageChild interface for internal component use
-interface PageChild {
-  id: string | number;
-  slug: string;
-  title: string;
-  icon: string | null;
-  description: string | null;
-  content: string;
-  parent_id: string | number | null;
-  author: string;
-  status: string;
-  children: PageChild[];
-  lastUpdated?: string;
-  ticket_id?: string | null;
-}
 
 const route = useRoute()
 const router = useRouter()
@@ -38,30 +24,31 @@ const { addEventListener, removeEventListener } = useSSE()
 
 // Handle SSE documentation updates - update sidebar reactively
 const handleDocumentationUpdate = (event: any) => {
-  // SSE events come as {type: "DocumentationUpdated", data: {...}} from backend
   const data = event.data || event;
 
-  console.log('[DocumentationNav] SSE event received:', {
-    rawEvent: event,
-    extractedData: data,
-    field: data?.field,
-    value: data?.value,
-    document_id: data?.document_id,
-    pagesCount: pages.value?.length,
-  });
-
-  // Update the sidebar reactively for title/icon changes
   if (data.field === 'title' || data.field === 'icon') {
-    console.log('[DocumentationNav] Updating sidebar field:', data.field, '=', data.value, 'for page', data.document_id);
     docNavStore.updatePageField(data.document_id, data.field, data.value);
+    // Also update in our collection page caches
+    for (const [, pages] of Object.entries(collectionPages)) {
+      const page = findPageInTree(pages, data.document_id);
+      if (page) {
+        (page as any)[data.field] = data.value;
+      }
+    }
   }
 };
 
-// Use store's reactive pages and loading state
-const { pages, isLoading } = storeToRefs(docNavStore)
+// Handle SSE collection updates - update sidebar reactively
+const handleCollectionUpdate = (event: any) => {
+  const data = event.data || event;
+  const col = collections.value.find(c => c.id === data.collection_id);
+  if (col && data.field && data.value !== undefined) {
+    (col as any)[data.field] = data.value;
+  }
+};
 
-const pageParentMap = ref<Record<string, string | null>>({})
-const hierarchicalPages = ref<Page[]>([])
+// Use store's reactive loading state
+const { isLoading } = storeToRefs(docNavStore)
 
 // Drag and Drop state
 const draggedPageId = ref<string | number | null>(null);
@@ -74,360 +61,283 @@ const navRef = ref<HTMLElement | null>(null);
 const dropIndicatorY = ref<number | null>(null);
 const dropIndicatorIndent = ref<number>(8);
 
-// Load pages and organize them hierarchically
-const loadPages = async () => {
-  // Only show loading state if we don't have cached pages
-  const hasCachedPages = pages.value && pages.value.length > 0;
-  if (!hasCachedPages) {
-    docNavStore.setLoading(true);
+// Collections data
+const collections = ref<CollectionWithDetails[]>([])
+// Per-collection expanded state (stored in localStorage)
+const collectionExpanded = reactive<Record<number, boolean>>({})
+// Per-collection loaded page trees (lazy loaded)
+const collectionPages = reactive<Record<number, Page[]>>({})
+// Track which collections have been loaded
+const collectionLoaded = reactive<Record<number, boolean>>({})
+// Loading state per collection
+const collectionLoading = reactive<Record<number, boolean>>({})
+// Map from page ID -> collection ID (for auto-expand on navigate)
+const pageToCollectionMap = ref<Record<string, number>>({})
+// Parent map for page hierarchy within collections
+const pageParentMap = ref<Record<string, string | null>>({})
+
+// Initial loading state
+const initialLoading = ref(true)
+
+// ============================================================================
+// Collection loading
+// ============================================================================
+
+const loadCollections = async () => {
+  collections.value = await getCollections()
+
+  // Restore expansion state from localStorage
+  for (const c of collections.value) {
+    const stored = localStorage.getItem(`docNavCollectionExpanded_${c.id}`)
+    collectionExpanded[c.id] = stored === 'true'
+  }
+}
+
+const toggleCollectionExpanded = async (collectionId: number) => {
+  const newState = !collectionExpanded[collectionId]
+  collectionExpanded[collectionId] = newState
+  localStorage.setItem(`docNavCollectionExpanded_${collectionId}`, String(newState))
+
+  // Lazy-load pages on first expand
+  if (newState && !collectionLoaded[collectionId]) {
+    await loadCollectionPages(collectionId)
+  }
+}
+
+// Mirrors handlePageClick: click navigates + expands, re-click toggles
+const handleCollectionClick = async (collection: CollectionWithDetails) => {
+  const collectionRoute = `/documentation/collections/${collection.slug}`
+
+  if (route.path === collectionRoute) {
+    await toggleCollectionExpanded(collection.id)
+  } else {
+    if (!collectionExpanded[collection.id]) {
+      await toggleCollectionExpanded(collection.id)
+    }
+    router.push(collectionRoute)
+  }
+}
+
+// ============================================================================
+// Page loading per collection
+// ============================================================================
+
+// sortByOrder and buildTreeFromFlat imported from @/utils/treeUtils
+
+const buildParentMapFromTree = (tree: Page[], parentId: string | null = null) => {
+  for (const page of tree) {
+    pageParentMap.value[String(page.id)] = parentId;
+    if (page.children && page.children.length > 0) {
+      buildParentMapFromTree(page.children, String(page.id));
+    }
+  }
+};
+
+const loadCollectionPages = async (collectionId: number) => {
+  // Only show skeleton on first load — subsequent reloads keep showing
+  // existing data (stale-while-revalidate) and update reactively when done
+  const isFirstLoad = !collectionLoaded[collectionId];
+  if (isFirstLoad) {
+    collectionLoading[collectionId] = true;
   }
   try {
-    // Try to get ordered top-level pages first
-    let topLevelPages = await documentationService.getOrderedTopLevelPages();
-    
-    // If the ordered endpoint returns nothing (likely because display_order isn't set up yet),
-    // fall back to getting all pages and organizing them manually
-    if (!topLevelPages || topLevelPages.length === 0) {
-      console.warn('Ordered endpoints returned no data, falling back to getPages');
-      
-      // Get all pages from the API
-      const allPages = await documentationService.getPages();
-      
-      // Organize into a hierarchical structure
-      const parentMap: Record<string, string | null> = {};
-      const pageMap: Record<string, Page> = {};
-      
-      // First pass: create a map of all pages
-      for (const page of allPages) {
-        pageMap[String(page.id)] = {...page, children: []};
-        parentMap[String(page.id)] = page.parent_id ? String(page.parent_id) : null;
-      }
-      
-      // Second pass: organize into hierarchical structure
-      topLevelPages = [];
-      for (const page of allPages) {
-        const pageId = String(page.id);
-        const parentId = page.parent_id ? String(page.parent_id) : null;
-        
-        if (parentId === null) {
-          // This is a top-level page
-          topLevelPages.push(pageMap[pageId]);
-        } else if (pageMap[parentId]) {
-          // This is a child page and the parent exists
-          if (!pageMap[parentId].children) {
-            pageMap[parentId].children = [];
-          }
-          pageMap[parentId].children.push(pageMap[pageId]);
-        }
-      }
-      
-      // Sort by display_order in the fallback too
-      const sortByOrder = (a: Page, b: Page) => {
-        // Ensure display_order is treated as a number, default to 999 if not defined
-        const orderA = a.display_order !== undefined && a.display_order !== null ? Number(a.display_order) : 999;
-        const orderB = b.display_order !== undefined && b.display_order !== null ? Number(b.display_order) : 999;
-        return orderA - orderB;
-      };
-      
-      // Sort top-level pages
-      topLevelPages.sort(sortByOrder);
-      
-      // Recursively sort children
-      const sortChildrenRecursively = (page: Page) => {
-        if (page.children && page.children.length > 0) {
-          page.children.sort(sortByOrder);
-          page.children.forEach(sortChildrenRecursively);
-        }
-      };
-      
-      // Apply sorting
-      topLevelPages.forEach(sortChildrenRecursively);
-      
-      // Store the parent map
-      pageParentMap.value = parentMap;
-      
-      // Update the pages in the store
-      docNavStore.setPages(topLevelPages);
+    const data = await getCollection(collectionId);
+    if (data && data.pages) {
+      const tree = buildTreeFromFlat(data.pages);
+      collectionPages[collectionId] = tree;
+      collectionLoaded[collectionId] = true;
 
-    } else {
-      // For each top-level page, fetch its ordered children recursively
-      await Promise.all(topLevelPages.map(async (page) => {
-        await loadOrderedChildrenRecursively(page);
-      }));
+      // Update page -> collection map
+      for (const p of data.pages) {
+        pageToCollectionMap.value[String(p.id)] = collectionId;
+      }
+
+      // Build parent map for these pages
+      buildParentMapFromTree(tree);
+
+      // Update the store pages for SSE reactivity
+      updateStorePages();
     }
-    
-    // Build a parent-child relationship map
-    const parentMap: Record<string, string | null> = {};
-    
-    // Recursive function to build parent mapping
-    const buildParentMap = (pages: Page[], parentId: string | number | null = null) => {
-      for (const page of pages) {
-        // Store parent relationship
-        parentMap[String(page.id)] = parentId !== null ? String(parentId) : null;
-        
-        // Process children recursively
-        if (page.children && page.children.length > 0) {
-          buildParentMap(page.children, page.id);
-        }
-      }
-    };
-    
-    // Build the parent map starting with top-level pages
-    buildParentMap(topLevelPages);
-    
-    // Store the parent map
-    pageParentMap.value = parentMap;
-
-    // Update the pages in the store
-    docNavStore.setPages(topLevelPages);
-
   } catch (error) {
-    console.error('Error loading pages:', error);
-    
-    // If any error occurs, attempt to load unordered pages as a fallback
-    try {
-      const allPages = await documentationService.getPages();
-      
-      // Organize into a hierarchical structure
-      const parentMap: Record<string, string | null> = {};
-      const pageMap: Record<string, Page> = {};
-      
-      // First pass: create a map of all pages
-      for (const page of allPages) {
-        pageMap[String(page.id)] = {...page, children: []};
-        parentMap[String(page.id)] = page.parent_id ? String(page.parent_id) : null;
-      }
-      
-      // Second pass: organize into hierarchical structure
-      const topLevelPages: Page[] = [];
-      for (const page of allPages) {
-        const pageId = String(page.id);
-        const parentId = page.parent_id ? String(page.parent_id) : null;
-        
-        if (parentId === null) {
-          // This is a top-level page
-          topLevelPages.push(pageMap[pageId]);
-        } else if (pageMap[parentId]) {
-          // This is a child page and the parent exists
-          if (!pageMap[parentId].children) {
-            pageMap[parentId].children = [];
-          }
-          pageMap[parentId].children.push(pageMap[pageId]);
-        }
-      }
-      
-      // Sort by display_order in the fallback too
-      const sortByOrder = (a: Page, b: Page) => {
-        // Ensure display_order is treated as a number, default to 999 if not defined
-        const orderA = a.display_order !== undefined && a.display_order !== null ? Number(a.display_order) : 999;
-        const orderB = b.display_order !== undefined && b.display_order !== null ? Number(b.display_order) : 999;
-        return orderA - orderB;
-      };
-      
-      // Sort top-level pages
-      topLevelPages.sort(sortByOrder);
-      
-      // Recursively sort children
-      const sortChildrenRecursively = (page: Page) => {
-        if (page.children && page.children.length > 0) {
-          page.children.sort(sortByOrder);
-          page.children.forEach(sortChildrenRecursively);
-        }
-      };
-      
-      // Apply sorting
-      topLevelPages.forEach(sortChildrenRecursively);
-      
-      // Store the parent map
-      pageParentMap.value = parentMap;
-
-      // Update the pages in the store
-      docNavStore.setPages(topLevelPages);
-
-    } catch (fallbackError) {
-      console.error('Error loading fallback pages:', fallbackError);
-    }
+    console.error(`Error loading pages for collection ${collectionId}:`, error);
   } finally {
-    docNavStore.setLoading(false);
+    if (isFirstLoad) {
+      collectionLoading[collectionId] = false;
+    }
   }
 };
 
-// Helper function to recursively load ordered children for a page
-const loadOrderedChildrenRecursively = async (page: Page) => {
-  try {
-    // Get ordered children for this page
-    const orderedChildren = await documentationService.getOrderedPagesByParentId(page.id);
-    
-    if (orderedChildren && orderedChildren.length > 0) {
-      // Set the children on the page
-      page.children = orderedChildren;
-      
-      // Recursively load children for each child page
-      await Promise.all(page.children.map(async (childPage) => {
-        await loadOrderedChildrenRecursively(childPage);
-      }));
-    }
-  } catch (error) {
-    console.error(`Error loading ordered children for page ${page.id}:`, error);
-    // If there's an error, leave the children as is
+// Sync all collection page trees into the docNavStore for SSE field updates
+const updateStorePages = () => {
+  const allPages: Page[] = [];
+  for (const pages of Object.values(collectionPages)) {
+    allPages.push(...pages);
   }
+  docNavStore.setPages(allPages);
 };
 
-// Check if an icon is an SVG
-const isIconSvg = (icon: string | undefined): boolean => {
-  return Boolean(icon && icon.startsWith('<svg'))
-}
+// ============================================================================
+// Page navigation and interaction
+// ============================================================================
 
-// Find parent pages for auto-expansion
-const findParentPages = (targetPath: string): string[] => {
-  const parents: string[] = []
-  
-  // Check if the path is in our parent map
-  const pageId = targetPath.split('/').pop() || ''
-  
-  // Traverse up the parent chain
-  let currentId = pageId
-  while (pageParentMap.value[currentId]) {
-    const parentId = pageParentMap.value[currentId]
-    if (parentId) {
-      parents.push(parentId)
-      currentId = parentId
-    } else {
-      break
+const findPageInTree = (tree: Page[], id: string | number): Page | null => {
+  for (const page of tree) {
+    if (String(page.id) === String(id)) return page;
+    if (page.children && page.children.length > 0) {
+      const found = findPageInTree(page.children, id);
+      if (found) return found;
     }
   }
-  
-  return parents
-}
+  return null;
+};
 
-// Handle page click - navigate to page or toggle expansion
+const findParentPage = (tree: Page[], childId: string | number): Page | null => {
+  for (const page of tree) {
+    if (page.children && page.children.some(child => String(child.id) === String(childId))) {
+      return page;
+    }
+    if (page.children && page.children.length > 0) {
+      const found = findParentPage(page.children, childId);
+      if (found) return found;
+    }
+  }
+  return null;
+};
+
+// Find a page across all collections
+const findPageGlobal = (id: string | number): Page | null => {
+  for (const pages of Object.values(collectionPages)) {
+    const found = findPageInTree(pages, id);
+    if (found) return found;
+  }
+  return null;
+};
+
+// Get the page tree for a specific collection (used for drag-drop context)
+const getPagesForCollection = (collectionId: number): Page[] => {
+  return collectionPages[collectionId] || [];
+};
+
 const handlePageClick = (id: string | number) => {
   const stringId = String(id)
+  const foundPage = findPageGlobal(id);
+  const pageRoute = `/documentation/${foundPage?.slug || stringId}`
 
-  // Always use ID for routing - slugs can contain invalid characters
-  const pageRoute = `/documentation/${stringId}`
-
-  // Find the page to check if it has children
-  const foundPage = findPageById(pages.value, id)
-
-  // If the page has children, handle expansion/collapse
   if (foundPage && foundPage.children && foundPage.children.length > 0) {
-    // Check if already on the same route
     if (route.path === pageRoute) {
-      // Only collapse if already on that page
       docNavStore.togglePage(stringId)
     } else {
-      // Always expand if coming from another route
       docNavStore.expandPage(stringId)
     }
   }
 
-  // Navigate to the page using ID
   router.push(pageRoute)
 }
 
-// Handle toggle expansion only (no navigation)
 const handleToggleExpand = (id: string | number) => {
-  const stringId = String(id)
-  docNavStore.togglePage(stringId)
+  docNavStore.togglePage(String(id))
+}
+
+// Auto-expand the collection containing a page
+const autoExpandForPage = async (pageId: string) => {
+  const collectionId = pageToCollectionMap.value[pageId];
+
+  if (collectionId !== undefined) {
+    if (!collectionExpanded[collectionId]) {
+      collectionExpanded[collectionId] = true;
+      localStorage.setItem(`docNavCollectionExpanded_${collectionId}`, 'true');
+    }
+    if (!collectionLoaded[collectionId]) {
+      await loadCollectionPages(collectionId);
+    }
+
+    // Also expand parent pages within the collection
+    docNavStore.expandParents(pageId, pageParentMap.value);
+    return;
+  }
+
+  // Page not yet in our map - it might be in an unloaded collection.
+  // Load all collections to find it.
+  for (const c of collections.value) {
+    if (!collectionLoaded[c.id]) {
+      await loadCollectionPages(c.id);
+      if (pageToCollectionMap.value[pageId] !== undefined) {
+        // Found it! Expand the collection.
+        collectionExpanded[c.id] = true;
+        localStorage.setItem(`docNavCollectionExpanded_${c.id}`, 'true');
+        docNavStore.expandParents(pageId, pageParentMap.value);
+        return;
+      }
+    }
+  }
+
 }
 
 // Watch route changes to auto-expand pages
 watch(() => route.path, (newPath) => {
-  const parentPages = findParentPages(newPath)
-  parentPages.forEach(pageId => {
-    docNavStore.expandPage(pageId)
-  })
+  if (newPath.startsWith('/documentation/') && !newPath.includes('/collections/')) {
+    const pageId = newPath.split('/').pop() || '';
+    if (pageId) {
+      autoExpandForPage(pageId);
+    }
+  }
 })
 
-// Handle window resize
-const handleResize = () => {
-  docNavStore.updateSidebarForScreenSize()
-}
+// ============================================================================
+// Drag and Drop (scoped within collections)
+// ============================================================================
 
-// Function to find a page by ID in the hierarchical pages structure
-const findPageById = (pages: Page[], id: string | number): Page | null => {
-  for (const page of pages) {
-    if (String(page.id) === String(id)) {
-      return page;
-    }
-    
-    if (page.children && page.children.length > 0) {
-      const foundInChildren = findPageById(page.children, id);
-      if (foundInChildren) {
-        return foundInChildren;
-      }
-    }
-  }
-  
-  return null;
-};
+// Track which collection a drag operation is within
+const dragCollectionId = ref<number | null>(null);
 
-// Function to find the parent of a page by ID
-const findParentPage = (pages: Page[], childId: string | number): Page | null => {
-  for (const page of pages) {
-    if (page.children && page.children.some(child => String(child.id) === String(childId))) {
-      return page;
-    }
-    
-    if (page.children && page.children.length > 0) {
-      const foundInChildren = findParentPage(page.children, childId);
-      if (foundInChildren) {
-        return foundInChildren;
-      }
-    }
-  }
-  
-  return null;
-};
-
-// Handle page drag start
 const handlePageDragStart = (id: string | number, event: DragEvent) => {
   draggedPageId.value = id;
   isDragging.value = true;
+  // Remember which collection this page belongs to
+  dragCollectionId.value = pageToCollectionMap.value[String(id)] ?? null;
 };
 
-// Handle page drag end
 const handlePageDragEnd = () => {
   isDragging.value = false;
   draggedPageId.value = null;
   dropTargetId.value = null;
   dropPosition.value = null;
   dropIndicatorY.value = null;
+  dragCollectionId.value = null;
 };
 
-// Check if dropping would create a circular reference
-const wouldCreateCircularReference = (draggedId: string | number, targetId: string | number, position: 'above' | 'inside' | 'below'): boolean => {
-  // Can't drop onto itself
-  if (String(draggedId) === String(targetId)) {
-    return true;
+const getAllChildrenIds = (page: Page): string[] => {
+  const ids: string[] = [];
+  if (page.children && page.children.length > 0) {
+    for (const child of page.children) {
+      ids.push(String(child.id));
+      ids.push(...getAllChildrenIds(child));
+    }
   }
+  return ids;
+};
 
-  const draggedPage = findPageById(pages.value, draggedId);
+const wouldCreateCircularReference = (draggedId: string | number, targetId: string | number, position: 'above' | 'inside' | 'below'): boolean => {
+  if (String(draggedId) === String(targetId)) return true;
+
+  const draggedPage = findPageGlobal(draggedId);
   if (!draggedPage) return true;
 
-  // Get all descendants of the dragged page
   const descendantIds = getAllChildrenIds(draggedPage);
-
-  // For 'inside' position: can't drop into any descendant
-  if (position === 'inside') {
-    return descendantIds.includes(String(targetId));
-  }
-
-  // For 'above' or 'below' positions: can't drop as sibling of any descendant
-  // because that would change the parent to the descendant's parent
-  if (descendantIds.includes(String(targetId))) {
-    return true;
-  }
-
-  return false;
+  return descendantIds.includes(String(targetId));
 };
 
-// Handle page drag over
 const handlePageDragOver = (id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below', level: number = 0) => {
-  // Check for circular reference
+  // Only allow drops within the same collection
+  const targetCollectionId = pageToCollectionMap.value[String(id)] ?? null;
+  if (dragCollectionId.value !== null && targetCollectionId !== dragCollectionId.value) {
+    dropTargetId.value = null;
+    dropPosition.value = null;
+    dropIndicatorY.value = null;
+    return;
+  }
+
   if (wouldCreateCircularReference(draggedPageId.value as string | number, id, position)) {
-    // Reset drop indicators to show this is invalid
     dropTargetId.value = null;
     dropPosition.value = null;
     dropIndicatorY.value = null;
@@ -437,124 +347,82 @@ const handlePageDragOver = (id: string | number, event: DragEvent, position: 'ab
   dropTargetId.value = id;
   dropPosition.value = position;
 
-  // Calculate the global indicator position for above/below
   if (position === 'above' || position === 'below') {
     const targetElement = event.currentTarget as HTMLElement;
     if (targetElement && navRef.value) {
       const targetRect = targetElement.getBoundingClientRect();
       const navRect = navRef.value.getBoundingClientRect();
-
-      // Position at top or bottom of the target element
       const yPos = position === 'above'
         ? targetRect.top - navRect.top
         : targetRect.bottom - navRect.top;
-
       dropIndicatorY.value = yPos;
       dropIndicatorIndent.value = 8 + (level * 8);
     }
   } else {
-    // For 'inside' position, hide the line indicator
     dropIndicatorY.value = null;
   }
 };
 
-// Function to get all children IDs recursively
-const getAllChildrenIds = (page: Page): string[] => {
-  const ids: string[] = [];
-  
-  if (page.children && page.children.length > 0) {
-    for (const child of page.children) {
-      ids.push(String(child.id));
-      ids.push(...getAllChildrenIds(child));
-    }
-  }
-  
-  return ids;
-};
-
-// Handle page drop
 const handlePageDrop = async (id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below') => {
-  if (!draggedPageId.value || !position) {
-    return;
-  }
+  if (!draggedPageId.value || !position) return;
 
-  // Final safety check for circular reference
-  if (wouldCreateCircularReference(draggedPageId.value, id, position)) {
-    console.warn('Prevented circular reference in page hierarchy');
+  // Ensure same-collection constraint
+  const targetCollectionId = pageToCollectionMap.value[String(id)] ?? null;
+  if (dragCollectionId.value !== null && targetCollectionId !== dragCollectionId.value) {
     handlePageDragEnd();
     return;
   }
 
-  try {
-    // Get the target page
-    const targetPage = findPageById(pages.value, id);
-    if (!targetPage) return;
-    
-    // Get the parent of the target page
-    const targetParent = findParentPage(pages.value, id);
-    const targetParentId = targetParent ? targetParent.id : null;
-    
-    if (position === 'inside') {
-      // Move the dragged page to be a child of the target page
-      await documentationService.movePage(
-        draggedPageId.value,
-        id,
-        0 // First position inside the target
-      );
+  if (wouldCreateCircularReference(draggedPageId.value, id, position)) {
+    handlePageDragEnd();
+    return;
+  }
 
-      // Expand the target to show the newly nested page
+  const collectionId = dragCollectionId.value;
+  if (collectionId === null) {
+    handlePageDragEnd();
+    return;
+  }
+
+  const collectionTree = getPagesForCollection(collectionId);
+
+  try {
+    const targetPage = findPageInTree(collectionTree, id);
+    if (!targetPage) return;
+
+    const targetParent = findParentPage(collectionTree, id);
+    const targetParentId = targetParent ? targetParent.id : null;
+
+    if (position === 'inside') {
+      await documentationService.movePage(draggedPageId.value, id, 0);
       docNavStore.expandPage(String(id));
     } else {
-      // For 'above' or 'below' positions, the dragged page becomes a sibling of the target
-      // This means it should have the same parent as the target
-
-      // Get the current parent of the dragged page
-      const draggedPageCurrentParent = findParentPage(pages.value, draggedPageId.value as string | number);
+      const draggedPageCurrentParent = findParentPage(collectionTree, draggedPageId.value as string | number);
       const draggedPageCurrentParentId = draggedPageCurrentParent ? draggedPageCurrentParent.id : null;
-
-      // Check if the dragged page needs to change its parent
       const needsParentChange = String(draggedPageCurrentParentId) !== String(targetParentId);
 
-      // Get the siblings of the target (which will become siblings of the dragged page)
       let siblings: Page[] = [];
-
       if (targetParentId) {
-        // Get the parent's children
-        const parent = findPageById(pages.value, targetParentId);
-        if (parent && parent.children) {
-          siblings = [...parent.children];
-        }
+        const parent = findPageInTree(collectionTree, targetParentId);
+        if (parent && parent.children) siblings = [...parent.children];
       } else {
-        // This is a top-level page, siblings are other top-level pages
-        siblings = [...pages.value];
+        siblings = [...collectionTree];
       }
 
-      // Find the index of the target in its siblings
       const targetIndex = siblings.findIndex(p => String(p.id) === String(id));
       if (targetIndex === -1) return;
 
-      // Calculate the new position
       const newIndex = position === 'above' ? targetIndex : targetIndex + 1;
 
       if (needsParentChange) {
-        // First, move the page to the new parent with the correct display order
-        await documentationService.movePage(
-          draggedPageId.value,
-          targetParentId, // null for top-level
-          newIndex
-        );
+        await documentationService.movePage(draggedPageId.value, targetParentId, newIndex);
 
-        // Then reorder all siblings to ensure correct order
-        // Filter out the dragged page from current siblings (it's already been moved)
         const siblingsWithoutDragged = siblings.filter(p => String(p.id) !== String(draggedPageId.value));
-
-        // Build the page orders including the newly moved page
         const pageOrders: { page_id: number, display_order: number }[] = [];
         let orderIndex = 0;
 
         for (let i = 0; i < siblingsWithoutDragged.length; i++) {
           if (orderIndex === newIndex) {
-            // Insert the dragged page at this position
             pageOrders.push({ page_id: Number(draggedPageId.value), display_order: orderIndex });
             orderIndex++;
           }
@@ -562,14 +430,12 @@ const handlePageDrop = async (id: string | number, event: DragEvent, position: '
           orderIndex++;
         }
 
-        // If newIndex is at the end, add the dragged page
         if (newIndex >= siblingsWithoutDragged.length) {
           pageOrders.push({ page_id: Number(draggedPageId.value), display_order: orderIndex });
         }
 
         await documentationService.reorderPages(targetParentId || null, pageOrders);
       } else {
-        // Same parent - just reorder
         const pageOrders = siblings
           .filter(p => String(p.id) !== String(draggedPageId.value))
           .map((p, i) => {
@@ -579,71 +445,92 @@ const handlePageDrop = async (id: string | number, event: DragEvent, position: '
             return { page_id: Number(p.id), display_order: i };
           });
 
-        // Insert the dragged page at the new position
         pageOrders.splice(newIndex, 0, { page_id: Number(draggedPageId.value), display_order: newIndex });
-
         await documentationService.reorderPages(targetParentId || null, pageOrders);
       }
     }
-    
-    // Reload the pages with the new structure
-    await loadPages();
+
+    // Reload this collection's pages
+    await loadCollectionPages(collectionId);
   } catch (error) {
     console.error('Error dropping page:', error);
   } finally {
-    // Reset drag state
     handlePageDragEnd();
   }
 };
 
-onMounted(async () => {
-  await loadPages()
+// ============================================================================
+// Lifecycle
+// ============================================================================
 
-  // Set initial sidebar state based on screen size
+const handleResize = () => {
   docNavStore.updateSidebarForScreenSize()
+}
 
-  // Add resize event listener
-  window.addEventListener('resize', handleResize)
+onMounted(async () => {
+  docNavStore.setLoading(true);
+  try {
+    await loadCollections()
 
-  // Register SSE listener for documentation updates
-  addEventListener('documentation-updated' as any, handleDocumentationUpdate);
-
-  // Auto-expand parents of the current page
-  const currentPageId = route.path.split('/').pop() || ''
-  if (currentPageId) {
-    // Expand the current page if it has children
-    const currentPage = findPageById(pages.value, currentPageId);
-    if (currentPage && currentPage.children && currentPage.children.length > 0) {
-      docNavStore.expandPage(currentPageId)
+    // Auto-expand collections that were previously expanded and load their pages
+    const expandedCollectionLoads: Promise<void>[] = [];
+    for (const c of collections.value) {
+      if (collectionExpanded[c.id]) {
+        expandedCollectionLoads.push(loadCollectionPages(c.id));
+      }
     }
+    await Promise.all(expandedCollectionLoads);
 
-    // Expand all parent pages
-    docNavStore.expandParents(currentPageId, pageParentMap.value)
+    // Auto-expand for current page
+    const currentPath = route.path;
+    if (currentPath.startsWith('/documentation/') && !currentPath.includes('/collections/')) {
+      const currentPageId = currentPath.split('/').pop() || '';
+      if (currentPageId) {
+        await autoExpandForPage(currentPageId);
+
+        // Expand current page if it has children
+        const currentPage = findPageGlobal(currentPageId);
+        if (currentPage && currentPage.children && currentPage.children.length > 0) {
+          docNavStore.expandPage(currentPageId);
+        }
+      }
+    }
+  } finally {
+    docNavStore.setLoading(false);
+    initialLoading.value = false;
   }
+
+  docNavStore.updateSidebarForScreenSize()
+  window.addEventListener('resize', handleResize)
+  addEventListener('documentation-updated' as any, handleDocumentationUpdate);
+  addEventListener('collection-updated' as any, handleCollectionUpdate);
 })
 
-// Clean up event listeners when component is unmounted
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   removeEventListener('documentation-updated' as any, handleDocumentationUpdate);
+  removeEventListener('collection-updated' as any, handleCollectionUpdate);
 })
 
 // Create a method to reload the sidebar
 const reloadSidebar = async () => {
-  console.log('Reloading documentation sidebar...');
-  await loadPages();
+  await loadCollections();
+  // Reload all expanded or previously loaded collections
+  const reloads: Promise<void>[] = [];
+  for (const c of collections.value) {
+    if (collectionLoaded[c.id] || collectionExpanded[c.id]) {
+      reloads.push(loadCollectionPages(c.id));
+    }
+  }
+  await Promise.all(reloads);
 };
 
-// Export the reloadSidebar method to make it accessible to other components
-defineExpose({
-  reloadSidebar
-});
+defineExpose({ reloadSidebar });
 
-// Watch for changes to the needsRefresh flag
-watch(() => docNavStore.needsRefresh, (needsRefresh) => {
-  if (needsRefresh) {
-    console.log('Documentation navigation refresh requested');
-    loadPages();
+// Watch for refresh requests from the store (counter-based, always fires on increment)
+watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
+  if (newVal > 0 && newVal !== oldVal) {
+    reloadSidebar();
   }
 });
 </script>
@@ -662,47 +549,131 @@ watch(() => docNavStore.needsRefresh, (needsRefresh) => {
       <div class="drop-indicator-dot"></div>
     </div>
 
-    <!-- Loading State (only shown on initial load when no cached pages) -->
-    <div v-if="isLoading && pages.length === 0" class="py-1 px-2 space-y-1">
-      <div v-for="i in 5" :key="i" class="flex items-center gap-1.5 py-1">
-        <div class="w-3 h-3 rounded bg-surface-hover/50 animate-pulse"></div>
-        <div class="flex-1 h-3 rounded bg-surface-hover/60 animate-pulse" :style="{ maxWidth: `${70 + (i % 3) * 10}%` }"></div>
+    <!-- Loading State -->
+    <div v-if="initialLoading" class="py-1 px-2">
+      <div v-for="i in 3" :key="i" class="flex items-center gap-1.5 py-1">
+        <div class="flex-shrink-0" style="width: 8px"></div>
+        <div class="w-4 h-4 rounded bg-surface-hover/50 animate-pulse flex-shrink-0"></div>
+        <div class="flex-1 h-3 rounded bg-surface-hover/60 animate-pulse" :style="{ maxWidth: `${50 + (i % 3) * 15}%` }"></div>
       </div>
     </div>
 
-    <!-- Navigation Tree -->
-    <ul v-else class="flex flex-col py-1">
-      <DocumentationNavItem
-        v-for="page in pages"
-        :key="page.id"
-        :page="page"
-        :level="0"
-        :dragged-page-id="draggedPageId"
-        :is-dragging="String(draggedPageId) === String(page.id)"
-        :is-drop-target="String(dropTargetId) === String(page.id) && dropPosition === 'inside'"
-        @toggle-expand="handleToggleExpand"
-        @page-click="handlePageClick"
-        @drag-start="handlePageDragStart"
-        @drag-end="handlePageDragEnd"
-        @drag-over="(id, event, position, level) => handlePageDragOver(id, event, position, level)"
-        @drop="handlePageDrop"
-      />
-    </ul>
+    <!-- Collection Folders -->
+    <div v-if="!initialLoading" class="py-1">
+      <!-- Each collection as an expandable folder -->
+      <div v-for="collection in collections" :key="collection.id" class="collection-folder">
+        <!-- Collection Header — same interaction pattern as DocumentationNavItem -->
+        <div
+          class="group relative flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150"
+          :class="[
+            route.path === `/documentation/collections/${collection.slug}`
+              ? 'bg-surface text-primary font-medium'
+              : collectionExpanded[collection.id]
+                ? 'text-primary hover:bg-surface-hover'
+                : 'text-secondary hover:text-primary hover:bg-surface-hover'
+          ]"
+          @click.stop="handleCollectionClick(collection)"
+        >
+          <!-- Indent spacing -->
+          <span class="flex-shrink-0" style="width: 8px"></span>
 
-    <!-- Empty State -->
-    <div v-if="!isLoading && pages.length === 0" class="px-4 py-8 text-center">
-      <div class="text-tertiary text-sm">No documents yet</div>
+          <!-- Icon / Expand Toggle (arrow replaces icon on hover) -->
+          <span
+            class="flex-shrink-0 w-5 flex items-center justify-center"
+            @click.stop="toggleCollectionExpanded(collection.id)"
+          >
+            <svg
+              class="w-2.5 h-2.5 transition-transform duration-200 hidden group-hover:block text-tertiary"
+              :class="{ 'rotate-90': collectionExpanded[collection.id] }"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+            <span class="text-sm leading-none group-hover:hidden">{{ collection.icon || '📁' }}</span>
+          </span>
+
+          <!-- Collection Name -->
+          <span class="flex-1 truncate min-w-0 ml-1">{{ collection.name }}</span>
+
+          <!-- Page Count -->
+          <span class="flex-shrink-0 text-[10px] text-tertiary ml-1">{{ collection.page_count }}</span>
+        </div>
+
+        <!-- Collection Pages (collapsible with smooth transition) -->
+        <div class="collapse-section" :class="{ 'is-expanded': collectionExpanded[collection.id] }">
+          <div class="collapse-content">
+            <template v-if="collectionExpanded[collection.id] || collectionLoaded[collection.id]">
+              <!-- Loading state for this collection (first load only, sized to page_count) -->
+              <div v-if="collectionLoading[collection.id]" class="py-0.5 ml-2">
+                <div v-for="i in Math.max(1, Math.min(collection.page_count ?? 3, 8))" :key="i" class="flex items-center gap-1.5 py-1">
+                  <div class="flex-shrink-0" :style="{ width: '20px' }"></div>
+                  <div class="w-4 h-3.5 rounded bg-surface-hover/40 animate-pulse flex-shrink-0"></div>
+                  <div class="flex-1 h-3 rounded bg-surface-hover/40 animate-pulse" :style="{ maxWidth: `${50 + (i % 3) * 15}%` }"></div>
+                </div>
+              </div>
+
+              <!-- Pages tree -->
+              <ul v-else-if="collectionPages[collection.id] && collectionPages[collection.id].length > 0" class="flex flex-col">
+                <DocumentationNavItem
+                  v-for="page in collectionPages[collection.id]"
+                  :key="page.id"
+                  :page="page"
+                  :level="1"
+                  :dragged-page-id="draggedPageId"
+                  :is-dragging="String(draggedPageId) === String(page.id)"
+                  :is-drop-target="String(dropTargetId) === String(page.id) && dropPosition === 'inside'"
+                  @toggle-expand="handleToggleExpand"
+                  @page-click="handlePageClick"
+                  @drag-start="handlePageDragStart"
+                  @drag-end="handlePageDragEnd"
+                  @drag-over="(id, event, position, level) => handlePageDragOver(id, event, position, level)"
+                  @drop="handlePageDrop"
+                />
+              </ul>
+
+              <!-- Empty collection -->
+              <div v-else-if="collectionLoaded[collection.id]" class="py-1 pl-8 text-[11px] text-tertiary italic">
+                No pages
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div v-if="collections.length === 0" class="px-4 py-8 text-center">
+        <div class="text-tertiary text-sm">No documents yet</div>
+      </div>
     </div>
   </nav>
 </template>
 
 <style scoped>
 .documentation-nav {
-  @apply relative;
+  position: relative;
 }
 
 .documentation-nav.is-dragging {
-  @apply select-none;
+  user-select: none;
+}
+
+/* Smooth expand/collapse using CSS grid */
+.collapse-section {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 150ms ease-out;
+}
+
+.collapse-section.is-expanded {
+  grid-template-rows: 1fr;
+}
+
+.collapse-content {
+  overflow: hidden;
+  min-height: 0;
 }
 
 /* Single global drop indicator */

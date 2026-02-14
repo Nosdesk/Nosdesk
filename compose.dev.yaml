@@ -24,6 +24,8 @@ services:
       - backend_cargo_cache:/usr/local/cargo/registry
       - backend_target_cache:/app/target # Cache compiled artifacts
       - backend_uploads:/app/uploads
+      # Seed data files
+      - ./backend/seeds:/app/seeds:ro
       # Plugins provisioning directory
       - ./examples/plugins:/app/plugins:ro
     environment:

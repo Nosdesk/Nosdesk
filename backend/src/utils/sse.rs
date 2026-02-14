@@ -1,4 +1,4 @@
-use crate::handlers::sse::{SseState, TicketEvent};
+use crate::handlers::sse::{SseState, SseEvent};
 use actix_web::web;
 use chrono::Utc;
 use tracing::debug;
@@ -8,7 +8,7 @@ pub struct SseBroadcaster;
 
 impl SseBroadcaster {
     /// Generic function to broadcast any SSE event
-    async fn broadcast_event(state: &web::Data<SseState>, event: TicketEvent) {
+    async fn broadcast_event(state: &web::Data<SseState>, event: SseEvent) {
         debug!(event = ?event, "SSE: Broadcasting event");
         state.broadcast_event(event).await;
         debug!("SSE: Event broadcasted successfully");
@@ -17,7 +17,7 @@ impl SseBroadcaster {
     /// Generic function to create and broadcast events with common fields
     async fn broadcast_generic_event<F>(state: &web::Data<SseState>, event_creator: F)
     where
-        F: FnOnce(chrono::DateTime<Utc>) -> TicketEvent,
+        F: FnOnce(chrono::DateTime<Utc>) -> SseEvent,
     {
         let event = event_creator(Utc::now());
         Self::broadcast_event(state, event).await;
@@ -30,7 +30,7 @@ impl SseBroadcaster {
         ticket: serde_json::Value,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::TicketCreated {
+            SseEvent::TicketCreated {
                 ticket_id,
                 ticket,
                 timestamp,
@@ -45,7 +45,7 @@ impl SseBroadcaster {
         ticket_id: i32,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::TicketDeleted {
+            SseEvent::TicketDeleted {
                 ticket_id,
                 timestamp,
             }
@@ -61,7 +61,7 @@ impl SseBroadcaster {
         updated_by: &str,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::TicketUpdated {
+            SseEvent::TicketUpdated {
                 ticket_id,
                 field: field.to_string(),
                 value,
@@ -78,7 +78,7 @@ impl SseBroadcaster {
         comment: serde_json::Value,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::CommentAdded {
+            SseEvent::CommentAdded {
                 ticket_id,
                 comment,
                 timestamp,
@@ -93,7 +93,7 @@ impl SseBroadcaster {
         comment_id: i32,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::CommentDeleted {
+            SseEvent::CommentDeleted {
                 ticket_id,
                 comment_id,
                 timestamp,
@@ -108,7 +108,7 @@ impl SseBroadcaster {
         device_id: i32,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::DeviceLinked {
+            SseEvent::DeviceLinked {
                 ticket_id,
                 device_id,
                 timestamp,
@@ -123,7 +123,7 @@ impl SseBroadcaster {
         device_id: i32,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::DeviceUnlinked {
+            SseEvent::DeviceUnlinked {
                 ticket_id,
                 device_id,
                 timestamp,
@@ -138,7 +138,7 @@ impl SseBroadcaster {
         device: serde_json::Value,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::DeviceCreated {
+            SseEvent::DeviceCreated {
                 device_id,
                 device,
                 timestamp,
@@ -155,7 +155,7 @@ impl SseBroadcaster {
         updated_by: &str,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::DeviceUpdated {
+            SseEvent::DeviceUpdated {
                 device_id,
                 field: field.to_string(),
                 value,
@@ -172,7 +172,7 @@ impl SseBroadcaster {
         linked_ticket_id: i32,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::TicketLinked {
+            SseEvent::TicketLinked {
                 ticket_id,
                 linked_ticket_id,
                 timestamp,
@@ -187,7 +187,7 @@ impl SseBroadcaster {
         linked_ticket_id: i32,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::TicketUnlinked {
+            SseEvent::TicketUnlinked {
                 ticket_id,
                 linked_ticket_id,
                 timestamp,
@@ -202,7 +202,7 @@ impl SseBroadcaster {
         project_id: i32,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::ProjectAssigned {
+            SseEvent::ProjectAssigned {
                 ticket_id,
                 project_id,
                 timestamp,
@@ -217,7 +217,7 @@ impl SseBroadcaster {
         project_id: i32,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::ProjectUnassigned {
+            SseEvent::ProjectUnassigned {
                 ticket_id,
                 project_id,
                 timestamp,
@@ -232,7 +232,7 @@ impl SseBroadcaster {
         document: serde_json::Value,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::DocumentationCreated {
+            SseEvent::DocumentationCreated {
                 document_id,
                 document,
                 timestamp,
@@ -249,11 +249,28 @@ impl SseBroadcaster {
         updated_by: &str,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::DocumentationUpdated {
+            SseEvent::DocumentationUpdated {
                 document_id,
                 field: field.to_string(),
                 value,
                 updated_by: updated_by.to_string(),
+                timestamp,
+            }
+        }).await;
+    }
+
+    /// Broadcast a collection field update to all connected clients
+    pub async fn broadcast_collection_updated(
+        state: &web::Data<SseState>,
+        collection_id: i32,
+        field: &str,
+        value: serde_json::Value,
+    ) {
+        Self::broadcast_generic_event(state, |timestamp| {
+            SseEvent::CollectionUpdated {
+                collection_id,
+                field: field.to_string(),
+                value,
                 timestamp,
             }
         }).await;
@@ -266,7 +283,7 @@ impl SseBroadcaster {
         count: usize,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::ViewerCountChanged {
+            SseEvent::ViewerCountChanged {
                 ticket_id,
                 count,
                 timestamp,
@@ -283,7 +300,7 @@ impl SseBroadcaster {
         updated_by: &str,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::UserUpdated {
+            SseEvent::UserUpdated {
                 user_uuid: user_uuid.to_string(),
                 field: field.to_string(),
                 value,
@@ -300,7 +317,7 @@ impl SseBroadcaster {
         user: serde_json::Value,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::UserCreated {
+            SseEvent::UserCreated {
                 user_uuid: user_uuid.to_string(),
                 user,
                 timestamp,
@@ -314,7 +331,7 @@ impl SseBroadcaster {
         user_uuid: &str,
     ) {
         Self::broadcast_generic_event(state, |timestamp| {
-            TicketEvent::UserDeleted {
+            SseEvent::UserDeleted {
                 user_uuid: user_uuid.to_string(),
                 timestamp,
             }

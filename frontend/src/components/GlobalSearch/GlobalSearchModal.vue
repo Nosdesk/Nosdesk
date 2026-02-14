@@ -14,9 +14,18 @@ const {
   selectedIndex,
   searchTookMs,
   totalResults,
+  activeTypes,
   closeSearch,
+  clearTypes,
   navigateToResult,
 } = useGlobalSearch();
+
+const FILTER_LABELS: Record<string, string> = {
+  documentation: 'Documentation',
+  ticket: 'Tickets',
+  device: 'Devices',
+  user: 'Users',
+};
 
 const inputRef = ref<HTMLInputElement | null>(null);
 const resultsRef = ref<HTMLDivElement | null>(null);
@@ -116,12 +125,24 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               </svg>
             </div>
 
+            <!-- Active filter badge -->
+            <button
+              v-if="activeTypes"
+              @click="clearTypes"
+              class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
+            >
+              {{ FILTER_LABELS[activeTypes] || activeTypes }}
+              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
             <!-- Input field -->
             <input
               ref="inputRef"
               v-model="query"
               type="text"
-              placeholder="Search tickets, docs, devices, users..."
+              :placeholder="activeTypes ? `Search ${FILTER_LABELS[activeTypes]?.toLowerCase() || activeTypes}...` : 'Search tickets, docs, devices, users...'"
               class="flex-1 bg-transparent text-primary placeholder-tertiary/70 outline-none text-[15px] font-medium"
               autocomplete="off"
               spellcheck="false"

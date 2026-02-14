@@ -27,6 +27,8 @@ export interface Page {
   updated_at?: string;
   created_by?: UserInfo;
   last_edited_by?: UserInfo;
+  deleted_at?: string | null;
+  archived_at?: string | null;
 }
 
 // Define the PageChild interface (used for navigation)
@@ -146,7 +148,9 @@ export const convertToPage = (data: unknown): Page => {
       updated_at: pageData.updated_at as string | undefined,
       created_by: pageData.created_by as UserInfo | undefined,
       last_edited_by: pageData.last_edited_by as UserInfo | undefined,
-      display_order: typeof pageData.display_order === 'number' ? pageData.display_order : 0
+      display_order: typeof pageData.display_order === 'number' ? pageData.display_order : 0,
+      deleted_at: (pageData.deleted_at as string | null) || null,
+      archived_at: (pageData.archived_at as string | null) || null,
     };
   } catch (error) {
     logger.error('Error converting backend page data:', error, data);
@@ -977,6 +981,95 @@ export const updatePageMetadata = async (
   }
 };
 
+/**
+ * Get archived documentation pages
+ */
+export const getArchivedPages = async (): Promise<Page[]> => {
+  try {
+    const response = await apiClient.get('/documentation/pages/archived');
+    if (!Array.isArray(response.data)) return [];
+    return response.data.map(convertToPage);
+  } catch (error) {
+    logger.error('Error fetching archived pages:', error);
+    return [];
+  }
+};
+
+/**
+ * Get trashed (soft-deleted) documentation pages
+ */
+export const getTrashedPages = async (): Promise<Page[]> => {
+  try {
+    const response = await apiClient.get('/documentation/pages/trash');
+    if (!Array.isArray(response.data)) return [];
+    return response.data.map(convertToPage);
+  } catch (error) {
+    logger.error('Error fetching trashed pages:', error);
+    return [];
+  }
+};
+
+/**
+ * Restore a page from archive or trash back to draft
+ */
+export const restorePage = async (pageId: string | number): Promise<boolean> => {
+  try {
+    await apiClient.post(`/documentation/pages/${pageId}/restore`);
+    return true;
+  } catch (error) {
+    logger.error(`Error restoring page ${pageId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Permanently delete a page (hard delete, admin only)
+ */
+export const permanentlyDeletePage = async (pageId: string | number): Promise<boolean> => {
+  try {
+    await apiClient.delete(`/documentation/pages/${pageId}/permanent`);
+    return true;
+  } catch (error) {
+    logger.error(`Error permanently deleting page ${pageId}:`, error);
+    return false;
+  }
+};
+
+export interface PageVisibilityResponse {
+  groups: Array<{ id: number; name: string }>;
+  users: Array<{ uuid: string; name: string; avatar_url?: string | null; avatar_thumb?: string | null }>;
+}
+
+/**
+ * Get visibility (groups + users) for a documentation page
+ */
+export const getPageVisibility = async (pageId: number): Promise<PageVisibilityResponse> => {
+  try {
+    const response = await apiClient.get(`/documentation/pages/${pageId}/visibility`);
+    return response.data;
+  } catch (error) {
+    logger.error(`Error fetching page visibility for page ${pageId}:`, error);
+    return { groups: [], users: [] };
+  }
+};
+
+/**
+ * Set visibility for a documentation page (admin only)
+ * Empty group_ids + user_uuids clears override (page inherits from collections)
+ */
+export const setPageVisibility = async (pageId: number, groupIds: number[], userUuids: string[] = []): Promise<boolean> => {
+  try {
+    await apiClient.put(`/documentation/pages/${pageId}/visibility`, {
+      group_ids: groupIds,
+      user_uuids: userUuids,
+    });
+    return true;
+  } catch (error) {
+    logger.error(`Error setting page visibility for page ${pageId}:`, error);
+    return false;
+  }
+};
+
 export default {
   getPages,
   getAllArticles,
@@ -996,5 +1089,11 @@ export default {
   getOrderedPagesByParentId,
   getOrderedTopLevelPages,
   getPageWithOrderedChildren,
-  updatePageMetadata
-}; 
+  updatePageMetadata,
+  getArchivedPages,
+  getTrashedPages,
+  restorePage,
+  permanentlyDeletePage,
+  getPageVisibility,
+  setPageVisibility,
+};

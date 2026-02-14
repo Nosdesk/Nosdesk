@@ -47,18 +47,14 @@ export function escapeHtml(text: string): string {
 }
 
 /**
- * Render the inner HTML for a ticket card.
- * @param data - Ticket data to render
- * @param classPrefix - CSS class prefix ('ticket-link' or 'ticket-drop-preview')
+ * Render the inner HTML for a compact single-row ticket card.
+ * Layout: [#ID] [Title] [status dot + label] [priority dot + label]
  */
 export function renderTicketCardHtml(data: TicketCardData, classPrefix = 'ticket-link'): string {
   if (data.loading) {
     return `
-      <div class="${classPrefix}-header">
-        <span class="${classPrefix}-id">#${data.id}</span>
-        <span class="${classPrefix}-loader"></span>
-      </div>
-      <div class="${classPrefix}-title">Loading...</div>
+      <span class="${classPrefix}-id">#${data.id}</span>
+      <span class="${classPrefix}-loader"></span>
     `
   }
 
@@ -68,16 +64,10 @@ export function renderTicketCardHtml(data: TicketCardData, classPrefix = 'ticket
     : ''
 
   return `
-    <div class="${classPrefix}-header">
-      <span class="${classPrefix}-id">#${data.id}</span>
-      <span class="${classPrefix}-title">${escapeHtml(data.title)}</span>
-    </div>
-    <div class="${classPrefix}-meta">
-      ${data.requester ? `<span class="${classPrefix}-person"><span class="${classPrefix}-label">From:</span> ${escapeHtml(data.requester)}</span>` : ''}
-      ${data.assignee ? `<span class="${classPrefix}-person"><span class="${classPrefix}-label">To:</span> ${escapeHtml(data.assignee)}</span>` : ''}
-      ${data.status ? `<span class="${classPrefix}-status ${getStatusClass(data.status, classPrefix)}">${statusText}</span>` : ''}
-      ${data.priority ? `<span class="${classPrefix}-priority ${getPriorityClass(data.priority, classPrefix)}">${priorityText}</span>` : ''}
-    </div>
+    <span class="${classPrefix}-id">#${data.id}</span>
+    <span class="${classPrefix}-title">${escapeHtml(data.title)}</span>
+    ${data.status ? `<span class="${classPrefix}-status ${getStatusClass(data.status, classPrefix)}"><span class="${classPrefix}-dot"></span>${statusText}</span>` : ''}
+    ${data.priority ? `<span class="${classPrefix}-priority ${getPriorityClass(data.priority, classPrefix)}"><span class="${classPrefix}-dot"></span>${priorityText}</span>` : ''}
   `
 }
 
@@ -86,13 +76,7 @@ export function renderTicketCardHtml(data: TicketCardData, classPrefix = 'ticket
  */
 export function renderTicketSkeletonHtml(classPrefix = 'ticket-drop-preview'): string {
   return `
-    <div class="${classPrefix}-header">
-      <span class="${classPrefix}-id">#---</span>
-      <span class="${classPrefix}-title ${classPrefix}-skeleton"></span>
-    </div>
-    <div class="${classPrefix}-meta">
-      <span class="${classPrefix}-skeleton" style="width: 60px;"></span>
-      <span class="${classPrefix}-skeleton" style="width: 50px;"></span>
-    </div>
+    <span class="${classPrefix}-id">#---</span>
+    <span class="${classPrefix}-title ${classPrefix}-skeleton"></span>
   `
 }

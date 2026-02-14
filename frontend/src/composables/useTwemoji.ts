@@ -6,12 +6,45 @@
  */
 import twemoji from '@twemoji/api'
 
-// Default Twemoji parse options
+// Use CDN when VITE_TWEMOJI_CDN=true, otherwise serve locally from public/twemoji/
+const useCdn = import.meta.env.VITE_TWEMOJI_CDN === 'true'
+const CDN_BASE = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/'
+const LOCAL_BASE = '/twemoji/'
+
+export const TWEMOJI_BASE = useCdn ? CDN_BASE : LOCAL_BASE
+
+// Default Twemoji parse options (used by twemoji.parse() for bulk DOM replacement)
 const defaultOptions: Parameters<typeof twemoji.parse>[1] = {
-  folder: 'svg',
+  folder: useCdn ? 'svg' : '',
   ext: '.svg',
-  base: 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/',
+  base: useCdn ? 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/' : LOCAL_BASE,
   className: 'twemoji'
+}
+
+/**
+ * Strip VS16 (U+FE0F) variation selectors from an emoji string,
+ * UNLESS it contains a ZWJ (U+200D) sequence where VS16 is meaningful.
+ * This matches how @twemoji/parser generates codepoints for SVG filenames.
+ */
+export function removeVS16s(rawEmoji: string): string {
+  return rawEmoji.indexOf('\u200D') < 0
+    ? rawEmoji.replace(/\uFE0F/g, '')
+    : rawEmoji
+}
+
+/**
+ * Convert an emoji to its Twemoji-compatible codepoint string.
+ * Handles VS16 stripping to match actual SVG filenames on the CDN.
+ */
+export function emojiToCodepoint(emoji: string): string {
+  return twemoji.convert.toCodePoint(removeVS16s(emoji))
+}
+
+/**
+ * Get the Twemoji SVG URL for a single emoji character.
+ */
+export function getEmojiUrl(emoji: string): string {
+  return `${TWEMOJI_BASE}${emojiToCodepoint(emoji)}.svg`
 }
 
 export function useTwemoji() {
@@ -38,25 +71,16 @@ export function useTwemoji() {
   }
 
   /**
-   * Get the Twemoji SVG URL for a single emoji
-   */
-  const getEmojiUrl = (emoji: string): string => {
-    const codepoints = twemoji.convert.toCodePoint(emoji)
-    return `${defaultOptions.base}${defaultOptions.folder}/${codepoints}${defaultOptions.ext}`
-  }
-
-  /**
    * Convert emoji to codepoint string (for building custom URLs)
    */
   const toCodePoint = (emoji: string): string => {
-    return twemoji.convert.toCodePoint(emoji)
+    return emojiToCodepoint(emoji)
   }
 
   /**
    * Check if a string contains emoji characters
    */
   const hasEmoji = (text: string): boolean => {
-    // Use twemoji's regex pattern to detect emojis
     const emojiRegex = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu
     return emojiRegex.test(text)
   }

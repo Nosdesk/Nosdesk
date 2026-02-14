@@ -108,6 +108,9 @@ COPY --from=builder /usr/local/cargo/bin/diesel /usr/local/bin/diesel
 # Copy migrations for automatic migration on startup
 COPY --from=builder /app/migrations ./migrations
 
+# Copy seed data files
+COPY backend/seeds ./seeds
+
 # Copy built frontend assets
 COPY --from=frontend-builder /frontend/dist ./public
 

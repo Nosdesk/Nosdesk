@@ -473,6 +473,12 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // Run startup seeds (idempotent - only creates content if missing)
+    {
+        let mut conn = pool.get().expect("Failed to get connection for seeding");
+        services::seed::run_seeds(&mut conn);
+    }
+
     // Initialize Redis cache for Yjs documents (survives backend restarts)
     // Use the same Redis URL as rate limiting, but fall back to localhost if using memory://
     let yjs_redis_url = if redis_url.starts_with("redis://") {
@@ -659,7 +665,7 @@ async fn main() -> std::io::Result<()> {
             
             // SSE endpoints (with custom token-based auth)
             // Main event stream for all real-time updates (tickets, documentation, devices, etc.)
-            .route("/api/events/stream", web::get().to(handlers::sse::ticket_events_stream))
+            .route("/api/events/stream", web::get().to(handlers::sse::sse_events_stream))
             .route("/api/events/status", web::get().to(handlers::sse::sse_status))
             
             // Authentication routes (public by design)
@@ -962,24 +968,52 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/{uuid}/devices", web::get().to(handlers::get_user_devices))
                     
                     // ===== DOCUMENTATION SYSTEM =====
+                    // Literal paths MUST come before {id} wildcard to avoid being swallowed
                     .route("/documentation/pages", web::get().to(handlers::get_documentation_pages))
-                    .route("/documentation/pages/export", web::get().to(handlers::export_documentation_pages))
                     .route("/documentation/pages", web::post().to(handlers::create_documentation_page))
+                    .route("/documentation/pages/export", web::get().to(handlers::export_documentation_pages))
+                    .route("/documentation/pages/top-level", web::get().to(handlers::get_top_level_documentation_pages))
+                    .route("/documentation/pages/uncollected", web::get().to(handlers::documentation_collections::get_uncollected_pages))
+                    .route("/documentation/pages/reorder", web::post().to(handlers::reorder_pages))
+                    .route("/documentation/pages/move", web::post().to(handlers::move_page_to_parent))
+                    .route("/documentation/pages/ordered/top-level", web::get().to(handlers::get_ordered_top_level_pages))
+                    .route("/documentation/pages/ordered/parent/{parent_id}", web::get().to(handlers::get_ordered_pages_by_parent_id))
+                    .route("/documentation/pages/parent/{parent_id}", web::get().to(handlers::get_documentation_pages_by_parent_id))
+                    .route("/documentation/pages/uuid/{uuid}/content", web::get().to(handlers::get_documentation_page_content_by_uuid))
+                    .route("/documentation/pages/slug/{slug}", web::get().to(handlers::get_documentation_page_by_slug))
+                    .route("/documentation/pages/slug/{slug}/with-children", web::get().to(handlers::get_documentation_page_by_slug_with_children))
+                    .route("/documentation/pages/archived", web::get().to(handlers::get_archived_pages))
+                    .route("/documentation/pages/trash", web::get().to(handlers::get_trashed_pages))
+                    // {id} wildcard routes AFTER all literal paths
                     .route("/documentation/pages/{id}", web::get().to(handlers::get_documentation_page))
                     .route("/documentation/pages/{id}", web::put().to(handlers::update_documentation_page))
                     .route("/documentation/pages/{id}", web::delete().to(handlers::delete_documentation_page))
-                    .route("/documentation/pages/top-level", web::get().to(handlers::get_top_level_documentation_pages))
-                    .route("/documentation/pages/parent/{parent_id}", web::get().to(handlers::get_documentation_pages_by_parent_id))
-                    .route("/documentation/pages/slug/{slug}", web::get().to(handlers::get_documentation_page_by_slug))
-                    .route("/documentation/pages/slug/{slug}/with-children", web::get().to(handlers::get_documentation_page_by_slug_with_children))
                     .route("/documentation/pages/{id}/with-children-by-parent", web::get().to(handlers::get_page_with_children_by_parent_id))
-                    .route("/documentation/pages/ordered/top-level", web::get().to(handlers::get_ordered_top_level_pages))
-                    .route("/documentation/pages/ordered/parent/{parent_id}", web::get().to(handlers::get_ordered_pages_by_parent_id))
                     .route("/documentation/pages/{id}/with-ordered-children", web::get().to(handlers::get_page_with_ordered_children))
-                    .route("/documentation/pages/reorder", web::post().to(handlers::reorder_pages))
-                    .route("/documentation/pages/move", web::post().to(handlers::move_page_to_parent))
+                    .route("/documentation/pages/{id}/embeddings", web::put().to(handlers::sync_page_embeddings))
+                    .route("/documentation/pages/{id}/export/markdown", web::get().to(handlers::export_page_as_markdown))
+                    .route("/documentation/pages/{id}/collections", web::get().to(handlers::documentation_collections::get_collections_for_page))
+                    .route("/documentation/pages/{id}/collections", web::put().to(handlers::documentation_collections::set_page_collections))
+                    .route("/documentation/pages/{id}/visibility", web::get().to(handlers::get_page_visibility))
+                    .route("/documentation/pages/{id}/visibility", web::put().to(handlers::set_page_visibility))
+                    .route("/documentation/pages/{id}/restore", web::post().to(handlers::restore_page))
+                    .route("/documentation/pages/{id}/permanent", web::delete().to(handlers::permanently_delete_page))
                     .route("/tickets/{ticket_id}/documentation", web::get().to(handlers::get_documentation_pages_by_ticket_id))
                     .route("/tickets/{ticket_id}/documentation/create", web::post().to(handlers::create_documentation_page_from_ticket))
+
+                    // ===== DOCUMENTATION COLLECTIONS =====
+                    .route("/documentation/collections", web::get().to(handlers::documentation_collections::get_collections))
+                    .route("/documentation/collections", web::post().to(handlers::documentation_collections::create_collection))
+                    .route("/documentation/collections/reorder", web::post().to(handlers::documentation_collections::reorder_collections))
+                    .route("/documentation/collections/slug/{slug}", web::get().to(handlers::documentation_collections::get_collection_by_slug))
+                    .route("/documentation/collections/{id}", web::get().to(handlers::documentation_collections::get_collection))
+                    .route("/documentation/collections/{id}", web::put().to(handlers::documentation_collections::update_collection))
+                    .route("/documentation/collections/{id}", web::delete().to(handlers::documentation_collections::delete_collection))
+                    .route("/documentation/collections/{id}/pages", web::post().to(handlers::documentation_collections::add_page_to_collection))
+                    .route("/documentation/collections/{id}/pages/{page_id}", web::delete().to(handlers::documentation_collections::remove_page_from_collection))
+                    .route("/documentation/collections/{id}/visibility", web::get().to(handlers::documentation_collections::get_collection_visibility))
+                    .route("/documentation/collections/{id}/visibility", web::put().to(handlers::documentation_collections::set_collection_visibility))
+                    .route("/documentation/collections/{id}/page-overrides", web::get().to(handlers::documentation_collections::get_page_overrides_in_collection))
                     .route("/documentation/{id}", web::put().to(handlers::update_documentation_page))
                     .route("/documentation/{id}", web::delete().to(handlers::delete_documentation_page))
             )

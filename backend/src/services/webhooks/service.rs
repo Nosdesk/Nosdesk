@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::sse::{SseState, TicketEvent};
+use crate::handlers::sse::{SseState, SseEvent};
 use crate::repository::webhooks as webhook_repo;
 
 use super::delivery::{DeliveryTask, WebhookDeliveryWorker};
@@ -60,7 +60,7 @@ impl WebhookService {
     /// Background task that listens to SSE events
     async fn event_listener(
         pool: Pool,
-        mut receiver: tokio::sync::broadcast::Receiver<TicketEvent>,
+        mut receiver: tokio::sync::broadcast::Receiver<SseEvent>,
         delivery_tx: mpsc::Sender<DeliveryTask>,
     ) {
         tracing::info!("Webhook event listener started");
@@ -93,7 +93,7 @@ impl WebhookService {
         pool: &Pool,
         delivery_tx: &mpsc::Sender<DeliveryTask>,
         event_type: WebhookEventType,
-        event: &TicketEvent,
+        event: &SseEvent,
     ) -> Result<(), String> {
         let event_type_str = event_type.as_str();
 

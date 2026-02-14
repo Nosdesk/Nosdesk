@@ -445,6 +445,8 @@ pub enum DocumentationStatus {
     Published,
     #[serde(rename = "archived")]
     Archived,
+    #[serde(rename = "deleted")]
+    Deleted,
 }
 
 impl ToSql<crate::schema::sql_types::DocumentationStatus, Pg> for DocumentationStatus {
@@ -453,6 +455,7 @@ impl ToSql<crate::schema::sql_types::DocumentationStatus, Pg> for DocumentationS
             DocumentationStatus::Draft => "draft",
             DocumentationStatus::Published => "published",
             DocumentationStatus::Archived => "archived",
+            DocumentationStatus::Deleted => "deleted",
         };
         out.write_all(s.as_bytes())?;
         Ok(IsNull::No)
@@ -465,6 +468,7 @@ impl FromSql<crate::schema::sql_types::DocumentationStatus, Pg> for Documentatio
             b"draft" => Ok(DocumentationStatus::Draft),
             b"published" => Ok(DocumentationStatus::Published),
             b"archived" => Ok(DocumentationStatus::Archived),
+            b"deleted" => Ok(DocumentationStatus::Deleted),
             _ => Err("Unrecognized enum variant".into()),
         }
     }
@@ -477,7 +481,7 @@ pub struct DocumentationPage {
     pub id: i32,
     pub uuid: Uuid,
     pub title: String,
-    pub slug: Option<String>,
+    pub slug: String,
     pub icon: Option<String>,
     pub cover_image: Option<String>,
     pub status: DocumentationStatus,
@@ -495,6 +499,7 @@ pub struct DocumentationPage {
     pub yjs_document: Option<Vec<u8>>,
     pub yjs_client_id: Option<i64>,
     pub has_unsaved_changes: bool,
+    pub deleted_at: Option<chrono::NaiveDateTime>,
 }
 
 // Documentation Page with Children
@@ -507,6 +512,12 @@ pub struct DocumentationPageWithChildren {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PageOrder {
     pub page_id: i32,
+    pub display_order: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CollectionOrder {
+    pub collection_id: i32,
     pub display_order: i32,
 }
 
@@ -1190,7 +1201,7 @@ pub struct UserAuthIdentityDisplay {
 pub struct NewDocumentationPage {
     pub uuid: Uuid,
     pub title: String,
-    pub slug: Option<String>,
+    pub slug: String,
     pub icon: Option<String>,
     pub cover_image: Option<String>,
     pub status: DocumentationStatus,
@@ -1227,6 +1238,7 @@ pub struct DocumentationPageUpdate {
     pub yjs_client_id: Option<i64>,
     pub has_unsaved_changes: Option<bool>,
     pub updated_at: Option<chrono::NaiveDateTime>,
+    pub deleted_at: Option<Option<chrono::NaiveDateTime>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Queryable, Identifiable, Clone)]
@@ -1261,7 +1273,7 @@ pub struct DocumentationPageResponse {
     pub id: i32,
     pub uuid: Uuid,
     pub title: String,
-    pub slug: Option<String>,
+    pub slug: String,
     pub icon: Option<String>,
     pub cover_image: Option<String>,
     pub status: DocumentationStatus,
@@ -1275,6 +1287,7 @@ pub struct DocumentationPageResponse {
     pub is_public: bool,
     pub is_template: bool,
     pub archived_at: Option<chrono::NaiveDateTime>,
+    pub deleted_at: Option<chrono::NaiveDateTime>,
     pub has_unsaved_changes: bool,
     pub children: Option<Vec<DocumentationPageResponse>>,
     pub content: Option<String>,
@@ -2357,6 +2370,156 @@ pub struct NewCategoryGroupVisibility {
     pub category_id: i32,
     pub group_id: i32,
     pub created_by: Option<Uuid>,
+}
+
+// ============================================================================
+// Documentation Collections
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::documentation_collections)]
+pub struct DocumentationCollection {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub name: String,
+    pub slug: String,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+    pub is_system: bool,
+    pub created_by: Option<Uuid>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub display_order: i32,
+    pub root_page_id: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::documentation_collections)]
+pub struct NewDocumentationCollection {
+    pub uuid: Uuid,
+    pub name: String,
+    pub slug: String,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+    pub is_system: bool,
+    pub created_by: Option<Uuid>,
+    pub root_page_id: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::documentation_collections)]
+pub struct DocumentationCollectionUpdate {
+    pub name: Option<String>,
+    pub slug: Option<String>,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+    pub updated_at: Option<NaiveDateTime>,
+    pub root_page_id: Option<Option<i32>>,
+}
+
+// Collection with visibility and page count
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CollectionWithDetails {
+    #[serde(flatten)]
+    pub collection: DocumentationCollection,
+    pub visible_to_groups: Vec<Group>,
+    pub visible_to_users: Vec<UserInfoWithAvatar>,
+    pub is_public: bool,
+    pub page_count: i64,
+}
+
+// Collection-Page junction table
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::documentation_collection_pages)]
+#[diesel(belongs_to(DocumentationCollection, foreign_key = collection_id))]
+#[diesel(belongs_to(DocumentationPage, foreign_key = page_id))]
+#[diesel(primary_key(collection_id, page_id))]
+pub struct DocumentationCollectionPage {
+    pub collection_id: i32,
+    pub page_id: i32,
+    pub created_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::documentation_collection_pages)]
+pub struct NewDocumentationCollectionPage {
+    pub collection_id: i32,
+    pub page_id: i32,
+    pub created_by: Option<Uuid>,
+}
+
+// Collection-Group visibility junction table
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::documentation_collection_visibility)]
+#[diesel(belongs_to(DocumentationCollection, foreign_key = collection_id))]
+#[diesel(primary_key(id))]
+pub struct DocumentationCollectionVisibility {
+    pub collection_id: i32,
+    pub group_id: Option<i32>,
+    pub created_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
+    pub id: i32,
+    pub user_uuid: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::documentation_collection_visibility)]
+pub struct NewDocumentationCollectionVisibility {
+    pub collection_id: i32,
+    pub group_id: Option<i32>,
+    pub created_by: Option<Uuid>,
+    pub user_uuid: Option<Uuid>,
+}
+
+// ============================================================================
+// Documentation Page Visibility - Page-level group access control
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::documentation_page_visibility)]
+#[diesel(belongs_to(DocumentationPage, foreign_key = page_id))]
+#[diesel(primary_key(id))]
+pub struct DocumentationPageVisibility {
+    pub page_id: i32,
+    pub group_id: Option<i32>,
+    pub created_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
+    pub id: i32,
+    pub user_uuid: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::documentation_page_visibility)]
+pub struct NewDocumentationPageVisibility {
+    pub page_id: i32,
+    pub group_id: Option<i32>,
+    pub created_by: Option<Uuid>,
+    pub user_uuid: Option<Uuid>,
+}
+
+// ============================================================================
+// Documentation Page Embeddings - Tracks transclusion relationships
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Queryable, Identifiable, Associations)]
+#[diesel(table_name = crate::schema::documentation_page_embeddings)]
+#[diesel(primary_key(source_page_id, target_page_id))]
+#[diesel(belongs_to(DocumentationPage, foreign_key = source_page_id))]
+pub struct DocumentationPageEmbedding {
+    pub source_page_id: i32,
+    pub target_page_id: i32,
+    pub created_at: chrono::NaiveDateTime,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::documentation_page_embeddings)]
+pub struct NewDocumentationPageEmbedding {
+    pub source_page_id: i32,
+    pub target_page_id: i32,
 }
 
 // ============================================================================

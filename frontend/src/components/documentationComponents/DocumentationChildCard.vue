@@ -24,7 +24,7 @@ const truncatedDescription = computed(() => {
 
 <template>
   <RouterLink
-    :to="`/documentation/${page.id}`"
+    :to="`/documentation/${page.slug || page.id}`"
     class="doc-child-card group"
     :style="staggerStyle"
   >

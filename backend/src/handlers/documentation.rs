@@ -1,5 +1,4 @@
 use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
-use chrono::Utc;
 use serde::Deserialize;
 use serde_json::json;
 use std::panic;
@@ -196,6 +195,7 @@ fn to_page_response(
         is_public: page.is_public,
         is_template: page.is_template,
         archived_at: page.archived_at,
+        deleted_at: page.deleted_at,
         has_unsaved_changes: page.has_unsaved_changes,
         children: None,
         content,
@@ -215,15 +215,33 @@ fn to_page_responses(
 
 // Get all documentation pages
 pub async fn get_documentation_pages(
+    req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
+    };
+
     match repository::get_documentation_pages(&mut conn) {
         Ok(pages) => {
+            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+                Ok(p) => p,
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
@@ -235,17 +253,36 @@ pub async fn get_documentation_pages(
 
 // Get a single documentation page by ID
 pub async fn get_documentation_page(
+    req: HttpRequest,
     id: web::Path<i32>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
     let page_id = id.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
+    };
+
     match repository::get_documentation_page(page_id, &mut conn) {
         Ok(page) => {
+            match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
+                Ok(true) => {},
+                Ok(false) => return HttpResponse::NotFound().json("Page not found"),
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            }
             match to_page_response(page, &mut conn) {
                 Ok(response) => HttpResponse::Ok().json(response),
                 Err(err) => HttpResponse::InternalServerError().json(err),
@@ -257,17 +294,36 @@ pub async fn get_documentation_page(
 
 // Get a documentation page by its slug
 pub async fn get_documentation_page_by_slug(
+    req: HttpRequest,
     slug: web::Path<String>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
     let page_slug = slug.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
+    };
+
     match repository::get_documentation_page_by_slug(&page_slug, &mut conn) {
         Ok(page) => {
+            match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
+                Ok(true) => {},
+                Ok(false) => return HttpResponse::NotFound().json("Page not found"),
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            }
             match to_page_response(page, &mut conn) {
                 Ok(response) => HttpResponse::Ok().json(response),
                 Err(err) => HttpResponse::InternalServerError().json(err),
@@ -275,6 +331,107 @@ pub async fn get_documentation_page_by_slug(
         },
         Err(_) => HttpResponse::NotFound().json("Page not found"),
     }
+}
+
+// Get a documentation page's content by UUID (for embedding)
+// Returns the Yjs document as base64 + metadata
+pub async fn get_documentation_page_content_by_uuid(
+    req: HttpRequest,
+    uuid_path: web::Path<String>,
+    pool: web::Data<Pool>,
+) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+    };
+
+    let uuid_str = uuid_path.into_inner();
+    let page_uuid = match Uuid::parse_str(&uuid_str) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid UUID"})),
+    };
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({"error": "Database connection error"})),
+    };
+
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({"error": "Invalid user UUID"})),
+    };
+
+    match repository::get_documentation_page_by_uuid(&page_uuid, &mut conn) {
+        Ok(page) => {
+            match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
+                Ok(true) => {},
+                Ok(false) => return HttpResponse::NotFound().json(json!({"error": "Page not found"})),
+                Err(_) => return HttpResponse::InternalServerError().json(json!({"error": "Failed to check page visibility"})),
+            }
+
+            use base64::{Engine as _, engine::general_purpose};
+
+            // Get yjs_document - try page's own, then fall back to linked ticket
+            let yjs_document = page.yjs_document.as_ref()
+                .cloned()
+                .or_else(|| {
+                    page.ticket_id.and_then(|ticket_id| {
+                        repository::get_article_content_by_ticket_id(&mut conn, ticket_id)
+                            .ok()
+                            .and_then(|article| article.yjs_document)
+                    })
+                });
+
+            let yjs_b64 = yjs_document.map(|doc| general_purpose::STANDARD.encode(&doc));
+
+            HttpResponse::Ok().json(json!({
+                "uuid": page.uuid,
+                "title": page.title,
+                "icon": page.icon,
+                "status": page.status,
+                "yjs_document": yjs_b64,
+            }))
+        },
+        Err(_) => HttpResponse::NotFound().json(json!({"error": "Page not found"})),
+    }
+}
+
+// Sync the embedding references for a page
+// Called by the frontend after saving, with the list of embedded document UUIDs
+pub async fn sync_page_embeddings(
+    page_id: web::Path<i32>,
+    body: web::Json<SyncEmbeddingsRequest>,
+    pool: web::Data<Pool>,
+) -> impl Responder {
+    let source_page_id = page_id.into_inner();
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({"error": "Database connection error"})),
+    };
+
+    // Resolve UUIDs to page IDs
+    let mut target_page_ids = Vec::new();
+    for uuid_str in &body.embedded_uuids {
+        if let Ok(uuid) = Uuid::parse_str(uuid_str) {
+            if let Ok(page) = repository::get_documentation_page_by_uuid(&uuid, &mut conn) {
+                target_page_ids.push(page.id);
+            }
+        }
+    }
+
+    match repository::sync_page_embeddings(&mut conn, source_page_id, &target_page_ids) {
+        Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
+        Err(e) => {
+            error!("Failed to sync page embeddings: {}", e);
+            HttpResponse::InternalServerError().json(json!({"error": "Failed to sync embeddings"}))
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SyncEmbeddingsRequest {
+    pub embedded_uuids: Vec<String>,
 }
 
 // Create a new documentation page
@@ -322,10 +479,11 @@ pub async fn create_documentation_page(
     };
 
     // Build the NewDocumentationPage from request
+    let slug = utils::slug::generate_unique_slug(&request.title, &mut conn);
     let new_page = NewDocumentationPage {
         uuid: Uuid::now_v7(),
         title: request.title,
-        slug: None, // Will be generated by the database or repository
+        slug,
         icon: request.icon,
         cover_image: request.cover_image,
         status,
@@ -428,9 +586,28 @@ pub async fn update_documentation_page(
 
             // Create update struct with the fields from the request
             let update_req = page.into_inner();
+            let now = chrono::Utc::now().naive_utc();
+
+            // Compute archived_at and deleted_at based on status change
+            let (archived_at, deleted_at) = match update_req.status {
+                Some(DocumentationStatus::Archived) => (Some(Some(now)), Some(None)),
+                Some(DocumentationStatus::Deleted) => (Some(None), Some(Some(now))),
+                Some(DocumentationStatus::Draft) | Some(DocumentationStatus::Published) => (Some(None), Some(None)),
+                None => (None, None),
+            };
+
+            // Auto-regenerate slug when title changes (unless user explicitly provided a slug)
+            let slug = if update_req.slug.is_some() {
+                update_req.slug.clone()
+            } else if let Some(ref new_title) = update_req.title {
+                Some(utils::slug::generate_unique_slug(new_title, &mut conn))
+            } else {
+                None
+            };
+
             let page_update = crate::models::DocumentationPageUpdate {
                 title: update_req.title.clone(),
-                slug: update_req.slug.clone(),
+                slug,
                 icon: update_req.icon.clone(),
                 cover_image: update_req.cover_image,
                 status: update_req.status,
@@ -440,12 +617,13 @@ pub async fn update_documentation_page(
                 display_order: update_req.display_order,
                 is_public: update_req.is_public,
                 is_template: update_req.is_template,
-                archived_at: None,
+                archived_at,
                 yjs_state_vector: None,
                 yjs_document: None,
                 yjs_client_id: None,
                 has_unsaved_changes: None,
-                updated_at: Some(chrono::Utc::now().naive_utc()),
+                updated_at: Some(now),
+                deleted_at,
             };
 
             // Update the page
@@ -484,6 +662,15 @@ pub async fn update_documentation_page(
                             &claims.sub,
                         ).await;
                     }
+                    if let Some(ref status) = update_req.status {
+                        crate::utils::sse::SseBroadcaster::broadcast_documentation_updated(
+                            &sse_state,
+                            page_id,
+                            "status",
+                            serde_json::json!(status),
+                            &claims.sub,
+                        ).await;
+                    }
 
                     match to_page_response(updated_page, &mut conn) {
                         Ok(response) => HttpResponse::Ok().json(response),
@@ -500,7 +687,7 @@ pub async fn update_documentation_page(
     }
 }
 
-// Delete a documentation page
+// Delete a documentation page (soft delete — moves to trash)
 pub async fn delete_documentation_page(
     req: HttpRequest,
     pool: web::Data<Pool>,
@@ -522,26 +709,48 @@ pub async fn delete_documentation_page(
         })),
     };
 
-    if !is_admin(&claims) {
+    if !is_technician_or_admin(&claims) {
         return HttpResponse::Forbidden().json(json!({
             "error": "Forbidden",
-            "message": "Only administrators can delete documentation pages"
+            "message": "Only technicians and administrators can delete documentation pages"
         }));
     }
 
     // Check if the page exists
     match repository::get_documentation_page(page_id, &mut conn) {
         Ok(_) => {
-            // Delete the page
-            match repository::delete_documentation_page(page_id, &mut conn) {
+            // Soft delete: update status to Deleted and set deleted_at
+            let now = chrono::Utc::now().naive_utc();
+            let page_update = crate::models::DocumentationPageUpdate {
+                title: None,
+                slug: None,
+                icon: None,
+                cover_image: None,
+                status: Some(DocumentationStatus::Deleted),
+                last_edited_by: None,
+                parent_id: None,
+                ticket_id: None,
+                display_order: None,
+                is_public: None,
+                is_template: None,
+                archived_at: Some(None),
+                yjs_state_vector: None,
+                yjs_document: None,
+                yjs_client_id: None,
+                has_unsaved_changes: None,
+                updated_at: Some(now),
+                deleted_at: Some(Some(now)),
+            };
+
+            match repository::update_documentation_page(&mut conn, page_id, &page_update) {
                 Ok(_) => {
-                    // Remove documentation from search index
+                    // Remove documentation from search index (trashed pages shouldn't appear in search)
                     indexing_tasks::spawn_delete_documentation(search_service.get_ref().clone(), page_id);
-                    info!(page_id = page_id, deleted_by = %claims.name, "Documentation page deleted");
+                    info!(page_id = page_id, deleted_by = %claims.name, "Documentation page moved to trash");
                     HttpResponse::NoContent().finish()
                 },
                 Err(e) => {
-                    error!(page_id = page_id, error = ?e, "Error deleting documentation page");
+                    error!(page_id = page_id, error = ?e, "Error soft-deleting documentation page");
                     HttpResponse::InternalServerError().json("Failed to delete documentation page")
                 },
             }
@@ -552,15 +761,33 @@ pub async fn delete_documentation_page(
 
 // Get top-level documentation pages
 pub async fn get_top_level_documentation_pages(
+    req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
+    };
+
     match repository::get_top_level_pages(&mut conn) {
         Ok(pages) => {
+            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+                Ok(p) => p,
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
@@ -572,17 +799,35 @@ pub async fn get_top_level_documentation_pages(
 
 // Get documentation pages by parent ID
 pub async fn get_documentation_pages_by_parent_id(
+    req: HttpRequest,
     parent_id: web::Path<i32>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
     let parent = parent_id.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
+    };
+
     match repository::get_pages_by_parent_id(parent, &mut conn) {
         Ok(pages) => {
+            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+                Ok(p) => p,
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
@@ -594,13 +839,27 @@ pub async fn get_documentation_pages_by_parent_id(
 
 // Get a page with its children by parent ID
 pub async fn get_page_with_children_by_parent_id(
+    req: HttpRequest,
     id: web::Path<i32>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
     let page_id = id.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
     };
 
     // First get the page
@@ -609,13 +868,21 @@ pub async fn get_page_with_children_by_parent_id(
         Err(_) => return HttpResponse::NotFound().json("Page not found"),
     };
 
-    // Then get its children
+    match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
+        Ok(true) => {},
+        Ok(false) => return HttpResponse::NotFound().json("Page not found"),
+        Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+    }
+
+    // Then get its children (filtered by access)
     let children = match repository::get_pages_by_parent_id(page_id, &mut conn) {
-        Ok(children) => children,
+        Ok(children) => match repository::filter_pages_for_user(&mut conn, children, &user_uuid, is_admin(&claims)) {
+            Ok(c) => c,
+            Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+        },
         Err(_) => return HttpResponse::InternalServerError().json("Failed to fetch children"),
     };
 
-    // Combine into a single response
     let page_with_children = DocumentationPageWithChildren {
         page,
         children,
@@ -626,34 +893,78 @@ pub async fn get_page_with_children_by_parent_id(
 
 // Get a page with its ordered children
 pub async fn get_page_with_ordered_children(
+    req: HttpRequest,
     id: web::Path<i32>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
     let page_id = id.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
+    };
+
     match repository::get_page_with_ordered_children(&mut conn, page_id) {
-        Ok(page_with_children) => HttpResponse::Ok().json(page_with_children),
+        Ok(mut page_with_children) => {
+            match repository::can_user_access_page(&mut conn, page_with_children.page.id, &user_uuid, is_admin(&claims)) {
+                Ok(true) => {},
+                Ok(false) => return HttpResponse::NotFound().json("Page not found or error fetching children"),
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            }
+            // Filter children
+            page_with_children.children = match repository::filter_pages_for_user(&mut conn, page_with_children.children, &user_uuid, is_admin(&claims)) {
+                Ok(c) => c,
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            };
+            HttpResponse::Ok().json(page_with_children)
+        },
         Err(_) => HttpResponse::NotFound().json("Page not found or error fetching children"),
     }
 }
 
 // Get ordered documentation pages by parent ID
 pub async fn get_ordered_pages_by_parent_id(
+    req: HttpRequest,
     parent_id: web::Path<i32>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
     let parent = parent_id.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
+    };
+
     match repository::get_ordered_pages_by_parent_id(&mut conn, parent) {
         Ok(pages) => {
+            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+                Ok(p) => p,
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
@@ -769,16 +1080,33 @@ pub async fn move_page_to_parent(
 
 // Get top-level pages (with ordering)
 pub async fn get_ordered_top_level_pages(
+    req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
-    // Get all top-level pages with appropriate ordering
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
+    };
+
     match repository::get_ordered_top_level_pages(&mut conn) {
         Ok(pages) => {
+            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+                Ok(p) => p,
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
@@ -790,13 +1118,27 @@ pub async fn get_ordered_top_level_pages(
 
 // Get documentation page by slug with its children
 pub async fn get_documentation_page_by_slug_with_children(
+    req: HttpRequest,
     slug: web::Path<String>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
     let page_slug = slug.into_inner();
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
     };
 
     // First get the page by slug
@@ -805,13 +1147,21 @@ pub async fn get_documentation_page_by_slug_with_children(
         Err(_) => return HttpResponse::NotFound().json("Page not found"),
     };
 
-    // Then get its children
+    match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
+        Ok(true) => {},
+        Ok(false) => return HttpResponse::NotFound().json("Page not found"),
+        Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+    }
+
+    // Then get its children (filtered by access)
     let children = match repository::get_pages_by_parent_id(page.id, &mut conn) {
-        Ok(children) => children,
+        Ok(children) => match repository::filter_pages_for_user(&mut conn, children, &user_uuid, is_admin(&claims)) {
+            Ok(c) => c,
+            Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+        },
         Err(_) => return HttpResponse::InternalServerError().json("Failed to fetch children"),
     };
 
-    // Combine into a single response
     let page_with_children = DocumentationPageWithChildren {
         page,
         children,
@@ -822,19 +1172,36 @@ pub async fn get_documentation_page_by_slug_with_children(
 
 // Get documentation pages for a ticket
 pub async fn get_documentation_pages_by_ticket_id(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<i32>,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
     let ticket_id = path.into_inner();
 
-    // Get a connection from the pool
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
+    };
+
     match repository::get_documentation_pages_by_ticket_id(&mut conn, ticket_id) {
         Ok(pages) => {
+            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+                Ok(p) => p,
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            };
             debug!(ticket_id = ticket_id, count = pages.len(), "Found documentation pages for ticket");
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
@@ -863,7 +1230,7 @@ pub struct DocumentationPageExport {
     pub id: i32,
     pub uuid: Uuid,
     pub title: String,
-    pub slug: Option<String>,
+    pub slug: String,
     pub icon: Option<String>,
     pub parent_id: Option<i32>,
     pub display_order: Option<i32>,
@@ -922,6 +1289,58 @@ pub async fn export_documentation_pages(
     }
 }
 
+// Export a single documentation page as Markdown
+pub async fn export_page_as_markdown(
+    page_id: web::Path<i32>,
+    pool: web::Data<Pool>,
+) -> impl Responder {
+    let id = page_id.into_inner();
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({"error": "Database connection error"})),
+    };
+
+    let page = match repository::get_documentation_page(id, &mut conn) {
+        Ok(p) => p,
+        Err(_) => return HttpResponse::NotFound().json(json!({"error": "Page not found"})),
+    };
+
+    // Get yjs_document - try page's own, then fall back to linked ticket
+    let yjs_doc = page.yjs_document.as_ref()
+        .cloned()
+        .or_else(|| {
+            page.ticket_id.and_then(|tid| {
+                repository::get_article_content_by_ticket_id(&mut conn, tid)
+                    .ok()
+                    .and_then(|a| a.yjs_document)
+            })
+        });
+
+    let markdown = match yjs_doc {
+        Some(doc_bytes) => {
+            let mut visited = std::collections::HashSet::new();
+            utils::markdown_export::yjs_to_markdown_with_embeds(
+                &doc_bytes,
+                &mut conn,
+                &mut visited,
+                Some(page.uuid),
+                0,
+            ).unwrap_or_else(|| String::from("*Empty document*"))
+        }
+        None => String::from("*Empty document*"),
+    };
+
+    // Add title as H1 header
+    let full_markdown = format!("# {}\n\n{}", page.title, markdown);
+
+    let filename = format!("{}.md", page.slug);
+
+    HttpResponse::Ok()
+        .content_type("text/markdown; charset=utf-8")
+        .insert_header(("Content-Disposition", format!("attachment; filename=\"{}\"", filename)))
+        .body(full_markdown)
+}
+
 // Create a documentation page from a ticket's article content
 pub async fn create_documentation_page_from_ticket(
     req: HttpRequest,
@@ -965,16 +1384,14 @@ pub async fn create_documentation_page_from_ticket(
         }
     }
 
-    // Get the ticket's article content
-    let _article_content = match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
-        Ok(content) => content,
-        Err(_) => return HttpResponse::NotFound().json("Article content not found for ticket"),
+    // Get the ticket's article content (for Yjs document cloning)
+    let article_content = match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
+        Ok(content) => Some(content),
+        Err(_) => None, // Article content may not exist yet - allow creation without it
     };
 
-    // Generate a slug from the title
-    let slug = page_data.title.to_lowercase().replace(" ", "-");
-
-    let _now = Utc::now().naive_utc();
+    // Generate a unique slug from the title
+    let slug = utils::slug::generate_unique_slug(&page_data.title, &mut conn);
 
     // Get the user UUID for created_by and last_edited_by
     let user_uuid = match utils::parse_uuid(&claims.sub) {
@@ -982,10 +1399,20 @@ pub async fn create_documentation_page_from_ticket(
         Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID in token"),
     };
 
+    // Clone Yjs document data from ticket's article content if available
+    let (yjs_state_vector, yjs_document, yjs_client_id) = match &article_content {
+        Some(content) => (
+            content.yjs_state_vector.clone(),
+            content.yjs_document.clone(),
+            content.yjs_client_id,
+        ),
+        None => (None, None, None),
+    };
+
     let new_page = NewDocumentationPage {
         uuid: Uuid::now_v7(),
         title: page_data.title.clone(),
-        slug: Some(slug),
+        slug,
         icon: page_data.icon.clone(),
         cover_image: None,
         status: DocumentationStatus::Draft,
@@ -996,15 +1423,27 @@ pub async fn create_documentation_page_from_ticket(
         display_order: Some(0),
         is_public: false,
         is_template: false,
-        yjs_state_vector: None,
-        yjs_document: None,
-        yjs_client_id: None,
+        yjs_state_vector,
+        yjs_document,
+        yjs_client_id,
         has_unsaved_changes: false,
     };
 
     // Create the documentation page
     match repository::create_documentation_page(new_page, &mut conn) {
         Ok(page) => {
+            // Auto-add to "Tickets" system collection
+            if let Ok(tickets_collection) = repository::documentation_collections::get_collection_by_slug(&mut conn, "tickets") {
+                let entry = crate::models::NewDocumentationCollectionPage {
+                    collection_id: tickets_collection.id,
+                    page_id: page.id,
+                    created_by: Some(user_uuid),
+                };
+                if let Err(e) = repository::documentation_collections::add_page_to_collection(&mut conn, entry) {
+                    error!(error = ?e, "Failed to add page to Tickets collection");
+                }
+            }
+
             // Broadcast SSE event for documentation creation
             use crate::utils::sse::SseBroadcaster;
             SseBroadcaster::broadcast_documentation_created(
@@ -1020,4 +1459,305 @@ pub async fn create_documentation_page_from_ticket(
             HttpResponse::InternalServerError().json("Failed to create documentation page")
         }
     }
-} 
+}
+
+// Get archived documentation pages
+pub async fn get_archived_pages(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
+    };
+
+    match repository::get_pages_by_status(&mut conn, DocumentationStatus::Archived) {
+        Ok(pages) => {
+            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+                Ok(p) => p,
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            };
+            match to_page_responses(pages, &mut conn) {
+                Ok(responses) => HttpResponse::Ok().json(responses),
+                Err(err) => HttpResponse::InternalServerError().json(err),
+            }
+        },
+        Err(_) => HttpResponse::InternalServerError().json("Failed to fetch archived pages"),
+    }
+}
+
+// Get trashed (soft-deleted) documentation pages
+pub async fn get_trashed_pages(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return HttpResponse::InternalServerError().json("Invalid user UUID"),
+    };
+
+    match repository::get_pages_by_status(&mut conn, DocumentationStatus::Deleted) {
+        Ok(pages) => {
+            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+                Ok(p) => p,
+                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            };
+            match to_page_responses(pages, &mut conn) {
+                Ok(responses) => HttpResponse::Ok().json(responses),
+                Err(err) => HttpResponse::InternalServerError().json(err),
+            }
+        },
+        Err(_) => HttpResponse::InternalServerError().json("Failed to fetch trashed pages"),
+    }
+}
+
+// ============================================================================
+// Page Visibility (Access Control)
+// ============================================================================
+
+/// Get visibility groups for a documentation page (technician+)
+pub async fn get_page_visibility(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let _claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_technician_or_admin(&_claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can view page visibility"
+        }));
+    }
+
+    let page_id = path.into_inner();
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    let groups = match repository::get_visible_groups_for_page(&mut conn, page_id) {
+        Ok(g) => g,
+        Err(e) => {
+            error!(error = ?e, "Failed to get page visibility groups");
+            return HttpResponse::InternalServerError().json("Failed to get page visibility");
+        }
+    };
+
+    let users = match repository::get_visible_users_for_page(&mut conn, page_id) {
+        Ok(u) => u,
+        Err(e) => {
+            error!(error = ?e, "Failed to get page visibility users");
+            return HttpResponse::InternalServerError().json("Failed to get page visibility");
+        }
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "groups": groups,
+        "users": users,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct SetPageVisibilityRequest {
+    pub group_ids: Vec<i32>,
+    pub user_uuids: Option<Vec<String>>,
+}
+
+/// Set visibility groups for a documentation page (admin only)
+pub async fn set_page_visibility(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+    body: web::Json<SetPageVisibilityRequest>,
+) -> impl Responder {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only administrators can set page visibility"
+        }));
+    }
+
+    let page_id = path.into_inner();
+    let created_by = Uuid::parse_str(&claims.sub).ok();
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Parse user UUIDs
+    let user_uuids: Vec<Uuid> = body.user_uuids.as_ref()
+        .map(|uuids| {
+            uuids.iter()
+                .filter_map(|s| Uuid::parse_str(s).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    match repository::set_page_visibility(&mut conn, page_id, body.group_ids.clone(), user_uuids, created_by) {
+        Ok(entries) => HttpResponse::Ok().json(entries),
+        Err(e) => {
+            error!(error = ?e, "Failed to set page visibility");
+            HttpResponse::InternalServerError().json("Failed to set page visibility")
+        }
+    }
+}
+
+// Restore a page from archive or trash back to draft
+pub async fn restore_page(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    search_service: web::Data<Arc<SearchService>>,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let page_id = path.into_inner();
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only technicians and administrators can restore documentation pages"
+        }));
+    }
+
+    match repository::get_documentation_page(page_id, &mut conn) {
+        Ok(_) => {
+            let now = chrono::Utc::now().naive_utc();
+            let page_update = crate::models::DocumentationPageUpdate {
+                title: None,
+                slug: None,
+                icon: None,
+                cover_image: None,
+                status: Some(DocumentationStatus::Draft),
+                last_edited_by: None,
+                parent_id: None,
+                ticket_id: None,
+                display_order: None,
+                is_public: None,
+                is_template: None,
+                archived_at: Some(None),
+                yjs_state_vector: None,
+                yjs_document: None,
+                yjs_client_id: None,
+                has_unsaved_changes: None,
+                updated_at: Some(now),
+                deleted_at: Some(None),
+            };
+
+            match repository::update_documentation_page(&mut conn, page_id, &page_update) {
+                Ok(restored_page) => {
+                    // Re-index in search
+                    indexing_tasks::spawn_index_documentation(search_service.get_ref().clone(), restored_page.clone());
+                    info!(page_id = page_id, restored_by = %claims.name, "Documentation page restored");
+                    match to_page_response(restored_page, &mut conn) {
+                        Ok(response) => HttpResponse::Ok().json(response),
+                        Err(err) => HttpResponse::InternalServerError().json(err),
+                    }
+                },
+                Err(e) => {
+                    error!(page_id = page_id, error = ?e, "Error restoring documentation page");
+                    HttpResponse::InternalServerError().json("Failed to restore documentation page")
+                },
+            }
+        },
+        Err(_) => HttpResponse::NotFound().json("Documentation page not found"),
+    }
+}
+
+// Permanently delete a documentation page (hard delete, admin only)
+pub async fn permanently_delete_page(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    search_service: web::Data<Arc<SearchService>>,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let page_id = path.into_inner();
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        })),
+    };
+
+    if !is_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "Only administrators can permanently delete documentation pages"
+        }));
+    }
+
+    match repository::get_documentation_page(page_id, &mut conn) {
+        Ok(_) => {
+            match repository::permanently_delete_page(page_id, &mut conn) {
+                Ok(_) => {
+                    indexing_tasks::spawn_delete_documentation(search_service.get_ref().clone(), page_id);
+                    info!(page_id = page_id, deleted_by = %claims.name, "Documentation page permanently deleted");
+                    HttpResponse::NoContent().finish()
+                },
+                Err(e) => {
+                    error!(page_id = page_id, error = ?e, "Error permanently deleting documentation page");
+                    HttpResponse::InternalServerError().json("Failed to permanently delete documentation page")
+                },
+            }
+        },
+        Err(_) => HttpResponse::NotFound().json("Documentation page not found"),
+    }
+}

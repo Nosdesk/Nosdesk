@@ -259,6 +259,38 @@ export const nodes: {[key: string]: NodeSpec} = {
     defining: true,
     parseDOM: [{ tag: 'li' }],
     toDOM(node) { return ['li', calcYchangeDomAttrs(node.attrs), 0]; }
+  },
+
+  // An embedded document - renders a read-only, live-updating block of another document's content
+  embedded_document: {
+    attrs: {
+      ychange: { default: null },
+      documentUuid: {},
+      documentTitle: { default: 'Untitled' }
+    },
+    group: 'block',
+    atom: true,
+    draggable: true,
+    selectable: true,
+    parseDOM: [{
+      tag: 'div[data-embedded-document]',
+      getAttrs(dom: HTMLElement) {
+        return {
+          documentUuid: dom.getAttribute('data-document-uuid'),
+          documentTitle: dom.getAttribute('data-document-title') || 'Untitled'
+        };
+      }
+    }],
+    toDOM(node) {
+      const domAttrs = calcYchangeDomAttrs(node.attrs, {
+        'data-embedded-document': 'true',
+        'data-document-uuid': node.attrs.documentUuid,
+        'data-document-title': node.attrs.documentTitle,
+        'class': 'embedded-document-block',
+        'contenteditable': 'false'
+      });
+      return ['div', domAttrs, node.attrs.documentTitle];
+    }
   }
 };
 

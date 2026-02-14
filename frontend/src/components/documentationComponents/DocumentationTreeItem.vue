@@ -49,7 +49,7 @@ const authorName = computed(() => {
   <div class="doc-tree-item" :style="staggerStyle">
     <!-- Main Item Row -->
     <RouterLink
-      :to="`/documentation/${page.id}`"
+      :to="`/documentation/${page.slug || page.id}`"
       class="doc-row group"
       :class="{ 'has-children': hasChildren }"
     >

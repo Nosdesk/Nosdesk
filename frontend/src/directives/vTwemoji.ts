@@ -8,14 +8,12 @@
  * Usage:
  *   <div v-twemoji>Hello 👋 World 🌍</div>
  */
-import twemoji from '@twemoji/api'
 import type { Directive, DirectiveBinding } from 'vue'
+import { getEmojiUrl } from '@/composables/useTwemoji'
 
 interface TwemojiDirectiveOptions {
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 }
-
-const TWEMOJI_BASE = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/'
 
 // Store observers per element
 const observers = new WeakMap<HTMLElement, MutationObserver>()
@@ -26,11 +24,6 @@ const pendingElements = new Set<HTMLElement>()
 
 // Emoji regex pattern - matches most emoji including ZWJ sequences
 const emojiPattern = /(?:\p{Emoji_Presentation}|\p{Extended_Pictographic})(?:\uFE0F)?(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic})(?:\uFE0F)?)*|\p{Emoji}\uFE0F/gu
-
-function getEmojiUrl(emoji: string): string {
-  const codepoints = twemoji.convert.toCodePoint(emoji)
-  return `${TWEMOJI_BASE}${codepoints}.svg`
-}
 
 function wrapEmojis(el: HTMLElement) {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null)

@@ -6,7 +6,7 @@
  * Supports theme-aware styling (grayscale for e-paper, amber for red-horizon).
  */
 import { computed } from 'vue'
-import twemoji from '@twemoji/api'
+import { getEmojiUrl } from '@/composables/useTwemoji'
 
 const props = withDefaults(defineProps<{
   emoji: string
@@ -17,11 +17,7 @@ const props = withDefaults(defineProps<{
 })
 
 // Convert emoji to Twemoji SVG URL
-const svgUrl = computed(() => {
-  // Handle multi-codepoint emojis (flags, skin tones, ZWJ sequences)
-  const codepoints = twemoji.convert.toCodePoint(props.emoji)
-  return `https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/${codepoints}.svg`
-})
+const svgUrl = computed(() => getEmojiUrl(props.emoji))
 
 // Size classes
 const sizeClass = computed(() => {

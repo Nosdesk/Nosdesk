@@ -257,6 +257,43 @@ const router = createRouter({
       }
     },
     {
+      path: '/documentation/drafts',
+      name: 'documentation-drafts',
+      component: () => import('../views/DocumentationDraftsView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Drafts'
+      }
+    },
+    {
+      path: '/documentation/collections/:slug',
+      name: 'collection-view',
+      component: () => import('../views/CollectionView.vue'),
+      props: true,
+      meta: {
+        requiresAuth: true,
+        title: 'Collection'
+      }
+    },
+    {
+      path: '/documentation/archived',
+      name: 'documentation-archived',
+      component: () => import('../views/DocumentationArchivedView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Archived'
+      }
+    },
+    {
+      path: '/documentation/trash',
+      name: 'documentation-trash',
+      component: () => import('../views/DocumentationTrashView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Trash'
+      }
+    },
+    {
       path: '/documentation/:path',
       name: 'documentation-page',
       component: DocumentView,

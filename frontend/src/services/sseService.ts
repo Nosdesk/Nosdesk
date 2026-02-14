@@ -4,7 +4,7 @@ import { useAuthStore } from "@/stores/auth";
 import apiClient from "./apiConfig";
 
 // Event types that match the backend
-export interface TicketEvent {
+export interface SseEvent {
   type:
     | "TicketUpdated"
     | "CommentAdded"
@@ -43,6 +43,7 @@ export type SSEEventType =
   | "project-unassigned"
   | "documentation-created"
   | "documentation-updated"
+  | "collection-updated"
   | "user-updated"
   | "user-created"
   | "user-deleted"
@@ -165,6 +166,7 @@ class SSEService {
       "project-unassigned",
       "documentation-created",
       "documentation-updated",
+      "collection-updated",
       "user-updated",
       "user-created",
       "user-deleted",

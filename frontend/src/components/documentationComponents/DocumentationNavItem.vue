@@ -32,8 +32,8 @@ const currentLevel = computed(() => props.level ?? 0)
 
 // Check if this page is currently active
 const isActive = computed(() => {
-  return route.path === `/documentation/${props.page.id}` ||
-         (typeof props.page.slug === 'string' && route.path === `/documentation/${props.page.slug}`)
+  const pageSlug = props.page.slug || String(props.page.id)
+  return route.path === `/documentation/${pageSlug}`
 })
 
 // Check if this page has children
@@ -162,36 +162,32 @@ const handleDrop = (event: DragEvent) => {
       <!-- Indent spacing - matches the width of parent indent guides -->
       <span class="flex-shrink-0" :style="{ width: `${8 + currentLevel * 12}px` }"></span>
 
-      <!-- Expand/Collapse Toggle - fixed width for alignment -->
-      <span class="flex-shrink-0 w-4 flex items-center justify-center">
-        <button
+      <!-- Icon / Expand Toggle (arrow replaces icon on hover) -->
+      <span
+        class="flex-shrink-0 w-5 flex items-center justify-center"
+        @click="hasChildren ? handleToggleExpand($event) : undefined"
+      >
+        <!-- Expand arrow (visible on row hover when has children) -->
+        <svg
           v-if="hasChildren"
-          class="w-3.5 h-3.5 flex items-center justify-center text-tertiary hover:text-primary rounded transition-colors"
-          @click.stop="handleToggleExpand"
-          :aria-label="isExpanded ? 'Collapse' : 'Expand'"
+          class="w-2.5 h-2.5 transition-transform duration-200 hidden group-hover:block text-tertiary"
+          :class="{ 'rotate-90': isExpanded }"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          stroke-width="2.5"
         >
-          <svg
-            class="w-2.5 h-2.5 transition-transform duration-200"
-            :class="{ 'rotate-90': isExpanded }"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2.5"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-      </span>
-
-      <!-- Page Icon - fixed width for alignment -->
-      <span class="flex-shrink-0 w-5 flex items-center justify-center">
-        <span v-if="page.icon && !isIconSvg(page.icon)" class="text-sm leading-none">{{ page.icon }}</span>
-        <span v-else-if="page.icon && isIconSvg(page.icon)" v-safe-html.svg="page.icon" class="w-3.5 h-3.5"></span>
-        <span v-else class="text-sm leading-none text-tertiary">📄</span>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        <!-- Page icon (hidden on row hover when has children) -->
+        <span v-if="page.icon && !isIconSvg(page.icon)" class="text-sm leading-none" :class="{ 'group-hover:hidden': hasChildren }">{{ page.icon }}</span>
+        <span v-else-if="page.icon && isIconSvg(page.icon)" v-safe-html.svg="page.icon" class="w-3.5 h-3.5" :class="{ 'group-hover:hidden': hasChildren }"></span>
+        <span v-else class="text-sm leading-none text-tertiary" :class="{ 'group-hover:hidden': hasChildren }">📄</span>
       </span>
 
       <!-- Page Title -->
       <span class="flex-1 truncate min-w-0 ml-1">{{ page.title }}</span>
+      <span v-if="page.status === 'draft'" class="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 flex-shrink-0 ml-1">Draft</span>
 
       <!-- Drag Handle (visible on hover) -->
       <span class="flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity text-tertiary ml-1">
@@ -255,8 +251,8 @@ const handleDrop = (event: DragEvent) => {
   position: absolute;
   top: 4px;
   bottom: 8px;
-  /* Position: 8px base + (parent-level * 12px) + 6px to center in the indent area */
-  left: calc(8px + var(--parent-level, 0) * 12px + 6px);
+  /* Position: 8px base + (parent-level * 12px) + 10px to center in the icon area */
+  left: calc(8px + var(--parent-level, 0) * 12px + 10px);
   width: 1px;
   background-color: currentColor;
   opacity: 0.15;

@@ -1,0 +1,350 @@
+<script setup lang="ts">
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useTitleManager } from '@/composables/useTitleManager'
+import { getCollectionBySlug, addPageToCollection, updateCollection, getPageOverridesInCollection } from '@/services/collectionService'
+import type { CollectionWithPages, PageOverrideInfo } from '@/services/collectionService'
+import documentationService from '@/services/documentationService'
+import { docsEmitter } from '@/services/docsEmitter'
+import { useAuthStore } from '@/stores/auth'
+import BackButton from '@/components/common/BackButton.vue'
+import CollectionTreeList from '@/components/documentationComponents/CollectionTreeList.vue'
+import DocumentIconSelector from '@/components/DocumentIconSelector.vue'
+import CollectionVisibilityModal from '@/components/documentationComponents/CollectionVisibilityModal.vue'
+import CollaborativeEditor from '@/components/CollaborativeEditor.vue'
+
+const route = useRoute()
+const router = useRouter()
+const titleManager = useTitleManager()
+const authStore = useAuthStore()
+const collection = ref<CollectionWithPages | null>(null)
+const loading = ref(true)
+const creating = ref(false)
+
+// Editor state
+const editContent = ref('')
+
+// Management state
+const showVisibilityModal = ref(false)
+const pageOverrides = ref<PageOverrideInfo[]>([])
+const overridesExpanded = ref(false)
+
+const docId = computed(() => {
+  if (!collection.value?.root_page_id) return null
+  return `doc-${collection.value.root_page_id}`
+})
+
+const overridePageIds = computed(() => {
+  return new Set(pageOverrides.value.map(o => o.page_id))
+})
+
+const loadCollection = async () => {
+  const slug = route.params.slug as string
+  if (!slug) return
+
+  loading.value = true
+  collection.value = await getCollectionBySlug(slug)
+
+  if (collection.value) {
+    titleManager.setCustomTitle(collection.value.name)
+
+    // Load page overrides for technician+ users
+    if (authStore.isTechnician) {
+      pageOverrides.value = await getPageOverridesInCollection(collection.value.id)
+    }
+  } else {
+    titleManager.setCustomTitle('Collection Not Found')
+  }
+
+  loading.value = false
+}
+
+const handleIconChange = async (icon: string) => {
+  if (!collection.value) return
+  collection.value.icon = icon
+  await updateCollection(collection.value.id, { icon })
+}
+
+const updateName = async (newName: string) => {
+  if (!collection.value) return
+  const name = newName.trim()
+  if (!name || name === collection.value.name) return
+  collection.value.name = name
+  titleManager.setCustomTitle(name)
+  await updateCollection(collection.value.id, { name })
+}
+
+const createPageInCollection = async () => {
+  if (!collection.value || creating.value) return
+
+  creating.value = true
+  try {
+    const newPage = await documentationService.createArticle({
+      title: 'New Page',
+      content: '',
+      description: '',
+      status: 'draft',
+      icon: '📄',
+    })
+
+    if (newPage?.id) {
+      await addPageToCollection(collection.value.id, Number(newPage.id))
+      docsEmitter.emit('doc:created', { id: newPage.id })
+      router.push(`/documentation/${newPage.slug || newPage.id}`)
+    }
+  } catch (error) {
+    console.error('Failed to create page in collection:', error)
+  } finally {
+    creating.value = false
+  }
+}
+
+const onVisibilityUpdated = async () => {
+  // Reload collection to get updated visibility
+  await loadCollection()
+}
+
+onMounted(loadCollection)
+
+watch(() => route.params.slug, loadCollection)
+</script>
+
+<template>
+  <div class="bg-app flex flex-col h-full">
+    <!-- Header -->
+    <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
+      <div class="p-2 flex items-center gap-2">
+        <BackButton fallbackRoute="/documentation" label="Back to Documentation" />
+        <div class="flex-1"></div>
+
+        <!-- Manage Access button (admin only) -->
+        <button
+          v-if="collection && authStore.isAdmin"
+          @click="showVisibilityModal = true"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          <span class="hidden sm:inline">Manage Access</span>
+        </button>
+
+        <!-- Create page button -->
+        <button
+          v-if="collection"
+          @click="createPageInCollection"
+          :disabled="creating"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <svg v-if="!creating" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span class="hidden sm:inline">New Page</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
+      <!-- Loading skeleton -->
+      <div v-if="loading" class="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <div class="flex items-start gap-3 mb-6">
+          <div class="w-10 h-10 rounded-lg bg-surface-alt animate-pulse flex-shrink-0"></div>
+          <div class="flex-1 min-w-0">
+            <div class="h-7 w-48 bg-surface-alt animate-pulse rounded mb-3"></div>
+            <div class="flex gap-2">
+              <div class="h-5 w-16 bg-surface-alt animate-pulse rounded-full"></div>
+              <div class="h-5 w-20 bg-surface-alt animate-pulse rounded-full"></div>
+            </div>
+          </div>
+        </div>
+        <div class="space-y-6">
+          <div class="h-4 w-24 bg-surface-alt animate-pulse rounded"></div>
+          <div class="space-y-2">
+            <div class="h-3 w-full bg-surface-alt animate-pulse rounded"></div>
+            <div class="h-3 w-3/4 bg-surface-alt animate-pulse rounded"></div>
+          </div>
+          <div class="h-4 w-16 bg-surface-alt animate-pulse rounded mt-8"></div>
+          <div class="space-y-1">
+            <div v-for="i in 5" :key="i" class="flex items-center gap-2.5 py-2 px-3">
+              <div class="w-5 h-5 rounded-md bg-surface-alt animate-pulse"></div>
+              <div class="flex-1 h-3.5 rounded bg-surface-alt animate-pulse" :style="{ maxWidth: `${35 + (i % 3) * 15}%`, animationDelay: `${i * 60}ms` }"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Not found -->
+      <div v-else-if="!collection" class="text-center py-16 px-4">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-tertiary mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        </svg>
+        <p class="text-primary font-medium mb-1">Collection not found</p>
+        <p class="text-tertiary text-sm mb-4">This collection may have been moved or deleted.</p>
+        <RouterLink to="/documentation" class="text-accent text-sm hover:underline">
+          Back to Documentation
+        </RouterLink>
+      </div>
+
+      <!-- Collection content -->
+      <div v-else class="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-6">
+        <!-- Collection Header -->
+        <div>
+          <div class="flex items-start gap-3 mb-3">
+            <DocumentIconSelector
+              :initial-icon="collection.icon || '📁'"
+              size="lg"
+              @update:icon="handleIconChange"
+            />
+            <h1
+              contenteditable="true"
+              @blur="updateName(($event.target as HTMLElement).textContent || '')"
+              @keydown.enter.prevent="($event.target as HTMLElement).blur()"
+              class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-accent/30 rounded px-1 -mx-1 flex-1"
+            >{{ collection.name }}</h1>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span v-if="collection.is_system" class="text-xs px-2 py-0.5 rounded-full bg-surface-alt text-tertiary">System</span>
+            <span v-if="!collection.is_public" class="text-xs px-2 py-0.5 rounded-full bg-status-warning/10 text-status-warning">Restricted</span>
+            <span v-else class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">Public</span>
+            <span
+              v-for="group in collection.visible_to_groups"
+              :key="'g-' + group.id"
+              class="text-xs px-2 py-0.5 rounded-full bg-accent/10 text-accent"
+            >
+              {{ group.name }}
+            </span>
+            <span
+              v-for="user in collection.visible_to_users"
+              :key="'u-' + user.uuid"
+              class="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400"
+            >
+              {{ user.name }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Overview Section -->
+        <section v-if="docId">
+          <div class="flex items-center gap-2 mb-3 pb-2 border-b border-default">
+            <svg class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">Overview</h2>
+          </div>
+          <div class="collection-editor-wrapper">
+            <CollaborativeEditor
+              v-model="editContent"
+              :doc-id="docId"
+              :hide-revision-history="true"
+              placeholder="Write an overview for this collection..."
+              class="w-full"
+            />
+          </div>
+        </section>
+
+        <!-- Page Overrides Section (technician+) -->
+        <div
+          v-if="pageOverrides.length > 0"
+          class="border border-status-warning/20 bg-status-warning/5 rounded-lg overflow-hidden"
+        >
+          <button
+            @click="overridesExpanded = !overridesExpanded"
+            class="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-status-warning hover:bg-status-warning/10 transition-colors"
+          >
+            <svg
+              class="w-3.5 h-3.5 transition-transform"
+              :class="overridesExpanded ? 'rotate-90' : ''"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span>{{ pageOverrides.length }} page{{ pageOverrides.length !== 1 ? 's' : '' }} with custom permissions</span>
+          </button>
+
+          <div v-if="overridesExpanded" class="border-t border-status-warning/20 px-3 py-2 space-y-1.5">
+            <RouterLink
+              v-for="override in pageOverrides"
+              :key="override.page_id"
+              :to="`/documentation/${override.page_id}`"
+              class="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-surface-hover transition-colors group"
+            >
+              <span class="text-sm flex-shrink-0">{{ override.page_icon || '📄' }}</span>
+              <span class="text-xs text-primary truncate flex-1 group-hover:text-accent">{{ override.page_title }}</span>
+              <span
+                v-for="group in override.groups"
+                :key="'g-' + group.id"
+                class="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent flex-shrink-0"
+              >
+                {{ group.name }}
+              </span>
+              <span
+                v-for="user in (override.users || [])"
+                :key="'u-' + user.uuid"
+                class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 flex-shrink-0"
+              >
+                {{ user.name }}
+              </span>
+            </RouterLink>
+          </div>
+        </div>
+
+        <!-- Pages Section -->
+        <section>
+          <div class="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-default">
+            <div class="flex items-center gap-2">
+              <svg class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">Pages</h2>
+            </div>
+            <span class="text-xs text-tertiary tabular-nums">
+              {{ collection.page_count }} page{{ collection.page_count !== 1 ? 's' : '' }}
+            </span>
+          </div>
+          <CollectionTreeList :pages="collection.pages" :overridePageIds="overridePageIds" />
+        </section>
+      </div>
+    </div>
+
+    <!-- Visibility Modal -->
+    <CollectionVisibilityModal
+      v-if="showVisibilityModal && collection"
+      :collectionId="collection.id"
+      :currentGroupIds="collection.visible_to_groups.map(g => g.id)"
+      :currentUsers="collection.visible_to_users || []"
+      @close="showVisibilityModal = false"
+      @updated="onVisibilityUpdated"
+    />
+  </div>
+</template>
+
+<style scoped>
+/* Override the editor's internal min-heights for the collection overview context */
+.collection-editor-wrapper :deep(.editor-wrapper) {
+  min-height: auto;
+}
+
+.collection-editor-wrapper :deep(.editor-container) {
+  min-height: auto;
+}
+
+.collection-editor-wrapper :deep(.ProseMirror) {
+  min-height: 1.5em;
+  padding: 0.75rem 1rem;
+}
+
+/* Remove the toolbar border-radius mismatch since there's no surrounding card */
+.collection-editor-wrapper :deep(.editor-container) {
+  border-radius: 0 0 0.5rem 0.5rem;
+}
+</style>

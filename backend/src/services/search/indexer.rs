@@ -69,11 +69,7 @@ pub fn index_document_from_documentation(doc_page: &models::DocumentationPage) -
         String::new()
     };
 
-    // Use slug if available, otherwise use ID
-    let url = match &doc_page.slug {
-        Some(slug) => format!("/documentation/{}", slug),
-        None => format!("/documentation/{}", doc_page.id),
-    };
+    let url = format!("/documentation/{}", doc_page.slug);
 
     IndexDocument::new(EntityType::Documentation, doc_page.id as i64, &doc_page.title, content)
         .url(url)

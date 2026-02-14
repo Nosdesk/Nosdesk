@@ -111,7 +111,7 @@ export function useDocumentation() {
       if (newPage?.id) {
         docsEmitter.emit('doc:created', { id: newPage.id })
         documentationNavStore.refreshPages()
-        router.push(`/documentation/${newPage.id}`)
+        router.push(`/documentation/${newPage.slug || newPage.id}`)
         return newPage
       }
 

@@ -324,8 +324,8 @@ class AuthService {
    */
   async verifyMFA(request: MFAVerifyRequest): Promise<{ valid: boolean }> {
     try {
-      const response = await apiClient.post('/auth/mfa/verify', request);
-      return response.data;
+      const response = await apiClient.post('/auth/mfa/verify-setup', request);
+      return { valid: response.data.success === true };
     } catch (error) {
       logger.error('Failed to verify MFA', { error });
       throw error;
@@ -338,7 +338,8 @@ class AuthService {
   async enableMFA(request: MFAEnableRequest): Promise<{ success: boolean; backup_codes: string[] }> {
     try {
       const response = await apiClient.post('/auth/mfa/enable', request);
-      return response.data;
+      const data = response.data;
+      return { success: data.status === 'success', backup_codes: data.backup_codes || [] };
     } catch (error) {
       logger.error('Failed to enable MFA', { error });
       throw error;
@@ -351,7 +352,7 @@ class AuthService {
   async disableMFA(password: string): Promise<{ success: boolean }> {
     try {
       const response = await apiClient.post('/auth/mfa/disable', { password });
-      return response.data;
+      return { success: response.data.status === 'success' };
     } catch (error) {
       logger.error('Failed to disable MFA', { error });
       throw error;

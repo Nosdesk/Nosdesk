@@ -35,6 +35,7 @@ import DeleteButton from "@/components/common/DeleteButton.vue";
 import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
 import PluginSlot from "@/plugins/components/PluginSlot.vue";
 
+
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
@@ -618,6 +619,7 @@ defineExpose({
                             :initial-content="ticket.article_content || ''"
                             :ticket-id="ticket.id"
                         />
+
                     </div>
                 </div>
             </div>

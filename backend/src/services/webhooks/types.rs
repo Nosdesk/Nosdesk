@@ -5,7 +5,7 @@
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::handlers::sse::TicketEvent;
+use crate::handlers::sse::SseEvent;
 
 /// Webhook event types that map to SSE events
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -128,33 +128,34 @@ impl WebhookEventType {
         ]
     }
 
-    /// Map from SSE TicketEvent to WebhookEventType
-    pub fn from_sse_event(event: &TicketEvent) -> Option<Self> {
+    /// Map from SSE SseEvent to WebhookEventType
+    pub fn from_sse_event(event: &SseEvent) -> Option<Self> {
         match event {
-            TicketEvent::TicketCreated { .. } => Some(Self::TicketCreated),
-            TicketEvent::TicketUpdated { .. } => Some(Self::TicketUpdated),
-            TicketEvent::TicketDeleted { .. } => Some(Self::TicketDeleted),
-            TicketEvent::CommentAdded { .. } => Some(Self::CommentAdded),
-            TicketEvent::CommentDeleted { .. } => Some(Self::CommentDeleted),
-            TicketEvent::AttachmentAdded { .. } => Some(Self::AttachmentAdded),
-            TicketEvent::AttachmentDeleted { .. } => Some(Self::AttachmentDeleted),
-            TicketEvent::DeviceCreated { .. } => Some(Self::DeviceCreated),
-            TicketEvent::DeviceLinked { .. } => Some(Self::DeviceLinked),
-            TicketEvent::DeviceUnlinked { .. } => Some(Self::DeviceUnlinked),
-            TicketEvent::DeviceUpdated { .. } => Some(Self::DeviceUpdated),
-            TicketEvent::ProjectAssigned { .. } => Some(Self::ProjectAssigned),
-            TicketEvent::ProjectUnassigned { .. } => Some(Self::ProjectUnassigned),
-            TicketEvent::TicketLinked { .. } => Some(Self::TicketLinked),
-            TicketEvent::TicketUnlinked { .. } => Some(Self::TicketUnlinked),
-            TicketEvent::DocumentationCreated { .. } => Some(Self::DocumentationCreated),
-            TicketEvent::DocumentationUpdated { .. } => Some(Self::DocumentationUpdated),
-            TicketEvent::UserCreated { .. } => Some(Self::UserCreated),
-            TicketEvent::UserUpdated { .. } => Some(Self::UserUpdated),
-            TicketEvent::UserDeleted { .. } => Some(Self::UserDeleted),
+            SseEvent::TicketCreated { .. } => Some(Self::TicketCreated),
+            SseEvent::TicketUpdated { .. } => Some(Self::TicketUpdated),
+            SseEvent::TicketDeleted { .. } => Some(Self::TicketDeleted),
+            SseEvent::CommentAdded { .. } => Some(Self::CommentAdded),
+            SseEvent::CommentDeleted { .. } => Some(Self::CommentDeleted),
+            SseEvent::AttachmentAdded { .. } => Some(Self::AttachmentAdded),
+            SseEvent::AttachmentDeleted { .. } => Some(Self::AttachmentDeleted),
+            SseEvent::DeviceCreated { .. } => Some(Self::DeviceCreated),
+            SseEvent::DeviceLinked { .. } => Some(Self::DeviceLinked),
+            SseEvent::DeviceUnlinked { .. } => Some(Self::DeviceUnlinked),
+            SseEvent::DeviceUpdated { .. } => Some(Self::DeviceUpdated),
+            SseEvent::ProjectAssigned { .. } => Some(Self::ProjectAssigned),
+            SseEvent::ProjectUnassigned { .. } => Some(Self::ProjectUnassigned),
+            SseEvent::TicketLinked { .. } => Some(Self::TicketLinked),
+            SseEvent::TicketUnlinked { .. } => Some(Self::TicketUnlinked),
+            SseEvent::DocumentationCreated { .. } => Some(Self::DocumentationCreated),
+            SseEvent::DocumentationUpdated { .. } => Some(Self::DocumentationUpdated),
+            SseEvent::UserCreated { .. } => Some(Self::UserCreated),
+            SseEvent::UserUpdated { .. } => Some(Self::UserUpdated),
+            SseEvent::UserDeleted { .. } => Some(Self::UserDeleted),
             // Internal events not exposed to webhooks
-            TicketEvent::Heartbeat { .. } => None,
-            TicketEvent::ViewerCountChanged { .. } => None,
-            TicketEvent::NotificationReceived { .. } => None,
+            SseEvent::CollectionUpdated { .. } => None,
+            SseEvent::Heartbeat { .. } => None,
+            SseEvent::ViewerCountChanged { .. } => None,
+            SseEvent::NotificationReceived { .. } => None,
         }
     }
 }
@@ -219,7 +220,7 @@ mod tests {
 
     #[test]
     fn from_sse_heartbeat_is_none() {
-        let heartbeat = TicketEvent::Heartbeat {
+        let heartbeat = SseEvent::Heartbeat {
             timestamp: chrono::Utc::now(),
         };
         assert!(WebhookEventType::from_sse_event(&heartbeat).is_none());

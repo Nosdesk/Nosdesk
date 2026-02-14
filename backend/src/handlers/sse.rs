@@ -15,7 +15,7 @@ use uuid::Uuid;
 // Event types for SSE
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
-pub enum TicketEvent {
+pub enum SseEvent {
     TicketUpdated {
         ticket_id: i32,
         field: String,
@@ -108,6 +108,12 @@ pub enum TicketEvent {
         updated_by: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    CollectionUpdated {
+        collection_id: i32,
+        field: String,
+        value: serde_json::Value,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     ViewerCountChanged {
         ticket_id: i32,
         count: usize,
@@ -150,8 +156,8 @@ pub struct ClientInfo {
 }
 
 // Global event broadcaster
-type EventSender = broadcast::Sender<TicketEvent>;
-type EventReceiver = broadcast::Receiver<TicketEvent>;
+type EventSender = broadcast::Sender<SseEvent>;
+type EventReceiver = broadcast::Receiver<SseEvent>;
 
 // Global state for managing SSE connections
 pub struct SseState {
@@ -176,7 +182,7 @@ impl SseState {
         }
     }
 
-    pub async fn broadcast_event(&self, event: TicketEvent) {
+    pub async fn broadcast_event(&self, event: SseEvent) {
         // Fast, non-blocking broadcast - just send once
         // Log when events are dropped for tracking issues
         match self.sender.send(event.clone()) {
@@ -198,7 +204,7 @@ impl SseState {
         recipient_uuid: String,
         notification: crate::services::notifications::NotificationEvent,
     ) {
-        let event = TicketEvent::NotificationReceived {
+        let event = SseEvent::NotificationReceived {
             recipient_uuid,
             notification: serde_json::to_value(&notification).unwrap_or_default(),
             timestamp: chrono::Utc::now(),
@@ -244,7 +250,7 @@ impl SseState {
 
 // SSE stream implementation
 pub struct SseStream {
-    event_stream: BroadcastStream<TicketEvent>,
+    event_stream: BroadcastStream<SseEvent>,
     heartbeat_interval: tokio::time::Interval,
     client_id: String,
     state: web::Data<SseState>,
@@ -280,29 +286,30 @@ impl Stream for SseStream {
             Poll::Ready(Some(Ok(event))) => {
                 // Got event - determine event type and serialize
                 let event_type = match &event {
-                    TicketEvent::TicketUpdated { .. } => "ticket-updated",
-                    TicketEvent::TicketCreated { .. } => "ticket-created",
-                    TicketEvent::TicketDeleted { .. } => "ticket-deleted",
-                    TicketEvent::CommentAdded { .. } => "comment-added",
-                    TicketEvent::CommentDeleted { .. } => "comment-deleted",
-                    TicketEvent::AttachmentAdded { .. } => "attachment-added",
-                    TicketEvent::AttachmentDeleted { .. } => "attachment-deleted",
-                    TicketEvent::DeviceLinked { .. } => "device-linked",
-                    TicketEvent::DeviceUnlinked { .. } => "device-unlinked",
-                    TicketEvent::DeviceCreated { .. } => "device-created",
-                    TicketEvent::DeviceUpdated { .. } => "device-updated",
-                    TicketEvent::ProjectAssigned { .. } => "project-assigned",
-                    TicketEvent::ProjectUnassigned { .. } => "project-unassigned",
-                    TicketEvent::TicketLinked { .. } => "ticket-linked",
-                    TicketEvent::TicketUnlinked { .. } => "ticket-unlinked",
-                    TicketEvent::DocumentationCreated { .. } => "documentation-created",
-                    TicketEvent::DocumentationUpdated { .. } => "documentation-updated",
-                    TicketEvent::ViewerCountChanged { .. } => "viewer-count-changed",
-                    TicketEvent::UserUpdated { .. } => "user-updated",
-                    TicketEvent::UserCreated { .. } => "user-created",
-                    TicketEvent::UserDeleted { .. } => "user-deleted",
-                    TicketEvent::Heartbeat { .. } => "heartbeat",
-                    TicketEvent::NotificationReceived { .. } => "notification-received",
+                    SseEvent::TicketUpdated { .. } => "ticket-updated",
+                    SseEvent::TicketCreated { .. } => "ticket-created",
+                    SseEvent::TicketDeleted { .. } => "ticket-deleted",
+                    SseEvent::CommentAdded { .. } => "comment-added",
+                    SseEvent::CommentDeleted { .. } => "comment-deleted",
+                    SseEvent::AttachmentAdded { .. } => "attachment-added",
+                    SseEvent::AttachmentDeleted { .. } => "attachment-deleted",
+                    SseEvent::DeviceLinked { .. } => "device-linked",
+                    SseEvent::DeviceUnlinked { .. } => "device-unlinked",
+                    SseEvent::DeviceCreated { .. } => "device-created",
+                    SseEvent::DeviceUpdated { .. } => "device-updated",
+                    SseEvent::ProjectAssigned { .. } => "project-assigned",
+                    SseEvent::ProjectUnassigned { .. } => "project-unassigned",
+                    SseEvent::TicketLinked { .. } => "ticket-linked",
+                    SseEvent::TicketUnlinked { .. } => "ticket-unlinked",
+                    SseEvent::DocumentationCreated { .. } => "documentation-created",
+                    SseEvent::DocumentationUpdated { .. } => "documentation-updated",
+                    SseEvent::CollectionUpdated { .. } => "collection-updated",
+                    SseEvent::ViewerCountChanged { .. } => "viewer-count-changed",
+                    SseEvent::UserUpdated { .. } => "user-updated",
+                    SseEvent::UserCreated { .. } => "user-created",
+                    SseEvent::UserDeleted { .. } => "user-deleted",
+                    SseEvent::Heartbeat { .. } => "heartbeat",
+                    SseEvent::NotificationReceived { .. } => "notification-received",
                 };
 
                 // Serialize event data
@@ -347,11 +354,11 @@ impl Drop for SseStream {
 }
 
 // SSE endpoint for ticket updates
-pub async fn ticket_events_stream(
+pub async fn sse_events_stream(
     _req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     state: web::Data<SseState>,
-    query: web::Query<TicketEventsQuery>,
+    query: web::Query<SseEventsQuery>,
 ) -> ActixResult<HttpResponse> {
     // Get database connection
     let mut conn = match pool.get() {
@@ -398,7 +405,7 @@ pub async fn ticket_events_stream(
 }
 
 #[derive(Deserialize)]
-pub struct TicketEventsQuery {
+pub struct SseEventsQuery {
     sse_token: Option<String>,
 }
 

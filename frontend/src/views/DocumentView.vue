@@ -9,7 +9,12 @@ import ticketService from '@/services/ticketService'
 import type { Article, Page } from '@/services/documentationService'
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue'
 import BackButton from '@/components/common/BackButton.vue'
-import DeleteButton from '@/components/common/DeleteButton.vue'
+import DocumentActionsMenu from '@/components/documentationComponents/DocumentActionsMenu.vue'
+import MoveDocumentModal from '@/components/documentationComponents/MoveDocumentModal.vue'
+import DocumentationBreadcrumb from '@/components/documentationComponents/DocumentationBreadcrumb.vue'
+import CollectionManager from '@/components/documentationComponents/CollectionManager.vue'
+import PagePermissionsModal from '@/components/documentationComponents/PagePermissionsModal.vue'
+import { docsEmitter } from '@/services/docsEmitter'
 import RevisionHistory from '@/components/editor/RevisionHistory.vue'
 import apiClient from '@/services/apiConfig'
 import { useAuthStore } from '@/stores/auth'
@@ -249,6 +254,119 @@ const handleDeletePage = async () => {
   }
 }
 
+// Move modal state
+const showMoveModal = ref(false)
+
+// Collection state
+const showCollectionManager = ref(false)
+
+// Permissions modal state
+const showPermissionsModal = ref(false)
+
+const exportAsMarkdown = async () => {
+  const pageId = page.value?.id || article.value?.id
+  if (!pageId) return
+  try {
+    const response = await apiClient.get(`/documentation/pages/${pageId}/export/markdown`, {
+      responseType: 'blob',
+    })
+    const blob = new Blob([response.data], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const filename = (page.value?.slug || page.value?.title?.toLowerCase().replace(/\s+/g, '-') || 'document') + '.md'
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    console.error('Failed to export markdown:', err)
+  }
+}
+
+// Status action handlers
+const handleArchivePage = async () => {
+  const pageId = page.value?.id || article.value?.id
+  if (!pageId) return
+  try {
+    await apiClient.put(`/documentation/pages/${pageId}`, { status: 'archived' })
+    documentationNavStore.refreshPages()
+    router.push('/documentation')
+  } catch (error) {
+    console.error('Failed to archive page:', error)
+  }
+}
+
+const handleRestorePage = async () => {
+  const pageId = page.value?.id || article.value?.id
+  if (!pageId) return
+  try {
+    await apiClient.post(`/documentation/pages/${pageId}/restore`)
+    if (page.value) page.value.status = 'draft'
+    if (article.value) article.value.status = 'draft'
+    documentationNavStore.refreshPages()
+  } catch (error) {
+    console.error('Failed to restore page:', error)
+  }
+}
+
+const handlePublishPage = async () => {
+  const pageId = page.value?.id || article.value?.id
+  if (!pageId) return
+  try {
+    await apiClient.put(`/documentation/pages/${pageId}`, { status: 'published' })
+    if (page.value) page.value.status = 'published'
+    if (article.value) article.value.status = 'published'
+    documentationNavStore.updatePageField(pageId, 'status', 'published')
+  } catch (error) {
+    console.error('Failed to publish page:', error)
+  }
+}
+
+const handleUnpublishPage = async () => {
+  const pageId = page.value?.id || article.value?.id
+  if (!pageId) return
+  try {
+    await apiClient.put(`/documentation/pages/${pageId}`, { status: 'draft' })
+    if (page.value) page.value.status = 'draft'
+    if (article.value) article.value.status = 'draft'
+    documentationNavStore.updatePageField(pageId, 'status', 'draft')
+  } catch (error) {
+    console.error('Failed to unpublish page:', error)
+  }
+}
+
+const handlePageMoved = () => {
+  showMoveModal.value = false
+  documentationNavStore.refreshPages()
+  fetchContent()
+}
+
+// Handle duplicate page
+const handleDuplicatePage = async () => {
+  const currentPage = page.value || article.value
+  if (!currentPage) return
+
+  try {
+    const newPage = await documentationService.createArticle({
+      title: `${currentPage.title} (copy)`,
+      content: currentPage.content || '',
+      description: currentPage.description || '',
+      status: 'draft',
+      icon: currentPage.icon || '📄',
+    })
+
+    if (newPage?.id) {
+      docsEmitter.emit('doc:created', { id: newPage.id })
+      documentationNavStore.refreshPages()
+      router.push(`/documentation/${newPage.slug || newPage.id}`)
+    }
+  } catch (error) {
+    console.error('Failed to duplicate page:', error)
+  }
+}
+
 // Fetch document content
 const fetchContent = async () => {
   isLoading.value = true
@@ -331,6 +449,7 @@ const fetchContent = async () => {
     return
   } finally {
     isLoading.value = false
+
   }
 }
 
@@ -421,11 +540,36 @@ watch(documentObj, (newDocument) => {
           Saving...
         </span>
 
-        <!-- Delete button -->
-        <DeleteButton
+        <!-- Publish button for unpublished pages -->
+        <button
+          v-if="(page || article) && !isTicketNote && (page?.status || article?.status) !== 'published'"
+          @click="handlePublishPage"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+          </svg>
+          <span class="hidden sm:inline">Publish</span>
+        </button>
+
+        <!-- Document actions menu -->
+        <DocumentActionsMenu
           v-if="(article || page) && !isTicketNote"
-          :itemName="'documentation page'"
+          :page-id="page?.id || article?.id || ''"
+          :page-title="editTitle || page?.title || article?.title || ''"
+          :page-slug="page?.slug || article?.slug || ''"
+          :page-status="page?.status || article?.status || 'draft'"
           @delete="handleDeletePage"
+          @duplicate="handleDuplicatePage"
+          @archive="handleArchivePage"
+          @restore="handleRestorePage"
+          @publish="handlePublishPage"
+          @unpublish="handleUnpublishPage"
+          @move="showMoveModal = true"
+          @export="exportAsMarkdown"
+          @collections="showCollectionManager = true"
+          :show-permissions="authStore.isAdmin"
+          @permissions="showPermissionsModal = true"
         />
       </div>
     </div>
@@ -442,6 +586,14 @@ watch(documentObj, (newDocument) => {
         <!-- Main Content Area -->
         <div class="flex-1 flex justify-center">
           <div class="w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
+            <!-- Breadcrumb -->
+            <DocumentationBreadcrumb
+              v-if="!isTicketNote"
+              :page-id="page?.id || article?.id || ''"
+              :parent-id="page?.parent_id || article?.parent_id || null"
+              class="mb-4"
+            />
+
             <!-- Document Header -->
             <div class="mb-6">
               <!-- Title -->
@@ -461,6 +613,10 @@ watch(documentObj, (newDocument) => {
               <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 pb-2 border-t border-subtle">
                 <!-- Metadata -->
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-tertiary">
+                  <!-- Status Badge -->
+                  <span v-if="(page?.status || article?.status) === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium">Draft</span>
+                  <span v-else-if="(page?.status || article?.status) === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300 font-medium">Archived</span>
+
                   <!-- Created By -->
                   <div v-if="page?.created_by || article?.created_by" class="flex items-center gap-1.5">
                     <span class="text-secondary">{{ (page || article)?.created_by?.name || 'Unknown' }}</span>
@@ -561,6 +717,32 @@ watch(documentObj, (newDocument) => {
       </div>
     </div>
 
+    <!-- Move Document Modal -->
+    <MoveDocumentModal
+      v-if="showMoveModal"
+      :page-id="page?.id || article?.id || ''"
+      :current-parent-id="page?.parent_id || article?.parent_id || null"
+      @close="showMoveModal = false"
+      @moved="handlePageMoved"
+    />
+
+    <!-- Collection Manager Modal -->
+    <CollectionManager
+      v-if="showCollectionManager"
+      :page-id="Number(page?.id || article?.id || 0)"
+      :current-collection-ids="[]"
+      @close="showCollectionManager = false"
+      @updated="showCollectionManager = false"
+    />
+
+    <!-- Page Permissions Modal -->
+    <PagePermissionsModal
+      v-if="showPermissionsModal"
+      :page-id="Number(page?.id || article?.id || 0)"
+      @close="showPermissionsModal = false"
+      @updated="showPermissionsModal = false"
+    />
+
     <!-- Success message toast -->
     <div
       v-if="showSuccessMessage"
@@ -582,5 +764,20 @@ watch(documentObj, (newDocument) => {
 
 .animate-fadeIn {
   animation: fadeIn 0.2s ease-out forwards;
+}
+
+/* Give the editor a tall minimum so it feels like a full document page.
+   Content longer than this grows naturally and scrolls as normal. */
+:deep(.collaborative-editor .editor-wrapper) {
+  min-height: auto;
+}
+
+:deep(.collaborative-editor .editor-container) {
+  min-height: auto;
+}
+
+:deep(.collaborative-editor .ProseMirror) {
+  min-height: max(200px, calc(100vh - 20rem));
+  padding-bottom: 25vh;
 }
 </style>

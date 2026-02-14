@@ -288,58 +288,42 @@ watch(renderedHtml, () => {
   white-space: nowrap;
 }
 
-/* Ticket Link Card Styles */
+/* Compact inline ticket card */
 .markdown-content :deep(.ticket-link-card) {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  padding: 8px 10px;
-  margin: 8px 0;
+  padding: 3px 10px;
+  margin: 2px 0;
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border-subtle);
-  border-radius: 6px;
+  border-radius: 4px;
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.3;
   cursor: pointer;
-  transition: all 0.15s ease;
-  width: 100%;
+  transition: border-color 0.15s ease, background 0.15s ease;
   max-width: 100%;
-  /* Ensure it displays as a block and breaks out of inline flow */
-  clear: both;
-}
-
-@media (min-width: 640px) {
-  .markdown-content :deep(.ticket-link-card) {
-    padding: 10px 12px;
-    font-size: 13px;
-  }
+  vertical-align: middle;
 }
 
 .markdown-content :deep(.ticket-link-card:hover) {
   border-color: var(--color-accent);
   background: var(--color-surface-hover);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .markdown-content :deep(.ticket-link-loading) {
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .markdown-content :deep(.ticket-link-error) {
   border-color: var(--color-status-error);
 }
 
-.markdown-content :deep(.ticket-link-header) {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .markdown-content :deep(.ticket-link-id) {
   font-weight: 600;
-  color: var(--color-text-secondary, #888);
+  color: var(--color-text-tertiary, #888);
   font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  font-size: 11px;
   flex-shrink: 0;
 }
 
@@ -349,34 +333,29 @@ watch(renderedHtml, () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  min-width: 0;
 }
 
-.markdown-content :deep(.ticket-link-meta) {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  font-size: 11px;
-}
-
-.markdown-content :deep(.ticket-link-person) {
-  color: var(--color-text-secondary, #aaa);
-}
-
-.markdown-content :deep(.ticket-link-label) {
-  color: var(--color-text-tertiary, #666);
-}
-
-.markdown-content :deep(.ticket-link-status) {
+.markdown-content :deep(.ticket-link-status),
+.markdown-content :deep(.ticket-link-priority) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
   font-weight: 500;
   text-transform: capitalize;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.markdown-content :deep(.ticket-link-dot) {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
 }
 
 .markdown-content :deep(.ticket-link-status-open) {
@@ -394,17 +373,6 @@ watch(renderedHtml, () => {
   color: var(--color-status-closed, #22c55e);
 }
 
-.markdown-content :deep(.ticket-link-priority) {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-weight: 500;
-  text-transform: capitalize;
-}
-
 .markdown-content :deep(.ticket-link-priority-high) {
   background: var(--color-priority-high-muted, rgba(239, 68, 68, 0.15));
   color: var(--color-priority-high, #ef4444);
@@ -420,17 +388,10 @@ watch(renderedHtml, () => {
   color: var(--color-priority-low, #22c55e);
 }
 
-.markdown-content :deep(.ticket-link-status .indicator-icon),
-.markdown-content :deep(.ticket-link-priority .indicator-icon) {
+.markdown-content :deep(.ticket-link-loader) {
   width: 10px;
   height: 10px;
-  flex-shrink: 0;
-}
-
-.markdown-content :deep(.ticket-link-loader) {
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--color-border-default, #333);
+  border: 1.5px solid var(--color-border-default, #333);
   border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: ticket-link-spin 0.8s linear infinite;

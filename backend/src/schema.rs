@@ -258,6 +258,67 @@ diesel::table! {
 }
 
 diesel::table! {
+    documentation_collection_pages (collection_id, page_id) {
+        collection_id -> Int4,
+        page_id -> Int4,
+        created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    documentation_collection_visibility (id) {
+        collection_id -> Int4,
+        group_id -> Nullable<Int4>,
+        created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+        id -> Int4,
+        user_uuid -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    documentation_collections (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        #[max_length = 255]
+        name -> Varchar,
+        #[max_length = 255]
+        slug -> Varchar,
+        description -> Nullable<Text>,
+        #[max_length = 50]
+        icon -> Nullable<Varchar>,
+        #[max_length = 7]
+        color -> Nullable<Varchar>,
+        is_system -> Bool,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        display_order -> Int4,
+        root_page_id -> Nullable<Int4>,
+    }
+}
+
+diesel::table! {
+    documentation_page_embeddings (source_page_id, target_page_id) {
+        source_page_id -> Int4,
+        target_page_id -> Int4,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    documentation_page_visibility (id) {
+        page_id -> Int4,
+        group_id -> Nullable<Int4>,
+        created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+        id -> Int4,
+        user_uuid -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::DocumentationStatus;
 
@@ -267,7 +328,7 @@ diesel::table! {
         #[max_length = 255]
         title -> Varchar,
         #[max_length = 255]
-        slug -> Nullable<Varchar>,
+        slug -> Varchar,
         #[max_length = 50]
         icon -> Nullable<Varchar>,
         #[max_length = 2048]
@@ -287,6 +348,7 @@ diesel::table! {
         yjs_document -> Nullable<Bytea>,
         yjs_client_id -> Nullable<Int8>,
         has_unsaved_changes -> Bool,
+        deleted_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -513,6 +575,21 @@ diesel::table! {
         used_at -> Nullable<Timestamptz>,
         is_used -> Bool,
         metadata -> Nullable<Jsonb>,
+    }
+}
+
+diesel::table! {
+    search_index_state (id) {
+        id -> Int4,
+        #[max_length = 50]
+        entity_type -> Varchar,
+        last_indexed_at -> Nullable<Timestamptz>,
+        index_version -> Int4,
+        document_count -> Int4,
+        last_error -> Nullable<Text>,
+        last_error_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -787,6 +864,12 @@ diesel::joinable!(comments -> users (user_uuid));
 diesel::joinable!(device_groups -> devices (device_id));
 diesel::joinable!(device_groups -> groups (group_id));
 diesel::joinable!(device_groups -> users (created_by));
+diesel::joinable!(documentation_collection_pages -> documentation_collections (collection_id));
+diesel::joinable!(documentation_collection_pages -> documentation_pages (page_id));
+diesel::joinable!(documentation_collection_pages -> users (created_by));
+diesel::joinable!(documentation_collection_visibility -> documentation_collections (collection_id));
+diesel::joinable!(documentation_collections -> users (created_by));
+diesel::joinable!(documentation_page_visibility -> documentation_pages (page_id));
 diesel::joinable!(documentation_pages -> tickets (ticket_id));
 diesel::joinable!(documentation_revisions -> documentation_pages (page_id));
 diesel::joinable!(documentation_revisions -> users (created_by));
@@ -823,4 +906,4 @@ diesel::joinable!(webhook_deliveries -> webhooks (webhook_id));
 diesel::joinable!(webhooks -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_pages,documentation_revisions,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_data,plugins,project_tickets,projects,refresh_tokens,reset_tokens,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_visibility,documentation_pages,documentation_revisions,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_data,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);

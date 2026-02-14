@@ -3,4 +3,5 @@ pub mod backup;
 pub mod notifications;
 pub mod plugins;
 pub mod search;
+pub mod seed;
 pub mod webhooks;
