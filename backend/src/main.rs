@@ -507,7 +507,13 @@ async fn main() -> std::io::Result<()> {
     // Initialize notification service for in-app and email notifications
     let notification_service = {
         use std::sync::Arc;
-        let service = services::notifications::NotificationService::new(pool.clone());
+        use std::collections::HashMap;
+        use tokio::sync::RwLock as TokioRwLock;
+
+        // Shared cache for notification type ID lookups (used by both service and email channel)
+        let type_id_cache = Arc::new(TokioRwLock::new(HashMap::<String, i32>::new()));
+
+        let service = services::notifications::NotificationService::new(pool.clone(), type_id_cache.clone());
 
         // Register in-app channel (SSE)
         // web::Data<T> wraps Arc<T>, so we can get the inner Arc directly
@@ -524,6 +530,7 @@ async fn main() -> std::io::Result<()> {
                     pool.clone(),
                     frontend_url.clone(),
                     app_name,
+                    type_id_cache,
                 ));
                 service.register_channel(email_channel);
             }
@@ -868,6 +875,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/groups/{id}", web::delete().to(handlers::groups::delete_group))
                     .route("/groups/{id}/members", web::put().to(handlers::groups::set_group_members))
                     .route("/groups/{id}/devices", web::put().to(handlers::groups::set_group_devices))
+                    .route("/groups/{id}/includes", web::get().to(handlers::groups::get_group_includes))
+                    .route("/groups/{id}/includes", web::put().to(handlers::groups::set_group_includes))
                     .route("/groups/{id}/unmanage", web::post().to(handlers::groups::unmanage_group))
                     .route("/users/{uuid}/groups", web::get().to(handlers::groups::get_user_groups))
                     .route("/users/{uuid}/groups", web::put().to(handlers::groups::set_user_groups))
@@ -984,6 +993,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/documentation/pages/slug/{slug}/with-children", web::get().to(handlers::get_documentation_page_by_slug_with_children))
                     .route("/documentation/pages/archived", web::get().to(handlers::get_archived_pages))
                     .route("/documentation/pages/trash", web::get().to(handlers::get_trashed_pages))
+                    .route("/documentation/starred", web::get().to(handlers::get_starred_pages))
                     // {id} wildcard routes AFTER all literal paths
                     .route("/documentation/pages/{id}", web::get().to(handlers::get_documentation_page))
                     .route("/documentation/pages/{id}", web::put().to(handlers::update_documentation_page))
@@ -996,6 +1006,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/documentation/pages/{id}/collections", web::put().to(handlers::documentation_collections::set_page_collections))
                     .route("/documentation/pages/{id}/visibility", web::get().to(handlers::get_page_visibility))
                     .route("/documentation/pages/{id}/visibility", web::put().to(handlers::set_page_visibility))
+                    .route("/documentation/pages/{id}/subscription", web::get().to(handlers::get_page_subscription))
+                    .route("/documentation/pages/{id}/subscribe", web::post().to(handlers::subscribe_to_page))
+                    .route("/documentation/pages/{id}/subscribe", web::delete().to(handlers::unsubscribe_from_page))
+                    .route("/documentation/pages/{id}/starred", web::get().to(handlers::get_page_starred))
+                    .route("/documentation/pages/{id}/star", web::post().to(handlers::star_page))
+                    .route("/documentation/pages/{id}/star", web::delete().to(handlers::unstar_page))
                     .route("/documentation/pages/{id}/restore", web::post().to(handlers::restore_page))
                     .route("/documentation/pages/{id}/permanent", web::delete().to(handlers::permanently_delete_page))
                     .route("/tickets/{ticket_id}/documentation", web::get().to(handlers::get_documentation_pages_by_ticket_id))

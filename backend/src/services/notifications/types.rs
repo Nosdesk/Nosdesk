@@ -16,6 +16,7 @@ pub enum NotificationTypeCode {
     CommentAdded,
     Mentioned,
     TicketCreatedRequester,
+    DocPageUpdated,
 }
 
 impl NotificationTypeCode {
@@ -26,6 +27,7 @@ impl NotificationTypeCode {
             Self::CommentAdded => "comment_added",
             Self::Mentioned => "mentioned",
             Self::TicketCreatedRequester => "ticket_created_requester",
+            Self::DocPageUpdated => "doc_page_updated",
         }
     }
 
@@ -36,6 +38,7 @@ impl NotificationTypeCode {
             "comment_added" => Some(Self::CommentAdded),
             "mentioned" => Some(Self::Mentioned),
             "ticket_created_requester" => Some(Self::TicketCreatedRequester),
+            "doc_page_updated" => Some(Self::DocPageUpdated),
             _ => None,
         }
     }
@@ -48,6 +51,7 @@ impl NotificationTypeCode {
             Self::CommentAdded => "New Comment",
             Self::Mentioned => "Mentioned",
             Self::TicketCreatedRequester => "Ticket Created",
+            Self::DocPageUpdated => "Documentation Page Updated",
         }
     }
 }
@@ -86,6 +90,7 @@ impl NotificationChannel {
 pub enum NotificationEntity {
     Ticket { id: i32, title: String },
     Comment { id: i32, ticket_id: i32, ticket_title: String },
+    DocumentationPage { id: i32, title: String, slug: String },
 }
 
 impl NotificationEntity {
@@ -93,6 +98,7 @@ impl NotificationEntity {
         match self {
             Self::Ticket { .. } => "ticket",
             Self::Comment { .. } => "comment",
+            Self::DocumentationPage { .. } => "documentation_page",
         }
     }
 
@@ -100,6 +106,7 @@ impl NotificationEntity {
         match self {
             Self::Ticket { id, .. } => *id,
             Self::Comment { id, .. } => *id,
+            Self::DocumentationPage { id, .. } => *id,
         }
     }
 
@@ -108,6 +115,7 @@ impl NotificationEntity {
         match self {
             Self::Ticket { id, .. } => *id,
             Self::Comment { ticket_id, .. } => *ticket_id,
+            Self::DocumentationPage { .. } => 0,
         }
     }
 }
@@ -227,6 +235,7 @@ mod tests {
             NotificationTypeCode::CommentAdded,
             NotificationTypeCode::Mentioned,
             NotificationTypeCode::TicketCreatedRequester,
+            NotificationTypeCode::DocPageUpdated,
         ];
         for variant in &variants {
             let s = variant.as_str();
@@ -249,6 +258,7 @@ mod tests {
             NotificationTypeCode::CommentAdded,
             NotificationTypeCode::Mentioned,
             NotificationTypeCode::TicketCreatedRequester,
+            NotificationTypeCode::DocPageUpdated,
         ];
         for variant in &variants {
             assert!(!variant.title().is_empty(), "{:?} has empty title", variant);

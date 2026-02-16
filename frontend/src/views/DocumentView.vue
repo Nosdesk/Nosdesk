@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { formatDate } from '@/utils/dateUtils'
+import { slugify } from '@/utils/docUrl'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocumentation } from '@/composables/useDocumentation'
+import { useClipboard } from '@/composables/useClipboard'
 import documentationService from '@/services/documentationService'
 import ticketService from '@/services/ticketService'
-import type { Article, Page } from '@/services/documentationService'
+import type { Page } from '@/services/documentationService'
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue'
 import BackButton from '@/components/common/BackButton.vue'
 import DocumentActionsMenu from '@/components/documentationComponents/DocumentActionsMenu.vue'
@@ -18,11 +20,14 @@ import { docsEmitter } from '@/services/docsEmitter'
 import RevisionHistory from '@/components/editor/RevisionHistory.vue'
 import apiClient from '@/services/apiConfig'
 import { useAuthStore } from '@/stores/auth'
+import { useDocumentationNavStore } from '@/stores/documentationNav'
 
 const route = useRoute()
 const router = useRouter()
 const titleManager = useTitleManager()
 const authStore = useAuthStore()
+const docNavStore = useDocumentationNavStore()
+const { copied: copiedLink, copy: copyToClipboard } = useClipboard()
 
 // Use shared documentation composable
 const {
@@ -33,9 +38,8 @@ const {
   isConnecting,
 } = useDocumentation()
 
-// Document state
-const article = ref<Article | null>(null)
-const page = ref<Page | null>(null)
+// Document state — single ref replaces the old article + page dual refs
+const document = ref<Page | null>(null)
 const isLoading = ref(true)
 const isSaving = ref(false)
 const saveMessage = ref('')
@@ -60,6 +64,22 @@ const editorRef = ref<InstanceType<typeof CollaborativeEditor> | null>(null)
 const isTicketNote = ref(false)
 const ticketId = ref<string | null>(null)
 
+// Subscription state
+const isSubscribed = ref(false)
+
+// Starred state
+const isStarred = ref(false)
+
+// Computed helpers
+const currentPageId = computed(() => document.value?.id ?? null)
+const isDocumentPage = computed(() => !!document.value && !isTicketNote.value)
+
+const handleCopyLink = () => {
+  const slug = document.value?.slug || document.value?.id
+  const url = `${window.location.origin}/documentation/${slug}`
+  copyToClipboard(url)
+}
+
 // Emits
 const emit = defineEmits<{
   (e: 'update:title', title: string): void
@@ -68,22 +88,13 @@ const emit = defineEmits<{
 
 // Document object for header
 const documentObj = computed(() => {
-  if (page.value) {
-    return {
-      id: String(page.value.id),
-      title: page.value.title,
-      icon: page.value.icon || '📄',
-      slug: page.value.slug
-    }
-  } else if (article.value) {
-    return {
-      id: String(article.value.id),
-      title: article.value.title,
-      icon: article.value.icon || documentIcon.value,
-      slug: article.value.slug
-    }
+  if (!document.value) return null
+  return {
+    id: String(document.value.id),
+    title: document.value.title,
+    icon: document.value.icon || documentIcon.value,
+    slug: document.value.slug
   }
-  return null
 })
 
 // Doc ID for CollaborativeEditor
@@ -91,17 +102,11 @@ const docId = computed(() => {
   if (isTicketNote.value && ticketId.value) {
     return `ticket-${ticketId.value}`
   }
-  if (page.value?.ticket_id) {
-    return `ticket-${page.value.ticket_id}`
+  if (document.value?.ticket_id) {
+    return `ticket-${document.value.ticket_id}`
   }
-  if (article.value?.ticket_id) {
-    return `ticket-${article.value.ticket_id}`
-  }
-  if (page.value) {
-    return `doc-${page.value.id}`
-  }
-  if (article.value) {
-    return `doc-${article.value.id}`
+  if (document.value) {
+    return `doc-${document.value.id}`
   }
   return 'documentation-new'
 })
@@ -124,10 +129,8 @@ const backButtonLabel = computed(() => {
 // Content update handler
 const updateContent = (newContent: string) => {
   editContent.value = newContent
-  if (article.value) {
-    article.value.content = newContent
-  } else if (page.value) {
-    page.value.content = newContent
+  if (document.value) {
+    document.value.content = newContent
   }
 }
 
@@ -135,19 +138,13 @@ const updateContent = (newContent: string) => {
 const updateTitle = (newTitle: string) => {
   editTitle.value = newTitle
 
-  if (article.value || page.value) {
+  if (document.value) {
     emit('update:title', newTitle)
     titleManager.setCustomTitle(newTitle)
 
-    const slug = newTitle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
-
-    if (article.value) {
-      article.value.title = newTitle
-      article.value.slug = slug
-    } else if (page.value) {
-      page.value.title = newTitle
-      page.value.slug = slug
-    }
+    const slug = slugify(newTitle)
+    document.value.title = newTitle
+    document.value.slug = slug
 
     // Debounce backend save
     if (titleUpdateTimeout) {
@@ -161,21 +158,18 @@ const updateTitle = (newTitle: string) => {
 
 // Save title changes to backend
 const saveTitleChanges = async () => {
-  if (!page.value && !article.value) return
+  if (!currentPageId.value) return
 
-  const pageId = page.value?.id || article.value?.id
-  if (!pageId) return
-
-  const newSlug = editTitle.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+  const newSlug = slugify(editTitle.value)
 
   try {
-    await apiClient.put(`/documentation/pages/${pageId}`, {
+    await apiClient.put(`/documentation/pages/${currentPageId.value}`, {
       title: editTitle.value,
       slug: newSlug,
     })
 
-    documentationNavStore.updatePageField(pageId, 'title', editTitle.value)
-    documentationNavStore.updatePageField(pageId, 'slug', newSlug)
+    documentationNavStore.updatePageField(currentPageId.value, 'title', editTitle.value)
+    documentationNavStore.updatePageField(currentPageId.value, 'slug', newSlug)
   } catch (error) {
     console.error('Failed to save title:', error)
   }
@@ -195,11 +189,10 @@ const handleSelectRevision = async (revisionNumber: number | null) => {
   }
 
   try {
-    const pageId = page.value?.id || article.value?.id
-    if (!pageId) return
+    if (!currentPageId.value) return
 
     const response = await apiClient.get(
-      `/collaboration/docs/${pageId}/revisions/${revisionNumber}`
+      `/collaboration/docs/${currentPageId.value}/revisions/${revisionNumber}`
     )
     editorRef.value.viewSnapshot(response.data)
   } catch (error) {
@@ -220,28 +213,25 @@ const handleRevisionRestored = () => {
 
 // Delete handler
 const handleDeletePage = async () => {
-  if (!article.value && !page.value) return
+  if (!document.value) return
 
   try {
     isSaving.value = true
     saveMessage.value = 'Deleting document...'
     showSuccessMessage.value = true
 
-    const pageId = article.value?.id || page.value?.id
-    if (pageId) {
-      const success = await deletePage(pageId)
+    const success = await deletePage(document.value.id)
 
-      if (success) {
-        saveMessage.value = 'Document deleted successfully'
-        setTimeout(() => {
-          router.push('/documentation')
-        }, 1000)
-      } else {
-        saveMessage.value = 'Error deleting document'
-        setTimeout(() => {
-          showSuccessMessage.value = false
-        }, 3000)
-      }
+    if (success) {
+      saveMessage.value = 'Document deleted successfully'
+      setTimeout(() => {
+        router.push('/documentation')
+      }, 1000)
+    } else {
+      saveMessage.value = 'Error deleting document'
+      setTimeout(() => {
+        showSuccessMessage.value = false
+      }, 3000)
     }
   } catch (error) {
     console.error('Error deleting page:', error)
@@ -264,78 +254,51 @@ const showCollectionManager = ref(false)
 const showPermissionsModal = ref(false)
 
 const exportAsMarkdown = async () => {
-  const pageId = page.value?.id || article.value?.id
-  if (!pageId) return
+  if (!currentPageId.value) return
   try {
-    const response = await apiClient.get(`/documentation/pages/${pageId}/export/markdown`, {
+    const response = await apiClient.get(`/documentation/pages/${currentPageId.value}/export/markdown`, {
       responseType: 'blob',
     })
     const blob = new Blob([response.data], { type: 'text/markdown' })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
+    const a = window.document.createElement('a')
     a.href = url
-    const filename = (page.value?.slug || page.value?.title?.toLowerCase().replace(/\s+/g, '-') || 'document') + '.md'
+    const filename = (document.value?.slug || document.value?.title?.toLowerCase().replace(/\s+/g, '-') || 'document') + '.md'
     a.download = filename
-    document.body.appendChild(a)
+    window.document.body.appendChild(a)
     a.click()
-    document.body.removeChild(a)
+    window.document.body.removeChild(a)
     URL.revokeObjectURL(url)
   } catch (err) {
     console.error('Failed to export markdown:', err)
   }
 }
 
-// Status action handlers
-const handleArchivePage = async () => {
-  const pageId = page.value?.id || article.value?.id
-  if (!pageId) return
+// Consolidated status update handler
+async function updatePageStatus(status: string, opts?: { redirect?: string; apiSuffix?: string }) {
+  if (!currentPageId.value) return
   try {
-    await apiClient.put(`/documentation/pages/${pageId}`, { status: 'archived' })
-    documentationNavStore.refreshPages()
-    router.push('/documentation')
+    if (opts?.apiSuffix) {
+      await apiClient.post(`/documentation/pages/${currentPageId.value}${opts.apiSuffix}`)
+    } else {
+      await apiClient.put(`/documentation/pages/${currentPageId.value}`, { status })
+    }
+    if (document.value) document.value.status = status
+    documentationNavStore.updatePageField(currentPageId.value, 'status', status)
+    if (opts?.redirect) {
+      router.push(opts.redirect)
+    } else {
+      documentationNavStore.refreshPages()
+    }
   } catch (error) {
-    console.error('Failed to archive page:', error)
+    console.error(`Failed to update page status to ${status}:`, error)
   }
 }
 
-const handleRestorePage = async () => {
-  const pageId = page.value?.id || article.value?.id
-  if (!pageId) return
-  try {
-    await apiClient.post(`/documentation/pages/${pageId}/restore`)
-    if (page.value) page.value.status = 'draft'
-    if (article.value) article.value.status = 'draft'
-    documentationNavStore.refreshPages()
-  } catch (error) {
-    console.error('Failed to restore page:', error)
-  }
-}
-
-const handlePublishPage = async () => {
-  const pageId = page.value?.id || article.value?.id
-  if (!pageId) return
-  try {
-    await apiClient.put(`/documentation/pages/${pageId}`, { status: 'published' })
-    if (page.value) page.value.status = 'published'
-    if (article.value) article.value.status = 'published'
-    documentationNavStore.updatePageField(pageId, 'status', 'published')
-  } catch (error) {
-    console.error('Failed to publish page:', error)
-  }
-}
-
-const handleUnpublishPage = async () => {
-  const pageId = page.value?.id || article.value?.id
-  if (!pageId) return
-  try {
-    await apiClient.put(`/documentation/pages/${pageId}`, { status: 'draft' })
-    if (page.value) page.value.status = 'draft'
-    if (article.value) article.value.status = 'draft'
-    documentationNavStore.updatePageField(pageId, 'status', 'draft')
-  } catch (error) {
-    console.error('Failed to unpublish page:', error)
-  }
-}
+const handleArchivePage = () => updatePageStatus('archived', { redirect: '/documentation' })
+const handleRestorePage = () => updatePageStatus('draft', { apiSuffix: '/restore' })
+const handlePublishPage = () => updatePageStatus('published')
+const handleUnpublishPage = () => updatePageStatus('draft')
 
 const handlePageMoved = () => {
   showMoveModal.value = false
@@ -345,16 +308,15 @@ const handlePageMoved = () => {
 
 // Handle duplicate page
 const handleDuplicatePage = async () => {
-  const currentPage = page.value || article.value
-  if (!currentPage) return
+  if (!document.value) return
 
   try {
     const newPage = await documentationService.createArticle({
-      title: `${currentPage.title} (copy)`,
-      content: currentPage.content || '',
-      description: currentPage.description || '',
+      title: `${document.value.title} (copy)`,
+      content: document.value.content || '',
+      description: document.value.description || '',
       status: 'draft',
-      icon: currentPage.icon || '📄',
+      icon: document.value.icon || '📄',
     })
 
     if (newPage?.id) {
@@ -379,7 +341,7 @@ const fetchContent = async () => {
       const ticket = await ticketService.getTicketById(Number(ticketIdParam))
 
       if (ticket) {
-        article.value = {
+        document.value = {
           id: `ticket-note-${ticketIdParam}`,
           title: `Notes for Ticket #${ticket.id}`,
           description: `Documentation for ticket ${ticket.title}`,
@@ -389,16 +351,17 @@ const fetchContent = async () => {
           status: 'published',
           slug: '',
           parent_id: null,
-          icon: null
+          icon: null,
+          children: [],
         }
 
         isTicketNote.value = true
         ticketId.value = ticketIdParam
-        editContent.value = article.value.content || ''
-        editTitle.value = article.value.title
-        documentIcon.value = article.value?.icon || 'mdi-text-box-outline'
+        editContent.value = document.value.content || ''
+        editTitle.value = document.value.title
+        documentIcon.value = document.value.icon || 'mdi-text-box-outline'
 
-        emit('update:title', article.value.title)
+        emit('update:title', document.value.title)
         isLoading.value = false
         return
       }
@@ -420,20 +383,20 @@ const fetchContent = async () => {
 
     if (result) {
       if ('children' in result && Array.isArray(result.children)) {
-        page.value = result
-        editContent.value = page.value.content || ''
-        editTitle.value = page.value.title
-        documentIcon.value = page.value.icon || 'mdi-folder-outline'
-        emit('update:title', page.value.title)
+        document.value = result
+        editContent.value = document.value.content || ''
+        editTitle.value = document.value.title
+        documentIcon.value = document.value.icon || 'mdi-folder-outline'
+        emit('update:title', document.value.title)
       } else if ('id' in result) {
         const articleData = await documentationService.getArticleById(String(result.id))
 
         if (articleData) {
-          article.value = articleData
-          editContent.value = article.value.content || ''
-          editTitle.value = article.value.title
-          documentIcon.value = article.value?.icon || 'mdi-text-box-outline'
-          emit('update:title', article.value.title)
+          document.value = articleData
+          editContent.value = document.value.content || ''
+          editTitle.value = document.value.title
+          documentIcon.value = document.value.icon || 'mdi-text-box-outline'
+          emit('update:title', document.value.title)
         } else {
           router.push('/documentation')
           return
@@ -450,20 +413,65 @@ const fetchContent = async () => {
   } finally {
     isLoading.value = false
 
+    // Fetch subscription and starred status for the loaded page
+    if (currentPageId.value && !isTicketNote.value) {
+      documentationService.getPageSubscription(Number(currentPageId.value)).then(subscribed => {
+        isSubscribed.value = subscribed
+      })
+      documentationService.getPageStarred(Number(currentPageId.value)).then(starred => {
+        isStarred.value = starred
+      })
+    }
+  }
+}
+
+// Subscription handlers
+const handleSubscribe = async () => {
+  if (!currentPageId.value) return
+  const success = await documentationService.subscribeToPage(Number(currentPageId.value))
+  if (success) {
+    isSubscribed.value = true
+  }
+}
+
+const handleUnsubscribe = async () => {
+  if (!currentPageId.value) return
+  const success = await documentationService.unsubscribeFromPage(Number(currentPageId.value))
+  if (success) {
+    isSubscribed.value = false
+  }
+}
+
+// Star handlers
+const handleStar = async () => {
+  if (!currentPageId.value || !document.value) return
+  const success = await documentationService.starPage(Number(currentPageId.value))
+  if (success) {
+    isStarred.value = true
+    docNavStore.addStarredPage({
+      page_id: Number(document.value.id),
+      title: document.value.title,
+      slug: document.value.slug,
+      icon: document.value.icon || null,
+      starred_at: new Date().toISOString(),
+    })
+  }
+}
+
+const handleUnstar = async () => {
+  if (!currentPageId.value) return
+  const success = await documentationService.unstarPage(Number(currentPageId.value))
+  if (success) {
+    isStarred.value = false
+    docNavStore.removeStarredPage(Number(currentPageId.value))
   }
 }
 
 // SSE handler for real-time updates
 const handleSSEUpdate = (data: { document_id?: number; field?: string; value?: string }) => {
-  const currentPageId = page.value?.id || article.value?.id
-
-  if (data.document_id === currentPageId) {
+  if (data.document_id === currentPageId.value) {
     if (data.field === 'title' && data.value) {
-      if (page.value) {
-        page.value.title = data.value
-      } else if (article.value) {
-        article.value.title = data.value
-      }
+      if (document.value) document.value.title = data.value
       editTitle.value = data.value
       titleManager.setCustomTitle(data.value)
       emit('update:title', data.value)
@@ -473,18 +481,10 @@ const handleSSEUpdate = (data: { document_id?: number; field?: string; value?: s
       }
     }
     if (data.field === 'slug' && data.value) {
-      if (page.value) {
-        page.value.slug = data.value
-      } else if (article.value) {
-        article.value.slug = data.value
-      }
+      if (document.value) document.value.slug = data.value
     }
     if (data.field === 'icon' && data.value) {
-      if (page.value) {
-        page.value.icon = data.value
-      } else if (article.value) {
-        article.value.icon = data.value
-      }
+      if (document.value) document.value.icon = data.value
       documentIcon.value = data.value
     }
   }
@@ -542,7 +542,7 @@ watch(documentObj, (newDocument) => {
 
         <!-- Publish button for unpublished pages -->
         <button
-          v-if="(page || article) && !isTicketNote && (page?.status || article?.status) !== 'published'"
+          v-if="document && !isTicketNote && document.status !== 'published'"
           @click="handlePublishPage"
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
         >
@@ -552,13 +552,41 @@ watch(documentObj, (newDocument) => {
           <span class="hidden sm:inline">Publish</span>
         </button>
 
+        <!-- Star button -->
+        <button
+          v-if="isDocumentPage"
+          @click="isStarred ? handleUnstar() : handleStar()"
+          class="p-1.5 rounded-md hover:bg-surface-hover transition-colors"
+          :class="isStarred ? 'text-amber-500' : 'text-secondary hover:text-primary'"
+          :title="isStarred ? 'Unstar page' : 'Star page'"
+        >
+          <svg class="w-5 h-5" :fill="isStarred ? 'currentColor' : 'none'" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+          </svg>
+        </button>
+
+        <!-- Copy link button -->
+        <button
+          v-if="isDocumentPage"
+          @click="handleCopyLink"
+          class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
+          :title="copiedLink ? 'Copied!' : 'Copy link'"
+        >
+          <svg v-if="!copiedLink" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+          </svg>
+          <svg v-else class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+          </svg>
+        </button>
+
         <!-- Document actions menu -->
         <DocumentActionsMenu
-          v-if="(article || page) && !isTicketNote"
-          :page-id="page?.id || article?.id || ''"
-          :page-title="editTitle || page?.title || article?.title || ''"
-          :page-slug="page?.slug || article?.slug || ''"
-          :page-status="page?.status || article?.status || 'draft'"
+          v-if="isDocumentPage"
+          :page-id="document?.id || ''"
+          :page-title="editTitle || document?.title || ''"
+          :page-slug="document?.slug || ''"
+          :page-status="document?.status || 'draft'"
           @delete="handleDeletePage"
           @duplicate="handleDuplicatePage"
           @archive="handleArchivePage"
@@ -569,7 +597,10 @@ watch(documentObj, (newDocument) => {
           @export="exportAsMarkdown"
           @collections="showCollectionManager = true"
           :show-permissions="authStore.isAdmin"
+          :is-subscribed="isSubscribed"
           @permissions="showPermissionsModal = true"
+          @subscribe="handleSubscribe"
+          @unsubscribe="handleUnsubscribe"
         />
       </div>
     </div>
@@ -582,15 +613,15 @@ watch(documentObj, (newDocument) => {
       </div>
 
       <!-- Document Content View -->
-      <div v-else-if="article || page" class="w-full flex">
+      <div v-else-if="document" class="w-full flex">
         <!-- Main Content Area -->
         <div class="flex-1 flex justify-center">
           <div class="w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
             <!-- Breadcrumb -->
             <DocumentationBreadcrumb
               v-if="!isTicketNote"
-              :page-id="page?.id || article?.id || ''"
-              :parent-id="page?.parent_id || article?.parent_id || null"
+              :page-id="document.id || ''"
+              :parent-id="document.parent_id || null"
               class="mb-4"
             />
 
@@ -605,7 +636,7 @@ watch(documentObj, (newDocument) => {
                   @keydown.enter.prevent="($event.target as HTMLElement).blur()"
                   class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-accent/30 rounded px-1 -mx-1"
                 >
-                  {{ editTitle || (page || article)?.title || 'Untitled' }}
+                  {{ editTitle || document.title || 'Untitled' }}
                 </h1>
               </div>
 
@@ -614,12 +645,12 @@ watch(documentObj, (newDocument) => {
                 <!-- Metadata -->
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-tertiary">
                   <!-- Status Badge -->
-                  <span v-if="(page?.status || article?.status) === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium">Draft</span>
-                  <span v-else-if="(page?.status || article?.status) === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300 font-medium">Archived</span>
+                  <span v-if="document.status === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium">Draft</span>
+                  <span v-else-if="document.status === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300 font-medium">Archived</span>
 
                   <!-- Created By -->
-                  <div v-if="page?.created_by || article?.created_by" class="flex items-center gap-1.5">
-                    <span class="text-secondary">{{ (page || article)?.created_by?.name || 'Unknown' }}</span>
+                  <div v-if="document.created_by" class="flex items-center gap-1.5">
+                    <span class="text-secondary">{{ document.created_by?.name || 'Unknown' }}</span>
                   </div>
 
                   <!-- SSE Connection Status -->
@@ -634,17 +665,17 @@ watch(documentObj, (newDocument) => {
                   ></div>
 
                   <!-- Separator -->
-                  <span v-if="(page?.created_by || article?.created_by) && (page?.updated_at || article?.updated_at)" class="text-subtle">·</span>
+                  <span v-if="document.created_by && document.updated_at" class="text-subtle">&middot;</span>
 
                   <!-- Last Updated -->
-                  <div v-if="page?.updated_at || article?.updated_at" class="flex items-center gap-1.5">
-                    <span>{{ formatDate((page || article)?.updated_at || new Date().toISOString()) }}</span>
+                  <div v-if="document.updated_at" class="flex items-center gap-1.5">
+                    <span>{{ formatDate(document.updated_at || new Date().toISOString()) }}</span>
                   </div>
 
                   <!-- Last Edited By -->
-                  <template v-if="page?.last_edited_by || article?.last_edited_by">
-                    <span class="text-subtle">·</span>
-                    <span>Edited by {{ (page || article)?.last_edited_by?.name || 'Unknown' }}</span>
+                  <template v-if="document.last_edited_by">
+                    <span class="text-subtle">&middot;</span>
+                    <span>Edited by {{ document.last_edited_by?.name || 'Unknown' }}</span>
                   </template>
                 </div>
 
@@ -652,15 +683,15 @@ watch(documentObj, (newDocument) => {
                 <div class="flex items-center gap-2">
                   <!-- Linked Ticket Button -->
                   <RouterLink
-                    v-if="page?.ticket_id || article?.ticket_id"
-                    :to="`/tickets/${page?.ticket_id || article?.ticket_id}`"
+                    v-if="document.ticket_id"
+                    :to="`/tickets/${document.ticket_id}`"
                     class="px-3 py-1.5 text-xs rounded-md hover:bg-surface-hover transition-colors flex items-center gap-1.5 text-secondary hover:text-primary"
                     title="View linked ticket"
                   >
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
                     </svg>
-                    <span>Ticket #{{ page?.ticket_id || article?.ticket_id }}</span>
+                    <span>Ticket #{{ document.ticket_id }}</span>
                   </RouterLink>
 
                   <!-- Revision History Toggle -->
@@ -694,9 +725,9 @@ watch(documentObj, (newDocument) => {
 
         <!-- Revision History Sidebar -->
         <RevisionHistory
-          v-if="showRevisionHistory && (page?.id || article?.id)"
+          v-if="showRevisionHistory && currentPageId"
           type="documentation"
-          :document-id="Number(page?.id || article?.id)"
+          :document-id="Number(currentPageId)"
           class="flex-shrink-0"
           @close="handleCloseRevisionHistory"
           @select-revision="handleSelectRevision"
@@ -720,8 +751,8 @@ watch(documentObj, (newDocument) => {
     <!-- Move Document Modal -->
     <MoveDocumentModal
       v-if="showMoveModal"
-      :page-id="page?.id || article?.id || ''"
-      :current-parent-id="page?.parent_id || article?.parent_id || null"
+      :page-id="document?.id || ''"
+      :current-parent-id="document?.parent_id || null"
       @close="showMoveModal = false"
       @moved="handlePageMoved"
     />
@@ -729,7 +760,7 @@ watch(documentObj, (newDocument) => {
     <!-- Collection Manager Modal -->
     <CollectionManager
       v-if="showCollectionManager"
-      :page-id="Number(page?.id || article?.id || 0)"
+      :page-id="Number(document?.id || 0)"
       :current-collection-ids="[]"
       @close="showCollectionManager = false"
       @updated="showCollectionManager = false"
@@ -738,7 +769,7 @@ watch(documentObj, (newDocument) => {
     <!-- Page Permissions Modal -->
     <PagePermissionsModal
       v-if="showPermissionsModal"
-      :page-id="Number(page?.id || article?.id || 0)"
+      :page-id="Number(document?.id || 0)"
       @close="showPermissionsModal = false"
       @updated="showPermissionsModal = false"
     />

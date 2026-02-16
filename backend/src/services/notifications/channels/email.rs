@@ -6,7 +6,9 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use diesel::prelude::*;
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock as TokioRwLock;
 use uuid::Uuid;
 
 use super::{ChannelError, ChannelResult, NotificationDeliveryChannel};
@@ -25,6 +27,8 @@ pub struct EmailChannel {
     pool: Pool,
     base_url: String,
     app_name: String,
+    /// Shared cache: notification_type_code -> notification_type_id
+    type_id_cache: Arc<TokioRwLock<HashMap<String, i32>>>,
 }
 
 impl EmailChannel {
@@ -33,12 +37,14 @@ impl EmailChannel {
         pool: Pool,
         base_url: String,
         app_name: String,
+        type_id_cache: Arc<TokioRwLock<HashMap<String, i32>>>,
     ) -> Self {
         Self {
             email_service,
             pool,
             base_url,
             app_name,
+            type_id_cache,
         }
     }
 
@@ -52,6 +58,9 @@ impl EmailChannel {
                 ticket_title,
                 ..
             } => ticket_title.clone(),
+            crate::services::notifications::types::NotificationEntity::DocumentationPage {
+                title, ..
+            } => title.clone(),
         };
 
         match notification.payload.notification_type {
@@ -73,18 +82,28 @@ impl EmailChannel {
             NotificationTypeCode::TicketCreatedRequester => {
                 format!("[{}] Ticket created: {}", self.app_name, entity_title)
             }
+            NotificationTypeCode::DocPageUpdated => {
+                format!("[{}] Page updated: {}", self.app_name, entity_title)
+            }
         }
     }
 
-    /// Generate the ticket URL for the email
-    fn generate_ticket_url(&self, notification: &DeliverableNotification) -> String {
-        let ticket_id = notification.payload.entity.ticket_id();
-        format!("{}/tickets/{}", self.base_url, ticket_id)
+    /// Generate the entity URL for the email
+    fn generate_entity_url(&self, notification: &DeliverableNotification) -> String {
+        match &notification.payload.entity {
+            crate::services::notifications::types::NotificationEntity::DocumentationPage { slug, .. } => {
+                format!("{}/documentation/{}", self.base_url, slug)
+            }
+            _ => {
+                let ticket_id = notification.payload.entity.ticket_id();
+                format!("{}/tickets/{}", self.base_url, ticket_id)
+            }
+        }
     }
 
     /// Generate email HTML body
     fn generate_html_body(&self, notification: &DeliverableNotification) -> String {
-        let ticket_url = self.generate_ticket_url(notification);
+        let ticket_url = self.generate_entity_url(notification);
         let body_text = notification
             .payload
             .body
@@ -187,8 +206,17 @@ impl EmailChannel {
         Ok(())
     }
 
-    /// Get notification type ID from code
+    /// Get notification type ID from code (with shared cache)
     async fn get_notification_type_id(&self, type_code: &str) -> ChannelResult<i32> {
+        // Check cache first
+        {
+            let cache = self.type_id_cache.read().await;
+            if let Some(&cached_id) = cache.get(type_code) {
+                return Ok(cached_id);
+            }
+        }
+
+        // Query database
         use crate::schema::notification_types::dsl::{notification_types, code, id as id_col};
 
         let mut conn = self
@@ -196,11 +224,19 @@ impl EmailChannel {
             .get()
             .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
 
-        notification_types
+        let type_id: i32 = notification_types
             .filter(code.eq(type_code))
             .select(id_col)
             .first(&mut conn)
-            .map_err(|e| ChannelError::DatabaseError(format!("Notification type not found: {e}")))
+            .map_err(|e| ChannelError::DatabaseError(format!("Notification type not found: {e}")))?;
+
+        // Update cache
+        {
+            let mut cache = self.type_id_cache.write().await;
+            cache.insert(type_code.to_string(), type_id);
+        }
+
+        Ok(type_id)
     }
 }
 
@@ -264,23 +300,16 @@ impl NotificationDeliveryChannel for EmailChannel {
             notification_rate_limits, user_uuid, notification_type_id, entity_type, entity_id,
             last_notified_at, id as rate_limit_id,
         };
-        use crate::schema::notification_types::dsl::{
-            notification_types as nt_table, code as nt_code, id as nt_id,
+
+        // Get notification type ID from shared cache
+        let type_id: i32 = match self.get_notification_type_id(notification_type).await {
+            Ok(id) => id,
+            Err(_) => return true, // Don't rate limit on errors
         };
 
         let mut conn = match self.pool.get() {
             Ok(c) => c,
             Err(_) => return true, // Don't rate limit on DB errors
-        };
-
-        // Get notification type ID
-        let type_id: i32 = match nt_table
-            .filter(nt_code.eq(notification_type))
-            .select(nt_id)
-            .first(&mut conn)
-        {
-            Ok(fetched_id) => fetched_id,
-            Err(_) => return true,
         };
 
         // Check if we've sent an email for this entity recently

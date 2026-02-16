@@ -27,9 +27,9 @@ use crate::utils;
 // Helper function for environment-based auth providers
 fn get_default_microsoft_provider() -> Result<AuthProvider, diesel::result::Error> {
     // Using environment variables, return a fixed provider for Microsoft
-    if std::env::var("MICROSOFT_CLIENT_ID").is_ok() 
-        && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok() 
-        && std::env::var("MICROSOFT_TENANT_ID").is_ok() {
+    if config_utils::get_microsoft_client_id().is_ok()
+        && config_utils::get_microsoft_client_secret().is_ok()
+        && config_utils::get_microsoft_tenant_id().is_ok() {
         Ok(AuthProvider::new(2, "Microsoft".to_string(), "microsoft".to_string(), true, false))
     } else {
         Err(diesel::result::Error::NotFound)
@@ -65,11 +65,11 @@ fn get_user_sync_config() -> (usize, usize) {
 /// Creates a Microsoft Graph HTTP client with access token using client credentials flow.
 /// This is the shared helper to eliminate token acquisition duplication across sync functions.
 async fn get_msgraph_client_and_token() -> Result<(reqwest::Client, String), String> {
-    let client_id = std::env::var("MICROSOFT_CLIENT_ID")
+    let client_id = config_utils::get_microsoft_client_id()
         .map_err(|_| "MICROSOFT_CLIENT_ID not configured")?;
-    let client_secret = std::env::var("MICROSOFT_CLIENT_SECRET")
+    let client_secret = config_utils::get_microsoft_client_secret()
         .map_err(|_| "MICROSOFT_CLIENT_SECRET not configured")?;
-    let tenant_id = std::env::var("MICROSOFT_TENANT_ID")
+    let tenant_id = config_utils::get_microsoft_tenant_id()
         .map_err(|_| "MICROSOFT_TENANT_ID not configured")?;
 
     let client = reqwest::Client::builder()
@@ -123,6 +123,7 @@ pub struct SyncProgressState {
     pub updated_at: DateTime<Utc>,
     pub sync_type: String, // "users", "profile_photos", "devices", "groups", or "multiple"
     pub is_delta: bool,
+    pub completed_items: usize, // cumulative items completed in prior entities
 }
 
 #[derive(Deserialize, Debug)]
@@ -418,6 +419,7 @@ struct SyncProgressUpdate<'a> {
     message: &'a str,
     sync_type: &'a str,
     is_delta: Option<bool>,
+    completed_items: Option<usize>,
 }
 
 impl<'a> SyncProgressUpdate<'a> {
@@ -432,6 +434,7 @@ impl<'a> SyncProgressUpdate<'a> {
             message,
             sync_type: entity, // Default sync_type to entity
             is_delta: None,
+            completed_items: None,
         }
     }
 
@@ -447,6 +450,12 @@ impl<'a> SyncProgressUpdate<'a> {
         self
     }
 
+    /// Set the completed_items offset (items completed in prior entities)
+    fn with_completed_items(mut self, completed_items: usize) -> Self {
+        self.completed_items = Some(completed_items);
+        self
+    }
+
     /// Apply the update to the in-memory progress map
     fn apply(self) {
         let now = Utc::now();
@@ -457,6 +466,9 @@ impl<'a> SyncProgressUpdate<'a> {
             let started_at = existing.map(|p| p.started_at).unwrap_or(now);
             let preserved_is_delta = self.is_delta.unwrap_or_else(|| {
                 existing.map(|p| p.is_delta).unwrap_or(false)
+            });
+            let preserved_completed_items = self.completed_items.unwrap_or_else(|| {
+                existing.map(|p| p.completed_items).unwrap_or(0)
             });
 
             let progress = SyncProgressState {
@@ -470,6 +482,7 @@ impl<'a> SyncProgressUpdate<'a> {
                 updated_at: now,
                 sync_type: self.sync_type.to_string(),
                 is_delta: preserved_is_delta,
+                completed_items: preserved_completed_items,
             };
             progress_map.insert(self.session_id.to_string(), progress);
         }
@@ -484,6 +497,22 @@ fn update_sync_progress(session_id: &str, entity: &str, current: usize, total: u
 fn update_sync_progress_with_type(session_id: &str, entity: &str, current: usize, total: usize, status: &str, message: &str, sync_type: &str, is_delta: Option<bool>) {
     let mut update = SyncProgressUpdate::new(session_id, entity, current, total, status, message)
         .with_sync_type(sync_type);
+    if let Some(delta) = is_delta {
+        update = update.with_is_delta(delta);
+    }
+    update.apply();
+}
+
+fn update_sync_progress_with_offset(session_id: &str, entity: &str, current: usize, total: usize, status: &str, message: &str, completed_items: usize) {
+    SyncProgressUpdate::new(session_id, entity, current, total, status, message)
+        .with_completed_items(completed_items)
+        .apply();
+}
+
+fn update_sync_progress_with_type_and_offset(session_id: &str, entity: &str, current: usize, total: usize, status: &str, message: &str, sync_type: &str, is_delta: Option<bool>, completed_items: usize) {
+    let mut update = SyncProgressUpdate::new(session_id, entity, current, total, status, message)
+        .with_sync_type(sync_type)
+        .with_completed_items(completed_items);
     if let Some(delta) = is_delta {
         update = update.with_is_delta(delta);
     }
@@ -645,6 +674,7 @@ pub async fn get_last_sync(
                 updated_at: DateTime::from_naive_utc_and_offset(sync_history.completed_at.unwrap_or(sync_history.started_at), Utc),
                 sync_type: sync_history.sync_type,
                 is_delta: sync_history.is_delta,
+                completed_items: 0,
             };
             HttpResponse::Ok().json(response)
         },
@@ -654,18 +684,15 @@ pub async fn get_last_sync(
                 let last_sync = progress_map
                     .values()
                     .filter(|progress| {
-                        progress.status == "completed" || 
-                        progress.status == "error" || 
+                        progress.status == "completed" ||
+                        progress.status == "error" ||
                         progress.status == "cancelled"
                     })
                     .max_by_key(|progress| progress.updated_at);
-                
+
                 match last_sync {
                     Some(sync) => HttpResponse::Ok().json(sync),
-                    None => HttpResponse::NotFound().json(json!({
-                        "status": "error",
-                        "message": "No completed synchronizations found"
-                    }))
+                    None => HttpResponse::Ok().json(json!(null))
                 }
             } else {
                 HttpResponse::InternalServerError().json(json!({
@@ -740,11 +767,11 @@ pub async fn get_config_validation(
 
     let mut missing_fields = Vec::new();
 
-    // Check and retrieve each required environment variable
-    let client_id = std::env::var("MICROSOFT_CLIENT_ID").ok();
-    let client_secret = std::env::var("MICROSOFT_CLIENT_SECRET").ok();
-    let tenant_id = std::env::var("MICROSOFT_TENANT_ID").ok();
-    let redirect_uri = std::env::var("MICROSOFT_REDIRECT_URI").ok();
+    // Check and retrieve each required environment variable via config_utils
+    let client_id = config_utils::get_microsoft_client_id().ok();
+    let client_secret = config_utils::get_microsoft_client_secret().ok();
+    let tenant_id = config_utils::get_microsoft_tenant_id().ok();
+    let redirect_uri = config_utils::get_microsoft_redirect_uri().ok();
 
     if client_id.is_none() {
         missing_fields.push("MICROSOFT_CLIENT_ID".to_string());
@@ -804,9 +831,9 @@ pub async fn get_connection_status(
     };
 
     // Check if Microsoft is configured via environment variables
-    let microsoft_configured = std::env::var("MICROSOFT_CLIENT_ID").is_ok() 
-        && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
-        && std::env::var("MICROSOFT_TENANT_ID").is_ok();
+    let microsoft_configured = config_utils::get_microsoft_client_id().is_ok()
+        && config_utils::get_microsoft_client_secret().is_ok()
+        && config_utils::get_microsoft_tenant_id().is_ok();
     
     if !microsoft_configured {
         return HttpResponse::Ok().json(ConnectionStatus {
@@ -903,6 +930,14 @@ pub async fn sync_data(
             "message": "Microsoft auth provider not found"
         })),
     };
+
+    // Validate configuration before spawning background task
+    if let Err(e) = check_microsoft_config() {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": format!("Microsoft Graph configuration invalid: {e}")
+        }));
+    }
 
     // Determine the primary sync type based on entities
     let entities = request.entities.clone();
@@ -1244,12 +1279,15 @@ async fn perform_sync(
         "sync"
     };
 
+    // Track cumulative items completed across entities for overall progress
+    let mut completed_items: usize = 0;
+
     // Don't overwrite entity-specific progress - just process each entity
     for (_index, entity) in entities.iter().enumerate() {
         let sync_progress = match entity.as_str() {
-            "users" => sync_users(conn, provider_id, session_id, use_delta).await,
-            "devices" => sync_devices(conn, provider_id, session_id, use_delta).await,
-            "groups" => sync_groups(conn, provider_id, session_id, use_delta).await,
+            "users" => sync_users(conn, provider_id, session_id, use_delta, completed_items).await,
+            "devices" => sync_devices(conn, provider_id, session_id, use_delta, completed_items).await,
+            "groups" => sync_groups(conn, provider_id, session_id, use_delta, completed_items).await,
             _ => {
                 total_errors += 1;
                 // Update progress with error for unsupported entity
@@ -1268,6 +1306,9 @@ async fn perform_sync(
         if sync_progress.status == "cancelled" {
             was_cancelled = true;
         }
+
+        // Accumulate completed items for the next entity's offset
+        completed_items += sync_progress.total;
 
         total_processed += sync_progress.processed;
         total_errors += sync_progress.errors.len();
@@ -1301,6 +1342,7 @@ async fn sync_users(
     provider_id: i32,
     session_id: &str,
     use_delta: bool,
+    completed_items: usize,
 ) -> SyncProgress {
     let mut stats = UserSyncStats {
         new_users_created: 0,
@@ -1310,13 +1352,13 @@ async fn sync_users(
     };
 
     let sync_mode_msg = if use_delta { "delta" } else { "full" };
-    update_sync_progress(session_id, "users", 0, 0, "running", &format!("Fetching users from Microsoft Graph ({sync_mode_msg})"));
+    update_sync_progress_with_offset(session_id, "users", 0, 0, "running", &format!("Fetching users from Microsoft Graph ({sync_mode_msg})"), completed_items);
 
     // Step 1: Fetch users from Microsoft Graph using delta query
     let delta_result = match fetch_microsoft_graph_users_delta(conn, use_delta).await {
         Ok(result) => result,
         Err(error) => {
-            update_sync_progress(session_id, "users", 0, 0, "error", &format!("Failed to fetch users: {error}"));
+            update_sync_progress_with_offset(session_id, "users", 0, 0, "error", &format!("Failed to fetch users: {error}"), completed_items);
             return SyncProgress {
                 entity: "users".to_string(),
                 processed: 0,
@@ -1373,7 +1415,7 @@ async fn sync_users(
 
     if total_users == 0 {
         debug!("No users found to sync from Microsoft Graph");
-        update_sync_progress(session_id, "users", 0, 0, "completed", "No users found to sync");
+        update_sync_progress_with_offset(session_id, "users", 0, 0, "completed", "No users found to sync", completed_items);
         return SyncProgress {
             entity: "users".to_string(),
             processed: 0,
@@ -1384,7 +1426,7 @@ async fn sync_users(
     }
 
     info!("Starting user sync: processing {} users concurrently", total_users);
-    update_sync_progress(session_id, "users", 0, total_users, "running", &format!("Processing {total_users} users concurrently"));
+    update_sync_progress_with_offset(session_id, "users", 0, total_users, "running", &format!("Processing {total_users} users concurrently"), completed_items);
 
     // Get concurrency configuration
     let (concurrent_processing, user_batch_size) = get_user_sync_config();
@@ -1397,7 +1439,7 @@ async fn sync_users(
         .build()
         .map_err(|e| {
             let error_msg = format!("Failed to create HTTP client: {e}");
-            update_sync_progress(session_id, "users", 0, total_users, "error", &error_msg);
+            update_sync_progress_with_offset(session_id, "users", 0, total_users, "error", &error_msg, completed_items);
             SyncProgress {
                 entity: "users".to_string(),
                 processed: 0,
@@ -1416,13 +1458,14 @@ async fn sync_users(
         let batch_start = processed_count;
         let batch_size = batch.len();
         
-        update_sync_progress(
-            session_id, 
-            "users", 
-            batch_start, 
-            total_users, 
-            "running", 
-            &format!("Processing batch {}-{} of {}", batch_start + 1, batch_start + batch_size, total_users)
+        update_sync_progress_with_offset(
+            session_id,
+            "users",
+            batch_start,
+            total_users,
+            "running",
+            &format!("Processing batch {}-{} of {}", batch_start + 1, batch_start + batch_size, total_users),
+            completed_items
         );
 
         // Process each user in the batch with optimized profile photo handling
@@ -1434,7 +1477,7 @@ async fn sync_users(
                     processed_count, total_users, stats.new_users_created, stats.existing_users_updated, stats.identities_linked);
                 
                 // Update progress with cancellation status
-                update_sync_progress_with_type(
+                update_sync_progress_with_type_and_offset(
                     session_id,
                     "users",
                     processed_count,
@@ -1442,7 +1485,8 @@ async fn sync_users(
                     "cancelled",
                     &cancel_message,
                     "users",
-                    None
+                    None,
+                    completed_items
                 );
                 
                 return SyncProgress {
@@ -1456,7 +1500,7 @@ async fn sync_users(
             
             processed_count += 1;
             
-            update_sync_progress_with_type(
+            update_sync_progress_with_type_and_offset(
                 session_id,
                 "users",
                 processed_count - 1,
@@ -1464,7 +1508,8 @@ async fn sync_users(
                 "running",
                 &format!("Processing user: {}", ms_user.user_principal_name),
                 "users",
-                None
+                None,
+                completed_items
             );
 
             if background_photo_sync {
@@ -1496,15 +1541,16 @@ async fn sync_users(
             // Update progress more frequently
             if processed_count % 5 == 0 || processed_count == total_users {
                 let _processed = stats.new_users_created + stats.existing_users_updated + stats.identities_linked;
-                update_sync_progress(
-                    session_id, 
-                    "users", 
-                    processed_count, 
-                    total_users, 
-                    "running", 
-                    &format!("Processed {}/{} users ({} created, {} updated, {} linked, {} errors)", 
-                        processed_count, total_users, stats.new_users_created, stats.existing_users_updated, 
-                        stats.identities_linked, stats.errors.len())
+                update_sync_progress_with_offset(
+                    session_id,
+                    "users",
+                    processed_count,
+                    total_users,
+                    "running",
+                    &format!("Processed {}/{} users ({} created, {} updated, {} linked, {} errors)",
+                        processed_count, total_users, stats.new_users_created, stats.existing_users_updated,
+                        stats.identities_linked, stats.errors.len()),
+                    completed_items
                 );
             }
         }
@@ -1519,14 +1565,15 @@ async fn sync_users(
 
     // Only mark as completed if the sync wasn't cancelled
     if !sync_was_cancelled {
-        update_sync_progress(
-            session_id, 
-            "users", 
-            total_users, 
-            total_users, 
-            "completed", 
-            &format!("Completed: {} created, {} updated, {} linked, {} errors", 
-                stats.new_users_created, stats.existing_users_updated, stats.identities_linked, stats.errors.len())
+        update_sync_progress_with_offset(
+            session_id,
+            "users",
+            total_users,
+            total_users,
+            "completed",
+            &format!("Completed: {} created, {} updated, {} linked, {} errors",
+                stats.new_users_created, stats.existing_users_updated, stats.identities_linked, stats.errors.len()),
+            completed_items
         );
 
         // Background photo sync will be handled at the main sync level if configured
@@ -2452,6 +2499,7 @@ async fn sync_devices(
     provider_id: i32,
     session_id: &str,
     use_delta: bool,
+    completed_items: usize,
 ) -> SyncProgress {
     let mut stats = DeviceSyncStats {
         new_devices_created: 0,
@@ -2461,13 +2509,13 @@ async fn sync_devices(
     };
 
     let sync_mode_msg = if use_delta { "delta" } else { "full" };
-    update_sync_progress_with_type(session_id, "devices", 0, 0, "running", &format!("Fetching devices from Microsoft Graph ({sync_mode_msg})"), "devices", None);
+    update_sync_progress_with_type_and_offset(session_id, "devices", 0, 0, "running", &format!("Fetching devices from Microsoft Graph ({sync_mode_msg})"), "devices", None, completed_items);
 
     // Step 1: Fetch devices from Microsoft Graph using delta query
     let delta_result = match fetch_microsoft_graph_devices_delta(conn, use_delta).await {
         Ok(result) => result,
         Err(error) => {
-            update_sync_progress_with_type(session_id, "devices", 0, 0, "error", &format!("Failed to fetch devices: {error}"), "devices", None);
+            update_sync_progress_with_type_and_offset(session_id, "devices", 0, 0, "error", &format!("Failed to fetch devices: {error}"), "devices", None, completed_items);
             return SyncProgress {
                 entity: "devices".to_string(),
                 processed: 0,
@@ -2499,7 +2547,7 @@ async fn sync_devices(
     info!(device_count = total_devices, was_delta = !delta_result.was_full_sync, "Fetched devices from Entra ID");
 
     if total_devices == 0 {
-        update_sync_progress_with_type(session_id, "devices", 0, 0, "completed", "No devices found to sync", "devices", None);
+        update_sync_progress_with_type_and_offset(session_id, "devices", 0, 0, "completed", "No devices found to sync", "devices", None, completed_items);
         return SyncProgress {
         entity: "devices".to_string(),
         processed: 0,
@@ -2510,7 +2558,7 @@ async fn sync_devices(
     }
 
     // Note: No need to resolve Entra Object IDs - the /devices endpoint already returns them as the `id` field
-    update_sync_progress_with_type(session_id, "devices", 0, total_devices, "running", &format!("Processing {total_devices} Entra devices"), "devices", None);
+    update_sync_progress_with_type_and_offset(session_id, "devices", 0, total_devices, "running", &format!("Processing {total_devices} Entra devices"), "devices", None, completed_items);
 
     // Step 2: Process Entra devices
     let mut processed_count = 0;
@@ -2522,7 +2570,7 @@ async fn sync_devices(
             let cancel_message = format!("Sync was cancelled by user request. Processed {} of {} devices ({} created, {} updated)",
                 processed_count, total_devices, stats.new_devices_created, stats.existing_devices_updated);
 
-            update_sync_progress_with_type(
+            update_sync_progress_with_type_and_offset(
                 session_id,
                 "devices",
                 processed_count,
@@ -2530,7 +2578,8 @@ async fn sync_devices(
                 "cancelled",
                 &cancel_message,
                 "devices",
-                None
+                None,
+                completed_items
             );
 
             return SyncProgress {
@@ -2546,7 +2595,7 @@ async fn sync_devices(
 
         let device_name = entra_device.display_name.as_deref().unwrap_or(&entra_device.id);
 
-        update_sync_progress_with_type(
+        update_sync_progress_with_type_and_offset(
             session_id,
             "devices",
             processed_count - 1,
@@ -2554,7 +2603,8 @@ async fn sync_devices(
             "running",
             &format!("Processing device: {device_name}"),
             "devices",
-            None
+            None,
+            completed_items
         );
 
         match process_entra_device(conn, provider_id, &entra_device, &mut stats).await {
@@ -2571,7 +2621,7 @@ async fn sync_devices(
         // Update progress more frequently
         if processed_count % 5 == 0 || processed_count == total_devices {
             let _processed = stats.new_devices_created + stats.existing_devices_updated;
-            update_sync_progress_with_type(
+            update_sync_progress_with_type_and_offset(
                 session_id,
                 "devices",
                 processed_count,
@@ -2581,7 +2631,8 @@ async fn sync_devices(
                     processed_count, total_devices, stats.new_devices_created, stats.existing_devices_updated,
                     stats.devices_assigned, stats.errors.len()),
                 "devices",
-                None
+                None,
+                completed_items
             );
         }
 
@@ -2593,7 +2644,7 @@ async fn sync_devices(
 
     let processed = stats.new_devices_created + stats.existing_devices_updated;
 
-    update_sync_progress_with_type(
+    update_sync_progress_with_type_and_offset(
         session_id,
         "devices",
         total_devices,
@@ -2602,7 +2653,8 @@ async fn sync_devices(
         &format!("Completed: {} created, {} updated, {} assigned, {} errors",
             stats.new_devices_created, stats.existing_devices_updated, stats.devices_assigned, stats.errors.len()),
         "devices",
-        None
+        None,
+        completed_items
     );
 
     SyncProgress {
@@ -2621,11 +2673,12 @@ async fn sync_groups(
     _provider_id: i32,
     session_id: &str,
     use_delta: bool,
+    completed_items: usize,
 ) -> SyncProgress {
     let mut stats = GroupSyncStats::default();
 
     let sync_mode_msg = if use_delta { "delta" } else { "full" };
-    update_sync_progress_with_type(session_id, "groups", 0, 0, "running", &format!("Fetching groups from Microsoft Graph ({sync_mode_msg})"), "groups", None);
+    update_sync_progress_with_type_and_offset(session_id, "groups", 0, 0, "running", &format!("Fetching groups from Microsoft Graph ({sync_mode_msg})"), "groups", None, completed_items);
 
     // Load sync configuration
     let config = GroupSyncConfig::from_env();
@@ -2634,7 +2687,7 @@ async fn sync_groups(
     let delta_result = match fetch_microsoft_graph_groups_delta(conn, use_delta).await {
         Ok(result) => result,
         Err(error) => {
-            update_sync_progress_with_type(session_id, "groups", 0, 0, "error", &format!("Failed to fetch groups: {error}"), "groups", None);
+            update_sync_progress_with_type_and_offset(session_id, "groups", 0, 0, "error", &format!("Failed to fetch groups: {error}"), "groups", None, completed_items);
             return SyncProgress {
                 entity: "groups".to_string(),
                 processed: 0,
@@ -2675,7 +2728,7 @@ async fn sync_groups(
     );
 
     if total_groups == 0 {
-        update_sync_progress_with_type(session_id, "groups", 0, 0, "completed", "No groups found to sync (check filter settings)", "groups", None);
+        update_sync_progress_with_type_and_offset(session_id, "groups", 0, 0, "completed", "No groups found to sync (check filter settings)", "groups", None, completed_items);
         return SyncProgress {
             entity: "groups".to_string(),
             processed: 0,
@@ -2685,7 +2738,7 @@ async fn sync_groups(
         };
     }
 
-    update_sync_progress_with_type(session_id, "groups", 0, total_groups, "running", &format!("Processing {total_groups} groups"), "groups", None);
+    update_sync_progress_with_type_and_offset(session_id, "groups", 0, total_groups, "running", &format!("Processing {total_groups} groups"), "groups", None, completed_items);
 
     // Create HTTP client for member fetches (needed for full sync or fallback)
     let client = reqwest::Client::builder()
@@ -2706,7 +2759,7 @@ async fn sync_groups(
                 "Sync cancelled. Processed {} of {} groups ({} created, {} updated)",
                 processed_count, total_groups, stats.groups_created, stats.groups_updated
             );
-            update_sync_progress_with_type(session_id, "groups", processed_count, total_groups, "cancelled", &cancel_message, "groups", None);
+            update_sync_progress_with_type_and_offset(session_id, "groups", processed_count, total_groups, "cancelled", &cancel_message, "groups", None, completed_items);
             return SyncProgress {
                 entity: "groups".to_string(),
                 processed: processed_count,
@@ -2737,7 +2790,7 @@ async fn sync_groups(
 
         let group_name = ms_group.display_name.as_deref().unwrap_or(&ms_group.id);
 
-        update_sync_progress_with_type(
+        update_sync_progress_with_type_and_offset(
             session_id,
             "groups",
             processed_count - 1,
@@ -2745,7 +2798,8 @@ async fn sync_groups(
             "running",
             &format!("Processing group: {group_name}"),
             "groups",
-            None
+            None,
+            completed_items
         );
 
         // Upsert the group
@@ -2827,7 +2881,7 @@ async fn sync_groups(
 
         // Progress update every 5 groups
         if processed_count % 5 == 0 || processed_count == total_groups {
-            update_sync_progress_with_type(
+            update_sync_progress_with_type_and_offset(
                 session_id,
                 "groups",
                 processed_count,
@@ -2838,7 +2892,8 @@ async fn sync_groups(
                     processed_count, total_groups, stats.groups_created, stats.groups_updated, stats.errors.len()
                 ),
                 "groups",
-                None
+                None,
+                completed_items
             );
         }
 
@@ -2860,7 +2915,7 @@ async fn sync_groups(
         stats.groups_created, stats.groups_updated, stats.user_membership_changes, stats.device_membership_changes, stats.errors.len()
     );
 
-    update_sync_progress_with_type(
+    update_sync_progress_with_type_and_offset(
         session_id,
         "groups",
         total_groups,
@@ -2868,7 +2923,8 @@ async fn sync_groups(
         "completed",
         &final_message,
         "groups",
-        None
+        None,
+        completed_items
     );
 
     SyncProgress {

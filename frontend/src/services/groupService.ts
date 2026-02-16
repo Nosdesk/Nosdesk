@@ -9,7 +9,8 @@ import type {
   UpdateGroupRequest,
   SetGroupMembersRequest,
   SetUserGroupsRequest,
-  SetGroupDevicesRequest
+  SetGroupDevicesRequest,
+  SetGroupIncludesRequest
 } from '@/types/group';
 
 export const groupService = {
@@ -118,6 +119,28 @@ export const groupService = {
       return response.data;
     } catch (error) {
       logger.error(`Error fetching group details for ${uuid}:`, error);
+      throw error;
+    }
+  },
+
+  // Get included groups for a group (admin only)
+  async getGroupIncludes(id: number): Promise<Group[]> {
+    try {
+      const response = await apiClient.get<Group[]>(`/groups/${id}/includes`);
+      return response.data;
+    } catch (error) {
+      logger.error(`Error fetching includes for group ${id}:`, error);
+      throw error;
+    }
+  },
+
+  // Set included groups for a group (admin only)
+  async setGroupIncludes(id: number, request: SetGroupIncludesRequest): Promise<GroupDetails> {
+    try {
+      const response = await apiClient.put<GroupDetails>(`/groups/${id}/includes`, request);
+      return response.data;
+    } catch (error) {
+      logger.error(`Error setting includes for group ${id}:`, error);
       throw error;
     }
   },

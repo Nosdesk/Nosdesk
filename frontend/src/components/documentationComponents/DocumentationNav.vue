@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import documentationService from '@/services/documentationService'
+import documentationService, { getStarredPages } from '@/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import type { Page } from '@/services/documentationService'
 import DocumentationNavItem from './DocumentationNavItem.vue'
@@ -9,7 +9,7 @@ import { storeToRefs } from 'pinia'
 import { useSSE } from '@/services/sseService'
 import { getCollections, getCollection } from '@/services/collectionService'
 import type { CollectionWithDetails, CollectionPage } from '@/services/collectionService'
-import { buildTreeFromFlat, sortByOrder } from '@/utils/treeUtils'
+import { buildTreeFromFlat, sortByOrder, findInTree } from '@/utils/treeUtils'
 
 defineEmits<{
   'search': [query: string];
@@ -30,10 +30,15 @@ const handleDocumentationUpdate = (event: any) => {
     docNavStore.updatePageField(data.document_id, data.field, data.value);
     // Also update in our collection page caches
     for (const [, pages] of Object.entries(collectionPages)) {
-      const page = findPageInTree(pages, data.document_id);
+      const page = findInTree(pages, data.document_id);
       if (page) {
         (page as any)[data.field] = data.value;
       }
+    }
+    // Update starred pages if title/icon changed
+    const starred = starredPages.value.find(p => p.page_id === data.document_id);
+    if (starred) {
+      (starred as any)[data.field] = data.value;
     }
   }
 };
@@ -48,7 +53,7 @@ const handleCollectionUpdate = (event: any) => {
 };
 
 // Use store's reactive loading state
-const { isLoading } = storeToRefs(docNavStore)
+const { isLoading, starredPages, isStarredExpanded } = storeToRefs(docNavStore)
 
 // Drag and Drop state
 const draggedPageId = ref<string | number | null>(null);
@@ -180,17 +185,6 @@ const updateStorePages = () => {
 // Page navigation and interaction
 // ============================================================================
 
-const findPageInTree = (tree: Page[], id: string | number): Page | null => {
-  for (const page of tree) {
-    if (String(page.id) === String(id)) return page;
-    if (page.children && page.children.length > 0) {
-      const found = findPageInTree(page.children, id);
-      if (found) return found;
-    }
-  }
-  return null;
-};
-
 const findParentPage = (tree: Page[], childId: string | number): Page | null => {
   for (const page of tree) {
     if (page.children && page.children.some(child => String(child.id) === String(childId))) {
@@ -207,7 +201,7 @@ const findParentPage = (tree: Page[], childId: string | number): Page | null => 
 // Find a page across all collections
 const findPageGlobal = (id: string | number): Page | null => {
   for (const pages of Object.values(collectionPages)) {
-    const found = findPageInTree(pages, id);
+    const found = findInTree(pages, id);
     if (found) return found;
   }
   return null;
@@ -387,7 +381,7 @@ const handlePageDrop = async (id: string | number, event: DragEvent, position: '
   const collectionTree = getPagesForCollection(collectionId);
 
   try {
-    const targetPage = findPageInTree(collectionTree, id);
+    const targetPage = findInTree(collectionTree, id);
     if (!targetPage) return;
 
     const targetParent = findParentPage(collectionTree, id);
@@ -403,7 +397,7 @@ const handlePageDrop = async (id: string | number, event: DragEvent, position: '
 
       let siblings: Page[] = [];
       if (targetParentId) {
-        const parent = findPageInTree(collectionTree, targetParentId);
+        const parent = findInTree(collectionTree, targetParentId);
         if (parent && parent.children) siblings = [...parent.children];
       } else {
         siblings = [...collectionTree];
@@ -470,6 +464,8 @@ const handleResize = () => {
 onMounted(async () => {
   docNavStore.setLoading(true);
   try {
+    // Load starred pages in parallel with collections
+    getStarredPages().then(pages => docNavStore.setStarredPages(pages));
     await loadCollections()
 
     // Auto-expand collections that were previously expanded and load their pages
@@ -514,6 +510,7 @@ onUnmounted(() => {
 
 // Create a method to reload the sidebar
 const reloadSidebar = async () => {
+  getStarredPages().then(pages => docNavStore.setStarredPages(pages));
   await loadCollections();
   // Reload all expanded or previously loaded collections
   const reloads: Promise<void>[] = [];
@@ -556,6 +553,60 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
         <div class="w-4 h-4 rounded bg-surface-hover/50 animate-pulse flex-shrink-0"></div>
         <div class="flex-1 h-3 rounded bg-surface-hover/60 animate-pulse" :style="{ maxWidth: `${50 + (i % 3) * 15}%` }"></div>
       </div>
+    </div>
+
+    <!-- Starred Pages Section -->
+    <div v-if="!initialLoading && starredPages.length > 0" class="py-1">
+      <!-- Starred Header -->
+      <div
+        class="group relative flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150 text-secondary hover:text-primary hover:bg-surface-hover"
+        @click="docNavStore.toggleStarredExpanded()"
+      >
+        <span class="flex-shrink-0" style="width: 8px"></span>
+        <span class="flex-shrink-0 w-5 flex items-center justify-center">
+          <svg
+            class="w-2.5 h-2.5 transition-transform duration-200 text-tertiary"
+            :class="{ 'rotate-90': isStarredExpanded }"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2.5"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </span>
+        <svg class="w-3.5 h-3.5 flex-shrink-0 ml-0.5 text-amber-500" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+        </svg>
+        <span class="flex-1 truncate min-w-0 ml-1 font-medium">Starred</span>
+        <span class="flex-shrink-0 text-[10px] text-tertiary ml-1">{{ starredPages.length }}</span>
+      </div>
+
+      <!-- Starred Pages List (collapsible) -->
+      <div class="collapse-section" :class="{ 'is-expanded': isStarredExpanded }">
+        <div class="collapse-content">
+          <RouterLink
+            v-for="sp in starredPages"
+            :key="sp.page_id"
+            :to="`/documentation/${sp.slug}`"
+            class="group flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150"
+            :class="[
+              route.path === `/documentation/${sp.slug}`
+                ? 'bg-surface text-primary font-medium'
+                : 'text-secondary hover:text-primary hover:bg-surface-hover'
+            ]"
+          >
+            <span class="flex-shrink-0" style="width: 20px"></span>
+            <span class="flex-shrink-0 w-5 flex items-center justify-center">
+              <span class="text-sm leading-none">{{ sp.icon || '📄' }}</span>
+            </span>
+            <span class="flex-1 truncate min-w-0 ml-1">{{ sp.title }}</span>
+          </RouterLink>
+        </div>
+      </div>
+
+      <!-- Divider between starred and collections -->
+      <div class="my-1 mx-2 border-t border-subtle"></div>
     </div>
 
     <!-- Collection Folders -->

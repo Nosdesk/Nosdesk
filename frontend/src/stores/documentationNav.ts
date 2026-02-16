@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import type { StarredPageInfo } from '@/services/documentationService'
+import { findInTree } from '@/utils/treeUtils'
 
 interface ExpandedState {
   [pageId: string]: boolean;
@@ -38,7 +40,11 @@ export const useDocumentationNavStore = defineStore('documentationNav', () => {
 
   // Loading state
   const isLoading = ref(false)
-  
+
+  // Starred pages state
+  const starredPages = ref<StarredPageInfo[]>([])
+  const isStarredExpanded = ref(localStorage.getItem('docNavStarredExpanded') !== 'false')
+
   // Initialize from localStorage if available
   if (localStorage.getItem('docNavExpandedPages')) {
     expandedPages.value = JSON.parse(localStorage.getItem('docNavExpandedPages')!)
@@ -149,38 +155,30 @@ export const useDocumentationNavStore = defineStore('documentationNav', () => {
     isLoading.value = loading
   }
 
-  // Helper to find a page by ID recursively
-  const findPageById = (pageList: NavPage[], pageId: string | number): NavPage | null => {
-    for (const page of pageList) {
-      if (String(page.id) === String(pageId)) {
-        return page
-      }
-      if (page.children && page.children.length > 0) {
-        const found = findPageById(page.children, pageId)
-        if (found) return found
-      }
-    }
-    return null
-  }
-
   // Update a specific field on a page reactively (no API call, just state update)
   const updatePageField = (pageId: string | number, field: string, value: any) => {
-    console.log('[documentationNavStore] updatePageField called:', {
-      pageId,
-      pageIdType: typeof pageId,
-      field,
-      value,
-      pagesCount: pages.value?.length,
-      firstPageId: pages.value?.[0]?.id,
-      firstPageIdType: typeof pages.value?.[0]?.id,
-    });
-    const page = findPageById(pages.value, pageId)
-    console.log('[documentationNavStore] findPageById result:', page ? `Found page: ${page.title}` : 'Page NOT found');
+    const page = findInTree(pages.value, pageId)
     if (page) {
-      // Direct mutation triggers Vue reactivity
       page[field] = value
-      console.log('[documentationNavStore] Updated page field:', field, '=', value);
     }
+  }
+
+  // Starred pages actions
+  const setStarredPages = (pages: StarredPageInfo[]) => {
+    starredPages.value = pages
+  }
+
+  const addStarredPage = (page: StarredPageInfo) => {
+    starredPages.value = [page, ...starredPages.value]
+  }
+
+  const removeStarredPage = (pageId: number) => {
+    starredPages.value = starredPages.value.filter(p => p.page_id !== pageId)
+  }
+
+  const toggleStarredExpanded = () => {
+    isStarredExpanded.value = !isStarredExpanded.value
+    localStorage.setItem('docNavStarredExpanded', String(isStarredExpanded.value))
   }
 
   return {
@@ -192,6 +190,8 @@ export const useDocumentationNavStore = defineStore('documentationNav', () => {
     needsRefresh,
     pages,
     isLoading,
+    starredPages,
+    isStarredExpanded,
 
     // Legacy refresh (still needed for structural changes like drag-drop)
     refreshPages,
@@ -215,6 +215,12 @@ export const useDocumentationNavStore = defineStore('documentationNav', () => {
     toggleSidebar,
     openSidebar,
     closeSidebar,
-    updateSidebarForScreenSize
+    updateSidebarForScreenSize,
+
+    // Starred pages
+    setStarredPages,
+    addStarredPage,
+    removeStarredPage,
+    toggleStarredExpanded,
   }
 })

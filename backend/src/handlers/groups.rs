@@ -354,6 +354,90 @@ pub async fn set_user_groups(
 }
 
 // ============================================================================
+// Group Includes (Composite Groups) Endpoints
+// ============================================================================
+
+/// Get included (child) groups for a parent group
+pub async fn get_group_includes(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+) -> impl Responder {
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+
+    let group_id = path.into_inner();
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    match repository::groups::get_included_groups(&mut conn, group_id) {
+        Ok(groups) => HttpResponse::Ok().json(groups),
+        Err(e) => match e {
+            Error::NotFound => HttpResponse::NotFound().json("Group not found"),
+            _ => HttpResponse::InternalServerError().json("Failed to get group includes"),
+        },
+    }
+}
+
+/// Request body for setting group includes
+#[derive(Debug, Deserialize)]
+pub struct SetGroupIncludesRequest {
+    pub child_group_ids: Vec<i32>,
+}
+
+/// Set included groups for a parent group (replaces existing includes)
+pub async fn set_group_includes(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+    body: web::Json<SetGroupIncludesRequest>,
+) -> impl Responder {
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    };
+
+    let created_by = Uuid::parse_str(&claims.sub).ok();
+    let group_id = path.into_inner();
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    };
+
+    // Verify group exists
+    let group = match repository::groups::get_group_by_id(&mut conn, group_id) {
+        Ok(group) => group,
+        Err(Error::NotFound) => return HttpResponse::NotFound().json("Group not found"),
+        Err(_) => return HttpResponse::InternalServerError().json("Failed to get group"),
+    };
+
+    match repository::groups::set_group_includes(&mut conn, group_id, body.child_group_ids.clone(), created_by) {
+        Ok(_) => {
+            // Return updated group details
+            match repository::groups::get_group_details(&mut conn, &group.uuid) {
+                Ok(details) => HttpResponse::Ok().json(details),
+                Err(_) => HttpResponse::InternalServerError().json("Failed to get updated group details"),
+            }
+        }
+        Err(Error::DatabaseError(diesel::result::DatabaseErrorKind::CheckViolation, info)) => {
+            HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "Validation error",
+                "message": info.message().to_string()
+            }))
+        }
+        Err(_) => HttpResponse::InternalServerError().json("Failed to set group includes"),
+    }
+}
+
+// ============================================================================
 // Device-Group Membership Endpoints
 // ============================================================================
 

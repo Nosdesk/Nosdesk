@@ -3,7 +3,7 @@ ALTER TABLE documentation_pages DROP CONSTRAINT IF EXISTS documentation_pages_sl
 
 -- Backfill null slugs from title (lowercase, spaces to hyphens, strip non-alnum)
 UPDATE documentation_pages
-SET slug = TRIM(BOTH '-' FROM REGEXP_REPLACE(REGEXP_REPLACE(LOWER(title), '[^a-z0-9\s-]', '', 'g'), '[\s-]+', '-', 'g'))
+SET slug = TRIM(BOTH '-' FROM REGEXP_REPLACE(REGEXP_REPLACE(LOWER(title), '[^a-z0-9[:space:]-]', '', 'g'), '[[:space:]-]+', '-', 'g'))
 WHERE slug IS NULL OR slug = '';
 
 -- Handle any remaining nulls or empty slugs with id-based fallback

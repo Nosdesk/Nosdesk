@@ -7,6 +7,7 @@ const props = defineProps<{
   pageSlug?: string;
   pageStatus?: string;
   showPermissions?: boolean;
+  isSubscribed?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -20,13 +21,14 @@ const emit = defineEmits<{
   (e: 'export'): void;
   (e: 'collections'): void;
   (e: 'permissions'): void;
+  (e: 'subscribe'): void;
+  (e: 'unsubscribe'): void;
 }>();
 
 const isOpen = ref(false);
 const menuRef = ref<HTMLElement | null>(null);
 const buttonRef = ref<HTMLElement | null>(null);
 const confirmingDelete = ref(false);
-const copiedFeedback = ref(false);
 
 const isArchived = computed(() => props.pageStatus === 'archived');
 const isPublished = computed(() => props.pageStatus === 'published');
@@ -58,29 +60,6 @@ const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Escape') {
     close();
   }
-};
-
-const handleCopyLink = async () => {
-  const url = `${window.location.origin}/documentation/${props.pageSlug || props.pageId}`;
-  try {
-    await navigator.clipboard.writeText(url);
-    copiedFeedback.value = true;
-    setTimeout(() => {
-      copiedFeedback.value = false;
-    }, 2000);
-  } catch {
-    const textArea = document.createElement('textarea');
-    textArea.value = url;
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textArea);
-    copiedFeedback.value = true;
-    setTimeout(() => {
-      copiedFeedback.value = false;
-    }, 2000);
-  }
-  close();
 };
 
 const handlePrint = () => {
@@ -131,6 +110,15 @@ const handlePermissions = () => {
   emit('permissions');
 };
 
+const handleSubscriptionToggle = () => {
+  close();
+  if (props.isSubscribed) {
+    emit('unsubscribe');
+  } else {
+    emit('subscribe');
+  }
+};
+
 const handleDelete = () => {
   if (!confirmingDelete.value) {
     confirmingDelete.value = true;
@@ -175,41 +163,24 @@ onUnmounted(() => {
       tabindex="-1"
       class="absolute right-0 mt-1 w-52 bg-surface border border-default rounded-lg shadow-lg py-1 z-50"
     >
-      <!-- Group 1: Future features -->
+      <!-- Subscribe -->
       <button
-        class="w-full px-3 py-2 text-sm text-left flex items-center gap-2.5 text-tertiary cursor-not-allowed"
-        disabled
-      >
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-        </svg>
-        <span class="flex-1">Star page</span>
-        <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary">Soon</span>
-      </button>
-      <button
-        class="w-full px-3 py-2 text-sm text-left flex items-center gap-2.5 text-tertiary cursor-not-allowed"
-        disabled
+        @click="handleSubscriptionToggle"
+        class="w-full px-3 py-2 text-sm text-left flex items-center gap-2.5 transition-colors"
+        :class="isSubscribed
+          ? 'text-accent hover:text-accent-hover hover:bg-surface-hover'
+          : 'text-secondary hover:text-primary hover:bg-surface-hover'"
       >
         <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
-        <span class="flex-1">Subscribe</span>
-        <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary">Soon</span>
+        <span class="flex-1">{{ isSubscribed ? 'Unsubscribe' : 'Subscribe' }}</span>
       </button>
 
       <!-- Divider -->
       <div class="my-1 border-t border-subtle"></div>
 
-      <!-- Group 2: Quick actions -->
-      <button
-        @click="handleCopyLink"
-        class="w-full px-3 py-2 text-sm text-left flex items-center gap-2.5 text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
-      >
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-        </svg>
-        <span class="flex-1">{{ copiedFeedback ? 'Copied!' : 'Copy link' }}</span>
-      </button>
+      <!-- Quick actions -->
       <button
         @click="handlePrint"
         class="w-full px-3 py-2 text-sm text-left flex items-center gap-2.5 text-secondary hover:text-primary hover:bg-surface-hover transition-colors"

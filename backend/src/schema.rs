@@ -300,6 +300,24 @@ diesel::table! {
 }
 
 diesel::table! {
+    documentation_starred_pages (id) {
+        id -> Int4,
+        user_uuid -> Uuid,
+        page_id -> Int4,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    documentation_subscriptions (id) {
+        id -> Int4,
+        user_uuid -> Uuid,
+        page_id -> Int4,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     documentation_page_embeddings (source_page_id, target_page_id) {
         source_page_id -> Int4,
         target_page_id -> Int4,
@@ -364,6 +382,15 @@ diesel::table! {
         created_at -> Timestamptz,
         created_by -> Uuid,
         change_summary -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    group_includes (parent_group_id, child_group_id) {
+        parent_group_id -> Int4,
+        child_group_id -> Int4,
+        created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -871,8 +898,13 @@ diesel::joinable!(documentation_collection_visibility -> documentation_collectio
 diesel::joinable!(documentation_collections -> users (created_by));
 diesel::joinable!(documentation_page_visibility -> documentation_pages (page_id));
 diesel::joinable!(documentation_pages -> tickets (ticket_id));
+diesel::joinable!(documentation_starred_pages -> documentation_pages (page_id));
+diesel::joinable!(documentation_starred_pages -> users (user_uuid));
+diesel::joinable!(documentation_subscriptions -> documentation_pages (page_id));
+diesel::joinable!(documentation_subscriptions -> users (user_uuid));
 diesel::joinable!(documentation_revisions -> documentation_pages (page_id));
 diesel::joinable!(documentation_revisions -> users (created_by));
+diesel::joinable!(group_includes -> users (created_by));
 diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(linked_tickets -> users (created_by));
 diesel::joinable!(notification_preferences -> notification_types (notification_type_id));
@@ -906,4 +938,4 @@ diesel::joinable!(webhook_deliveries -> webhooks (webhook_id));
 diesel::joinable!(webhooks -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_visibility,documentation_pages,documentation_revisions,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_data,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_data,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);

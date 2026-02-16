@@ -1,10 +1,5 @@
 <template>
   <div class="flex-1">
-    <!-- Navigation and actions bar -->
-    <div class="pt-4 px-4 sm:px-6 flex justify-between items-center">
-      <BackButton fallbackRoute="/admin/settings" label="Back to Administration" />
-    </div>
-
     <div class="flex flex-col gap-4 sm:gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <div>
         <h1 class="text-xl sm:text-2xl font-bold text-primary">Backup & Restore</h1>
@@ -347,7 +342,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
-import BackButton from '@/components/common/BackButton.vue';
+
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import PasswordInput from '@/components/common/PasswordInput.vue';
 import backupService from '@/services/backupService';

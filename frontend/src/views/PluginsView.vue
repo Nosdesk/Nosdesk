@@ -7,7 +7,7 @@
  */
 import { ref, onMounted } from 'vue';
 import pluginService from '@/services/pluginService';
-import BackButton from '@/components/common/BackButton.vue';
+
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
@@ -345,25 +345,22 @@ async function executeInstall() {
 
 <template>
   <div class="flex-1">
-    <!-- Navigation and actions bar -->
-    <div class="pt-4 px-4 sm:px-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
-      <BackButton fallbackRoute="/admin" label="Back to Administration" />
-      <button
-        @click="openInstallModal"
-        class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-        </svg>
-        <span class="hidden xs:inline">Install Plugin</span>
-        <span class="xs:hidden">Install</span>
-      </button>
-    </div>
-
     <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
-      <div class="mb-2">
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">Plugins</h1>
-        <p class="text-secondary text-sm sm:text-base mt-1">Manage installed plugins and integrations</p>
+      <div class="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 class="text-xl sm:text-2xl font-bold text-primary">Plugins</h1>
+          <p class="text-secondary text-sm sm:text-base mt-1">Manage installed plugins and integrations</p>
+        </div>
+        <button
+          @click="openInstallModal"
+          class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+          <span class="hidden xs:inline">Install Plugin</span>
+          <span class="xs:hidden">Install</span>
+        </button>
       </div>
 
       <!-- Success message -->

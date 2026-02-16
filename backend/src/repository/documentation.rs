@@ -480,7 +480,7 @@ use crate::models::{
     DocumentationPageVisibility, NewDocumentationPageVisibility, Group, UserInfoWithAvatar,
 };
 use crate::schema::{documentation_page_visibility, documentation_collection_pages,
-    documentation_collection_visibility, groups, user_groups};
+    documentation_collection_visibility, groups};
 
 /// Get the groups that have explicit page-level visibility for a page.
 pub fn get_visible_groups_for_page(
@@ -583,10 +583,7 @@ pub fn can_user_access_page(
         return Ok(true);
     }
 
-    let user_group_ids: Vec<i32> = user_groups::table
-        .filter(user_groups::user_uuid.eq(user_uuid))
-        .select(user_groups::group_id)
-        .load(conn)?;
+    let user_group_ids = crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?;
 
     // Check page-level override — count total entries to know if override exists
     let page_vis_count: i64 = documentation_page_visibility::table
@@ -681,11 +678,8 @@ pub fn filter_pages_for_user(
 
     let page_ids: Vec<i32> = pages.iter().map(|p| p.id).collect();
 
-    // 1. User's group IDs
-    let user_group_ids: Vec<i32> = user_groups::table
-        .filter(user_groups::user_uuid.eq(user_uuid))
-        .select(user_groups::group_id)
-        .load(conn)?;
+    // 1. User's group IDs (includes composite parent groups)
+    let user_group_ids = crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?;
 
     // 2. All page-level visibility entries for these pages (group-based)
     let page_vis_groups: Vec<(i32, Option<i32>)> = documentation_page_visibility::table

@@ -1,13 +1,8 @@
 <template>
   <div class="flex-1">
-    <!-- Navigation and actions bar -->
-    <div class="pt-4 px-6 flex justify-between items-center">
-      <BackButton fallbackRoute="/admin/settings" label="Back to Administration" />
-    </div>
-
-    <div class="flex flex-col gap-6 px-6 py-4 mx-auto w-full max-w-8xl">
+    <div class="flex flex-col gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <div>
-        <h1 class="text-2xl font-bold text-primary">Search Index Management</h1>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">Search Index Management</h1>
         <p class="text-secondary mt-1">Manage the full-text search index for tickets, documentation, devices, and users.</p>
       </div>
 
@@ -154,34 +149,6 @@
         </div>
       </div>
 
-      <!-- Search Tips Section -->
-      <div class="bg-surface border border-default rounded-xl">
-        <div class="p-4 flex flex-col gap-3">
-          <div class="flex items-center gap-3">
-            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-blue-500/15 flex items-center justify-center text-blue-500">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div class="flex-1">
-              <span class="font-medium text-primary">About the Search Index</span>
-            </div>
-          </div>
-
-          <div class="text-secondary text-sm space-y-2">
-            <p>
-              The search index uses <strong class="text-primary">Tantivy</strong>, a high-performance full-text search engine.
-              It provides fast, relevant search results across all your data.
-            </p>
-            <ul class="list-disc list-inside space-y-1 text-tertiary">
-              <li>Search is updated automatically when content is created or modified</li>
-              <li>Use <kbd class="px-1.5 py-0.5 text-xs bg-surface-alt rounded border border-default">{{ isMac ? '\u2318K' : 'Ctrl+K' }}</kbd> to open global search from anywhere</li>
-              <li>Results are ranked by relevance with title matches weighted higher</li>
-              <li>Rebuild the index if you notice missing or stale search results</li>
-            </ul>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -190,15 +157,13 @@
 import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
-import BackButton from '@/components/common/BackButton.vue'
+
 import { searchService } from '@/services/searchService'
 import type { IndexStats, RebuildResponse } from '@/types/search'
 
 const authStore = useAuthStore()
 const router = useRouter()
 
-// Platform detection for keyboard shortcut display
-const isMac = computed(() => navigator.platform.toUpperCase().indexOf('MAC') >= 0)
 
 // Stats state
 const stats = ref<IndexStats | null>(null)
@@ -263,7 +228,7 @@ const rebuildIndex = async () => {
 // Check if user is admin and fetch initial data
 onMounted(async () => {
   if (!authStore.user || authStore.user.role !== 'admin') {
-    router.push('/admin/settings')
+    router.push('/admin')
     return
   }
 

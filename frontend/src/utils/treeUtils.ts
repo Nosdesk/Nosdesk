@@ -2,6 +2,24 @@ import type { CollectionPage, CollectionPageTreeNode } from '@/services/collecti
 import type { Page } from '@/services/documentationService'
 
 /**
+ * Generic recursive tree search by ID.
+ * Works with any node type that has `id` and optional `children`.
+ */
+export function findInTree<T extends { id: string | number; children?: T[] }>(
+  tree: T[],
+  id: string | number,
+): T | null {
+  for (const node of tree) {
+    if (String(node.id) === String(id)) return node
+    if (node.children && node.children.length > 0) {
+      const found = findInTree(node.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+/**
  * Sort comparator for pages: by display_order first, then by title.
  */
 export const sortByOrder = (

@@ -43,6 +43,7 @@ const categoryLabels: Record<string, string> = {
   ticket: 'Ticket Notifications',
   comment: 'Comment Notifications',
   mention: 'Mention Notifications',
+  documentation: 'Documentation Notifications',
 };
 
 // Get preference value for a specific type/channel combination

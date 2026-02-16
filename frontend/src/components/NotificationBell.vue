@@ -43,24 +43,6 @@ const formatRelativeTime = (dateString: string): string => {
   return date.toLocaleDateString();
 };
 
-// Get icon for notification type
-const getNotificationIcon = (type: string) => {
-  switch (type) {
-    case 'ticket_assigned':
-      return 'user-plus';
-    case 'ticket_status_changed':
-      return 'refresh-cw';
-    case 'comment_added':
-      return 'message-circle';
-    case 'mentioned':
-      return 'at-sign';
-    case 'ticket_created_requester':
-      return 'plus-circle';
-    default:
-      return 'bell';
-  }
-};
-
 // Fetch notifications
 const fetchNotifications = async () => {
   try {
@@ -140,8 +122,12 @@ const navigateToNotification = async (notification: Notification) => {
 
   closeDropdown();
 
-  // Navigate to the entity - use ticket_id from metadata if available
-  if (notification.entity_type === 'ticket' || notification.entity_type === 'comment') {
+  // Navigate to the entity based on type
+  if (notification.entity_type === 'documentation_page') {
+    const slug = notification.metadata?.slug;
+    const pageId = notification.metadata?.page_id ?? notification.entity_id;
+    router.push(`/documentation/${slug || pageId}`);
+  } else if (notification.entity_type === 'ticket' || notification.entity_type === 'comment') {
     const ticketId = notification.metadata?.ticket_id ?? notification.entity_id;
     router.push(`/tickets/${ticketId}`);
   }
@@ -294,6 +280,10 @@ const displayCount = computed(() => unreadCount.value > 99 ? '99+' : String(unre
                   <!-- Mentioned -->
                   <svg v-else-if="notification.notification_type === 'mentioned'" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                  </svg>
+                  <!-- Doc Page Updated -->
+                  <svg v-else-if="notification.notification_type === 'doc_page_updated'" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                   <!-- Default Bell -->
                   <svg v-else class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

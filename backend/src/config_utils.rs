@@ -19,7 +19,10 @@ impl std::error::Error for ConfigError {}
 
 // Helper to get an environment variable or return a ConfigError
 fn get_env_var(name: &str) -> Result<String, ConfigError> {
-    env::var(name).map_err(|_| ConfigError::Missing(name.to_string()))
+    match env::var(name) {
+        Ok(val) if !val.trim().is_empty() => Ok(val),
+        _ => Err(ConfigError::Missing(name.to_string())),
+    }
 }
 
 pub fn get_microsoft_client_id() -> Result<String, ConfigError> {
@@ -42,7 +45,7 @@ pub fn get_microsoft_redirect_uri() -> Result<String, ConfigError> {
 
 /// Check if OIDC is enabled (minimum required vars are set)
 pub fn is_oidc_enabled() -> bool {
-    env::var("OIDC_CLIENT_ID").is_ok() && env::var("OIDC_CLIENT_SECRET").is_ok()
+    get_env_var("OIDC_CLIENT_ID").is_ok() && get_env_var("OIDC_CLIENT_SECRET").is_ok()
 }
 
 /// Get OIDC client ID
@@ -97,5 +100,5 @@ pub fn get_oidc_username_claim() -> String {
 
 /// Get OIDC logout URI (optional)
 pub fn get_oidc_logout_uri() -> Option<String> {
-    env::var("OIDC_LOGOUT_URI").ok()
+    get_env_var("OIDC_LOGOUT_URI").ok()
 } 

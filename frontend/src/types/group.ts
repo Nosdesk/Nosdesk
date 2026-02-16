@@ -25,9 +25,20 @@ export interface Group {
   created_by?: string | null
 }
 
+export interface GroupSummary {
+  id: number
+  uuid: string
+  name: string
+  color?: string | null
+  external_source?: string | null
+  member_count: number
+  members: GroupMember[]
+}
+
 export interface GroupWithMemberCount extends Group {
   member_count: number
   device_count: number
+  included_group_count: number
 }
 
 export interface GroupWithMembers extends Group {
@@ -45,6 +56,8 @@ export interface GroupDetails extends Group {
   sync_enabled: boolean
   members: GroupMember[]
   devices: Device[]
+  included_groups: GroupSummary[]
+  included_in: GroupSummary[]
 }
 
 export interface CreateGroupRequest {
@@ -69,4 +82,8 @@ export interface SetUserGroupsRequest {
 
 export interface SetGroupDevicesRequest {
   device_ids: number[]
+}
+
+export interface SetGroupIncludesRequest {
+  child_group_ids: number[]
 }

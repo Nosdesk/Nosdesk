@@ -193,7 +193,13 @@ const searchUsers = async (query: string) => {
         })
       ]);
 
-      const allAssigneeUsers = [...adminResponse.data, ...technicianResponse.data];
+      const combined = [...adminResponse.data, ...technicianResponse.data];
+      const seen = new Set<string>();
+      const allAssigneeUsers = combined.filter(u => {
+        if (seen.has(u.uuid)) return false;
+        seen.add(u.uuid);
+        return true;
+      });
 
       // Include avatar data in results
       searchResults.value = allAssigneeUsers.map(user => ({

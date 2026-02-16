@@ -683,7 +683,7 @@ pub struct UserInfo {
 }
 
 // Enhanced UserInfo with avatar data for efficient frontend display
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UserInfoWithAvatar {
     pub uuid: Uuid,
     pub name: String,
@@ -1218,7 +1218,7 @@ pub struct NewDocumentationPage {
     pub has_unsaved_changes: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::documentation_pages)]
 pub struct DocumentationPageUpdate {
     pub title: Option<String>,
@@ -2229,6 +2229,37 @@ pub struct ExternalGroupUpdate {
     pub updated_at: Option<NaiveDateTime>,
 }
 
+// Group include (composite group membership)
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::group_includes)]
+#[diesel(primary_key(parent_group_id, child_group_id))]
+pub struct GroupInclude {
+    pub parent_group_id: i32,
+    pub child_group_id: i32,
+    pub created_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::group_includes)]
+pub struct NewGroupInclude {
+    pub parent_group_id: i32,
+    pub child_group_id: i32,
+    pub created_by: Option<Uuid>,
+}
+
+// Lightweight group summary for include display
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GroupSummary {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub name: String,
+    pub color: Option<String>,
+    pub external_source: Option<String>,
+    pub member_count: i64,
+    pub members: Vec<UserInfoWithAvatar>,
+}
+
 // Group with member count for list views
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GroupWithMemberCount {
@@ -2236,6 +2267,7 @@ pub struct GroupWithMemberCount {
     pub group: Group,
     pub member_count: i64,
     pub device_count: i64,
+    pub included_group_count: i64,
 }
 
 // Group with full member details
@@ -2253,6 +2285,8 @@ pub struct GroupDetails {
     pub group: Group,
     pub members: Vec<UserInfoWithAvatar>,
     pub devices: Vec<Device>,
+    pub included_groups: Vec<GroupSummary>,
+    pub included_in: Vec<GroupSummary>,
 }
 
 // User-Group junction table
@@ -2520,6 +2554,58 @@ pub struct DocumentationPageEmbedding {
 pub struct NewDocumentationPageEmbedding {
     pub source_page_id: i32,
     pub target_page_id: i32,
+}
+
+// ============================================================================
+// Documentation Subscriptions
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Queryable, Identifiable)]
+#[diesel(table_name = crate::schema::documentation_subscriptions)]
+#[diesel(belongs_to(DocumentationPage, foreign_key = page_id))]
+pub struct DocumentationSubscription {
+    pub id: i32,
+    pub user_uuid: Uuid,
+    pub page_id: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::documentation_subscriptions)]
+pub struct NewDocumentationSubscription {
+    pub user_uuid: Uuid,
+    pub page_id: i32,
+}
+
+// ============================================================================
+// Documentation Starred Pages
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Queryable, Identifiable)]
+#[diesel(table_name = crate::schema::documentation_starred_pages)]
+#[diesel(belongs_to(DocumentationPage, foreign_key = page_id))]
+pub struct DocumentationStarredPage {
+    pub id: i32,
+    pub user_uuid: Uuid,
+    pub page_id: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::documentation_starred_pages)]
+pub struct NewDocumentationStarredPage {
+    pub user_uuid: Uuid,
+    pub page_id: i32,
+}
+
+/// Info returned for starred pages (used by sidebar API)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StarredPageInfo {
+    pub page_id: i32,
+    pub title: String,
+    pub slug: String,
+    pub icon: Option<String>,
+    pub starred_at: chrono::DateTime<chrono::Utc>,
 }
 
 // ============================================================================

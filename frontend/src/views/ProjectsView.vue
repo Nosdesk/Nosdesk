@@ -6,6 +6,7 @@ import type { Project, ProjectStatus } from '@/types/project'
 import Modal from '@/components/Modal.vue'
 import ProjectForm from '@/components/projectComponents/ProjectForm.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import { projectService } from '@/services/projectService'
 import { formatRelativeTime, formatCompactRelativeTime } from '@/utils/dateUtils'
 import { useStaggeredList } from '@/composables/useStaggeredList'
@@ -209,18 +210,11 @@ watch(searchQuery, updateSearchQuery)
         />
 
         <!-- Status filter -->
-        <select
+        <BaseDropdown
           v-model="statusFilter"
-          class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-accent focus:border-accent py-1 px-2 w-[120px]"
-        >
-          <option
-            v-for="option in statusOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
+          :options="statusOptions"
+          size="sm"
+        />
 
         <!-- Reset button -->
         <button

@@ -77,7 +77,7 @@ const handleProfileSettingsClick = () => {
 };
 
 const handleAdminClick = () => {
-  router.push('/admin/settings');
+  router.push('/admin');
   emit('close');
 };
 

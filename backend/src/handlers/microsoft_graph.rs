@@ -12,9 +12,9 @@ use crate::models::AuthProvider;
 // Helper functions for environment-based auth providers
 fn get_default_microsoft_provider_id() -> Result<i32, diesel::result::Error> {
     // Using environment variables - return fixed ID for Microsoft
-    if std::env::var("MICROSOFT_CLIENT_ID").is_ok() 
-        && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok() 
-        && std::env::var("MICROSOFT_TENANT_ID").is_ok() {
+    if config_utils::get_microsoft_client_id().is_ok()
+        && config_utils::get_microsoft_client_secret().is_ok()
+        && config_utils::get_microsoft_tenant_id().is_ok() {
         Ok(2) // Microsoft provider ID
     } else {
         Err(diesel::result::Error::NotFound)
@@ -25,9 +25,9 @@ fn get_provider_by_id(provider_id: i32) -> Result<AuthProvider, diesel::result::
     match provider_id {
         1 => Ok(AuthProvider::new(1, "Local".to_string(), "local".to_string(), true, true)),
         2 => {
-            if std::env::var("MICROSOFT_CLIENT_ID").is_ok() 
-                && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok() 
-                && std::env::var("MICROSOFT_TENANT_ID").is_ok() {
+            if config_utils::get_microsoft_client_id().is_ok()
+                && config_utils::get_microsoft_client_secret().is_ok()
+                && config_utils::get_microsoft_tenant_id().is_ok() {
                 Ok(AuthProvider::new(2, "Microsoft".to_string(), "microsoft".to_string(), true, false))
             } else {
                 Err(diesel::result::Error::NotFound)

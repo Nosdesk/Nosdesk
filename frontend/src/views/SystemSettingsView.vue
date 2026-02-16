@@ -1,13 +1,8 @@
 <template>
   <div class="flex-1">
-    <!-- Navigation and actions bar -->
-    <div class="pt-4 px-6 flex justify-between items-center">
-      <BackButton fallbackRoute="/admin/settings" label="Back to Administration" />
-    </div>
-
-    <div class="flex flex-col gap-6 px-6 py-4 mx-auto w-full max-w-8xl">
+    <div class="flex flex-col gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <div>
-        <h1 class="text-2xl font-bold text-primary">System Settings</h1>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">System Settings</h1>
       </div>
 
       <!-- System Information Section -->
@@ -102,7 +97,7 @@
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
-import BackButton from '@/components/common/BackButton.vue'
+
 import SystemInfoCard from '@/components/admin/SystemInfoCard.vue'
 import userService from '@/services/userService'
 

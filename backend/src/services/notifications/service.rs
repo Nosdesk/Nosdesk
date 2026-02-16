@@ -15,7 +15,7 @@ use crate::models::{NewNotification, Notification, NotificationResponse};
 
 use super::channels::{ChannelError, NotificationDeliveryChannel};
 use super::preferences::PreferenceService;
-use super::types::{DeliverableNotification, NotificationChannel, NotificationPayload};
+use super::types::{DeliverableNotification, NotificationChannel, NotificationEntity, NotificationPayload};
 
 /// Central notification service that orchestrates notification creation and delivery
 pub struct NotificationService {
@@ -24,17 +24,17 @@ pub struct NotificationService {
     channels: RwLock<HashMap<NotificationChannel, Arc<dyn NotificationDeliveryChannel>>>,
     preference_service: Arc<PreferenceService>,
     /// Cache: notification_type_code -> notification_type_id (uses tokio RwLock for async access)
-    type_id_cache: TokioRwLock<HashMap<String, i32>>,
+    type_id_cache: Arc<TokioRwLock<HashMap<String, i32>>>,
 }
 
 impl NotificationService {
-    pub fn new(pool: Pool) -> Self {
+    pub fn new(pool: Pool, type_id_cache: Arc<TokioRwLock<HashMap<String, i32>>>) -> Self {
         let preference_service = Arc::new(PreferenceService::new(pool.clone()));
         Self {
             pool,
             channels: RwLock::new(HashMap::new()),
             preference_service,
-            type_id_cache: TokioRwLock::new(HashMap::new()),
+            type_id_cache,
         }
     }
 
@@ -208,14 +208,32 @@ impl NotificationService {
             .get_notification_type_id(payload.notification_type.as_str())
             .await?;
 
-        // Merge ticket_id into metadata for navigation purposes
+        // Merge entity-specific metadata for navigation purposes
         let mut metadata = payload.metadata.clone();
         if let serde_json::Value::Object(ref mut map) = metadata {
-            map.insert("ticket_id".to_string(), serde_json::json!(payload.entity.ticket_id()));
+            match &payload.entity {
+                NotificationEntity::DocumentationPage { id, slug, .. } => {
+                    map.insert("page_id".to_string(), serde_json::json!(id));
+                    map.insert("slug".to_string(), serde_json::json!(slug));
+                }
+                _ => {
+                    map.insert("ticket_id".to_string(), serde_json::json!(payload.entity.ticket_id()));
+                }
+            }
         } else {
-            metadata = serde_json::json!({
-                "ticket_id": payload.entity.ticket_id()
-            });
+            metadata = match &payload.entity {
+                NotificationEntity::DocumentationPage { id, slug, .. } => {
+                    serde_json::json!({
+                        "page_id": id,
+                        "slug": slug
+                    })
+                }
+                _ => {
+                    serde_json::json!({
+                        "ticket_id": payload.entity.ticket_id()
+                    })
+                }
+            };
         }
 
         let new_notification = NewNotification {

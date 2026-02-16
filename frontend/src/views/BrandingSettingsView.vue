@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import BackButton from '@/components/common/BackButton.vue'
+
 import AlertMessage from '@/components/common/AlertMessage.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ColorHueSlider from '@/components/common/ColorHueSlider.vue'
@@ -246,14 +246,9 @@ onMounted(() => {
 
 <template>
   <div class="flex-1">
-    <!-- Navigation and actions bar -->
-    <div class="pt-4 px-6 flex justify-between items-center">
-      <BackButton fallbackRoute="/admin/settings" label="Back to Administration" />
-    </div>
-
-    <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-4xl">
+    <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-6xl">
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-primary">Branding</h1>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">Branding</h1>
         <p class="text-secondary mt-2">
           Customize the appearance and branding of the application.
         </p>

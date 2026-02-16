@@ -6,6 +6,8 @@ pub mod comments;
 pub mod devices;
 pub mod documentation;
 pub mod documentation_collections;
+pub mod documentation_starred_pages;
+pub mod documentation_subscriptions;
 pub mod groups;
 pub mod linked_tickets;
 pub mod projects;

@@ -20,20 +20,43 @@ pub fn get_groups_with_member_counts(conn: &mut DbConnection) -> Result<Vec<Grou
     let mut groups_with_count = Vec::new();
 
     for group in all_groups {
-        let member_count = user_groups::table
+        // Direct members
+        let direct_uuids: Vec<Uuid> = user_groups::table
             .filter(user_groups::group_id.eq(group.id))
-            .count()
-            .get_result::<i64>(conn)?;
+            .select(user_groups::user_uuid)
+            .load(conn)?;
+
+        // Members from included child groups
+        let child_ids: Vec<i32> = group_includes::table
+            .filter(group_includes::parent_group_id.eq(group.id))
+            .select(group_includes::child_group_id)
+            .load(conn)?;
+
+        let member_count = if child_ids.is_empty() {
+            direct_uuids.len() as i64
+        } else {
+            let child_uuids: Vec<Uuid> = user_groups::table
+                .filter(user_groups::group_id.eq_any(&child_ids))
+                .select(user_groups::user_uuid)
+                .load(conn)?;
+
+            let mut all_uuids: std::collections::HashSet<Uuid> = direct_uuids.into_iter().collect();
+            all_uuids.extend(child_uuids);
+            all_uuids.len() as i64
+        };
 
         let device_count = device_groups::table
             .filter(device_groups::group_id.eq(group.id))
             .count()
             .get_result::<i64>(conn)?;
 
+        let included_group_count = child_ids.len() as i64;
+
         groups_with_count.push(GroupWithMemberCount {
             group,
             member_count,
             device_count,
+            included_group_count,
         });
     }
 
@@ -66,6 +89,35 @@ pub fn get_group_with_members(conn: &mut DbConnection, group_id: i32) -> Result<
     Ok(GroupWithMembers { group, members })
 }
 
+/// Build a GroupSummary for a group with its member count and members
+fn build_group_summary(conn: &mut DbConnection, group: &Group) -> Result<GroupSummary, Error> {
+    let member_uuids: Vec<Uuid> = user_groups::table
+        .filter(user_groups::group_id.eq(group.id))
+        .select(user_groups::user_uuid)
+        .load::<Uuid>(conn)?;
+
+    let members: Vec<UserInfoWithAvatar> = member_uuids
+        .iter()
+        .filter_map(|uuid| {
+            crate::repository::get_user_by_uuid(uuid, conn)
+                .ok()
+                .map(UserInfoWithAvatar::from)
+        })
+        .collect();
+
+    let member_count = members.len() as i64;
+
+    Ok(GroupSummary {
+        id: group.id,
+        uuid: group.uuid,
+        name: group.name.clone(),
+        color: group.color.clone(),
+        external_source: group.external_source.clone(),
+        member_count,
+        members,
+    })
+}
+
 /// Get a group with its members and devices (for detail view)
 pub fn get_group_details(conn: &mut DbConnection, group_uuid: &Uuid) -> Result<GroupDetails, Error> {
     let group = groups::table
@@ -88,7 +140,33 @@ pub fn get_group_details(conn: &mut DbConnection, group_uuid: &Uuid) -> Result<G
 
     let devices: Vec<Device> = get_devices_in_group(conn, group.id)?;
 
-    Ok(GroupDetails { group, members, devices })
+    // Load included groups (children of this group)
+    let child_groups: Vec<Group> = group_includes::table
+        .filter(group_includes::parent_group_id.eq(group.id))
+        .inner_join(groups::table.on(groups::id.eq(group_includes::child_group_id)))
+        .select(groups::all_columns)
+        .order(groups::name.asc())
+        .load(conn)?;
+
+    let included_groups: Vec<GroupSummary> = child_groups
+        .iter()
+        .filter_map(|g| build_group_summary(conn, g).ok())
+        .collect();
+
+    // Load parent groups that include this group
+    let parent_groups: Vec<Group> = group_includes::table
+        .filter(group_includes::child_group_id.eq(group.id))
+        .inner_join(groups::table.on(groups::id.eq(group_includes::parent_group_id)))
+        .select(groups::all_columns)
+        .order(groups::name.asc())
+        .load(conn)?;
+
+    let included_in: Vec<GroupSummary> = parent_groups
+        .iter()
+        .filter_map(|g| build_group_summary(conn, g).ok())
+        .collect();
+
+    Ok(GroupDetails { group, members, devices, included_groups, included_in })
 }
 
 /// Create a new group
@@ -130,13 +208,39 @@ pub fn unmanage_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Gro
 // User-Group Membership Operations
 // ============================================================================
 
-/// Get all users in a group
+/// Get all users in a group (including members from included child groups)
 pub fn get_users_in_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Vec<User>> {
-    user_groups::table
+    // Direct members
+    let mut members: Vec<User> = user_groups::table
         .filter(user_groups::group_id.eq(group_id))
         .inner_join(users::table.on(users::uuid.eq(user_groups::user_uuid)))
         .select(users::all_columns)
-        .load(conn)
+        .load(conn)?;
+
+    // Get child group IDs
+    let child_ids: Vec<i32> = group_includes::table
+        .filter(group_includes::parent_group_id.eq(group_id))
+        .select(group_includes::child_group_id)
+        .load(conn)?;
+
+    if !child_ids.is_empty() {
+        // Get members from child groups
+        let child_members: Vec<User> = user_groups::table
+            .filter(user_groups::group_id.eq_any(&child_ids))
+            .inner_join(users::table.on(users::uuid.eq(user_groups::user_uuid)))
+            .select(users::all_columns)
+            .load(conn)?;
+
+        // Deduplicate by UUID
+        let existing_uuids: std::collections::HashSet<Uuid> = members.iter().map(|u| u.uuid).collect();
+        for user in child_members {
+            if !existing_uuids.contains(&user.uuid) {
+                members.push(user);
+            }
+        }
+    }
+
+    Ok(members)
 }
 
 /// Get all groups for a user
@@ -252,12 +356,32 @@ pub fn set_user_groups(
         .get_results(conn)
 }
 
-/// Get group IDs for a user
+/// Get group IDs for a user (including composite parent groups)
 pub fn get_group_ids_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<Vec<i32>> {
-    user_groups::table
+    let direct_ids: Vec<i32> = user_groups::table
         .filter(user_groups::user_uuid.eq(user_uuid))
         .select(user_groups::group_id)
-        .load(conn)
+        .load(conn)?;
+
+    if direct_ids.is_empty() {
+        return Ok(direct_ids);
+    }
+
+    // Find parent groups that include any of the user's direct groups
+    let parent_ids: Vec<i32> = group_includes::table
+        .filter(group_includes::child_group_id.eq_any(&direct_ids))
+        .select(group_includes::parent_group_id)
+        .load(conn)?;
+
+    // Merge and deduplicate
+    let mut all_ids = direct_ids;
+    for pid in parent_ids {
+        if !all_ids.contains(&pid) {
+            all_ids.push(pid);
+        }
+    }
+
+    Ok(all_ids)
 }
 
 // ============================================================================
@@ -407,6 +531,160 @@ pub fn mark_groups_not_synced(
         groups::updated_at.eq(now),
     ))
     .execute(conn)
+}
+
+// ============================================================================
+// Group Includes (Composite Groups)
+// ============================================================================
+
+/// Get the child groups included in a parent group
+pub fn get_included_groups(conn: &mut DbConnection, parent_group_id: i32) -> QueryResult<Vec<Group>> {
+    group_includes::table
+        .filter(group_includes::parent_group_id.eq(parent_group_id))
+        .inner_join(groups::table.on(groups::id.eq(group_includes::child_group_id)))
+        .select(groups::all_columns)
+        .order(groups::name.asc())
+        .load(conn)
+}
+
+/// Get the parent groups that include a given child group
+pub fn get_parent_groups(conn: &mut DbConnection, child_group_id: i32) -> QueryResult<Vec<Group>> {
+    group_includes::table
+        .filter(group_includes::child_group_id.eq(child_group_id))
+        .inner_join(groups::table.on(groups::id.eq(group_includes::parent_group_id)))
+        .select(groups::all_columns)
+        .order(groups::name.asc())
+        .load(conn)
+}
+
+/// Add a group include relationship with validation
+pub fn add_group_include(
+    conn: &mut DbConnection,
+    parent_id: i32,
+    child_id: i32,
+    created_by: Option<Uuid>,
+) -> Result<GroupInclude, Error> {
+    // Self-inclusion check (also enforced by DB CHECK constraint)
+    if parent_id == child_id {
+        return Err(Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::CheckViolation,
+            Box::new("A group cannot include itself".to_string()),
+        ));
+    }
+
+    // Parent must not be a managed (externally synced) group
+    let parent = groups::table.find(parent_id).first::<Group>(conn)?;
+    if parent.external_source.is_some() {
+        return Err(Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::CheckViolation,
+            Box::new("Externally managed groups cannot be composite parents".to_string()),
+        ));
+    }
+
+    // Circular reference check: child must not already include parent
+    let reverse_exists: i64 = group_includes::table
+        .filter(group_includes::parent_group_id.eq(child_id))
+        .filter(group_includes::child_group_id.eq(parent_id))
+        .count()
+        .get_result(conn)?;
+
+    if reverse_exists > 0 {
+        return Err(Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::CheckViolation,
+            Box::new("Circular reference: child group already includes the parent".to_string()),
+        ));
+    }
+
+    let new_include = NewGroupInclude {
+        parent_group_id: parent_id,
+        child_group_id: child_id,
+        created_by,
+    };
+
+    diesel::insert_into(group_includes::table)
+        .values(&new_include)
+        .on_conflict((group_includes::parent_group_id, group_includes::child_group_id))
+        .do_nothing()
+        .execute(conn)?;
+
+    group_includes::table
+        .filter(group_includes::parent_group_id.eq(parent_id))
+        .filter(group_includes::child_group_id.eq(child_id))
+        .first(conn)
+}
+
+/// Remove a group include relationship
+pub fn remove_group_include(
+    conn: &mut DbConnection,
+    parent_id: i32,
+    child_id: i32,
+) -> QueryResult<usize> {
+    diesel::delete(
+        group_includes::table
+            .filter(group_includes::parent_group_id.eq(parent_id))
+            .filter(group_includes::child_group_id.eq(child_id)),
+    )
+    .execute(conn)
+}
+
+/// Set all included groups for a parent (replaces existing includes)
+pub fn set_group_includes(
+    conn: &mut DbConnection,
+    parent_id: i32,
+    child_ids: Vec<i32>,
+    created_by: Option<Uuid>,
+) -> Result<Vec<GroupInclude>, Error> {
+    // Parent must not be a managed group
+    let parent = groups::table.find(parent_id).first::<Group>(conn)?;
+    if parent.external_source.is_some() {
+        return Err(Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::CheckViolation,
+            Box::new("Externally managed groups cannot be composite parents".to_string()),
+        ));
+    }
+
+    // Filter out self-inclusion
+    let child_ids: Vec<i32> = child_ids.into_iter().filter(|&id| id != parent_id).collect();
+
+    // Circular reference check: none of the children should already include parent
+    if !child_ids.is_empty() {
+        let circular_count: i64 = group_includes::table
+            .filter(group_includes::parent_group_id.eq_any(&child_ids))
+            .filter(group_includes::child_group_id.eq(parent_id))
+            .count()
+            .get_result(conn)?;
+
+        if circular_count > 0 {
+            return Err(Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::CheckViolation,
+                Box::new("Circular reference: one or more child groups already include the parent".to_string()),
+            ));
+        }
+    }
+
+    // Delete existing includes
+    diesel::delete(
+        group_includes::table.filter(group_includes::parent_group_id.eq(parent_id)),
+    )
+    .execute(conn)?;
+
+    if child_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Insert new includes
+    let new_includes: Vec<NewGroupInclude> = child_ids
+        .iter()
+        .map(|&child_id| NewGroupInclude {
+            parent_group_id: parent_id,
+            child_group_id: child_id,
+            created_by,
+        })
+        .collect();
+
+    diesel::insert_into(group_includes::table)
+        .values(&new_includes)
+        .get_results(conn)
 }
 
 // ============================================================================

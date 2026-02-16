@@ -9,6 +9,7 @@ import BulkActionsBar from '@/components/common/BulkActionsBar.vue'
 import type { BulkAction } from '@/components/common/BulkActionsBar.vue'
 
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import { useListManagement } from '@/composables/useListManagement'
 import { useListSSE } from '@/composables/useListSSE'
 import { useStaggeredList } from '@/composables/useStaggeredList'
@@ -208,24 +209,19 @@ defineExpose({
 
         <!-- Filters -->
         <template v-if="filterOptions.length > 0">
-          <div 
-            v-for="filter in filterOptions" 
+          <div
+            v-for="filter in filterOptions"
             :key="filter.name"
             :class="[filter.width || 'w-[120px]']"
           >
-            <select
-              :value="filter.value"
-              @change="e => listManager.handleFilterUpdate(filter.name, (e.target as HTMLSelectElement).value)"
-              class="bg-surface-alt border border-default text-primary text-sm rounded-md focus:ring-accent focus:border-accent block w-full py-1 px-2"
-            >
-              <option
-                v-for="option in filter.options"
-                :key="option.value"
-                :value="option.value"
-              >
-                {{ option.label }}
-              </option>
-            </select>
+            <BaseDropdown
+              :model-value="filter.value"
+              :options="filter.options"
+              :multiple="filter.multiple"
+              :placeholder="filter.placeholder"
+              size="sm"
+              @update:model-value="value => listManager.handleFilterUpdate(filter.name, value)"
+            />
           </div>
 
           <button

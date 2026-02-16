@@ -65,24 +65,28 @@ interface BackendDocumentationPage {
   children?: BackendDocumentationPage[];
 }
 
+function createFallbackPage(idPrefix: string, titlePrefix: string, icon = '❓'): Page {
+  return {
+    id: `${idPrefix}-${Date.now()}`,
+    slug: idPrefix,
+    title: `${titlePrefix} Page`,
+    description: null,
+    content: '',
+    parent_id: null,
+    author: 'System',
+    status: 'draft',
+    icon,
+    children: [],
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
 // Convert backend page data to frontend Page format
 export const convertToPage = (data: unknown): Page => {
   // Handle null or undefined data
   if (!data || typeof data !== 'object') {
     logger.warn('Attempting to convert null or undefined data to Page');
-    return {
-      id: 'invalid-page',
-      slug: 'invalid-page',
-      title: 'Invalid Page',
-      description: null,
-      content: '',
-      parent_id: null,
-      author: 'System',
-      status: 'draft',
-      icon: '❓',
-      children: [],
-      lastUpdated: new Date().toISOString()
-    };
+    return createFallbackPage('invalid-page', 'Invalid');
   }
 
   // Type assertion after validation
@@ -154,67 +158,14 @@ export const convertToPage = (data: unknown): Page => {
     };
   } catch (error) {
     logger.error('Error converting backend page data:', error, data);
-    return {
-      id: `error-${Date.now()}`,
-      slug: 'error-page',
-      title: 'Error Page',
-      description: 'An error occurred loading this page',
-      content: '',
-      parent_id: null,
-      author: 'System',
-      status: 'draft',
-      icon: '⚠️',
-      children: [],
-      lastUpdated: new Date().toISOString()
-    };
+    return createFallbackPage('error-page', 'Error', '⚠️');
   }
 };
 
 // Convert backend page data to frontend Article format (for backward compatibility)
 export const convertToArticle = (data: unknown): Article => {
-  // Handle null or undefined data
-  if (!data) {
-    logger.warn('Attempting to convert null or undefined data to Article');
-    return {
-      id: 'invalid-article',
-      slug: 'invalid-article',
-      title: 'Invalid Article',
-      description: null,
-      content: '',
-      parent_id: null,
-      author: 'System',
-      status: 'draft',
-      icon: '❓',
-      children: [],
-      lastUpdated: new Date().toISOString()
-    };
-  }
-
-  try {
-    // Use convertToPage to get a base Page object with all the sanitization
-    const basePage = convertToPage(data);
-    
-    // Return the object as an Article (same properties as Page)
-    return {
-      ...basePage,
-      children: basePage.children
-    };
-  } catch (error) {
-    logger.error('Error converting backend page to article:', error, data);
-    return {
-      id: `error-${Date.now()}`,
-      slug: 'error-article',
-      title: 'Error Article',
-      description: 'An error occurred loading this article',
-      content: '',
-      parent_id: null,
-      author: 'System',
-      status: 'draft',
-      icon: '⚠️',
-      children: [],
-      lastUpdated: new Date().toISOString()
-    };
-  }
+  const page = convertToPage(data);
+  return { ...page, children: page.children };
 };
 
 /**
@@ -423,71 +374,6 @@ export const getPageByPath = async (path: string): Promise<Page | null> => {
 };
 
 /**
- * Get all pages
- */
-export const getAllPages = async (): Promise<Page[]> => {
-  try {
-    const response = await apiClient.get(`/documentation/pages`);
-    const allPages = response.data as unknown[];
-
-    // Map for organizing children by parent ID
-    const childrenMap: { [key: string]: Page[] } = {};
-
-    // Array for top-level pages
-    const topLevelPages: Page[] = [];
-
-    // Organize pages by parent
-    allPages.forEach((pageData) => {
-      const page = pageData as Record<string, unknown>;
-      const pageId = page.id as string | number;
-      const parentId = page.parent_id as string | number | null;
-
-      // Create a full Page object
-      const pageObject: Page = {
-        id: pageId,
-        slug: (page.slug as string) || '',
-        title: (page.title as string) || '',
-        description: (page.description as string | null) || null,
-        content: (page.content as string) || '',
-        parent_id: parentId,
-        author: (page.author as string) || 'System Admin',
-        status: (page.status as string) || 'published',
-        icon: page.icon as string | null,
-        children: [],
-        lastUpdated: page.updated_at as string | undefined,
-        ticket_id: page.ticket_id as string | null | undefined
-      };
-
-      // Initialize children array for this page's ID if not already done
-      if (!childrenMap[String(pageId)]) {
-        childrenMap[String(pageId)] = [];
-      }
-
-      if (!parentId) {
-        // This is a top-level page
-        topLevelPages.push(pageObject);
-      } else if (childrenMap[String(parentId)]) {
-        // Add to parent's children
-        childrenMap[String(parentId)].push(pageObject);
-      } else {
-        // Initialize parent's children array and add this page
-        childrenMap[String(parentId)] = [pageObject];
-      }
-    });
-    
-    // Assign children to their parents
-    topLevelPages.forEach(page => {
-      page.children = childrenMap[page.id] || [];
-    });
-    
-    return topLevelPages;
-  } catch (error) {
-    logger.error('Error fetching all pages:', error);
-    return [];
-  }
-};
-
-/**
  * Search articles by query
  */
 export const searchArticles = async (query: string): Promise<Article[]> => {
@@ -686,97 +572,6 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
     } else {
       logger.error('Error setting up request:', axiosError.message);
     }
-    return null;
-  }
-};
-
-/**
- * Save the content of a page
- */
-/**
- * @deprecated This method is deprecated. Content is now automatically synced via WebSocket collaboration.
- * Use CollaborativeEditor for content edits - it handles all sync automatically.
- */
-export const savePageContent = async (pageId: string, content: string): Promise<Page | null> => {
-  logger.warn('savePageContent is deprecated - content should be synced via WebSocket collaboration');
-  try {
-    let page;
-    
-    // Fetch the page first to get all its data
-    if (!isNaN(Number(pageId))) {
-      const pageResponse = await apiClient.get(`/documentation/pages/${pageId}`);
-      page = pageResponse.data;
-    } else {
-      const pageResponse = await apiClient.get(`/documentation/pages/slug/${pageId}`);
-      page = pageResponse.data;
-    }
-    
-    logger.debug('Original page data:', page);
-    
-    // Update the full page since there's no content-only endpoint
-    try {
-      // Convert status string to enum value expected by backend
-      let statusValue;
-      if (typeof page.status === 'string') {
-        statusValue = page.status.toLowerCase();
-      } else {
-        // Default to published
-        statusValue = 'published';
-      }
-      
-      // Convert content string to bytes for the backend
-      const contentBytes = Array.from(new TextEncoder().encode(content));
-      
-      // Create a clean payload object with only the required fields
-      // Important: Keep created_at and updated_at exactly as they are in the original page
-      // The backend expects NaiveDateTime objects, not ISO strings
-      const payload = {
-        slug: page.slug,
-        title: page.title,
-        description: page.description,
-        content: contentBytes, // Send as array of bytes
-        parent_id: page.parent_id,
-        status: statusValue,
-        icon: page.icon,
-        created_at: page.created_at,
-        updated_at: page.updated_at
-      };
-      
-      // Log the payload as a JSON string to check for any issues
-      logger.debug('Sending update payload:', JSON.stringify(payload));
-      
-      // Update the page using the standard update endpoint
-      const response = await apiClient.put(`/documentation/pages/${page.id}`, payload);
-      
-      // Get the updated page
-      const updatedPageResponse = await apiClient.get(`/documentation/pages/${page.id}`);
-      
-      // Convert backend page to frontend Page
-      return convertToPage(updatedPageResponse.data);
-    } catch (error) {
-      const axiosError = error as {
-        response?: { data?: unknown; status?: number };
-        config?: { data?: unknown };
-        request?: unknown;
-        message?: string;
-      };
-      if (axiosError.response) {
-        logger.error('Update error response data:', axiosError.response.data);
-        logger.error('Update error response status:', axiosError.response.status);
-
-        // Try to log the request payload that caused the error
-        if (axiosError.config?.data) {
-          logger.error('Request payload that caused error:', axiosError.config.data);
-        }
-      } else if (axiosError.request) {
-        logger.error('Update error request:', axiosError.request);
-      } else {
-        logger.error('Update error message:', axiosError.message);
-      }
-      throw error;
-    }
-  } catch (error) {
-    logger.error(`Error saving content for page ${pageId}:`, error);
     return null;
   }
 };
@@ -1070,6 +865,109 @@ export const setPageVisibility = async (pageId: number, groupIds: number[], user
   }
 };
 
+/**
+ * Get subscription status for a documentation page
+ */
+export const getPageSubscription = async (pageId: number): Promise<boolean> => {
+  try {
+    const response = await apiClient.get(`/documentation/pages/${pageId}/subscription`);
+    return response.data.subscribed ?? false;
+  } catch (error) {
+    logger.error(`Error fetching subscription status for page ${pageId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Subscribe to a documentation page
+ */
+export const subscribeToPage = async (pageId: number): Promise<boolean> => {
+  try {
+    const response = await apiClient.post(`/documentation/pages/${pageId}/subscribe`);
+    return response.data.subscribed ?? true;
+  } catch (error) {
+    logger.error(`Error subscribing to page ${pageId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Unsubscribe from a documentation page
+ */
+export const unsubscribeFromPage = async (pageId: number): Promise<boolean> => {
+  try {
+    await apiClient.delete(`/documentation/pages/${pageId}/subscribe`);
+    return true;
+  } catch (error) {
+    logger.error(`Error unsubscribing from page ${pageId}:`, error);
+    return false;
+  }
+};
+
+// ============================================================================
+// Starred Pages
+// ============================================================================
+
+export interface StarredPageInfo {
+  page_id: number;
+  title: string;
+  slug: string;
+  icon: string | null;
+  starred_at: string;
+}
+
+/**
+ * Get all starred pages for the current user
+ */
+export const getStarredPages = async (): Promise<StarredPageInfo[]> => {
+  try {
+    const response = await apiClient.get('/documentation/starred');
+    return response.data ?? [];
+  } catch (error) {
+    logger.error('Error fetching starred pages:', error);
+    return [];
+  }
+};
+
+/**
+ * Get starred status for a documentation page
+ */
+export const getPageStarred = async (pageId: number): Promise<boolean> => {
+  try {
+    const response = await apiClient.get(`/documentation/pages/${pageId}/starred`);
+    return response.data.starred ?? false;
+  } catch (error) {
+    logger.error(`Error fetching starred status for page ${pageId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Star a documentation page
+ */
+export const starPage = async (pageId: number): Promise<boolean> => {
+  try {
+    const response = await apiClient.post(`/documentation/pages/${pageId}/star`);
+    return response.data.starred ?? true;
+  } catch (error) {
+    logger.error(`Error starring page ${pageId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Unstar a documentation page
+ */
+export const unstarPage = async (pageId: number): Promise<boolean> => {
+  try {
+    await apiClient.delete(`/documentation/pages/${pageId}/star`);
+    return true;
+  } catch (error) {
+    logger.error(`Error unstarring page ${pageId}:`, error);
+    return false;
+  }
+};
+
 export default {
   getPages,
   getAllArticles,
@@ -1080,7 +978,6 @@ export default {
   saveArticle,
   createArticle,
   deleteArticle,
-  savePageContent,
   getPagesByParentId,
   getPageWithChildrenByParentId,
   updateParent,
@@ -1096,4 +993,11 @@ export default {
   permanentlyDeletePage,
   getPageVisibility,
   setPageVisibility,
+  getPageSubscription,
+  subscribeToPage,
+  unsubscribeFromPage,
+  getStarredPages,
+  getPageStarred,
+  starPage,
+  unstarPage,
 };

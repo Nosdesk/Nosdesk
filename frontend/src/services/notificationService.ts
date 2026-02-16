@@ -81,6 +81,13 @@ export const NOTIFICATION_TYPES = [
     category: 'ticket',
     icon: 'plus-circle',
   },
+  {
+    code: 'doc_page_updated',
+    name: 'Page Updated',
+    description: 'When a documentation page you subscribe to is modified',
+    category: 'documentation',
+    icon: 'file-text',
+  },
 ] as const;
 
 /**

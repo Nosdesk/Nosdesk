@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
-import BackButton from '@/components/common/BackButton.vue';
+
 import EnvConfigNotice from '@/components/admin/EnvConfigNotice.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
@@ -161,14 +161,9 @@ onMounted(async () => {
 
 <template>
   <div class="flex-1">
-    <!-- Navigation and actions bar -->
-    <div class="pt-4 px-6 flex justify-between items-center">
-      <BackButton fallbackRoute="/admin/settings" label="Back to Administration" />
-    </div>
-    
-    <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
+    <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-primary">Authentication Providers</h1>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">Authentication Providers</h1>
       </div>
 
       <!-- Configuration Notice -->

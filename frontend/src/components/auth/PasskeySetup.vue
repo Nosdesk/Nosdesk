@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { usePasskeys } from '@/composables/usePasskeys';
+import { useClipboard } from '@/composables/useClipboard';
 import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
 import { passkeySetupService } from '@/services/passkeyService';
@@ -36,7 +37,7 @@ const setupStep = ref<'setup' | 'backup-codes' | 'success'>('setup');
 const localRegistering = ref(false);
 const localError = ref<string | null>(null);
 const backupCodes = ref<string[]>([]);
-const backupCodesCopied = ref(false);
+
 
 // Computed
 const isSecureContext = computed(() => window?.isSecureContext ?? false);
@@ -137,24 +138,8 @@ const handleRegisterPasskey = async () => {
 };
 
 // Copy backup codes to clipboard
-const copyBackupCodes = async () => {
-  try {
-    await navigator.clipboard.writeText(backupCodes.value.join('\n'));
-    backupCodesCopied.value = true;
-    setTimeout(() => { backupCodesCopied.value = false; }, 2000);
-  } catch {
-    // Fallback
-    const text = backupCodes.value.join('\n');
-    const el = document.createElement('textarea');
-    el.value = text;
-    document.body.appendChild(el);
-    el.select();
-    document.execCommand('copy');
-    document.body.removeChild(el);
-    backupCodesCopied.value = true;
-    setTimeout(() => { backupCodesCopied.value = false; }, 2000);
-  }
-};
+const { copied: backupCodesCopied, copy: clipboardCopy } = useClipboard();
+const copyBackupCodes = () => clipboardCopy(backupCodes.value.join('\n'));
 
 // Download backup codes as text file
 const downloadBackupCodes = () => {

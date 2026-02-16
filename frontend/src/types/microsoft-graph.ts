@@ -48,6 +48,7 @@ export interface ActiveSync {
   updated_at: string;
   sync_type: string;
   is_delta: boolean;
+  completed_items: number; // cumulative items completed in prior entities
 }
 
 // Backend SyncResult structure
@@ -71,6 +72,7 @@ export interface LastSyncDetails {
   updated_at: string;
   sync_type: string;
   is_delta: boolean;
+  completed_items: number; // cumulative items completed in prior entities
 }
 
 export interface GraphApiTestResult {

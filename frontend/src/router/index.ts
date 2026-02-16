@@ -391,53 +391,127 @@ const router = createRouter({
       }
     },
     {
-      path: '/admin/settings',
-      name: 'admin-settings',
-      component: () => import('../views/AdminSettingsView.vue'),
+      path: '/admin',
+      component: () => import('../views/AdminLayout.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Administration',
         adminRequired: true
-      }
+      },
+      children: [
+        {
+          path: '',
+          name: 'admin-index',
+          component: () => import('../views/AdminIndexView.vue'),
+          meta: { title: 'Administration' }
+        },
+        { path: 'settings', redirect: '/admin' },
+        {
+          path: 'groups',
+          name: 'admin-groups',
+          component: () => import('../views/GroupsManagementView.vue'),
+          meta: { title: 'Groups' }
+        },
+        {
+          path: 'groups/:uuid/configure',
+          name: 'group-configuration',
+          component: () => import('../views/GroupConfigurationView.vue'),
+          props: true,
+          meta: { title: 'Group Configuration' }
+        },
+        {
+          path: 'categories',
+          name: 'admin-categories',
+          component: () => import('../views/CategoriesManagementView.vue'),
+          meta: { title: 'Categories' }
+        },
+        {
+          path: 'assignment-rules',
+          name: 'admin-assignment-rules',
+          component: () => import('../views/AssignmentRulesView.vue'),
+          meta: { title: 'Assignment Rules' }
+        },
+        {
+          path: 'api-tokens',
+          name: 'admin-api-tokens',
+          component: () => import('../views/ApiTokensView.vue'),
+          meta: { title: 'API Tokens' }
+        },
+        {
+          path: 'webhooks',
+          name: 'admin-webhooks',
+          component: () => import('../views/WebhooksView.vue'),
+          meta: { title: 'Webhooks' }
+        },
+        {
+          path: 'plugins',
+          name: 'admin-plugins',
+          component: () => import('../views/PluginsView.vue'),
+          meta: { title: 'Plugins' }
+        },
+        {
+          path: 'auth-providers',
+          name: 'admin-auth-providers',
+          component: () => import('../views/AuthProvidersView.vue'),
+          meta: { title: 'Authentication Providers' }
+        },
+        {
+          path: 'search',
+          name: 'admin-search',
+          component: () => import('../views/SearchManagementView.vue'),
+          meta: { title: 'Search Index Management' }
+        },
+        {
+          path: 'system-settings',
+          name: 'admin-system-settings',
+          component: () => import('../views/SystemSettingsView.vue'),
+          meta: { title: 'System Settings' }
+        },
+        {
+          path: 'settings/branding',
+          name: 'admin-branding',
+          component: () => import('../views/BrandingSettingsView.vue'),
+          meta: { title: 'Branding' }
+        },
+        {
+          path: 'email-settings',
+          name: 'admin-email-settings',
+          component: () => import('../views/EmailSettingsView.vue'),
+          meta: { title: 'Email Configuration' }
+        },
+        {
+          path: 'data-import',
+          name: 'admin-data-import',
+          component: () => import('../views/DataImportView.vue'),
+          meta: { title: 'Data Import' }
+        },
+        {
+          path: 'data-import/microsoft-graph',
+          name: 'admin-microsoft-graph',
+          component: () => import('../views/MicrosoftGraphView.vue'),
+          meta: { title: 'Microsoft Graph Connection' }
+        },
+        {
+          path: 'data-import/csv',
+          name: 'admin-csv-import',
+          component: () => import('../views/CsvImportView.vue'),
+          meta: { title: 'CSV Import' }
+        },
+        {
+          path: 'backup-restore',
+          name: 'admin-backup-restore',
+          component: () => import('../views/BackupRestoreView.vue'),
+          meta: { title: 'Backup & Restore' }
+        }
+      ]
     },
     {
-      path: '/admin/auth-providers',
-      name: 'admin-auth-providers',
-      component: () => import('../views/AuthProvidersView.vue'),
+      path: '/groups/:uuid',
+      name: 'group-detail',
+      component: () => import('../views/GroupDetailView.vue'),
+      props: true,
       meta: {
         requiresAuth: true,
-        title: 'Authentication Providers',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/data-import',
-      name: 'admin-data-import',
-      component: () => import('../views/DataImportView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'Data Import',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/data-import/microsoft-graph',
-      name: 'admin-microsoft-graph',
-      component: () => import('../views/MicrosoftGraphView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'Microsoft Graph Connection',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/data-import/csv',
-      name: 'admin-csv-import',
-      component: () => import('../views/CsvImportView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'CSV Import',
-        adminRequired: true
+        title: 'Group Details'
       }
     },
     {
@@ -468,137 +542,6 @@ const router = createRouter({
         requiresAuth: true,
         title: 'PDF Viewer',
         titleIcon: 'pdf'
-      }
-    },
-    {
-      path: '/admin/system-settings',
-      name: 'admin-system-settings',
-      component: () => import('../views/SystemSettingsView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'System Settings',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/search',
-      name: 'admin-search',
-      component: () => import('../views/SearchManagementView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'Search Index Management',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/email-settings',
-      name: 'admin-email-settings',
-      component: () => import('../views/EmailSettingsView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'Email Configuration',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/settings/branding',
-      name: 'admin-branding',
-      component: () => import('../views/BrandingSettingsView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'Branding',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/backup-restore',
-      name: 'admin-backup-restore',
-      component: () => import('../views/BackupRestoreView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'Backup & Restore',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/groups',
-      name: 'admin-groups',
-      component: () => import('../views/GroupsManagementView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'Groups',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/groups/:uuid',
-      name: 'group-detail',
-      component: () => import('../views/GroupDetailView.vue'),
-      props: true,
-      meta: {
-        requiresAuth: true,
-        title: 'Group Details'
-      }
-    },
-    {
-      path: '/admin/groups/:uuid/configure',
-      name: 'group-configuration',
-      component: () => import('../views/GroupConfigurationView.vue'),
-      props: true,
-      meta: {
-        requiresAuth: true,
-        title: 'Group Configuration',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/categories',
-      name: 'admin-categories',
-      component: () => import('../views/CategoriesManagementView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'Categories',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/assignment-rules',
-      name: 'admin-assignment-rules',
-      component: () => import('../views/AssignmentRulesView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'Assignment Rules',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/api-tokens',
-      name: 'admin-api-tokens',
-      component: () => import('../views/ApiTokensView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'API Tokens',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/webhooks',
-      name: 'admin-webhooks',
-      component: () => import('../views/WebhooksView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'Webhooks',
-        adminRequired: true
-      }
-    },
-    {
-      path: '/admin/plugins',
-      name: 'admin-plugins',
-      component: () => import('../views/PluginsView.vue'),
-      meta: {
-        requiresAuth: true,
-        title: 'Plugins',
-        adminRequired: true
       }
     },
     {
