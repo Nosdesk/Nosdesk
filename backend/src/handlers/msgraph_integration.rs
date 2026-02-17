@@ -4006,6 +4006,10 @@ async fn process_entra_device(
             os_version: entra_device.operating_system_version.clone(),
             is_managed: entra_device.is_managed,
             enrollment_date: registration_date,
+            warranty_start_date: None,
+            warranty_end_date: None,
+            purchase_date: None,
+            asset_tag: None,
             updated_at: Some(chrono::Utc::now().naive_utc()),
         };
 
@@ -4036,6 +4040,10 @@ async fn process_entra_device(
             os_version: entra_device.operating_system_version.clone(),
             is_managed: entra_device.is_managed,
             enrollment_date: registration_date,
+            warranty_start_date: None,
+            warranty_end_date: None,
+            purchase_date: None,
+            asset_tag: None,
         };
 
         device_repo::create_device(conn, new_device)

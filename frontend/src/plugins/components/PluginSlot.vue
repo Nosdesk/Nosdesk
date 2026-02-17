@@ -16,6 +16,7 @@ const props = defineProps<{
   slotName: SlotType;
   ticket?: Ticket;
   device?: Device;
+  actionActivatedMap?: Map<string, number>;
 }>();
 
 // Get registrations for this slot
@@ -34,5 +35,6 @@ provide('pluginSlot', props.slotName);
     :registration="reg"
     :ticket="ticket"
     :device="device"
+    :actionActivated="actionActivatedMap?.get(`${reg.pluginUuid}:${reg.componentName}`)"
   />
 </template>

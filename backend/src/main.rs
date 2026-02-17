@@ -22,25 +22,35 @@ async fn health_check() -> impl Responder {
 }
 
 /// Handle missing assets in development mode
-/// When frontend rebuilds, old asset hashes become invalid - this helps developers
+/// When frontend rebuilds, old asset hashes become invalid - this helps developers.
+/// Uses a single-attempt reload with cache-busting to avoid infinite loops.
 fn handle_missing_asset(path: &str) -> HttpResponse {
     let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
 
     if environment != "production" {
-        // Log helpful message for developers
         log::warn!(
             "Asset not found: {path} - Frontend may have been rebuilt. Try refreshing the page."
         );
 
-        // For JS files, return code that triggers a page reload
+        // For JS files, return code that triggers a single cache-busted reload.
+        // Uses sessionStorage to track reload attempts and prevent infinite loops.
         if path.ends_with(".js") {
             return HttpResponse::Ok()
                 .content_type("application/javascript")
                 .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
-                .body(r#"console.warn('[Nosdesk Dev] Asset hash mismatch - frontend was rebuilt. Reloading...');setTimeout(()=>location.reload(),500);"#);
+                .body(r#"(function(){
+  var key = '__nosdesk_reload_' + location.pathname;
+  if (sessionStorage.getItem(key)) {
+    sessionStorage.removeItem(key);
+    console.error('[Nosdesk Dev] Asset still missing after reload. Frontend may still be building — try refreshing manually in a few seconds.');
+  } else {
+    sessionStorage.setItem(key, '1');
+    console.warn('[Nosdesk Dev] Asset hash mismatch — frontend was rebuilt. Reloading...');
+    location.replace(location.pathname + location.search);
+  }
+})();"#);
         }
 
-        // For CSS files, return empty CSS with proper MIME type
         if path.ends_with(".css") {
             return HttpResponse::Ok()
                 .content_type("text/css")
@@ -940,6 +950,15 @@ async fn main() -> std::io::Result<()> {
                     .route("/plugins/{uuid}/storage/{key}", web::delete().to(handlers::plugins::delete_plugin_storage))
                     .route("/plugins/{uuid}/proxy", web::post().to(handlers::plugins::proxy_plugin_request))
 
+                    // ===== PLUGIN COLLECTIONS =====
+                    .route("/plugins/{uuid}/collections", web::get().to(handlers::plugin_collections::list_collections))
+                    .route("/plugins/{uuid}/collections/{name}", web::get().to(handlers::plugin_collections::get_collection_schema))
+                    .route("/plugins/{uuid}/collections/{name}/rows", web::get().to(handlers::plugin_collections::list_collection_rows))
+                    .route("/plugins/{uuid}/collections/{name}/rows", web::post().to(handlers::plugin_collections::create_collection_row))
+                    .route("/plugins/{uuid}/collections/{name}/rows/{row_uuid}", web::get().to(handlers::plugin_collections::get_collection_row))
+                    .route("/plugins/{uuid}/collections/{name}/rows/{row_uuid}", web::put().to(handlers::plugin_collections::update_collection_row))
+                    .route("/plugins/{uuid}/collections/{name}/rows/{row_uuid}", web::delete().to(handlers::plugin_collections::delete_collection_row))
+
                     // ===== USER MANAGEMENT =====
                     // Note: Specific routes must come BEFORE generic {uuid} routes to avoid matching conflicts
                     .route("/users", web::get().to(handlers::get_users))
@@ -1035,8 +1054,7 @@ async fn main() -> std::io::Result<()> {
             )
             
             // Unified file serving using storage abstraction (protected routes)
-            .route("/uploads/tickets/{path:.*}", web::get().to(handlers::serve_protected_file))
-            .route("/uploads/temp/{path:.*}", web::get().to(handlers::serve_protected_file))
+            .route("/uploads/{path:.*}", web::get().to(handlers::serve_protected_file))
             
             // === FRONTEND STATIC FILES ===
             // Serve static frontend files with SPA fallback using default_handler

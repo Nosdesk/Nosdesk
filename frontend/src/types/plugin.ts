@@ -20,6 +20,7 @@ export interface PluginManifest {
   components: Record<string, PluginComponentConfig>;
   events: string[];
   settings: PluginSettingDefinition[];
+  collections?: Record<string, CollectionDefinition>;
 }
 
 export interface PluginComponentConfig {
@@ -28,6 +29,9 @@ export interface PluginComponentConfig {
   context?: string[];
   label?: string;
   icon?: string;
+  action?: {
+    label: string;
+  };
 }
 
 export interface PluginSettingDefinition {
@@ -92,6 +96,43 @@ export interface PluginActivity {
 }
 
 // =============================================================================
+// Plugin Collections
+// =============================================================================
+
+export interface CollectionFieldDefinition {
+  type: 'string' | 'number' | 'boolean' | 'date' | 'datetime' | 'uuid' | 'json' | 'reference';
+  label?: string;
+  required?: boolean;
+  reference?: string;
+}
+
+export interface CollectionDefinition {
+  label?: string;
+  fields: Record<string, CollectionFieldDefinition>;
+}
+
+export interface CollectionRow {
+  uuid: string;
+  data: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CollectionListResponse {
+  rows: CollectionRow[];
+  total: number;
+}
+
+export interface CollectionSchemaInfo {
+  uuid: string;
+  collection_name: string;
+  schema: CollectionDefinition;
+  version: number;
+  row_count: number;
+}
+
+// =============================================================================
 // API Request/Response Types
 // =============================================================================
 
@@ -114,6 +155,7 @@ export interface PluginProxyRequest {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
   headers?: Record<string, string>;
   body?: unknown;
+  content_type?: 'json' | 'form';
 }
 
 export interface PluginProxyResponse {
@@ -170,6 +212,9 @@ export type PluginPermission =
   | 'devices:read'
   | 'documents:read'
   | 'storage'
+  | 'collections'
+  | 'collections:read'
+  | 'collections:write'
   | `external:${string}`;
 
 export const PLUGIN_PERMISSIONS: { value: PluginPermission; label: string; description: string }[] = [
@@ -179,6 +224,9 @@ export const PLUGIN_PERMISSIONS: { value: PluginPermission; label: string; descr
   { value: 'devices:read', label: 'Read Devices', description: 'Read device data' },
   { value: 'documents:read', label: 'Read Documents', description: 'Read document data' },
   { value: 'storage', label: 'Plugin Storage', description: 'Store plugin-specific data' },
+  { value: 'collections', label: 'Collections', description: 'Read and write typed collection data' },
+  { value: 'collections:read', label: 'Read Collections', description: 'Read typed collection data' },
+  { value: 'collections:write', label: 'Write Collections', description: 'Write typed collection data' },
 ];
 
 // =============================================================================

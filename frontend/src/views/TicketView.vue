@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /// <reference types="node" />
-import { computed, onMounted, onUnmounted, watch, ref } from "vue";
+import { computed, onMounted, onUnmounted, watch, ref, reactive } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
@@ -30,10 +30,14 @@ import LinkedTicketModal from "@/components/ticketComponents/LinkedTicketModal.v
 import LinkedTicketPreview from "@/components/ticketComponents/LinkedTicketPreview.vue";
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
 import ProjectInfo from "@/components/ticketComponents/ProjectInfo.vue";
+import SidebarSection from "@/components/ticketComponents/SidebarSection.vue";
+import SidebarAddMenu from "@/components/ticketComponents/SidebarAddMenu.vue";
+import type { SidebarAddMenuItem } from "@/components/ticketComponents/SidebarAddMenu.vue";
 import BackButton from "@/components/common/BackButton.vue";
 import DeleteButton from "@/components/common/DeleteButton.vue";
 import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
 import PluginSlot from "@/plugins/components/PluginSlot.vue";
+import { getActionRegistrations } from "@/plugins/loader";
 
 
 const route = useRoute();
@@ -124,6 +128,44 @@ const showDropAffordance = computed(() => {
     return dragState.value.isDragging &&
            dragState.value.ticket?.id !== ticket.value?.id;
 });
+
+// Unified "+ Add" menu state
+const pluginActionActivatedMap = reactive(new Map<string, number>());
+
+const sidebarAddItems = computed<SidebarAddMenuItem[]>(() => {
+    const items: SidebarAddMenuItem[] = [
+        { id: 'device', label: 'Add device', type: 'native', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+        { id: 'linked-ticket', label: 'Link ticket', type: 'native', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
+        { id: 'project', label: 'Add to project', type: 'native', icon: 'M4 4h4v16H4V4zm6 0h4v12h-4V4zm6 0h4v8h-4V4z' },
+    ];
+
+    for (const action of getActionRegistrations('ticket-sidebar')) {
+        items.push({
+            id: `plugin:${action.pluginUuid}:${action.componentName}`,
+            label: action.label,
+            type: 'plugin',
+            pluginName: action.componentLabel || action.pluginName,
+            icon: action.icon,
+        });
+    }
+
+    return items;
+});
+
+const handleSidebarAddAction = (itemId: string) => {
+    if (itemId === 'device') {
+        showDeviceModal.value = true;
+    } else if (itemId === 'linked-ticket') {
+        showLinkedTicketModal.value = true;
+    } else if (itemId === 'project') {
+        showProjectModal.value = true;
+    } else if (itemId.startsWith('plugin:')) {
+        // Increment activation counter for the plugin component
+        const key = itemId.replace('plugin:', '');
+        const current = pluginActionActivatedMap.get(key) || 0;
+        pluginActionActivatedMap.set(key, current + 1);
+    }
+};
 
 // Check if there are any comments with actual content (for print visibility)
 const hasCommentsWithContent = computed(() => {
@@ -390,7 +432,7 @@ defineExpose({
                     <!-- Left Column Wrapper (for 2-column tablet layout) -->
                     <div class="ticket-left-column">
                         <!-- Details Sidebar -->
-                        <div class="ticket-details flex flex-col gap-6">
+                        <div class="ticket-details flex flex-col gap-3">
                         <TicketDetails
                             :ticket="ticket"
                             :created-date="formattedCreatedDate"
@@ -411,20 +453,20 @@ defineExpose({
                             @titleBlur="handleTitleBlur"
                         />
 
+                        <!-- Unified "+ Add" menu -->
+                        <SidebarAddMenu
+                            :items="sidebarAddItems"
+                            @select="handleSidebarAddAction"
+                        />
+
                         <!-- Devices -->
-                        <div v-if="devices.length" class="flex flex-col gap-2">
-                            <div class="flex items-center justify-between">
-                                <h3 class="text-sm font-medium text-secondary">
-                                    Devices
-                                </h3>
-                                <a
-                                    href="#"
-                                    @click.prevent="showDeviceModal = true"
-                                    class="print:hidden text-accent hover:text-accent/80 text-sm hover:underline"
-                                >
-                                    + Add device
-                                </a>
-                            </div>
+                        <SidebarSection
+                            title="Devices"
+                            add-label="Add device"
+                            :has-items="devices.length > 0"
+                            hide-empty-state
+                            @add="showDeviceModal = true"
+                        >
                             <div class="flex flex-col gap-2">
                                 <DeviceDetails
                                     v-for="device in devices"
@@ -432,66 +474,15 @@ defineExpose({
                                     :device="device"
                                     @remove="() => removeDevice(device.id)"
                                     @view="navigateToDeviceView"
-                                    @update:name="
-                                        (value) =>
-                                            updateDeviceField(
-                                                device.id,
-                                                'name',
-                                                value,
-                                            )
-                                    "
-                                    @update:hostname="
-                                        (value) =>
-                                            updateDeviceField(
-                                                device.id,
-                                                'hostname',
-                                                value,
-                                            )
-                                    "
-                                    @update:serial_number="
-                                        (value) =>
-                                            updateDeviceField(
-                                                device.id,
-                                                'serial_number',
-                                                value,
-                                            )
-                                    "
-                                    @update:model="
-                                        (value) =>
-                                            updateDeviceField(
-                                                device.id,
-                                                'model',
-                                                value,
-                                            )
-                                    "
-                                    @update:manufacturer="
-                                        (value) =>
-                                            updateDeviceField(
-                                                device.id,
-                                                'manufacturer',
-                                                value,
-                                            )
-                                    "
-                                    @update:warranty_status="
-                                        (value) =>
-                                            updateDeviceField(
-                                                device.id,
-                                                'warranty_status',
-                                                value,
-                                            )
-                                    "
+                                    @update:name="(value) => updateDeviceField(device.id, 'name', value)"
+                                    @update:hostname="(value) => updateDeviceField(device.id, 'hostname', value)"
+                                    @update:serial_number="(value) => updateDeviceField(device.id, 'serial_number', value)"
+                                    @update:model="(value) => updateDeviceField(device.id, 'model', value)"
+                                    @update:manufacturer="(value) => updateDeviceField(device.id, 'manufacturer', value)"
+                                    @update:warranty_status="(value) => updateDeviceField(device.id, 'warranty_status', value)"
                                 />
                             </div>
-                        </div>
-                        <div v-else class="print:hidden">
-                            <a
-                                href="#"
-                                @click.prevent="showDeviceModal = true"
-                                class="block text-accent hover:underline"
-                            >
-                                + Add device
-                            </a>
-                        </div>
+                        </SidebarSection>
 
                         <!-- Linked Tickets (drop zone) - hidden on print when no linked tickets -->
                         <div
@@ -505,13 +496,15 @@ defineExpose({
                             <!-- Header (only when has tickets) -->
                             <div v-if="ticket.linkedTickets?.length" class="flex items-center justify-between">
                                 <h3 class="text-sm font-medium text-secondary">Linked Tickets</h3>
-                                <a
-                                    href="#"
-                                    @click.prevent="showLinkedTicketModal = true"
-                                    class="print:hidden text-accent hover:text-accent/80 text-sm hover:underline"
+                                <button
+                                    @click="showLinkedTicketModal = true"
+                                    class="print:hidden flex items-center gap-1 text-xs font-medium text-tertiary hover:text-accent transition-colors"
                                 >
-                                    + Add
-                                </a>
+                                    <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
+                                    </svg>
+                                    Add
+                                </button>
                             </div>
 
                             <!-- Drop zone (single instance, shown when dragging) - hidden on print -->
@@ -539,34 +532,16 @@ defineExpose({
                                 @view="() => {}"
                             />
 
-                            <!-- Add link (only when no tickets and not dragging) - hidden on print -->
-                            <a
-                                v-if="!ticket.linkedTickets?.length && !showDropAffordance && !isLinkDropTarget"
-                                href="#"
-                                @click.prevent="showLinkedTicketModal = true"
-                                class="print:hidden text-accent hover:underline"
-                            >
-                                + Add linked ticket
-                            </a>
                         </div>
 
                         <!-- Projects -->
-                        <div
-                            v-if="ticket.projects?.length"
-                            class="flex flex-col gap-2"
+                        <SidebarSection
+                            title="Projects"
+                            add-label="Add to project"
+                            :has-items="!!ticket.projects?.length"
+                            hide-empty-state
+                            @add="showProjectModal = true"
                         >
-                            <div class="flex items-center justify-between">
-                                <h3 class="text-sm font-medium text-secondary">
-                                    Projects
-                                </h3>
-                                <a
-                                    href="#"
-                                    @click.prevent="showProjectModal = true"
-                                    class="print:hidden text-accent hover:text-accent/80 text-sm hover:underline"
-                                >
-                                    + Add to project
-                                </a>
-                            </div>
                             <div class="flex flex-col gap-2">
                                 <ProjectInfo
                                     v-for="projectId in ticket.projects"
@@ -576,19 +551,10 @@ defineExpose({
                                     @remove="() => removeFromProject(projectId)"
                                 />
                             </div>
-                        </div>
-                        <div v-else class="print:hidden">
-                            <a
-                                href="#"
-                                @click.prevent="showProjectModal = true"
-                                class="block text-accent hover:underline"
-                            >
-                                + Add to project
-                            </a>
-                        </div>
+                        </SidebarSection>
 
                         <!-- Plugin Components -->
-                        <PluginSlot slot-name="ticket-sidebar" :ticket="ticket" />
+                        <PluginSlot slot-name="ticket-sidebar" :ticket="ticket" :actionActivatedMap="pluginActionActivatedMap" />
                         </div>
 
                         <!-- Comments (inside left-column for tablet 2-col layout) -->

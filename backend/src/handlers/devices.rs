@@ -60,6 +60,10 @@ pub struct DeviceResponse {
     pub created_at: String,
     pub updated_at: String,
     pub last_sync_time: Option<String>,
+    pub warranty_start_date: Option<String>,
+    pub warranty_end_date: Option<String>,
+    pub purchase_date: Option<String>,
+    pub asset_tag: Option<String>,
     pub primary_user: Option<UserInfo>,
     pub groups: Vec<GroupInfo>,
     pub is_editable: bool,
@@ -114,6 +118,10 @@ impl DeviceResponse {
             created_at: device.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             updated_at: device.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             last_sync_time: device.last_sync_time.map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            warranty_start_date: device.warranty_start_date.map(|d| d.format("%Y-%m-%d").to_string()),
+            warranty_end_date: device.warranty_end_date.map(|d| d.format("%Y-%m-%d").to_string()),
+            purchase_date: device.purchase_date.map(|d| d.format("%Y-%m-%d").to_string()),
+            asset_tag: device.asset_tag,
             is_editable,
             primary_user: user.map(|u| {
                 let name = u.name.clone();
@@ -575,6 +583,10 @@ pub async fn unmanage_device(
         os_version: None,
         is_managed: None,
         enrollment_date: None,
+        warranty_start_date: None,
+        warranty_end_date: None,
+        purchase_date: None,
+        asset_tag: None,
         updated_at: None,
     };
 

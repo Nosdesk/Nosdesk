@@ -26,6 +26,7 @@ pub mod categories;
 pub mod notifications;
 pub mod webhooks;
 pub mod plugins;
+pub mod plugin_collections;
 pub mod passkeys;
 pub mod search;
 

@@ -10,6 +10,9 @@ import type {
   SetPluginStorageRequest,
   PluginProxyRequest,
   PluginProxyResponse,
+  CollectionSchemaInfo,
+  CollectionRow,
+  CollectionListResponse,
 } from '@/types/plugin';
 
 /**
@@ -236,6 +239,88 @@ const pluginService = {
       return response.data;
     } catch (error) {
       logger.error('Failed to proxy plugin request', { error, pluginUuid, url: request.url });
+      throw error;
+    }
+  },
+
+  // ===========================================================================
+  // Plugin Collections
+  // ===========================================================================
+
+  async listCollections(pluginUuid: string): Promise<CollectionSchemaInfo[]> {
+    try {
+      const response = await apiClient.get(`/plugins/${pluginUuid}/collections`);
+      return response.data || [];
+    } catch (error) {
+      logger.error('Failed to list collections', { error, pluginUuid });
+      throw error;
+    }
+  },
+
+  async getCollectionSchema(pluginUuid: string, name: string): Promise<CollectionSchemaInfo> {
+    try {
+      const response = await apiClient.get(`/plugins/${pluginUuid}/collections/${name}`);
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to get collection schema', { error, pluginUuid, name });
+      throw error;
+    }
+  },
+
+  async listCollectionRows(
+    pluginUuid: string,
+    name: string,
+    params?: { limit?: number; offset?: number; filter?: string; sort_by?: string; sort_order?: string },
+  ): Promise<CollectionListResponse> {
+    try {
+      const response = await apiClient.get(`/plugins/${pluginUuid}/collections/${name}/rows`, { params });
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to list collection rows', { error, pluginUuid, name });
+      throw error;
+    }
+  },
+
+  async createCollectionRow(pluginUuid: string, name: string, data: Record<string, unknown>): Promise<CollectionRow> {
+    try {
+      const response = await apiClient.post(`/plugins/${pluginUuid}/collections/${name}/rows`, { data });
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to create collection row', { error, pluginUuid, name });
+      throw error;
+    }
+  },
+
+  async getCollectionRow(pluginUuid: string, name: string, rowUuid: string): Promise<CollectionRow> {
+    try {
+      const response = await apiClient.get(`/plugins/${pluginUuid}/collections/${name}/rows/${rowUuid}`);
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to get collection row', { error, pluginUuid, name, rowUuid });
+      throw error;
+    }
+  },
+
+  async updateCollectionRow(
+    pluginUuid: string,
+    name: string,
+    rowUuid: string,
+    data: Record<string, unknown>,
+  ): Promise<CollectionRow> {
+    try {
+      const response = await apiClient.put(`/plugins/${pluginUuid}/collections/${name}/rows/${rowUuid}`, { data });
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to update collection row', { error, pluginUuid, name, rowUuid });
+      throw error;
+    }
+  },
+
+  async deleteCollectionRow(pluginUuid: string, name: string, rowUuid: string): Promise<void> {
+    try {
+      await apiClient.delete(`/plugins/${pluginUuid}/collections/${name}/rows/${rowUuid}`);
+    } catch (error) {
+      logger.error('Failed to delete collection row', { error, pluginUuid, name, rowUuid });
       throw error;
     }
   },

@@ -195,6 +195,13 @@ fn provision_plugin(conn: &mut DbConnection, plugin_dir: &Path) -> ProvisionResu
                 let _ = update_bundle(conn, &plugin, &bundle_path);
             }
 
+            // Sync collection schemas
+            if !manifest.collections.is_empty() {
+                if let Err(e) = super::validation::sync_collection_schemas(conn, plugin.id, &manifest) {
+                    warn!("Failed to sync collection schemas for plugin {}: {}", manifest.name, e);
+                }
+            }
+
             // Provision settings from environment variables
             provision_settings_from_env(conn, &plugin, &manifest);
 
@@ -239,6 +246,13 @@ fn provision_plugin(conn: &mut DbConnection, plugin_dir: &Path) -> ProvisionResu
             let bundle_path = plugin_dir.join("bundle.js");
             if bundle_path.exists() {
                 let _ = update_bundle(conn, &plugin, &bundle_path);
+            }
+
+            // Sync collection schemas
+            if !manifest.collections.is_empty() {
+                if let Err(e) = super::validation::sync_collection_schemas(conn, plugin.id, &manifest) {
+                    warn!("Failed to sync collection schemas for plugin {}: {}", manifest.name, e);
+                }
             }
 
             // Provision settings from environment variables

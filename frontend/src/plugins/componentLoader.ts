@@ -72,6 +72,18 @@ function getPluginBundle(pluginUuid: string): Promise<PluginModule> {
   return moduleCache.get(pluginUuid)!;
 }
 
+/**
+ * Preload a plugin's bundle so it's cached before any component renders.
+ * Called during plugin loading to eliminate the async loading flash.
+ */
+export async function preloadPluginBundle(pluginUuid: string): Promise<void> {
+  try {
+    await getPluginBundle(pluginUuid);
+  } catch {
+    // Errors are already tracked in failedPlugins set
+  }
+}
+
 // =============================================================================
 // Component Creation
 // =============================================================================
@@ -117,7 +129,7 @@ export function createPluginComponent(
     loadingComponent: PluginLoading,
     errorComponent: PluginError,
     timeout: 10000,
-    delay: 200,
+    delay: 0,
   });
 }
 

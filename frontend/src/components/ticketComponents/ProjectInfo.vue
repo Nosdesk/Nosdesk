@@ -3,6 +3,7 @@
 import { ref, computed, onMounted } from 'vue';
 import type { Project } from '@/services/ticketService';
 import { projectService } from '@/services/projectService';
+import SidebarCard from "@/components/ticketComponents/SidebarCard.vue";
 
 const props = defineProps<{
   projectId: string | number;
@@ -13,11 +14,9 @@ const emit = defineEmits<{
   (e: 'view'): void;
 }>();
 
-// Local state for project data
 const project = ref<Project | null>(null);
 const isLoading = ref(false);
 
-// Fetch project data on mount
 const fetchProject = async () => {
   try {
     isLoading.value = true;
@@ -32,10 +31,8 @@ const fetchProject = async () => {
   }
 };
 
-// Compute ticket count from project data or use a default value
 const ticketCount = computed(() => {
   if (!project.value) return '—';
-  // Check if the project has a ticket_count property (from API)
   if ('ticket_count' in project.value) {
     return (project.value as any).ticket_count;
   }
@@ -61,7 +58,7 @@ const getStatusClass = (status: string) => {
 </script>
 
 <template>
-  <!-- Screen-only loading state -->
+  <!-- Loading skeleton -->
   <div v-if="isLoading" class="print:hidden bg-surface rounded-xl border border-default p-4">
     <div class="animate-pulse flex flex-col gap-3">
       <div class="h-6 bg-surface-alt rounded w-1/2"></div>
@@ -70,76 +67,61 @@ const getStatusClass = (status: string) => {
     </div>
   </div>
 
-  <!-- Screen-only interactive layout -->
-  <div v-else-if="project" class="print:hidden bg-surface rounded-xl border border-default overflow-hidden hover:border-strong transition-colors">
-    <!-- Header -->
-    <div class="px-4 py-3 bg-surface-alt border-b border-default">
-      <div class="flex items-center justify-between">
-        <h3
-          @click="emit('view')"
-          class="text-md font-medium text-primary truncate cursor-pointer hover:text-accent transition-colors"
-        >
-          {{ project.name }}
-        </h3>
-        
-        <!-- Action button -->
-        <button
-          @click="emit('remove')"
-          class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded-md transition-colors"
-          title="Remove from project"
-        >
-          <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-          </svg>
-        </button>
-      </div>
-    </div>
-    
-    <!-- Content -->
-    <div class="p-4">
-      <div class="flex flex-col gap-3">
-        <!-- Description -->
-        <div v-if="project.description" class="flex flex-col gap-1">
-          <span class="text-xs text-tertiary uppercase tracking-wide">Description</span>
-          <p class="text-sm text-secondary">{{ project.description }}</p>
-        </div>
+  <SidebarCard
+    v-else-if="project"
+    remove-title="Remove from project"
+    @remove="emit('remove')"
+  >
+    <template #header>
+      <h3
+        @click="emit('view')"
+        class="text-md font-medium text-primary truncate cursor-pointer hover:text-accent transition-colors"
+      >
+        {{ project.name }}
+      </h3>
+    </template>
 
-        <!-- Project metadata -->
-        <div class="grid grid-cols-3 gap-3 text-sm">
-          <div class="flex flex-col gap-1">
-            <span class="text-xs text-tertiary uppercase tracking-wide">Project ID</span>
-            <span class="text-secondary font-mono text-sm">#{{ projectId }}</span>
-          </div>
-          <div class="flex flex-col gap-1">
-            <span class="text-xs text-tertiary uppercase tracking-wide">Status</span>
-            <span
-              :class="getStatusClass(project.status)"
-              class="text-sm px-2 py-1 rounded-md border w-fit"
-            >
-              {{ project.status }}
-            </span>
-          </div>
-          <div class="flex flex-col gap-1">
-            <span class="text-xs text-tertiary uppercase tracking-wide">Tickets</span>
-            <span class="text-secondary text-sm">{{ ticketCount }}</span>
-          </div>
+    <div class="flex flex-col gap-3">
+      <div v-if="project.description" class="flex flex-col gap-1">
+        <span class="text-xs text-tertiary uppercase tracking-wide">Description</span>
+        <p class="text-sm text-secondary">{{ project.description }}</p>
+      </div>
+
+      <div class="grid grid-cols-3 gap-3 text-sm">
+        <div class="flex flex-col gap-1">
+          <span class="text-xs text-tertiary uppercase tracking-wide">Project ID</span>
+          <span class="text-secondary font-mono text-sm">#{{ projectId }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+          <span class="text-xs text-tertiary uppercase tracking-wide">Status</span>
+          <span
+            :class="getStatusClass(project.status)"
+            class="text-sm px-2 py-1 rounded-md border w-fit"
+          >
+            {{ project.status }}
+          </span>
+        </div>
+        <div class="flex flex-col gap-1">
+          <span class="text-xs text-tertiary uppercase tracking-wide">Tickets</span>
+          <span class="text-secondary text-sm">{{ ticketCount }}</span>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- Print-only compact layout -->
-  <div v-if="project" class="hidden print:block print-project-card">
-    <div class="print-project-header">
-      <span class="print-project-name">{{ project.name }}</span>
-      <span class="print-project-status" :class="`print-status-${project.status}`">{{ project.status }}</span>
-      <span class="print-project-meta">
-        <span class="print-project-id">#{{ projectId }}</span>
-        <span v-if="ticketCount !== '—'">{{ ticketCount }} tickets</span>
-      </span>
-    </div>
-    <p v-if="project.description" class="print-project-description">{{ project.description }}</p>
-  </div>
+    <template #print>
+      <div class="hidden print:block print-project-card">
+        <div class="print-project-header">
+          <span class="print-project-name">{{ project.name }}</span>
+          <span class="print-project-status" :class="`print-status-${project.status}`">{{ project.status }}</span>
+          <span class="print-project-meta">
+            <span class="print-project-id">#{{ projectId }}</span>
+            <span v-if="ticketCount !== '—'">{{ ticketCount }} tickets</span>
+          </span>
+        </div>
+        <p v-if="project.description" class="print-project-description">{{ project.description }}</p>
+      </div>
+    </template>
+  </SidebarCard>
 </template>
 
 <style scoped>
@@ -162,10 +144,7 @@ const getStatusClass = (status: string) => {
     flex-wrap: wrap;
   }
 
-  .print-project-name {
-    font-weight: 600;
-    color: #000;
-  }
+  .print-project-name { font-weight: 600; color: #000; }
 
   .print-project-status {
     font-size: 8pt;
@@ -175,17 +154,9 @@ const getStatusClass = (status: string) => {
     text-transform: capitalize;
   }
 
-  .print-status-active {
-    color: #047857;
-  }
-
-  .print-status-completed {
-    color: #1d4ed8;
-  }
-
-  .print-status-archived {
-    color: #666;
-  }
+  .print-status-active { color: #047857; }
+  .print-status-completed { color: #1d4ed8; }
+  .print-status-archived { color: #666; }
 
   .print-project-meta {
     display: flex;
@@ -196,9 +167,7 @@ const getStatusClass = (status: string) => {
     margin-left: auto;
   }
 
-  .print-project-id {
-    font-family: ui-monospace, monospace;
-  }
+  .print-project-id { font-family: ui-monospace, monospace; }
 
   .print-project-description {
     color: #333;

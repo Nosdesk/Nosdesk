@@ -19,6 +19,10 @@ export interface Device {
   created_at: string;
   updated_at: string;
   last_sync_time?: string | null;
+  warranty_start_date?: string | null;
+  warranty_end_date?: string | null;
+  purchase_date?: string | null;
+  asset_tag?: string | null;
   is_editable: boolean;
   // Computed/joined fields from API
   primary_user?: {
@@ -53,5 +57,9 @@ export interface DeviceFormData {
   primary_user_uuid?: string | null;
   intune_device_id?: string;
   entra_device_id?: string;
+  warranty_start_date?: string | null;
+  warranty_end_date?: string | null;
+  purchase_date?: string | null;
+  asset_tag?: string | null;
   type?: string;
 } 

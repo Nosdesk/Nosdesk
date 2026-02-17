@@ -4,6 +4,7 @@
  *
  * Renders a single plugin component in a slot.
  * Handles its own API creation and component loading.
+ * Bundles are preloaded during plugin init so components render instantly.
  */
 import { onErrorCaptured, ref, watchEffect } from 'vue';
 import { getLoadedPlugin, type PluginSlotRegistration } from '../loader';
@@ -17,6 +18,7 @@ const props = defineProps<{
   registration: PluginSlotRegistration;
   ticket?: Ticket;
   device?: Device;
+  actionActivated?: number;
 }>();
 
 // Error state
@@ -63,12 +65,13 @@ watchEffect(() => {
       <div class="text-xs mt-1">{{ error }}</div>
     </div>
 
-    <!-- Render component (defineAsyncComponent handles loading/error internally) -->
+    <!-- Render component (bundle is preloaded so this resolves instantly) -->
     <component
       v-else-if="canRender && asyncComponent && api"
       :is="asyncComponent"
       :api="api"
       :context="api.context"
+      :actionActivated="actionActivated"
     />
 
     <!-- Placeholder for plugins without bundle -->

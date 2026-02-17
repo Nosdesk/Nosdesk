@@ -3,6 +3,14 @@
 import { ref } from 'vue';
 import type { Device } from '@/types/ticket';
 import Modal from '@/components/Modal.vue';
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
+
+const warrantyOptions = [
+  { value: 'Active', label: 'Active' },
+  { value: 'Warning', label: 'Warning' },
+  { value: 'Expired', label: 'Expired' },
+  { value: 'Unknown', label: 'Unknown' }
+];
 
 const props = defineProps<{
   show: boolean;
@@ -24,7 +32,7 @@ const createEmptyDevice = (): Device => ({
   hostname: '',
   serial_number: '',
   model: '',
-  warranty_status: '',
+  warranty_status: 'Unknown',
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   is_editable: true
@@ -97,13 +105,10 @@ const handleSubmit = () => {
       <!-- Warranty Status -->
       <div class="flex flex-col gap-1">
         <label for="warranty_status" class="text-sm text-tertiary">Warranty Status</label>
-        <input
-          id="warranty_status"
+        <BaseDropdown
           v-model="device.warranty_status"
-          type="text"
-          required
-          class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-accent"
-          placeholder="Enter warranty status"
+          :options="warrantyOptions"
+          size="sm"
         />
       </div>
 

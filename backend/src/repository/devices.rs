@@ -345,6 +345,10 @@ mod tests {
             os_version: None,
             is_managed: None,
             enrollment_date: None,
+            warranty_start_date: None,
+            warranty_end_date: None,
+            purchase_date: None,
+            asset_tag: None,
         }
     }
 
@@ -394,6 +398,10 @@ mod tests {
             os_version: None,
             is_managed: None,
             enrollment_date: None,
+            warranty_start_date: None,
+            warranty_end_date: None,
+            purchase_date: None,
+            asset_tag: None,
             updated_at: None,
         };
 

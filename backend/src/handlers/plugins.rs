@@ -203,6 +203,17 @@ pub async fn install_plugin(
                 plugin.uuid, plugin.name, installed_by
             );
 
+            // Sync collection schemas from manifest
+            if !body.manifest.collections.is_empty() {
+                if let Err(e) = crate::services::plugins::validation::sync_collection_schemas(
+                    &mut conn,
+                    plugin.id,
+                    &body.manifest,
+                ) {
+                    warn!("Failed to sync collection schemas for plugin {}: {}", plugin.name, e);
+                }
+            }
+
             // Log the installation activity
             let _ = plugin_repo::log_plugin_activity(
                 &mut conn,
@@ -309,6 +320,17 @@ pub async fn update_plugin(
     match plugin_repo::update_plugin_by_uuid(&mut conn, plugin_uuid, update) {
         Ok(updated) => {
             info!("Plugin updated: {} ({})", updated.uuid, updated.name);
+
+            // Sync collection schemas if manifest was updated
+            if let Some(ref manifest) = body.manifest {
+                if let Err(e) = crate::services::plugins::validation::sync_collection_schemas(
+                    &mut conn,
+                    plugin.id,
+                    manifest,
+                ) {
+                    warn!("Failed to sync collection schemas for plugin {}: {}", updated.name, e);
+                }
+            }
 
             // Log the update activity
             let _ = plugin_repo::log_plugin_activity(
@@ -1147,6 +1169,17 @@ pub async fn install_plugin_from_zip(
                 bundle_uploaded_at: Some(Utc::now().naive_utc()),
             };
             let _ = plugin_repo::update_plugin_bundle(&mut conn, plugin.uuid, update);
+        }
+    }
+
+    // Sync collection schemas from manifest
+    if !manifest.collections.is_empty() {
+        if let Err(e) = crate::services::plugins::validation::sync_collection_schemas(
+            &mut conn,
+            plugin.id,
+            &manifest,
+        ) {
+            warn!("Failed to sync collection schemas for plugin {}: {}", plugin.name, e);
         }
     }
 

@@ -8,6 +8,7 @@
 import { ref, shallowRef, reactive, type ShallowRef } from 'vue';
 import pluginService from '@/services/pluginService';
 import { logger } from '@/utils/logger';
+import { preloadPluginBundle } from './componentLoader';
 import type { Plugin, PluginSlot, PluginManifest } from '@/types/plugin';
 
 // =============================================================================
@@ -28,6 +29,16 @@ export interface PluginSlotRegistration {
   context: string[];
 }
 
+export interface PluginActionRegistration {
+  pluginUuid: string;
+  pluginName: string;
+  componentName: string;
+  slot: PluginSlot;
+  label: string;
+  icon?: string;
+  componentLabel?: string;
+}
+
 // =============================================================================
 // Plugin Loader State
 // =============================================================================
@@ -38,6 +49,9 @@ const loadedPlugins: ShallowRef<Map<string, LoadedPlugin>> = shallowRef(new Map(
 // Slot registrations (slot name -> array of registered components)
 // Using reactive() for deep reactivity with Map operations
 const slotRegistrations = reactive(new Map<PluginSlot, PluginSlotRegistration[]>());
+
+// Action registrations (slot name -> array of plugin actions for the "+ Add" menu)
+const actionRegistrations = reactive(new Map<PluginSlot, PluginActionRegistration[]>());
 
 // Loading state
 const isLoading = ref(false);
@@ -65,6 +79,7 @@ export async function loadPlugins(): Promise<void> {
     // Clear existing registrations
     loadedPlugins.value = new Map();
     slotRegistrations.clear();
+    actionRegistrations.clear();
 
     for (const plugin of enabledPlugins) {
       try {
@@ -114,11 +129,32 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
     const existing = slotRegistrations.get(slot) || [];
     slotRegistrations.set(slot, [...existing, registration]);
 
+    // Register action if the component defines one
+    if (config.action) {
+      const actionReg: PluginActionRegistration = {
+        pluginUuid: plugin.uuid,
+        pluginName: plugin.name,
+        componentName,
+        slot,
+        label: config.action.label,
+        icon: config.icon || manifest.icon,
+        componentLabel: config.label,
+      };
+
+      const existingActions = actionRegistrations.get(slot) || [];
+      actionRegistrations.set(slot, [...existingActions, actionReg]);
+    }
+
     logger.info(`Registered component in slot: ${slot}`, {
       pluginName: plugin.name,
       componentName,
       totalInSlot: slotRegistrations.get(slot)?.length,
     });
+  }
+
+  // Preload bundle so components render instantly (no async loading flash)
+  if (plugin.trust_level !== 'community' && plugin.bundle_uploaded_at) {
+    await preloadPluginBundle(plugin.uuid);
   }
 
   logger.debug(`Loaded plugin: ${plugin.name}`, {
@@ -133,6 +169,13 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
  */
 export function getSlotRegistrations(slot: PluginSlot): PluginSlotRegistration[] {
   return slotRegistrations.get(slot) || [];
+}
+
+/**
+ * Get all action registrations for a slot (for the unified "+ Add" menu)
+ */
+export function getActionRegistrations(slot: PluginSlot): PluginActionRegistration[] {
+  return actionRegistrations.get(slot) || [];
 }
 
 /**
@@ -170,6 +213,7 @@ export function getLoadError(): string | null {
 export {
   loadedPlugins,
   slotRegistrations,
+  actionRegistrations,
   isLoading,
   loadError,
 };

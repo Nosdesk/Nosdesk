@@ -254,6 +254,11 @@ diesel::table! {
         os_version -> Nullable<Varchar>,
         is_managed -> Nullable<Bool>,
         enrollment_date -> Nullable<Timestamptz>,
+        warranty_start_date -> Nullable<Date>,
+        warranty_end_date -> Nullable<Date>,
+        purchase_date -> Nullable<Date>,
+        #[max_length = 255]
+        asset_tag -> Nullable<Varchar>,
     }
 }
 
@@ -296,24 +301,6 @@ diesel::table! {
         updated_at -> Timestamptz,
         display_order -> Int4,
         root_page_id -> Nullable<Int4>,
-    }
-}
-
-diesel::table! {
-    documentation_starred_pages (id) {
-        id -> Int4,
-        user_uuid -> Uuid,
-        page_id -> Int4,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    documentation_subscriptions (id) {
-        id -> Int4,
-        user_uuid -> Uuid,
-        page_id -> Int4,
-        created_at -> Timestamptz,
     }
 }
 
@@ -382,6 +369,24 @@ diesel::table! {
         created_at -> Timestamptz,
         created_by -> Uuid,
         change_summary -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    documentation_starred_pages (id) {
+        id -> Int4,
+        user_uuid -> Uuid,
+        page_id -> Int4,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    documentation_subscriptions (id) {
+        id -> Int4,
+        user_uuid -> Uuid,
+        page_id -> Int4,
+        created_at -> Timestamptz,
     }
 }
 
@@ -501,6 +506,33 @@ diesel::table! {
         details -> Nullable<Jsonb>,
         user_uuid -> Nullable<Uuid>,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    plugin_collection_rows (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        plugin_id -> Int4,
+        schema_id -> Int4,
+        data -> Jsonb,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    plugin_collection_schemas (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        plugin_id -> Int4,
+        #[max_length = 100]
+        collection_name -> Varchar,
+        schema -> Jsonb,
+        version -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -895,15 +927,18 @@ diesel::joinable!(documentation_collection_pages -> documentation_collections (c
 diesel::joinable!(documentation_collection_pages -> documentation_pages (page_id));
 diesel::joinable!(documentation_collection_pages -> users (created_by));
 diesel::joinable!(documentation_collection_visibility -> documentation_collections (collection_id));
+diesel::joinable!(documentation_collection_visibility -> groups (group_id));
+diesel::joinable!(documentation_collections -> documentation_pages (root_page_id));
 diesel::joinable!(documentation_collections -> users (created_by));
 diesel::joinable!(documentation_page_visibility -> documentation_pages (page_id));
+diesel::joinable!(documentation_page_visibility -> groups (group_id));
 diesel::joinable!(documentation_pages -> tickets (ticket_id));
+diesel::joinable!(documentation_revisions -> documentation_pages (page_id));
+diesel::joinable!(documentation_revisions -> users (created_by));
 diesel::joinable!(documentation_starred_pages -> documentation_pages (page_id));
 diesel::joinable!(documentation_starred_pages -> users (user_uuid));
 diesel::joinable!(documentation_subscriptions -> documentation_pages (page_id));
 diesel::joinable!(documentation_subscriptions -> users (user_uuid));
-diesel::joinable!(documentation_revisions -> documentation_pages (page_id));
-diesel::joinable!(documentation_revisions -> users (created_by));
 diesel::joinable!(group_includes -> users (created_by));
 diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(linked_tickets -> users (created_by));
@@ -915,6 +950,10 @@ diesel::joinable!(notifications -> notification_types (notification_type_id));
 diesel::joinable!(notifications -> users (user_uuid));
 diesel::joinable!(plugin_activity -> plugins (plugin_id));
 diesel::joinable!(plugin_activity -> users (user_uuid));
+diesel::joinable!(plugin_collection_rows -> plugin_collection_schemas (schema_id));
+diesel::joinable!(plugin_collection_rows -> plugins (plugin_id));
+diesel::joinable!(plugin_collection_rows -> users (created_by));
+diesel::joinable!(plugin_collection_schemas -> plugins (plugin_id));
 diesel::joinable!(plugin_data -> plugins (plugin_id));
 diesel::joinable!(plugins -> users (installed_by));
 diesel::joinable!(project_tickets -> projects (project_id));
@@ -938,4 +977,4 @@ diesel::joinable!(webhook_deliveries -> webhooks (webhook_id));
 diesel::joinable!(webhooks -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_data,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);

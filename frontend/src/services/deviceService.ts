@@ -31,6 +31,10 @@ interface BackendDevice {
   created_at: string;
   updated_at: string;
   last_sync_time?: string | null;
+  warranty_start_date?: string | null;
+  warranty_end_date?: string | null;
+  purchase_date?: string | null;
+  asset_tag?: string | null;
   is_editable?: boolean;
   primary_user?: Device['primary_user'];
   groups?: Device['groups'];
@@ -54,6 +58,10 @@ const transformDeviceResponse = (backendDevice: BackendDevice): Device => {
     created_at: backendDevice.created_at,
     updated_at: backendDevice.updated_at,
     last_sync_time: backendDevice.last_sync_time,
+    warranty_start_date: backendDevice.warranty_start_date,
+    warranty_end_date: backendDevice.warranty_end_date,
+    purchase_date: backendDevice.purchase_date,
+    asset_tag: backendDevice.asset_tag,
     is_editable: backendDevice.is_editable ?? true,
     primary_user: backendDevice.primary_user,
     groups: backendDevice.groups,
@@ -193,7 +201,11 @@ export const updateDevice = async (id: number, device: Partial<Device>): Promise
       manufacturer: device.manufacturer,
       primary_user_uuid: device.primary_user_uuid,
       intune_device_id: device.intune_device_id,
-      entra_device_id: device.entra_device_id
+      entra_device_id: device.entra_device_id,
+      warranty_start_date: device.warranty_start_date,
+      warranty_end_date: device.warranty_end_date,
+      purchase_date: device.purchase_date,
+      asset_tag: device.asset_tag,
     };
     
     const response = await apiClient.put(`/devices/${id}`, backendDevice);

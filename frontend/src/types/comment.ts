@@ -10,8 +10,11 @@ export interface Attachment {
   url: string
   name: string
   comment_id: number
+  file_size?: number
+  mime_type?: string
   transcription?: string
   thumbnail_url?: string
+  created_at?: string
 }
 
 export interface Comment {

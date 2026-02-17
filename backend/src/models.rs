@@ -161,6 +161,10 @@ pub struct Device {
     pub os_version: Option<String>,
     pub is_managed: Option<bool>,
     pub enrollment_date: Option<NaiveDateTime>,
+    pub warranty_start_date: Option<NaiveDate>,
+    pub warranty_end_date: Option<NaiveDate>,
+    pub purchase_date: Option<NaiveDate>,
+    pub asset_tag: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
@@ -185,6 +189,10 @@ pub struct NewDevice {
     pub os_version: Option<String>,
     pub is_managed: Option<bool>,
     pub enrollment_date: Option<NaiveDateTime>,
+    pub warranty_start_date: Option<NaiveDate>,
+    pub warranty_end_date: Option<NaiveDate>,
+    pub purchase_date: Option<NaiveDate>,
+    pub asset_tag: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, AsChangeset)]
@@ -209,6 +217,10 @@ pub struct DeviceUpdate {
     pub os_version: Option<String>,
     pub is_managed: Option<bool>,
     pub enrollment_date: Option<NaiveDateTime>,
+    pub warranty_start_date: Option<NaiveDate>,
+    pub warranty_end_date: Option<NaiveDate>,
+    pub purchase_date: Option<NaiveDate>,
+    pub asset_tag: Option<String>,
     pub updated_at: Option<NaiveDateTime>,
 }
 
@@ -3344,6 +3356,37 @@ pub struct PluginManifest {
     pub events: Vec<String>,
     #[serde(default)]
     pub settings: Vec<PluginSettingDefinition>,
+    #[serde(default)]
+    pub collections: std::collections::HashMap<String, CollectionDefinition>,
+    /// Declarative auth configuration: maps domain patterns to auth strategies
+    #[serde(default)]
+    pub auth: std::collections::HashMap<String, PluginAuthConfig>,
+}
+
+/// Authentication configuration for a specific domain/host pattern
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PluginAuthConfig {
+    /// Authorization: Bearer <secret_value>
+    Bearer {
+        secret: String,
+    },
+    /// Authorization: Basic base64(username:password)
+    Basic {
+        username_secret: String,
+        password_secret: String,
+    },
+    /// Custom header with secret value (e.g. X-API-Key)
+    ApiKey {
+        header: String,
+        secret: String,
+    },
+    /// OAuth2 Client Credentials flow — exchanges client_id + client_secret for a bearer token
+    Oauth2ClientCredentials {
+        token_url: String,
+        client_id_secret: String,
+        client_secret_secret: String,
+    },
 }
 
 /// Plugin component configuration in manifest
@@ -3355,6 +3398,13 @@ pub struct PluginComponentConfig {
     pub context: Vec<String>,
     pub label: Option<String>,
     pub icon: Option<String>,
+    pub action: Option<PluginComponentAction>,
+}
+
+/// Plugin component action for unified "+ Add" menu
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginComponentAction {
+    pub label: String,
 }
 
 /// Plugin setting definition in manifest
@@ -3509,6 +3559,8 @@ pub struct PluginProxyRequest {
     pub method: String,
     pub headers: Option<std::collections::HashMap<String, String>>,
     pub body: Option<serde_json::Value>,
+    /// Body encoding: "json" (default) or "form" (application/x-www-form-urlencoded)
+    pub content_type: Option<String>,
 }
 
 fn default_method() -> String {
@@ -3521,4 +3573,152 @@ pub struct PluginProxyResponse {
     pub status: u16,
     pub headers: std::collections::HashMap<String, String>,
     pub body: Option<serde_json::Value>,
+}
+
+// ===== PLUGIN COLLECTION TYPES =====
+
+/// Collection field definition in plugin manifest
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionFieldDefinition {
+    #[serde(rename = "type")]
+    pub field_type: String,
+    pub label: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    pub reference: Option<String>,
+}
+
+/// Collection definition in plugin manifest
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionDefinition {
+    pub label: Option<String>,
+    pub fields: std::collections::HashMap<String, CollectionFieldDefinition>,
+}
+
+/// Plugin collection schema (DB row)
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::plugin_collection_schemas)]
+#[diesel(belongs_to(Plugin))]
+pub struct PluginCollectionSchema {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub plugin_id: i32,
+    pub collection_name: String,
+    pub schema: serde_json::Value,
+    pub version: i32,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+/// New collection schema for insertion
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::plugin_collection_schemas)]
+pub struct NewPluginCollectionSchema {
+    pub plugin_id: i32,
+    pub collection_name: String,
+    pub schema: serde_json::Value,
+    pub version: i32,
+}
+
+/// Collection schema update changeset
+#[derive(Debug, Default, AsChangeset)]
+#[diesel(table_name = crate::schema::plugin_collection_schemas)]
+pub struct PluginCollectionSchemaUpdate {
+    pub schema: Option<serde_json::Value>,
+    pub version: Option<i32>,
+}
+
+/// Plugin collection row (DB row)
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::plugin_collection_rows)]
+#[diesel(belongs_to(PluginCollectionSchema, foreign_key = schema_id))]
+pub struct PluginCollectionRow {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub plugin_id: i32,
+    pub schema_id: i32,
+    pub data: serde_json::Value,
+    pub created_by: Option<Uuid>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+/// New collection row for insertion
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::plugin_collection_rows)]
+pub struct NewPluginCollectionRow {
+    pub plugin_id: i32,
+    pub schema_id: i32,
+    pub data: serde_json::Value,
+    pub created_by: Option<Uuid>,
+}
+
+/// Collection row update changeset
+#[derive(Debug, Default, AsChangeset)]
+#[diesel(table_name = crate::schema::plugin_collection_rows)]
+pub struct PluginCollectionRowUpdate {
+    pub data: Option<serde_json::Value>,
+}
+
+// ===== COLLECTION API TYPES =====
+
+/// Query params for listing collection rows
+#[derive(Debug, Deserialize)]
+pub struct CollectionQueryParams {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub filter: Option<String>,
+    pub sort_by: Option<String>,
+    pub sort_order: Option<String>,
+}
+
+/// Request to create a collection row
+#[derive(Debug, Deserialize)]
+pub struct CreateCollectionRowRequest {
+    pub data: serde_json::Value,
+}
+
+/// Request to update a collection row
+#[derive(Debug, Deserialize)]
+pub struct UpdateCollectionRowRequest {
+    pub data: serde_json::Value,
+}
+
+/// Collection row API response
+#[derive(Debug, Serialize)]
+pub struct CollectionRowResponse {
+    pub uuid: Uuid,
+    pub data: serde_json::Value,
+    pub created_by: Option<Uuid>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+impl From<PluginCollectionRow> for CollectionRowResponse {
+    fn from(row: PluginCollectionRow) -> Self {
+        CollectionRowResponse {
+            uuid: row.uuid,
+            data: row.data,
+            created_by: row.created_by,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+/// Paginated collection rows response
+#[derive(Debug, Serialize)]
+pub struct CollectionListResponse {
+    pub rows: Vec<CollectionRowResponse>,
+    pub total: i64,
+}
+
+/// Collection schema API response
+#[derive(Debug, Serialize)]
+pub struct CollectionSchemaResponse {
+    pub uuid: Uuid,
+    pub collection_name: String,
+    pub schema: serde_json::Value,
+    pub version: i32,
+    pub row_count: i64,
 }

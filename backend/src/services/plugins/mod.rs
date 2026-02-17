@@ -5,6 +5,7 @@
 
 pub mod provisioning;
 pub mod proxy;
+pub mod validation;
 
 pub use provisioning::provision_plugins;
 pub use proxy::PluginProxyService;
