@@ -131,74 +131,115 @@ async fn log_password_change_event(
     Ok(())
 }
 
-/// Helper function to create a session record after successful login
-pub async fn create_session_record(
+/// Parse a device name from a user-agent string.
+fn parse_device_name(ua: &str) -> &'static str {
+    if ua.contains("iPhone") { "iPhone" }
+    else if ua.contains("iPad") { "iPad" }
+    else if ua.contains("Android") { "Android Device" }
+    else if ua.contains("Macintosh") || ua.contains("Mac OS") { "Mac" }
+    else if ua.contains("Windows") { "Windows PC" }
+    else if ua.contains("Linux") { "Linux" }
+    else { "Unknown Device" }
+}
+
+/// Create a session record from an HTTP request. Returns the ActiveSession with its DB-generated session_id.
+pub fn create_session_record(
     user_uuid: &Uuid,
-    token: &str,
     request: &HttpRequest,
     conn: &mut DbConnection,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Hash the JWT token with SHA-256 for storage
-    use ring::digest;
-    let hash = digest::digest(&digest::SHA256, token.as_bytes());
-    let token_hash = hex::encode(hash.as_ref());
-
-    // Extract IP address from request and convert to IpNetwork
+) -> Result<crate::models::ActiveSession, diesel::result::Error> {
     let ip_address = request.peer_addr()
         .and_then(|addr| addr.ip().to_string().parse().ok());
 
-    // Extract user agent from request headers
     let user_agent = request.headers()
         .get("user-agent")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
 
-    // Parse device name from user agent (simple parsing)
-    let device_name = user_agent.as_ref().map(|ua| {
-        // Simple device name extraction - can be enhanced later
-        if ua.contains("iPhone") {
-            "iPhone".to_string()
-        } else if ua.contains("iPad") {
-            "iPad".to_string()
-        } else if ua.contains("Android") {
-            "Android Device".to_string()
-        } else if ua.contains("Macintosh") || ua.contains("Mac OS") {
-            "Mac".to_string()
-        } else if ua.contains("Windows") {
-            "Windows PC".to_string()
-        } else if ua.contains("Linux") {
-            "Linux".to_string()
-        } else {
-            "Unknown Device".to_string()
-        }
-    });
+    let device_name = user_agent.as_deref().map(|ua| parse_device_name(ua).to_string());
 
-    // Set expiration to 24 hours from now (matching JWT expiration)
-    let expires_at = chrono::Utc::now().naive_utc() + chrono::Duration::hours(24);
-
-    // Create new session record
     let new_session = crate::models::NewActiveSession {
-        session_token: token_hash,
         user_uuid: *user_uuid,
         device_name,
         ip_address,
         user_agent,
-        location: None, // Could be derived from IP in the future
-        expires_at,
+        location: None,
+        expires_at: chrono::Utc::now().naive_utc() + chrono::Duration::days(7),
         is_current: true,
     };
 
-    // Insert session into database
-    match crate::repository::active_sessions::create_session(conn, new_session) {
-        Ok(session) => {
-            tracing::info!("Session created for user {}: session_id={}", user_uuid, session.id);
-            Ok(())
-        },
+    crate::repository::active_sessions::create_session(conn, new_session)
+}
+
+/// Create a session + token pair, returning an HttpResponse with auth cookies set.
+/// Shared by all login flows that use `create_login_response`.
+pub(crate) fn complete_login(
+    user: crate::models::User,
+    request: &HttpRequest,
+    conn: &mut DbConnection,
+) -> HttpResponse {
+    let user_uuid = user.uuid;
+
+    let session = match create_session_record(&user_uuid, request, conn) {
+        Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
-            Err(Box::new(e))
+            return HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to create authentication session"
+            }));
         }
+    };
+    let family_id = Uuid::new_v4();
+
+    match jwt_helpers::create_login_response(user, &session.session_id, &family_id, conn) {
+        Ok((response, tokens)) => build_auth_cookie_response(response, &tokens),
+        Err(error_response) => error_response,
     }
+}
+
+/// Create a session + MFA token pair, returning an HttpResponse with auth cookies set.
+/// Shared by MFA and recovery login flows.
+fn complete_mfa_login(
+    user: crate::models::User,
+    backup_code_used: bool,
+    requires_regeneration: bool,
+    request: &HttpRequest,
+    conn: &mut DbConnection,
+) -> HttpResponse {
+    let user_uuid = user.uuid;
+
+    let session = match create_session_record(&user_uuid, request, conn) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
+            return HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to create authentication session"
+            }));
+        }
+    };
+    let family_id = Uuid::new_v4();
+
+    match jwt_helpers::create_mfa_login_response(
+        user, backup_code_used, requires_regeneration,
+        &session.session_id, &family_id, conn,
+    ) {
+        Ok((response, tokens)) => build_auth_cookie_response(response, &tokens),
+        Err(error_response) => error_response,
+    }
+}
+
+/// Attach auth cookies to an HTTP response.
+pub(crate) fn build_auth_cookie_response(
+    body: impl serde::Serialize,
+    tokens: &jwt_helpers::LoginTokens,
+) -> HttpResponse {
+    HttpResponse::Ok()
+        .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
+        .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
+        .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
+        .json(body)
 }
 
 // Account lockout configuration (IP rate limiting handled by middleware)
@@ -330,27 +371,7 @@ pub async fn login(
         return HttpResponse::Ok().json(response);
     }
 
-    // Store user UUID before moving user into create_login_response
-    let user_uuid = user.uuid;
-
-    // Create standard login response (no MFA required)
-    match jwt_helpers::create_login_response(user, &mut conn) {
-        Ok((response, tokens)) => {
-            // Create session record after successful login
-            if let Err(e) = create_session_record(&user_uuid, &tokens.access_token, &request, &mut conn).await {
-                tracing::warn!("Failed to create session record for user {}: {}", user_uuid, e);
-                // Don't fail the login if session creation fails
-            }
-
-            // Set httpOnly cookies for tokens
-            HttpResponse::Ok()
-                .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
-                .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
-                .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
-                .json(response)
-        },
-        Err(error_response) => error_response,
-    }
+    complete_login(user, &request, &mut conn)
 }
 
 /// MFA Login - Verify MFA token and complete login
@@ -444,32 +465,13 @@ pub async fn mfa_login(
     // Log successful MFA attempt
     mfa::log_mfa_attempt(&user.uuid, true, "login", &request).await;
 
-    // Store user UUID before moving user into create_mfa_login_response
-    let user_uuid = user.uuid;
-
-    // Create successful MFA login response
-    match jwt_helpers::create_mfa_login_response(
+    complete_mfa_login(
         user,
         mfa_result.backup_code_used.is_some(),
         mfa_result.requires_backup_code_regeneration,
+        &request,
         &mut conn,
-    ) {
-        Ok((response, tokens)) => {
-            // Create session record after successful MFA login
-            if let Err(e) = create_session_record(&user_uuid, &tokens.access_token, &request, &mut conn).await {
-                tracing::warn!("Failed to create session record for user {}: {}", user_uuid, e);
-                // Don't fail the login if session creation fails
-            }
-
-            // Set httpOnly cookies for tokens
-            HttpResponse::Ok()
-                .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
-                .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
-                .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
-                .json(response)
-        },
-        Err(error_response) => error_response,
-    }
+    )
 }
 
 /// Recovery code login - for users with passkey MFA who can't use their passkey
@@ -596,37 +598,33 @@ pub async fn recovery_login(
     // Log successful recovery
     mfa::log_mfa_attempt(&user.uuid, true, "recovery_login", &request).await;
 
-    let user_uuid = user.uuid;
+    info!(user_uuid = %user.uuid, "Recovery code login successful");
 
-    // Create login response with backup code info
-    match jwt_helpers::create_mfa_login_response(
+    complete_mfa_login(
         user,
         result.backup_code_used.is_some(),
         result.requires_backup_code_regeneration,
+        &request,
         &mut conn,
-    ) {
-        Ok((response, tokens)) => {
-            if let Err(e) = create_session_record(&user_uuid, &tokens.access_token, &request, &mut conn).await {
-                tracing::warn!("Failed to create session record for recovery login: {}", e);
-            }
-
-            info!(user_uuid = %user_uuid, "Recovery code login successful");
-
-            HttpResponse::Ok()
-                .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
-                .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
-                .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
-                .json(response)
-        },
-        Err(error_response) => error_response,
-    }
+    )
 }
 
-/// Logout endpoint - clears all authentication cookies
-pub async fn logout() -> impl Responder {
+/// Logout endpoint - revokes session from DB and clears cookies
+pub async fn logout(
+    db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
+) -> impl Responder {
     use crate::utils::cookies::{delete_access_token_cookie, delete_refresh_token_cookie, delete_csrf_token_cookie};
 
-    tracing::info!("🔓 User logging out");
+    // Best-effort session revocation — CASCADE handles linked refresh_tokens
+    if let (Ok(claims), Ok(mut conn)) = (JwtUtils::extract_claims(&req), db_pool.get()) {
+        if let Some(sid) = claims.session_uuid() {
+            match crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &sid) {
+                Ok(n) => tracing::info!("Logout: revoked {n} session(s) for sid {sid}"),
+                Err(e) => tracing::warn!("Logout: failed to revoke session {sid}: {e}"),
+            }
+        }
+    }
 
     HttpResponse::Ok()
         .cookie(delete_access_token_cookie())
@@ -938,50 +936,15 @@ pub async fn change_password(
                     }
 
                     // Revoke all other sessions for security (defense in depth)
-                    // Get current session token from cookie
-                    let current_session_token = match req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE) {
-                        Some(cookie) => cookie.value().to_string(),
-                        None => {
-                            tracing::warn!("Could not find access token cookie during password change for user {}", user.uuid);
-                            // Continue even without finding the cookie - password change succeeded
-                            return HttpResponse::Ok().json(json!({
-                                "status": "success",
-                                "message": "Password changed successfully"
-                            }));
-                        }
-                    };
-
-                    // Hash the JWT token to match stored session tokens (SHA-256)
-                    use ring::digest;
-                    let hash = digest::digest(&digest::SHA256, current_session_token.as_bytes());
-                    let token_hash = hex::encode(hash.as_ref());
-
-                    // Look up current session ID to preserve it
-                    let current_session_id = match crate::repository::active_sessions::get_session_by_token(
-                        &mut conn,
-                        &token_hash
-                    ) {
-                        Ok(session) => Some(session.id),
-                        Err(e) => {
-                            tracing::warn!("Could not find current session during password change for user {}: {}", user.uuid, e);
-                            None
-                        }
-                    };
-
-                    // Revoke all other sessions (keep current session active)
-                    match crate::repository::active_sessions::revoke_other_sessions(
-                        &mut conn,
-                        &user.uuid,
-                        current_session_id
-                    ) {
-                        Ok(revoked_count) => {
-                            if revoked_count > 0 {
-                                info!(revoked_count, user_name = %user.name, "Revoked other sessions after password change");
+                    if let Some(claims) = req.extensions().get::<crate::models::Claims>() {
+                        if let Some(sid) = claims.session_uuid() {
+                            match crate::repository::active_sessions::revoke_other_sessions_by_uuid(
+                                &mut conn, &user.uuid, &sid,
+                            ) {
+                                Ok(n) if n > 0 => info!(revoked_count = n, user_name = %user.name, "Revoked other sessions after password change"),
+                                Ok(_) => {},
+                                Err(e) => tracing::warn!("Failed to revoke other sessions after password change for user {}: {e}", user.uuid),
                             }
-                        },
-                        Err(e) => {
-                            tracing::warn!("Failed to revoke other sessions after password change for user {}: {}", user.uuid, e);
-                            // Don't fail the password change if session revocation fails
                         }
                     }
 
@@ -2082,24 +2045,23 @@ pub async fn mfa_enable_login(
         Ok(_) => {
             tracing::info!("MFA enabled successfully for user during login: {}", user_uuid);
 
-            // Generate JWT token and complete login
-            match jwt_helpers::create_login_response(user, &mut conn) {
+            // Create session + tokens (same as login, but attach backup codes)
+            let session = match create_session_record(&user_uuid, &http_request, &mut conn) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("Failed to create session for MFA enable login {}: {}", user_uuid, e);
+                    return HttpResponse::InternalServerError().json(json!({
+                        "status": "error",
+                        "message": "Failed to create authentication session"
+                    }));
+                }
+            };
+            let family_id = Uuid::new_v4();
+
+            match jwt_helpers::create_login_response(user, &session.session_id, &family_id, &mut conn) {
                 Ok((mut response, tokens)) => {
-                    // Attach plaintext backup codes for one-time display
                     response.backup_codes = Some(backup_codes_plaintext);
-
-                    // Create session record after successful login (IMPORTANT!)
-                    if let Err(e) = create_session_record(&user_uuid, &tokens.access_token, &http_request, &mut conn).await {
-                        tracing::warn!("Failed to create session record for user {}: {}", user_uuid, e);
-                        // Don't fail the login if session creation fails
-                    }
-
-                    // Set httpOnly cookies for tokens
-                    HttpResponse::Ok()
-                        .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
-                        .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
-                        .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
-                        .json(response)
+                    build_auth_cookie_response(response, &tokens)
                 },
                 Err(error_response) => error_response,
             }
@@ -2146,20 +2108,7 @@ pub async fn get_user_sessions(
         })),
     };
 
-    // Get current session token from cookie to mark it as current
-    let current_session_token = match req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE) {
-        Some(cookie) => cookie.value().to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Session token not found"
-            }));
-        }
-    };
-
-    use ring::digest;
-    let hash = digest::digest(&digest::SHA256, current_session_token.as_bytes());
-    let token_hash = hex::encode(hash.as_ref());
+    let current_sid = claims.session_uuid();
 
     // Get all sessions for the user
     let sessions = match crate::repository::active_sessions::get_user_sessions(&mut conn, &user_uuid) {
@@ -2175,8 +2124,10 @@ pub async fn get_user_sessions(
 
     // Convert sessions to response format
     let session_responses: Vec<serde_json::Value> = sessions.into_iter().map(|session| {
+        let is_current = current_sid.map_or(false, |sid| session.session_id == sid);
         json!({
             "id": session.id,
+            "session_id": session.session_id.to_string(),
             "device_name": session.device_name,
             "ip_address": session.ip_address.map(|ip| ip.to_string()),
             "user_agent": session.user_agent,
@@ -2184,7 +2135,7 @@ pub async fn get_user_sessions(
             "created_at": session.created_at,
             "last_active": session.last_active,
             "expires_at": session.expires_at,
-            "is_current": session.session_token == token_hash
+            "is_current": is_current
         })
     }).collect();
 
@@ -2228,7 +2179,7 @@ pub async fn revoke_session(
     };
 
     // Verify the session belongs to this user before revoking
-    match crate::repository::active_sessions::get_session_by_token(&mut conn, &session_id.to_string()) {
+    match crate::repository::active_sessions::get_session_by_id(&mut conn, session_id) {
         Ok(session) if session.user_uuid == user_uuid => {
             // Session belongs to user, proceed with revocation
         },
@@ -2239,8 +2190,10 @@ pub async fn revoke_session(
             }));
         },
         Err(_) => {
-            // Try to revoke anyway in case it's a valid session ID (not found by token lookup)
-            // The revoke_session function will handle if it doesn't exist
+            return HttpResponse::NotFound().json(json!({
+                "status": "error",
+                "message": "Session not found"
+            }));
         }
     }
 
@@ -2297,39 +2250,17 @@ pub async fn revoke_all_other_sessions(
         })),
     };
 
-    // Get current session token from cookie to preserve it
-    let current_session_token = match req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE) {
-        Some(cookie) => cookie.value().to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Session token not found"
-            }));
-        }
+    // Revoke all other sessions (if we can't identify current session, revoke everything)
+    let revoke_result = match claims.session_uuid() {
+        Some(sid) => crate::repository::active_sessions::revoke_other_sessions_by_uuid(
+            &mut conn, &user_uuid, &sid
+        ),
+        None => crate::repository::active_sessions::revoke_other_sessions(
+            &mut conn, &user_uuid, None
+        ),
     };
 
-    use ring::digest;
-    let hash = digest::digest(&digest::SHA256, current_session_token.as_bytes());
-    let token_hash = hex::encode(hash.as_ref());
-
-    // Look up current session ID
-    let current_session_id = match crate::repository::active_sessions::get_session_by_token(
-        &mut conn,
-        &token_hash
-    ) {
-        Ok(session) => Some(session.id),
-        Err(e) => {
-            tracing::warn!("Could not find current session for user {}: {}", user_uuid, e);
-            None
-        }
-    };
-
-    // Revoke all other sessions
-    match crate::repository::active_sessions::revoke_other_sessions(
-        &mut conn,
-        &user_uuid,
-        current_session_id
-    ) {
+    match revoke_result {
         Ok(revoked_count) => {
             tracing::info!("Revoked {} other session(s) for user {}", revoked_count, user_uuid);
             HttpResponse::Ok().json(json!({
@@ -2350,7 +2281,7 @@ pub async fn revoke_all_other_sessions(
 
 // === TOKEN REFRESH HANDLER ===
 
-/// Refresh access token using refresh token
+/// Refresh access token using refresh token (with reuse detection + grace period)
 pub async fn refresh_token(
     db_pool: web::Data<crate::db::Pool>,
     request: HttpRequest,
@@ -2363,8 +2294,8 @@ pub async fn refresh_token(
         })),
     };
 
-    // Read refresh token from cookie
-    let refresh_token = match request.cookie(crate::utils::cookies::REFRESH_TOKEN_COOKIE) {
+    // 1. Read refresh cookie → hash → lookup
+    let refresh_cookie = match request.cookie(crate::utils::cookies::REFRESH_TOKEN_COOKIE) {
         Some(cookie) => cookie.value().to_string(),
         None => {
             return HttpResponse::Unauthorized().json(json!({
@@ -2374,11 +2305,9 @@ pub async fn refresh_token(
         }
     };
 
-    // Hash the provided refresh token to lookup in database
-    let token_hash = JwtUtils::hash_refresh_token(&refresh_token);
+    let token_hash = JwtUtils::hash_refresh_token(&refresh_cookie);
 
-    // Get and validate the refresh token
-    let refresh_token = match crate::repository::refresh_tokens::get_valid_refresh_token(&mut conn, &token_hash) {
+    let old_token = match crate::repository::refresh_tokens::get_refresh_token_by_hash(&mut conn, &token_hash) {
         Ok(token) => token,
         Err(_) => {
             return HttpResponse::Unauthorized().json(json!({
@@ -2388,8 +2317,39 @@ pub async fn refresh_token(
         }
     };
 
-    // Get the user
-    let user = match repository::get_user_by_uuid(&refresh_token.user_uuid, &mut conn) {
+    // 2. Check if revoked
+    if old_token.revoked_at.is_some() {
+        tracing::warn!("Revoked refresh token presented, family={}", old_token.family_id);
+        return HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Refresh token has been revoked"
+        }));
+    }
+
+    // 3. Reuse detection
+    if old_token.is_used {
+        let now = chrono::Utc::now().naive_utc();
+        let within_grace = old_token.grace_expires_at
+            .map_or(false, |grace| grace > now);
+
+        if !within_grace {
+            // Token reuse outside grace period — potential theft!
+            tracing::warn!("Refresh token reuse detected outside grace period! Revoking family={}", old_token.family_id);
+            let _ = crate::repository::refresh_tokens::revoke_token_family(&mut conn, &old_token.family_id);
+            if let Some(sid) = old_token.session_id {
+                let _ = crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &sid);
+            }
+            return HttpResponse::Unauthorized().json(json!({
+                "status": "error",
+                "message": "Token reuse detected — session revoked for security"
+            }));
+        }
+        // Within grace period — allow (concurrent tab scenario)
+        tracing::debug!("Refresh token reuse within grace period, family={}", old_token.family_id);
+    }
+
+    // 4. Get user
+    let user = match repository::get_user_by_uuid(&old_token.user_uuid, &mut conn) {
         Ok(user) => user,
         Err(_) => {
             return HttpResponse::Unauthorized().json(json!({
@@ -2399,13 +2359,26 @@ pub async fn refresh_token(
         }
     };
 
-    // Revoke the old refresh token (token rotation for security)
-    if let Err(e) = crate::repository::refresh_tokens::revoke_refresh_token(&mut conn, &token_hash) {
-        tracing::error!("Failed to revoke old refresh token: {}", e);
-    }
+    // 5. Determine session_id (from token, or create new session for tokens without one)
+    let session_id = match old_token.session_id {
+        Some(sid) => sid,
+        None => {
+            // Token created before this migration — create a new session
+            match create_session_record(&user.uuid, &request, &mut conn) {
+                Ok(session) => session.session_id,
+                Err(e) => {
+                    tracing::error!("Failed to create session during refresh: {}", e);
+                    return HttpResponse::InternalServerError().json(json!({
+                        "status": "error",
+                        "message": "Failed to create session"
+                    }));
+                }
+            }
+        }
+    };
 
-    // Generate new access token
-    let new_access_token = match JwtUtils::create_token(&user) {
+    // 6. Generate new access JWT with same sid
+    let new_access_token = match JwtUtils::create_token(&user, &session_id) {
         Ok(token) => token,
         Err(_) => {
             return HttpResponse::InternalServerError().json(json!({
@@ -2415,16 +2388,28 @@ pub async fn refresh_token(
         }
     };
 
-    // Generate new refresh token
-    let new_refresh_token = JwtUtils::generate_refresh_token();
-    let new_refresh_token_hash = JwtUtils::hash_refresh_token(&new_refresh_token);
+    // 7. Generate new refresh token
+    let new_refresh_raw = JwtUtils::generate_refresh_token();
+    let new_refresh_hash = JwtUtils::hash_refresh_token(&new_refresh_raw);
 
-    // Store new refresh token (7 days expiration)
+    // 8. Mark old token used (if not already)
+    if !old_token.is_used {
+        let grace_until = chrono::Utc::now().naive_utc() + chrono::Duration::seconds(5);
+        if let Err(e) = crate::repository::refresh_tokens::mark_token_used(
+            &mut conn, &token_hash, &new_refresh_hash, grace_until,
+        ) {
+            tracing::error!("Failed to mark old refresh token as used: {}", e);
+        }
+    }
+
+    // 9. Create new refresh token with same family_id and session_id
     let new_refresh_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
     let new_refresh_record = crate::models::NewRefreshToken {
-        token_hash: new_refresh_token_hash,
+        token_hash: new_refresh_hash,
         user_uuid: user.uuid,
         expires_at: new_refresh_expires,
+        session_id: Some(session_id),
+        family_id: old_token.family_id,
     };
 
     if let Err(e) = crate::repository::refresh_tokens::create_refresh_token(&mut conn, new_refresh_record) {
@@ -2435,10 +2420,17 @@ pub async fn refresh_token(
         }));
     }
 
-    // Generate new CSRF token
+    // 10. Update session activity
+    let new_session_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
+    if let Err(e) = crate::repository::active_sessions::update_session_activity(
+        &mut conn, &session_id, new_session_expires,
+    ) {
+        tracing::warn!("Failed to update session activity: {}", e);
+    }
+
+    // 11. Return new tokens
     let new_csrf_token = crate::utils::csrf::generate_csrf_token();
 
-    // Return new tokens in cookies
     let response = crate::models::RefreshTokenResponse {
         success: true,
         csrf_token: new_csrf_token.clone(),
@@ -2446,7 +2438,7 @@ pub async fn refresh_token(
 
     HttpResponse::Ok()
         .cookie(crate::utils::cookies::create_access_token_cookie(&new_access_token))
-        .cookie(crate::utils::cookies::create_refresh_token_cookie(&new_refresh_token))
+        .cookie(crate::utils::cookies::create_refresh_token_cookie(&new_refresh_raw))
         .cookie(crate::utils::cookies::create_csrf_token_cookie(&new_csrf_token))
         .json(response)
 }

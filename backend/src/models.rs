@@ -952,8 +952,17 @@ pub struct Claims {
     pub role: String, // User's role
     #[serde(default = "default_scope")] // Default to "full" for backward compatibility with existing tokens
     pub scope: String, // Token scope: "full" for normal sessions
+    #[serde(default)] // Session ID (UUID) — None for SSE/API tokens
+    pub sid: Option<String>,
     pub exp: usize,   // Expiration time
     pub iat: usize,   // Issued at
+}
+
+impl Claims {
+    /// Parse the `sid` claim into a UUID. Returns None for SSE/API tokens.
+    pub fn session_uuid(&self) -> Option<Uuid> {
+        self.sid.as_deref().and_then(|s| s.parse().ok())
+    }
 }
 
 // Default scope for backward compatibility
@@ -1529,7 +1538,6 @@ pub struct UserPasskeyUpdate {
 #[diesel(table_name = crate::schema::active_sessions)]
 pub struct ActiveSession {
     pub id: i32,
-    pub session_token: String,
     pub user_uuid: Uuid,
     pub device_name: Option<String>,
     pub ip_address: Option<ipnetwork::IpNetwork>,
@@ -1539,13 +1547,13 @@ pub struct ActiveSession {
     pub last_active: chrono::NaiveDateTime,
     pub expires_at: chrono::NaiveDateTime,
     pub is_current: bool,
+    pub session_id: Uuid,
 }
 
 /// New active session for creation
 #[derive(Debug, Serialize, Deserialize, Insertable)]
 #[diesel(table_name = crate::schema::active_sessions)]
 pub struct NewActiveSession {
-    pub session_token: String,
     pub user_uuid: Uuid,
     pub device_name: Option<String>,
     pub ip_address: Option<ipnetwork::IpNetwork>,
@@ -1574,6 +1582,12 @@ pub struct RefreshToken {
     pub created_at: chrono::NaiveDateTime,
     pub expires_at: chrono::NaiveDateTime,
     pub revoked_at: Option<chrono::NaiveDateTime>,
+    pub session_id: Option<Uuid>,
+    pub family_id: Uuid,
+    pub is_used: bool,
+    pub used_at: Option<chrono::NaiveDateTime>,
+    pub replaced_by_hash: Option<String>,
+    pub grace_expires_at: Option<chrono::NaiveDateTime>,
 }
 
 /// New refresh token for creation
@@ -1583,6 +1597,8 @@ pub struct NewRefreshToken {
     pub token_hash: String,
     pub user_uuid: Uuid,
     pub expires_at: chrono::NaiveDateTime,
+    pub session_id: Option<Uuid>,
+    pub family_id: Uuid,
 }
 
 // ===== API TOKEN MODELS =====
@@ -1661,6 +1677,7 @@ pub struct ApiTokenInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ActiveSessionResponse {
     pub id: i32,
+    pub session_id: String,
     pub device_name: Option<String>,
     pub location: Option<String>,
     pub ip_address: Option<String>,
@@ -1673,6 +1690,7 @@ impl From<ActiveSession> for ActiveSessionResponse {
     fn from(session: ActiveSession) -> Self {
         ActiveSessionResponse {
             id: session.id,
+            session_id: session.session_id.to_string(),
             device_name: session.device_name,
             location: session.location,
             ip_address: session.ip_address.map(|ip| ip.to_string()),

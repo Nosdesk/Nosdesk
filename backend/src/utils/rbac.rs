@@ -73,6 +73,7 @@ mod tests {
             email: "test@example.com".to_string(),
             role: role.to_string(),
             scope: "full".to_string(),
+            sid: None,
             exp: 0,
             iat: 0,
         }

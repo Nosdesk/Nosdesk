@@ -16,9 +16,6 @@ use crate::utils::webauthn::{
     self, credential_id_to_string, get_user_passkey_data, save_user_passkey_data,
     StoredPasskeyCredential, WEBAUTHN,
 };
-use crate::utils::cookies::{
-    create_access_token_cookie, create_refresh_token_cookie, create_csrf_token_cookie,
-};
 use crate::utils::jwt::helpers as jwt_helpers;
 use crate::utils::rate_limit::{get_redis_url, RateLimiter};
 use crate::utils::mfa;
@@ -669,29 +666,29 @@ pub async fn finish_passkey_login(
         // Don't fail login for this
     }
 
-    // Create session and tokens using jwt_helpers (same as regular login)
+    // Create session + tokens, return response with auth cookies
     let user_uuid = user.uuid;
+    let session = super::auth::create_session_record(&user_uuid, &req, &mut conn)
+        .map_err(|e| {
+            error!("Failed to create session for passkey login {}: {:?}", user_uuid, e);
+        });
+    let session = match session {
+        Ok(s) => s,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Failed to create authentication session"
+        })),
+    };
+    let family_id = uuid::Uuid::new_v4();
 
-    match jwt_helpers::create_login_response(user, &mut conn) {
+    match jwt_helpers::create_login_response(user, &session.session_id, &family_id, &mut conn) {
         Ok((response, tokens)) => {
-            // Create session record after successful login
-            if let Err(e) = super::auth::create_session_record(&user_uuid, &tokens.access_token, &req, &mut conn).await {
-                warn!("Failed to create session record for passkey login: {:?}", e);
-                // Don't fail the login if session creation fails
-            }
-
             info!("Passkey login successful for user {}", user_uuid);
-
-            // Set httpOnly cookies for tokens
-            HttpResponse::Ok()
-                .cookie(create_access_token_cookie(&tokens.access_token))
-                .cookie(create_refresh_token_cookie(&tokens.refresh_token))
-                .cookie(create_csrf_token_cookie(&tokens.csrf_token))
-                .json(json!({
-                    "success": true,
-                    "csrf_token": response.csrf_token,
-                    "user": response.user
-                }))
+            super::auth::build_auth_cookie_response(json!({
+                "success": true,
+                "csrf_token": response.csrf_token,
+                "user": response.user
+            }), &tokens)
         }
         Err(error_response) => error_response,
     }
@@ -1362,16 +1359,23 @@ pub async fn finish_passkey_setup_login(
 
     info!("Passkey registered during MFA setup for user {}: {}", user.uuid, passkey_name);
 
-    // Create session and tokens (same as mfa_enable_login)
+    // Create session + tokens, return response with auth cookies
     let user_uuid = user.uuid;
+    let session = super::auth::create_session_record(&user_uuid, &req, &mut conn)
+        .map_err(|e| {
+            error!("Failed to create session for passkey setup login {}: {:?}", user_uuid, e);
+        });
+    let session = match session {
+        Ok(s) => s,
+        Err(_) => return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Failed to create authentication session"
+        })),
+    };
+    let family_id = uuid::Uuid::new_v4();
 
-    match jwt_helpers::create_login_response(user, &mut conn) {
+    match jwt_helpers::create_login_response(user, &session.session_id, &family_id, &mut conn) {
         Ok((response, tokens)) => {
-            // Create session record
-            if let Err(e) = super::auth::create_session_record(&user_uuid, &tokens.access_token, &req, &mut conn).await {
-                warn!("Failed to create session record for passkey setup login: {:?}", e);
-            }
-
             info!("Passkey setup login successful for user {}", user_uuid);
 
             let mut response_json = json!({
@@ -1383,16 +1387,11 @@ pub async fn finish_passkey_setup_login(
                     "name": passkey_name
                 }
             });
-            // Only include backup codes if they were successfully saved
             if backup_codes_saved {
                 response_json["backup_codes"] = json!(plaintext_codes);
             }
 
-            HttpResponse::Ok()
-                .cookie(create_access_token_cookie(&tokens.access_token))
-                .cookie(create_refresh_token_cookie(&tokens.refresh_token))
-                .cookie(create_csrf_token_cookie(&tokens.csrf_token))
-                .json(response_json)
+            super::auth::build_auth_cookie_response(response_json, &tokens)
         }
         Err(error_response) => error_response,
     }

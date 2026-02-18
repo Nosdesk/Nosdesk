@@ -956,7 +956,7 @@ mod tests {
 
         let mut child_page = make_page(user.uuid);
         child_page.title = "Child Page".to_string();
-        child_page.slug = Some("child-page".to_string());
+        child_page.slug = "child-page".to_string();
         child_page.parent_id = Some(parent.id);
         create_documentation_page(child_page, &mut conn).unwrap();
 

@@ -104,6 +104,7 @@ impl AuthContext {
                 email: "test@example.com".into(),
                 role: format!("{:?}", role).to_lowercase(),
                 scope: "full".into(),
+                sid: None,
                 exp: 9999999999,
                 iat: 0,
             },

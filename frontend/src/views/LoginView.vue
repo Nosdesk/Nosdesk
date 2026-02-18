@@ -9,7 +9,6 @@ import { useThemeStore } from "@/stores/theme";
 import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";
 import { usePasskeys } from "@/composables/usePasskeys";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
-import Checkbox from "@/components/common/Checkbox.vue";
 import authService from "@/services/authService";
 import apiClient from "@/services/apiConfig";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
@@ -38,7 +37,6 @@ const {
 const email = ref("");
 const password = ref("");
 const showPassword = ref(false);
-const rememberMe = ref(false);
 // Track which specific action is loading (null = nothing loading)
 const loadingAction = ref<'login' | 'mfa' | 'microsoft' | 'oidc' | 'passkey' | null>(null);
 // Computed for convenience - true if any action is loading
@@ -788,13 +786,7 @@ const handleOidcLogoutClick = async () => {
           </div>
         </div>
 
-        <div class="flex items-center justify-between">
-          <Checkbox
-            id="remember-me"
-            v-model="rememberMe"
-            label="Remember me"
-          />
-
+        <div class="flex items-center justify-end">
           <button
             type="button"
             @click="showForgotPasswordModal = true"

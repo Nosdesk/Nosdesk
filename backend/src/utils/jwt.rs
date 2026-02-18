@@ -19,13 +19,8 @@ lazy_static::lazy_static! {
 pub struct JwtUtils;
 
 impl JwtUtils {
-    /// Create a JWT token for a user with full scope
-    pub fn create_token(user: &User) -> Result<String, JwtError> {
-        Self::create_scoped_token(user, "full", 24 * 60 * 60)
-    }
-
-    /// Create a JWT token with specified scope and expiry
-    fn create_scoped_token(user: &User, scope: &str, expiry_seconds: usize) -> Result<String, JwtError> {
+    /// Create a JWT token for a user with full scope (15 min expiry)
+    pub fn create_token(user: &User, session_id: &uuid::Uuid) -> Result<String, JwtError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| JwtError::SystemTime)?
@@ -34,10 +29,11 @@ impl JwtUtils {
         let claims = Claims {
             sub: uuid_to_string(&user.uuid),
             name: user.name.clone(),
-            email: String::new(), // Email removed from User struct
+            email: String::new(),
             role: role_to_string(&user.role),
-            scope: scope.to_string(),
-            exp: now + expiry_seconds,
+            scope: "full".to_string(),
+            sid: Some(session_id.to_string()),
+            exp: now + 15 * 60, // 15 minutes
             iat: now,
         };
 
@@ -57,14 +53,14 @@ impl JwtUtils {
             .map_err(|_| JwtError::SystemTime)?
             .as_secs() as usize;
 
-        // SSE tokens are short-lived (1 hour) and have minimal claims for security
         let claims = Claims {
             sub: user_id.to_string(),
-            name: "SSE_TOKEN".to_string(), // Mark this as an SSE token
-            email: String::new(), // No email needed for SSE
+            name: "SSE_TOKEN".to_string(),
+            email: String::new(),
             role: role.to_string(),
-            scope: "sse".to_string(), // SSE-specific scope
-            exp: now + 3600, // 1 hour from now (in seconds)
+            scope: "sse".to_string(),
+            sid: None,
+            exp: now + 3600,
             iat: now,
         };
 
@@ -116,36 +112,35 @@ impl JwtUtils {
             });
         }
 
-        // Skip session validation for SSE tokens (they're short-lived and not stored in active_sessions)
-        // SSE tokens are identified by having "SSE_TOKEN" in the name field
+        // Skip session validation for SSE tokens (short-lived, not stored in active_sessions)
         let is_sse_token = claims.name == "SSE_TOKEN";
 
         if !is_sse_token {
-            // Check if session exists in database (session revocation check)
-            // Hash the JWT token with SHA-256 to match stored session tokens
-            use ring::digest;
-            let hash = digest::digest(&digest::SHA256, token.as_bytes());
-            let token_hash = hex::encode(hash.as_ref());
+            // Use sid claim to look up session by stable UUID
+            let sid_str = claims.sid.as_deref()
+                .ok_or(JwtError::SessionRevoked)?;
 
-            // Verify session exists and hasn't been revoked
-            match crate::repository::active_sessions::get_session_by_token(conn, &token_hash) {
+            let session_uuid = uuid::Uuid::parse_str(sid_str)
+                .map_err(|_| JwtError::SessionRevoked)?;
+
+            match crate::repository::active_sessions::get_session_by_session_id(conn, &session_uuid) {
                 Ok(session) => {
-                    // Verify session belongs to the user from the token
                     if session.user_uuid != user_uuid {
-                        tracing::warn!("Session token mismatch: session belongs to {}, token claims {}",
+                        tracing::warn!("Session UUID mismatch: session belongs to {}, token claims {}",
                             session.user_uuid, user_uuid);
                         return Err(JwtError::SessionRevoked);
                     }
-                    // Session exists and is valid
+                    if session.expires_at < chrono::Utc::now().naive_utc() {
+                        tracing::debug!("Session expired for sid {}", sid_str);
+                        return Err(JwtError::SessionRevoked);
+                    }
                 },
                 Err(_) => {
-                    // Session doesn't exist or has been revoked
-                    tracing::debug!("Session not found or revoked for token hash: {}", &token_hash[..8]);
+                    tracing::debug!("Session not found or revoked for sid: {}", sid_str);
                     return Err(JwtError::SessionRevoked);
                 }
             }
         } else {
-            // SSE tokens are short-lived (1 hour) and rely on expiry, not session revocation
             tracing::debug!("Validating SSE token for user {}", user_uuid);
         }
 
@@ -359,36 +354,50 @@ pub mod helpers {
         pub csrf_token: String,
     }
 
-    /// Create a successful login response with tokens (caller sets cookies)
-    pub fn create_login_response(user: User, conn: &mut DbConnection) -> Result<(crate::models::LoginResponse, LoginTokens), HttpResponse> {
-        let token = JwtUtils::create_token(&user)
+    /// Generate access token, refresh token (stored in DB), and CSRF token.
+    fn create_tokens(
+        user: &User,
+        session_id: &uuid::Uuid,
+        family_id: &uuid::Uuid,
+        conn: &mut DbConnection,
+    ) -> Result<LoginTokens, HttpResponse> {
+        let access_token = JwtUtils::create_token(user, session_id)
             .map_err(|_| HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Error generating token"
             })))?;
 
-        // Generate refresh token
         let refresh_token = JwtUtils::generate_refresh_token();
         let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
 
-        // Store refresh token (7 days expiration)
         let refresh_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
-        let new_refresh_token = crate::models::NewRefreshToken {
+        crate::repository::refresh_tokens::create_refresh_token(conn, crate::models::NewRefreshToken {
             token_hash: refresh_token_hash,
             user_uuid: user.uuid,
             expires_at: refresh_expires,
-        };
-
-        if let Err(e) = crate::repository::refresh_tokens::create_refresh_token(conn, new_refresh_token) {
+            session_id: Some(*session_id),
+            family_id: *family_id,
+        }).map_err(|e| {
             tracing::error!("Failed to store refresh token: {}", e);
-            return Err(HttpResponse::InternalServerError().json(json!({
+            HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to create refresh token"
-            })));
-        }
+            }))
+        })?;
 
-        // Generate CSRF token
         let csrf_token = crate::utils::csrf::generate_csrf_token();
+
+        Ok(LoginTokens { access_token, refresh_token, csrf_token })
+    }
+
+    /// Create a successful login response with tokens (caller sets cookies)
+    pub fn create_login_response(
+        user: User,
+        session_id: &uuid::Uuid,
+        family_id: &uuid::Uuid,
+        conn: &mut DbConnection,
+    ) -> Result<(crate::models::LoginResponse, LoginTokens), HttpResponse> {
+        let tokens = create_tokens(&user, session_id, family_id, conn)?;
 
         let response = crate::models::LoginResponse {
             success: true,
@@ -396,18 +405,12 @@ pub mod helpers {
             mfa_setup_required: Some(false),
             passkey_mfa_required: None,
             user_uuid: Some(user.uuid.to_string()),
-            csrf_token: Some(csrf_token.clone()),
+            csrf_token: Some(tokens.csrf_token.clone()),
             user: Some(user.into()),
             message: Some("Login successful".to_string()),
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
             backup_codes: None,
-        };
-
-        let tokens = LoginTokens {
-            access_token: token,
-            refresh_token,
-            csrf_token,
         };
 
         Ok((response, tokens))
@@ -471,45 +474,19 @@ pub mod helpers {
         user: User,
         backup_code_used: bool,
         requires_regeneration: bool,
+        session_id: &uuid::Uuid,
+        family_id: &uuid::Uuid,
         conn: &mut DbConnection,
     ) -> Result<(crate::models::LoginResponse, LoginTokens), HttpResponse> {
-        let token = JwtUtils::create_token(&user)
-            .map_err(|_| HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error generating token"
-            })))?;
+        let tokens = create_tokens(&user, session_id, family_id, conn)?;
 
-        // Generate refresh token
-        let refresh_token = JwtUtils::generate_refresh_token();
-        let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
-
-        // Store refresh token (7 days expiration)
-        let refresh_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
-        let new_refresh_token = crate::models::NewRefreshToken {
-            token_hash: refresh_token_hash,
-            user_uuid: user.uuid,
-            expires_at: refresh_expires,
+        let message = if backup_code_used && requires_regeneration {
+            "Login successful using backup code. You have 2 or fewer backup codes remaining - please regenerate them soon."
+        } else if backup_code_used {
+            "Login successful using backup code"
+        } else {
+            "Login successful"
         };
-
-        if let Err(e) = crate::repository::refresh_tokens::create_refresh_token(conn, new_refresh_token) {
-            tracing::error!("Failed to store refresh token: {}", e);
-            return Err(HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to create refresh token"
-            })));
-        }
-
-        // Generate CSRF token
-        let csrf_token = crate::utils::csrf::generate_csrf_token();
-
-        let mut message = "Login successful".to_string();
-        if backup_code_used {
-            message = if requires_regeneration {
-                "Login successful using backup code. You have 2 or fewer backup codes remaining - please regenerate them soon.".to_string()
-            } else {
-                "Login successful using backup code".to_string()
-            };
-        }
 
         let response = crate::models::LoginResponse {
             success: true,
@@ -517,18 +494,12 @@ pub mod helpers {
             mfa_setup_required: Some(false),
             passkey_mfa_required: None,
             user_uuid: Some(user.uuid.to_string()),
-            csrf_token: Some(csrf_token.clone()),
+            csrf_token: Some(tokens.csrf_token.clone()),
             user: Some(user.into()),
-            message: Some(message),
+            message: Some(message.to_string()),
             mfa_backup_code_used: Some(backup_code_used),
             requires_backup_code_regeneration: Some(requires_regeneration),
             backup_codes: None,
-        };
-
-        let tokens = LoginTokens {
-            access_token: token,
-            refresh_token,
-            csrf_token,
         };
 
         Ok((response, tokens))
@@ -593,12 +564,14 @@ mod tests {
             password_changed_at: None,
         };
 
-        let token = JwtUtils::create_token(&user).expect("Failed to create token");
+        let sid = uuid::Uuid::new_v4();
+        let token = JwtUtils::create_token(&user, &sid).expect("Failed to create token");
         let claims = JwtUtils::validate_token(&token).expect("Failed to validate token");
 
         assert_eq!(claims.sub, user.uuid.to_string());
         assert_eq!(claims.name, "Test User");
         assert_eq!(claims.scope, "full");
+        assert_eq!(claims.sid, Some(sid.to_string()));
     }
 
     #[test]

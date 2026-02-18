@@ -123,14 +123,15 @@ pub fn try_bearer_auth(
         warn!("Failed to update token last_used_at: {}", e);
     }
 
-    // Create claims from API token
+    // Create claims from API token (no session — API tokens don't have sessions)
     let now = chrono::Utc::now();
     let claims = Claims {
         sub: api_token.user_uuid.to_string(),
         name: user.name,
         email,
         role: format!("{:?}", user.role).to_lowercase(),
-        scope: "full".to_string(), // API tokens always have full scope
+        scope: "full".to_string(),
+        sid: None,
         exp: (now + chrono::Duration::hours(24)).timestamp() as usize,
         iat: now.timestamp() as usize,
     };

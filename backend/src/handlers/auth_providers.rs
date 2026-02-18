@@ -656,35 +656,8 @@ pub async fn oauth_callback(
 
                     match user_result {
                         Ok(user) => {
-                            // Store user UUID before moving user into create_login_response
-                            let user_uuid = user.uuid;
-
-                            // Create standard login response with httpOnly cookies
-                            match crate::utils::jwt::helpers::create_login_response(user, &mut conn) {
-                                Ok((response, tokens)) => {
-                                    info!(user_uuid = %user_uuid, "OAuth: Created login response, creating session");
-
-                                    // Create session record after successful OAuth login
-                                    if let Err(e) = crate::handlers::auth::create_session_record(&user_uuid, &tokens.access_token, &request, &mut conn).await {
-                                        error!(user_uuid = %user_uuid, error = %e, "OAuth: Failed to create session record");
-                                        // Return error instead of continuing without session
-                                        return HttpResponse::InternalServerError().json(json!({
-                                            "status": "error",
-                                            "message": "Failed to create authentication session"
-                                        }));
-                                    }
-
-                                    info!(user_uuid = %user_uuid, "OAuth: Session created successfully");
-
-                                    // Set httpOnly cookies for tokens
-                                    HttpResponse::Ok()
-                                        .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
-                                        .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
-                                        .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
-                                        .json(response)
-                                },
-                                Err(error_response) => error_response,
-                            }
+                            info!(user_uuid = %user.uuid, "OAuth: Completing login");
+                            crate::handlers::auth::complete_login(user, &request, &mut conn)
                         },
                         Err(e) => {
                             error!(error = ?e, "Failed to find or create user");
@@ -871,30 +844,8 @@ pub async fn oauth_callback(
 
                     match user_result {
                         Ok(user) => {
-                            let user_uuid = user.uuid;
-
-                            match crate::utils::jwt::helpers::create_login_response(user, &mut conn) {
-                                Ok((response, tokens)) => {
-                                    info!(user_uuid = %user_uuid, "OIDC: Created login response, creating session");
-
-                                    if let Err(e) = crate::handlers::auth::create_session_record(&user_uuid, &tokens.access_token, &request, &mut conn).await {
-                                        error!(user_uuid = %user_uuid, error = %e, "OIDC: Failed to create session record");
-                                        return HttpResponse::InternalServerError().json(json!({
-                                            "status": "error",
-                                            "message": "Failed to create authentication session"
-                                        }));
-                                    }
-
-                                    info!(user_uuid = %user_uuid, "OIDC: Session created successfully");
-
-                                    HttpResponse::Ok()
-                                        .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
-                                        .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
-                                        .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
-                                        .json(response)
-                                },
-                                Err(error_response) => error_response,
-                            }
+                            info!(user_uuid = %user.uuid, "OIDC: Completing login");
+                            crate::handlers::auth::complete_login(user, &request, &mut conn)
                         },
                         Err(e) => {
                             error!(error = ?e, "Failed to find or create user from OIDC");

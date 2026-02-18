@@ -5,21 +5,21 @@ pub const ACCESS_TOKEN_COOKIE: &str = "access_token";
 pub const REFRESH_TOKEN_COOKIE: &str = "refresh_token";
 pub const CSRF_TOKEN_COOKIE: &str = "csrf_token";
 
-/// Create an httpOnly cookie for the access token (24 hours)
+/// Create an httpOnly cookie for the access token (15 minutes)
 pub fn create_access_token_cookie(token: &str) -> Cookie<'static> {
     Cookie::build(ACCESS_TOKEN_COOKIE, token.to_string())
         .path("/")
         .http_only(true)
         .secure(is_production()) // HTTPS only in production
         .same_site(SameSite::Strict)
-        .max_age(actix_web::cookie::time::Duration::hours(24))
+        .max_age(actix_web::cookie::time::Duration::minutes(15))
         .finish()
 }
 
-/// Create an httpOnly cookie for the refresh token (7 days)
+/// Create an httpOnly cookie for the refresh token (7 days, scoped to refresh endpoint)
 pub fn create_refresh_token_cookie(token: &str) -> Cookie<'static> {
     Cookie::build(REFRESH_TOKEN_COOKIE, token.to_string())
-        .path("/")
+        .path("/api/auth/refresh")
         .http_only(true)
         .secure(is_production())
         .same_site(SameSite::Strict)
@@ -34,7 +34,7 @@ pub fn create_csrf_token_cookie(token: &str) -> Cookie<'static> {
         .http_only(false) // JavaScript needs to read this
         .secure(is_production())
         .same_site(SameSite::Strict)
-        .max_age(actix_web::cookie::time::Duration::hours(24))
+        .max_age(actix_web::cookie::time::Duration::minutes(15))
         .finish()
 }
 
@@ -52,7 +52,7 @@ pub fn delete_access_token_cookie() -> Cookie<'static> {
 /// Create a cookie to delete the refresh token
 pub fn delete_refresh_token_cookie() -> Cookie<'static> {
     Cookie::build(REFRESH_TOKEN_COOKIE, "")
-        .path("/")
+        .path("/api/auth/refresh")
         .http_only(true)
         .secure(is_production())
         .same_site(SameSite::Strict)
@@ -99,6 +99,7 @@ mod tests {
         assert_eq!(cookie.name(), REFRESH_TOKEN_COOKIE);
         assert!(cookie.http_only().unwrap_or(false));
         assert_eq!(cookie.same_site(), Some(SameSite::Strict));
+        assert_eq!(cookie.path(), Some("/api/auth/refresh"));
     }
 
     #[test]
@@ -120,6 +121,7 @@ mod tests {
         let del_refresh = delete_refresh_token_cookie();
         assert_eq!(del_refresh.value(), "");
         assert_eq!(del_refresh.max_age(), Some(actix_web::cookie::time::Duration::seconds(0)));
+        assert_eq!(del_refresh.path(), Some("/api/auth/refresh"));
 
         let del_csrf = delete_csrf_token_cookie();
         assert_eq!(del_csrf.value(), "");
@@ -127,9 +129,9 @@ mod tests {
     }
 
     #[test]
-    fn access_token_max_age_is_24_hours() {
+    fn access_token_max_age_is_15_minutes() {
         let cookie = create_access_token_cookie("t");
-        assert_eq!(cookie.max_age(), Some(actix_web::cookie::time::Duration::hours(24)));
+        assert_eq!(cookie.max_age(), Some(actix_web::cookie::time::Duration::minutes(15)));
     }
 
     #[test]
@@ -138,4 +140,3 @@ mod tests {
         assert_eq!(cookie.max_age(), Some(actix_web::cookie::time::Duration::days(7)));
     }
 }
-

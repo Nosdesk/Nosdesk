@@ -241,12 +241,12 @@ pub fn setup_test_pool() -> crate::db::Pool {
 
 /// Create a JWT token for a test user.
 /// Requires JWT_SECRET to be set.
-pub fn create_test_token(user: &User) -> String {
+pub fn create_test_token(user: &User, session_id: &uuid::Uuid) -> String {
     // Ensure JWT_SECRET is set for tests
     if std::env::var("JWT_SECRET").is_err() {
         std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only-32chars");
     }
-    crate::utils::jwt::JwtUtils::create_token(user).expect("Failed to create test token")
+    crate::utils::jwt::JwtUtils::create_token(user, session_id).expect("Failed to create test token")
 }
 
 /// Create test Claims for injecting into request extensions.
@@ -257,6 +257,7 @@ pub fn create_test_claims(user: &User) -> crate::models::Claims {
         email: String::new(),
         role: format!("{:?}", user.role).to_lowercase(),
         scope: "full".to_string(),
+        sid: None,
         exp: (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp() as usize,
         iat: chrono::Utc::now().timestamp() as usize,
     }

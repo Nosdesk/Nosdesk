@@ -29,8 +29,6 @@ pub mod sql_types {
 diesel::table! {
     active_sessions (id) {
         id -> Int4,
-        #[max_length = 64]
-        session_token -> Varchar,
         user_uuid -> Uuid,
         #[max_length = 255]
         device_name -> Nullable<Varchar>,
@@ -42,6 +40,7 @@ diesel::table! {
         last_active -> Timestamptz,
         expires_at -> Timestamptz,
         is_current -> Bool,
+        session_id -> Uuid,
     }
 }
 
@@ -617,6 +616,13 @@ diesel::table! {
         created_at -> Timestamptz,
         expires_at -> Timestamptz,
         revoked_at -> Nullable<Timestamptz>,
+        session_id -> Nullable<Uuid>,
+        family_id -> Uuid,
+        is_used -> Bool,
+        used_at -> Nullable<Timestamptz>,
+        #[max_length = 64]
+        replaced_by_hash -> Nullable<Varchar>,
+        grace_expires_at -> Nullable<Timestamptz>,
     }
 }
 
