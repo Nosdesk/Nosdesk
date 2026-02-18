@@ -99,10 +99,14 @@ export function usePasskeys() {
       if (err instanceof Error) {
         if (err.name === 'NotAllowedError') {
           error.value = 'Registration was cancelled or not allowed';
+        } else if (err.name === 'NotSupportedError') {
+          error.value = 'Passkeys are not supported on this device';
         } else if (err.name === 'InvalidStateError') {
           error.value = 'This passkey is already registered';
         } else if (err.message.includes('cancelled')) {
           error.value = 'Registration was cancelled';
+        } else if (err.message.includes('Not implemented')) {
+          error.value = 'Passkeys are not supported on this device';
         } else {
           error.value = err.message || 'Failed to register passkey';
         }
@@ -147,10 +151,14 @@ export function usePasskeys() {
       if (err instanceof Error) {
         if (err.name === 'NotAllowedError') {
           error.value = 'Authentication was cancelled or not allowed';
+        } else if (err.name === 'NotSupportedError') {
+          error.value = 'Passkeys are not supported on this device';
         } else if (err.message.includes('No passkeys registered')) {
           error.value = 'No passkeys registered for this account';
         } else if (err.message.includes('cancelled')) {
           error.value = 'Authentication was cancelled';
+        } else if (err.message.includes('Not implemented')) {
+          error.value = 'Passkeys are not supported on this device';
         } else {
           error.value = err.message || 'Failed to login with passkey';
         }

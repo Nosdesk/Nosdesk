@@ -116,7 +116,8 @@ const preWarmUserCache = async (devices: Device[]) => {
 const columns = [
   { field: 'name', label: 'Device', width: '1fr', sortable: true, responsive: 'always' as const },
   { field: 'serial_number', label: 'Serial', width: 'minmax(140px,auto)', sortable: true, responsive: 'md' as const },
-  { field: 'model', label: 'Model', width: 'minmax(140px,auto)', sortable: true, responsive: 'lg' as const },
+  { field: 'hostname', label: 'Hostname', width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
+  { field: 'model', label: 'Model', width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
   { field: 'primary_user', label: 'User', width: 'minmax(140px,auto)', sortable: false, responsive: 'md' as const },
   { field: 'warranty_status', label: 'Warranty', width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const }
 ];
@@ -136,7 +137,7 @@ const filterOptions = listManager.buildFilterOptions({
 });
 
 // Custom grid template for responsive layout (includes checkbox column with auto width)
-const gridClass = "grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(140px,auto)_minmax(100px,auto)] lg:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(140px,auto)_minmax(140px,auto)_minmax(100px,auto)]";
+const gridClass = "grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(140px,auto)_minmax(100px,auto)] lg:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(120px,auto)_minmax(120px,auto)_minmax(140px,auto)_minmax(100px,auto)]";
 
 // Staggered fade-in animation
 const { getStyle } = useStaggeredList();
@@ -283,18 +284,34 @@ defineExpose({
             >
             <!-- Custom cell templates -->
             <template #cell-name="{ item }">
-              <div class="flex flex-col">
-                <TextCell :value="item.name" font-weight="medium" />
+              <div class="flex flex-col gap-0.5">
+                <div class="flex items-center gap-1.5">
+                  <TextCell :value="item.name" font-weight="medium" />
+                  <div v-if="item.groups?.length" class="flex items-center gap-1 flex-shrink-0">
+                    <span
+                      v-for="group in item.groups.slice(0, 3)"
+                      :key="group.id"
+                      class="w-2 h-2 rounded-full flex-shrink-0"
+                      :style="{ backgroundColor: group.color || 'var(--color-text-tertiary)' }"
+                      :title="group.name"
+                    />
+                    <span v-if="item.groups.length > 3" class="text-[10px] text-tertiary">+{{ item.groups.length - 3 }}</span>
+                  </div>
+                </div>
                 <span v-if="item.manufacturer" class="text-xs text-tertiary">{{ item.manufacturer }}</span>
               </div>
             </template>
 
             <template #cell-serial_number="{ value }">
-              <span class="text-xs font-mono text-secondary">{{ value }}</span>
+              <span class="text-xs font-mono text-secondary">{{ value || '—' }}</span>
+            </template>
+
+            <template #cell-hostname="{ value }">
+              <span class="text-xs font-mono text-secondary truncate">{{ value || '—' }}</span>
             </template>
 
             <template #cell-model="{ value }">
-              <TextCell :value="value || 'Unknown'" />
+              <TextCell :value="value || '—'" />
             </template>
 
             <template #cell-primary_user="{ item }">
@@ -342,16 +359,31 @@ defineExpose({
 
               <!-- Main content -->
               <div class="flex-1 min-w-0">
-                <!-- Name -->
-                <div class="text-sm text-primary font-medium truncate">{{ device.name }}</div>
+                <!-- Name + groups -->
+                <div class="flex items-center gap-1.5">
+                  <span class="text-sm text-primary font-medium truncate">{{ device.name }}</span>
+                  <div v-if="device.groups?.length" class="flex items-center gap-1 flex-shrink-0">
+                    <span
+                      v-for="group in device.groups.slice(0, 3)"
+                      :key="group.id"
+                      class="w-1.5 h-1.5 rounded-full"
+                      :style="{ backgroundColor: group.color || 'var(--color-text-tertiary)' }"
+                      :title="group.name"
+                    />
+                  </div>
+                </div>
 
-                <!-- Meta row -->
-                <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
-                  <!-- Model -->
-                  <span class="text-secondary">{{ device.model || 'Unknown model' }}</span>
+                <!-- Meta row 1: model + serial -->
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs">
+                  <span v-if="device.model" class="text-secondary">{{ device.model }}</span>
+                  <span v-if="device.serial_number" class="text-tertiary font-mono">{{ device.serial_number }}</span>
+                </div>
 
-                  <!-- Serial -->
-                  <span class="text-tertiary font-mono">{{ device.serial_number }}</span>
+                <!-- Meta row 2: hostname, user, warranty -->
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-xs">
+                  <span v-if="device.hostname" class="text-tertiary font-mono truncate max-w-[160px]">{{ device.hostname }}</span>
+
+                  <span v-if="device.primary_user" class="text-secondary truncate max-w-[120px]">{{ device.primary_user.name }}</span>
 
                   <!-- Warranty Status -->
                   <span
@@ -365,11 +397,6 @@ defineExpose({
                   >
                     {{ device.warranty_status || 'Unknown' }}
                   </span>
-
-                  <!-- Primary User -->
-                  <template v-if="device.primary_user">
-                    <span class="text-secondary truncate max-w-[120px]">{{ device.primary_user.name }}</span>
-                  </template>
                 </div>
               </div>
 

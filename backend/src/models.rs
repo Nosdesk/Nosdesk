@@ -685,6 +685,10 @@ pub struct UserResponse {
     pub microsoft_uuid: Option<Uuid>,
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: chrono::NaiveDateTime,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_ticket_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_count: Option<i64>,
 }
 
 // User info for comments - minimal user data to include with comments
@@ -721,6 +725,8 @@ impl From<User> for UserResponse {
             microsoft_uuid: user.microsoft_uuid,
             created_at: user.created_at,
             updated_at: user.updated_at,
+            open_ticket_count: None,
+            device_count: None,
         }
     }
 }

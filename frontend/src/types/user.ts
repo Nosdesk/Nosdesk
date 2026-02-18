@@ -17,6 +17,8 @@ export interface User {
   theme?: string | null;
   created_at: string;
   updated_at: string;
+  open_ticket_count?: number;
+  device_count?: number;
 }
 
 /**

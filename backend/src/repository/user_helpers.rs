@@ -84,6 +84,8 @@ pub fn get_user_with_primary_email(
         microsoft_uuid: user.microsoft_uuid,
         created_at: user.created_at,
         updated_at: user.updated_at,
+        open_ticket_count: None,
+        device_count: None,
     }
 }
 
@@ -132,6 +134,8 @@ pub fn get_users_with_primary_emails(
             microsoft_uuid: user.microsoft_uuid,
             created_at: user.created_at,
             updated_at: user.updated_at,
+            open_ticket_count: None,
+            device_count: None,
         }
     }).collect()
 }

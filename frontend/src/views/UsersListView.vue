@@ -72,7 +72,9 @@ useListSSE<User>({
 // Backend sortable fields: name, role (created_at not supported)
 const columns = [
   { field: 'user', label: 'User', width: '1fr', sortable: true, sortKey: 'name', responsive: 'always' as const },
-  { field: 'role', label: 'Role', width: 'minmax(100px,auto)', sortable: true, responsive: 'md' as const },
+  { field: 'role', label: 'Role', width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
+  { field: 'open_ticket_count', label: 'Tickets', width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
+  { field: 'device_count', label: 'Devices', width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
   { field: 'created_at', label: 'Joined', width: 'minmax(140px,auto)', sortable: false, responsive: 'lg' as const }
 ];
 
@@ -90,7 +92,7 @@ const filterOptions = listManager.buildFilterOptions({
 });
 
 // Custom grid template for responsive layout (includes checkbox column with auto width)
-const gridClass = "grid-cols-[auto_1fr_minmax(100px,auto)] lg:grid-cols-[auto_1fr_minmax(100px,auto)_minmax(140px,auto)]";
+const gridClass = "grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(100px,auto)_minmax(80px,auto)_minmax(80px,auto)] lg:grid-cols-[auto_1fr_minmax(100px,auto)_minmax(80px,auto)_minmax(80px,auto)_minmax(140px,auto)]";
 
 // Staggered fade-in animation
 const { getStyle } = useStaggeredList();
@@ -269,6 +271,14 @@ defineExpose({
               <StatusBadgeCell type="role" :value="value" />
             </template>
 
+            <template #cell-open_ticket_count="{ value }">
+              <span class="text-sm text-secondary tabular-nums">{{ value ?? 0 }}</span>
+            </template>
+
+            <template #cell-device_count="{ value }">
+              <span class="text-sm text-secondary tabular-nums">{{ value ?? 0 }}</span>
+            </template>
+
             <template #cell-created_at="{ value }">
               <DateCell :value="value" format="clean-relative" />
             </template>
@@ -310,7 +320,7 @@ defineExpose({
                 <!-- Name -->
                 <div class="text-sm text-primary font-medium truncate">{{ user.name }}</div>
 
-                <!-- Meta row: email and role -->
+                <!-- Meta row: email, role, counts -->
                 <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
                   <span v-if="user.email" class="text-tertiary truncate max-w-[200px]">{{ user.email }}</span>
                   <span
@@ -323,6 +333,8 @@ defineExpose({
                   >
                     {{ user.role }}
                   </span>
+                  <span v-if="user.open_ticket_count" class="text-secondary tabular-nums">{{ user.open_ticket_count }} ticket{{ user.open_ticket_count !== 1 ? 's' : '' }}</span>
+                  <span v-if="user.device_count" class="text-secondary tabular-nums">{{ user.device_count }} device{{ user.device_count !== 1 ? 's' : '' }}</span>
                 </div>
               </div>
 

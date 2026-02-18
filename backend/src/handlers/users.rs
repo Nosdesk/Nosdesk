@@ -6,7 +6,7 @@ use serde_json::json;
 use uuid::Uuid;
 use futures::{StreamExt, TryStreamExt};
 use actix_multipart::Multipart;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, info, warn, error};
 
@@ -162,7 +162,7 @@ pub async fn get_paginated_users(
     let page_size = query.page_size.unwrap_or(25).clamp(1, 100);
 
     // Validate sort_field against allowed columns
-    let allowed_sort_fields = ["first_name", "last_name", "email", "role", "created_at", "updated_at"];
+    let allowed_sort_fields = ["name", "first_name", "last_name", "email", "role", "created_at", "updated_at"];
     let sort_field = query.sort_field.as_ref().and_then(|f| {
         let f_lower = f.to_lowercase();
         if allowed_sort_fields.contains(&f_lower.as_str()) {
@@ -212,7 +212,18 @@ pub async fn get_paginated_users(
             let total_pages = (total as f64 / page_size as f64).ceil() as i64;
 
             // Convert users to UserResponse with emails (batch fetch for efficiency)
-            let user_responses = repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
+            let mut user_responses = repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
+
+            // Enrich with ticket and device counts
+            let user_uuids: Vec<Uuid> = user_responses.iter().map(|u| u.uuid).collect();
+            if !user_uuids.is_empty() {
+                let ticket_counts = get_open_ticket_counts_batch(&user_uuids, &mut conn);
+                let device_counts = get_device_counts_batch(&user_uuids, &mut conn);
+                for user in &mut user_responses {
+                    user.open_ticket_count = Some(*ticket_counts.get(&user.uuid).unwrap_or(&0));
+                    user.device_count = Some(*device_counts.get(&user.uuid).unwrap_or(&0));
+                }
+            }
 
             // Create paginated response
             let response = PaginatedResponse {
@@ -230,6 +241,37 @@ pub async fn get_paginated_users(
             HttpResponse::InternalServerError().json("Failed to get paginated users")
         },
     }
+}
+
+/// Batch count of open (non-closed) tickets assigned to each user
+fn get_open_ticket_counts_batch(user_uuids: &[Uuid], conn: &mut DbConnection) -> HashMap<Uuid, i64> {
+    use crate::schema::tickets;
+    use crate::models::TicketStatus;
+
+    let open_statuses = vec![TicketStatus::Open, TicketStatus::InProgress];
+    let results: Vec<(Uuid, i64)> = tickets::table
+        .filter(tickets::assignee_uuid.eq_any(user_uuids))
+        .filter(tickets::status.eq_any(open_statuses))
+        .group_by(tickets::assignee_uuid)
+        .select((tickets::assignee_uuid.assume_not_null(), diesel::dsl::count_star()))
+        .load::<(Uuid, i64)>(conn)
+        .unwrap_or_default();
+
+    results.into_iter().collect()
+}
+
+/// Batch count of devices assigned to each user
+fn get_device_counts_batch(user_uuids: &[Uuid], conn: &mut DbConnection) -> HashMap<Uuid, i64> {
+    use crate::schema::devices;
+
+    let results: Vec<(Uuid, i64)> = devices::table
+        .filter(devices::primary_user_uuid.eq_any(user_uuids))
+        .group_by(devices::primary_user_uuid)
+        .select((devices::primary_user_uuid.assume_not_null(), diesel::dsl::count_star()))
+        .load::<(Uuid, i64)>(conn)
+        .unwrap_or_default();
+
+    results.into_iter().collect()
 }
 
 pub async fn get_user_by_uuid(

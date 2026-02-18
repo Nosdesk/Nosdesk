@@ -105,7 +105,7 @@ const {
 );
 
 // Device management - uses centralized mutations with optimistic updates
-const { showDeviceModal, addDevice, removeDevice, updateDeviceField } =
+const { showDeviceModal, addDevice, removeDevice } =
     useTicketDevices(ticket);
 
 // Relationships (linked tickets & projects) - SSE handles state updates
@@ -474,12 +474,6 @@ defineExpose({
                                     :device="device"
                                     @remove="() => removeDevice(device.id)"
                                     @view="navigateToDeviceView"
-                                    @update:name="(value) => updateDeviceField(device.id, 'name', value)"
-                                    @update:hostname="(value) => updateDeviceField(device.id, 'hostname', value)"
-                                    @update:serial_number="(value) => updateDeviceField(device.id, 'serial_number', value)"
-                                    @update:model="(value) => updateDeviceField(device.id, 'model', value)"
-                                    @update:manufacturer="(value) => updateDeviceField(device.id, 'manufacturer', value)"
-                                    @update:warranty_status="(value) => updateDeviceField(device.id, 'warranty_status', value)"
                                 />
                             </div>
                         </SidebarSection>
