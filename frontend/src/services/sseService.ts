@@ -335,15 +335,14 @@ class SSEService {
   private emit(eventType: SSEEventType, data: unknown): void {
     const listeners = this.eventListeners.get(eventType);
 
-    // Direct console.log for debugging
-    console.log(`%c[SSE] Emitting event: ${eventType}`, 'color: #10b981; font-weight: bold', {
-      data,
-      listenerCount: listeners?.size || 0,
-      allEventTypes: Array.from(this.eventListeners.keys()),
-    });
+    if (import.meta.env.DEV) {
+      console.log(`%c[SSE] Emitting event: ${eventType}`, 'color: #10b981; font-weight: bold', {
+        data,
+        listenerCount: listeners?.size || 0,
+      });
+    }
 
     if (listeners && listeners.size > 0) {
-      console.log(`[SSE] Calling ${listeners.size} listener(s) for ${eventType}`);
       listeners.forEach((listener) => {
         try {
           listener(data);
@@ -351,8 +350,6 @@ class SSEService {
           console.error(`[SSE] Error in ${eventType} listener:`, error);
         }
       });
-    } else {
-      console.warn(`%c[SSE] No listeners for event: ${eventType}`, 'color: #f59e0b; font-weight: bold');
     }
   }
 
@@ -362,10 +359,6 @@ class SSEService {
       this.eventListeners.set(eventType, new Set());
     }
     this.eventListeners.get(eventType)!.add(listener);
-    console.log(`[SSE] Registered listener for: ${eventType}`, {
-      listenerCount: this.eventListeners.get(eventType)!.size,
-      allEventTypes: Array.from(this.eventListeners.keys()),
-    });
   }
 
   // Remove event listener

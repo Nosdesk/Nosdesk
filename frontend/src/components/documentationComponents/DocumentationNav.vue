@@ -10,6 +10,7 @@ import { useSSE } from '@/services/sseService'
 import { getCollections, getCollection } from '@/services/collectionService'
 import type { CollectionWithDetails, CollectionPage } from '@/services/collectionService'
 import { buildTreeFromFlat, sortByOrder, findInTree } from '@/utils/treeUtils'
+import { docUrl } from '@/utils/docUrl'
 
 defineEmits<{
   'search': [query: string];
@@ -215,7 +216,7 @@ const getPagesForCollection = (collectionId: number): Page[] => {
 const handlePageClick = (id: string | number) => {
   const stringId = String(id)
   const foundPage = findPageGlobal(id);
-  const pageRoute = `/documentation/${foundPage?.slug || stringId}`
+  const pageRoute = foundPage ? docUrl(foundPage) : `/documentation/${stringId}`
 
   if (foundPage && foundPage.children && foundPage.children.length > 0) {
     if (route.path === pageRoute) {
@@ -588,10 +589,10 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
           <RouterLink
             v-for="sp in starredPages"
             :key="sp.page_id"
-            :to="`/documentation/${sp.slug}`"
+            :to="docUrl({ slug: sp.slug, id: sp.page_id })"
             class="group flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150"
             :class="[
-              route.path === `/documentation/${sp.slug}`
+              route.path === docUrl({ slug: sp.slug, id: sp.page_id })
                 ? 'bg-surface text-primary font-medium'
                 : 'text-secondary hover:text-primary hover:bg-surface-hover'
             ]"

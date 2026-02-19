@@ -5,8 +5,7 @@ import { useRouter } from 'vue-router';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
-import { getPaginatedDevices } from '@/services/deviceService';
-import { getUserDevices, getPaginatedDevicesExcluding } from '@/services/deviceService';
+import { getPaginatedDevices, getDevicesByUser, getPaginatedDevicesExcluding } from '@/services/deviceService';
 import type { Device } from '@/types/device';
 
 const router = useRouter();
@@ -61,10 +60,10 @@ const loadRequesterDevices = async () => {
       console.log(`DeviceSelectionModal: Fetching devices for requester ${props.requesterUuid}`);
     }
     
-    const devices = await getUserDevices(props.requesterUuid);
+    const devices = await getDevicesByUser(props.requesterUuid);
     
     if (import.meta.env.DEV) {
-      console.log(`DeviceSelectionModal: Received ${devices.length} devices from getUserDevices:`, devices);
+      console.log(`DeviceSelectionModal: Received ${devices.length} devices from getDevicesByUser:`, devices);
     }
     
     // Filter out already assigned devices

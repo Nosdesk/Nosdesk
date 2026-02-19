@@ -348,6 +348,7 @@ import PasswordInput from '@/components/common/PasswordInput.vue';
 import backupService from '@/services/backupService';
 import { downloadDocumentationExport, type ExportProgress } from '@/services/markdownExportService';
 import type { BackupJob, RestorePreview } from '@/types/backup';
+import { formatFileSize } from '@/utils/formatFileSize';
 
 // Export state
 const includeSensitive = ref(false);
@@ -381,9 +382,6 @@ const formatDate = (dateStr: string) => {
   return new Date(dateStr).toLocaleString();
 };
 
-const formatFileSize = (bytes: number) => {
-  return backupService.formatFileSize(bytes);
-};
 
 const loadJobs = async () => {
   isLoadingJobs.value = true;

@@ -51,17 +51,17 @@ export const useThemeStore = defineStore('theme', () => {
   const isSyncing = ref<boolean>(false)
 
   // System preference tracking
-  const systemPrefersDark = ref(
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-  )
+  const darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  const systemPrefersDark = ref(darkModeQuery.matches)
 
   // Listen for system preference changes
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  const onDarkModeChange = (e: MediaQueryListEvent) => {
     systemPrefersDark.value = e.matches
     if (currentTheme.value === 'system') {
       applyCurrentTheme()
     }
-  })
+  }
+  darkModeQuery.addEventListener('change', onDarkModeChange)
 
   /**
    * Get the resolved theme object

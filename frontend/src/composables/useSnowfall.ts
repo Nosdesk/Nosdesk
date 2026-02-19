@@ -6,6 +6,7 @@
  * Uses canvas for performant rendering of many snowflakes.
  */
 import { ref, onMounted, onUnmounted } from 'vue'
+import { Z_INDEX } from '@/constants/zIndex'
 
 interface Snowflake {
   x: number
@@ -76,7 +77,7 @@ export function useSnowfall(options: SnowfallOptions = {}) {
       width: 100%;
       height: 100%;
       pointer-events: none;
-      z-index: 99998;
+      z-index: ${Z_INDEX.EFFECT};
     `
     canvas.width = window.innerWidth
     canvas.height = window.innerHeight

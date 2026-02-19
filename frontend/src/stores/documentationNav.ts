@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import type { StarredPageInfo } from '@/services/documentationService'
 import { findInTree } from '@/utils/treeUtils'
+import { BREAKPOINTS } from '@/composables/useMobileDetection'
 
 interface ExpandedState {
   [pageId: string]: boolean;
@@ -46,15 +47,21 @@ export const useDocumentationNavStore = defineStore('documentationNav', () => {
   const isStarredExpanded = ref(localStorage.getItem('docNavStarredExpanded') !== 'false')
 
   // Initialize from localStorage if available
-  if (localStorage.getItem('docNavExpandedPages')) {
-    expandedPages.value = JSON.parse(localStorage.getItem('docNavExpandedPages')!)
-  }
-  
-  if (localStorage.getItem('docNavSidebarOpen')) {
-    isSidebarOpen.value = JSON.parse(localStorage.getItem('docNavSidebarOpen')!)
-  } else {
-    // Default to open on desktop, closed on mobile
-    isSidebarOpen.value = window.innerWidth >= 768
+  try {
+    const savedExpanded = localStorage.getItem('docNavExpandedPages')
+    if (savedExpanded) expandedPages.value = JSON.parse(savedExpanded)
+  } catch { /* ignore corrupted data */ }
+
+  try {
+    const savedSidebar = localStorage.getItem('docNavSidebarOpen')
+    if (savedSidebar) {
+      isSidebarOpen.value = JSON.parse(savedSidebar)
+    } else {
+      // Default to open on desktop, closed on mobile
+      isSidebarOpen.value = window.innerWidth >= BREAKPOINTS.md
+    }
+  } catch {
+    isSidebarOpen.value = window.innerWidth >= BREAKPOINTS.md
   }
   
   // Save to localStorage when updated
@@ -141,7 +148,7 @@ export const useDocumentationNavStore = defineStore('documentationNav', () => {
   
   // Set sidebar state based on screen size
   const updateSidebarForScreenSize = () => {
-    const isMobile = window.innerWidth < 768
+    const isMobile = window.innerWidth < BREAKPOINTS.md
     isSidebarOpen.value = !isMobile
   }
 

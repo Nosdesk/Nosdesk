@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router';
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue';
 import RevisionHistory from '@/components/editor/RevisionHistory.vue';
 import apiClient from '@/services/apiConfig';
+import { docUrl } from '@/utils/docUrl';
 
 // Define props
 interface Props {
@@ -110,7 +111,7 @@ const handleConvertToDocumentation = async () => {
 
     if (response.data && response.data.id) {
       // Navigate to the documentation page (existing or newly created)
-      router.push(`/documentation/${response.data.slug || response.data.id}`);
+      router.push(docUrl(response.data));
     }
   } catch (error) {
     console.error('Failed to convert to documentation:', error);

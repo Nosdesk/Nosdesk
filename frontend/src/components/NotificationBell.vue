@@ -218,7 +218,7 @@ const displayCount = computed(() => unreadCount.value > 99 ? '99+' : String(unre
         <div
           v-if="isOpen"
           ref="dropdownRef"
-          class="fixed z-[9999] w-80 sm:w-96 bg-surface border border-default rounded-xl shadow-xl overflow-hidden"
+          class="fixed z-overlay w-80 sm:w-96 bg-surface border border-default rounded-xl shadow-xl overflow-hidden"
           :style="{
             top: buttonRef ? `${buttonRef.getBoundingClientRect().bottom + 8}px` : '60px',
             right: '16px',

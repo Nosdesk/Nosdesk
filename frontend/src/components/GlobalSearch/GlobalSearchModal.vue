@@ -67,7 +67,7 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
     <Transition name="search-modal" appear>
       <div
         v-if="isOpen"
-        class="fixed inset-0 z-[9999] flex items-start justify-center px-4 pt-[12vh] sm:pt-[15vh]"
+        class="fixed inset-0 z-overlay flex items-start justify-center px-4 pt-[12vh] sm:pt-[15vh]"
       >
         <!-- Backdrop with blur -->
         <div

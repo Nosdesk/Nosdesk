@@ -968,6 +968,50 @@ export const unstarPage = async (pageId: number): Promise<boolean> => {
   }
 };
 
+/**
+ * Update partial page fields (title, slug, icon, status, etc.)
+ */
+export const updatePage = async (
+  pageId: string | number,
+  fields: Partial<Pick<Page, 'title' | 'slug' | 'icon' | 'status'>>
+): Promise<boolean> => {
+  try {
+    await apiClient.put(`/documentation/pages/${pageId}`, fields);
+    return true;
+  } catch (error) {
+    logger.error(`Error updating page ${pageId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Archive a page (sets status to 'archived')
+ */
+export const archivePage = async (pageId: string | number): Promise<boolean> => {
+  try {
+    await apiClient.put(`/documentation/pages/${pageId}`, { status: 'archived' });
+    return true;
+  } catch (error) {
+    logger.error(`Error archiving page ${pageId}:`, error);
+    return false;
+  }
+};
+
+/**
+ * Export a page as markdown (returns a Blob)
+ */
+export const exportPageMarkdown = async (pageId: string | number): Promise<Blob | null> => {
+  try {
+    const response = await apiClient.get(`/documentation/pages/${pageId}/export/markdown`, {
+      responseType: 'blob',
+    });
+    return new Blob([response.data], { type: 'text/markdown' });
+  } catch (error) {
+    logger.error(`Error exporting page ${pageId} as markdown:`, error);
+    return null;
+  }
+};
+
 export default {
   getPages,
   getAllArticles,
@@ -1000,4 +1044,7 @@ export default {
   getPageStarred,
   starPage,
   unstarPage,
+  updatePage,
+  archivePage,
+  exportPageMarkdown,
 };

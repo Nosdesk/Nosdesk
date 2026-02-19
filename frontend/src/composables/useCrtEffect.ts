@@ -10,6 +10,7 @@
  * Only active when the specified theme is applied (default: red-horizon).
  */
 import { ref, onMounted, onUnmounted } from 'vue'
+import { Z_INDEX } from '@/constants/zIndex'
 
 interface CrtEffectOptions {
   theme?: string
@@ -49,7 +50,7 @@ export function useCrtEffect(options: CrtEffectOptions = {}) {
         position: fixed;
         inset: 0;
         pointer-events: none;
-        z-index: 99998;
+        z-index: ${Z_INDEX.EFFECT};
         overflow: hidden;
       }
 

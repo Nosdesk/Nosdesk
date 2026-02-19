@@ -1,8 +1,7 @@
 import apiClient from './apiConfig';
 import { logger } from '@/utils/logger';
-import type { User } from '@/types/user';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+import type { User, LoginCredentials } from '@/types/user';
+import type { BackupManifest, RestorePreview } from '@/types/backup';
 
 export interface OnboardingStatus {
   requires_setup: boolean;
@@ -24,10 +23,8 @@ export interface AdminSetupResponse {
   user?: User;
 }
 
-export interface LoginCredentials {
-  email: string;
-  password: string;
-}
+// Re-export for backwards compatibility
+export type { LoginCredentials } from '@/types/user';
 
 export interface LoginResponse {
   token: string;
@@ -386,24 +383,6 @@ class AuthService {
   }
 
   /**
-   * Login with MFA token
-   */
-  async loginWithMFA(email: string, password: string, mfaToken: string, userUuid: string): Promise<LoginResponse> {
-    try {
-      const response = await apiClient.post('/auth/mfa-login', {
-        email,
-        password,
-        mfa_token: mfaToken,
-        user_uuid: userUuid
-      });
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to login with MFA', { error, email, userUuid });
-      throw error;
-    }
-  }
-
-  /**
    * Get OAuth auth providers
    */
   async getAuthProviders(): Promise<any[]> {
@@ -567,34 +546,10 @@ class AuthService {
   }
 }
 
-// Onboarding Restore Types
+// Onboarding Restore Types (BackupManifest and RestorePreview imported from @/types/backup)
 export interface OnboardingRestoreUploadResponse {
   file_path: string;
   preview: RestorePreview;
-}
-
-export interface RestorePreview {
-  manifest: BackupManifest;
-  has_encrypted_sensitive: boolean;
-  warnings: string[];
-}
-
-export interface BackupManifest {
-  version: string;
-  created_at: string;
-  nosdesk_version: string;
-  include_sensitive: boolean;
-  tables: Record<string, { count: number }>;
-  files: {
-    total_count: number;
-    total_size_bytes: number;
-  };
-  encryption?: {
-    algorithm: string;
-    kdf: string;
-    salt: string;
-    nonce: string;
-  };
 }
 
 export interface OnboardingRestoreResult {

@@ -5,6 +5,7 @@ import { useTitleManager } from '@/composables/useTitleManager'
 import { getCollectionBySlug, addPageToCollection, updateCollection, getPageOverridesInCollection } from '@/services/collectionService'
 import type { CollectionWithPages, PageOverrideInfo } from '@/services/collectionService'
 import documentationService from '@/services/documentationService'
+import { docUrl } from '@/utils/docUrl'
 import { docsEmitter } from '@/services/docsEmitter'
 import { useAuthStore } from '@/stores/auth'
 import BackButton from '@/components/common/BackButton.vue'
@@ -90,7 +91,7 @@ const createPageInCollection = async () => {
     if (newPage?.id) {
       await addPageToCollection(collection.value.id, Number(newPage.id))
       docsEmitter.emit('doc:created', { id: newPage.id })
-      router.push(`/documentation/${newPage.slug || newPage.id}`)
+      router.push(docUrl(newPage))
     }
   } catch (error) {
     console.error('Failed to create page in collection:', error)

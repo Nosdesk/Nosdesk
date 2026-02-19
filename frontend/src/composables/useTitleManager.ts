@@ -1,9 +1,6 @@
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, type ComputedRef } from 'vue';
 import { useRoute } from 'vue-router';
-import ticketService from '@/services/ticketService';
 import { useRecentTicketsStore } from '@/stores/recentTickets';
-import apiClient from '@/services/apiConfig';
-import { useDocumentationNavStore } from '@/stores/documentationNav';
 import { useBrandingStore } from '@/stores/branding';
 
 export interface TitleableDocument {
@@ -25,8 +22,12 @@ export interface TitleableDevice {
   [key: string]: any; // Allow other properties from the reactive device object
 }
 
+// Save handler types - view components register these to handle persistence
+type TicketTitleSaveHandler = (title: string) => Promise<void>;
+type DocumentTitleSaveHandler = (title: string) => Promise<void>;
+type DocumentIconSaveHandler = (icon: string) => Promise<void>;
+
 // Singleton state - shared across all useTitleManager() calls
-// This ensures all components see the same reactive state (Vue 3 best practice for shared state)
 const currentTicket = ref<TitleableTicket | null>(null);
 const currentDevice = ref<TitleableDevice | null>(null);
 const currentDocument = ref<TitleableDocument | null>(null);
@@ -34,110 +35,87 @@ const documentationTitle = ref<string | null>(null);
 const customTitle = ref<string | null>(null);
 const isTransitioning = ref(false);
 
+// Save handler refs - view components register callbacks for persistence
+const ticketTitleSaveHandler = ref<TicketTitleSaveHandler | null>(null);
+const documentTitleSaveHandler = ref<DocumentTitleSaveHandler | null>(null);
+const documentIconSaveHandler = ref<DocumentIconSaveHandler | null>(null);
+
+// Module-level computeds (no route/component dependency)
+const isTicketView = computed(() => currentTicket.value !== null);
+const isDeviceView = computed(() => currentDevice.value !== null);
+const isDocumentView = computed(() => currentDocument.value !== null);
+
+// Module-level watcher for recent tickets store (no route dependency)
+watch(
+  () => currentTicket.value?.title,
+  (newTitle) => {
+    if (currentTicket.value && newTitle !== undefined) {
+      const recentTicketsStore = useRecentTicketsStore();
+      recentTicketsStore.updateTicketData(currentTicket.value.id, {
+        title: newTitle
+      });
+    }
+  }
+);
+
+// Guard: route-dependent watchers and computed are created only once
+let pageTitle: ComputedRef<string> | null = null;
+
 export function useTitleManager() {
   const route = useRoute();
   const brandingStore = useBrandingStore();
-
-  // Helper to get the app name (reactive)
   const getAppName = () => brandingStore.appName;
 
-  // Computed properties
-  const isTicketView = computed(() => currentTicket.value !== null);
-  const isDeviceView = computed(() => currentDevice.value !== null);
-  const isDocumentView = computed(() => currentDocument.value !== null);
-
-  const pageTitle = computed(() => {
-    const appName = getAppName();
-
-    // Custom title takes precedence if set
-    if (customTitle.value) {
-      return customTitle.value;
-    }
-
-    // Documentation title is next in priority
-    if (isDocumentView.value && documentationTitle.value) {
-      return documentationTitle.value;
-    }
-
-    // Ticket title with ID
-    if (isTicketView.value && currentTicket.value) {
-      return `#${currentTicket.value.id} ${currentTicket.value.title}`;
-    }
-
-    // Device title with ID
-    if (isDeviceView.value && currentDevice.value) {
-      return `#${currentDevice.value.id} ${currentDevice.value.hostname}`;
-    }
-
-    // Get title from route meta
-    const routeTitle = route.meta?.title as string;
-
-    // Update document title
-    const finalTitle = routeTitle || appName;
-    document.title = `${finalTitle} | ${appName}`;
-
-    return finalTitle;
-  });
-  
-  // Watch for route changes to clear stale state
-  // Only clear when navigating to routes that don't have their own title management
-  const titleManagedRoutes = ['ticket', 'device', 'documentation-article'];
-  watch(
-    () => route.name,
-    (newRouteName) => {
-      // Only clear all state when navigating to a route without title management
-      // This prevents flash during transitions between title-managed routes
-      if (!titleManagedRoutes.includes(newRouteName as string)) {
-        currentTicket.value = null;
-        currentDevice.value = null;
-        currentDocument.value = null;
-        documentationTitle.value = null;
-        customTitle.value = null;
+  // Create route-dependent computed + watchers only on first call
+  if (!pageTitle) {
+    pageTitle = computed(() => {
+      if (customTitle.value) {
+        return customTitle.value;
       }
-    }
-  );
-
-  // Watch for changes in the current ticket's title (reactive updates)
-  watch(
-    () => currentTicket.value?.title,
-    (newTitle) => {
-      if (currentTicket.value && newTitle !== undefined) {
-        // Automatically update the document title when the ticket title changes
-        document.title = `#${currentTicket.value.id} ${newTitle} | ${getAppName()}`;
-
-        // Also update the recent tickets store
-        const recentTicketsStore = useRecentTicketsStore();
-        recentTicketsStore.updateTicketData(currentTicket.value.id, {
-          title: newTitle
-        });
+      if (isDocumentView.value && documentationTitle.value) {
+        return documentationTitle.value;
       }
-    }
-  );
-  
+      if (isTicketView.value && currentTicket.value) {
+        return `#${currentTicket.value.id} ${currentTicket.value.title}`;
+      }
+      if (isDeviceView.value && currentDevice.value) {
+        return `#${currentDevice.value.id} ${currentDevice.value.hostname}`;
+      }
+      return (route.meta?.title as string) || getAppName();
+    });
+
+    // Single watcher for document.title updates
+    watch(pageTitle, (title) => {
+      document.title = `${title} | ${getAppName()}`;
+    }, { immediate: true });
+
+    // Watch for route changes to clear stale state
+    const titleManagedRoutes = ['ticket', 'device', 'documentation-article'];
+    watch(
+      () => route.name,
+      (newRouteName) => {
+        if (!titleManagedRoutes.includes(newRouteName as string)) {
+          currentTicket.value = null;
+          currentDevice.value = null;
+          currentDocument.value = null;
+          documentationTitle.value = null;
+          customTitle.value = null;
+        }
+      }
+    );
+  }
+
   // Methods
   const setCustomTitle = (title: string | null) => {
     customTitle.value = title;
-    if (title) {
-      document.title = `${title} | ${getAppName()}`;
-    }
   };
-  
+
   const setTicket = (ticketData: TitleableTicket | null) => {
-    // Store the actual reactive ticket object reference
     currentTicket.value = ticketData;
-    // The document title will automatically update when ticketData.title changes
-    // watching the reactive object handles document title updates
-    if (ticketData) {
-      document.title = `#${ticketData.id} ${ticketData.title} | ${getAppName()}`;
-    }
   };
-  
+
   const setDevice = (deviceData: TitleableDevice | null) => {
-    // Store the actual reactive device object reference
     currentDevice.value = deviceData;
-    if (deviceData) {
-      document.title = `#${deviceData.id} ${deviceData.hostname} | ${getAppName()}`;
-    }
   };
 
   const setDocument = (documentData: TitleableDocument | null) => {
@@ -146,138 +124,68 @@ export function useTitleManager() {
       documentationTitle.value = documentData.title;
       setCustomTitle(documentData.title);
     }
-    // Note: Clearing is handled by clearDocument() called from App.vue on route leave
   };
-  
-  // Preview the ticket title as the user types (real-time updates)
+
   const previewTicketTitle = (newTitle: string) => {
     if (currentTicket.value) {
-      // Update the title in the reactive ticket object
-      // The watcher will automatically handle document title and recent tickets updates
       currentTicket.value.title = newTitle;
     }
   };
-  
-  // Preview the document title as the user types (real-time updates)
+
   const previewDocumentTitle = (newTitle: string) => {
     if (currentDocument.value) {
-      // Update the title in the current document for UI display
       currentDocument.value.title = newTitle;
       documentationTitle.value = newTitle;
-
-      // Update the document title for real-time feedback
-      document.title = `${newTitle} | ${getAppName()}`;
     }
   };
-  
+
   const updateTicketTitle = async (newTitle: string) => {
     if (currentTicket.value) {
-      if (import.meta.env.DEV) {
-        console.log(`useTitleManager: Updating ticket #${currentTicket.value.id} title to "${newTitle}"`);
-      }
-
-      // Update the title in the reactive ticket object
-      // The watcher will automatically handle document title and recent tickets updates
       currentTicket.value.title = newTitle;
-
-      // Save the title change to the backend
-      try {
-        await ticketService.updateTicket(currentTicket.value.id, { title: newTitle });
-        if (import.meta.env.DEV) {
-          console.log(`useTitleManager: Successfully updated ticket title in backend`);
-        }
-      } catch (error) {
-        console.error(`Error updating ticket title:`, error);
-        // If the backend update fails, we don't revert the UI changes
-        // because the user might still be editing the title
-      }
+      await ticketTitleSaveHandler.value?.(newTitle);
     }
   };
-  
+
   const updateDocumentTitle = async (newTitle: string) => {
     if (currentDocument.value) {
-      if (import.meta.env.DEV) {
-        console.log(`useTitleManager: Updating document title to "${newTitle}"`);
-      }
-
-      // Update the title in the current document for UI display
       currentDocument.value.title = newTitle;
       documentationTitle.value = newTitle;
       setCustomTitle(newTitle);
-
-      // Generate a slug from the title
-      const newSlug = newTitle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-
-      try {
-        const currentDocId = currentDocument.value.id;
-
-        // Use simple PUT request with only title and slug - this triggers SSE broadcast
-        await apiClient.put(`/documentation/pages/${currentDocId}`, {
-          title: newTitle,
-          slug: newSlug,
-        });
-
-        if (import.meta.env.DEV) {
-          console.log(`useTitleManager: Successfully updated document title and slug in backend`);
-        }
-
-        // Update the slug in the current document
-        if (currentDocument.value) {
-          currentDocument.value.slug = newSlug;
-        }
-
-        // Update sidebar reactively for the current user (SSE won't do this since it filters out same-user updates)
-        const documentationNavStore = useDocumentationNavStore();
-        documentationNavStore.updatePageField(currentDocId, 'title', newTitle);
-        documentationNavStore.updatePageField(currentDocId, 'slug', newSlug);
-      } catch (error) {
-        console.error('Error updating document title and slug:', error);
-      }
+      await documentTitleSaveHandler.value?.(newTitle);
     }
   };
-  
+
   const updateDocumentIcon = async (newIcon: string) => {
     if (currentDocument.value) {
-      if (import.meta.env.DEV) {
-        console.log(`useTitleManager: Updating document icon to "${newIcon}"`);
-      }
-
-      // Update the icon in the current document for UI display
       currentDocument.value.icon = newIcon;
-
-      try {
-        const currentDocId = currentDocument.value.id;
-
-        // Use simple PUT request with only icon - this triggers SSE broadcast
-        await apiClient.put(`/documentation/pages/${currentDocId}`, {
-          icon: newIcon,
-        });
-
-        if (import.meta.env.DEV) {
-          console.log(`useTitleManager: Successfully updated document icon in backend`);
-        }
-
-        // Update sidebar reactively for the current user (SSE won't do this since it filters out same-user updates)
-        const documentationNavStore = useDocumentationNavStore();
-        documentationNavStore.updatePageField(currentDocId, 'icon', newIcon);
-      } catch (error) {
-        console.error('Error updating document icon:', error);
-      }
+      await documentIconSaveHandler.value?.(newIcon);
     }
   };
-  
+
+  const onTicketTitleSave = (handler: TicketTitleSaveHandler | null) => {
+    ticketTitleSaveHandler.value = handler;
+  };
+
+  const onDocumentTitleSave = (handler: DocumentTitleSaveHandler | null) => {
+    documentTitleSaveHandler.value = handler;
+  };
+
+  const onDocumentIconSave = (handler: DocumentIconSaveHandler | null) => {
+    documentIconSaveHandler.value = handler;
+  };
+
   const startTransition = () => {
     isTransitioning.value = true;
   };
-  
+
   const endTransition = () => {
     isTransitioning.value = false;
   };
-  
+
   const clearTicket = () => {
     currentTicket.value = null;
   };
-  
+
   const clearDevice = () => {
     currentDevice.value = null;
   };
@@ -297,7 +205,7 @@ export function useTitleManager() {
     isTransitioning,
 
     // Computed
-    pageTitle,
+    pageTitle: pageTitle!,
     isTicketView,
     isDeviceView,
     isDocumentView,
@@ -312,10 +220,13 @@ export function useTitleManager() {
     updateTicketTitle,
     updateDocumentTitle,
     updateDocumentIcon,
+    onTicketTitleSave,
+    onDocumentTitleSave,
+    onDocumentIconSave,
     startTransition,
     endTransition,
     clearTicket,
     clearDevice,
     clearDocument
   };
-} 
+}

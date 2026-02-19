@@ -8,6 +8,7 @@
  * Only active when the specified theme is applied (default: red-horizon).
  */
 import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { Z_INDEX } from '@/constants/zIndex'
 
 interface ScanlineOptions {
   theme?: string
@@ -53,7 +54,7 @@ export function useCursorScanlines(options: ScanlineOptions = {}) {
       height: ${lineWidth}px;
       background: ${horizontalColor};
       pointer-events: none;
-      z-index: 99999;
+      z-index: ${Z_INDEX.CURSOR};
       opacity: ${isTouch ? 0 : opacity};
       transform: translateY(-50%);
       transition: ${isTouch ? 'opacity 0.3s ease, top 0.15s ease-out' : 'opacity 0.15s ease'};
@@ -69,7 +70,7 @@ export function useCursorScanlines(options: ScanlineOptions = {}) {
       width: ${lineWidth}px;
       background: ${verticalColor};
       pointer-events: none;
-      z-index: 99999;
+      z-index: ${Z_INDEX.CURSOR};
       opacity: ${isTouch ? 0 : opacity};
       transform: translateX(-50%);
       transition: ${isTouch ? 'opacity 0.3s ease, left 0.15s ease-out' : 'opacity 0.15s ease'};

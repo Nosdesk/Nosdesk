@@ -8,6 +8,7 @@ import DocumentationCardSkeleton from '@/components/documentationComponents/Docu
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { formatDate } from '@/utils/dateUtils'
+import { docUrl } from '@/utils/docUrl'
 
 const titleManager = useTitleManager()
 const docNavStore = useDocumentationNavStore()
@@ -89,7 +90,7 @@ onMounted(() => {
             <span class="text-xl flex-shrink-0">{{ page.icon || '📄' }}</span>
             <div class="flex-1 min-w-0">
               <RouterLink
-                :to="`/documentation/${page.slug || page.id}`"
+                :to="docUrl(page)"
                 class="text-sm font-medium text-primary hover:text-accent truncate block"
               >
                 {{ page.title }}

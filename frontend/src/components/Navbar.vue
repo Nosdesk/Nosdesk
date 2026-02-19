@@ -16,7 +16,7 @@ import { useThemeStore } from "@/stores/theme";
 const { openSearch } = useGlobalSearch();
 
 // Keyboard shortcut hint based on platform
-const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 const searchShortcut = isMac ? '\u2318K' : 'Ctrl+K';
 
 // Get branding and theme stores

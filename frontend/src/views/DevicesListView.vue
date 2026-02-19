@@ -18,6 +18,8 @@ import { useDataStore } from '@/stores/dataStore'
 import { getPaginatedDevices, bulkAction } from '@/services/deviceService'
 import type { Device } from '@/types/device'
 
+defineOptions({ name: 'DevicesListView' })
+
 const router = useRouter()
 const dataStore = useDataStore()
 

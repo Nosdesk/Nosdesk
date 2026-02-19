@@ -4,6 +4,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
+import { useScrollLock } from '@/composables/useScrollLock'
 
 const props = defineProps<{
   value: string
@@ -24,28 +25,7 @@ const menuRef = ref<HTMLElement | null>(null)
 // Reactive position tracking for desktop dropdown
 const menuPosition = ref({ top: 0, left: 0, width: 0, openUpward: false })
 
-// Scroll position for iOS scroll lock
-let scrollPosition = 0
-
-// Lock scroll for iOS - prevents background scrolling when modal is open
-const lockScroll = () => {
-  scrollPosition = window.pageYOffset
-  document.body.style.overflow = 'hidden'
-  document.body.style.position = 'fixed'
-  document.body.style.top = `-${scrollPosition}px`
-  document.body.style.left = '0'
-  document.body.style.right = '0'
-}
-
-// Unlock scroll for iOS - restores scroll position
-const unlockScroll = () => {
-  document.body.style.overflow = ''
-  document.body.style.position = ''
-  document.body.style.top = ''
-  document.body.style.left = ''
-  document.body.style.right = ''
-  window.scrollTo(0, scrollPosition)
-}
+const { lock: lockScroll, unlock: unlockScroll } = useScrollLock()
 
 const selectedOption = computed(() =>
   props.options.find(option => option.value === props.value)
@@ -258,7 +238,7 @@ onUnmounted(() => {
       >
         <div
           v-if="isOpen && isMobile"
-          class="fixed inset-0 bg-black/50 z-[9998]"
+          class="fixed inset-0 bg-black/50 z-backdrop"
           style="touch-action: none;"
           @click="closeDropdown"
           @touchmove.prevent
@@ -276,7 +256,7 @@ onUnmounted(() => {
         <div
           v-if="isOpen && isMobile"
           ref="menuRef"
-          class="custom-dropdown-menu fixed inset-x-0 bottom-0 bg-surface rounded-t-2xl shadow-2xl z-[9999] max-h-[85dvh]"
+          class="custom-dropdown-menu fixed inset-x-0 bottom-0 bg-surface rounded-t-2xl shadow-2xl z-overlay max-h-[85dvh]"
         >
           <!-- Handle bar -->
           <div class="flex justify-center py-3">

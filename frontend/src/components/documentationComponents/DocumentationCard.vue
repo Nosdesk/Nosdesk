@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import type { Page } from '@/services/documentationService'
 import { formatDate } from '@/utils/dateUtils'
+import { docUrl } from '@/utils/docUrl'
 import UserAvatar from '@/components/UserAvatar.vue'
 import DocumentationChildCard from './DocumentationChildCard.vue'
 
@@ -87,7 +88,7 @@ const toggleExpand = (event: Event) => {
     :class="{ 'is-expanded': isExpanded }"
   >
     <!-- Card Header with Icon -->
-    <RouterLink :to="`/documentation/${page.slug || page.id}`" class="doc-card-header">
+    <RouterLink :to="docUrl(page)" class="doc-card-header">
       <!-- Large Icon Area -->
       <div class="doc-card-icon">
         <span class="icon-emoji">{{ page.icon || '📄' }}</span>
@@ -97,7 +98,7 @@ const toggleExpand = (event: Event) => {
     <!-- Card Content -->
     <div class="doc-card-content">
       <!-- Title -->
-      <RouterLink :to="`/documentation/${page.slug || page.id}`" class="doc-card-title">
+      <RouterLink :to="docUrl(page)" class="doc-card-title">
         <h3>{{ page.title }}</h3>
       </RouterLink>
 

@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { ref, onScopeDispose } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
@@ -26,6 +26,11 @@ export function useAutoLogin(options: AutoLoginOptions) {
   const isLoggingIn = ref(false);
   const isComplete = ref(false);
   const message = ref('');
+  let redirectTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  onScopeDispose(() => {
+    if (redirectTimeout) clearTimeout(redirectTimeout);
+  });
 
   const {
     source,
@@ -57,7 +62,7 @@ export function useAutoLogin(options: AutoLoginOptions) {
         message.value = 'Successfully logged in! Redirecting...';
         onSuccess?.();
 
-        setTimeout(() => {
+        redirectTimeout = setTimeout(() => {
           router.push('/');
         }, redirectDelay);
         return true;
@@ -68,7 +73,7 @@ export function useAutoLogin(options: AutoLoginOptions) {
         message.value = 'MFA verification required.';
         onMfaRequired?.();
 
-        setTimeout(() => {
+        redirectTimeout = setTimeout(() => {
           router.push({
             path: '/login',
             query: {
@@ -85,7 +90,7 @@ export function useAutoLogin(options: AutoLoginOptions) {
         mfaSetupStore.setCredentials(email, password, source);
         onMfaSetupRequired?.();
 
-        setTimeout(() => {
+        redirectTimeout = setTimeout(() => {
           router.push({ name: 'mfa-setup' });
         }, redirectDelay * 1.5);
         return true;

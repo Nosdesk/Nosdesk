@@ -128,7 +128,7 @@ watch(tooltipVisible, (newValue) => {
     <div
       v-if="!disabled && tooltipVisible"
       class="absolute bg-surface text-primary text-xs px-3 py-2 rounded shadow-lg
-             pointer-events-none z-[9999] w-[240px] transition-opacity duration-150"
+             pointer-events-none z-overlay w-[240px] transition-opacity duration-150"
       :class="{ 'opacity-0': !tooltipVisible, 'opacity-100': tooltipVisible }"
       :style="{
         position: 'fixed',

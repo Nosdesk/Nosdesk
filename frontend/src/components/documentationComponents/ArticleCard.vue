@@ -2,6 +2,7 @@
 import { RouterLink } from 'vue-router'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { formatDate } from '@/utils/dateUtils'
+import { docUrl } from '@/utils/docUrl'
 
 interface Props {
   id: string;
@@ -27,7 +28,7 @@ const props = withDefaults(defineProps<Props>(), {
   <div class="bg-surface-alt rounded-lg hover:bg-surface-hover transition-colors">
     <div class="flex items-start justify-between">
       <RouterLink
-        :to="`/documentation/${slug || id}`"
+        :to="docUrl({ slug, id })"
         class="block flex-1 p-4"
       >
         <div>
@@ -52,7 +53,7 @@ const props = withDefaults(defineProps<Props>(), {
 
         <RouterLink
           v-if="showEditButton"
-          :to="`/documentation/${slug || id}`"
+          :to="docUrl({ slug, id })"
           class="ml-2 p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
           title="Edit Article"
         >

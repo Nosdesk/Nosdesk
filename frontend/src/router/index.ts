@@ -27,6 +27,12 @@ declare module 'vue-router' {
   }
 }
 
+declare global {
+  interface Window {
+    hasUnsavedChanges?: boolean;
+  }
+}
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -517,21 +523,23 @@ const router = createRouter({
     {
       path: '/auth/microsoft/callback',
       name: 'microsoft-callback',
-      component: () => import('../views/auth/MicrosoftCallbackView.vue'),
+      component: () => import('../views/auth/OAuthCallbackView.vue'),
       meta: {
         layout: 'blank',
         requiresAuth: false,
-        title: 'Authenticating...'
+        title: 'Authenticating...',
+        oauthProvider: 'microsoft'
       }
     },
     {
       path: '/auth/oidc/callback',
       name: 'oidc-callback',
-      component: () => import('../views/auth/OidcCallbackView.vue'),
+      component: () => import('../views/auth/OAuthCallbackView.vue'),
       meta: {
         layout: 'blank',
         requiresAuth: false,
-        title: 'Authenticating...'
+        title: 'Authenticating...',
+        oauthProvider: 'oidc'
       }
     },
     {
@@ -552,28 +560,30 @@ const router = createRouter({
 })
 
 // Update document title on navigation
-router.beforeResolve((to, from, next) => {
-  let title = 'Nosdesk';
-  
+// Routes where useTitleManager handles document.title (skip generic title-setting)
+const titleManagedRoutes = ['ticket', 'device', 'documentation-article'];
+
+router.beforeResolve((to) => {
+  // Skip title-setting for routes managed by useTitleManager —
+  // those views set their own specific title (e.g. "#123 Fix the bug")
+  if (titleManagedRoutes.includes(to.name as string)) {
+    return;
+  }
+
+  let title: string;
+
   if (to.meta?.title) {
     title = to.meta.title as string;
-    // For ticket view, append the ticket ID if available
-    if (to.name === 'ticket-view' && to.params.id) {
-      title = `Ticket #${to.params.id}`;
-    }
   } else if (to.name) {
     title = to.name.toString()
       .split('-')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-  }
-  
-  document.title = `${title} | Nosdesk`;
-  if (to.meta) {
-    to.meta.title = title;
+  } else {
+    title = 'Nosdesk';
   }
 
-  next();
+  document.title = `${title} | Nosdesk`;
 });
 
 // ===== NAVIGATION GUARD MIDDLEWARE =====
@@ -583,7 +593,6 @@ router.beforeResolve((to, from, next) => {
  * Check for unsaved changes before navigation
  */
 async function checkUnsavedChanges(to: RouteLocationNormalized, from: RouteLocationNormalized) {
-  // @ts-ignore
   if (window.hasUnsavedChanges && !window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
     return false; // Cancel navigation
   }
@@ -592,10 +601,18 @@ async function checkUnsavedChanges(to: RouteLocationNormalized, from: RouteLocat
 /**
  * Check if system requires initial setup/onboarding
  * Redirects to onboarding if no admin user exists
+ * Result is cached after first successful check to avoid API calls on every navigation
  */
+let onboardingChecked = false;
+
 async function checkOnboarding(to: RouteLocationNormalized, _from: RouteLocationNormalized) {
   // Skip check for onboarding, error, and login pages
   if (to.name === 'onboarding' || to.name === 'error' || to.name === 'login') {
+    return;
+  }
+
+  // Once setup is confirmed complete, no need to re-check
+  if (onboardingChecked) {
     return;
   }
 
@@ -603,12 +620,11 @@ async function checkOnboarding(to: RouteLocationNormalized, _from: RouteLocation
     const setupStatus = await authService.checkSetupStatus();
 
     if (setupStatus.requires_setup) {
-      // Prevent redirect loop if already coming from onboarding
-      if (from.name === 'onboarding') {
-        return false;
-      }
       return { name: 'onboarding' };
     }
+
+    // Setup is complete — cache the result
+    onboardingChecked = true;
   } catch (error) {
     console.error('Failed to check setup status:', error);
     // Continue navigation - error handled by onboarding component if needed

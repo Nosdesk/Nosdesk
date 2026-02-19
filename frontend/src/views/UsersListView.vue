@@ -19,6 +19,8 @@ import { useDataStore } from "@/stores/dataStore";
 import userService from "@/services/userService";
 import type { User } from "@/types/user";
 
+defineOptions({ name: 'UsersListView' })
+
 const router = useRouter();
 const dataStore = useDataStore();
 

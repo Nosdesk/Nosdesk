@@ -8,6 +8,8 @@ import CollectionBrowser from '@/components/documentationComponents/CollectionBr
 import { getArchivedPages, getTrashedPages } from '@/services/documentationService'
 import { getUncollectedPages } from '@/services/collectionService'
 
+defineOptions({ name: 'DocumentationIndexView' })
+
 const titleManager = useTitleManager()
 
 // Use shared documentation composable

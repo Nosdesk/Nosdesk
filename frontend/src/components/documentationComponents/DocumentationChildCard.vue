@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { Page } from '@/services/documentationService'
+import { docUrl } from '@/utils/docUrl'
 
 const props = defineProps<{
   page: Page
@@ -24,7 +25,7 @@ const truncatedDescription = computed(() => {
 
 <template>
   <RouterLink
-    :to="`/documentation/${page.slug || page.id}`"
+    :to="docUrl(page)"
     class="doc-child-card group"
     :style="staggerStyle"
   >

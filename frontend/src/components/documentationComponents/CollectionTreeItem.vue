@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import type { CollectionPageTreeNode } from '@/services/collectionService'
+import { docUrl } from '@/utils/docUrl'
 
 const props = defineProps<{
   node: CollectionPageTreeNode
@@ -12,7 +13,7 @@ const props = defineProps<{
 const route = useRoute()
 
 const hasChildren = computed(() => props.node.children && props.node.children.length > 0)
-const isActive = computed(() => route.path === `/documentation/${props.node.slug || props.node.id}`)
+const isActive = computed(() => route.path === docUrl(props.node))
 const currentLevel = computed(() => props.level)
 const hasOverride = computed(() => props.overridePageIds?.has(props.node.id) ?? false)
 </script>
@@ -41,7 +42,7 @@ const hasOverride = computed(() => props.overridePageIds?.has(props.node.id) ?? 
 
       <!-- Page title link -->
       <RouterLink
-        :to="`/documentation/${node.slug || node.id}`"
+        :to="docUrl(node)"
         class="flex-1 min-w-0 truncate ml-1.5"
         :class="isActive ? 'text-accent font-semibold' : 'hover:text-accent'"
       >

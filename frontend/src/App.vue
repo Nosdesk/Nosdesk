@@ -1,7 +1,7 @@
 // App.vue
 <script setup lang="ts">
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { computed, ref, onMounted, watch } from 'vue'
+import { computed, ref, onMounted, watch, nextTick } from 'vue'
 import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
 import MobileSearchBar from './components/MobileSearchBar.vue'
@@ -30,6 +30,19 @@ const route = useRoute()
 const router = useRouter()
 const isBlankLayout = computed(() => route.meta.layout === 'blank')
 
+// Accessibility: announce route changes to screen readers
+const routeAnnouncement = ref('')
+router.afterEach((to) => {
+  nextTick(() => {
+    const title = (to.meta?.title as string) || document.title.replace(/\s*\|.*$/, '')
+    routeAnnouncement.value = ''
+    // Reset then set to trigger aria-live announcement
+    requestAnimationFrame(() => {
+      routeAnnouncement.value = `Navigated to ${title}`
+    })
+  })
+})
+
 // Set up global mention click navigation
 setMentionNavigationHandler((uuid: string) => {
   router.push(`/admin/users/${uuid}`)
@@ -54,22 +67,6 @@ useSnowfall();         // Christmas: Ambient falling snow
 
 // Real-time notification handling
 useNotificationSSE();
-
-// Handle route-based ticket information
-const ticketInfo = computed(() => {
-  // Handle ticket routes
-  if (route.name === 'ticket' && route.params.id) {
-    const title = route.meta.pageTitle as string || '';
-    // Remove the ticket number from the title if it exists
-    const titleWithoutNumber = title.replace(/^#\d+\s*/, '');
-    return {
-      id: Number(route.params.id),
-      title: titleWithoutNumber
-    }
-  }
-  
-  return null
-})
 
 // Computed property to determine if on a documentation page
 const isDocumentationPage = computed(() => {
@@ -180,6 +177,9 @@ onMounted(async () => {
     <!-- Sidebar (includes both sidebar and mobile bottom nav, hidden on print) -->
     <Navbar class="print:hidden" @update:collapsed="handleNavCollapse" />
 
+    <!-- Screen reader route announcements -->
+    <div aria-live="polite" aria-atomic="true" class="sr-only">{{ routeAnnouncement }}</div>
+
     <!-- Main content area - takes remaining space -->
     <div class="flex flex-col flex-1 min-w-0">
       <!-- Header - sticky at top of content area (hidden on print) -->
@@ -221,7 +221,7 @@ onMounted(async () => {
         >
           <Transition name="page" mode="out-in">
             <KeepAlive :include="['TicketsListView', 'UsersListView', 'DevicesListView', 'ProjectsView', 'DocumentationIndexView']">
-              <component :is="Component" :key="viewRoute.fullPath" ref="currentViewComponent" class="h-full overflow-auto" />
+              <component :is="Component" :key="viewRoute.path" ref="currentViewComponent" class="h-full overflow-auto" />
             </KeepAlive>
           </Transition>
         </RouterView>

@@ -14,6 +14,8 @@ import { useMobileSearch } from '@/composables/useMobileSearch'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 
+defineOptions({ name: 'ProjectsView' })
+
 const projects = ref<Project[]>([])
 const router = useRouter()
 const showCreateModal = ref(false)

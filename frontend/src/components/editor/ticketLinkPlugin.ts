@@ -95,8 +95,8 @@ class TicketLinkView implements NodeView {
       if (navigateToTicket) {
         navigateToTicket(this.ticketId)
       } else {
-        // Fallback to URL navigation if no handler is set
-        window.location.href = this.href
+        // Fallback to router navigation if no handler is set
+        import('@/router').then(({ default: router }) => router.push(this.href))
       }
     })
   }
@@ -303,7 +303,7 @@ export function enhanceTicketLinks(container: HTMLElement): void {
       if (navigateToTicket) {
         navigateToTicket(ticketId)
       } else if (href) {
-        window.location.href = href
+        import('@/router').then(({ default: router }) => router.push(href))
       }
     })
   })

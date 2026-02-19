@@ -310,17 +310,6 @@ export const cancelAllRequests = (): void => {
   requestManager.cancelAllRequests();
 };
 
-// Get devices for a specific user (prioritized devices)
-export const getUserDevices = async (userUuid: string): Promise<Device[]> => {
-  try {
-    const response = await apiClient.get(`/users/${userUuid}/devices`);
-    return response.data.map(transformDeviceResponse);
-  } catch (error) {
-    logger.error('Failed to fetch user devices', { error, userUuid });
-    throw error;
-  }
-};
-
 // Get paginated devices excluding specific IDs
 export const getPaginatedDevicesExcluding = async (params: {
   page?: number;

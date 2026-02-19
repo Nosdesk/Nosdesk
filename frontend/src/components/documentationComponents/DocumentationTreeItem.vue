@@ -4,6 +4,7 @@ import { useDocumentationNavStore } from '@/stores/documentationNav'
 import type { Page } from '@/services/documentationService'
 import { computed } from 'vue'
 import { formatDate } from '@/utils/dateUtils'
+import { docUrl } from '@/utils/docUrl'
 
 const props = defineProps<{
   page: Page
@@ -49,7 +50,7 @@ const authorName = computed(() => {
   <div class="doc-tree-item" :style="staggerStyle">
     <!-- Main Item Row -->
     <RouterLink
-      :to="`/documentation/${page.slug || page.id}`"
+      :to="docUrl(page)"
       class="doc-row group"
       :class="{ 'has-children': hasChildren }"
     >

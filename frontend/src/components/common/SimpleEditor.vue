@@ -841,7 +841,7 @@ defineExpose({ focus, clear });
 <!-- Global styles for teleported dropdown -->
 <style>
 .mention-dropdown {
-  z-index: 9999;
+  z-index: 300; /* z-overlay */
   min-width: 250px;
   max-width: 350px;
   background-color: var(--color-surface);

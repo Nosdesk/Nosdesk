@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import UserAvatar from '@/components/UserAvatar.vue';
 import { useDataStore } from '@/stores/dataStore';
 import { useMobileDetection } from '@/composables/useMobileDetection';
+import { useScrollLock } from '@/composables/useScrollLock';
 
 const router = useRouter();
 
@@ -56,7 +57,7 @@ const mobileSearchInput = ref<HTMLInputElement | null>(null);
 let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // Scroll position for iOS scroll lock
-let scrollPosition = 0;
+const { lock: lockScroll, unlock: unlockScroll } = useScrollLock();
 
 // Position state for desktop dropdown
 const menuPosition = ref({ top: 0, left: 0, width: 0, openUpward: false, maxHeight: 320 });
@@ -245,25 +246,6 @@ const debouncedSearch = (query: string) => {
   searchTimeout = setTimeout(() => searchUsers(query), 300);
 };
 
-// Lock scroll for iOS - prevents background scrolling when modal is open
-const lockScroll = () => {
-  scrollPosition = window.pageYOffset;
-  document.body.style.overflow = 'hidden';
-  document.body.style.position = 'fixed';
-  document.body.style.top = `-${scrollPosition}px`;
-  document.body.style.left = '0';
-  document.body.style.right = '0';
-};
-
-// Unlock scroll for iOS - restores scroll position
-const unlockScroll = () => {
-  document.body.style.overflow = '';
-  document.body.style.position = '';
-  document.body.style.top = '';
-  document.body.style.left = '';
-  document.body.style.right = '';
-  window.scrollTo(0, scrollPosition);
-};
 
 // Open dropdown
 const openDropdown = async () => {
@@ -670,7 +652,7 @@ const showHelperText = computed(() => {
       >
         <div
           v-if="isDropdownOpen && isMobile"
-          class="fixed inset-0 bg-black/50 z-[9998]"
+          class="fixed inset-0 bg-black/50 z-backdrop"
           style="touch-action: none;"
           @click="closeDropdown"
           @touchmove.prevent
@@ -688,7 +670,7 @@ const showHelperText = computed(() => {
         <div
           v-if="isDropdownOpen && isMobile"
           ref="dropdownRef"
-          class="user-selection-dropdown fixed inset-x-0 bottom-0 bg-surface rounded-t-2xl shadow-2xl z-[9999] flex flex-col max-h-[55dvh]"
+          class="user-selection-dropdown fixed inset-x-0 bottom-0 bg-surface rounded-t-2xl shadow-2xl z-overlay flex flex-col max-h-[55dvh]"
         >
           <!-- Handle bar -->
           <div class="flex justify-center py-2 flex-shrink-0">

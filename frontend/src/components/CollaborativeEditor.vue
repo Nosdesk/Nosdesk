@@ -2652,7 +2652,7 @@ defineExpose({
     box-shadow:
         0 10px 15px -3px rgba(0, 0, 0, 0.1),
         0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    z-index: 9999;
+    z-index: 300; /* z-overlay */
     overflow: hidden;
     transform-origin: top left;
 }
@@ -2708,7 +2708,7 @@ defineExpose({
 }
 
 .mention-dropdown {
-    z-index: 9999;
+    z-index: 300; /* z-overlay */
     min-width: 250px;
     max-width: 350px;
     background-color: var(--color-surface);

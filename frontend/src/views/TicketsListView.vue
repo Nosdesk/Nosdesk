@@ -28,6 +28,8 @@ import { categoryService } from "@/services/categoryService";
 import type { TicketCategory } from "@/types/category";
 import type { Ticket } from "@/services/ticketService";
 
+defineOptions({ name: 'TicketsListView' })
+
 const themeStore = useThemeStore();
 const route = useRoute();
 const router = useRouter();

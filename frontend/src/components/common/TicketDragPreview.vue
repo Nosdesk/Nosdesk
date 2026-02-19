@@ -94,7 +94,7 @@ const getPriorityBorderClass = (priority?: string) => {
   <Teleport to="body">
     <div
       ref="previewRef"
-      class="fixed top-0 left-0 pointer-events-none z-[9999] w-64 md:w-72 will-change-transform"
+      class="fixed top-0 left-0 pointer-events-none z-overlay w-64 md:w-72 will-change-transform"
       :style="{
         transform: `translate3d(${transformX}px, ${transformY}px, 0)`
       }"

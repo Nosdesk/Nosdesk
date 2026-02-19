@@ -193,46 +193,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import authService from '@/services/authService';
+import { usePasswordForm } from '@/composables/usePasswordForm';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 
 const router = useRouter();
 const route = useRoute();
 
-const newPassword = ref('');
-const confirmPassword = ref('');
-const showPassword = ref(false);
-const showConfirmPassword = ref(false);
+// Password form composable (handles state, validation, cleanup)
+const {
+  newPassword,
+  confirmPassword,
+  showPassword,
+  showConfirmPassword,
+  passwordValidation,
+  passwordsMatch,
+  isFormValid,
+  validatePassword,
+  validatePasswordMatch,
+} = usePasswordForm();
+
 const loading = ref(false);
 const resetSuccess = ref(false);
 const errorMessage = ref('');
 
 const token = ref('');
-
-// Password validation
-const passwordValidation = computed(() => ({
-  length: newPassword.value.length >= 8,
-}));
-
-const passwordsMatch = computed(() => {
-  return confirmPassword.value && newPassword.value === confirmPassword.value;
-});
-
-const isFormValid = computed(() => {
-  return passwordValidation.value.length && passwordsMatch.value;
-});
-
-const validatePassword = () => {
-  if (confirmPassword.value) {
-    validatePasswordMatch();
-  }
-};
-
-const validatePasswordMatch = () => {
-  // Validation is handled by computed property
-};
 
 // Get token from URL query params
 onMounted(() => {

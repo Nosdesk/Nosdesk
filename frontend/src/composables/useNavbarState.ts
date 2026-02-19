@@ -1,16 +1,11 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { BREAKPOINTS } from './useMobileDetection'
 
 // Storage keys
 const STORAGE_KEYS = {
   collapsed: 'navbarCollapsed',
   docsCollapsed: 'docsCollapsed',
   ticketsCollapsed: 'ticketsCollapsed'
-} as const
-
-// Breakpoints matching Tailwind
-const BREAKPOINTS = {
-  sm: 640,   // Mobile boundary
-  lg: 1024   // Desktop boundary
 } as const
 
 // Singleton state - shared across all instances
@@ -23,7 +18,7 @@ const isDocsCollapsed = ref(false)
 const isTicketsCollapsed = ref(false)
 
 let initialized = false
-let resizeHandler: (() => void) | null = null
+let resizeTimeout: ReturnType<typeof setTimeout> | null = null
 
 /**
  * Composable for managing navbar collapsed/expanded state.
@@ -113,18 +108,23 @@ export function useNavbarState() {
       isCollapsed.value = loadPreference(STORAGE_KEYS.collapsed, false)
     }
 
-    // Add resize listener
-    resizeHandler = updateScreenSize
-    window.addEventListener('resize', resizeHandler)
+    // Add debounced resize listener (150ms matches useMobileDetection)
+    window.addEventListener('resize', debouncedUpdateScreenSize)
 
     initialized = true
   }
 
+  const debouncedUpdateScreenSize = () => {
+    if (resizeTimeout) clearTimeout(resizeTimeout)
+    resizeTimeout = setTimeout(updateScreenSize, 150)
+  }
+
   // Cleanup
   const cleanup = () => {
-    if (resizeHandler) {
-      window.removeEventListener('resize', resizeHandler)
-      resizeHandler = null
+    window.removeEventListener('resize', debouncedUpdateScreenSize)
+    if (resizeTimeout) {
+      clearTimeout(resizeTimeout)
+      resizeTimeout = null
     }
     initialized = false
   }

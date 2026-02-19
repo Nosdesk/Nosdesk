@@ -13,6 +13,7 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Modal from '@/components/Modal.vue';
 import { logger } from '@/utils/logger';
+import { formatFileSize } from '@/utils/formatFileSize';
 import type { Plugin, PluginSetting, PluginTrustLevel, PluginSource } from '@/types/plugin';
 
 // State
@@ -205,13 +206,6 @@ function canUploadBundle(plugin: Plugin): boolean {
   return plugin.trust_level === 'official' || plugin.trust_level === 'verified';
 }
 
-// Format file size
-function formatFileSize(bytes: number | null): string {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 // Trust level badge
 function getTrustLevelBadge(level: PluginTrustLevel): { label: string; class: string } {

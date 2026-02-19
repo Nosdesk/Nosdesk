@@ -3,6 +3,7 @@ import { useRouter } from 'vue-router'
 import documentationService from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
+import { docUrl } from '@/utils/docUrl'
 import { docsEmitter } from '@/services/docsEmitter'
 import { useSSE } from '@/services/sseService'
 import { useAuthStore } from '@/stores/auth'
@@ -111,7 +112,7 @@ export function useDocumentation() {
       if (newPage?.id) {
         docsEmitter.emit('doc:created', { id: newPage.id })
         documentationNavStore.refreshPages()
-        router.push(`/documentation/${newPage.slug || newPage.id}`)
+        router.push(docUrl(newPage))
         return newPage
       }
 

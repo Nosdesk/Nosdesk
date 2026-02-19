@@ -1,4 +1,4 @@
-import { ref, readonly, computed } from 'vue'
+import { ref, readonly, computed, onScopeDispose } from 'vue'
 
 // TypeScript declarations for Web Speech API
 interface SpeechRecognitionEvent extends Event {
@@ -65,7 +65,6 @@ export function useSpeechRecognition() {
     ? window.SpeechRecognition || window.webkitSpeechRecognition
     : null
   isSupported.value = !!SpeechRecognitionAPI
-  console.log('[useSpeechRecognition] API supported:', isSupported.value)
 
   function start(): void {
     if (!SpeechRecognitionAPI) return
@@ -94,12 +93,13 @@ export function useSpeechRecognition() {
         transcript.value += finalText
       }
       interimTranscript.value = interimText
-      console.log('[useSpeechRecognition] Result:', { final: finalText, interim: interimText })
+      if (import.meta.env.DEV) {
+        console.log('[useSpeechRecognition] Result:', { final: finalText, interim: interimText })
+      }
     }
 
-    recognition.onerror = (event: Event) => {
-      console.log('[useSpeechRecognition] Error:', event)
-      // Feature degrades gracefully
+    recognition.onerror = () => {
+      // Feature degrades gracefully - no action needed
     }
 
     recognition.onend = () => {
@@ -139,6 +139,9 @@ export function useSpeechRecognition() {
 
   // Reactive full transcript (for template binding)
   const fullTranscript = computed(() => (transcript.value + interimTranscript.value).trim())
+
+  // Auto-cleanup on scope disposal (component unmount)
+  onScopeDispose(stop)
 
   return {
     isSupported: readonly(isSupported),

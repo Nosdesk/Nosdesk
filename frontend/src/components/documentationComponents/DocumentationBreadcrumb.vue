@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { getCollectionsForPage, getCollection } from '@/services/collectionService'
 import type { CollectionPage } from '@/services/collectionService'
 import { getAncestorChain } from '@/utils/treeUtils'
+import { docUrl } from '@/utils/docUrl'
 
 const props = defineProps<{
   pageId: number | string
@@ -50,7 +51,7 @@ const buildBreadcrumbs = async () => {
         for (const ancestor of ancestors) {
           items.push({
             label: ancestor.title,
-            to: `/documentation/${ancestor.slug || ancestor.id}`,
+            to: docUrl(ancestor),
             icon: ancestor.icon,
           })
         }

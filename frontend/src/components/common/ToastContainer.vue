@@ -60,7 +60,7 @@ const dismissToast = (toast: Toast, event: Event) => {
   <Teleport to="body">
     <div
       aria-live="assertive"
-      class="pointer-events-none fixed inset-0 flex flex-col items-end px-4 py-6 sm:p-6 z-[9999] gap-3"
+      class="pointer-events-none fixed inset-0 flex flex-col items-end px-4 py-6 sm:p-6 z-overlay gap-3"
     >
       <TransitionGroup
         name="toast"

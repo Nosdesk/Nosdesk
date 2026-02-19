@@ -281,10 +281,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import authService from '@/services/authService';
 import { useAutoLogin } from '@/composables/useAutoLogin';
+import { usePasswordForm } from '@/composables/usePasswordForm';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 
 const router = useRouter();
@@ -298,10 +299,20 @@ const {
   attemptLogin
 } = useAutoLogin({ source: 'invitation' });
 
-const newPassword = ref('');
-const confirmPassword = ref('');
-const showPassword = ref(false);
-const showConfirmPassword = ref(false);
+// Password form composable (handles state, validation, cleanup)
+const {
+  newPassword,
+  confirmPassword,
+  showPassword,
+  showConfirmPassword,
+  passwordValidation,
+  passwordsMatch,
+  isFormValid,
+  validatePassword,
+  validatePasswordMatch,
+  clearSensitiveData,
+} = usePasswordForm();
+
 const loading = ref(false);
 const validating = ref(true);
 const acceptSuccess = ref(false);
@@ -311,29 +322,6 @@ const userEmail = ref('');
 const userName = ref('');
 
 const token = ref('');
-
-// Password validation
-const passwordValidation = computed(() => ({
-  length: newPassword.value.length >= 8,
-}));
-
-const passwordsMatch = computed(() => {
-  return confirmPassword.value && newPassword.value === confirmPassword.value;
-});
-
-const isFormValid = computed(() => {
-  return passwordValidation.value.length && passwordsMatch.value;
-});
-
-const validatePassword = () => {
-  if (confirmPassword.value) {
-    validatePasswordMatch();
-  }
-};
-
-const validatePasswordMatch = () => {
-  // Validation is handled by computed property
-};
 
 // Validate token on mount
 onMounted(async () => {
@@ -389,16 +377,6 @@ const handleSubmit = async () => {
     loading.value = false;
   }
 };
-
-const clearSensitiveData = () => {
-  newPassword.value = '';
-  confirmPassword.value = '';
-};
-
-// Cleanup on unmount
-onUnmounted(() => {
-  clearSensitiveData();
-});
 
 const goToLogin = () => {
   clearSensitiveData();

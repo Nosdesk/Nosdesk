@@ -514,8 +514,11 @@ export const useDataStore = defineStore('data', () => {
     }
   }
   
-  // Auto cleanup every 10 minutes
-  setInterval(cleanupExpiredCache, 10 * 60 * 1000)
+  // Auto cleanup every 10 minutes (capture ID for HMR cleanup)
+  const cleanupIntervalId = setInterval(cleanupExpiredCache, 10 * 60 * 1000)
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => clearInterval(cleanupIntervalId))
+  }
   
   // Process batched user requests
   const processBatchRequests = async () => {

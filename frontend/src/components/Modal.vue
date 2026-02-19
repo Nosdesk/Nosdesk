@@ -1,6 +1,7 @@
 <!-- Modal.vue -->
 <script setup lang="ts">
-import { computed, watch, onMounted, onUnmounted } from 'vue'
+import { computed, toRef, onMounted, onUnmounted } from 'vue'
+import { useScrollLock } from '@/composables/useScrollLock'
 
 const props = defineProps<{
   show: boolean
@@ -28,9 +29,7 @@ const sizeClasses = computed(() => {
 })
 
 // Lock body scroll when modal is open
-watch(() => props.show, (isOpen) => {
-  document.body.style.overflow = isOpen ? 'hidden' : ''
-}, { immediate: true })
+useScrollLock(toRef(props, 'show'))
 
 // Handle escape key globally
 const onEscape = (e: KeyboardEvent) => {
@@ -38,10 +37,7 @@ const onEscape = (e: KeyboardEvent) => {
 }
 
 onMounted(() => document.addEventListener('keydown', onEscape))
-onUnmounted(() => {
-  document.removeEventListener('keydown', onEscape)
-  document.body.style.overflow = ''
-})
+onUnmounted(() => document.removeEventListener('keydown', onEscape))
 </script>
 
 <template>
@@ -49,7 +45,7 @@ onUnmounted(() => {
     <Transition name="modal" appear>
       <div
         v-if="show"
-        class="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center"
+        class="fixed inset-0 z-overlay flex items-end sm:items-center justify-center"
       >
         <!-- Backdrop -->
         <div

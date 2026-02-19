@@ -11,30 +11,40 @@ const router = useRouter()
 const authStore = useAuthStore()
 const { handleMicrosoftLogoutAndRetry } = useMicrosoftAuth()
 
+// Provider type from route meta (e.g. 'microsoft', 'oidc')
+const provider = computed(() => (route.meta.oauthProvider as string) || 'oidc')
+const isMicrosoft = computed(() => provider.value === 'microsoft')
+const providerLabel = computed(() => isMicrosoft.value ? 'Microsoft' : 'SSO')
+
 const error = ref<string | null>(null)
 const detailedError = ref<string | null>(null)
 const loading = ref(true)
 const message = ref('Completing sign-in...')
 const showTechnicalDetails = ref(false)
 
-// Computed property to determine error type and appropriate messaging
 const errorInfo = computed<ErrorInfo | null>(() => {
   if (!error.value) return null
 
   const errorMsg = error.value.toLowerCase()
 
   if (errorMsg.includes('already connected') || errorMsg.includes('already linked')) {
+    const actions = isMicrosoft.value
+      ? [
+          { label: 'Try a Different Account', action: 'logout_and_retry', primary: true },
+          { label: 'Back to Settings', action: 'settings' },
+          { label: 'Return to Login', action: 'login' }
+        ]
+      : [{ label: 'Return to Login', action: 'login', primary: true }]
+
     return {
       type: 'already_connected',
       title: 'Account Already Connected',
-      message: 'This Microsoft account is already linked to another user in the system.',
-      suggestion: 'Try signing in with a different Microsoft account, or contact your administrator.',
+      message: `This ${providerLabel.value} account is already linked to another user in the system.`,
+      suggestion: isMicrosoft.value
+        ? `Try signing in with a different ${providerLabel.value} account, or contact your administrator.`
+        : 'Try signing in with a different account, or contact your administrator.',
       icon: 'link',
-      actions: [
-        { label: 'Try a Different Account', action: 'logout_and_retry', primary: true },
-        { label: 'Back to Settings', action: 'settings' },
-        { label: 'Return to Login', action: 'login' }
-      ]
+      actions
     }
   }
 
@@ -43,16 +53,19 @@ const errorInfo = computed<ErrorInfo | null>(() => {
       type: 'invalid_request',
       title: 'Authentication Failed',
       message: 'The authentication request was invalid or has expired.',
-      suggestion: 'Please try connecting your Microsoft account again.',
+      suggestion: isMicrosoft.value
+        ? `Please try connecting your ${providerLabel.value} account again.`
+        : 'Please try signing in again.',
       icon: 'warning',
-      actions: [
-        { label: 'Try Again', action: 'retry', primary: true },
-        { label: 'Back to Settings', action: 'settings' }
-      ]
+      actions: isMicrosoft.value
+        ? [
+            { label: 'Try Again', action: 'retry', primary: true },
+            { label: 'Back to Settings', action: 'settings' }
+          ]
+        : [{ label: 'Try Again', action: 'login', primary: true }]
     }
   }
 
-  // Generic error
   return {
     type: 'generic',
     title: 'Authentication Failed',
@@ -60,8 +73,8 @@ const errorInfo = computed<ErrorInfo | null>(() => {
     suggestion: 'Please try again or contact support if the problem persists.',
     icon: 'error',
     actions: [
-      { label: 'Try Again', action: 'retry', primary: true },
-      { label: 'Return to Login', action: 'login' }
+      { label: isMicrosoft.value ? 'Try Again' : 'Return to Login', action: isMicrosoft.value ? 'retry' : 'login', primary: true },
+      ...(isMicrosoft.value ? [{ label: 'Return to Login', action: 'login' }] : [])
     ]
   }
 })
@@ -87,14 +100,12 @@ onMounted(async () => {
   const errorParam = route.query.error as string | undefined
   const errorDescription = route.query.error_description as string | undefined
 
-  // Handle errors returned by Microsoft
   if (errorParam) {
     error.value = errorDescription || errorParam
     loading.value = false
     return
   }
 
-  // Validate required parameters
   if (!code || !state) {
     error.value = 'Missing required authentication parameters'
     detailedError.value = `Missing: ${!code ? 'code' : ''} ${!state ? 'state' : ''}`
@@ -115,20 +126,18 @@ onMounted(async () => {
       message.value = 'Success! Redirecting...'
       loading.value = false
 
-      authStore.setAuthProvider('microsoft')
+      authStore.setAuthProvider(provider.value)
 
       if (data.user) {
         authStore.user = data.user
       }
 
-      // Redirect to original destination or home
       let redirectPath = sessionStorage.getItem('authRedirect') || '/'
-      if (redirectPath.includes('/auth/microsoft/callback')) {
+      if (redirectPath.includes(`/auth/${provider.value}/callback`)) {
         redirectPath = '/'
       }
       sessionStorage.removeItem('authRedirect')
 
-      // Brief delay to show success state
       setTimeout(() => router.push(redirectPath), 500)
     } else {
       error.value = 'Invalid response from server'
@@ -136,12 +145,7 @@ onMounted(async () => {
       loading.value = false
     }
   } catch (err) {
-    interface AxiosError {
-      response?: { status?: number; data?: { message?: string; error?: string } }
-      request?: unknown
-      message?: string
-    }
-    const axiosError = err as AxiosError
+    const axiosError = err as { response?: { status?: number; data?: { message?: string; error?: string } }; request?: unknown; message?: string }
 
     error.value = axiosError.response?.data?.message ||
                   axiosError.response?.data?.error ||

@@ -3,6 +3,7 @@ import { logger } from '@/utils/logger';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import apiClient from '@/services/apiConfig';
+import authService from '@/services/authService';
 import router from '@/router';
 import type { User, LoginCredentials } from '@/types';
 import { useThemeStore } from './theme';
@@ -80,16 +81,16 @@ export const useAuthStore = defineStore('auth', () => {
           logger.debug('Fetching user data...');
         }
 
-        const response = await apiClient.get('/auth/me');
-        user.value = response.data;
+        const userData = await authService.getCurrentUser();
+        user.value = userData;
 
         // Load theme from user profile
         const themeStore = useThemeStore();
-        themeStore.loadThemeFromUser(response.data);
+        themeStore.loadThemeFromUser(userData);
 
         // Reset cooldown on success
         lastFetchAttempt = 0;
-        return response.data;
+        return userData;
       } catch (err) {
         logger.error('Error fetching user data:', err);
 
@@ -261,12 +262,7 @@ export const useAuthStore = defineStore('auth', () => {
       error.value = null;
 
       try {
-        const response = await apiClient.post('/auth/mfa-setup-login', {
-          email,
-          password
-        });
-
-        return response.data;
+        return await authService.setupMFAForLogin({ email, password });
       } catch (err) {
         logger.error('MFA setup error:', err);
         const axiosError = err as { response?: { data?: { message?: string } } };
@@ -283,7 +279,7 @@ export const useAuthStore = defineStore('auth', () => {
       error.value = null;
 
       try {
-        const response = await apiClient.post('/auth/mfa-enable-login', {
+        const response = await authService.enableMFAForLogin({
           email,
           password,
           token: token.trim(),
@@ -291,15 +287,15 @@ export const useAuthStore = defineStore('auth', () => {
           backup_codes: backupCodes
         });
 
-        if (response.data.success && response.data.csrf_token) {
-          setAuthData(response.data.user);
+        if (response.user) {
+          setAuthData(response.user);
           mfaSetupRequired.value = false;
           mfaUserUuid.value = '';
           router.push('/');
           return true;
         }
         
-        error.value = response.data.message || 'MFA setup failed. Please try again.';
+        error.value = 'MFA setup failed. Please try again.';
         return false;
         
       } catch (err) {
@@ -348,7 +344,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     try {
       // Call backend logout endpoint to clear cookies
-      await apiClient.post('/auth/logout');
+      await authService.logout();
     } catch (err) {
       logger.error('Logout request failed:', err);
       // Continue with frontend logout even if backend call fails

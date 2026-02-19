@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
+import { ref, watch, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import BackButton from '@/components/common/BackButton.vue';
@@ -52,20 +52,21 @@ const isAdminMode = computed(() => {
 // Update URL when tab changes without causing navigation
 const updateURL = (section: string) => {
   let newPath: string;
-  
+
   if (targetUserUuid.value) {
     // Admin managing another user
-    newPath = section === 'profile' 
-      ? `/users/${targetUserUuid.value}/settings` 
+    newPath = section === 'profile'
+      ? `/users/${targetUserUuid.value}/settings`
       : `/users/${targetUserUuid.value}/settings/${section}`;
   } else {
     // User managing their own profile
     newPath = section === 'profile' ? '/profile/settings' : `/profile/settings/${section}`;
   }
-  
-  // Use History API to update URL without triggering router navigation
-  window.history.replaceState({}, '', newPath);
-  
+
+  // Use router.replace to update URL without pushing a new history entry,
+  // preserving Vue Router's internal state for proper back-navigation
+  router.replace(newPath);
+
   // Update page title manually
   const prefix = isAdminMode.value ? 'User ' : '';
   const sectionTitles: Record<string, string> = {
@@ -74,7 +75,7 @@ const updateURL = (section: string) => {
     notifications: `${prefix}Notification Settings`,
     security: `${prefix}Security Settings`
   };
-  
+
   const title = sectionTitles[section] || 'Settings';
   document.title = `${title} | Nosdesk`;
 };
@@ -187,43 +188,24 @@ const handleError = (message: string) => {
   clearMessages();
 };
 
-// Handle browser back/forward navigation
-const handlePopState = () => {
-  const path = window.location.pathname;
-  
-  isUpdatingFromRoute.value = true;
-  
-  // Handle different URL patterns
-  if (path.includes('/users/') && path.includes('/settings')) {
-    // Admin managing another user: /users/:uuid/settings/:section?
-    const parts = path.split('/');
-    const section = parts[parts.length - 1];
-    if (section === 'settings' || !settingsTabs.some(tab => tab.id === section)) {
-      activeTab.value = 'profile';
-    } else {
-      activeTab.value = section;
-    }
-  } else if (path === '/profile/settings') {
-    // Base profile URL maps to profile
-    activeTab.value = 'profile';
-  } else {
-    // Extract section from URL
-    const section = path.split('/').pop();
+// Sync active tab from route params when route changes (e.g. browser back/forward)
+watch(
+  () => route.params.section as string | undefined,
+  (section) => {
+    isUpdatingFromRoute.value = true;
     if (section && settingsTabs.some(tab => tab.id === section)) {
       activeTab.value = section;
     } else {
       activeTab.value = 'profile';
     }
+    isUpdatingFromRoute.value = false;
   }
-  
-  isUpdatingFromRoute.value = false;
-};
+);
 
 // Initialize from current route on mount
 onMounted(async () => {
   const section = route.params.section as string;
-  const path = window.location.pathname;
-  
+
   // Load target user if in admin mode
   await loadTargetUser();
 
@@ -233,40 +215,17 @@ onMounted(async () => {
   }
 
   isUpdatingFromRoute.value = true;
-  
-  // Handle initialization based on current URL
-  if (path.includes('/users/') && path.includes('/settings')) {
-    // Admin managing another user
-    if (!section || section === 'settings') {
-      activeTab.value = 'profile';
-    } else if (settingsTabs.some(tab => tab.id === section)) {
-      activeTab.value = section;
-    } else {
-      activeTab.value = 'profile';
-      updateURL('profile');
-    }
-  } else if (path === '/profile/settings') {
-    // Base profile URL maps to profile
-    activeTab.value = 'profile';
-  } else if (section && settingsTabs.some(tab => tab.id === section)) {
-    // Valid section in URL
+
+  if (section && settingsTabs.some(tab => tab.id === section)) {
     activeTab.value = section;
   } else {
-    // Invalid or missing section, default to profile and update URL
     activeTab.value = 'profile';
     updateURL('profile');
   }
-  
+
   isUpdatingFromRoute.value = false;
-  
-  // Listen for browser navigation
-  window.addEventListener('popstate', handlePopState);
 });
 
-// Cleanup on unmount
-onUnmounted(() => {
-  window.removeEventListener('popstate', handlePopState);
-});
 
 // Tab icon renderer
 const renderTabIcon = (iconName: string) => {

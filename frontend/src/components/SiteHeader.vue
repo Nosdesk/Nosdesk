@@ -164,7 +164,7 @@ defineExpose({
 </script>
 
 <template>
-  <header class="bg-surface border-b border-default relative z-[999]">
+  <header class="bg-surface border-b border-default relative z-header">
     <div class="flex items-center justify-between h-14 sm:h-16 px-3 sm:px-4 md:px-6 gap-2">
       <!-- Left side - Title area -->
       <div class="flex items-center flex-1 min-w-0">

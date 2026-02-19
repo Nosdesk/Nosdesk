@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { formatDate } from '@/utils/dateUtils'
-import { slugify } from '@/utils/docUrl'
+import { docUrl, slugify } from '@/utils/docUrl'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocumentation } from '@/composables/useDocumentation'
 import { useClipboard } from '@/composables/useClipboard'
@@ -163,11 +163,7 @@ const saveTitleChanges = async () => {
   const newSlug = slugify(editTitle.value)
 
   try {
-    await apiClient.put(`/documentation/pages/${currentPageId.value}`, {
-      title: editTitle.value,
-      slug: newSlug,
-    })
-
+    await documentationService.updatePage(currentPageId.value, { title: editTitle.value, slug: newSlug })
     documentationNavStore.updatePageField(currentPageId.value, 'title', editTitle.value)
     documentationNavStore.updatePageField(currentPageId.value, 'slug', newSlug)
   } catch (error) {
@@ -256,10 +252,8 @@ const showPermissionsModal = ref(false)
 const exportAsMarkdown = async () => {
   if (!currentPageId.value) return
   try {
-    const response = await apiClient.get(`/documentation/pages/${currentPageId.value}/export/markdown`, {
-      responseType: 'blob',
-    })
-    const blob = new Blob([response.data], { type: 'text/markdown' })
+    const blob = await documentationService.exportPageMarkdown(currentPageId.value)
+    if (!blob) return
     const url = URL.createObjectURL(blob)
     const a = window.document.createElement('a')
     a.href = url
@@ -279,9 +273,9 @@ async function updatePageStatus(status: string, opts?: { redirect?: string; apiS
   if (!currentPageId.value) return
   try {
     if (opts?.apiSuffix) {
-      await apiClient.post(`/documentation/pages/${currentPageId.value}${opts.apiSuffix}`)
+      await documentationService.restorePage(currentPageId.value)
     } else {
-      await apiClient.put(`/documentation/pages/${currentPageId.value}`, { status })
+      await documentationService.updatePage(currentPageId.value, { status })
     }
     if (document.value) document.value.status = status
     documentationNavStore.updatePageField(currentPageId.value, 'status', status)
@@ -322,7 +316,7 @@ const handleDuplicatePage = async () => {
     if (newPage?.id) {
       docsEmitter.emit('doc:created', { id: newPage.id })
       documentationNavStore.refreshPages()
-      router.push(`/documentation/${newPage.slug || newPage.id}`)
+      router.push(docUrl(newPage))
     }
   } catch (error) {
     console.error('Failed to duplicate page:', error)
@@ -496,12 +490,30 @@ let cleanupSSE: (() => void) | null = null
 onMounted(() => {
   cleanupSSE = setupSSE(handleSSEUpdate)
   fetchContent()
+
+  // Register save handlers for SiteHeader title/icon edits
+  titleManager.onDocumentTitleSave(async (title: string) => {
+    if (!currentPageId.value) return
+    const newSlug = slugify(title)
+    await documentationService.updatePage(currentPageId.value, { title, slug: newSlug })
+    documentationNavStore.updatePageField(currentPageId.value, 'title', title)
+    documentationNavStore.updatePageField(currentPageId.value, 'slug', newSlug)
+    if (document.value) document.value.slug = newSlug
+  })
+
+  titleManager.onDocumentIconSave(async (icon: string) => {
+    if (!currentPageId.value) return
+    await documentationService.updatePage(currentPageId.value, { icon })
+    documentationNavStore.updatePageField(currentPageId.value, 'icon', icon)
+  })
 })
 
 onUnmounted(() => {
   if (cleanupSSE) {
     cleanupSSE()
   }
+  titleManager.onDocumentTitleSave(null)
+  titleManager.onDocumentIconSave(null)
   if (titleUpdateTimeout) {
     clearTimeout(titleUpdateTimeout)
   }

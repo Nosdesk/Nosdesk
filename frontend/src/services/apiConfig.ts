@@ -64,6 +64,23 @@ function getCsrfToken(): string | null {
   return match ? match[1] : null;
 }
 
+// Redirect to login using Vue Router to preserve SPA history stack
+function redirectToLogin() {
+  sessionStorage.setItem('redirecting-to-login', 'true');
+
+  document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  document.cookie = 'refresh_token=; path=/api/auth/refresh; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+
+  localStorage.removeItem('authProvider');
+
+  setTimeout(async () => {
+    sessionStorage.removeItem('redirecting-to-login');
+    const { default: router } = await import('@/router');
+    router.push('/login');
+  }, 100);
+}
+
 // Add request interceptor for CSRF token and correlation ID
 apiClient.interceptors.request.use(
   (config) => {
@@ -160,19 +177,7 @@ apiClient.interceptors.response.use(
             correlationId
           });
 
-          sessionStorage.setItem('redirecting-to-login', 'true');
-
-          // Clear auth cookies
-          document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-          document.cookie = 'refresh_token=; path=/api/auth/refresh; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-          document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-
-          localStorage.removeItem('authProvider');
-
-          setTimeout(() => {
-            sessionStorage.removeItem('redirecting-to-login');
-            window.location.href = '/login';
-          }, 100);
+          redirectToLogin();
         }
         return Promise.reject(appError);
       }
@@ -213,18 +218,7 @@ apiClient.interceptors.response.use(
 
           // Redirect to login
           if (!window.location.pathname.includes('/login') && !sessionStorage.getItem('redirecting-to-login')) {
-            sessionStorage.setItem('redirecting-to-login', 'true');
-
-            document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-            document.cookie = 'refresh_token=; path=/api/auth/refresh; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-            document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-
-            localStorage.removeItem('authProvider');
-
-            setTimeout(() => {
-              sessionStorage.removeItem('redirecting-to-login');
-              window.location.href = '/login';
-            }, 100);
+            redirectToLogin();
           }
         }
       } catch (refreshError) {

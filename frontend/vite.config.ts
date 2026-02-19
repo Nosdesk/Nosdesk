@@ -14,7 +14,7 @@ export default defineConfig({
     },
   },
   define: {
-    __VUE_PROD_DEVTOOLS__: true, // Enable Vue DevTools in production build
+    __VUE_PROD_DEVTOOLS__: false,
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false,
     __VUE_OPTIONS_API__: true,
     __VUE_PROD_TIPS__: false,
@@ -40,10 +40,24 @@ export default defineConfig({
     emptyOutDir: true,
     // Ensure assets are referenced correctly when served by backend
     assetsDir: "assets",
-    // Enable build caching
     sourcemap: false,
     // Skip minification in watch mode for faster rebuilds
     minify: process.env.NODE_ENV === 'production' ? 'esbuild' : false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          // Vue core framework
+          if (/[\\/](vue|vue-router|pinia)[\\/]/.test(id)) return 'vendor-vue';
+          // ProseMirror + Yjs editor stack
+          if (/[\\/](prosemirror-|y-prosemirror|yjs|y-protocols|y-websocket|y-indexeddb|lib0)[\\/]/.test(id)) return 'vendor-editor';
+          // Utility libraries
+          if (/[\\/](axios|date-fns|@date-fns|dompurify|marked)[\\/]/.test(id)) return 'vendor-utils';
+          // Heavy optional/media libraries
+          if (/[\\/](heic2any|jszip|qrcode|highlight\.js|lowlight)[\\/]/.test(id)) return 'vendor-media';
+        },
+      },
+    },
   },
   server: {
     host: "0.0.0.0",

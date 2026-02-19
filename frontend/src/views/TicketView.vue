@@ -239,10 +239,18 @@ const handleDocumentDragEnd = () => {
 
 onMounted(() => {
     document.addEventListener('dragend', handleDocumentDragEnd);
+
+    // Register save handler for SiteHeader title edits
+    titleManager.onTicketTitleSave(async (title: string) => {
+        if (ticket.value) {
+            await ticketService.updateTicket(ticket.value.id, { title });
+        }
+    });
 });
 
 onUnmounted(() => {
     document.removeEventListener('dragend', handleDocumentDragEnd);
+    titleManager.onTicketTitleSave(null);
     if (inactiveTimeout) {
         clearTimeout(inactiveTimeout);
     }

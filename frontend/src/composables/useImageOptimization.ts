@@ -30,23 +30,20 @@ const CACHE_CLEANUP_INTERVAL = 5 * 60 * 1000
 // Cache expiry time (30 minutes - standard practice)
 const CACHE_EXPIRY_TIME = 30 * 60 * 1000
 
-// Cleanup expired cache entries periodically
-let cleanupInterval: number | null = null
-const startCacheCleanup = () => {
-  if (cleanupInterval) return
-  
-  cleanupInterval = window.setInterval(() => {
-    const now = Date.now()
-    for (const [url, entry] of globalImageCache.entries()) {
-      if (now - entry.timestamp > CACHE_EXPIRY_TIME) {
-        globalImageCache.delete(url)
-      }
+// Cleanup expired cache entries periodically (singleton, runs for app lifetime)
+const cleanupInterval = window.setInterval(() => {
+  const now = Date.now()
+  for (const [url, entry] of globalImageCache.entries()) {
+    if (now - entry.timestamp > CACHE_EXPIRY_TIME) {
+      globalImageCache.delete(url)
     }
-  }, CACHE_CLEANUP_INTERVAL)
-}
+  }
+}, CACHE_CLEANUP_INTERVAL)
 
-// Start cleanup on first use
-startCacheCleanup()
+// Clean up interval during HMR to prevent duplicates
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => clearInterval(cleanupInterval))
+}
 
 // Cancel all pending requests with lower priority
 const cancelLowerPriorityRequests = (currentPriority: number) => {
