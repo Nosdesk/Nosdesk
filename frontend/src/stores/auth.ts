@@ -55,9 +55,10 @@ export const useAuthStore = defineStore('auth', () => {
   const isMicrosoftAuth = computed(() => authProvider.value === 'microsoft');
 
   // Fetch current user data from the backend
+  // NOTE: No CSRF cookie guard here. When cookies expire (15 min), the API call
+  // will get a 401, and the interceptor in apiConfig.ts will automatically attempt
+  // a refresh using the 7-day refresh token before failing.
   async function fetchUserData() {
-    if (!hasCsrfToken()) return null;
-
     // Return existing promise if already fetching
     if (fetchUserDataPromise) {
       return fetchUserDataPromise;

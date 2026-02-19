@@ -640,30 +640,43 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   const authStore = useAuthStore();
 
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth);
-  const isAuthenticated = authStore.isAuthenticated;
 
-  // Fetch user data if needed
-  if (isAuthenticated && !authStore.user && !authStore.loading && to.name !== 'login') {
+  // Fetch user data if authenticated (cookie/user present) but user object not yet loaded
+  if (authStore.isAuthenticated && !authStore.user && !authStore.loading && to.name !== 'login') {
     try {
       await authStore.fetchUserData();
-    } catch (error) {
-      // Only logout for auth errors (401/403)
-      const axiosError = error as { response?: { status?: number } };
-      if (axiosError?.response?.status === 401 || axiosError?.response?.status === 403) {
-        authStore.logout();
+    } catch {
+      // fetchUserData handles errors internally; the apiConfig interceptor
+      // already handles 401 → refresh → retry. If it still fails, redirect.
+      if (requiresAuth) {
         return { name: 'login', query: { redirect: to.fullPath } };
       }
-      // Allow navigation for other errors (rate limit, network, etc.)
     }
   }
 
+  // Session restoration: when frontend auth state is cleared (e.g. page refresh after
+  // the 15-min access token expires), attempt to restore the session using the 7-day
+  // refresh token. fetchUserData() calls /auth/me → gets 401 → apiConfig interceptor
+  // transparently refreshes the access token and retries the request.
+  if (requiresAuth && !authStore.isAuthenticated && !authStore.loading && to.name !== 'login') {
+    try {
+      await authStore.fetchUserData();
+      if (authStore.user) {
+        return; // Session restored via refresh token
+      }
+    } catch {
+      // Refresh token expired or invalid — session cannot be restored
+    }
+    return { name: 'login', query: { redirect: to.fullPath } };
+  }
+
   // Redirect unauthenticated users from protected routes
-  if (requiresAuth && !isAuthenticated) {
+  if (requiresAuth && !authStore.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } };
   }
 
   // Redirect authenticated users away from login/onboarding
-  if (isAuthenticated && authStore.user) {
+  if (authStore.isAuthenticated && authStore.user) {
     if (to.path === '/login' || to.name === 'onboarding') {
       return { name: 'home' };
     }
