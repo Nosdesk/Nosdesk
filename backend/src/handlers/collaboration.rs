@@ -1168,6 +1168,7 @@ struct YjsWebSocket {
     #[allow(dead_code)]
     protocol: DefaultProtocol,
     user_uuid: Uuid, // User UUID for contributor tracking
+    yjs_client_id: Option<u64>, // Yjs clientID from awareness, used for cleanup on disconnect
     // Statistics for debugging
     messages_received: u32,
     pings_sent: u32,
@@ -1187,6 +1188,7 @@ impl YjsWebSocket {
             hb: now,
             protocol: DefaultProtocol,
             user_uuid,
+            yjs_client_id: None,
             messages_received: 0,
             pings_sent: 0,
             pongs_received: 0,
@@ -1359,16 +1361,44 @@ impl Actor for YjsWebSocket {
 
         self.hb(ctx);
 
-        // Register session asynchronously
+        // Register session and send initial sync + awareness state
         let app_state = self.app_state.clone();
         let doc_id = self.doc_id.clone();
         let session_id = self.id.clone();
         let addr = ctx.address();
         actix::spawn(async move {
-            app_state.register_session(&doc_id, &session_id, addr).await;
-        });
+            app_state.register_session(&doc_id, &session_id, addr.clone()).await;
 
-        debug!(doc_id = %self.doc_id, "Waiting for client sync request");
+            // Per the yjs sync protocol spec, the server should proactively send
+            // SyncStep1 + all known awareness states to newly connected clients.
+            // This ensures the client immediately discovers other connected users.
+            //
+            // IMPORTANT: Each message must be sent as a separate WebSocket frame.
+            // y-websocket's readMessage() parses one message per frame, so packing
+            // multiple messages into a single buffer (as Protocol::start() does)
+            // would cause only the first message to be read.
+            let awareness = app_state.get_or_create_awareness(&doc_id).await;
+            use yrs::sync::{Message, SyncMessage};
+
+            // 1. Send SyncStep1 with the server's state vector
+            let sv = awareness.doc().transact().state_vector();
+            let sync_msg = Message::Sync(SyncMessage::SyncStep1(sv));
+            addr.do_send(YjsMessage(Bytes::from(sync_msg.encode_v1())));
+
+            // 2. Send all known awareness states (other connected clients)
+            match awareness.update() {
+                Ok(awareness_update) => {
+                    let awareness_msg = Message::Awareness(awareness_update);
+                    addr.do_send(YjsMessage(Bytes::from(awareness_msg.encode_v1())));
+                    debug!(doc_id = %doc_id,
+                        "Sent initial SyncStep1 + awareness to new client");
+                }
+                Err(e) => {
+                    debug!(doc_id = %doc_id, error = ?e,
+                        "Sent SyncStep1 but no awareness states to send");
+                }
+            }
+        });
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
@@ -1387,10 +1417,29 @@ impl Actor for YjsWebSocket {
         let app_state = self.app_state.clone();
         let doc_id = self.doc_id.clone();
         let session_id = self.id.clone();
+        let yjs_client_id = self.yjs_client_id;
 
         actix::spawn(async move {
             // Remove the session first
             app_state.remove_session(&doc_id, &session_id).await;
+
+            // Clean up the disconnected client's awareness state and notify remaining clients.
+            // Per the yjs protocol, disconnecting clients should propagate state=null.
+            // On abrupt disconnects (refresh, network loss), the client can't send this itself,
+            // so the server must do it.
+            if let Some(client_id) = yjs_client_id {
+                let awareness = app_state.get_or_create_awareness(&doc_id).await;
+                awareness.remove_state(client_id);
+
+                // Encode and broadcast the removal (state=null) to remaining clients
+                if let Ok(update) = awareness.update_with_clients([client_id]) {
+                    use yrs::sync::Message;
+                    let msg = Message::Awareness(update).encode_v1();
+                    app_state.broadcast(&doc_id, &session_id, &msg).await;
+                    debug!(doc_id = %doc_id, yjs_client_id = client_id,
+                        "Removed awareness state and notified remaining clients");
+                }
+            }
 
             // Only force save if this was the last session in the room
             // The periodic save task will handle regular saves
@@ -1432,6 +1481,22 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for YjsWebSocket {
                 trace!(session_id = %self.id, bytes = bin.len(), "WebSocket received BINARY message");
                 self.hb = Instant::now();
                 self.messages_received += 1;
+
+                // Capture the yjs clientID from the first awareness message (msg type 1).
+                // This is needed to clean up the awareness state on disconnect.
+                if self.yjs_client_id.is_none() && bin.first() == Some(&1) && bin.len() > 1 {
+                    use yrs::sync::AwarenessUpdate;
+                    use yrs::updates::decoder::DecoderV1 as ADecV1;
+                    use yrs::encoding::read::Cursor;
+                    if let Ok(update) = AwarenessUpdate::decode(&mut ADecV1::new(Cursor::new(&bin[1..]))) {
+                        if let Some(&client_id) = update.clients.keys().next() {
+                            self.yjs_client_id = Some(client_id);
+                            debug!(session_id = %self.id, yjs_client_id = client_id,
+                                "Captured yjs clientID from awareness");
+                        }
+                    }
+                }
+
                 self.process_message(&bin, ctx);
             },
             Ok(ws::Message::Close(reason)) => {

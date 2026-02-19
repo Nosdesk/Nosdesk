@@ -178,7 +178,7 @@ fn element_to_markdown(
         }
         "heading" => {
             let level = elem.get_attribute(txn, "level")
-                .and_then(|v| v.parse::<usize>().ok())
+                .and_then(|v| v.to_string(txn).parse::<usize>().ok())
                 .unwrap_or(1)
                 .min(6);
             let prefix = "#".repeat(level);
@@ -186,7 +186,7 @@ fn element_to_markdown(
             format!("{} {}\n", prefix, text)
         }
         "code_block" => {
-            let language = elem.get_attribute(txn, "language").unwrap_or_default();
+            let language = elem.get_attribute(txn, "language").map(|v| v.to_string(txn)).unwrap_or_default();
             let text = collect_raw_text(elem, txn);
             format!("```{}\n{}\n```\n", language, text)
         }
@@ -233,22 +233,22 @@ fn element_to_markdown(
             String::from("  \n")
         }
         "image" => {
-            let src = elem.get_attribute(txn, "src").unwrap_or_default();
-            let alt = elem.get_attribute(txn, "alt").unwrap_or_default();
+            let src = elem.get_attribute(txn, "src").map(|v| v.to_string(txn)).unwrap_or_default();
+            let alt = elem.get_attribute(txn, "alt").map(|v| v.to_string(txn)).unwrap_or_default();
             format!("![{}]({})\n", alt, src)
         }
         "ticket_link" => {
-            let ticket_id = elem.get_attribute(txn, "ticketId").unwrap_or_default();
-            let href = elem.get_attribute(txn, "href").unwrap_or_else(|| format!("/tickets/{}", ticket_id));
+            let ticket_id = elem.get_attribute(txn, "ticketId").map(|v| v.to_string(txn)).unwrap_or_default();
+            let href = elem.get_attribute(txn, "href").map(|v| v.to_string(txn)).unwrap_or_else(|| format!("/tickets/{}", ticket_id));
             format!("[Ticket #{}]({})", ticket_id, href)
         }
         "mention" => {
-            let name = elem.get_attribute(txn, "name").unwrap_or_else(|| "unknown".to_string());
+            let name = elem.get_attribute(txn, "name").map(|v| v.to_string(txn)).unwrap_or_else(|| "unknown".to_string());
             format!("@{}", name)
         }
         "embedded_document" => {
-            let doc_uuid_str = elem.get_attribute(txn, "documentUuid").unwrap_or_default();
-            let doc_title = elem.get_attribute(txn, "documentTitle").unwrap_or_else(|| "Untitled".to_string());
+            let doc_uuid_str = elem.get_attribute(txn, "documentUuid").map(|v| v.to_string(txn)).unwrap_or_default();
+            let doc_title = elem.get_attribute(txn, "documentTitle").map(|v| v.to_string(txn)).unwrap_or_else(|| "Untitled".to_string());
 
             if let Some(conn) = conn {
                 // Try to resolve the embedded document
@@ -303,18 +303,18 @@ fn collect_inline_children(elem: &yrs::XmlElementRef, txn: &yrs::Transaction) ->
                 match tag.as_str() {
                     "hard_break" | "br" => out.push_str("  \n"),
                     "image" => {
-                        let src = child_elem.get_attribute(txn, "src").unwrap_or_default();
-                        let alt = child_elem.get_attribute(txn, "alt").unwrap_or_default();
+                        let src = child_elem.get_attribute(txn, "src").map(|v| v.to_string(txn)).unwrap_or_default();
+                        let alt = child_elem.get_attribute(txn, "alt").map(|v| v.to_string(txn)).unwrap_or_default();
                         out.push_str(&format!("![{}]({})", alt, src));
                     }
                     "ticket_link" => {
-                        let ticket_id = child_elem.get_attribute(txn, "ticketId").unwrap_or_default();
-                        let href = child_elem.get_attribute(txn, "href")
+                        let ticket_id = child_elem.get_attribute(txn, "ticketId").map(|v| v.to_string(txn)).unwrap_or_default();
+                        let href = child_elem.get_attribute(txn, "href").map(|v| v.to_string(txn))
                             .unwrap_or_else(|| format!("/tickets/{}", ticket_id));
                         out.push_str(&format!("[Ticket #{}]({})", ticket_id, href));
                     }
                     "mention" => {
-                        let name = child_elem.get_attribute(txn, "name")
+                        let name = child_elem.get_attribute(txn, "name").map(|v| v.to_string(txn))
                             .unwrap_or_else(|| "unknown".to_string());
                         out.push_str(&format!("@{}", name));
                     }
@@ -344,7 +344,7 @@ fn wrap_with_mark(tag: &str, elem: &yrs::XmlElementRef, txn: &yrs::Transaction, 
         "em" | "i" => format!("*{}*", inner),
         "code" => format!("`{}`", inner),
         "link" | "a" => {
-            let href = elem.get_attribute(txn, "href").unwrap_or_default();
+            let href = elem.get_attribute(txn, "href").map(|v| v.to_string(txn)).unwrap_or_default();
             format!("[{}]({})", inner, href)
         }
         _ => inner.to_string(),
