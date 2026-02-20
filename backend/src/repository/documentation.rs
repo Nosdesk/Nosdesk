@@ -13,7 +13,7 @@ use crate::schema::documentation_pages;
 // Get all documentation pages (excludes archived and deleted)
 pub fn get_documentation_pages(conn: &mut DbConnection) -> Result<Vec<DocumentationPage>, Error> {
     documentation_pages::table
-        .filter(documentation_pages::status.eq_any(vec![
+        .filter(documentation_pages::status.eq_any([
             DocumentationStatus::Draft,
             DocumentationStatus::Published,
         ]))
@@ -72,7 +72,7 @@ pub fn delete_documentation_page(id: i32, conn: &mut DbConnection) -> Result<usi
 pub fn get_top_level_pages(conn: &mut DbConnection) -> Result<Vec<DocumentationPage>, Error> {
     documentation_pages::table
         .filter(documentation_pages::parent_id.is_null())
-        .filter(documentation_pages::status.eq_any(vec![
+        .filter(documentation_pages::status.eq_any([
             DocumentationStatus::Draft,
             DocumentationStatus::Published,
         ]))
@@ -84,7 +84,7 @@ pub fn get_top_level_pages(conn: &mut DbConnection) -> Result<Vec<DocumentationP
 pub fn get_pages_by_parent_id(parent_id: i32, conn: &mut DbConnection) -> Result<Vec<DocumentationPage>, Error> {
     documentation_pages::table
         .filter(documentation_pages::parent_id.eq(parent_id))
-        .filter(documentation_pages::status.eq_any(vec![
+        .filter(documentation_pages::status.eq_any([
             DocumentationStatus::Draft,
             DocumentationStatus::Published,
         ]))
@@ -464,7 +464,7 @@ pub fn get_pages_by_status(
     target_status: DocumentationStatus,
 ) -> Result<Vec<DocumentationPage>, Error> {
     documentation_pages::table
-        .filter(documentation_pages::status.eq_any(vec![target_status]))
+        .filter(documentation_pages::status.eq_any([target_status]))
         .order_by(documentation_pages::updated_at.desc())
         .load::<DocumentationPage>(conn)
 }

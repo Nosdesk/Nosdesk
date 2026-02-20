@@ -1,4 +1,5 @@
 use actix_web::{web, HttpResponse, HttpMessage, Responder};
+use crate::handlers::helpers;
 use actix_multipart::Multipart;
 use diesel::prelude::*;
 use futures::StreamExt;
@@ -45,9 +46,9 @@ pub async fn start_export(
         }));
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Database error: {}", e)})),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Create backup job
@@ -116,9 +117,9 @@ pub async fn get_jobs(
         return HttpResponse::Forbidden().json(json!({"error": "Admin access required"}));
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Database error: {}", e)})),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match backup_repo::get_all_backup_jobs(&mut conn) {
@@ -153,9 +154,9 @@ pub async fn get_job(
         Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid job ID"})),
     };
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Database error: {}", e)})),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match backup_repo::get_backup_job(&mut conn, job_id) {
@@ -188,9 +189,9 @@ pub async fn download_backup(
         Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid job ID"})),
     };
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Database error: {}", e)})),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let job = match backup_repo::get_backup_job(&mut conn, job_id) {
@@ -307,9 +308,9 @@ pub async fn upload_restore(
         }
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Database error: {}", e)})),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Create restore job
@@ -363,9 +364,9 @@ pub async fn preview_restore(
         Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid job ID"})),
     };
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Database error: {}", e)})),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let job = match backup_repo::get_backup_job(&mut conn, job_id) {
@@ -409,9 +410,9 @@ pub async fn execute_restore(
         Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid job ID"})),
     };
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Database error: {}", e)})),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let job = match backup_repo::get_backup_job(&mut conn, job_id) {
@@ -511,9 +512,9 @@ pub async fn delete_job(
         Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid job ID"})),
     };
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Database error: {}", e)})),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get job first to delete associated file
@@ -558,9 +559,9 @@ pub async fn onboarding_upload_restore(
     pool: web::Data<Pool>,
     mut payload: Multipart,
 ) -> impl Responder {
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Database error: {}", e)})),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Security check: only allow during initial setup
@@ -641,9 +642,9 @@ pub async fn onboarding_execute_restore(
     pool: web::Data<Pool>,
     body: web::Json<OnboardingRestoreRequest>,
 ) -> impl Responder {
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Database error: {}", e)})),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Security check: only allow during initial setup

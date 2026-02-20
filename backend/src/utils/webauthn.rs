@@ -186,12 +186,6 @@ pub struct UserPasskeyData {
 }
 
 impl UserPasskeyData {
-    /// Create empty passkey data
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self { credentials: vec![] }
-    }
-
     /// Add a new credential
     pub fn add_credential(&mut self, credential: StoredPasskeyCredential) {
         self.credentials.push(credential);
@@ -219,13 +213,6 @@ impl UserPasskeyData {
         self.credentials.iter().map(|c| c.credential.clone()).collect()
     }
 
-    /// Update a credential's last_used_at timestamp after successful authentication
-    #[allow(dead_code)]
-    pub fn update_last_used(&mut self, credential_id: &str) {
-        if let Some(cred) = self.find_credential_mut(credential_id) {
-            cred.last_used_at = Some(Utc::now());
-        }
-    }
 }
 
 // =============================================================================
@@ -250,12 +237,6 @@ pub fn save_user_passkey_data(
     repository::update_user_passkey_credentials(conn, user_uuid, Some(json_value))
         .map_err(|e| anyhow!("Failed to save passkey data: {:?}", e))?;
     Ok(())
-}
-
-/// Check if user has any passkeys registered
-#[allow(dead_code)]
-pub fn user_has_passkeys(user: &User) -> bool {
-    !get_user_passkey_data(user).credentials.is_empty()
 }
 
 /// Get the number of passkeys registered for a user
@@ -402,15 +383,6 @@ pub async fn get_discoverable_auth_state(session_id: &str) -> Result<Discoverabl
 /// Convert credential ID bytes to base64url string
 pub fn credential_id_to_string(id: &CredentialID) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(id.as_ref())
-}
-
-/// Parse credential ID from base64url string
-#[allow(dead_code)]
-pub fn credential_id_from_string(s: &str) -> Result<CredentialID> {
-    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(s)
-        .map_err(|e| anyhow!("Invalid credential ID: {}", e))?;
-    Ok(CredentialID::from(bytes))
 }
 
 /// Maximum number of passkeys allowed per user

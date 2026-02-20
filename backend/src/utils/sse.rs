@@ -38,20 +38,6 @@ impl SseBroadcaster {
         }).await;
     }
 
-    /// Broadcast a ticket deletion to all connected clients
-    #[allow(dead_code)]
-    pub async fn broadcast_ticket_deleted(
-        state: &web::Data<SseState>,
-        ticket_id: i32,
-    ) {
-        Self::broadcast_generic_event(state, |timestamp| {
-            SseEvent::TicketDeleted {
-                ticket_id,
-                timestamp,
-            }
-        }).await;
-    }
-
     /// Broadcast a ticket field update to all connected clients
     pub async fn broadcast_ticket_updated(
         state: &web::Data<SseState>,

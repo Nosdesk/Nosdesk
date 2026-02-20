@@ -132,9 +132,6 @@ pub fn validate_and_consume_token(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use chrono::Duration;
-
     // Note: These tests require a test database connection
     // They are here as documentation of the expected behavior
 }

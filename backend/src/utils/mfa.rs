@@ -311,8 +311,7 @@ async fn check_totp_replay(user_uuid: &Uuid, token: &str) -> bool {
     let token_hash = hasher.finish();
     let key = format!("totp_used:{user_uuid}:{token_hash}");
 
-    let exists: bool = con.exists(&key).await.unwrap_or(false);
-    exists
+    con.exists(&key).await.unwrap_or(false)
 }
 
 /// Mark TOTP code as used (replay prevention)

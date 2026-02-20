@@ -9,6 +9,7 @@ use reqwest;
 use tracing::{error, info, warn};
 
 use crate::db::{Pool, DbConnection};
+use crate::handlers::helpers;
 use crate::utils::jwt::JWT_SECRET;
 use crate::models::{
     OAuthRequest, OAuthExchangeRequest,
@@ -70,27 +71,15 @@ fn get_provider_by_type(provider_type: &str) -> Result<AuthProvider, diesel::res
     }
 }
 
-fn get_provider_by_id(provider_id: i32) -> Result<AuthProvider, diesel::result::Error> {
-    match provider_id {
-        1 => get_provider_by_type("local"),
-        2 => get_provider_by_type("microsoft"),
-        3 => get_provider_by_type("oidc"),
-        _ => Err(diesel::result::Error::NotFound),
-    }
-}
-
 // Get all authentication providers (admin only) - now returns environment-based config
 pub async fn get_auth_providers(
     db_pool: web::Data<Pool>,
     req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let _conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware
@@ -194,12 +183,9 @@ pub async fn oauth_authorize(
     req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let _conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Check if this is a user connection request
@@ -387,12 +373,9 @@ pub async fn oauth_callback(
     request: actix_web::HttpRequest,
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Verify state parameter is present
@@ -879,12 +862,9 @@ pub async fn oauth_logout(
     logout_request: web::Json<OAuthLogoutRequest>,
 ) -> impl Responder {
     // Get database connection
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let _conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let provider_type = &logout_request.provider_type;
@@ -1042,25 +1022,17 @@ async fn exchange_microsoft_code_for_token(
     _conn: &mut DbConnection,
 ) -> Result<(String, Option<String>), String> {
     // Get provider configuration from environment variables
-    let client_id = match config_utils::get_microsoft_client_id() {
-        Ok(val) => val,
-        Err(e) => return Err(format!("Failed to get client_id: {e}")),
-    };
-    
-    let tenant_id = match config_utils::get_microsoft_tenant_id() {
-        Ok(val) => val,
-        Err(e) => return Err(format!("Failed to get tenant_id: {e}")),
-    };
-    
-    let client_secret = match config_utils::get_microsoft_client_secret() {
-        Ok(val) => val,
-        Err(e) => return Err(format!("Failed to get client_secret: {e}")),
-    };
-    
-    let redirect_uri_config = match config_utils::get_microsoft_redirect_uri() {
-        Ok(val) => val,
-        Err(e) => return Err(format!("Failed to get redirect_uri: {e}")),
-    };
+    let client_id = config_utils::get_microsoft_client_id()
+        .map_err(|e| format!("Failed to get client_id: {e}"))?;
+
+    let tenant_id = config_utils::get_microsoft_tenant_id()
+        .map_err(|e| format!("Failed to get tenant_id: {e}"))?;
+
+    let client_secret = config_utils::get_microsoft_client_secret()
+        .map_err(|e| format!("Failed to get client_secret: {e}"))?;
+
+    let redirect_uri_config = config_utils::get_microsoft_redirect_uri()
+        .map_err(|e| format!("Failed to get redirect_uri: {e}"))?;
     
     // Prepare the token request
     let params = [
@@ -1339,12 +1311,9 @@ pub async fn oauth_connect(
     oauth_request: web::Json<OAuthRequest>,
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware
@@ -1477,222 +1446,3 @@ pub async fn oauth_connect(
     }
 }
 
-// Test Microsoft Entra configuration
-#[allow(dead_code)]
-pub async fn test_microsoft_config(
-    db_pool: web::Data<Pool>,
-    req: HttpRequest,
-    path: web::Path<i32>,
-) -> impl Responder {
-    // Get database connection
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
-    };
-
-    // Extract claims from cookie auth middleware
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
-    };
-
-    // Check if the user is an admin
-    if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Only administrators can test authentication providers"
-        }));
-    }
-
-    let provider_id = path.into_inner();
-
-    // Get the provider
-    let _provider = match get_provider_by_id(provider_id) {
-        Ok(p) => {
-            if p.provider_type != "microsoft" {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": "This endpoint only supports testing Microsoft Entra configuration"
-                }));
-            }
-            p
-        },
-        Err(e) => {
-            if let diesel::result::Error::NotFound = e {
-                return HttpResponse::NotFound().json(json!({
-                    "status": "error",
-                    "message": "Authentication provider not found"
-                }));
-            } else {
-                error!(provider_id = provider_id, error = ?e, "Failed to get auth provider for test");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to retrieve authentication provider"
-                }));
-            }
-        }
-    };
-
-    // Get required configuration values from environment variables
-    let client_id = match config_utils::get_microsoft_client_id() {
-        Ok(val) => val,
-        Err(e) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": format!("Missing client_id configuration: {}", e)
-        })),
-    };
-
-    let tenant_id = match config_utils::get_microsoft_tenant_id() {
-        Ok(val) => val,
-        Err(e) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": format!("Missing tenant_id configuration: {}", e)
-        })),
-    };
-
-    let client_secret = match config_utils::get_microsoft_client_secret() {
-        Ok(val) => val,
-        Err(e) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": format!("Missing client_secret configuration: {}", e)
-        })),
-    };
-
-    let _redirect_uri = match config_utils::get_microsoft_redirect_uri() {
-        Ok(val) => val,
-        Err(e) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": format!("Missing redirect_uri configuration: {}", e)
-        })),
-    };
-
-    // Test the configuration by attempting to get an access token
-    let params = [
-        ("client_id", client_id.as_str()),
-        ("client_secret", client_secret.as_str()),
-        ("grant_type", "client_credentials"),
-        ("scope", "https://graph.microsoft.com/.default"),
-    ];
-
-    // Make the token request
-    let client = reqwest::Client::new();
-    match client
-        .post(format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"))
-        .form(&params)
-        .send()
-        .await
-    {
-        Ok(response) => {
-            match response.json::<serde_json::Value>().await {
-                Ok(token_response) => {
-                    if token_response.get("access_token").is_some() {
-                        HttpResponse::Ok().json(json!({
-                            "status": "success",
-                            "message": "Microsoft Entra configuration is valid",
-                            "details": {
-                                "client_id_valid": true,
-                                "tenant_id_valid": true,
-                                "client_secret_valid": true,
-                                "redirect_uri_configured": true
-                            }
-                        }))
-                    } else {
-                        HttpResponse::BadRequest().json(json!({
-                            "status": "error",
-                            "message": "Invalid configuration",
-                            "details": token_response.get("error_description").and_then(|v| v.as_str()).unwrap_or("Unknown error")
-                        }))
-                    }
-                },
-                Err(e) => {
-                    error!(error = ?e, "Failed to parse token response during Microsoft config test");
-                    HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Failed to parse Microsoft authentication response"
-                    }))
-                }
-            }
-        },
-        Err(e) => {
-            error!(error = ?e, "Failed to test Microsoft configuration");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to test Microsoft configuration"
-            }))
-        }
-    }
-}
-
-// Set a provider as default (admin only)
-#[allow(dead_code)]
-pub async fn set_default_auth_provider(
-    db_pool: web::Data<Pool>,
-    req: HttpRequest,
-    request_data: web::Json<serde_json::Value>,
-) -> impl Responder {
-    // Get database connection
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
-    };
-
-    // Extract claims from cookie auth middleware
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
-    };
-
-    // Check if the user is an admin
-    if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Only administrators can manage authentication providers"
-        }));
-    }
-
-    // Extract provider_id from request
-    let provider_id = match request_data.get("provider_id").and_then(|v| v.as_i64()) {
-        Some(id) => id as i32,
-        None => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "provider_id is required"
-        })),
-    };
-
-    // Verify the provider exists
-    match get_provider_by_id(provider_id) {
-        Ok(_) => {},
-        Err(e) => {
-            if let diesel::result::Error::NotFound = e {
-                return HttpResponse::NotFound().json(json!({
-                    "status": "error",
-                    "message": "Authentication provider not found"
-                }));
-            } else {
-                error!(provider_id = provider_id, error = ?e, "Failed to get auth provider for set default");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to retrieve authentication provider"
-                }));
-            }
-        }
-    }
-
-    // Setting default providers is not supported for environment-based configuration
-    HttpResponse::BadRequest().json(json!({
-        "status": "error",
-        "message": "Default provider configuration must be done via environment variables. Environment-based providers don't support runtime default changes."
-    }))
-} 

@@ -5,6 +5,7 @@ use serde_json::json;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
+use crate::handlers::helpers;
 use crate::models::Claims;
 use crate::services::search::{SearchQuery, SearchService};
 
@@ -98,14 +99,9 @@ pub async fn rebuild_index(
     info!(user = %claims.sub, "Starting search index rebuild");
 
     // Get database connection
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Rebuild index

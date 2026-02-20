@@ -58,12 +58,8 @@ pub fn uuid_to_string(uuid: &Uuid) -> String {
 }
 
 /// Convert UserRole enum to string for JWT and API responses
-pub fn role_to_string(role: &UserRole) -> String {
-    match role {
-        UserRole::Admin => "admin".to_string(),
-        UserRole::Technician => "technician".to_string(),
-        UserRole::User => "user".to_string(),
-    }
+pub fn role_to_string(role: &UserRole) -> &'static str {
+    role.as_str()
 }
 
 /// Parse string to UserRole enum

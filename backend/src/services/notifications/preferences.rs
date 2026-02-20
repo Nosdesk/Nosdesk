@@ -219,10 +219,4 @@ impl PreferenceService {
         Ok(responses)
     }
 
-    /// Invalidate entire cache (useful for testing or admin operations)
-    #[allow(dead_code)]
-    pub async fn invalidate_cache(&self) {
-        let mut cache = self.cache.write().await;
-        cache.clear();
-    }
 }

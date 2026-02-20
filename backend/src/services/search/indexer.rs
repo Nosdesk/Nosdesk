@@ -29,8 +29,8 @@ pub fn index_document_from_ticket(
     };
 
     // Build metadata from ticket fields (status/priority are enums)
-    let status_str = format!("{:?}", ticket.status).to_lowercase();
-    let priority_str = format!("{:?}", ticket.priority).to_lowercase();
+    let status_str = ticket.status.as_str();
+    let priority_str = ticket.priority.as_str();
     let metadata = format!("{} {}", status_str, priority_str);
 
     IndexDocument::new(EntityType::Ticket, ticket.id as i64, &ticket.title, content)

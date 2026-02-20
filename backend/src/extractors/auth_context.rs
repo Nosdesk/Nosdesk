@@ -4,7 +4,6 @@
 //! Automatically extracts user details from JWT claims and enriches with database info.
 
 use actix_web::{dev::Payload, web, FromRequest, HttpMessage, HttpRequest};
-use futures::future::{ok, Ready};
 use std::future::Future;
 use std::pin::Pin;
 use uuid::Uuid;
@@ -40,54 +39,13 @@ pub struct AuthContext {
 
 impl AuthContext {
     /// Check if user is an admin
-    #[allow(dead_code)]
     pub fn is_admin(&self) -> bool {
         self.role == UserRole::Admin
-    }
-
-    /// Check if user is a technician
-    #[allow(dead_code)]
-    pub fn is_technician(&self) -> bool {
-        self.role == UserRole::Technician
     }
 
     /// Check if user is a technician or admin (has elevated privileges)
     pub fn is_technician_or_admin(&self) -> bool {
         self.role == UserRole::Admin || self.role == UserRole::Technician
-    }
-
-    /// Check if user is a regular user (no elevated privileges)
-    #[allow(dead_code)]
-    pub fn is_regular_user(&self) -> bool {
-        self.role == UserRole::User
-    }
-
-    /// Get the user's email from claims
-    #[allow(dead_code)]
-    pub fn email(&self) -> &str {
-        &self.claims.email
-    }
-
-    /// Check if user can view a specific ticket
-    /// Returns true if user is admin/tech, or is the requester/assignee
-    #[allow(dead_code)]
-    pub fn can_view_ticket(&self, requester_uuid: Option<Uuid>, assignee_uuid: Option<Uuid>) -> bool {
-        if self.is_technician_or_admin() {
-            return true;
-        }
-        requester_uuid == Some(self.user_uuid) || assignee_uuid == Some(self.user_uuid)
-    }
-
-    /// Check if user belongs to a specific group
-    #[allow(dead_code)]
-    pub fn is_in_group(&self, group_id: i32) -> bool {
-        self.group_ids.contains(&group_id)
-    }
-
-    /// Check if user belongs to any of the specified groups
-    #[allow(dead_code)]
-    pub fn is_in_any_group(&self, group_ids: &[i32]) -> bool {
-        group_ids.iter().any(|id| self.group_ids.contains(id))
     }
 
     /// Construct an AuthContext for tests.
@@ -102,7 +60,7 @@ impl AuthContext {
                 sub: user_uuid.to_string(),
                 name: "test-user".into(),
                 email: "test@example.com".into(),
-                role: format!("{:?}", role).to_lowercase(),
+                role: role.as_str().to_string(),
                 scope: "full".into(),
                 sid: None,
                 exp: 9999999999,
@@ -200,41 +158,3 @@ impl FromRequest for AuthContext {
     }
 }
 
-/// Optional auth context - doesn't fail if user is not authenticated
-/// Useful for endpoints that behave differently for authenticated vs anonymous users
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct OptionalAuthContext(pub Option<AuthContext>);
-
-impl FromRequest for OptionalAuthContext {
-    type Error = actix_web::Error;
-    type Future = Ready<Result<Self, Self::Error>>;
-
-    fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
-        // Try to extract claims, but don't fail if not present
-        let auth = req
-            .extensions()
-            .get::<Claims>()
-            .and_then(|claims| {
-                let user_uuid = Uuid::parse_str(&claims.sub).ok()?;
-
-                // For optional auth, we use a simplified context without DB lookup
-                // to avoid blocking. The role comes from claims.
-                let role = match claims.role.as_str() {
-                    "admin" => UserRole::Admin,
-                    "technician" => UserRole::Technician,
-                    _ => UserRole::User,
-                };
-
-                Some(AuthContext {
-                    user_uuid,
-                    role,
-                    name: claims.name.clone(),
-                    group_ids: vec![], // Not loaded for optional auth
-                    claims: claims.clone(),
-                })
-            });
-
-        ok(OptionalAuthContext(auth))
-    }
-}

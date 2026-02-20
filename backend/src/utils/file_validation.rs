@@ -140,11 +140,6 @@ impl FileValidator {
     ///
     /// # Returns
     /// The detected MIME type if safe, or "application/octet-stream" for unknown types
-    #[allow(dead_code)]
-    pub fn validate_mime_type(bytes: &[u8]) -> Result<String, FileValidationError> {
-        Self::validate_file(bytes, None)
-    }
-
     /// Validate file with optional filename for extension checking
     ///
     /// # Arguments
@@ -311,7 +306,7 @@ mod tests {
         // Files without magic numbers (like text files) should be allowed
         // as long as they don't have blocked extensions
         let plain_text = b"Hello, world! This is plain text.";
-        assert!(FileValidator::validate_mime_type(plain_text).is_ok());
+        assert!(FileValidator::validate_file(plain_text, None).is_ok());
         assert!(FileValidator::validate_file(plain_text, Some("readme.txt")).is_ok());
         assert!(FileValidator::validate_file(plain_text, Some("data.csv")).is_ok());
         assert!(FileValidator::validate_file(plain_text, Some("config.json")).is_ok());

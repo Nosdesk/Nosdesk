@@ -129,7 +129,7 @@ pub fn try_bearer_auth(
         sub: api_token.user_uuid.to_string(),
         name: user.name,
         email,
-        role: format!("{:?}", user.role).to_lowercase(),
+        role: user.role.as_str().to_string(),
         scope: "full".to_string(),
         sid: None,
         exp: (now + chrono::Duration::hours(24)).timestamp() as usize,

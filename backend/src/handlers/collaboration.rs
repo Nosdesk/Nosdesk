@@ -17,6 +17,7 @@ use std::panic;
 use tracing::{debug, info, warn, error, trace};
 
 use crate::repository;
+use crate::handlers::helpers;
 
 /// Safely get string content from a Yjs XmlFragment
 /// Returns None if the fragment contains invalid UTF-8 data (which can cause yrs to panic)
@@ -106,10 +107,6 @@ const MIN_SAVE_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_PENDING_DURATION: Duration = Duration::from_secs(120);
 // How long to wait before doing final save on empty room
 const EMPTY_ROOM_FINAL_SAVE_DELAY: Duration = Duration::from_secs(2);
-// How long to keep document state after room becomes empty
-#[allow(dead_code)]
-const EMPTY_ROOM_CLEANUP_DELAY: Duration = Duration::from_secs(300); // 5 minutes
-
 // Document type enum to distinguish between tickets and documentation
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum DocumentType {
@@ -129,13 +126,6 @@ impl DocumentType {
         }
     }
 
-    #[allow(dead_code)]
-    fn to_string(&self) -> String {
-        match self {
-            DocumentType::Ticket(id) => format!("ticket-{id}"),
-            DocumentType::Documentation(id) => format!("doc-{id}"),
-        }
-    }
 }
 
 // Simple handler to get article content by ticket ID or documentation page ID
@@ -155,9 +145,9 @@ pub async fn get_article_content(
         }
     };
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match doc_type {
@@ -334,17 +324,6 @@ impl DocumentState {
         false
     }
     
-    #[allow(dead_code)]
-    fn should_cleanup(&self) -> bool {
-        // Clean up document state after room has been empty for the cleanup delay and final save is done
-        if let Some(empty_since) = self.room_empty_since {
-            let now = Instant::now();
-            return self.final_save_completed &&
-                   now.duration_since(empty_since) >= EMPTY_ROOM_CLEANUP_DELAY;
-        }
-        false
-    }
-
     // Snapshot management methods
     fn should_create_snapshot(&self) -> bool {
         // Session-based revisions: snapshots are only created when editing sessions end
@@ -877,19 +856,6 @@ impl YjsAppState {
         }
     }
 
-    // Helper method to save a document by ID
-    #[allow(dead_code)]
-    async fn save_document_by_id(&self, doc_id: &str) {
-        let mut documents = self.documents.write().await;
-        if let Some(doc_state) = documents.get_mut(doc_id) {
-            // Force save regardless of timing constraints when explicitly called
-            if doc_state.has_pending_changes {
-                self.save_document_internal(doc_id, &doc_state.awareness);
-                doc_state.mark_saved();
-            }
-        }
-    }
-
     // Broadcast update to all sessions in a room except sender
     async fn broadcast(&self, doc_id: &str, sender_id: &str, msg: &[u8]) {
         if msg.is_empty() {
@@ -1009,23 +975,6 @@ impl YjsAppState {
                 });
             }
         }
-    }
-
-    // Save document state to Redis immediately for fast recovery on page refresh
-    // This is called after updates are applied to ensure the latest state is cached
-    #[allow(dead_code)]
-    async fn save_to_redis_immediately(&self, doc_id: &str, awareness: &Awareness) {
-        // Get binary content from the document
-        let binary_content = {
-            let doc = awareness.doc();
-            let txn = doc.transact();
-            txn.encode_state_as_update_v1(&StateVector::default())
-        };
-
-        debug!(doc_id = %doc_id, bytes = binary_content.len(), "Immediate Redis save");
-
-        // Save to Redis synchronously (fast, in-memory)
-        self.redis_cache.set_document(doc_id, &binary_content).await;
     }
 
     // Create a snapshot revision for version history using native Yrs encoding
@@ -1165,8 +1114,6 @@ struct YjsWebSocket {
     doc_id: String,
     app_state: YjsAppState,
     hb: Instant,
-    #[allow(dead_code)]
-    protocol: DefaultProtocol,
     user_uuid: Uuid, // User UUID for contributor tracking
     yjs_client_id: Option<u64>, // Yjs clientID from awareness, used for cleanup on disconnect
     // Statistics for debugging
@@ -1186,7 +1133,6 @@ impl YjsWebSocket {
             doc_id,
             app_state,
             hb: now,
-            protocol: DefaultProtocol,
             user_uuid,
             yjs_client_id: None,
             messages_received: 0,
@@ -1606,9 +1552,9 @@ pub async fn get_ticket_revisions(
 ) -> HttpResponse {
     let ticket_id = ticket_id.into_inner();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get article content for this ticket
@@ -1637,9 +1583,9 @@ pub async fn get_ticket_revision(
 ) -> HttpResponse {
     let (ticket_id, revision_number) = path.into_inner();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get article content for this ticket
@@ -1675,9 +1621,9 @@ pub async fn restore_ticket_revision(
 ) -> HttpResponse {
     let (ticket_id, revision_number) = path.into_inner();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get article content for this ticket
@@ -1772,9 +1718,9 @@ pub async fn get_doc_revisions(
 ) -> HttpResponse {
     let doc_id = doc_id.into_inner();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get all revisions
@@ -1793,9 +1739,9 @@ pub async fn get_doc_revision(
 ) -> HttpResponse {
     let (doc_id, revision_number) = path.into_inner();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get the specific revision
@@ -1827,9 +1773,9 @@ pub async fn restore_doc_revision(
 ) -> HttpResponse {
     let (doc_id, revision_number) = path.into_inner();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get the revision to restore

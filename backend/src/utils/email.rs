@@ -293,6 +293,7 @@ impl<'a> EmailTemplate<'a> {
 #[derive(Clone, Copy)]
 enum NoticeType {
     Warning,
+    #[allow(dead_code)]
     Critical,
     Info,
     #[allow(dead_code)]

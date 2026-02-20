@@ -18,6 +18,7 @@ use uuid::Uuid;
 use zip;
 
 use crate::db::{DbConnection, Pool};
+use crate::handlers::helpers;
 use crate::models::{
     Claims, InstallPluginRequest, NewPlugin, PluginActivityResponse, PluginBundleUpdate,
     PluginResponse, PluginSettingResponse, PluginStorageResponse, PluginUpdate,
@@ -38,13 +39,6 @@ pub struct PaginationQuery {
 // Helper Functions
 // =============================================================================
 
-/// Get a database connection or return an error response
-fn get_connection(pool: &web::Data<Pool>) -> Result<DbConnection, HttpResponse> {
-    pool.get().map_err(|e| {
-        error!("Database connection error: {}", e);
-        HttpResponse::InternalServerError().json("Database connection error")
-    })
-}
 
 /// Validate plugin name
 fn validate_plugin_name(name: &str) -> Result<String, HttpResponse> {
@@ -91,7 +85,7 @@ pub async fn list_plugins(req: HttpRequest, pool: web::Data<Pool>) -> impl Respo
         return e;
     }
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -118,7 +112,7 @@ pub async fn list_enabled_plugins(req: HttpRequest, pool: web::Data<Pool>) -> im
         return HttpResponse::Unauthorized().json("Authentication required");
     }
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -161,7 +155,7 @@ pub async fn install_plugin(
         Err(e) => return e,
     };
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -253,7 +247,7 @@ pub async fn get_plugin(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -291,7 +285,7 @@ pub async fn update_plugin(
     let user_uuid = Uuid::parse_str(&claims.sub).ok();
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -372,7 +366,7 @@ pub async fn uninstall_plugin(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -406,7 +400,7 @@ pub async fn get_plugin_settings(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -442,7 +436,7 @@ pub async fn set_plugin_setting(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -516,7 +510,7 @@ pub async fn delete_plugin_setting(
 
     let (plugin_uuid, key) = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -552,7 +546,7 @@ pub async fn get_plugin_storage(
 
     let (plugin_uuid, key) = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -588,7 +582,7 @@ pub async fn set_plugin_storage(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -624,7 +618,7 @@ pub async fn delete_plugin_storage(
 
     let (plugin_uuid, key) = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -662,7 +656,7 @@ pub async fn get_plugin_activity(
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -703,7 +697,7 @@ pub async fn proxy_plugin_request(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -796,7 +790,7 @@ pub async fn upload_plugin_bundle(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -935,7 +929,7 @@ pub async fn serve_plugin_bundle(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -1001,7 +995,7 @@ pub async fn install_plugin_from_zip(
         None => return HttpResponse::Unauthorized().json("Authentication required"),
     };
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };

@@ -109,19 +109,6 @@ pub fn delete_delta_token(
     .execute(conn)
 }
 
-/// Delete all delta tokens for a provider (forces full sync for all entities)
-#[allow(dead_code)]
-pub fn delete_all_delta_tokens_for_provider(
-    conn: &mut DbConnection,
-    provider_type: &str,
-) -> QueryResult<usize> {
-    diesel::delete(
-        sync_delta_tokens::table
-            .filter(sync_delta_tokens::provider_type.eq(provider_type))
-    )
-    .execute(conn)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

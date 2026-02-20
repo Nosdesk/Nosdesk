@@ -13,6 +13,7 @@ use std::time::Duration;
 use tracing::{info, warn, error, debug, trace, instrument};
 
 use crate::db::{Pool, DbConnection};
+use crate::handlers::helpers;
 // Auth providers are now configured via environment variables
 use crate::repository::users as user_repo;
 use crate::repository::devices as device_repo;
@@ -299,11 +300,6 @@ impl MicrosoftGraphGroup {
         }
     }
 
-    /// Check if this is a distribution list
-    #[allow(dead_code)]
-    pub fn is_distribution_list(&self) -> bool {
-        self.get_group_type() == "distribution"
-    }
 }
 
 // Microsoft Graph Group Member structure (for membership sync)
@@ -529,16 +525,6 @@ fn get_sync_progress(session_id: &str) -> Option<SyncProgressState> {
     }
 }
 
-#[allow(dead_code)]
-fn clear_sync_progress(session_id: &str) {
-    if let Ok(mut progress_map) = SYNC_PROGRESS.lock() {
-        progress_map.remove(session_id);
-    }
-    if let Ok(mut cancellation_map) = SYNC_CANCELLATION.lock() {
-        cancellation_map.remove(session_id);
-    }
-}
-
 // Cancellation support functions
 fn is_sync_cancelled(session_id: &str) -> bool {
     if let Ok(cancellation_map) = SYNC_CANCELLATION.lock() {
@@ -566,12 +552,9 @@ pub async fn get_sync_progress_endpoint(
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
 ) -> impl Responder {
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let _conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
@@ -583,7 +566,7 @@ pub async fn get_sync_progress_endpoint(
     };
 
     let session_id = path.into_inner();
-    
+
     match get_sync_progress(&session_id) {
         Some(progress) => HttpResponse::Ok().json(progress),
         None => HttpResponse::NotFound().json(json!({
@@ -598,12 +581,9 @@ pub async fn get_active_syncs(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
     ) -> impl Responder {
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let _conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
@@ -643,12 +623,9 @@ pub async fn get_last_sync(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
     ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
@@ -710,12 +687,9 @@ pub async fn cancel_sync_session(
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
 ) -> impl Responder {
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let _conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
@@ -727,7 +701,7 @@ pub async fn cancel_sync_session(
     };
 
     let session_id = path.into_inner();
-    
+
     // Check if the session exists and is cancellable
     if let Some(progress) = get_sync_progress(&session_id) {
         if progress.status == "running" || progress.status == "starting" {
@@ -814,12 +788,9 @@ pub async fn get_connection_status(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
     ) -> impl Responder {
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let _conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
@@ -906,12 +877,9 @@ pub async fn sync_data(
     db_pool: web::Data<Pool>,
     request: web::Json<SyncDataRequest>,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
@@ -952,11 +920,11 @@ pub async fn sync_data(
 
     let sync_type = if entities.len() > 1 {
         "multiple".to_string()
-    } else if entities.contains(&"devices".to_string()) {
+    } else if entities.iter().any(|e| e == "devices") {
         "devices".to_string()
-    } else if entities.contains(&"users".to_string()) {
+    } else if entities.iter().any(|e| e == "users") {
         "users".to_string()
-    } else if entities.contains(&"groups".to_string()) {
+    } else if entities.iter().any(|e| e == "groups") {
         "groups".to_string()
     } else {
         "sync".to_string()
@@ -1084,10 +1052,9 @@ pub async fn sync_data(
                     );
 
                     // Check if background photo sync should start after user sync completes
-                    if entities.contains(&"users".to_string()) && sync_result.total_processed > 0 {
+                    if entities.iter().any(|e| e == "users") && sync_result.total_processed > 0 {
                         let background_photo_sync = std::env::var("MSGRAPH_BACKGROUND_PHOTOS")
-                            .unwrap_or("true".to_string())
-                            .parse::<bool>()
+                            .ok().and_then(|v| v.parse::<bool>().ok())
                             .unwrap_or(true);
                         
                         if background_photo_sync {
@@ -1269,11 +1236,11 @@ async fn perform_sync(
     }
 
     // Determine the primary sync type based on entities
-    let primary_sync_type = if entities.contains(&"devices".to_string()) {
+    let primary_sync_type = if entities.iter().any(|e| e == "devices") {
         "devices"
-    } else if entities.contains(&"users".to_string()) {
+    } else if entities.iter().any(|e| e == "users") {
         "users"
-    } else if entities.contains(&"groups".to_string()) {
+    } else if entities.iter().any(|e| e == "groups") {
         "groups"
     } else {
         "sync"
@@ -1391,14 +1358,12 @@ async fn sync_users(
     
     // Check if filtering disabled accounts
     let skip_disabled_accounts = std::env::var("MSGRAPH_SKIP_DISABLED_ACCOUNTS")
-        .unwrap_or("true".to_string())
-        .parse::<bool>()
+        .ok().and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(true);
-    
+
         // Performance configuration
     let background_photo_sync = std::env::var("MSGRAPH_BACKGROUND_PHOTOS")
-        .unwrap_or("true".to_string())
-        .parse::<bool>()
+        .ok().and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(true);
     
     if skip_disabled_accounts {
@@ -1609,10 +1574,9 @@ async fn fetch_microsoft_graph_users_optimized(_provider_id: i32) -> Result<(Vec
     
     // Skip disabled accounts by default for performance
     let skip_disabled_accounts = std::env::var("MSGRAPH_SKIP_DISABLED_ACCOUNTS")
-        .unwrap_or("true".to_string())
-        .parse::<bool>()
+        .ok().and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(true);
-    
+
     // Start with the first page
     let mut url = if skip_disabled_accounts {
         format!(
@@ -1770,8 +1734,7 @@ async fn fetch_microsoft_graph_users_delta(
 
     // Build initial URL
     let skip_disabled_accounts = std::env::var("MSGRAPH_SKIP_DISABLED_ACCOUNTS")
-        .unwrap_or("true".to_string())
-        .parse::<bool>()
+        .ok().and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(true);
 
     let mut url = match &delta_token {
@@ -1927,33 +1890,6 @@ async fn fetch_microsoft_graph_users_delta(
     })
 }
 
-/// Process a single Microsoft Graph user
-#[allow(dead_code)]
-async fn process_microsoft_user(
-    conn: &mut DbConnection,
-    provider_id: i32,
-    ms_user: &MicrosoftGraphUser,
-    stats: &mut UserSyncStats,
-    access_token: &str,
-) -> Result<(), String> {
-    // Step 1: Check if this Microsoft user already has an identity in our system
-    if let Ok(existing_identity) = find_identity_by_provider_user_id(conn, provider_id, &ms_user.id) {
-        // User already has Microsoft identity - update existing user and identity
-        return update_existing_microsoft_user(conn, ms_user, existing_identity, stats, access_token).await;
-    }
-
-    // Step 2: Check if a local user exists with matching email
-    let email = ms_user.mail.as_ref().unwrap_or(&ms_user.user_principal_name);
-    
-    if let Ok(existing_user) = user_repo::get_user_by_email(email, conn) {
-        // Local user exists but no Microsoft identity - link them
-        return link_existing_user_to_microsoft(conn, provider_id, ms_user, existing_user, stats, access_token).await;
-    }
-
-    // Step 3: No existing user found - create new user with Microsoft identity
-    create_new_user_from_microsoft(conn, provider_id, ms_user, stats, access_token).await
-}
-
 /// Process a single Microsoft Graph user with optimized HTTP client (v2)
 async fn process_microsoft_user_optimized_v2(
     conn: &mut DbConnection,
@@ -1997,69 +1933,6 @@ fn find_identity_by_provider_user_id(
         .first::<UserAuthIdentity>(conn)
 }
 
-/// Update existing user who already has Microsoft identity
-#[allow(dead_code)]
-async fn update_existing_microsoft_user(
-    conn: &mut DbConnection,
-    ms_user: &MicrosoftGraphUser,
-    existing_identity: UserAuthIdentity,
-    stats: &mut UserSyncStats,
-    access_token: &str,
-) -> Result<(), String> {
-    debug!(user_principal_name = %ms_user.user_principal_name, "Updating existing Microsoft user");
-
-    // Get the associated user
-    let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)
-        .map_err(|e| format!("Failed to get user by UUID {}: {}", existing_identity.user_uuid, e))?;
-
-    // Update user information with latest from Microsoft Graph
-    let updated_name = ms_user.display_name.as_ref().unwrap_or(&user.name);
-    let _updated_email = ms_user.mail.as_ref().unwrap_or(&ms_user.user_principal_name);
-
-    // Only update core fields, preserve role/pronouns/avatars, but update timestamp
-    let user_update = crate::models::UserUpdate {
-        name: if updated_name != &user.name { Some(updated_name.clone()) } else { None },
-        role: None, // Don't change role during sync
-        pronouns: None, // Preserve pronouns
-        avatar_url: None, // Preserve avatar
-        banner_url: None, // Preserve banner
-        avatar_thumb: None, // Preserve avatar thumb
-        theme: None, // Preserve user's theme preference
-        microsoft_uuid: None, // Don't update Microsoft UUID in this function
-        updated_at: Some(chrono::Utc::now().naive_utc()), // Update timestamp to preserve created_at
-    };
-
-    // Update user if there are changes
-    if user_update.name.is_some() || false /* email removed */ {
-        user_repo::update_user(&user.uuid, user_update, conn)
-            .map_err(|e| format!("Failed to update user: {e}"))?;
-        debug!(user_name = %user.name, "Updated user information");
-    }
-
-    // Update identity data with latest from Microsoft Graph
-    let identity_data = serde_json::to_value(ms_user)
-        .map_err(|e| format!("Failed to serialize Microsoft user data: {e}"))?;
-
-    update_identity_data(conn, existing_identity.id, Some(identity_data))
-        .map_err(|e| format!("Failed to update identity data: {e}"))?;
-
-    // Sync profile photo
-    let client = reqwest::Client::new();
-    if let Ok(photo_urls) = sync_user_profile_photo(&client, access_token, ms_user, &utils::uuid_to_string(&user.uuid)).await {
-        trace!(user_name = %user.name, avatar_url = ?photo_urls.avatar_url, avatar_thumb = ?photo_urls.avatar_thumb, "sync_user_profile_photo returned URLs");
-        if let Err(e) = update_user_avatar_by_id(conn, &user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
-            warn!(user_name = %user.name, error = %e, "Failed to update avatar for user");
-        } else {
-            debug!(user_name = %user.name, "Successfully updated avatar for user");
-        }
-    } else {
-        debug!(user_name = %user.name, "No profile photo available for user");
-    }
-
-    stats.existing_users_updated += 1;
-    Ok(())
-}
-
 /// Update identity data for an existing identity
 fn update_identity_data(
     conn: &mut DbConnection,
@@ -2071,142 +1944,6 @@ fn update_identity_data(
     diesel::update(user_auth_identities::table.find(identity_id))
         .set(user_auth_identities::metadata.eq(identity_data))
         .get_result::<UserAuthIdentity>(conn)
-}
-
-/// Link existing local user to Microsoft identity
-#[allow(dead_code)]
-async fn link_existing_user_to_microsoft(
-    conn: &mut DbConnection,
-    _provider_id: i32,
-    ms_user: &MicrosoftGraphUser,
-    existing_user: User,
-    stats: &mut UserSyncStats,
-    access_token: &str,
-) -> Result<(), String> {
-    debug!(user_name = %existing_user.name, user_principal_name = %ms_user.user_principal_name, "Linking existing user to Microsoft");
-
-    // Create Microsoft identity for existing user
-    let identity_data = serde_json::to_value(ms_user)
-        .map_err(|e| format!("Failed to serialize Microsoft user data: {e}"))?;
-
-    let new_identity = NewUserAuthIdentity {
-        user_uuid: existing_user.uuid,
-        provider_type: "microsoft".to_string(),
-        external_id: ms_user.id.clone(),
-        email: ms_user.mail.clone(),
-        metadata: Some(identity_data),
-        password_hash: None, // Microsoft identities don't have password hashes
-    };
-
-    identity_repo::create_identity(new_identity, conn)
-        .map_err(|e| format!("Failed to create Microsoft identity: {e}"))?;
-
-    // Optionally update user information with Microsoft data
-    let updated_name = ms_user.display_name.as_ref().unwrap_or(&existing_user.name);
-    if updated_name != &existing_user.name {
-        let user_update = crate::models::UserUpdate {
-            name: Some(updated_name.clone()),
-            role: None,
-            pronouns: None,
-            avatar_url: None,
-            banner_url: None,
-            avatar_thumb: None,
-            theme: None, // Preserve user's theme preference
-            microsoft_uuid: None, // Don't update Microsoft UUID in this function
-            updated_at: Some(chrono::Utc::now().naive_utc()),
-        };
-
-        user_repo::update_user(&existing_user.uuid, user_update, conn)
-            .map_err(|e| format!("Failed to update user name: {e}"))?;
-    }
-
-    // Sync profile photo
-    let client = reqwest::Client::new();
-    if let Ok(photo_urls) = sync_user_profile_photo(&client, access_token, ms_user, &utils::uuid_to_string(&existing_user.uuid)).await {
-        trace!(user_name = %existing_user.name, avatar_url = ?photo_urls.avatar_url, avatar_thumb = ?photo_urls.avatar_thumb, "sync_user_profile_photo returned URLs");
-        if let Err(e) = update_user_avatar_by_id(conn, &existing_user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
-            warn!(user_name = %existing_user.name, error = %e, "Failed to update avatar for user");
-        } else {
-            debug!(user_name = %existing_user.name, "Successfully updated avatar for user");
-        }
-    } else {
-        debug!(user_name = %existing_user.name, "No profile photo available for user");
-    }
-
-    stats.identities_linked += 1;
-    Ok(())
-}
-
-/// Create new user from Microsoft Graph data
-#[allow(dead_code)]
-async fn create_new_user_from_microsoft(
-    conn: &mut DbConnection,
-    _provider_id: i32,
-    ms_user: &MicrosoftGraphUser,
-    stats: &mut UserSyncStats,
-    access_token: &str,
-) -> Result<(), String> {
-    debug!(user_principal_name = %ms_user.user_principal_name, "Creating new user from Microsoft");
-
-    // Generate UUID for new user
-    let user_uuid = Uuid::now_v7();
-    
-    // Determine name (prefer displayName, fallback to givenName + surname, fallback to userPrincipalName)
-    let name = ms_user.display_name.clone()
-        .or_else(|| {
-            match (&ms_user.given_name, &ms_user.surname) {
-                (Some(first), Some(last)) => Some(format!("{first} {last}")),
-                (Some(first), None) => Some(first.clone()),
-                (None, Some(last)) => Some(last.clone()),
-                _ => None,
-            }
-        })
-        .unwrap_or_else(|| ms_user.user_principal_name.clone());
-
-    // Use mail if available, otherwise use userPrincipalName
-    let email = ms_user.mail.as_ref().unwrap_or(&ms_user.user_principal_name);
-
-    // Create new user with default role 'user'
-    // Create OAuth user for Microsoft Graph integration
-    let new_user = utils::NewUserBuilder::oauth_user(name.clone(), email.clone(), crate::models::UserRole::User)
-        .with_uuid(user_uuid)
-        .build();
-
-    let created_user = user_repo::create_user(new_user, conn)
-        .map_err(|e| format!("Failed to create user: {e}"))?;
-
-    // Create Microsoft identity for the new user
-    let identity_data = serde_json::to_value(ms_user)
-        .map_err(|e| format!("Failed to serialize Microsoft user data: {e}"))?;
-
-    let new_identity = NewUserAuthIdentity {
-        user_uuid: created_user.uuid,
-        provider_type: "microsoft".to_string(),
-        external_id: ms_user.id.clone(),
-        email: ms_user.mail.clone(),
-        metadata: Some(identity_data),
-        password_hash: None,
-    };
-
-    identity_repo::create_identity(new_identity, conn)
-        .map_err(|e| format!("Failed to create Microsoft identity: {e}"))?;
-
-    // Sync profile photo
-    let client = reqwest::Client::new();
-    if let Ok(photo_urls) = sync_user_profile_photo(&client, access_token, ms_user, &utils::uuid_to_string(&user_uuid)).await {
-        trace!(user_name = %name, avatar_url = ?photo_urls.avatar_url, avatar_thumb = ?photo_urls.avatar_thumb, "sync_user_profile_photo returned URLs for new user");
-        if let Err(e) = update_user_avatar_by_id(conn, &created_user.uuid, photo_urls.avatar_url, photo_urls.avatar_thumb).await {
-            warn!(user_name = %name, error = %e, "Failed to update avatar for user");
-        } else {
-            debug!(user_name = %name, "Successfully updated avatar for new user");
-        }
-    } else {
-        debug!(user_name = %name, "No profile photo available for user");
-    }
-
-    info!(user_name = %name, email = %email, "Created new user");
-    stats.new_users_created += 1;
-    Ok(())
 }
 
 /// Update existing user who already has Microsoft identity (optimized version)
@@ -3972,11 +3709,8 @@ async fn process_entra_device(
         .unwrap_or_else(|| "Unknown Manufacturer".to_string());
 
     // Map compliance state from isCompliant boolean
-    let compliance_state = match entra_device.is_compliant {
-        Some(true) => Some("compliant".to_string()),
-        Some(false) => Some("noncompliant".to_string()),
-        None => None,
-    };
+    let compliance_state = entra_device.is_compliant
+        .map(|c| if c { "compliant" } else { "noncompliant" }.to_string());
 
     // Parse registration date time
     let registration_date = parse_microsoft_datetime(&entra_device.registration_date_time);
@@ -4062,12 +3796,9 @@ pub async fn get_entra_object_id(
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
 ) -> impl Responder {
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let _conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
@@ -4584,7 +4315,7 @@ async fn create_new_user_from_microsoft_no_photos(
 /// Find existing user by emails (simplified)
 fn find_existing_user_by_emails(
     conn: &mut DbConnection,
-    emails: &Vec<(String, String, bool)>,
+    emails: &[(String, String, bool)],
 ) -> Option<User> {
     for (email, _, _) in emails {
         if let Ok(user) = user_repo::get_user_by_email(email, conn) {

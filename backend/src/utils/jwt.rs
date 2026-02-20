@@ -30,7 +30,7 @@ impl JwtUtils {
             sub: uuid_to_string(&user.uuid),
             name: user.name.clone(),
             email: String::new(),
-            role: role_to_string(&user.role),
+            role: role_to_string(&user.role).to_string(),
             scope: "full".to_string(),
             sid: Some(session_id.to_string()),
             exp: now + 15 * 60, // 15 minutes
@@ -108,7 +108,7 @@ impl JwtUtils {
         if claims.role != current_role {
             return Err(JwtError::RoleMismatch {
                 token_role: claims.role,
-                current_role,
+                current_role: current_role.to_string(),
             });
         }
 

@@ -53,10 +53,9 @@ pub fn get_comments_with_attachments_by_ticket_id(conn: &mut DbConnection, ticke
         let attachments = get_attachments_by_comment_id(conn, comment.id)?;
 
         // Get user information for this comment using user_uuid with avatar
-        let user = match crate::repository::users::get_user_by_uuid(&comment.user_uuid, conn) {
-            Ok(user) => Some(UserInfoWithAvatar::from(user)),
-            Err(_) => None,
-        };
+        let user = crate::repository::users::get_user_by_uuid(&comment.user_uuid, conn)
+            .ok()
+            .map(UserInfoWithAvatar::from);
 
         comments_with_attachments.push(CommentWithAttachments {
             comment,

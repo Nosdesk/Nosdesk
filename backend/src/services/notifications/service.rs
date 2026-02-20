@@ -483,31 +483,6 @@ impl NotificationService {
         Ok(count)
     }
 
-    /// Delete a notification for a user
-    #[allow(dead_code)]
-    pub async fn delete_notification(
-        &self,
-        user_uuid_val: &Uuid,
-        notification_id: i32,
-    ) -> Result<bool, String> {
-        use crate::schema::notifications::dsl::*;
-
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
-
-        let count = diesel::delete(
-            notifications
-                .filter(user_uuid.eq(user_uuid_val))
-                .filter(id.eq(notification_id)),
-        )
-        .execute(&mut conn)
-        .map_err(|e| format!("Delete failed: {e}"))?;
-
-        Ok(count > 0)
-    }
-
     /// Delete multiple notifications for a user
     pub async fn delete_notifications(
         &self,

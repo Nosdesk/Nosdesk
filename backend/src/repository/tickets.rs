@@ -135,13 +135,9 @@ pub async fn delete_ticket_with_cleanup(
 /// Extract storage path from attachment URL
 /// Converts /uploads/tickets/123/filename.ext to tickets/123/filename.ext
 fn extract_storage_path_from_url(url: &str) -> Option<String> {
-    if url.starts_with("/uploads/tickets/") {
-        Some(url.trim_start_matches("/uploads/").to_string())
-    } else if url.starts_with("/uploads/temp/") {
-        Some(url.trim_start_matches("/uploads/").to_string())
-    } else {
-        None
-    }
+    url.strip_prefix("/uploads/")
+        .filter(|r| r.starts_with("tickets/") || r.starts_with("temp/"))
+        .map(String::from)
 }
 
 // Composite operations for tickets
@@ -155,15 +151,9 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
         .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
         .map(crate::models::UserInfoWithAvatar::from);
     
-    let assignee_user = match ticket.assignee_uuid {
-        Some(assignee_uuid) => {
-            match crate::repository::get_user_by_uuid(&assignee_uuid, conn) {
-                Ok(user) => Some(UserInfoWithAvatar::from(user)),
-                Err(_) => None, // User not found
-            }
-        },
-        None => None, // No assignee
-    };
+    let assignee_user = ticket.assignee_uuid.as_ref()
+        .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
+        .map(UserInfoWithAvatar::from);
     
     // Get devices associated with this ticket through the junction table
     let devices = get_devices_for_ticket(conn, ticket_id).unwrap_or_default();
@@ -176,10 +166,9 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
         let attachments = crate::repository::comments::get_attachments_by_comment_id(conn, comment.id)?;
 
         // Get user information for this comment with avatar
-        let user = match crate::repository::users::get_user_by_uuid(&comment.user_uuid, conn) {
-            Ok(user) => Some(UserInfoWithAvatar::from(user)),
-            Err(_) => None,
-        };
+        let user = crate::repository::users::get_user_by_uuid(&comment.user_uuid, conn)
+            .ok()
+            .map(UserInfoWithAvatar::from);
 
         comments_with_attachments.push(CommentWithAttachments {
             comment,

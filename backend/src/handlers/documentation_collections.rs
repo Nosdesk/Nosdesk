@@ -7,6 +7,7 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::handlers::helpers;
 use crate::handlers::sse::SseState;
 use crate::models::{
     NewDocumentationCollection, DocumentationCollectionUpdate, NewDocumentationCollectionPage,
@@ -101,9 +102,9 @@ pub async fn get_collections(
 
     let is_admin = claims.role == "admin";
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::documentation_collections::get_collections_for_user(&mut conn, &user_uuid, is_admin) {
@@ -127,9 +128,9 @@ pub async fn get_collection(
     };
 
     let collection_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let mut collection = match repository::documentation_collections::get_collection(&mut conn, collection_id) {
@@ -201,9 +202,9 @@ pub async fn get_collection_by_slug(
     };
 
     let slug = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let mut collection = match repository::documentation_collections::get_collection_by_slug(&mut conn, &slug) {
@@ -272,9 +273,9 @@ pub async fn get_uncollected_pages(
         return e;
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::documentation_collections::get_uncollected_pages(&mut conn) {
@@ -313,9 +314,9 @@ pub async fn create_collection(
 
     let created_by = Uuid::parse_str(&claims.sub).ok();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Generate slug from name if not provided
@@ -395,9 +396,9 @@ pub async fn update_collection(
     }
 
     let collection_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Check if system collection
@@ -460,9 +461,9 @@ pub async fn delete_collection(
     }
 
     let collection_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Check if system collection
@@ -509,9 +510,9 @@ pub async fn add_page_to_collection(
     let collection_id = path.into_inner();
     let created_by = Uuid::parse_str(&claims.sub).ok();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let new_entry = NewDocumentationCollectionPage {
@@ -540,9 +541,9 @@ pub async fn remove_page_from_collection(
     }
 
     let (collection_id, page_id) = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::documentation_collections::remove_page_from_collection(&mut conn, collection_id, page_id) {
@@ -566,9 +567,9 @@ pub async fn get_collections_for_page(
     }
 
     let page_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::documentation_collections::get_collections_for_page(&mut conn, page_id) {
@@ -595,9 +596,9 @@ pub async fn get_collection_visibility(
     }
 
     let collection_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::documentation_collections::get_visible_groups_for_collection(&mut conn, collection_id) {
@@ -630,9 +631,9 @@ pub async fn set_collection_visibility(
     let collection_id = path.into_inner();
     let created_by = Uuid::parse_str(&claims.sub).ok();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Parse user UUIDs
@@ -670,9 +671,9 @@ pub async fn get_page_overrides_in_collection(
     }
 
     let collection_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get all pages in the collection
@@ -766,9 +767,9 @@ pub async fn reorder_collections(
         return e;
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::documentation_collections::reorder_collections(&mut conn, &body.collection_orders) {
@@ -801,9 +802,9 @@ pub async fn set_page_collections(
     let page_id = path.into_inner();
     let created_by = Uuid::parse_str(&claims.sub).ok();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get current collections for this page

@@ -1,12 +1,12 @@
 use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
 use bcrypt::verify;
-use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 use tracing::{debug, info, warn, error};
 
 
 use crate::db::DbConnection;
+use crate::handlers::helpers;
 use crate::models::{
     LoginRequest, PasswordChangeRequest,
     UserRegistration, UserResponse
@@ -19,14 +19,6 @@ use crate::utils::rate_limit::{RateLimiter, get_redis_url};
 
 // Import JWT utilities
 use crate::utils::jwt::{JwtUtils, helpers as jwt_helpers};
-
-// Admin password reset request
-#[derive(Deserialize)]
-#[allow(dead_code)]
-pub struct AdminPasswordResetRequest {
-    pub user_uuid: Uuid,
-    pub new_password: String,
-}
 
 /// Helper function to get password hash from user_auth_identities for local auth
 fn get_local_password_hash(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<String, String> {
@@ -283,12 +275,9 @@ pub async fn login(
         }
     }
 
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Find user by email
@@ -380,12 +369,9 @@ pub async fn mfa_login(
     login_data: web::Json<crate::models::MfaLoginRequest>,
     request: actix_web::HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Find user by email (same as regular login)
@@ -509,12 +495,9 @@ pub async fn recovery_login(
         }
     }
 
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Find user by email
@@ -617,7 +600,7 @@ pub async fn logout(
     use crate::utils::cookies::{delete_access_token_cookie, delete_refresh_token_cookie, delete_csrf_token_cookie};
 
     // Best-effort session revocation — CASCADE handles linked refresh_tokens
-    if let (Ok(claims), Ok(mut conn)) = (JwtUtils::extract_claims(&req), db_pool.get()) {
+    if let (Ok(claims), Ok(mut conn)) = (JwtUtils::extract_claims(&req), helpers::db_conn(&db_pool)) {
         if let Some(sid) = claims.session_uuid() {
             match crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &sid) {
                 Ok(n) => tracing::info!("Logout: revoked {n} session(s) for sid {sid}"),
@@ -640,12 +623,9 @@ pub async fn register(
     db_pool: web::Data<crate::db::Pool>,
     user_data: web::Json<UserRegistration>,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Comprehensive input validation using our validation utilities
@@ -747,12 +727,12 @@ pub async fn register(
     let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
     let (new_user, email) = utils::NewUserBuilder::new(normalized_name, normalized_email.clone(), user_role)
         .with_uuid(user_uuid)
-        .with_pronouns(utils::normalization::normalize_optional_string(user_data.pronouns.as_ref()))
+        .with_pronouns(utils::normalization::normalize_optional_string(user_data.pronouns.as_deref()))
         .with_avatar(
-            utils::normalization::normalize_optional_string(user_data.avatar_url.as_ref()),
-            utils::normalization::normalize_optional_string(user_data.avatar_thumb.as_ref())
+            utils::normalization::normalize_optional_string(user_data.avatar_url.as_deref()),
+            utils::normalization::normalize_optional_string(user_data.avatar_thumb.as_deref())
         )
-        .with_banner(utils::normalization::normalize_optional_string(user_data.banner_url.as_ref()))
+        .with_banner(utils::normalization::normalize_optional_string(user_data.banner_url.as_deref()))
         .build_with_email();
 
     // Save user to database with email (atomically creates both user and email entry)
@@ -833,12 +813,9 @@ pub async fn change_password(
     }
 
     // Get database connection
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware
@@ -969,86 +946,14 @@ pub async fn change_password(
     }
 }
 
-#[allow(dead_code)]
-pub async fn admin_reset_password(
-    db_pool: web::Data<crate::db::Pool>,
-    req: HttpRequest,
-    reset_data: web::Json<AdminPasswordResetRequest>,
-) -> impl Responder {
-    // Get database connection
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
-    };
-
-    // Extract claims from cookie auth middleware
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
-    };
-
-    // Check admin permissions
-    if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Only administrators can reset passwords"
-        }));
-    }
-
-    // Get the target user
-    let user = match repository::get_user_by_uuid(&reset_data.user_uuid, &mut conn) {
-        Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
-    };
-
-    // Hash the new password
-    let new_password_hash = match hash_password(&reset_data.new_password) {
-        Ok(hash) => hash,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Error hashing new password"
-        })),
-    };
-
-    // Update the user's password hash in user_auth_identities
-    match update_local_password_hash(&user.uuid, &new_password_hash, &mut conn) {
-        Ok(_) => {
-            info!(user_name = %user.name, "Password reset successfully");
-            HttpResponse::Ok().json(json!({
-                "status": "success",
-                "message": "Password reset successfully"
-            }))
-        },
-        Err(e) => {
-            error!(error = ?e, "Error resetting password");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error updating password"
-            }))
-        }
-    }
-}
-
 // Handler to get current authenticated user
 pub async fn get_current_user(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match JwtUtils::extract_claims(&req) {
@@ -1092,12 +997,9 @@ pub async fn check_setup_status(
     
     debug!("Setup status check from IP: {}", client_ip);
     
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Failed to get database connection"
-        }))
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::count_users(&mut conn) {
@@ -1140,12 +1042,9 @@ pub async fn setup_initial_admin(
     db_pool: web::Data<crate::db::Pool>,
     admin_data: web::Json<crate::models::AdminSetupRequest>,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Security check: Only allow setup if no users exist
@@ -1296,12 +1195,9 @@ pub async fn mfa_setup(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -1375,12 +1271,9 @@ pub async fn mfa_verify_setup(
     req: HttpRequest,
     request: web::Json<crate::models::MfaVerifySetupRequest>,
 ) -> impl Responder {
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let _conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -1417,12 +1310,9 @@ pub async fn mfa_enable(
     req: HttpRequest,
     request: web::Json<crate::models::MfaEnableRequest>,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -1524,12 +1414,9 @@ pub async fn mfa_disable(
     req: HttpRequest,
     request: web::Json<crate::models::MfaDisableRequest>,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -1615,12 +1502,9 @@ pub async fn mfa_regenerate_backup_codes(
     req: HttpRequest,
     request: web::Json<crate::models::MfaRegenerateBackupCodesRequest>,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -1698,12 +1582,9 @@ pub async fn mfa_status(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match JwtUtils::extract_claims(&req) {
@@ -1773,12 +1654,9 @@ pub async fn mfa_setup_login(
         }
     }
 
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Find user by email and verify password (same as login flow)
@@ -1914,12 +1792,9 @@ pub async fn mfa_enable_login(
         }
     }
 
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Find user by email and verify password again (security)
@@ -2083,12 +1958,9 @@ pub async fn get_user_sessions(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match JwtUtils::extract_claims(&req) {
@@ -2153,12 +2025,9 @@ pub async fn revoke_session(
 ) -> impl Responder {
     let session_id = path.into_inner();
 
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match JwtUtils::extract_claims(&req) {
@@ -2225,12 +2094,9 @@ pub async fn revoke_all_other_sessions(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match JwtUtils::extract_claims(&req) {
@@ -2286,12 +2152,9 @@ pub async fn refresh_token(
     db_pool: web::Data<crate::db::Pool>,
     request: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // 1. Read refresh cookie → hash → lookup
@@ -2498,8 +2361,12 @@ mod tests {
         let pool = setup_test_pool();
         let app = test::init_service(test_app(pool)).await;
 
+        // Use a unique email per run to avoid triggering the Redis rate limiter
+        // across repeated test invocations.
+        let unique_email = format!("nonexistent_{}@example.com", uuid::Uuid::new_v4());
+
         let login_request = serde_json::json!({
-            "email": "nonexistent@example.com",
+            "email": unique_email,
             "password": "wrongpassword"
         });
 
@@ -2572,20 +2439,18 @@ mod tests {
     #[actix_web::test]
     async fn get_current_user_with_auth_succeeds() {
         let pool = setup_test_pool();
-        let mut conn = pool.get().unwrap();
-
-        // Create test user
-        let user = TestFixtures::create_user(&mut conn, "authuser", UserRole::User);
-        let claims = create_test_claims(&user);
+        let (user_uuid, claims) = {
+            let mut conn = pool.get().unwrap();
+            let user = TestFixtures::create_user(&mut conn, "authuser", UserRole::User);
+            let claims = create_test_claims(&user);
+            (user.uuid, claims)
+        }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
 
-        // Create request with auth claims injected
         let req = test::TestRequest::get()
             .uri("/me")
             .to_request();
-
-        // Inject claims into extensions (simulates auth middleware)
         req.extensions_mut().insert(claims);
 
         let resp = test::call_service(&app, req).await;
@@ -2593,7 +2458,7 @@ mod tests {
 
         let body = test::read_body(resp).await;
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json.get("uuid").and_then(|v| v.as_str()), Some(user.uuid.to_string().as_str()));
+        assert_eq!(json.get("uuid").and_then(|v| v.as_str()), Some(user_uuid.to_string().as_str()));
         assert_eq!(json.get("name").and_then(|v| v.as_str()), Some("authuser"));
     }
 }

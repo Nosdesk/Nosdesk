@@ -29,14 +29,19 @@ pub enum TicketStatus {
     Closed,
 }
 
-impl ToSql<crate::schema::sql_types::TicketStatus, Pg> for TicketStatus {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
-        let s = match *self {
+impl TicketStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
             TicketStatus::Open => "open",
             TicketStatus::InProgress => "in-progress",
             TicketStatus::Closed => "closed",
-        };
-        out.write_all(s.as_bytes())?;
+        }
+    }
+}
+
+impl ToSql<crate::schema::sql_types::TicketStatus, Pg> for TicketStatus {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
+        out.write_all(self.as_str().as_bytes())?;
         Ok(IsNull::No)
     }
 }
@@ -64,14 +69,19 @@ pub enum TicketPriority {
     High,
 }
 
-impl ToSql<crate::schema::sql_types::TicketPriority, Pg> for TicketPriority {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
-        let s = match *self {
+impl TicketPriority {
+    pub fn as_str(&self) -> &'static str {
+        match self {
             TicketPriority::Low => "low",
             TicketPriority::Medium => "medium",
             TicketPriority::High => "high",
-        };
-        out.write_all(s.as_bytes())?;
+        }
+    }
+}
+
+impl ToSql<crate::schema::sql_types::TicketPriority, Pg> for TicketPriority {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
+        out.write_all(self.as_str().as_bytes())?;
         Ok(IsNull::No)
     }
 }
@@ -546,14 +556,19 @@ pub enum UserRole {
     User,
 }
 
-impl ToSql<crate::schema::sql_types::UserRole, Pg> for UserRole {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
-        let s = match *self {
+impl UserRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
             UserRole::Admin => "admin",
             UserRole::Technician => "technician",
             UserRole::User => "user",
-        };
-        out.write_all(s.as_bytes())?;
+        }
+    }
+}
+
+impl ToSql<crate::schema::sql_types::UserRole, Pg> for UserRole {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
+        out.write_all(self.as_str().as_bytes())?;
         Ok(IsNull::No)
     }
 }
@@ -1038,16 +1053,6 @@ pub struct RefreshTokenResponse {
 pub struct PasswordChangeRequest {
     pub current_password: String,
     pub new_password: String,
-}
-
-// Add the ArticleContentChunk struct for handling chunked article content
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-pub struct ArticleContentChunk {
-    pub chunk_index: i32,
-    pub total_chunks: usize,
-    pub is_last_chunk: bool,
-    pub content: String,
 }
 
 // Authentication Provider models

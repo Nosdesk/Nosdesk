@@ -4,6 +4,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::handlers::helpers;
 use crate::models::{NewGroup, GroupUpdate, Claims};
 use crate::repository;
 use crate::utils::rbac::require_admin;
@@ -29,9 +30,9 @@ pub async fn get_group_details(
         Err(_) => return HttpResponse::BadRequest().json("Invalid group UUID"),
     };
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::groups::get_group_details(&mut conn, &group_uuid) {
@@ -56,9 +57,9 @@ pub async fn get_all_groups(
         return e;
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::groups::get_groups_with_member_counts(&mut conn) {
@@ -78,9 +79,9 @@ pub async fn get_group(
     }
 
     let group_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::groups::get_group_with_members(&mut conn, group_id) {
@@ -110,17 +111,12 @@ pub async fn create_group(
         return e;
     }
 
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
-    let created_by = Uuid::parse_str(&claims.sub).ok();
-
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
-    };
+    let created_by = Some(user_uuid);
 
     let new_group = NewGroup {
         name: body.name.clone(),
@@ -147,9 +143,9 @@ pub async fn update_group(
     }
 
     let group_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::groups::update_group(&mut conn, group_id, body.into_inner()) {
@@ -172,9 +168,9 @@ pub async fn delete_group(
     }
 
     let group_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::groups::delete_group(&mut conn, group_id) {
@@ -195,9 +191,9 @@ pub async fn unmanage_group(
     }
 
     let group_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Check if group exists and is externally synced
@@ -243,18 +239,13 @@ pub async fn set_group_members(
         return e;
     }
 
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
-    let created_by = Uuid::parse_str(&claims.sub).ok();
+    let created_by = Some(user_uuid);
     let group_id = path.into_inner();
-
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
-    };
 
     // Check if group is externally synced - membership cannot be modified
     match repository::groups::get_group_by_id(&mut conn, group_id) {
@@ -297,9 +288,9 @@ pub async fn get_user_groups(
         Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
     };
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::groups::get_groups_for_user(&mut conn, &user_uuid) {
@@ -325,20 +316,15 @@ pub async fn set_user_groups(
         return e;
     }
 
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
-    let created_by = Uuid::parse_str(&claims.sub).ok();
+    let created_by = Some(user_uuid);
     let user_uuid = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
         Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
-    };
-
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
     };
 
     match repository::groups::set_user_groups(&mut conn, user_uuid, body.group_ids.clone(), created_by) {
@@ -368,9 +354,9 @@ pub async fn get_group_includes(
     }
 
     let group_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::groups::get_included_groups(&mut conn, group_id) {
@@ -399,18 +385,13 @@ pub async fn set_group_includes(
         return e;
     }
 
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
-    let created_by = Uuid::parse_str(&claims.sub).ok();
+    let created_by = Some(user_uuid);
     let group_id = path.into_inner();
-
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
-    };
 
     // Verify group exists
     let group = match repository::groups::get_group_by_id(&mut conn, group_id) {
@@ -459,18 +440,13 @@ pub async fn set_group_devices(
         return e;
     }
 
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
-    let created_by = Uuid::parse_str(&claims.sub).ok();
+    let created_by = Some(user_uuid);
     let group_id = path.into_inner();
-
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
-    };
 
     // Check if group is externally synced - membership cannot be modified
     match repository::groups::get_group_by_id(&mut conn, group_id) {

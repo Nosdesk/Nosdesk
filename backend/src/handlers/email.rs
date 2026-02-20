@@ -3,6 +3,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::db::Pool;
+use crate::handlers::helpers;
 use crate::utils::email::{EmailService, EmailConfig};
 use crate::utils::email_branding::get_email_branding;
 
@@ -18,14 +19,9 @@ pub async fn get_email_config(
     req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Could not get database connection"
-            }))
-        }
+    let _conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware
@@ -77,14 +73,9 @@ pub async fn send_test_email(
     request: web::Json<TestEmailRequest>,
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Could not get database connection"
-            }))
-        }
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware

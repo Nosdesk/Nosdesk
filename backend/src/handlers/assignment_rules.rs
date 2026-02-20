@@ -5,6 +5,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::handlers::helpers;
 use crate::models::{
     AssignmentMethod, AssignmentRuleUpdate, AssignmentTrigger, Claims, NewAssignmentRule,
 };
@@ -25,9 +26,9 @@ pub async fn get_all_rules(
         return e;
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::assignment_rules::get_all_rules_with_details(&mut conn) {
@@ -51,9 +52,9 @@ pub async fn get_rule(
     }
 
     let rule_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::assignment_rules::get_rule_with_details(&mut conn, rule_id) {
@@ -102,9 +103,9 @@ pub async fn create_rule(
 
     let created_by = Uuid::parse_str(&claims.sub).ok();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Parse method
@@ -215,9 +216,9 @@ pub async fn update_rule(
     }
 
     let rule_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Check if rule exists
@@ -303,9 +304,9 @@ pub async fn delete_rule(
     }
 
     let rule_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::assignment_rules::delete_rule(&mut conn, rule_id) {
@@ -341,9 +342,9 @@ pub async fn reorder_rules(
         return e;
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let orders: Vec<(i32, i32)> = body.orders.iter().map(|o| (o.id, o.priority)).collect();
@@ -392,9 +393,9 @@ pub async fn preview_assignment(
         return e;
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Parse trigger
@@ -456,9 +457,9 @@ pub async fn get_assignment_logs(
         return e;
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::assignment_rules::get_recent_logs(&mut conn, 100) {

@@ -4,6 +4,7 @@ use chrono::{Duration, Utc};
 use tracing::{info, warn, error};
 
 use crate::db::DbConnection;
+use crate::handlers::helpers;
 use crate::models::{PasswordResetRequest, PasswordResetResponse, PasswordResetCompleteRequest};
 use crate::repository;
 use crate::utils::auth::hash_password;
@@ -20,12 +21,9 @@ pub async fn request_password_reset(
     request_data: web::Json<PasswordResetRequest>,
     http_request: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Validate email format
@@ -176,12 +174,9 @@ pub async fn reset_password_with_token(
     request_data: web::Json<PasswordResetCompleteRequest>,
     http_request: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Validate new password

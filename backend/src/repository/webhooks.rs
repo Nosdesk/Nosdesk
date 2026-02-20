@@ -162,18 +162,6 @@ pub fn get_pending_retries(conn: &mut DbConnection) -> Result<Vec<WebhookDeliver
         .map_err(|e| format!("Database error: {e}"))
 }
 
-/// Delete old deliveries (for cleanup)
-#[allow(dead_code)]
-pub fn delete_old_deliveries(
-    conn: &mut DbConnection,
-    days_old: i64,
-) -> Result<usize, diesel::result::Error> {
-    let cutoff = Utc::now().naive_utc() - chrono::Duration::days(days_old);
-
-    diesel::delete(webhook_deliveries::table.filter(webhook_deliveries::created_at.lt(cutoff)))
-        .execute(conn)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -8,6 +8,7 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::handlers::helpers;
 use crate::models::{
     Claims, CollectionListResponse, CollectionQueryParams, CollectionRowResponse,
     CollectionSchemaResponse, CreateCollectionRowRequest, NewPluginCollectionRow,
@@ -59,9 +60,9 @@ pub async fn list_collections(
     };
 
     let plugin_uuid = path.into_inner();
-    let mut conn = match pool.get() {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+        Err(e) => return e,
     };
 
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
@@ -111,9 +112,9 @@ pub async fn get_collection_schema(
     };
 
     let path = path.into_inner();
-    let mut conn = match pool.get() {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+        Err(e) => return e,
     };
 
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
@@ -164,9 +165,9 @@ pub async fn list_collection_rows(
     };
 
     let path = path.into_inner();
-    let mut conn = match pool.get() {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+        Err(e) => return e,
     };
 
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
@@ -232,9 +233,9 @@ pub async fn create_collection_row(
     };
 
     let path = path.into_inner();
-    let mut conn = match pool.get() {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+        Err(e) => return e,
     };
 
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
@@ -297,9 +298,9 @@ pub async fn get_collection_row(
     };
 
     let path = path.into_inner();
-    let mut conn = match pool.get() {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+        Err(e) => return e,
     };
 
     // Verify plugin exists
@@ -330,9 +331,9 @@ pub async fn update_collection_row(
     };
 
     let path = path.into_inner();
-    let mut conn = match pool.get() {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+        Err(e) => return e,
     };
 
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
@@ -391,9 +392,9 @@ pub async fn delete_collection_row(
     };
 
     let path = path.into_inner();
-    let mut conn = match pool.get() {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+        Err(e) => return e,
     };
 
     // Verify plugin exists

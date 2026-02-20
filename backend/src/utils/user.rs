@@ -132,7 +132,7 @@ pub mod normalization {
         )
     }
 
-    pub fn normalize_optional_string(value: Option<&String>) -> Option<String> {
+    pub fn normalize_optional_string(value: Option<&str>) -> Option<String> {
         value.map(|s| utils::normalize_string(s))
     }
 }
@@ -204,7 +204,6 @@ mod tests {
 
     #[test]
     fn normalize_optional_string_trims() {
-        let input = "  hello  ".to_string();
-        assert_eq!(normalization::normalize_optional_string(Some(&input)), Some("hello".to_string()));
+        assert_eq!(normalization::normalize_optional_string(Some("  hello  ")), Some("hello".to_string()));
     }
 }

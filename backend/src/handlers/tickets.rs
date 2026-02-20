@@ -20,24 +20,7 @@ use crate::services::search::SearchService;
 use crate::services::search::indexing_tasks;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
 use crate::utils::sse::SseBroadcaster;
-
-// Helper type for database operations with proper error handling
-type DbResult<T> = Result<T, HttpResponse>;
-
-// Helper function to get database connection with error handling
-async fn get_db_conn(pool: &web::Data<crate::db::Pool>) -> DbResult<crate::db::DbConnection> {
-    pool.get()
-        .map_err(|_| HttpResponse::InternalServerError().json("Database connection error"))
-}
-
-// Helper function to extract user UUID from JWT claims
-fn get_user_uuid_from_claims(claims: &Claims) -> Result<Uuid, HttpResponse> {
-    Uuid::parse_str(&claims.sub)
-        .map_err(|_| HttpResponse::BadRequest().json(json!({
-            "error": "Invalid user UUID",
-            "message": "The user UUID in the authentication token is invalid"
-        })))
-}
+use crate::handlers::helpers;
 
 // Helper function to validate assignee role
 fn validate_assignee_role(
@@ -242,8 +225,8 @@ pub async fn get_tickets(
         }));
     }
 
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -259,8 +242,8 @@ pub async fn get_paginated_tickets(
     query: web::Query<PaginationParams>,
     auth: AuthContext,
 ) -> impl Responder {
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -303,8 +286,8 @@ pub async fn get_ticket(
     let ticket_id = params.into_inner();
     let claims_inner = claims.into_inner();
 
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -315,7 +298,7 @@ pub async fn get_ticket(
     };
 
     // Record the view (don't fail the request if this fails)
-    let user_uuid = match get_user_uuid_from_claims(&claims_inner) {
+    let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
             // Log but don't fail - still return the ticket
@@ -341,8 +324,8 @@ pub async fn create_ticket(
     auth: AuthContext,
     ticket: web::Json<NewTicket>,
 ) -> impl Responder {
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
     let new_ticket = ticket.into_inner();
@@ -456,8 +439,8 @@ pub async fn update_ticket(
     ticket: web::Json<NewTicket>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
     let new_ticket = ticket.into_inner();
@@ -502,8 +485,8 @@ pub async fn delete_ticket(
     }
 
     let ticket_id = path.into_inner();
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -563,8 +546,8 @@ pub async fn import_tickets_from_json(
         Err(_) => return HttpResponse::BadRequest().json("Failed to parse JSON"),
     };
 
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -607,8 +590,8 @@ pub async fn import_tickets_from_json_string(
         }));
     }
 
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -636,8 +619,8 @@ pub async fn create_empty_ticket(
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -763,9 +746,9 @@ pub async fn update_ticket_partial(
 ) -> impl Responder {
     let ticket_id = params.into_inner();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from request extensions (set by cookie_auth_middleware)
@@ -1127,8 +1110,8 @@ pub async fn link_tickets(
     }
 
     let (ticket_id, linked_ticket_id) = path.into_inner();
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -1180,8 +1163,8 @@ pub async fn unlink_tickets(
     }
 
     let (ticket_id, linked_ticket_id) = path.into_inner();
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -1233,8 +1216,8 @@ pub async fn add_device_to_ticket(
     }
 
     let (ticket_id, device_id) = path.into_inner();
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -1286,8 +1269,8 @@ pub async fn remove_device_from_ticket(
     }
 
     let (ticket_id, device_id) = path.into_inner();
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -1327,9 +1310,12 @@ pub async fn get_recent_tickets(
     use crate::repository::user_ticket_views::UserTicketViewsRepository;
 
     let claims_inner = claims.into_inner();
-    let user_uuid = match get_user_uuid_from_claims(&claims_inner) {
+    let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
         Ok(uuid) => uuid,
-        Err(e) => return e,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "error": "Invalid user UUID",
+            "message": "The user UUID in the authentication token is invalid"
+        })),
     };
 
     let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
@@ -1353,9 +1339,12 @@ pub async fn record_ticket_view(
 
     let ticket_id = path.into_inner();
     let claims_inner = claims.into_inner();
-    let user_uuid = match get_user_uuid_from_claims(&claims_inner) {
+    let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
         Ok(uuid) => uuid,
-        Err(e) => return e,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "error": "Invalid user UUID",
+            "message": "The user UUID in the authentication token is invalid"
+        })),
     };
 
     let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
@@ -1395,8 +1384,8 @@ pub async fn bulk_tickets(
         })),
     };
 
-    let mut conn = match get_db_conn(&pool).await {
-        Ok(conn) => conn,
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
         Err(e) => return e,
     };
 
@@ -1637,25 +1626,17 @@ mod tests {
     #[actix_web::test]
     async fn get_tickets_with_auth_succeeds() {
         let pool = setup_test_pool();
-        let mut conn = pool.get().unwrap();
+        let claims = {
+            let mut conn = pool.get().unwrap();
+            let admin = TestFixtures::create_user(&mut conn, "ticketadmin", UserRole::Admin);
+            let claims = create_test_claims(&admin);
 
-        // Create admin user (get_tickets requires technician or admin role)
-        let admin = TestFixtures::create_user(&mut conn, "ticketadmin", UserRole::Admin);
-        let claims = create_test_claims(&admin);
+            let user = TestFixtures::create_user(&mut conn, "regularuser", UserRole::User);
+            let _user_claims = create_test_claims(&user);
 
-        // For this test we need to use AuthContext, which requires middleware setup.
-        // Since AuthContext is an extractor that reads from request extensions,
-        // we need to manually insert the claims and user info.
-        // However, AuthContext requires both Claims and user lookup.
-        //
-        // Let's test this differently - we verify the handler logic by checking
-        // that without proper auth context, we get appropriate error responses.
+            claims
+        }; // conn dropped here — pool free for HTTP handlers
 
-        // Create a simpler test: verify that a regular user gets 403 (forbidden)
-        let user = TestFixtures::create_user(&mut conn, "regularuser", UserRole::User);
-        let _user_claims = create_test_claims(&user);
-
-        // For now, verify the endpoint exists and requires authentication
         let app = test::init_service(test_app(pool.clone())).await;
         let req = test::TestRequest::get().uri("/tickets").to_request();
         let resp = test::call_service(&app, req).await;
@@ -1748,11 +1729,11 @@ mod tests {
     #[actix_web::test]
     async fn get_ticket_not_found() {
         let pool = setup_test_pool();
-        let mut conn = pool.get().unwrap();
-
-        // Create user for authentication
-        let user = TestFixtures::create_user(&mut conn, "notfounduser", UserRole::Technician);
-        let claims = create_test_claims(&user);
+        let claims = {
+            let mut conn = pool.get().unwrap();
+            let user = TestFixtures::create_user(&mut conn, "notfounduser", UserRole::Technician);
+            create_test_claims(&user)
+        }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
 
@@ -1771,16 +1752,15 @@ mod tests {
         // get_tickets requires technician or admin role
         // Regular users should be forbidden
         let pool = setup_test_pool();
-        let mut conn = pool.get().unwrap();
-
-        let user = TestFixtures::create_user(&mut conn, "regularticketuser", UserRole::User);
-        let claims = create_test_claims(&user);
+        let claims = {
+            let mut conn = pool.get().unwrap();
+            let user = TestFixtures::create_user(&mut conn, "regularticketuser", UserRole::User);
+            create_test_claims(&user)
+        }; // conn dropped here
 
         // Verify the claims have the correct role
         assert_eq!(claims.role, "user");
 
-        // The handler checks auth.is_technician_or_admin() which requires AuthContext
-        // Without proper middleware, the request will fail at auth extraction
         let app = test::init_service(test_app(pool.clone())).await;
         let req = test::TestRequest::get().uri("/tickets").to_request();
         let resp = test::call_service(&app, req).await;

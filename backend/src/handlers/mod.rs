@@ -1,4 +1,5 @@
 // Reexport handlers
+pub mod helpers;
 pub mod api_tokens;
 pub mod assignment_rules;
 pub mod collaboration;
@@ -147,12 +148,9 @@ pub async fn get_comments_by_ticket_id(
     let ticket_id = path.into_inner();
     debug!(ticket_id, "Getting comments for ticket");
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json(json!({"error": "Database connection error"}));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match crate::repository::comments::get_comments_with_attachments_by_ticket_id(&mut conn, ticket_id) {
@@ -197,12 +195,9 @@ pub async fn add_comment_to_ticket(
     debug!(content = %comment_data.content, "Comment content");
     debug!(attachments_count = comment_data.attachments.len(), "Attachments count");
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json(json!({"error": "Database connection error"}));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware
@@ -546,14 +541,11 @@ pub async fn delete_comment(
     let comment_id = path.into_inner();
     debug!(comment_id, "Deleting comment");
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json(json!({"error": "Database connection error"}));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
-    
+
     // Get the comment first to find the ticket_id for SSE broadcasting
     let ticket_id = match crate::repository::comments::get_comment_by_id(&mut conn, comment_id) {
         Ok(comment) => comment.ticket_id,
@@ -598,14 +590,11 @@ pub async fn delete_attachment(
     let attachment_id = path.into_inner();
     debug!(attachment_id, "Deleting attachment");
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json(json!({"error": "Database connection error"}));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
-    
+
     // First, get the attachment to find the file path
     match crate::repository::comments::get_attachment_by_id(&mut conn, attachment_id) {
         Ok(attachment) => {

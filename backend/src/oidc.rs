@@ -536,7 +536,7 @@ mod tests {
 
     #[test]
     fn test_pkce_generation() {
-        let (challenge, verifier) = generate_pkce();
+        let (_challenge, verifier) = generate_pkce();
         assert!(!verifier.secret().is_empty());
         // Challenge is derived from verifier
     }

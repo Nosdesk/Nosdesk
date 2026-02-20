@@ -8,6 +8,7 @@ use tracing::{debug, error};
 use uuid::Uuid;
 use crate::utils;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
+use crate::handlers::helpers;
 
 use crate::db::Pool;
 use crate::models::{Claims, NewDevice, DeviceUpdate, Device, User, Group};
@@ -167,9 +168,9 @@ fn devices_to_responses(conn: &mut crate::db::DbConnection, devices: Vec<Device>
 
 /// Get all devices
 pub async fn get_all_devices(pool: web::Data<Pool>) -> impl Responder {
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::get_all_devices(&mut conn) {
@@ -190,9 +191,9 @@ pub async fn get_paginated_devices(
     pool: web::Data<Pool>,
     query: web::Query<PaginationParams>,
 ) -> impl Responder {
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let page = query.page.unwrap_or(1).max(1);
@@ -237,11 +238,11 @@ pub async fn get_device_by_id(
     path: web::Path<i32>,
 ) -> impl Responder {
     let device_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
-    
+
     match repository::get_device_by_id(&mut conn, device_id) {
         Ok(device) => {
             // Get user data if device has a primary user
@@ -273,11 +274,11 @@ pub async fn get_user_devices(
     path: web::Path<String>,
 ) -> impl Responder {
     let user_uuid_str = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
-    
+
     // Parse UUID from string
     let user_uuid = match utils::parse_uuid(&user_uuid_str) {
         Ok(uuid) => uuid,
@@ -320,9 +321,9 @@ pub async fn create_device(
         }));
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::create_device(&mut conn, device.into_inner()) {
@@ -366,9 +367,9 @@ pub async fn update_device(
     req: HttpRequest,
 ) -> impl Responder {
     let device_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware for SSE events and role check
@@ -485,9 +486,9 @@ pub async fn delete_device(
     }
 
     let device_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::delete_device(&mut conn, device_id) {
@@ -516,9 +517,9 @@ pub async fn unmanage_device(
     req: HttpRequest,
 ) -> impl Responder {
     let device_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware and check role
@@ -615,9 +616,9 @@ pub async fn get_paginated_devices_excluding(
     query: web::Query<PaginationParams>,
     exclude_query: web::Query<HashMap<String, String>>,
 ) -> impl Responder {
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let page = query.page.unwrap_or(1).max(1);
@@ -691,11 +692,9 @@ pub async fn bulk_devices(
         }));
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "error": "Database connection failed"
-        })),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let action = body.action.as_str();

@@ -425,14 +425,12 @@ fn create_square_crop(img: &image::DynamicImage, target_size: u32) -> image::Dyn
     let cropped_img = img.crop_imm(crop_x, crop_y, crop_size, crop_size);
 
     // Resize the square crop to the target size
-    let final_img = if crop_size != target_size {
+    if crop_size != target_size {
         debug!(from_size = crop_size, to_size = target_size, "Resizing cropped square");
         cropped_img.resize_exact(target_size, target_size, image::imageops::FilterType::Lanczos3)
     } else {
         cropped_img
-    };
-
-    final_img
+    }
 }
 
 /// Load an image from bytes and apply EXIF orientation correction

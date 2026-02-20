@@ -8,7 +8,8 @@ use serde::Deserialize;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::db::{DbConnection, Pool};
+use crate::db::Pool;
+use crate::handlers::helpers;
 use crate::models::{
     Claims, CreateWebhookRequest, UpdateWebhookRequest, WebhookCreatedResponse,
     WebhookDeliveryResponse, WebhookResponse, WebhookUpdate,
@@ -27,14 +28,6 @@ pub struct PaginationQuery {
 // =============================================================================
 // Helper Functions (DRY)
 // =============================================================================
-
-/// Get a database connection or return an error response
-fn get_connection(pool: &web::Data<Pool>) -> Result<DbConnection, HttpResponse> {
-    pool.get().map_err(|e| {
-        error!("Database connection error: {}", e);
-        HttpResponse::InternalServerError().json("Database connection error")
-    })
-}
 
 /// Validate webhook name
 fn validate_name(name: &str) -> Result<String, HttpResponse> {
@@ -78,7 +71,7 @@ pub async fn list_webhooks(req: HttpRequest, pool: web::Data<Pool>) -> impl Resp
         return e;
     }
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -124,7 +117,7 @@ pub async fn create_webhook(
         return e;
     }
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -181,7 +174,7 @@ pub async fn get_webhook(
 
     let webhook_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -231,7 +224,7 @@ pub async fn update_webhook(
         }
     }
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -283,7 +276,7 @@ pub async fn delete_webhook(
 
     let webhook_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -316,7 +309,7 @@ pub async fn get_deliveries(
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -368,7 +361,7 @@ pub async fn test_webhook(
 
     let webhook_uuid = path.into_inner();
 
-    let mut conn = match get_connection(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };

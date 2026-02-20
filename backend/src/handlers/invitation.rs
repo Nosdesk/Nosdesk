@@ -4,6 +4,7 @@ use chrono::Utc;
 use tracing::{info, warn, error};
 
 use crate::db::DbConnection;
+use crate::handlers::helpers;
 use crate::models::{AcceptInvitationRequest, AcceptInvitationResponse, ValidateInvitationRequest, ValidateInvitationResponse};
 use crate::repository;
 use crate::utils::auth::hash_password;
@@ -15,12 +16,9 @@ pub async fn validate_invitation(
     db_pool: web::Data<crate::db::Pool>,
     request_data: web::Json<ValidateInvitationRequest>,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Hash the token to look it up
@@ -100,12 +98,9 @@ pub async fn accept_invitation(
     request_data: web::Json<AcceptInvitationRequest>,
     http_request: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Validate password

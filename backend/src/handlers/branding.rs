@@ -6,6 +6,7 @@ use serde_json::json;
 use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
+use crate::handlers::helpers;
 use crate::models::{SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;
@@ -24,15 +25,9 @@ pub struct UpdateBrandingRequest {
 
 // GET /api/admin/branding/config - Get branding settings (public for initial load)
 pub async fn get_branding_config(pool: web::Data<Pool>) -> impl Responder {
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match site_settings::get_site_settings(&mut conn) {
@@ -66,15 +61,9 @@ pub async fn update_branding_config(
     req: HttpRequest,
     body: web::Json<UpdateBrandingRequest>,
 ) -> impl Responder {
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get authenticated user from request
@@ -149,15 +138,9 @@ pub async fn upload_branding_image(
         }));
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get authenticated user from request
@@ -335,15 +318,9 @@ pub async fn delete_branding_image(
         }));
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get authenticated user

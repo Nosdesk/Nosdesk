@@ -8,6 +8,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::handlers::helpers;
 use crate::models::{Claims, CreateApiTokenRequest};
 use crate::repository::api_tokens;
 use crate::utils::rbac::require_admin;
@@ -18,12 +19,9 @@ pub async fn list_api_tokens(req: HttpRequest, pool: web::Data<Pool>) -> impl Re
         return e;
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!("Database connection error: {}", e);
-            return HttpResponse::InternalServerError().json("Database connection error");
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match api_tokens::list_all_api_tokens(&mut conn) {
@@ -70,12 +68,9 @@ pub async fn create_api_token(
         return HttpResponse::BadRequest().json("Token name must be 255 characters or less");
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!("Database connection error: {}", e);
-            return HttpResponse::InternalServerError().json("Database connection error");
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Verify the target user exists
@@ -124,12 +119,9 @@ pub async fn get_api_token(
 
     let token_uuid = path.into_inner();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!("Database connection error: {}", e);
-            return HttpResponse::InternalServerError().json("Database connection error");
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match api_tokens::get_api_token_by_uuid(&mut conn, token_uuid) {
@@ -172,12 +164,9 @@ pub async fn revoke_api_token(
     let admin_uuid = Uuid::parse_str(&claims.sub).ok();
     let token_uuid = path.into_inner();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!("Database connection error: {}", e);
-            return HttpResponse::InternalServerError().json("Database connection error");
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Verify token exists before revoking

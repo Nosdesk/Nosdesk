@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
+use actix_web::{web, HttpResponse, HttpRequest, Responder};
 use serde::Deserialize;
 use serde_json::json;
 use std::panic;
@@ -9,7 +9,8 @@ use yrs::{Doc, Transact, ReadTxn, WriteTxn, GetString, Options, updates::decoder
 use regex::Regex;
 
 use crate::db::{Pool, DbConnection};
-use crate::models::{Claims, NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus, DocumentationPage, DocumentationPageResponse, UserInfoWithAvatar};
+use crate::handlers::helpers;
+use crate::models::{NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus, DocumentationPage, DocumentationPageResponse, UserInfoWithAvatar};
 use crate::repository;
 use crate::repository::documentation_starred_pages;
 use crate::repository::documentation_subscriptions;
@@ -134,28 +135,6 @@ pub struct CreateDocumentationPageRequest {
     pub has_unsaved_changes: Option<bool>,
 }
 
-/// Extract claims, DB connection, and user UUID from a request — the 3-line boilerplate
-/// repeated in every authenticated handler.
-fn get_auth_conn(
-    req: &HttpRequest,
-    pool: &web::Data<Pool>,
-) -> Result<(Claims, Uuid, DbConnection), HttpResponse> {
-    let claims = req.extensions().get::<Claims>().cloned()
-        .ok_or_else(|| HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized", "message": "Authentication required"
-        })))?;
-    let conn = pool.get()
-        .map_err(|_| HttpResponse::InternalServerError().json("Database connection error"))?;
-    let user_uuid = Uuid::parse_str(&claims.sub)
-        .map_err(|_| HttpResponse::InternalServerError().json("Invalid user UUID"))?;
-    Ok((claims, user_uuid, conn))
-}
-
-/// Simpler variant for unauthenticated endpoints that only need a DB connection.
-fn get_conn(pool: &web::Data<Pool>) -> Result<DbConnection, HttpResponse> {
-    pool.get().map_err(|_| HttpResponse::InternalServerError().json("Database connection error"))
-}
-
 /// Resolve the Yjs document for a page: try the page's own yjs_document first,
 /// then fall back to the linked ticket's article content.
 fn resolve_yjs_document(
@@ -239,7 +218,7 @@ pub async fn get_documentation_pages(
     req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -265,7 +244,7 @@ pub async fn get_documentation_page(
     id: web::Path<i32>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -294,7 +273,7 @@ pub async fn get_documentation_page_by_slug(
     slug: web::Path<String>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -324,7 +303,7 @@ pub async fn get_documentation_page_content_by_uuid(
     uuid_path: web::Path<String>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -369,7 +348,7 @@ pub async fn sync_page_embeddings(
 ) -> impl Responder {
     let source_page_id = page_id.into_inner();
 
-    let mut conn = match get_conn(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -406,7 +385,7 @@ pub async fn create_documentation_page(
     sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -503,7 +482,7 @@ pub async fn update_documentation_page(
     path: web::Path<i32>,
     page: web::Json<UpdateDocumentationPageRequest>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -673,7 +652,7 @@ pub async fn delete_documentation_page(
     search_service: web::Data<Arc<SearchService>>,
     path: web::Path<i32>,
 ) -> impl Responder {
-    let (claims, _user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -722,7 +701,7 @@ pub async fn get_top_level_documentation_pages(
     req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -748,7 +727,7 @@ pub async fn get_documentation_pages_by_parent_id(
     parent_id: web::Path<i32>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -776,7 +755,7 @@ pub async fn get_page_with_children_by_parent_id(
     id: web::Path<i32>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -818,7 +797,7 @@ pub async fn get_page_with_ordered_children(
     id: web::Path<i32>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -849,7 +828,7 @@ pub async fn get_ordered_pages_by_parent_id(
     parent_id: web::Path<i32>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -883,7 +862,7 @@ pub async fn reorder_pages(
     pool: web::Data<Pool>,
     request: web::Json<ReorderPagesRequest>,
 ) -> impl Responder {
-    let (claims, _user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -917,7 +896,7 @@ pub async fn move_page_to_parent(
     pool: web::Data<Pool>,
     request: web::Json<MovePageRequest>,
 ) -> impl Responder {
-    let (claims, _user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -962,7 +941,7 @@ pub async fn get_ordered_top_level_pages(
     req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -988,7 +967,7 @@ pub async fn get_documentation_page_by_slug_with_children(
     slug: web::Path<String>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1030,7 +1009,7 @@ pub async fn get_documentation_pages_by_ticket_id(
     pool: web::Data<Pool>,
     path: web::Path<i32>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1086,7 +1065,7 @@ pub async fn export_documentation_pages(
     req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, _user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1127,7 +1106,7 @@ pub async fn export_page_as_markdown(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     let id = page_id.into_inner();
-    let mut conn = match get_conn(&pool) {
+    let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -1171,7 +1150,7 @@ pub async fn create_documentation_page_from_ticket(
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1272,7 +1251,7 @@ pub async fn get_archived_pages(
     req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1297,7 +1276,7 @@ pub async fn get_trashed_pages(
     req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1327,7 +1306,7 @@ pub async fn get_page_visibility(
     pool: web::Data<Pool>,
     path: web::Path<i32>,
 ) -> impl Responder {
-    let (claims, _user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1376,7 +1355,7 @@ pub async fn set_page_visibility(
     path: web::Path<i32>,
     body: web::Json<SetPageVisibilityRequest>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1417,7 +1396,7 @@ pub async fn restore_page(
     path: web::Path<i32>,
 ) -> impl Responder {
     let page_id = path.into_inner();
-    let (claims, _user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1468,7 +1447,7 @@ pub async fn permanently_delete_page(
     path: web::Path<i32>,
 ) -> impl Responder {
     let page_id = path.into_inner();
-    let (claims, _user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1509,7 +1488,7 @@ pub async fn get_page_subscription(
     path: web::Path<i32>,
 ) -> impl Responder {
     let page_id = path.into_inner();
-    let (_claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1526,7 +1505,7 @@ pub async fn subscribe_to_page(
     path: web::Path<i32>,
 ) -> impl Responder {
     let page_id = path.into_inner();
-    let (_claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1552,7 +1531,7 @@ pub async fn unsubscribe_from_page(
     path: web::Path<i32>,
 ) -> impl Responder {
     let page_id = path.into_inner();
-    let (_claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1575,7 +1554,7 @@ pub async fn get_starred_pages(
     req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let (_claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1591,7 +1570,7 @@ pub async fn get_page_starred(
     path: web::Path<i32>,
 ) -> impl Responder {
     let page_id = path.into_inner();
-    let (_claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1607,7 +1586,7 @@ pub async fn star_page(
     path: web::Path<i32>,
 ) -> impl Responder {
     let page_id = path.into_inner();
-    let (_claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -1633,7 +1612,7 @@ pub async fn unstar_page(
     path: web::Path<i32>,
 ) -> impl Responder {
     let page_id = path.into_inner();
-    let (_claims, user_uuid, mut conn) = match get_auth_conn(&req, &pool) {
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };

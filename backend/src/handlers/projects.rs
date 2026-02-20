@@ -3,6 +3,7 @@ use diesel::result::Error;
 use tracing::debug;
 
 use crate::db::Pool;
+use crate::handlers::helpers;
 use crate::models::{NewProject, ProjectUpdate};
 use crate::repository;
 use crate::utils::rbac::{require_admin, require_technician_or_admin};
@@ -11,9 +12,9 @@ use crate::utils::rbac::{require_admin, require_technician_or_admin};
 pub async fn get_all_projects(
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::get_projects_with_ticket_count(&mut conn) {
@@ -28,11 +29,11 @@ pub async fn get_project(
     path: web::Path<i32>,
 ) -> impl Responder {
     let project_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
-    
+
     match repository::get_project_with_ticket_count(&mut conn, project_id) {
         Ok(project) => HttpResponse::Ok().json(project),
         Err(e) => {
@@ -54,9 +55,9 @@ pub async fn create_project(
         return e;
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::create_project(&mut conn, project.into_inner()) {
@@ -77,9 +78,9 @@ pub async fn update_project(
     }
 
     let project_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::update_project(&mut conn, project_id, project_update.into_inner()) {
@@ -104,9 +105,9 @@ pub async fn delete_project(
     }
 
     let project_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::delete_project(&mut conn, project_id) {
@@ -122,11 +123,11 @@ pub async fn get_project_tickets(
     path: web::Path<i32>,
 ) -> impl Responder {
     let project_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
-    
+
     match repository::get_project_tickets(&mut conn, project_id) {
         Ok(tickets) => HttpResponse::Ok().json(tickets),
         Err(_) => HttpResponse::InternalServerError().json("Failed to get project tickets"),
@@ -145,9 +146,9 @@ pub async fn add_ticket_to_project(
     }
 
     let (project_id, ticket_id) = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::add_ticket_to_project(&mut conn, project_id, ticket_id) {
@@ -175,9 +176,9 @@ pub async fn remove_ticket_from_project(
     }
 
     let (project_id, ticket_id) = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::remove_ticket_from_project(&mut conn, project_id, ticket_id) {
@@ -213,9 +214,9 @@ pub async fn update_ticket_order(
     }
 
     let project_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Convert ticket_ids to (ticket_id, display_order) pairs

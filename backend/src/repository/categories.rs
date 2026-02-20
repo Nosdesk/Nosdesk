@@ -164,49 +164,6 @@ pub fn set_category_visibility(
         .get_results(conn)
 }
 
-/// Add a group to category visibility
-#[allow(dead_code)]
-pub fn add_group_to_category_visibility(
-    conn: &mut DbConnection,
-    category_id: i32,
-    group_id: i32,
-    created_by: Option<Uuid>,
-) -> QueryResult<CategoryGroupVisibility> {
-    // Check if already exists
-    let existing = category_group_visibility::table
-        .filter(category_group_visibility::category_id.eq(category_id))
-        .filter(category_group_visibility::group_id.eq(group_id))
-        .first::<CategoryGroupVisibility>(conn);
-
-    if let Ok(visibility) = existing {
-        return Ok(visibility);
-    }
-
-    let new_entry = NewCategoryGroupVisibility {
-        category_id,
-        group_id,
-        created_by,
-    };
-
-    diesel::insert_into(category_group_visibility::table)
-        .values(&new_entry)
-        .get_result(conn)
-}
-
-/// Remove a group from category visibility
-#[allow(dead_code)]
-pub fn remove_group_from_category_visibility(
-    conn: &mut DbConnection,
-    category_id: i32,
-    group_id: i32,
-) -> QueryResult<usize> {
-    diesel::delete(
-        category_group_visibility::table
-            .filter(category_group_visibility::category_id.eq(category_id))
-            .filter(category_group_visibility::group_id.eq(group_id))
-    ).execute(conn)
-}
-
 // ============================================================================
 // User-Category Visibility Checks
 // ============================================================================

@@ -1,10 +1,10 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
 use serde::Deserialize;
-use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::models::{NewTicketCategory, TicketCategoryUpdate, Claims};
+use crate::handlers::helpers;
+use crate::models::{NewTicketCategory, TicketCategoryUpdate};
 use crate::repository;
 use crate::utils::rbac::require_admin;
 
@@ -17,22 +17,12 @@ pub async fn get_categories(
     req: HttpRequest,
     pool: web::Data<Pool>,
 ) -> impl Responder {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
-    };
-
-    let user_uuid = match Uuid::parse_str(&claims.sub) {
-        Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
     let is_admin = claims.role == "admin";
-
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
-    };
 
     match repository::categories::get_categories_for_user(&mut conn, &user_uuid, is_admin) {
         Ok(categories) => HttpResponse::Ok().json(categories),
@@ -53,9 +43,9 @@ pub async fn get_all_categories_admin(
         return e;
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::categories::get_all_categories_with_visibility(&mut conn) {
@@ -75,9 +65,9 @@ pub async fn get_category_admin(
     }
 
     let category_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::categories::get_category_with_visibility(&mut conn, category_id) {
@@ -109,17 +99,12 @@ pub async fn create_category(
         return e;
     }
 
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
-    let created_by = Uuid::parse_str(&claims.sub).ok();
-
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
-    };
+    let created_by = Some(user_uuid);
 
     // Get next display order
     let display_order = repository::categories::get_next_display_order(&mut conn).unwrap_or_default();
@@ -183,18 +168,13 @@ pub async fn update_category(
         return e;
     }
 
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
-    let updated_by = Uuid::parse_str(&claims.sub).ok();
+    let updated_by = Some(user_uuid);
     let category_id = path.into_inner();
-
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
-    };
 
     let category_update = TicketCategoryUpdate {
         name: body.name.clone(),
@@ -245,9 +225,9 @@ pub async fn delete_category(
     }
 
     let category_id = path.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::categories::delete_category(&mut conn, category_id) {
@@ -285,9 +265,9 @@ pub async fn reorder_categories(
         return e;
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let orders: Vec<(i32, i32)> = body
@@ -329,18 +309,13 @@ pub async fn set_category_visibility(
         return e;
     }
 
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
-    let created_by = Uuid::parse_str(&claims.sub).ok();
+    let created_by = Some(user_uuid);
     let category_id = path.into_inner();
-
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
-    };
 
     match repository::categories::set_category_visibility(
         &mut conn,
@@ -362,7 +337,7 @@ pub async fn set_category_visibility(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App, http::StatusCode};
+    use actix_web::{test, App, http::StatusCode, HttpMessage};
     use crate::test_helpers::{setup_test_pool, create_test_claims, TestFixtures};
     use crate::models::UserRole;
 
@@ -400,20 +375,17 @@ mod tests {
     #[actix_web::test]
     async fn get_categories_with_auth_succeeds() {
         let pool = setup_test_pool();
-        let mut conn = pool.get().unwrap();
-
-        // Create test user
-        let user = TestFixtures::create_user(&mut conn, "catuser", UserRole::User);
-        let claims = create_test_claims(&user);
+        let claims = {
+            let mut conn = pool.get().unwrap();
+            let user = TestFixtures::create_user(&mut conn, "catuser", UserRole::User);
+            create_test_claims(&user)
+        }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
 
-        // Create request with auth claims injected
         let req = test::TestRequest::get()
             .uri("/categories")
             .to_request();
-
-        // Inject claims into extensions
         req.extensions_mut().insert(claims);
 
         let resp = test::call_service(&app, req).await;
@@ -423,11 +395,11 @@ mod tests {
     #[actix_web::test]
     async fn admin_categories_requires_admin_role() {
         let pool = setup_test_pool();
-        let mut conn = pool.get().unwrap();
-
-        // Create regular user (not admin)
-        let user = TestFixtures::create_user(&mut conn, "regularuser", UserRole::User);
-        let claims = create_test_claims(&user);
+        let claims = {
+            let mut conn = pool.get().unwrap();
+            let user = TestFixtures::create_user(&mut conn, "regularuser", UserRole::User);
+            create_test_claims(&user)
+        }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
 
@@ -443,11 +415,11 @@ mod tests {
     #[actix_web::test]
     async fn admin_can_get_all_categories() {
         let pool = setup_test_pool();
-        let mut conn = pool.get().unwrap();
-
-        // Create admin user
-        let admin = TestFixtures::create_user(&mut conn, "admincat", UserRole::Admin);
-        let claims = create_test_claims(&admin);
+        let claims = {
+            let mut conn = pool.get().unwrap();
+            let admin = TestFixtures::create_user(&mut conn, "admincat", UserRole::Admin);
+            create_test_claims(&admin)
+        }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
 
@@ -463,10 +435,11 @@ mod tests {
     #[actix_web::test]
     async fn admin_can_create_category() {
         let pool = setup_test_pool();
-        let mut conn = pool.get().unwrap();
-
-        let admin = TestFixtures::create_user(&mut conn, "createcat", UserRole::Admin);
-        let claims = create_test_claims(&admin);
+        let claims = {
+            let mut conn = pool.get().unwrap();
+            let admin = TestFixtures::create_user(&mut conn, "createcat", UserRole::Admin);
+            create_test_claims(&admin)
+        }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
 
@@ -490,16 +463,18 @@ mod tests {
     #[actix_web::test]
     async fn admin_can_delete_category() {
         let pool = setup_test_pool();
-        let mut conn = pool.get().unwrap();
-
-        let admin = TestFixtures::create_user(&mut conn, "delcat", UserRole::Admin);
-        let category = TestFixtures::create_category(&mut conn, "DeleteMe");
-        let claims = create_test_claims(&admin);
+        let (category_id, claims) = {
+            let mut conn = pool.get().unwrap();
+            let admin = TestFixtures::create_user(&mut conn, "delcat", UserRole::Admin);
+            let category = TestFixtures::create_category(&mut conn, "DeleteMe");
+            let claims = create_test_claims(&admin);
+            (category.id, claims)
+        }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
 
         let req = test::TestRequest::delete()
-            .uri(&format!("/admin/categories/{}", category.id))
+            .uri(&format!("/admin/categories/{}", category_id))
             .to_request();
         req.extensions_mut().insert(claims);
 

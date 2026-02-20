@@ -142,23 +142,28 @@ pub fn revoke_api_token(
         .execute(conn)
 }
 
-/// Enrich API tokens with user names for display
+/// Enrich API tokens with user names for display (batch-loaded, no N+1)
 pub fn enrich_tokens_with_users(
     conn: &mut DbConnection,
     tokens: Vec<ApiToken>,
 ) -> Result<Vec<ApiTokenInfo>, diesel::result::Error> {
-    use crate::repository::get_user_by_uuid;
+    // Collect all unique UUIDs needed
+    let all_uuids: Vec<Uuid> = tokens.iter()
+        .flat_map(|t| [t.user_uuid, t.created_by])
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
 
-    let mut enriched = Vec::with_capacity(tokens.len());
+    let users = crate::repository::users::get_users_by_uuids(&all_uuids, conn)?;
+    let user_map: std::collections::HashMap<Uuid, String> = users.into_iter()
+        .map(|u| (u.uuid, u.name))
+        .collect();
 
-    for token in tokens {
-        let user_name = get_user_by_uuid(&token.user_uuid, conn)
-            .map(|u| u.name)
-            .unwrap_or_else(|_| "Unknown".to_string());
-
-        let created_by_name = get_user_by_uuid(&token.created_by, conn)
-            .map(|u| u.name)
-            .unwrap_or_else(|_| "Unknown".to_string());
+    let enriched = tokens.into_iter().map(|token| {
+        let user_name = user_map.get(&token.user_uuid).cloned()
+            .unwrap_or_else(|| "Unknown".to_string());
+        let created_by_name = user_map.get(&token.created_by).cloned()
+            .unwrap_or_else(|| "Unknown".to_string());
 
         // Convert scopes from Option<Vec<Option<String>>> to Vec<String>
         let scopes: Vec<String> = token
@@ -168,7 +173,7 @@ pub fn enrich_tokens_with_users(
             .flatten()
             .collect();
 
-        enriched.push(ApiTokenInfo {
+        ApiTokenInfo {
             uuid: token.uuid,
             token_prefix: token.token_prefix,
             name: token.name,
@@ -180,8 +185,8 @@ pub fn enrich_tokens_with_users(
             expires_at: token.expires_at,
             revoked_at: token.revoked_at,
             last_used_at: token.last_used_at,
-        });
-    }
+        }
+    }).collect();
 
     Ok(enriched)
 }

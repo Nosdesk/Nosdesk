@@ -10,6 +10,7 @@ use uuid::Uuid;
 use webauthn_rs::prelude::*;
 
 use crate::db::Pool;
+use crate::handlers::helpers;
 use crate::models::Claims;
 use crate::repository;
 use crate::utils::webauthn::{
@@ -134,13 +135,9 @@ pub async fn start_passkey_registration(
         _ => {}
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get user from database
@@ -263,13 +260,9 @@ pub async fn finish_passkey_registration(
         }
     };
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get user from database
@@ -466,13 +459,9 @@ pub async fn start_passkey_login(
     // Non-discoverable authentication - email required
     let email = email.unwrap();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Find user by email
@@ -535,13 +524,9 @@ pub async fn finish_passkey_login(
     pool: web::Data<Pool>,
     body: web::Json<FinishLoginRequest>,
 ) -> impl Responder {
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Parse the credential ID to find the user
@@ -755,13 +740,9 @@ pub async fn list_passkeys(req: HttpRequest, pool: web::Data<Pool>) -> impl Resp
         }
     };
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
@@ -824,13 +805,9 @@ pub async fn rename_passkey(
         }));
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
@@ -896,13 +873,9 @@ pub async fn delete_passkey(
 
     let credential_id = path.into_inner();
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
@@ -1028,13 +1001,9 @@ pub async fn start_passkey_setup_login(
         }
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Find user by email
@@ -1195,13 +1164,9 @@ pub async fn finish_passkey_setup_login(
         }
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Find user by email and verify password again (security)

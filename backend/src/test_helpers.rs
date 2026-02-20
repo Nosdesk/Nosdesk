@@ -1,20 +1,36 @@
 //! Test helpers — DB connection setup and fixture factories.
 //!
-//! Every connection returned by [`setup_test_connection`] is wrapped in a
-//! transaction that is **never committed**, so tests are fully isolated and
-//! leave no residue in the database.
+//! Every connection from [`setup_test_pool`] is wrapped in a test transaction
+//! via `r2d2::CustomizeConnection`, so tests are fully isolated and leave no
+//! residue in the database.
 
 use diesel::prelude::*;
 use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
 use diesel::Connection;
+use std::time::Duration;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
 
-/// Obtain a pooled connection wrapped in a test transaction.
+/// Connection customizer that begins a test transaction on every new
+/// connection. Combined with `max_size(1)`, all code shares the same
+/// connection and transaction. When the pool is dropped at test end the
+/// transaction rolls back — zero residue.
+#[derive(Debug)]
+struct TestTransaction;
+
+impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for TestTransaction {
+    fn on_acquire(&self, conn: &mut PgConnection) -> Result<(), r2d2::Error> {
+        conn.begin_test_transaction()
+            .map_err(r2d2::Error::QueryError)?;
+        Ok(())
+    }
+}
+
+/// Obtain a single pooled connection wrapped in a test transaction.
 ///
 /// Uses `DATABASE_URL` (same DB the dev container already has) — safe because
 /// `begin_test_transaction` ensures everything is rolled back on drop.
@@ -223,8 +239,13 @@ impl TestFixtures {
 // ============================================================================
 
 /// Create a test database pool for handler tests.
-/// Unlike `setup_test_connection`, this returns a Pool that can be used with `web::Data`.
-/// Note: Tests using this pool share the same database state.
+///
+/// Every connection is wrapped in a test transaction that rolls back on drop.
+/// `max_size(1)` ensures all code shares the same connection and transaction,
+/// so fixture data created by the test is visible to handlers.
+///
+/// **Important**: Tests must drop their fixture connection before making HTTP
+/// calls, otherwise the single-connection pool will deadlock.
 pub fn setup_test_pool() -> crate::db::Pool {
     dotenv::dotenv().ok();
 
@@ -234,7 +255,9 @@ pub fn setup_test_pool() -> crate::db::Pool {
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     r2d2::Pool::builder()
-        .max_size(2)
+        .max_size(1)
+        .connection_customizer(Box::new(TestTransaction))
+        .connection_timeout(Duration::from_secs(5))
         .build(manager)
         .expect("Failed to create test pool")
 }
@@ -255,7 +278,7 @@ pub fn create_test_claims(user: &User) -> crate::models::Claims {
         sub: user.uuid.to_string(),
         name: user.name.clone(),
         email: String::new(),
-        role: format!("{:?}", user.role).to_lowercase(),
+        role: user.role.as_str().to_string(),
         scope: "full".to_string(),
         sid: None,
         exp: (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp() as usize,

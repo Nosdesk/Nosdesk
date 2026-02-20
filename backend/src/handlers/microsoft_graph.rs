@@ -5,6 +5,7 @@ use tracing::error;
 use urlencoding;
 
 use crate::db::Pool;
+use crate::handlers::helpers;
 // Auth providers are now configured via environment variables
 use crate::config_utils;
 use crate::models::AuthProvider;
@@ -128,12 +129,9 @@ pub async fn process_graph_request(
     request_data: web::Json<MicrosoftGraphRequest>,
 ) -> impl Responder {
     // Get database connection
-    let _conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let _conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware

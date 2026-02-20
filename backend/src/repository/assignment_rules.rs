@@ -21,15 +21,6 @@ pub fn get_all_rules(conn: &mut DbConnection) -> QueryResult<Vec<AssignmentRule>
         .load(conn)
 }
 
-/// Get active rules ordered by priority
-#[allow(dead_code)]
-pub fn get_active_rules_by_priority(conn: &mut DbConnection) -> QueryResult<Vec<AssignmentRule>> {
-    assignment_rules::table
-        .filter(assignment_rules::is_active.eq(true))
-        .order(assignment_rules::priority.asc())
-        .load(conn)
-}
-
 /// Get a rule by ID
 pub fn get_rule_by_id(conn: &mut DbConnection, rule_id: i32) -> QueryResult<AssignmentRule> {
     assignment_rules::table.find(rule_id).first(conn)
@@ -137,49 +128,9 @@ pub fn get_rule_state(conn: &mut DbConnection, rule_id: i32) -> QueryResult<Assi
     assignment_rule_state::table.find(rule_id).first(conn)
 }
 
-/// Get or create rule state
-#[allow(dead_code)]
-pub fn get_or_create_state(conn: &mut DbConnection, rule_id: i32) -> QueryResult<AssignmentRuleState> {
-    // Try to get existing
-    if let Ok(state) = get_rule_state(conn, rule_id) {
-        return Ok(state);
-    }
-
-    // Create new
-    let new_state = NewAssignmentRuleState {
-        rule_id,
-        last_assigned_index: 0,
-        total_assignments: 0,
-    };
-
-    diesel::insert_into(assignment_rule_state::table)
-        .values(&new_state)
-        .get_result(conn)
-}
-
-/// Update rule state
-#[allow(dead_code)]
-pub fn update_state(
-    conn: &mut DbConnection,
-    rule_id: i32,
-    update: AssignmentRuleStateUpdate,
-) -> QueryResult<AssignmentRuleState> {
-    diesel::update(assignment_rule_state::table.find(rule_id))
-        .set(&update)
-        .get_result(conn)
-}
-
 // ============================================================================
 // Assignment Log Operations
 // ============================================================================
-
-/// Log an assignment
-#[allow(dead_code)]
-pub fn log_assignment(conn: &mut DbConnection, new_log: NewAssignmentLog) -> QueryResult<AssignmentLog> {
-    diesel::insert_into(assignment_log::table)
-        .values(&new_log)
-        .get_result(conn)
-}
 
 /// Get recent assignment logs (for monitoring/debugging)
 pub fn get_recent_logs(conn: &mut DbConnection, limit: i64) -> QueryResult<Vec<AssignmentLog>> {
@@ -254,7 +205,11 @@ mod tests {
         create_rule(&mut conn, make_rule("Active", 1, true)).unwrap();
         create_rule(&mut conn, make_rule("Inactive", 2, false)).unwrap();
 
-        let active = get_active_rules_by_priority(&mut conn).unwrap();
+        let active: Vec<AssignmentRule> = assignment_rules::table
+            .filter(assignment_rules::is_active.eq(true))
+            .order(assignment_rules::priority.asc())
+            .load(&mut conn)
+            .unwrap();
         assert!(active.iter().all(|r| r.is_active));
         assert!(active.iter().any(|r| r.name == "Active"));
     }

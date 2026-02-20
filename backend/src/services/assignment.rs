@@ -115,7 +115,7 @@ impl AssignmentEngine {
         // Check priority condition
         if let Some(priority_val) = obj.get("priority") {
             if let Some(priority_str) = priority_val.as_str() {
-                let ticket_priority = format!("{:?}", ticket.priority).to_lowercase();
+                let ticket_priority = ticket.priority.as_str();
                 if ticket_priority != priority_str {
                     return false;
                 }
@@ -125,11 +125,7 @@ impl AssignmentEngine {
         // Check status condition
         if let Some(status_val) = obj.get("status") {
             if let Some(status_str) = status_val.as_str() {
-                let ticket_status = match ticket.status {
-                    TicketStatus::Open => "open",
-                    TicketStatus::InProgress => "in-progress",
-                    TicketStatus::Closed => "closed",
-                };
+                let ticket_status = ticket.status.as_str();
                 if ticket_status != status_str {
                     return false;
                 }

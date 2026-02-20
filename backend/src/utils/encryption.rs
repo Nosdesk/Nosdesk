@@ -27,12 +27,6 @@ fn get_encryption_key() -> Result<[u8; 32]> {
     Ok(key)
 }
 
-/// Check if encryption is available (key is configured)
-#[allow(dead_code)]
-pub fn is_encryption_available() -> bool {
-    get_encryption_key().is_ok()
-}
-
 /// Encrypt a string using AES-256-GCM
 ///
 /// Returns hex-encoded ciphertext with prepended nonce.

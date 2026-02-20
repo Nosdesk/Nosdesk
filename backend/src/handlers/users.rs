@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, info, warn, error};
 
+use crate::handlers::helpers;
 use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword};
 use crate::repository;
 use crate::repository::user_emails as user_emails_repo;
@@ -124,14 +125,9 @@ pub async fn get_users(
     pool: web::Data<crate::db::Pool>,
 ) -> impl Responder {
 
-    let mut conn = match pool.get() {
-        Ok(conn) => {
-            conn
-        },
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json("Database connection error");
-        },
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::get_users(&mut conn) {
@@ -152,9 +148,9 @@ pub async fn get_paginated_users(
     pool: web::Data<crate::db::Pool>,
     query: web::Query<PaginationParams>,
 ) -> impl Responder {
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract and validate pagination parameters
@@ -286,9 +282,9 @@ pub async fn get_user_by_uuid(
         Err(_) => return HttpResponse::BadRequest().json("Invalid UUID format"),
     };
     
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
@@ -311,9 +307,9 @@ pub async fn get_users_batch(
     batch_request: web::Json<BatchUsersRequest>,
     pool: web::Data<crate::db::Pool>,
 ) -> impl Responder {
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json("Database connection error"),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Validate UUIDs and remove duplicates
@@ -372,12 +368,9 @@ pub async fn create_user(
     user_data: web::Json<CreateUserRequest>,
     req: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Get the admin user who is creating this user (for invitation email)
@@ -647,12 +640,9 @@ pub async fn delete_user(
     body: web::Json<DeleteUserRequest>,
 ) -> impl Responder {
     let user_uuid = uuid.into_inner();
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection error"
-        })),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware
@@ -838,12 +828,9 @@ pub async fn get_user_auth_identities(
     req: HttpRequest,
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware
@@ -897,15 +884,9 @@ pub async fn get_user_auth_identities_by_uuid(
     path: web::Path<String>, // User UUID
 ) -> impl Responder {
     // Get database connection
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Could not get database connection"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let user_uuid = path.into_inner();
@@ -958,12 +939,9 @@ pub async fn delete_user_auth_identity(
     path: web::Path<i32>, // Auth identity ID
 ) -> impl Responder {
     let identity_id = path.into_inner();
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware
@@ -1047,12 +1025,9 @@ pub async fn delete_user_auth_identity_by_uuid(
     path: web::Path<(String, i32)>, // (User UUID, Auth identity ID)
 ) -> impl Responder {
     let (user_uuid, identity_id) = path.into_inner();
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware
@@ -1135,17 +1110,11 @@ pub async fn upload_user_image(
     let user_uuid = uuid.into_inner();
     let image_type = &type_query.type_; // "avatar" or "banner"
     
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = ?e, "Database connection error");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Database connection error"
-            }));
-        }
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
-    
+
     // Validate that the user exists
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
@@ -1390,12 +1359,9 @@ pub async fn cleanup_stale_images(
     req: HttpRequest,
     db_pool: web::Data<crate::db::Pool>,
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware
@@ -1597,12 +1563,9 @@ pub async fn update_user_by_uuid(
     user_data: web::Json<UserUpdateWithPassword>,
 ) -> impl Responder {
     let user_uuid = path.into_inner();
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Could not get database connection"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
@@ -1826,12 +1789,9 @@ pub async fn get_user_emails(
     req: HttpRequest,
     path: web::Path<String>, // User UUID
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let user_uuid = path.into_inner();
@@ -1888,12 +1848,9 @@ pub async fn add_user_email(
     email_data: web::Json<serde_json::Value>,
 ) -> impl Responder {
     let user_uuid = path.into_inner();
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
@@ -1992,12 +1949,9 @@ pub async fn update_user_email(
     update_data: web::Json<serde_json::Value>,
 ) -> impl Responder {
     let (user_uuid, email_id) = path.into_inner();
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
@@ -2076,12 +2030,9 @@ pub async fn delete_user_email(
     path: web::Path<(String, i32)>,
 ) -> impl Responder {
     let (user_uuid, email_id) = path.into_inner();
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
@@ -2169,12 +2120,9 @@ pub async fn resend_invitation(
     path: web::Path<String>, // User UUID
 ) -> impl Responder {
     let user_uuid = path.into_inner();
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     // Extract claims from cookie auth middleware
@@ -2323,12 +2271,9 @@ pub async fn get_user_with_emails(
     req: HttpRequest,
     path: web::Path<String>, // User UUID
 ) -> impl Responder {
-    let mut conn = match db_pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Database connection failed"
-        })),
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let user_uuid = path.into_inner();
@@ -2419,11 +2364,9 @@ pub async fn bulk_users(
         }));
     }
 
-    let mut conn = match pool.get() {
-        Ok(conn) => conn,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "error": "Database connection failed"
-        })),
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
     };
 
     let action = body.action.as_str();
