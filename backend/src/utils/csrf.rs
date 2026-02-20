@@ -135,6 +135,7 @@ where
         let path = req.path();
         let is_public_endpoint = path == "/api/auth/login"
             || path == "/api/auth/logout"
+            || path == "/api/auth/refresh"
             || path == "/api/auth/mfa-login"
             || path == "/api/auth/mfa-setup-login"
             || path == "/api/auth/mfa-enable-login"
