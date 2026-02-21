@@ -6,11 +6,13 @@ import OtpInput from "@/components/common/OtpInput.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useMfaSetupStore } from "@/stores/mfaSetup";
 import { useMfa } from "@/composables/useMfa";
+import userService from "@/services/userService";
 
 // Props for different modes
 const props = defineProps<{
     isLoginSetup?: boolean;
     limitedSessionToken?: string;
+    targetUserUuid?: string;
 }>();
 
 // Emits for notifications
@@ -21,11 +23,39 @@ const emit = defineEmits<{
     (e: "mfa-enabled"): void;
 }>();
 
-// Use MFA composable - follows Vue 3 best practices
-const mfa = useMfa({ isLoginSetup: props.isLoginSetup });
-
 // Auth store for user data
 const authStore = useAuthStore();
+
+const isManagingOtherUser = computed(() => {
+    return !!props.targetUserUuid && props.targetUserUuid !== authStore.user?.uuid;
+});
+
+// Admin view: fetch target user's MFA status
+const adminMfaStatus = ref<{ mfa_enabled: boolean; has_backup_codes: boolean } | null>(null);
+const adminLoading = ref(false);
+const adminDisabling = ref(false);
+
+// Admin: disable MFA for the target user
+const adminDisableMfa = async () => {
+    if (!props.targetUserUuid) return;
+    adminDisabling.value = true;
+    try {
+        await userService.adminDisableUserMfa(props.targetUserUuid);
+        if (adminMfaStatus.value) {
+            adminMfaStatus.value.mfa_enabled = false;
+            adminMfaStatus.value.has_backup_codes = false;
+        }
+        emit("success", "Two-factor authentication has been disabled for this user");
+    } catch (err) {
+        const axiosError = err as { response?: { data?: { message?: string } } };
+        emit("error", axiosError.response?.data?.message || "Failed to disable MFA");
+    } finally {
+        adminDisabling.value = false;
+    }
+};
+
+// Use MFA composable - follows Vue 3 best practices (only for self mode)
+const mfa = useMfa({ isLoginSetup: props.isLoginSetup });
 
 // Secure MFA setup store for credentials
 const mfaSetupStore = useMfaSetupStore();
@@ -61,14 +91,6 @@ const shouldShowSetupInterface = computed(() => {
     // For normal mode, only show when in verify step (after user clicks toggle)
     return !mfa.mfaEnabled.value && mfa.mfaStep.value === "verify";
 });
-
-// Static data for setup steps
-const setupSteps = [
-    "Download an authenticator app like Google Authenticator or Authy",
-    "Click the toggle above to start the setup process",
-    "Scan the QR code with your authenticator app",
-    "Enter the 6-digit code to complete setup",
-];
 
 // Wrapper methods that emit events based on composable state
 const emitMfaMessages = () => {
@@ -131,7 +153,22 @@ const waitForCredentials = async (): Promise<{ email: string; password: string }
 
 // Initialize based on mode
 onMounted(async () => {
-    if (props.isLoginSetup) {
+    if (isManagingOtherUser.value && props.targetUserUuid) {
+        // Admin viewing another user - fetch their security info
+        adminLoading.value = true;
+        try {
+            const info = await userService.getUserSecurityInfo(props.targetUserUuid);
+            adminMfaStatus.value = {
+                mfa_enabled: info.mfa_enabled,
+                has_backup_codes: info.has_backup_codes,
+            };
+        } catch (error) {
+            logger.error("Failed to fetch user security info:", error);
+            emit("error", "Failed to load MFA status for this user");
+        } finally {
+            adminLoading.value = false;
+        }
+    } else if (props.isLoginSetup) {
         try {
             await setupMFAData();
         } catch (error) {
@@ -658,62 +695,74 @@ defineExpose({
         <div class="px-4 py-3 bg-surface-alt border-b border-default">
             <h2 class="text-lg font-medium text-primary">
                 {{
-                    isInSuccessState
-                        ? "Setup Complete!"
-                        : "Two-Factor Authentication"
+                    isManagingOtherUser
+                        ? "Two-Factor Authentication"
+                        : isInSuccessState
+                            ? "Setup Complete!"
+                            : "Two-Factor Authentication"
                 }}
             </h2>
             <p class="text-sm text-tertiary mt-1">
                 {{
-                    isInSuccessState
-                        ? "Your account is now protected with 2FA"
-                        : "Add an extra layer of security to your account"
+                    isManagingOtherUser
+                        ? "Two-factor authentication status for this user"
+                        : isInSuccessState
+                            ? "Your account is now protected with 2FA"
+                            : "Add an extra layer of security to your account"
                 }}
             </p>
         </div>
 
-        <div class="p-6">
-            <div class="flex flex-col gap-4">
-                <!-- MFA Toggle / Status (hidden in login setup mode) -->
-                <div
-                    v-if="!props.isLoginSetup"
-                    class="bg-surface-alt rounded-lg border border-subtle hover:border-strong transition-colors p-4"
-                >
-                    <ToggleSwitch
-                        :modelValue="mfa.mfaEnabled.value"
-                        :disabled="mfa.loading.value"
-                        label="Enable Two-Factor Authentication"
-                        :description="
-                            mfa.mfaEnabled.value
-                                ? 'Your account is protected with 2FA'
-                                : 'Secure your account with an authenticator app'
-                        "
-                        @update:modelValue="toggleMFA"
-                    />
+        <div class="p-4">
+            <!-- Admin read-only view -->
+            <div v-if="isManagingOtherUser" class="flex flex-col gap-3">
+                <div v-if="adminLoading" class="flex items-center justify-center py-4">
+                    <div class="animate-spin h-6 w-6 border-2 border-accent border-t-transparent rounded-full"></div>
                 </div>
-
-                <!-- Setup Steps (hidden in login setup mode) -->
-                <div
-                    v-if="mfa.showSetupSteps.value && !props.isLoginSetup"
-                    class="bg-surface-alt rounded-lg border border-default/20 p-4"
-                >
-                    <h3 class="text-sm font-medium text-primary mb-4">
-                        How to set up 2FA:
-                    </h3>
-                    <ol class="flex flex-col gap-3 text-sm text-secondary">
-                        <li
-                            v-for="(step, index) in setupSteps"
-                            :key="index"
-                            class="flex items-start gap-3"
+                <template v-else-if="adminMfaStatus">
+                    <div class="flex items-center justify-between gap-4">
+                        <div class="flex items-center gap-2.5">
+                            <div
+                                class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                :class="adminMfaStatus.mfa_enabled ? 'bg-status-success' : 'bg-tertiary'"
+                            ></div>
+                            <span class="text-sm font-medium text-primary">
+                                {{ adminMfaStatus.mfa_enabled ? 'Enabled' : 'Not enabled' }}
+                            </span>
+                            <span v-if="adminMfaStatus.mfa_enabled && adminMfaStatus.has_backup_codes" class="text-xs text-tertiary">
+                                · Backup codes generated
+                            </span>
+                        </div>
+                        <button
+                            v-if="adminMfaStatus.mfa_enabled"
+                            @click="adminDisableMfa"
+                            :disabled="adminDisabling"
+                            class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50 flex items-center gap-1.5"
                         >
-                            <span
-                                class="bg-accent text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium mt-0.5 flex-shrink-0"
-                                >{{ index + 1 }}</span
-                            >
-                            <span>{{ step }}</span>
-                        </li>
-                    </ol>
-                </div>
+                            <span v-if="adminDisabling" class="animate-spin h-3.5 w-3.5 border-2 border-status-error border-t-transparent rounded-full"></span>
+                            {{ adminDisabling ? 'Disabling...' : 'Disable' }}
+                        </button>
+                    </div>
+                </template>
+                <p class="text-xs text-tertiary">
+                    MFA setup requires the account owner's authenticator app.
+                </p>
+            </div>
+
+            <div v-else class="flex flex-col gap-4">
+                <!-- MFA Toggle / Status (hidden in login setup mode) -->
+                <ToggleSwitch
+                    v-if="!props.isLoginSetup"
+                    :modelValue="mfa.mfaEnabled.value"
+                    :disabled="mfa.loading.value"
+                    label="Enable Two-Factor Authentication"
+                    :description="
+                        mfa.mfaEnabled.value
+                            ? 'Your account is protected with 2FA'
+                            : 'Secure your account with an authenticator app'
+                    "
+                    @update:modelValue="toggleMFA"
+                />
 
                 <!-- Main MFA Setup Component - Hidden when verification is successful -->
                 <div

@@ -273,20 +273,28 @@ pub async fn set_group_members(
     }
 }
 
-/// Get groups for a specific user
+/// Get groups for a specific user (self or admin)
 pub async fn get_user_groups(
     req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<String>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
-        return e;
-    }
+    let user_uuid_str = path.into_inner();
 
-    let user_uuid = match Uuid::parse_str(&path.into_inner()) {
+    let user_uuid = match Uuid::parse_str(&user_uuid_str) {
         Ok(uuid) => uuid,
         Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
     };
+
+    // Allow self-access or admin access
+    let claims = match req.extensions().get::<Claims>() {
+        Some(claims) => claims.clone(),
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    };
+
+    if claims.sub != user_uuid_str && claims.role != "admin" {
+        return HttpResponse::Forbidden().json("Not authorized to access this resource");
+    }
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,

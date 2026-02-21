@@ -41,7 +41,8 @@ pub use users::{
     cleanup_stale_images,
     get_user_auth_identities, delete_user_auth_identity,
     get_user_auth_identities_by_uuid, delete_user_auth_identity_by_uuid,
-    resend_invitation, bulk_users
+    resend_invitation, bulk_users, get_user_security_info,
+    admin_reset_user_password, admin_disable_user_mfa, admin_delete_user_passkey
 };
 pub use files::*;
 // Export specific items from tickets to avoid conflicts

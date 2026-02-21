@@ -63,6 +63,30 @@ export interface LoginCredentials {
 }
 
 /**
+ * Security info for a user (admin viewing another user's security settings)
+ */
+export interface UserSecurityInfo {
+  mfa_enabled: boolean;
+  has_backup_codes: boolean;
+  passkey_count: number;
+  passkeys: {
+    id: string;
+    name: string;
+    created_at: string;
+    last_used_at: string | null;
+    transports: string[];
+    backup_eligible: boolean;
+  }[];
+  auth_identities: {
+    id: number;
+    provider_type: string;
+    provider_name: string;
+    email: string | null;
+    created_at: string;
+  }[];
+}
+
+/**
  * User session information
  */
 export interface UserSession {

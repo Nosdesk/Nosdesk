@@ -2,9 +2,11 @@
 import { ref, watch, computed } from 'vue'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
+import { getTheme } from '@/themes'
 import type { ThemeMode } from '@/themes'
 import ThemeCard from '@/components/settings/ThemeCard.vue'
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue'
+import userService from '@/services/userService'
 
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
@@ -12,6 +14,7 @@ const authStore = useAuthStore()
 // Props
 const props = defineProps<{
   targetUserUuid?: string
+  targetUserTheme?: string | null
 }>()
 
 // Emits for notifications
@@ -20,8 +23,19 @@ const emit = defineEmits<{
   (e: 'error', message: string): void
 }>()
 
+// Whether we're editing another user's theme (admin mode)
+const isAdminMode = computed(() => {
+  return !!props.targetUserUuid && props.targetUserUuid !== authStore.user?.uuid
+})
+
 // Local reactive state
-const selectedTheme = ref<ThemeMode>(themeStore.currentTheme)
+// In admin mode, initialize from the target user's saved theme; otherwise from the theme store
+const showRedHorizonEasterEgg = ref(false)
+const selectedTheme = ref<ThemeMode>(
+  isAdminMode.value && props.targetUserTheme
+    ? props.targetUserTheme as ThemeMode
+    : themeStore.currentTheme
+)
 const compactView = ref(false)
 const isUpdating = ref(false)
 
@@ -45,11 +59,23 @@ const isMonochromaticTheme = computed(() => {
   return MONOCHROMATIC_THEMES.includes(effectiveId)
 })
 
-// Watch theme store changes
+// Watch theme store changes (only in self mode)
 watch(
   () => themeStore.currentTheme,
   (newValue) => {
-    selectedTheme.value = newValue
+    if (!isAdminMode.value) {
+      selectedTheme.value = newValue
+    }
+  }
+)
+
+// Update selectedTheme when target user data loads
+watch(
+  () => props.targetUserTheme,
+  (newTheme) => {
+    if (isAdminMode.value && newTheme) {
+      selectedTheme.value = newTheme as ThemeMode
+    }
   }
 )
 
@@ -66,25 +92,36 @@ const selectTheme = async (themeId: ThemeMode) => {
   isUpdating.value = true
   selectedTheme.value = themeId
 
-  // Update local theme
-  themeStore.setTheme(themeId)
-
-  // Sync to backend (unless device-local theme is enabled)
-  if (userUuid.value && !deviceLocalTheme.value) {
-    const success = await themeStore.syncThemeToBackend(userUuid.value)
-
-    if (success) {
-      const themeName = themeId === 'system' ? 'System' : themeStore.effectiveTheme.meta.name
+  if (isAdminMode.value) {
+    // Admin mode: update target user's theme on backend without changing admin's local theme
+    try {
+      await userService.updateUser(props.targetUserUuid!, { theme: themeId })
+      const themeName = themeId === 'system' ? 'System' : (getTheme(themeId)?.meta.name || themeId)
       emit('success', `Theme changed to ${themeName}`)
-    } else {
+      showRedHorizonEasterEgg.value = themeId === 'red-horizon'
+    } catch {
       emit('error', 'Failed to save theme preference')
-      // Revert to previous theme on failure
       selectedTheme.value = previousTheme
-      themeStore.setTheme(previousTheme)
     }
   } else {
-    const themeName = themeId === 'system' ? 'System' : themeStore.effectiveTheme.meta.name
-    emit('success', `Theme changed to ${themeName}${deviceLocalTheme.value ? ' (device only)' : ''}`)
+    // Self mode: update local theme and sync to backend
+    themeStore.setTheme(themeId)
+
+    if (userUuid.value && !deviceLocalTheme.value) {
+      const success = await themeStore.syncThemeToBackend(userUuid.value)
+
+      if (success) {
+        const themeName = themeId === 'system' ? 'System' : themeStore.effectiveTheme.meta.name
+        emit('success', `Theme changed to ${themeName}`)
+      } else {
+        emit('error', 'Failed to save theme preference')
+        selectedTheme.value = previousTheme
+        themeStore.setTheme(previousTheme)
+      }
+    } else {
+      const themeName = themeId === 'system' ? 'System' : themeStore.effectiveTheme.meta.name
+      emit('success', `Theme changed to ${themeName}${deviceLocalTheme.value ? ' (device only)' : ''}`)
+    }
   }
 
   isUpdating.value = false
@@ -158,8 +195,9 @@ const handleCompactViewToggle = () => {
           </div>
         </div>
 
-        <!-- Device-only Theme Toggle -->
+        <!-- Device-only Theme Toggle (self mode only) -->
         <ToggleSwitch
+          v-if="!isAdminMode"
           v-model="deviceLocalTheme"
           label="Device-only theme"
           description="Don't sync theme across devices (e.g., use E-Paper theme on your tablet while keeping dark mode on your laptop)"
@@ -214,10 +252,19 @@ const handleCompactViewToggle = () => {
             />
           </div>
         </div>
+        <!-- Red Horizon easter egg (admin mode only) -->
+        <Transition name="fade">
+          <div
+            v-if="showRedHorizonEasterEgg"
+            class="flex items-center gap-2 p-3 bg-status-error/10 border border-status-error/30 rounded-lg"
+          >
+            <span class="text-sm text-status-error">Why would you do this to them 😭</span>
+          </div>
+        </Transition>
       </div>
 
-      <!-- Accessibility Options -->
-      <div class="flex flex-col gap-4 pt-2 border-t border-default">
+      <!-- Accessibility Options (self mode only) -->
+      <div v-if="!isAdminMode" class="flex flex-col gap-4 pt-2 border-t border-default">
         <div>
           <h3 class="text-sm font-medium text-primary">Accessibility</h3>
           <p class="text-xs text-tertiary mt-0.5">Improve readability and visual distinction</p>
@@ -235,8 +282,8 @@ const handleCompactViewToggle = () => {
         />
       </div>
 
-      <!-- Display Options -->
-      <div class="flex flex-col gap-4 pt-2 border-t border-default">
+      <!-- Display Options (self mode only) -->
+      <div v-if="!isAdminMode" class="flex flex-col gap-4 pt-2 border-t border-default">
         <div>
           <h3 class="text-sm font-medium text-primary">Display</h3>
           <p class="text-xs text-tertiary mt-0.5">Adjust layout preferences</p>
@@ -253,3 +300,15 @@ const handleCompactViewToggle = () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>

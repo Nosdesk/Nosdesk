@@ -725,8 +725,8 @@ async fn main() -> std::io::Result<()> {
                         web::scope("/sessions")
                             .wrap(actix_web::middleware::from_fn(cookie_auth_middleware))
                             .route("", web::get().to(handlers::get_user_sessions))
-                            .route("/{id}", web::delete().to(handlers::revoke_session))
                             .route("/others", web::delete().to(handlers::revoke_all_other_sessions))
+                            .route("/{id}", web::delete().to(handlers::revoke_session))
                     )
                     // MFA (Multi-Factor Authentication) endpoints
                     .service(
@@ -982,7 +982,11 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/{uuid}/auth-identities", web::get().to(handlers::get_user_auth_identities_by_uuid))
                     .route("/users/{uuid}/auth-identities/{id}", web::delete().to(handlers::delete_user_auth_identity_by_uuid))
                     .route("/users/{uuid}/resend-invitation", web::post().to(handlers::resend_invitation))
-                    
+                    .route("/users/{uuid}/security-info", web::get().to(handlers::get_user_security_info))
+                    .route("/users/{uuid}/reset-password", web::post().to(handlers::admin_reset_user_password))
+                    .route("/users/{uuid}/disable-mfa", web::post().to(handlers::admin_disable_user_mfa))
+                    .route("/users/{uuid}/passkeys/{credential_id}", web::delete().to(handlers::admin_delete_user_passkey))
+
                     // ===== DEVICE MANAGEMENT =====
                     .route("/devices", web::get().to(handlers::get_all_devices))
                     .route("/devices/paginated", web::get().to(handlers::get_paginated_devices))

@@ -2475,4 +2475,235 @@ pub async fn bulk_users(
             "message": format!("Unknown action: {}", action)
         })),
     }
-} 
+}
+
+/// Get security info for a user (admin or self)
+/// Returns MFA status, passkey list, and auth identities
+pub async fn get_user_security_info(
+    db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let (claims, _caller_uuid, mut conn) = match helpers::auth_conn(&req, &db_pool) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+
+    let target_uuid_str = path.into_inner();
+
+    // Authorization: self or admin
+    if claims.sub != target_uuid_str && claims.role != "admin" {
+        return HttpResponse::Forbidden().json(json!({
+            "status": "error",
+            "message": "Not authorized to access this resource"
+        }));
+    }
+
+    let target_uuid = match utils::parse_uuid(&target_uuid_str) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid UUID format"
+        })),
+    };
+
+    let user = match repository::get_user_by_uuid(&target_uuid, &mut conn) {
+        Ok(user) => user,
+        Err(_) => return HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "User not found"
+        })),
+    };
+
+    // MFA status
+    let mfa_enabled = user.mfa_enabled;
+    let has_backup_codes = user.mfa_backup_codes
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(false);
+
+    // Passkey info
+    let passkey_data = crate::utils::webauthn::get_user_passkey_data(&user);
+    let passkeys: Vec<serde_json::Value> = passkey_data.credentials.iter().map(|c| {
+        json!({
+            "id": c.id,
+            "name": c.name,
+            "created_at": c.created_at.to_rfc3339(),
+            "last_used_at": c.last_used_at.map(|t| t.to_rfc3339()),
+            "transports": c.transports,
+            "backup_eligible": c.backup_eligible,
+        })
+    }).collect();
+
+    // Auth identities
+    let auth_identities = repository::user_auth_identities::get_user_identities_display(&user.uuid, &mut conn)
+        .unwrap_or_default();
+    let identities_json: Vec<serde_json::Value> = auth_identities.iter().map(|i| {
+        json!({
+            "id": i.id,
+            "provider_type": i.provider_type,
+            "provider_name": i.provider_name,
+            "email": i.email,
+            "created_at": i.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+        })
+    }).collect();
+
+    HttpResponse::Ok().json(json!({
+        "mfa_enabled": mfa_enabled,
+        "has_backup_codes": has_backup_codes,
+        "passkey_count": passkeys.len(),
+        "passkeys": passkeys,
+        "auth_identities": identities_json,
+    }))
+}
+
+/// Admin-only: reset a user's password
+#[derive(Deserialize)]
+pub struct AdminResetPasswordRequest {
+    pub new_password: String,
+}
+
+pub async fn admin_reset_user_password(
+    db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<AdminResetPasswordRequest>,
+) -> impl Responder {
+    let target_uuid_str = path.into_inner();
+    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+
+    // Validate password meets requirements
+    let validation = utils::auth::validate_password(&body.new_password);
+    if !validation.valid {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": format!("Password validation failed: {}", validation.errors.join(", "))
+        }));
+    }
+
+    let new_hash = match utils::auth::hash_password(&body.new_password) {
+        Ok(hash) => hash,
+        Err(e) => return e.into(),
+    };
+
+    // Update password hash on the local auth identity
+    use crate::schema::user_auth_identities;
+    let rows_updated = match diesel::update(
+        user_auth_identities::table
+            .filter(user_auth_identities::user_uuid.eq(&user.uuid))
+            .filter(user_auth_identities::provider_type.eq("local"))
+    )
+    .set(user_auth_identities::password_hash.eq(Some(new_hash.as_str())))
+    .execute(&mut conn) {
+        Ok(count) => count,
+        Err(e) => {
+            error!(error = ?e, "Error updating password hash for user");
+            return HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to update password"
+            }));
+        }
+    };
+
+    if rows_updated == 0 {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "User does not have a local password identity. Cannot reset password for OAuth-only accounts."
+        }));
+    }
+
+    // Update password_changed_at timestamp
+    let now = chrono::Utc::now().naive_utc();
+    let _ = diesel::update(crate::schema::users::table.find(&user.uuid))
+        .set(crate::schema::users::password_changed_at.eq(now))
+        .execute(&mut conn);
+
+    info!(admin = %claims.sub, target_user = %target_uuid_str, user_name = %user.name, "Admin reset user password");
+
+    HttpResponse::Ok().json(json!({
+        "status": "success",
+        "message": "Password has been reset"
+    }))
+}
+
+/// Admin-only: disable MFA for a user
+pub async fn admin_disable_user_mfa(
+    db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let target_uuid_str = path.into_inner();
+    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+
+    if !user.mfa_enabled {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "MFA is not enabled for this user"
+        }));
+    }
+
+    let mfa_update = crate::models::UserMfaUpdate {
+        mfa_enabled: Some(false),
+        mfa_secret: None,
+        mfa_backup_codes: Some(serde_json::Value::Null),
+        updated_at: Some(chrono::Utc::now().naive_utc()),
+    };
+
+    if let Err(e) = repository::update_user_mfa(&user.uuid, mfa_update, &mut conn) {
+        error!(error = ?e, "Error disabling MFA for user");
+        return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Failed to disable MFA"
+        }));
+    }
+
+    info!(admin = %claims.sub, target_user = %target_uuid_str, user_name = %user.name, "Admin disabled MFA for user");
+
+    HttpResponse::Ok().json(json!({
+        "status": "success",
+        "message": "Two-factor authentication has been disabled"
+    }))
+}
+
+/// Admin-only: delete a passkey for a user
+pub async fn admin_delete_user_passkey(
+    db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
+    path: web::Path<(String, String)>, // (user_uuid, credential_id)
+) -> impl Responder {
+    let (target_uuid_str, credential_id) = path.into_inner();
+    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+
+    let mut passkey_data = crate::utils::webauthn::get_user_passkey_data(&user);
+    if !passkey_data.remove_credential(&credential_id) {
+        return HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "Passkey not found"
+        }));
+    }
+
+    if let Err(e) = crate::utils::webauthn::save_user_passkey_data(&mut conn, &user.uuid, &passkey_data) {
+        error!(error = ?e, "Error saving passkey data");
+        return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Failed to delete passkey"
+        }));
+    }
+
+    info!(admin = %claims.sub, target_user = %target_uuid_str, credential_id = %credential_id, "Admin deleted passkey for user");
+
+    HttpResponse::Ok().json(json!({
+        "status": "success",
+        "message": "Passkey has been deleted"
+    }))
+}

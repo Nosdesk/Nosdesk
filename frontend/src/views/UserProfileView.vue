@@ -211,14 +211,12 @@ const fetchUserData = async () => {
             devices.value = [];
         }
 
-        // Load groups for the user (admin only)
-        if (authStore.isAdmin || authStore.user?.role === "admin") {
-            try {
-                groups.value = await groupService.getUserGroups(userUuid);
-            } catch (groupError) {
-                console.error("Error loading groups for user:", groupError);
-                groups.value = [];
-            }
+        // Load groups for the user (self or admin)
+        try {
+            groups.value = await groupService.getUserGroups(userUuid);
+        } catch (groupError) {
+            console.error("Error loading groups for user:", groupError);
+            groups.value = [];
         }
 
         // User emails are now loaded by the UserEmailsCard component
@@ -861,7 +859,7 @@ watch(
                             </div>
                         </div>
 
-                        <!-- Groups Section (Admin only) -->
+                        <!-- Groups Section -->
                         <div
                             v-if="groups.length > 0"
                             class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"

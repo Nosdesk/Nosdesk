@@ -17,30 +17,26 @@ import {
 import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import userService from '@/services/userService';
 import type { User } from '@/services/userService';
+import { groupService } from '@/services/groupService';
+import type { Group } from '@/types/group';
 import apiClient from '@/services/apiConfig';
 import { useMfa } from '@/composables/useMfa';
+import { useColorFilter } from '@/composables/useColorFilter';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { colorFilterStyle } = useColorFilter();
+
+// Groups state
+const userGroups = ref<Group[]>([]);
+const loadingGroups = ref(false);
 
 // Global state for notifications
 const successMessage = ref<string | null>(null);
 const error = ref<string | null>(null);
 
-// Active tab state (reactive)
-const activeTab = ref('profile');
-
-// Admin user management state
-const targetUser = ref<User | null>(null);
-const isManagingOtherUser = ref(false);
-const loadingTargetUser = ref(false);
-const updatingRole = ref(false);
-
-// Get the current user being edited (either targetUser for admin or authStore.user for self)
-const currentUser = computed(() => targetUser.value || authStore.user);
-
-// Check if in admin user management mode
+// Check if in admin user management mode (derived synchronously from route)
 const targetUserUuid = computed(() => {
   return (route.params.uuid as string) || undefined;
 });
@@ -49,25 +45,37 @@ const isAdminMode = computed(() => {
   return !!targetUserUuid.value && targetUserUuid.value !== authStore.user?.uuid;
 });
 
-// Update URL when tab changes without causing navigation
+// Initialize activeTab synchronously from route to avoid flash
+const routeSection = route.params.section as string | undefined;
+const validTabs = ['profile', 'appearance', 'notifications', 'security'];
+const activeTab = ref(routeSection && validTabs.includes(routeSection) ? routeSection : 'profile');
+
+// Admin user management state
+// Start loading immediately if route indicates admin mode, so nothing renders with wrong data
+const targetUser = ref<User | null>(null);
+const isManagingOtherUser = ref(false);
+const loadingTargetUser = ref(isAdminMode.value);
+const updatingRole = ref(false);
+
+// Get the current user being edited (either targetUser for admin or authStore.user for self)
+const currentUser = computed(() => targetUser.value || authStore.user);
+
+// Update URL when tab changes without causing navigation.
+// Uses history.replaceState to avoid triggering Vue Router's reactivity,
+// which would destroy/recreate this component due to :key="viewRoute.path" in App.vue.
 const updateURL = (section: string) => {
   let newPath: string;
 
   if (targetUserUuid.value) {
-    // Admin managing another user
     newPath = section === 'profile'
       ? `/users/${targetUserUuid.value}/settings`
       : `/users/${targetUserUuid.value}/settings/${section}`;
   } else {
-    // User managing their own profile
     newPath = section === 'profile' ? '/profile/settings' : `/profile/settings/${section}`;
   }
 
-  // Use router.replace to update URL without pushing a new history entry,
-  // preserving Vue Router's internal state for proper back-navigation
-  router.replace(newPath);
+  window.history.replaceState(history.state, '', newPath);
 
-  // Update page title manually
   const prefix = isAdminMode.value ? 'User ' : '';
   const sectionTitles: Record<string, string> = {
     profile: `${prefix}Profile Settings`,
@@ -80,14 +88,9 @@ const updateURL = (section: string) => {
   document.title = `${title} | Nosdesk`;
 };
 
-// Flag to prevent infinite loops during programmatic updates
-const isUpdatingFromRoute = ref(false);
-
 // Watch for tab changes to update URL
 watch(activeTab, (newTab) => {
-  if (!isUpdatingFromRoute.value) {
-    updateURL(newTab);
-  }
+  updateURL(newTab);
 });
 
 // Settings tabs
@@ -188,24 +191,23 @@ const handleError = (message: string) => {
   clearMessages();
 };
 
-// Sync active tab from route params when route changes (e.g. browser back/forward)
-watch(
-  () => route.params.section as string | undefined,
-  (section) => {
-    isUpdatingFromRoute.value = true;
-    if (section && settingsTabs.some(tab => tab.id === section)) {
-      activeTab.value = section;
-    } else {
-      activeTab.value = 'profile';
-    }
-    isUpdatingFromRoute.value = false;
+// Load user's groups
+const loadUserGroups = async () => {
+  const uuid = currentUser.value?.uuid;
+  if (!uuid) return;
+
+  try {
+    loadingGroups.value = true;
+    userGroups.value = await groupService.getUserGroups(uuid);
+  } catch (e) {
+    console.error('Error loading user groups:', e);
+  } finally {
+    loadingGroups.value = false;
   }
-);
+};
 
 // Initialize from current route on mount
 onMounted(async () => {
-  const section = route.params.section as string;
-
   // Load target user if in admin mode
   await loadTargetUser();
 
@@ -214,16 +216,15 @@ onMounted(async () => {
     await checkUserSetupStatus();
   }
 
-  isUpdatingFromRoute.value = true;
-
-  if (section && settingsTabs.some(tab => tab.id === section)) {
-    activeTab.value = section;
-  } else {
-    activeTab.value = 'profile';
-    updateURL('profile');
+  // Load user groups (admin mode only — regular users see groups on their profile page)
+  if (isAdminMode.value) {
+    await loadUserGroups();
   }
 
-  isUpdatingFromRoute.value = false;
+  // If active tab wasn't set from route, ensure URL matches
+  if (!routeSection || !validTabs.includes(routeSection)) {
+    updateURL('profile');
+  }
 });
 
 
@@ -292,17 +293,16 @@ const updateUserRole = async (newRole: string) => {
 const resendingInvitation = ref(false);
 const userHasCompletedSetup = ref(true); // Default to true, will be checked on load
 
-// Check if user has completed account setup (has password)
+// Check if user has completed account setup (has a local auth identity)
 const checkUserSetupStatus = async () => {
   if (!targetUser.value) return;
 
   try {
-    // Get auth identities to check if user has a password set
     const identities = await apiClient.get(`/users/${targetUser.value.uuid}/auth-identities`);
-    const hasPassword = identities.data?.some((identity: { provider_type: string; password_hash?: string }) =>
-      identity.provider_type === 'local' && identity.password_hash
+    const hasLocalIdentity = identities.data?.some((identity: { provider_type: string }) =>
+      identity.provider_type === 'local'
     );
-    userHasCompletedSetup.value = hasPassword;
+    userHasCompletedSetup.value = hasLocalIdentity;
   } catch (e) {
     // If unable to check, assume setup complete
     userHasCompletedSetup.value = true;
@@ -516,6 +516,20 @@ const cancelDelete = () => {
 
         <!-- Content Area -->
         <div class="flex-1 min-w-0">
+          <!-- Loading skeleton while admin target user data is being fetched -->
+          <div v-if="loadingTargetUser" class="flex flex-col gap-4">
+            <div v-for="i in 3" :key="i" class="bg-surface rounded-xl border border-default overflow-hidden">
+              <div class="px-4 py-3 bg-surface-alt border-b border-default">
+                <div class="h-5 w-40 bg-surface-hover rounded animate-pulse"></div>
+                <div class="h-4 w-64 bg-surface-hover rounded animate-pulse mt-2"></div>
+              </div>
+              <div class="p-6">
+                <div class="h-12 bg-surface-hover rounded-lg animate-pulse"></div>
+              </div>
+            </div>
+          </div>
+
+          <template v-else>
           <!-- Profile Tab -->
           <div v-if="activeTab === 'profile'" class="flex flex-col gap-6">
             <UserProfileCard
@@ -534,6 +548,68 @@ const cancelDelete = () => {
               @success="handleSuccess"
               @error="handleError"
             />
+
+            <!-- Groups Card (admin mode only) -->
+            <div v-if="isAdminMode && authStore.isAdmin" class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
+              <div class="px-4 sm:px-6 py-4 bg-surface-alt border-b border-default">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 bg-accent/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 class="text-base sm:text-lg font-semibold text-primary">Groups</h2>
+                      <p class="text-xs text-secondary hidden sm:block">Group memberships</p>
+                    </div>
+                  </div>
+                  <router-link
+                    to="/admin/groups"
+                    class="px-3 py-1.5 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent transition-colors flex items-center gap-2 whitespace-nowrap text-sm font-medium"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    Manage Groups
+                  </router-link>
+                </div>
+              </div>
+
+              <div class="p-4 sm:p-6">
+                <!-- Loading state -->
+                <div v-if="loadingGroups" class="flex items-center gap-3 text-secondary">
+                  <div class="animate-spin h-4 w-4 border-2 border-accent border-t-transparent rounded-full"></div>
+                  <span class="text-sm">Loading groups...</span>
+                </div>
+
+                <!-- Empty state -->
+                <p v-else-if="userGroups.length === 0" class="text-sm text-secondary">
+                  This user is not a member of any groups.
+                </p>
+
+                <!-- Groups list -->
+                <div v-else class="flex flex-wrap gap-2">
+                  <router-link
+                    v-for="group in userGroups"
+                    :key="group.id"
+                    :to="`/groups/${group.uuid}`"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer hover:opacity-80 transition-opacity"
+                    :style="{
+                      backgroundColor: (group.color || '#6366f1') + '20',
+                      color: group.color || '#6366f1',
+                      ...colorFilterStyle
+                    }"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    {{ group.name }}
+                  </router-link>
+                </div>
+              </div>
+            </div>
 
             <!-- Admin Role Management Card -->
             <div v-if="isManagingOtherUser && authStore.isAdmin && targetUser" class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
@@ -603,49 +679,8 @@ const cancelDelete = () => {
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- Appearance Tab -->
-          <div v-if="activeTab === 'appearance'">
-            <AppearanceSettings
-              :target-user-uuid="targetUserUuid"
-              @success="handleSuccess"
-              @error="handleError"
-            />
-          </div>
-
-          <!-- Notifications Tab -->
-          <div v-if="activeTab === 'notifications'">
-            <NotificationSettings
-              :target-user-uuid="targetUserUuid"
-              @success="handleSuccess"
-              @error="handleError"
-            />
-          </div>
-
-          <!-- Security Tab -->
-          <div v-if="activeTab === 'security'" class="flex flex-col gap-4">
-            <SecuritySettings
-              :target-user-uuid="targetUserUuid"
-              @success="handleSuccess"
-              @error="handleError"
-            />
-            <MFASettings
-              :target-user-uuid="targetUserUuid"
-              @success="handleSuccess"
-              @error="handleError"
-            />
-            <PasskeySettings
-              @success="handleSuccess"
-              @error="handleError"
-            />
-            <AuthMethodsSettings
-              :target-user-uuid="targetUserUuid"
-              @success="handleSuccess"
-              @error="handleError"
-            />
-
-            <!-- Resend Invitation Card (Admin only, for users who haven't completed setup) -->
+            <!-- Account Setup Card (Admin only, for users who haven't completed setup) -->
             <div
               v-if="isManagingOtherUser && authStore.isAdmin && targetUser && !userHasCompletedSetup"
               class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
@@ -671,12 +706,12 @@ const cancelDelete = () => {
                 <div class="flex flex-col gap-4">
                   <!-- Status banner -->
                   <div class="flex items-start gap-3 p-4 bg-status-warning/10 border border-status-warning/30 rounded-lg">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-status-warning flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-status-warning flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <div>
+                    <div class="flex flex-col gap-1">
                       <p class="text-sm font-medium text-status-warning">Invitation pending</p>
-                      <p class="text-xs text-status-warning/80 mt-1">
+                      <p class="text-xs text-status-warning/80">
                         {{ targetUser.name }} has not yet set up their account. You can resend the invitation email with a new setup link.
                       </p>
                     </div>
@@ -685,7 +720,7 @@ const cancelDelete = () => {
                   <!-- Resend invitation action -->
                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div class="flex-1">
-                      <h3 class="text-base font-medium text-primary mb-1">Resend Invitation Email</h3>
+                      <h3 class="text-base font-medium text-primary">Resend Invitation Email</h3>
                       <p class="text-sm text-secondary">
                         Send a new invitation email to <span class="text-primary font-medium">{{ targetUser.email }}</span> with a secure link to set up their password.
                       </p>
@@ -713,6 +748,49 @@ const cancelDelete = () => {
                 </div>
               </div>
             </div>
+          </div>
+
+          <!-- Appearance Tab -->
+          <div v-if="activeTab === 'appearance'">
+            <AppearanceSettings
+              :target-user-uuid="targetUserUuid"
+              :target-user-theme="targetUser?.theme"
+              @success="handleSuccess"
+              @error="handleError"
+            />
+          </div>
+
+          <!-- Notifications Tab -->
+          <div v-if="activeTab === 'notifications'">
+            <NotificationSettings
+              :target-user-uuid="targetUserUuid"
+              @success="handleSuccess"
+              @error="handleError"
+            />
+          </div>
+
+          <!-- Security Tab -->
+          <div v-if="activeTab === 'security'" class="flex flex-col gap-4">
+            <SecuritySettings
+              :target-user-uuid="targetUserUuid"
+              @success="handleSuccess"
+              @error="handleError"
+            />
+            <MFASettings
+              :target-user-uuid="targetUserUuid"
+              @success="handleSuccess"
+              @error="handleError"
+            />
+            <PasskeySettings
+              :target-user-uuid="targetUserUuid"
+              @success="handleSuccess"
+              @error="handleError"
+            />
+            <AuthMethodsSettings
+              :target-user-uuid="targetUserUuid"
+              @success="handleSuccess"
+              @error="handleError"
+            />
 
             <!-- Delete Account Section -->
             <div class="bg-surface rounded-xl border border-status-error hover:border-status-error transition-colors overflow-hidden">
@@ -753,6 +831,7 @@ const cancelDelete = () => {
               </div>
             </div>
           </div>
+          </template>
         </div>
       </div>
     </div>

@@ -380,13 +380,8 @@ defineExpose({
 
 <template>
     <div class="flex-1">
-        <!-- Loading state (hidden on print) -->
-        <div v-if="loading" class="print:hidden flex items-center justify-center h-64">
-            <div class="animate-spin rounded-full h-8 w-8 border-2 border-accent border-t-transparent"></div>
-        </div>
-
         <!-- Error state -->
-        <div v-else-if="error" class="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] px-4 gap-4">
+        <div v-if="error" class="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] px-4 gap-4">
             <NotFoundIllustration />
             <router-link
                 to="/tickets"
@@ -396,38 +391,43 @@ defineExpose({
             </router-link>
         </div>
 
-        <!-- Ticket content -->
-        <div v-else-if="ticket" class="flex flex-col">
+        <!-- Ticket content (layout always rendered; skeletons swap to real components) -->
+        <div v-else class="flex flex-col">
             <!-- Navigation and actions bar (hidden on print) -->
             <div class="print:hidden pt-4 px-4 sm:px-6 flex justify-between items-center">
                 <div class="flex items-center gap-4">
-                    <BackButton
-                        v-if="ticket.project"
-                        context="project"
-                        :contextId="ticket.project"
-                        :fallbackRoute="'/tickets'"
-                    />
-                    <BackButton v-else fallbackRoute="/tickets" />
+                    <template v-if="ticket">
+                        <BackButton
+                            v-if="ticket.project"
+                            context="project"
+                            :contextId="ticket.project"
+                            :fallbackRoute="'/tickets'"
+                        />
+                        <BackButton v-else fallbackRoute="/tickets" />
 
-                    <!-- SSE Connection Status -->
-                    <div class="flex items-center gap-2 text-sm">
-                        <div
-                            class="w-2 h-2 rounded-full"
-                            :class="{
-                                'bg-status-success': isConnected,
-                                'bg-status-warning animate-pulse': !isConnected,
-                            }"
-                        ></div>
-                        <span class="text-secondary">
-                            {{ isConnected ? "Live updates" : "Connecting..." }}
-                        </span>
-                        <span v-if="activeViewerCount > 0" class="text-secondary ml-2">
-                            <span class="text-accent">{{ activeViewerCount }}</span> viewing
-                        </span>
-                    </div>
+                        <!-- SSE Connection Status -->
+                        <div class="flex items-center gap-2 text-sm">
+                            <div
+                                class="w-2 h-2 rounded-full"
+                                :class="{
+                                    'bg-status-success': isConnected,
+                                    'bg-status-warning animate-pulse': !isConnected,
+                                }"
+                            ></div>
+                            <span class="text-secondary">
+                                {{ isConnected ? "Live updates" : "Connecting..." }}
+                            </span>
+                            <span v-if="activeViewerCount > 0" class="text-secondary ml-2">
+                                <span class="text-accent">{{ activeViewerCount }}</span> viewing
+                            </span>
+                        </div>
+                    </template>
+                    <!-- Skeleton back button -->
+                    <div v-else class="h-8 w-24 bg-surface-alt rounded-lg animate-pulse"></div>
                 </div>
 
                 <DeleteButton
+                    v-if="ticket"
                     fallbackRoute="/tickets"
                     itemName="Ticket"
                     @delete="deleteTicket"
@@ -441,7 +441,79 @@ defineExpose({
                     <div class="ticket-left-column">
                         <!-- Details Sidebar -->
                         <div class="ticket-details flex flex-col gap-3">
+
+                        <!-- Skeleton: Details -->
+                        <div v-if="!ticket" class="bg-surface rounded-xl border border-default overflow-hidden">
+                            <!-- Header (matches SectionCard) -->
+                            <div class="bg-surface-alt border-b border-default px-4 py-3">
+                                <h2 class="text-lg font-medium text-primary">Ticket Details</h2>
+                            </div>
+                            <!-- Content (matches TicketDetails inner layout) -->
+                            <div class="p-3 flex flex-col gap-3">
+                                <!-- Title -->
+                                <div class="flex flex-col gap-1.5">
+                                    <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Title</h3>
+                                    <div class="bg-surface-alt rounded-lg border border-subtle min-h-[1.75rem] px-2 py-1">
+                                        <div class="h-4 w-3/4 bg-surface-hover rounded animate-pulse"></div>
+                                    </div>
+                                </div>
+                                <!-- Requester / Assignee -->
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div class="flex flex-col gap-1.5">
+                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Requester</h3>
+                                        <div class="bg-surface-alt rounded-lg border border-subtle min-h-[44px] sm:min-h-[40px] flex items-center px-2.5 sm:px-3">
+                                            <div class="w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-surface-hover animate-pulse shrink-0"></div>
+                                            <div class="h-4 w-20 bg-surface-hover rounded animate-pulse ml-2"></div>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-col gap-1.5">
+                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Assignee</h3>
+                                        <div class="bg-surface-alt rounded-lg border border-subtle min-h-[44px] sm:min-h-[40px] flex items-center px-2.5 sm:px-3">
+                                            <div class="w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-surface-hover animate-pulse shrink-0"></div>
+                                            <div class="h-4 w-20 bg-surface-hover rounded animate-pulse ml-2"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Status / Priority -->
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div class="flex flex-col gap-1.5">
+                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Status</h3>
+                                        <div class="bg-surface-alt rounded-lg border border-subtle min-h-[44px] sm:min-h-[40px] flex items-center px-3">
+                                            <div class="h-4 w-16 bg-surface-hover rounded animate-pulse"></div>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-col gap-1.5">
+                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Priority</h3>
+                                        <div class="bg-surface-alt rounded-lg border border-subtle min-h-[44px] sm:min-h-[40px] flex items-center px-3">
+                                            <div class="h-4 w-16 bg-surface-hover rounded animate-pulse"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Category -->
+                                <div class="flex flex-col gap-1.5">
+                                    <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Category</h3>
+                                    <div class="bg-surface-alt rounded-lg border border-subtle min-h-[44px] sm:min-h-[40px] flex items-center px-3">
+                                        <div class="h-4 w-24 bg-surface-hover rounded animate-pulse"></div>
+                                    </div>
+                                </div>
+                                <!-- Timestamps -->
+                                <div class="pt-2 border-t border-default">
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div class="flex flex-col gap-1">
+                                            <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Created</span>
+                                            <div class="h-5 w-28 bg-surface-hover rounded animate-pulse"></div>
+                                        </div>
+                                        <div class="flex flex-col gap-1">
+                                            <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Last Modified</span>
+                                            <div class="h-5 w-28 bg-surface-hover rounded animate-pulse"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <TicketDetails
+                            v-else
                             :ticket="ticket"
                             :created-date="formattedCreatedDate"
                             :modified-date="formattedModifiedDate"
@@ -461,107 +533,135 @@ defineExpose({
                             @titleBlur="handleTitleBlur"
                         />
 
-                        <!-- Unified "+ Add" menu -->
-                        <SidebarAddMenu
-                            :items="sidebarAddItems"
-                            @select="handleSidebarAddAction"
-                        />
-
-                        <!-- Devices -->
-                        <SidebarSection
-                            title="Devices"
-                            add-label="Add device"
-                            :has-items="devices.length > 0"
-                            hide-empty-state
-                            @add="showDeviceModal = true"
-                        >
-                            <div class="flex flex-col gap-2">
-                                <DeviceDetails
-                                    v-for="device in devices"
-                                    :key="device.id"
-                                    :device="device"
-                                    @remove="() => removeDevice(device.id)"
-                                    @view="navigateToDeviceView"
-                                />
-                            </div>
-                        </SidebarSection>
-
-                        <!-- Linked Tickets (drop zone) - hidden on print when no linked tickets -->
-                        <div
-                            @dragenter.prevent="setDropTargetActive"
-                            @dragover.prevent="setDropTargetActive"
-                            @dragleave.prevent="setDropTargetInactive"
-                            @drop.prevent="handleLinkDrop"
-                            class="flex flex-col gap-2"
-                            :class="{ 'print:hidden': !ticket.linkedTickets?.length }"
-                        >
-                            <!-- Header (only when has tickets) -->
-                            <div v-if="ticket.linkedTickets?.length" class="flex items-center justify-between">
-                                <h3 class="text-sm font-medium text-secondary">Linked Tickets</h3>
-                                <button
-                                    @click="showLinkedTicketModal = true"
-                                    class="print:hidden flex items-center gap-1 text-xs font-medium text-tertiary hover:text-accent transition-colors"
-                                >
-                                    <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                                        <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
-                                    </svg>
-                                    Add
-                                </button>
-                            </div>
-
-                            <!-- Drop zone (single instance, shown when dragging) - hidden on print -->
-                            <div
-                                v-if="showDropAffordance || isLinkDropTarget"
-                                class="print:hidden rounded-lg border-2 border-dashed p-3 text-center text-sm transition-colors"
-                                :class="isLinkDropTarget
-                                    ? 'border-accent bg-accent/10 text-accent'
-                                    : 'border-accent/40 text-accent/70'"
-                            >
-                                <template v-if="isLinkDropTarget && dragState.ticket">
-                                    <span class="font-mono">#{{ dragState.ticket.id }}</span>
-                                    {{ dragState.ticket.title }}
-                                </template>
-                                <template v-else>Drop to link ticket</template>
-                            </div>
-
-                            <!-- Existing linked tickets -->
-                            <LinkedTicketPreview
-                                v-for="linkedId in ticket.linkedTickets"
-                                :key="linkedId"
-                                :linked-ticket-id="linkedId"
-                                :current-ticket-id="ticket.id"
-                                @unlink="() => unlinkTicket(linkedId)"
-                                @view="() => {}"
+                        <!-- Sidebar sections (hidden during loading) -->
+                        <template v-if="ticket">
+                            <!-- Unified "+ Add" menu -->
+                            <SidebarAddMenu
+                                :items="sidebarAddItems"
+                                @select="handleSidebarAddAction"
                             />
 
-                        </div>
+                            <!-- Devices -->
+                            <SidebarSection
+                                title="Devices"
+                                add-label="Add device"
+                                :has-items="devices.length > 0"
+                                hide-empty-state
+                                @add="showDeviceModal = true"
+                            >
+                                <div class="flex flex-col gap-2">
+                                    <DeviceDetails
+                                        v-for="device in devices"
+                                        :key="device.id"
+                                        :device="device"
+                                        @remove="() => removeDevice(device.id)"
+                                        @view="navigateToDeviceView"
+                                    />
+                                </div>
+                            </SidebarSection>
 
-                        <!-- Projects -->
-                        <SidebarSection
-                            title="Projects"
-                            add-label="Add to project"
-                            :has-items="!!ticket.projects?.length"
-                            hide-empty-state
-                            @add="showProjectModal = true"
-                        >
-                            <div class="flex flex-col gap-2">
-                                <ProjectInfo
-                                    v-for="projectId in ticket.projects"
-                                    :key="projectId"
-                                    :project-id="projectId"
-                                    @view="viewProject(projectId)"
-                                    @remove="() => removeFromProject(projectId)"
+                            <!-- Linked Tickets (drop zone) - hidden on print when no linked tickets -->
+                            <div
+                                @dragenter.prevent="setDropTargetActive"
+                                @dragover.prevent="setDropTargetActive"
+                                @dragleave.prevent="setDropTargetInactive"
+                                @drop.prevent="handleLinkDrop"
+                                class="flex flex-col gap-2"
+                                :class="{ 'print:hidden': !ticket.linkedTickets?.length }"
+                            >
+                                <!-- Header (only when has tickets) -->
+                                <div v-if="ticket.linkedTickets?.length" class="flex items-center justify-between">
+                                    <h3 class="text-sm font-medium text-secondary">Linked Tickets</h3>
+                                    <button
+                                        @click="showLinkedTicketModal = true"
+                                        class="print:hidden flex items-center gap-1 text-xs font-medium text-tertiary hover:text-accent transition-colors"
+                                    >
+                                        <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
+                                        </svg>
+                                        Add
+                                    </button>
+                                </div>
+
+                                <!-- Drop zone (single instance, shown when dragging) - hidden on print -->
+                                <div
+                                    v-if="showDropAffordance || isLinkDropTarget"
+                                    class="print:hidden rounded-lg border-2 border-dashed p-3 text-center text-sm transition-colors"
+                                    :class="isLinkDropTarget
+                                        ? 'border-accent bg-accent/10 text-accent'
+                                        : 'border-accent/40 text-accent/70'"
+                                >
+                                    <template v-if="isLinkDropTarget && dragState.ticket">
+                                        <span class="font-mono">#{{ dragState.ticket.id }}</span>
+                                        {{ dragState.ticket.title }}
+                                    </template>
+                                    <template v-else>Drop to link ticket</template>
+                                </div>
+
+                                <!-- Existing linked tickets -->
+                                <LinkedTicketPreview
+                                    v-for="linkedId in ticket.linkedTickets"
+                                    :key="linkedId"
+                                    :linked-ticket-id="linkedId"
+                                    :current-ticket-id="ticket.id"
+                                    @unlink="() => unlinkTicket(linkedId)"
+                                    @view="() => {}"
                                 />
-                            </div>
-                        </SidebarSection>
 
-                        <!-- Plugin Components -->
-                        <PluginSlot slot-name="ticket-sidebar" :ticket="ticket" :actionActivatedMap="pluginActionActivatedMap" />
+                            </div>
+
+                            <!-- Projects -->
+                            <SidebarSection
+                                title="Projects"
+                                add-label="Add to project"
+                                :has-items="!!ticket.projects?.length"
+                                hide-empty-state
+                                @add="showProjectModal = true"
+                            >
+                                <div class="flex flex-col gap-2">
+                                    <ProjectInfo
+                                        v-for="projectId in ticket.projects"
+                                        :key="projectId"
+                                        :project-id="projectId"
+                                        @view="viewProject(projectId)"
+                                        @remove="() => removeFromProject(projectId)"
+                                    />
+                                </div>
+                            </SidebarSection>
+
+                            <!-- Plugin Components -->
+                            <PluginSlot slot-name="ticket-sidebar" :ticket="ticket" :actionActivatedMap="pluginActionActivatedMap" />
+                        </template>
                         </div>
 
                         <!-- Comments (inside left-column for tablet 2-col layout) -->
+                        <!-- Skeleton: Comments (matches CommentsAndAttachments / SectionCard) -->
+                        <div v-if="!ticket" class="ticket-comments rounded-xl print:hidden">
+                            <div class="bg-surface rounded-xl border border-default overflow-hidden">
+                                <!-- Header (matches SectionCard) -->
+                                <div class="bg-surface-alt border-b border-default px-4 py-3">
+                                    <h2 class="text-lg font-medium text-primary">Comments and Attachments</h2>
+                                </div>
+                                <!-- Content -->
+                                <div class="p-3 flex flex-col gap-3">
+                                    <!-- Comment input (matches SimpleEditor min-height: 60px) -->
+                                    <div class="bg-surface rounded-lg" style="min-height: 60px;">
+                                        <div class="p-3">
+                                            <div class="h-4 w-48 bg-surface-hover rounded animate-pulse"></div>
+                                        </div>
+                                    </div>
+                                    <!-- Button row (matches Add + voice + file buttons) -->
+                                    <div class="flex gap-2">
+                                        <div class="flex-1 h-10 bg-surface-hover rounded-md animate-pulse"></div>
+                                        <div class="h-10 w-11 bg-surface-alt border border-default rounded-md animate-pulse"></div>
+                                        <div class="h-10 w-11 bg-surface-alt border border-default rounded-md animate-pulse"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         <!-- Hidden on print if no comments exist -->
                         <div
+                            v-else
                             class="ticket-comments rounded-xl"
                             :class="{ 'print:hidden': !hasCommentsWithContent }"
                         >
@@ -581,20 +681,41 @@ defineExpose({
                     </div>
 
                     <!-- Article -->
-                    <div class="ticket-article rounded-xl">
+                    <!-- Skeleton: Article (matches CollaborativeTicketArticle) -->
+                    <div v-if="!ticket" class="ticket-article rounded-xl print:hidden">
+                        <div class="bg-surface rounded-xl border border-default flex flex-col w-full h-auto overflow-hidden">
+                            <!-- Header -->
+                            <div class="px-4 py-3 bg-surface-alt border-b border-default flex justify-between items-center">
+                                <h2 class="text-lg font-medium text-primary">Ticket Notes</h2>
+                                <div class="flex items-center gap-2">
+                                    <div class="w-8 h-8 rounded-md bg-surface-hover animate-pulse"></div>
+                                    <div class="w-8 h-8 rounded-md bg-surface-hover animate-pulse"></div>
+                                    <div class="w-8 h-8 rounded-md bg-surface-hover animate-pulse"></div>
+                                </div>
+                            </div>
+                            <!-- Content area (matches min-h-[300px]) -->
+                            <div class="flex-grow min-h-[300px] p-4 flex flex-col gap-3">
+                                <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
+                                <div class="h-4 w-5/6 bg-surface-hover rounded animate-pulse"></div>
+                                <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
+                                <div class="h-4 w-4/6 bg-surface-hover rounded animate-pulse"></div>
+                                <div class="h-4 w-0"></div>
+                                <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
+                                <div class="h-4 w-3/4 bg-surface-hover rounded animate-pulse"></div>
+                                <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
+                                <div class="h-4 w-2/3 bg-surface-hover rounded animate-pulse"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="ticket-article rounded-xl">
                         <CollaborativeTicketArticle
                             :key="`article-${ticket.id}`"
                             :initial-content="ticket.article_content || ''"
                             :ticket-id="ticket.id"
                         />
-
                     </div>
                 </div>
             </div>
-        </div>
-
-        <div v-else class="p-4 sm:p-6 text-center text-secondary">
-            Loading ticket...
         </div>
 
         <!-- Modals (hidden on print) -->

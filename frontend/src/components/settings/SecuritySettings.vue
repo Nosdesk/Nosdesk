@@ -2,15 +2,28 @@
 import { ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import authService from '@/services/authService';
+import userService from '@/services/userService';
+
+const props = defineProps<{
+  targetUserUuid?: string;
+}>();
 
 // Get current user info
 const authStore = useAuthStore();
+
+const isManagingOtherUser = computed(() => {
+  return !!props.targetUserUuid && props.targetUserUuid !== authStore.user?.uuid;
+});
 
 // Form state
 const currentPassword = ref('');
 const newPassword = ref('');
 const confirmPassword = ref('');
 const loading = ref(false);
+
+// Admin reset state
+const adminNewPassword = ref('');
+const adminConfirmPassword = ref('');
 
 // Emits for notifications
 const emit = defineEmits<{
@@ -29,7 +42,15 @@ const isFormValid = computed(() => {
          passwordsMatch.value;
 });
 
-// Password change function
+const adminPasswordsMatch = computed(() => {
+  return adminNewPassword.value === adminConfirmPassword.value;
+});
+
+const isAdminFormValid = computed(() => {
+  return adminNewPassword.value.length >= 8 && adminPasswordsMatch.value;
+});
+
+// Password change function (self)
 const changePassword = async () => {
   if (!isFormValid.value) {
     emit('error', 'Please fill in all fields correctly');
@@ -56,17 +77,94 @@ const changePassword = async () => {
     loading.value = false;
   }
 };
+
+// Admin password reset
+const adminResetPassword = async () => {
+  if (!isAdminFormValid.value || !props.targetUserUuid) return;
+
+  loading.value = true;
+
+  try {
+    await userService.adminResetUserPassword(props.targetUserUuid, adminNewPassword.value);
+
+    adminNewPassword.value = '';
+    adminConfirmPassword.value = '';
+
+    emit('success', 'Password has been reset for this user');
+  } catch (err) {
+    const axiosError = err as { response?: { data?: { message?: string } } };
+    const errorMessage = axiosError.response?.data?.message || 'Failed to reset password';
+    emit('error', errorMessage);
+  } finally {
+    loading.value = false;
+  }
+};
 </script>
 
 <template>
   <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
     <div class="px-4 py-3 bg-surface-alt border-b border-default">
       <h2 class="text-lg font-medium text-primary">Password</h2>
-      <p class="text-sm text-tertiary mt-1">Update your account password</p>
+      <p class="text-sm text-tertiary mt-1">
+        {{ isManagingOtherUser ? "Reset this user's password" : "Update your account password" }}
+      </p>
     </div>
-    
+
     <div class="p-6">
-      <form @submit.prevent="changePassword" class="flex flex-col gap-4">
+      <!-- Admin: reset password form -->
+      <form v-if="isManagingOtherUser" @submit.prevent="adminResetPassword" class="flex flex-col gap-4">
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">New Password</label>
+          <div class="bg-surface-alt rounded-lg border border-subtle">
+            <input
+              v-model="adminNewPassword"
+              type="password"
+              autocomplete="new-password"
+              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
+              placeholder="Enter new password"
+              minlength="8"
+              required
+            />
+          </div>
+          <p class="text-xs text-tertiary">Password must be at least 8 characters long</p>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">Confirm New Password</label>
+          <div class="bg-surface-alt rounded-lg border border-subtle">
+            <input
+              v-model="adminConfirmPassword"
+              type="password"
+              autocomplete="new-password"
+              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
+              placeholder="Confirm new password"
+              required
+            />
+          </div>
+          <p v-if="adminConfirmPassword && !adminPasswordsMatch" class="text-xs text-status-error">
+            Passwords do not match
+          </p>
+        </div>
+
+        <div class="pt-2">
+          <button
+            type="submit"
+            :disabled="!isAdminFormValid || loading"
+            class="px-6 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+          >
+            <span v-if="loading" class="animate-spin h-4 w-4 mr-2">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 004 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </span>
+            Reset Password
+          </button>
+        </div>
+      </form>
+
+      <!-- Self: password change form -->
+      <form v-else @submit.prevent="changePassword" class="flex flex-col gap-4">
         <!-- Hidden username field for accessibility and password managers -->
         <input
           type="email"
@@ -76,7 +174,7 @@ const changePassword = async () => {
           tabindex="-1"
           readonly
         />
-        
+
         <!-- Current Password -->
         <div class="flex flex-col gap-1.5">
           <label class="text-xs font-medium text-tertiary uppercase tracking-wide">Current Password</label>
@@ -146,4 +244,4 @@ const changePassword = async () => {
       </form>
     </div>
   </div>
-</template> 
+</template>

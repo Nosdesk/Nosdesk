@@ -90,7 +90,7 @@ export const groupService = {
     }
   },
 
-  // Get groups for a user (admin only)
+  // Get groups for a user (self or admin)
   async getUserGroups(userUuid: string): Promise<Group[]> {
     try {
       const response = await apiClient.get<Group[]>(`/users/${userUuid}/groups`);

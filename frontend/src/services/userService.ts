@@ -3,7 +3,7 @@ import { API_URL } from './apiConfig';
 import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
 import type { PaginationParams, PaginatedResponse } from '@/types/pagination';
-import type { User } from '@/types/user';
+import type { User, UserSecurityInfo } from '@/types/user';
 
 // Re-export for backwards compatibility
 export type { User };
@@ -352,6 +352,32 @@ const userService = {
   async bulkAction(request: { action: 'delete' | 'set-role'; ids: string[]; value?: string }): Promise<{ affected: number }> {
     const response = await apiClient.post('/users/bulk', request);
     return response.data;
+  },
+
+  // Get security info for a user (admin or self)
+  async getUserSecurityInfo(uuid: string): Promise<UserSecurityInfo> {
+    const response = await apiClient.get(`/users/${uuid}/security-info`);
+    return response.data;
+  },
+
+  // Admin: reset a user's password
+  async adminResetUserPassword(uuid: string, newPassword: string): Promise<void> {
+    await apiClient.post(`/users/${uuid}/reset-password`, { new_password: newPassword });
+  },
+
+  // Admin: disable MFA for a user
+  async adminDisableUserMfa(uuid: string): Promise<void> {
+    await apiClient.post(`/users/${uuid}/disable-mfa`);
+  },
+
+  // Admin: delete a passkey for a user
+  async adminDeleteUserPasskey(uuid: string, credentialId: string): Promise<void> {
+    await apiClient.delete(`/users/${uuid}/passkeys/${credentialId}`);
+  },
+
+  // Admin: remove an auth identity for a user
+  async adminDeleteUserAuthIdentity(uuid: string, identityId: number): Promise<void> {
+    await apiClient.delete(`/users/${uuid}/auth-identities/${identityId}`);
   }
 };
 

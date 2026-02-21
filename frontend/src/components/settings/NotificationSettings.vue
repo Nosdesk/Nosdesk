@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import { useAuthStore } from '@/stores/auth';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import {
   getNotificationPreferences,
@@ -9,6 +10,16 @@ import {
   type NotificationPreference,
 } from '@/services/notificationService';
 import { requestNotificationPermission } from '@/composables/useNotificationSSE';
+
+const props = defineProps<{
+  targetUserUuid?: string;
+}>();
+
+const authStore = useAuthStore();
+
+const isManagingOtherUser = computed(() => {
+  return !!props.targetUserUuid && props.targetUserUuid !== authStore.user?.uuid;
+});
 
 // Loading state
 const isLoading = ref(true);
@@ -38,12 +49,28 @@ const groupedNotificationTypes = computed(() => {
   return groups;
 });
 
-// Category labels
-const categoryLabels: Record<string, string> = {
-  ticket: 'Ticket Notifications',
-  comment: 'Comment Notifications',
-  mention: 'Mention Notifications',
-  documentation: 'Documentation Notifications',
+// Category metadata
+const categoryMeta: Record<string, { label: string; description: string; icon: string }> = {
+  ticket: {
+    label: 'Tickets',
+    description: 'Notifications about ticket assignments and status changes',
+    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />',
+  },
+  comment: {
+    label: 'Comments',
+    description: 'Notifications when someone comments on your tickets',
+    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />',
+  },
+  mention: {
+    label: 'Mentions',
+    description: 'Notifications when someone mentions you',
+    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9" />',
+  },
+  documentation: {
+    label: 'Documentation',
+    description: 'Notifications about documentation page updates',
+    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />',
+  },
 };
 
 // Get preference value for a specific type/channel combination
@@ -159,61 +186,78 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
-    <div class="px-4 py-3 bg-surface-alt border-b border-default">
-      <h2 class="text-lg font-medium text-primary">Notifications</h2>
-      <p class="text-sm text-tertiary mt-1">Configure how you'd like to be notified about updates</p>
-    </div>
-
+  <div class="flex flex-col gap-4">
     <!-- Loading State -->
-    <div v-if="isLoading" class="p-6 flex items-center justify-center">
-      <div class="animate-spin rounded-full h-6 w-6 border-2 border-accent border-t-transparent"></div>
-      <span class="ml-2 text-secondary">Loading preferences...</span>
+    <div v-if="isLoading" class="bg-surface rounded-xl border border-default overflow-hidden">
+      <div class="px-4 py-3 bg-surface-alt border-b border-default flex flex-col gap-2">
+        <div class="h-5 w-32 bg-surface-hover rounded animate-pulse"></div>
+        <div class="h-4 w-56 bg-surface-hover rounded animate-pulse"></div>
+      </div>
+      <div class="p-4 flex flex-col gap-3">
+        <div v-for="i in 3" :key="i" class="h-12 bg-surface-alt rounded-lg animate-pulse"></div>
+      </div>
     </div>
 
-    <div v-else class="p-6 space-y-6">
-      <!-- Browser Notification Permission -->
+    <template v-else>
+      <!-- Browser Notification Permission Banner (only for own profile) -->
       <div
-        v-if="browserPermission !== 'granted'"
-        class="p-4 rounded-lg bg-accent/10 border border-accent/30"
+        v-if="!isManagingOtherUser && browserPermission !== 'granted'"
+        class="bg-surface rounded-xl border border-accent/30 overflow-hidden"
       >
-        <div class="flex items-start gap-3">
-          <svg
-            class="w-5 h-5 text-accent flex-shrink-0 mt-0.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-            />
-          </svg>
-          <div class="flex-1">
-            <h3 class="text-sm font-medium text-primary">Enable Browser Notifications</h3>
-            <p class="text-sm text-secondary mt-1">
-              Allow browser notifications to receive alerts even when the app isn't in focus.
-            </p>
-            <button
-              @click="requestBrowserPermission"
-              class="mt-3 px-3 py-1.5 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors"
-            >
-              Enable Notifications
-            </button>
+        <div class="p-4">
+          <div class="flex items-start gap-3">
+            <div class="w-9 h-9 bg-accent/15 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                />
+              </svg>
+            </div>
+            <div class="flex-1 min-w-0 flex flex-col gap-2">
+              <div class="flex flex-col gap-1">
+                <h3 class="text-sm font-medium text-primary">Enable Browser Notifications</h3>
+                <p class="text-xs text-secondary">
+                  Allow browser notifications to receive alerts even when the app isn't in focus.
+                </p>
+              </div>
+              <div>
+                <button
+                  @click="requestBrowserPermission"
+                  class="px-3 py-1.5 text-sm font-medium text-white bg-accent hover:opacity-90 rounded-lg transition-colors"
+                >
+                  Enable Notifications
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Channel Quick Toggles -->
-      <div class="space-y-3">
-        <h3 class="text-sm font-medium text-primary">Quick Settings</h3>
-        <div class="flex flex-col gap-3">
+      <!-- Quick Settings Card -->
+      <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
+        <div class="px-4 py-3 bg-surface-alt border-b border-default">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-accent/15 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-base sm:text-lg font-semibold text-primary">Quick Settings</h2>
+              <p class="text-xs text-secondary hidden sm:block">Enable or disable all notifications per channel</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-4 flex flex-col gap-2">
           <div
             v-for="channel in NOTIFICATION_CHANNELS"
             :key="channel.code"
-            class="p-3 rounded-lg bg-surface-alt border border-default"
+            class="bg-surface-alt rounded-lg border border-subtle px-3 py-2"
           >
             <ToggleSwitch
               :model-value="isChannelFullyEnabled(channel.code)"
@@ -225,35 +269,86 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Detailed Preferences by Category -->
+      <!-- Category Cards -->
       <div
         v-for="(types, category) in groupedNotificationTypes"
         :key="category"
-        class="space-y-3"
+        class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
       >
-        <h3 class="text-sm font-medium text-primary">
-          {{ categoryLabels[category] || category }}
-        </h3>
+        <div class="px-4 py-3 bg-surface-alt border-b border-default">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-accent/15 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="categoryMeta[category]?.icon || ''"></svg>
+            </div>
+            <div>
+              <h2 class="text-base sm:text-lg font-semibold text-primary">
+                {{ categoryMeta[category]?.label || category }}
+              </h2>
+              <p class="text-xs text-secondary hidden sm:block">
+                {{ categoryMeta[category]?.description || '' }}
+              </p>
+            </div>
+          </div>
+        </div>
 
-        <div class="space-y-2">
-          <div
-            v-for="type in types"
-            :key="type.code"
-            class="p-4 rounded-lg bg-surface-alt border border-default"
-          >
-            <div class="flex flex-col gap-3">
-              <!-- Type header -->
-              <div>
-                <p class="text-sm font-medium text-primary">{{ type.name }}</p>
-                <p class="text-xs text-tertiary mt-0.5">{{ type.description }}</p>
+        <div class="p-4">
+          <!-- Desktop: table-like grid layout -->
+          <div class="hidden sm:flex sm:flex-col sm:gap-3">
+            <!-- Column headers -->
+            <div class="grid items-center gap-4 px-3" :style="{ gridTemplateColumns: `1fr repeat(${NOTIFICATION_CHANNELS.length}, 5rem)` }">
+              <div class="text-xs font-medium text-tertiary uppercase tracking-wide">Notification</div>
+              <div
+                v-for="channel in NOTIFICATION_CHANNELS"
+                :key="`header-${channel.code}`"
+                class="text-xs font-medium text-tertiary uppercase tracking-wide text-center"
+              >
+                {{ channel.name }}
               </div>
+            </div>
 
-              <!-- Channel toggles -->
-              <div class="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6 pl-0 sm:pl-2">
+            <!-- Notification type rows -->
+            <div class="flex flex-col gap-1.5">
+              <div
+                v-for="type in types"
+                :key="type.code"
+                class="grid items-center gap-4 bg-surface-alt rounded-lg border border-subtle px-3 py-2.5"
+                :style="{ gridTemplateColumns: `1fr repeat(${NOTIFICATION_CHANNELS.length}, 5rem)` }"
+              >
+                <div class="flex flex-col gap-0.5 min-w-0">
+                  <p class="text-sm font-medium text-primary">{{ type.name }}</p>
+                  <p class="text-xs text-tertiary truncate">{{ type.description }}</p>
+                </div>
                 <div
                   v-for="channel in NOTIFICATION_CHANNELS"
                   :key="`${type.code}-${channel.code}`"
-                  class="flex items-center gap-3"
+                  class="flex justify-center"
+                >
+                  <ToggleSwitch
+                    :model-value="getPreference(type.code, channel.code)"
+                    :disabled="isSaving === `${type.code}-${channel.code}`"
+                    size="sm"
+                    @update:model-value="togglePreference(type.code, channel.code)"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Mobile: stacked layout -->
+          <div class="sm:hidden flex flex-col gap-2">
+            <div
+              v-for="type in types"
+              :key="type.code"
+              class="bg-surface-alt rounded-lg border border-subtle px-3 py-2.5 flex flex-col gap-2"
+            >
+              <div class="flex flex-col gap-0.5">
+                <p class="text-sm font-medium text-primary">{{ type.name }}</p>
+                <p class="text-xs text-tertiary">{{ type.description }}</p>
+              </div>
+              <div class="flex flex-col gap-1.5 pl-1">
+                <div
+                  v-for="channel in NOTIFICATION_CHANNELS"
+                  :key="`${type.code}-${channel.code}-mobile`"
                 >
                   <ToggleSwitch
                     :model-value="getPreference(type.code, channel.code)"
@@ -269,30 +364,20 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Info about email rate limiting -->
-      <div class="p-4 rounded-lg bg-surface-alt border border-default">
-        <div class="flex items-start gap-3">
-          <svg
-            class="w-5 h-5 text-tertiary flex-shrink-0 mt-0.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-          <div>
-            <p class="text-sm text-secondary">
+      <!-- Info Footer -->
+      <div class="bg-surface rounded-xl border border-default overflow-hidden">
+        <div class="px-4 py-3">
+          <div class="flex items-center gap-3">
+            <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p class="text-xs text-secondary">
               Email notifications are rate limited to prevent inbox flooding. You'll receive at most
               one email per ticket every 5 minutes.
             </p>
           </div>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
