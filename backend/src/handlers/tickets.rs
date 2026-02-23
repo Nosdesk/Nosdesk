@@ -1358,6 +1358,35 @@ pub async fn record_ticket_view(
     }
 }
 
+// Remove a ticket from the user's recent views
+pub async fn remove_recent_ticket(
+    pool: web::Data<crate::db::Pool>,
+    path: web::Path<i32>,
+    claims: web::ReqData<Claims>,
+) -> impl Responder {
+    use crate::repository::user_ticket_views::UserTicketViewsRepository;
+
+    let ticket_id = path.into_inner();
+    let claims_inner = claims.into_inner();
+    let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "error": "Invalid user UUID",
+            "message": "The user UUID in the authentication token is invalid"
+        })),
+    };
+
+    let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
+
+    match repo.delete_view(user_uuid, ticket_id) {
+        Ok(_) => HttpResponse::NoContent().finish(),
+        Err(e) => {
+            error!(error = ?e, "Failed to remove recent ticket view");
+            HttpResponse::InternalServerError().json("Failed to remove recent ticket")
+        }
+    }
+}
+
 // Bulk ticket operations request
 #[derive(Debug, serde::Deserialize)]
 pub struct BulkActionRequest {

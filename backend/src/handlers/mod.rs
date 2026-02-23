@@ -49,7 +49,7 @@ pub use files::*;
 pub use tickets::{
     get_tickets, get_paginated_tickets, get_recent_tickets, create_ticket,
     create_empty_ticket, get_ticket, update_ticket, update_ticket_partial,
-    delete_ticket, record_ticket_view, import_tickets_from_json,
+    delete_ticket, record_ticket_view, remove_recent_ticket, import_tickets_from_json,
     import_tickets_from_json_string, link_tickets, unlink_tickets,
     add_device_to_ticket, remove_device_from_ticket, bulk_tickets
 };

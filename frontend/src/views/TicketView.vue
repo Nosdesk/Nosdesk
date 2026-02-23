@@ -348,8 +348,7 @@ onMounted(async () => {
     loadCategories();
 
     if (route.params.id) {
-        const fromRecent = route.query.fromRecent === "true";
-        await fetchTicket(route.params.id, fromRecent);
+        await fetchTicket(route.params.id);
     }
 });
 

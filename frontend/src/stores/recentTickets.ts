@@ -2,12 +2,14 @@ import { defineStore } from 'pinia'
 import { logger } from '@/utils/logger';
 import { ref } from 'vue'
 import ticketService from '@/services/ticketService'
-import type { Ticket } from '@/types/ticket'
+import type { RecentTicket } from '@/types/ticket'
 
 export const useRecentTicketsStore = defineStore('recentTickets', () => {
-  const recentTickets = ref<Ticket[]>([])
+  const recentTickets = ref<RecentTicket[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
+  // Track recently-removed ticket IDs so recordTicketView won't immediately re-add them
+  const removedTicketIds = ref<Set<number>>(new Set())
 
   // Fetch recent tickets from the server
   const fetchRecentTickets = async () => {
@@ -16,7 +18,10 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
 
     try {
       const tickets = await ticketService.getRecentTickets()
-      recentTickets.value = tickets
+      // Filter out any tickets the user has explicitly removed during this session
+      recentTickets.value = removedTicketIds.value.size > 0
+        ? tickets.filter(t => !removedTicketIds.value.has(t.id))
+        : tickets
 
       if (import.meta.env.DEV) {
         logger.debug(`Fetched ${tickets.length} recent tickets from server`)
@@ -31,6 +36,9 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
 
   // Record that a ticket was viewed (automatically updates server)
   const recordTicketView = async (ticketId: number) => {
+    // Skip if this ticket was recently removed from the list by the user
+    if (removedTicketIds.value.has(ticketId)) return
+
     try {
       await ticketService.recordTicketView(ticketId)
 
@@ -46,19 +54,34 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   }
 
   // Update ticket data in the local cache (after changes)
-  const updateTicketData = (ticketId: number, updatedData: Partial<Ticket>) => {
+  const updateTicketData = (ticketId: number, updatedData: Partial<RecentTicket>) => {
     const ticketIndex = recentTickets.value.findIndex(t => t.id === ticketId)
 
     if (ticketIndex !== -1) {
-      // Use direct mutation to preserve object reference
-      const ticket = recentTickets.value[ticketIndex]
-      Object.keys(updatedData).forEach(key => {
-        (ticket as any)[key] = (updatedData as any)[key]
-      })
+      // Object.assign mutates in-place, preserving object reference and Vue reactivity
+      Object.assign(recentTickets.value[ticketIndex], updatedData)
 
       if (import.meta.env.DEV) {
         logger.debug(`Updated ticket #${ticketId} in recent tickets cache`)
       }
+    }
+  }
+
+  // Remove a ticket from the recent list
+  const removeTicket = async (ticketId: number) => {
+    // Mark as removed so concurrent/future recordTicketView calls won't re-add it
+    removedTicketIds.value.add(ticketId)
+    // Optimistic removal from local list
+    recentTickets.value = recentTickets.value.filter(t => t.id !== ticketId)
+    try {
+      await ticketService.removeRecentTicket(ticketId)
+      // Server confirmed deletion — clear suppression so future views work normally
+      removedTicketIds.value.delete(ticketId)
+    } catch (err) {
+      logger.error(`Error removing ticket #${ticketId} from recent:`, err)
+      // Server delete failed — undo the suppression and re-fetch to restore correct state
+      removedTicketIds.value.delete(ticketId)
+      await fetchRecentTickets()
     }
   }
 
@@ -85,6 +108,7 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
     fetchRecentTickets,
     recordTicketView,
     updateTicketData,
+    removeTicket,
     reorderTickets
   }
 })

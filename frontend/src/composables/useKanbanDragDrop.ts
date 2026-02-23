@@ -53,6 +53,12 @@ export function useKanbanDragDrop(
   let startPos = { x: 0, y: 0 }
   const CLICK_THRESHOLD = 5
 
+  // Touch long-press handling
+  let holdTimeout: ReturnType<typeof setTimeout> | null = null
+  const TOUCH_HOLD_DELAY = 400 // ms — long enough to not conflict with scrolling
+  const MOVE_CANCEL_THRESHOLD = 10 // px — cancel hold if finger moves
+  let pendingDrag: { columnId: string; ticket: KanbanTicket; pointerId: number; target: HTMLElement } | null = null
+
   // Persist ticket order to backend
   const persistTicketOrder = async () => {
     if (!projectId?.value) return
@@ -139,6 +145,18 @@ export function useKanbanDragDrop(
 
   // Document-level pointer move handler
   const onPointerMove = (event: PointerEvent) => {
+    // If hold timer is pending, check if finger moved too far → cancel
+    if (pendingDrag && holdTimeout) {
+      const dx = Math.abs(event.clientX - startPos.x)
+      const dy = Math.abs(event.clientY - startPos.y)
+      if (dx > MOVE_CANCEL_THRESHOLD || dy > MOVE_CANCEL_THRESHOLD) {
+        clearTimeout(holdTimeout)
+        holdTimeout = null
+        pendingDrag = null
+      }
+      return // let browser handle scroll
+    }
+
     if (!dragState.value.isDragging) return
 
     // Check if pointer moved beyond click threshold
@@ -154,6 +172,17 @@ export function useKanbanDragDrop(
 
   // Document-level pointer up handler
   const onPointerUp = () => {
+    // Clear hold timer if it hasn't fired yet
+    if (holdTimeout) {
+      clearTimeout(holdTimeout)
+      holdTimeout = null
+    }
+    if (pendingDrag) {
+      pendingDrag = null
+      // Timer never fired → was a normal tap, not a drag
+      return
+    }
+
     if (!dragState.value.isDragging || !dragState.value.draggedTicket) {
       resetDragState()
       return
@@ -231,14 +260,37 @@ export function useKanbanDragDrop(
   const handlePointerDown = (columnId: string, ticket: KanbanTicket, event: PointerEvent) => {
     if (event.button !== 0) return
 
-    event.preventDefault()
-
     startPos = { x: event.clientX, y: event.clientY }
     pointerMoved = false
 
-    dragState.value.draggedTicket = { columnId, ticketId: ticket.id, ticket }
-    dragState.value.isDragging = true
-    dragState.value.dragPosition = { x: event.clientX, y: event.clientY }
+    if (event.pointerType === 'mouse') {
+      // Desktop: immediate drag (existing behavior)
+      event.preventDefault()
+      dragState.value.draggedTicket = { columnId, ticketId: ticket.id, ticket }
+      dragState.value.isDragging = true
+      dragState.value.dragPosition = { x: event.clientX, y: event.clientY }
+    } else {
+      // Touch/pen: defer drag until hold timer fires
+      const target = event.target as HTMLElement
+      const pointerId = event.pointerId
+      pendingDrag = { columnId, ticket, pointerId, target }
+      holdTimeout = setTimeout(() => {
+        if (!pendingDrag) return
+        dragState.value.draggedTicket = {
+          columnId: pendingDrag.columnId,
+          ticketId: pendingDrag.ticket.id,
+          ticket: pendingDrag.ticket
+        }
+        dragState.value.isDragging = true
+        dragState.value.dragPosition = { x: startPos.x, y: startPos.y }
+        // Capture pointer so we don't lose touch events
+        try { pendingDrag.target.setPointerCapture(pendingDrag.pointerId) } catch {}
+        pendingDrag = null
+        holdTimeout = null
+        // Haptic feedback
+        navigator.vibrate?.(50)
+      }, TOUCH_HOLD_DELAY)
+    }
   }
 
   const isDraggedTicket = (ticketId: number): boolean => {
@@ -259,6 +311,11 @@ export function useKanbanDragDrop(
   onUnmounted(() => {
     document.removeEventListener('pointermove', onPointerMove)
     document.removeEventListener('pointerup', onPointerUp)
+    if (holdTimeout) {
+      clearTimeout(holdTimeout)
+      holdTimeout = null
+    }
+    pendingDrag = null
   })
 
   return {

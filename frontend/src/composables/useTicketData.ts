@@ -66,7 +66,6 @@ export function useTicketData() {
   // Fetch ticket
   async function fetchTicket(
     ticketId: string | string[],
-    fromRecent = false,
   ): Promise<void> {
     const id = Number(ticketId);
     loading.value = true;
@@ -159,7 +158,6 @@ export function useTicketData() {
       if (["title", "status", "requester", "assignee"].includes(field)) {
         recentTicketsStore.updateTicketData(ticket.value.id, {
           [field]: value,
-          modified: nowDateTime,
         });
       }
 

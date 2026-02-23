@@ -1,16 +1,32 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, reactive } from 'vue'
+import { ref, watch, onMounted, onUnmounted, reactive, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import documentationService, { getStarredPages } from '@/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
+import { useAuthStore } from '@/stores/auth'
 import type { Page } from '@/services/documentationService'
 import DocumentationNavItem from './DocumentationNavItem.vue'
+import MoveDocumentModal from './MoveDocumentModal.vue'
+import PagePermissionsModal from './PagePermissionsModal.vue'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import { storeToRefs } from 'pinia'
 import { useSSE } from '@/services/sseService'
-import { getCollections, getCollection } from '@/services/collectionService'
+import { getCollections, getCollection, updateCollection, deleteCollection } from '@/services/collectionService'
 import type { CollectionWithDetails, CollectionPage } from '@/services/collectionService'
 import { buildTreeFromFlat, sortByOrder, findInTree } from '@/utils/treeUtils'
 import { docUrl } from '@/utils/docUrl'
+import { useClipboard } from '@/composables/useClipboard'
+import { docsEmitter } from '@/services/docsEmitter'
+import type { NavPage } from '@/stores/documentationNav'
+
+/** SSE payload for documentation-updated events */
+interface DocumentationUpdateEvent {
+  document_id: string | number;
+  field: string;
+  value: unknown;
+  updated_by?: string;
+}
 
 defineEmits<{
   'search': [query: string];
@@ -24,24 +40,22 @@ const docNavStore = useDocumentationNavStore()
 const { addEventListener, removeEventListener } = useSSE()
 
 // Handle SSE documentation updates - update sidebar reactively
-const handleDocumentationUpdate = (event: any) => {
-  const data = event.data || event;
+const handleDocumentationUpdate = (event: unknown) => {
+  const data = ((event as { data?: DocumentationUpdateEvent })?.data ?? event) as DocumentationUpdateEvent;
+  const { field } = data;
+  if (field !== 'title' && field !== 'icon') return;
 
-  if (data.field === 'title' || data.field === 'icon') {
-    docNavStore.updatePageField(data.document_id, data.field, data.value);
-    // Also update in our collection page caches
-    for (const [, pages] of Object.entries(collectionPages)) {
-      const page = findInTree(pages, data.document_id);
-      if (page) {
-        (page as any)[data.field] = data.value;
-      }
-    }
-    // Update starred pages if title/icon changed
-    const starred = starredPages.value.find(p => p.page_id === data.document_id);
-    if (starred) {
-      (starred as any)[data.field] = data.value;
-    }
+  const value = data.value as string;
+  docNavStore.updatePageField(data.document_id, field, value);
+
+  // Also update in our collection page caches
+  for (const [, pages] of Object.entries(collectionPages)) {
+    const page = findInTree(pages, data.document_id);
+    if (page) page[field] = value;
   }
+  // Update starred pages if title/icon changed
+  const starred = starredPages.value.find(p => p.page_id === data.document_id);
+  if (starred) starred[field] = value;
 };
 
 // Handle SSE collection updates - update sidebar reactively
@@ -66,6 +80,299 @@ const isDragging = ref(false);
 const navRef = ref<HTMLElement | null>(null);
 const dropIndicatorY = ref<number | null>(null);
 const dropIndicatorIndent = ref<number>(8);
+
+// Context menu state
+const authStore = useAuthStore()
+const { copy } = useClipboard()
+const contextMenuPage = ref<Page | null>(null)
+const contextMenuPos = ref({ x: 0, y: 0 })
+const showContextMenu = ref(false)
+const contextMenuType = ref<'page' | 'collection'>('page')
+const contextMenuCollection = ref<CollectionWithDetails | null>(null)
+
+// Modals triggered from context menu
+const showMoveModal = ref(false)
+const moveModalPageId = ref<string | number>('')
+const moveModalParentId = ref<string | number | null>(null)
+const showPermissionsModal = ref(false)
+const permissionsModalPageId = ref(0)
+
+// SVG icon paths (stroke-based, viewBox 0 0 24 24)
+const icons = {
+  openTab: 'M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25',
+  link: 'M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244',
+  star: 'M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z',
+  duplicate: 'M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75',
+  move: 'M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776',
+  permissions: 'M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z',
+  exportMd: 'M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3',
+  archive: 'M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z',
+  trash: 'M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0',
+  rename: 'M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z',
+}
+
+// Build page context menu items dynamically (star state depends on current page)
+const pageContextMenuItems = computed((): MenuItem[] => {
+  const page = contextMenuPage.value
+  const isStarred = page ? starredPages.value.some(sp => sp.page_id === Number(page.id)) : false
+  const isArchived = page?.status === 'archived'
+
+  const items: MenuItem[] = [
+    { id: 'open-new-tab', label: 'Open in new tab', icon: icons.openTab },
+    { id: 'copy-link', label: 'Copy link', icon: icons.link },
+    { id: isStarred ? 'unstar' : 'star', label: isStarred ? 'Remove star' : 'Star', icon: icons.star, divider: true },
+    { id: 'duplicate', label: 'Duplicate', icon: icons.duplicate },
+    { id: 'move', label: 'Move to...', icon: icons.move },
+    { id: 'export-md', label: 'Export Markdown', icon: icons.exportMd },
+  ]
+
+  if (authStore.isAdmin) {
+    items.push({ id: 'permissions', label: 'Permissions', icon: icons.permissions, divider: true })
+  }
+
+  items.push({
+    id: isArchived ? 'restore' : 'archive',
+    label: isArchived ? 'Restore' : 'Archive',
+    icon: icons.archive,
+    divider: !authStore.isAdmin,
+  })
+  items.push({ id: 'delete', label: 'Move to Trash', icon: icons.trash, danger: true })
+
+  return items
+})
+
+// Collection context menu items
+const collectionContextMenuItems = computed((): MenuItem[] => {
+  const collection = contextMenuCollection.value
+  const items: MenuItem[] = [
+    { id: 'col-rename', label: 'Rename', icon: icons.rename },
+  ]
+  if (authStore.isAdmin) {
+    items.push({ id: 'col-permissions', label: 'Permissions', icon: icons.permissions })
+  }
+  if (authStore.isAdmin && collection && !collection.is_system) {
+    items.push({ id: 'col-delete', label: 'Delete', icon: icons.trash, danger: true, divider: true })
+  }
+  return items
+})
+
+// Active context menu items depend on type
+const activeContextMenuItems = computed(() =>
+  contextMenuType.value === 'collection'
+    ? collectionContextMenuItems.value
+    : pageContextMenuItems.value
+)
+
+const handleNavContextMenu = (page: Page, pos: { x: number, y: number }) => {
+  contextMenuType.value = 'page'
+  contextMenuPage.value = page
+  contextMenuCollection.value = null
+  contextMenuPos.value = pos
+  showContextMenu.value = true
+}
+
+const handleCollectionContextMenu = (collection: CollectionWithDetails, event: MouseEvent) => {
+  event.preventDefault()
+  event.stopPropagation()
+  contextMenuType.value = 'collection'
+  contextMenuCollection.value = collection
+  contextMenuPage.value = null
+  contextMenuPos.value = { x: event.clientX, y: event.clientY }
+  showContextMenu.value = true
+}
+
+// Inline rename state for collections
+const renamingCollectionId = ref<number | null>(null)
+const renameInput = ref('')
+const renameInputRef = ref<HTMLInputElement | null>(null)
+
+const startCollectionRename = async (collection: CollectionWithDetails) => {
+  renamingCollectionId.value = collection.id
+  renameInput.value = collection.name
+  await nextTick()
+  renameInputRef.value?.focus()
+  renameInputRef.value?.select()
+}
+
+const commitCollectionRename = async () => {
+  const id = renamingCollectionId.value
+  if (!id) return
+  const trimmed = renameInput.value.trim()
+  if (trimmed) {
+    const col = collections.value.find(c => c.id === id)
+    if (col && trimmed !== col.name) {
+      col.name = trimmed
+      await updateCollection(id, { name: trimmed })
+    }
+  }
+  renamingCollectionId.value = null
+}
+
+const cancelCollectionRename = () => {
+  renamingCollectionId.value = null
+}
+
+const handleContextMenuSelect = async (actionId: string) => {
+  // ---- Collection actions ----
+  if (actionId.startsWith('col-')) {
+    const collection = contextMenuCollection.value
+    if (!collection) return
+
+    switch (actionId) {
+      case 'col-rename':
+        startCollectionRename(collection)
+        break
+      case 'col-permissions':
+        router.push(`/documentation/collections/${collection.slug}`)
+        break
+      case 'col-delete':
+        if (!confirm(`Delete "${collection.name}"? Pages in this collection will not be deleted.`)) return
+        try {
+          const success = await deleteCollection(collection.id)
+          if (success) {
+            await reloadSidebar()
+            if (route.path === `/documentation/collections/${collection.slug}`) {
+              router.push('/documentation')
+            }
+          }
+        } catch (error) {
+          console.error('Failed to delete collection:', error)
+        }
+        break
+    }
+    return
+  }
+
+  // ---- Page actions ----
+  const page = contextMenuPage.value
+  if (!page) return
+
+  const pageUrl = docUrl(page)
+
+  switch (actionId) {
+    case 'open-new-tab':
+      window.open(pageUrl, '_blank')
+      break
+
+    case 'copy-link':
+      await copy(`${window.location.origin}${pageUrl}`)
+      break
+
+    case 'star':
+      try {
+        const success = await documentationService.starPage(Number(page.id))
+        if (success) {
+          docNavStore.addStarredPage({
+            page_id: Number(page.id),
+            title: page.title,
+            slug: page.slug,
+            icon: page.icon,
+            starred_at: new Date().toISOString(),
+          })
+        }
+      } catch (error) {
+        console.error('Failed to star page:', error)
+      }
+      break
+
+    case 'unstar':
+      try {
+        const success = await documentationService.unstarPage(Number(page.id))
+        if (success) {
+          docNavStore.removeStarredPage(Number(page.id))
+        }
+      } catch (error) {
+        console.error('Failed to unstar page:', error)
+      }
+      break
+
+    case 'duplicate':
+      try {
+        const newPage = await documentationService.createArticle({
+          title: `${page.title} (copy)`,
+          content: '',
+          description: '',
+          status: 'draft',
+          icon: page.icon || '📄',
+        })
+        if (newPage?.id) {
+          docsEmitter.emit('doc:created', { id: newPage.id })
+          docNavStore.refreshPages()
+          router.push(docUrl(newPage))
+        }
+      } catch (error) {
+        console.error('Failed to duplicate page:', error)
+      }
+      break
+
+    case 'move':
+      moveModalPageId.value = page.id
+      moveModalParentId.value = page.parent_id
+      showMoveModal.value = true
+      break
+
+    case 'permissions':
+      permissionsModalPageId.value = Number(page.id)
+      showPermissionsModal.value = true
+      break
+
+    case 'export-md':
+      try {
+        const blob = await documentationService.exportPageMarkdown(page.id)
+        if (!blob) return
+        const url = URL.createObjectURL(blob)
+        const a = window.document.createElement('a')
+        a.href = url
+        a.download = (page.slug || String(page.id)) + '.md'
+        window.document.body.appendChild(a)
+        a.click()
+        window.document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      } catch (error) {
+        console.error('Failed to export page:', error)
+      }
+      break
+
+    case 'archive':
+      try {
+        await documentationService.archivePage(page.id)
+        docNavStore.refreshPages()
+        if (route.path === pageUrl) {
+          router.push('/documentation')
+        }
+      } catch (error) {
+        console.error('Failed to archive page:', error)
+      }
+      break
+
+    case 'restore':
+      try {
+        await documentationService.restorePage(page.id)
+        docNavStore.refreshPages()
+      } catch (error) {
+        console.error('Failed to restore page:', error)
+      }
+      break
+
+    case 'delete':
+      try {
+        await documentationService.deleteArticle(page.id)
+        docsEmitter.emit('doc:deleted', { id: page.id })
+        docNavStore.refreshPages()
+        if (route.path === pageUrl) {
+          router.push('/documentation')
+        }
+      } catch (error) {
+        console.error('Failed to delete page:', error)
+      }
+      break
+  }
+}
+
+const handlePageMoved = () => {
+  showMoveModal.value = false
+  docNavStore.refreshPages()
+}
 
 // Collections data
 const collections = ref<CollectionWithDetails[]>([])
@@ -625,6 +932,7 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
                 : 'text-secondary hover:text-primary hover:bg-surface-hover'
           ]"
           @click.stop="handleCollectionClick(collection)"
+          @contextmenu.prevent="handleCollectionContextMenu(collection, $event)"
         >
           <!-- Indent spacing -->
           <span class="flex-shrink-0" style="width: 8px"></span>
@@ -647,11 +955,21 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
             <span class="text-sm leading-none group-hover:hidden">{{ collection.icon || '📁' }}</span>
           </span>
 
-          <!-- Collection Name -->
-          <span class="flex-1 truncate min-w-0 ml-1">{{ collection.name }}</span>
+          <!-- Collection Name (inline rename or static) -->
+          <input
+            v-if="renamingCollectionId === collection.id"
+            ref="renameInputRef"
+            v-model="renameInput"
+            class="flex-1 min-w-0 ml-1 bg-surface border border-default rounded px-1 py-0 text-xs text-primary outline-none focus:border-accent"
+            @keydown.enter="commitCollectionRename"
+            @keydown.escape="cancelCollectionRename"
+            @blur="commitCollectionRename"
+            @click.stop
+          />
+          <span v-else class="flex-1 truncate min-w-0 ml-1">{{ collection.name }}</span>
 
           <!-- Page Count -->
-          <span class="flex-shrink-0 text-[10px] text-tertiary ml-1">{{ collection.page_count }}</span>
+          <span v-if="renamingCollectionId !== collection.id" class="flex-shrink-0 text-[10px] text-tertiary ml-1">{{ collection.page_count }}</span>
         </div>
 
         <!-- Collection Pages (collapsible with smooth transition) -->
@@ -683,6 +1001,7 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
                   @drag-end="handlePageDragEnd"
                   @drag-over="(id, event, position, level) => handlePageDragOver(id, event, position, level)"
                   @drop="handlePageDrop"
+                  @context-menu="handleNavContextMenu"
                 />
               </ul>
 
@@ -700,6 +1019,33 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
         <div class="text-tertiary text-sm">No documents yet</div>
       </div>
     </div>
+
+    <!-- Context Menu -->
+    <ContextMenu
+      v-if="showContextMenu"
+      :items="activeContextMenuItems"
+      :x="contextMenuPos.x"
+      :y="contextMenuPos.y"
+      @select="handleContextMenuSelect"
+      @close="showContextMenu = false"
+    />
+
+    <!-- Move Document Modal -->
+    <MoveDocumentModal
+      v-if="showMoveModal"
+      :page-id="moveModalPageId"
+      :current-parent-id="moveModalParentId"
+      @close="showMoveModal = false"
+      @moved="handlePageMoved"
+    />
+
+    <!-- Page Permissions Modal -->
+    <PagePermissionsModal
+      v-if="showPermissionsModal"
+      :page-id="permissionsModalPageId"
+      @close="showPermissionsModal = false"
+      @updated="docNavStore.refreshPages()"
+    />
   </nav>
 </template>
 

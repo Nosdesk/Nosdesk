@@ -305,7 +305,7 @@ const getPriorityClass = (priority: TicketPriority) => {
 
               <div class="flex items-center gap-1 min-w-0">
                 <template v-if="ticket.assignee_user?.name || ticket.assignee">
-                  <div class="flex-shrink-0 [&>div]:!w-4 [&>div]:!h-4 [&>div>*]:!w-4 [&>div>*]:!h-4 [&>div>*]:!text-[8px]">
+                  <div class="flex-shrink-0 [&>div]:!w-4 [&>div]:!h-4 [&>div>*]:!w-4 [&>div>*]:!h-4 [&>div>*]:!text-[0.5rem]">
                     <UserAvatar
                       :name="ticket.assignee_user?.uuid || ticket.assignee"
                       :userName="ticket.assignee_user?.name"

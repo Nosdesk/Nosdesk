@@ -24,6 +24,7 @@ declare module 'vue-router' {
     createButtonText?: string;
     createButtonIcon?: 'plus' | 'ticket' | 'user' | 'device' | 'project' | 'document';
     createButtonAction?: string;
+    preloadedDocument?: unknown;
   }
 }
 
@@ -311,39 +312,36 @@ const router = createRouter({
       beforeEnter: async (to) => {
         // Set a generic title initially
         to.meta.title = 'Documentation';
-        
-        // Handle ticket notes
+        to.meta.preloadedDocument = undefined;
+
+        // Handle ticket notes — preloaded inside component (needs different data shape)
         if (to.query.ticketId) {
           to.meta.title = `Ticket #${to.query.ticketId} Notes`;
           return;
         }
 
-        // Set title based on the path
-        if (to.params.path) {
-          const path = to.params.path.toString();
-          
-          // If it's a category, format the title
-          if (path.startsWith('category-')) {
-            const categoryName = path.replace('category-', '').replace(/\d+$/, '');
-            if (categoryName) {
-              to.meta.title = categoryName
-                .split('-')
-                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                .join(' ');
-            }
-          } else {
-            // For regular pages, format the slug as a title
-            // Check if it's a numeric ID (legacy support) or a slug
-            if (!isNaN(Number(path))) {
-              // It's a numeric ID - component handles the title
-              to.meta.title = 'Documentation';
+        // Preload document data so the view renders instantly
+        const path = to.params.path?.toString();
+        if (path) {
+          try {
+            const { getPageByPath, getArticleById } = await import('@/services/documentationService');
+            const result = await getPageByPath(path);
+
+            if (result) {
+              let doc = result;
+              // If the result is a page stub (no children array), fetch full article
+              if (!('children' in result && Array.isArray(result.children)) && 'id' in result) {
+                const articleData = await getArticleById(String(result.id));
+                if (articleData) doc = articleData;
+                else return '/documentation'; // not found — redirect
+              }
+              to.meta.preloadedDocument = doc;
+              to.meta.title = doc.title || 'Documentation';
             } else {
-              // It's a slug, format it as a title
-              to.meta.title = path
-                .split('-')
-                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                .join(' ');
+              return '/documentation'; // not found — redirect
             }
+          } catch {
+            return '/documentation';
           }
         }
       }

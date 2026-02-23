@@ -20,6 +20,7 @@ const emit = defineEmits<{
   (e: 'dragEnd', event: DragEvent): void;
   (e: 'dragOver', id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below', level: number): void;
   (e: 'drop', id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below'): void;
+  (e: 'contextMenu', page: Page, position: { x: number, y: number }): void;
 }>()
 
 const route = useRoute()
@@ -70,6 +71,13 @@ const isDescendantOfDragged = computed(() => {
   // If draggedPageId matches this page's ID, it's being dragged
   return String(props.draggedPageId) === String(props.page.id)
 })
+
+// Handle right-click context menu
+const handleContextMenu = (event: MouseEvent) => {
+  event.preventDefault()
+  event.stopPropagation()
+  emit('contextMenu', props.page, { x: event.clientX, y: event.clientY })
+}
 
 // Handle toggle expansion
 const handleToggleExpand = (event: Event) => {
@@ -153,6 +161,7 @@ const handleDrop = (event: DragEvent) => {
       ]"
       draggable="true"
       @click.stop="handlePageClick"
+      @contextmenu.prevent="handleContextMenu"
       @dragstart="handleDragStart"
       @dragend="handleDragEnd"
       @dragover="handleDragOver"
@@ -223,6 +232,7 @@ const handleDrop = (event: DragEvent) => {
         @drag-end="(event) => emit('dragEnd', event)"
         @drag-over="(id, event, position, level) => emit('dragOver', id, event, position, level)"
         @drop="(id, event, position) => emit('drop', id, event, position)"
+        @context-menu="(page, pos) => emit('contextMenu', page, pos)"
       />
     </ul>
   </li>

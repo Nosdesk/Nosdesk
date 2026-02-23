@@ -64,10 +64,12 @@ const getBackgroundColor = (name: string) => {
 }
 
 // Size classes
+// Text sizes use rem units (or Tailwind scale tokens) so they scale
+// proportionally with the document root rather than being fixed pixels.
 const sizeClasses = computed(() => {
   const sizes = {
-    xxs: { base: 'h-4 w-4', text: 'text-[8px]' },
-    xs: { base: 'h-5 w-5', text: 'text-[10px]' },
+    xxs: { base: 'h-4 w-4', text: 'text-[0.5rem]' },
+    xs: { base: 'h-5 w-5', text: 'text-[0.5625rem]' },
     sm: { base: 'h-6 w-6', text: 'text-xs' },
     md: { base: 'h-8 w-8', text: 'text-sm' },
     lg: { base: 'h-9 w-9', text: 'text-base' },
@@ -80,7 +82,7 @@ const sizeClasses = computed(() => {
 const nameTextClasses = computed(() => {
   const base = 'text-primary truncate'
   switch (props.size) {
-    case 'xs': return `${base} text-[10px]`
+    case 'xs': return `${base} text-[0.625rem]`
     case 'sm': return `${base} text-xs`
     case 'lg': return `${base} text-sm`
     case 'full': return `${base} text-xl`

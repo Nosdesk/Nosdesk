@@ -1,7 +1,7 @@
 import apiClient from './apiConfig';
 import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
-import type { Ticket, Comment, Attachment, Device, Project } from '@/types/ticket';
+import type { Ticket, RecentTicket, Comment, Attachment, Device, Project } from '@/types/ticket';
 import type { UserInfo } from '@/types/user';
 import type { PaginatedResponse } from '@/types/pagination';
 import type { CommentWithAttachments } from '@/types/comment';
@@ -10,7 +10,7 @@ import type { CommentWithAttachments } from '@/types/comment';
 const requestManager = new RequestManager();
 
 // Re-export types for backwards compatibility
-export type { Ticket, Comment, Attachment, Device, Project, UserInfo, CommentWithAttachments };
+export type { Ticket, RecentTicket, Comment, Attachment, Device, Project, UserInfo, CommentWithAttachments };
 
 // Extended pagination params for tickets
 export interface TicketPaginationParams {
@@ -233,8 +233,8 @@ export const cancelAllRequests = (): void => {
 };
 
 // Get recent tickets for the authenticated user
-export const getRecentTickets = async () => {
-  const response = await apiClient.get('/tickets/recent');
+export const getRecentTickets = async (): Promise<RecentTicket[]> => {
+  const response = await apiClient.get<RecentTicket[]>('/tickets/recent');
   return response.data;
 };
 
@@ -242,6 +242,11 @@ export const getRecentTickets = async () => {
 export const recordTicketView = async (ticketId: number) => {
   const response = await apiClient.post(`/tickets/${ticketId}/view`);
   return response.data;
+};
+
+// Remove a ticket from the recent views list
+export const removeRecentTicket = async (ticketId: number) => {
+  await apiClient.delete(`/tickets/${ticketId}/view`);
 };
 
 // Bulk operations
@@ -276,6 +281,7 @@ export default {
   removeDeviceFromTicket,
   getRecentTickets,
   recordTicketView,
+  removeRecentTicket,
   bulkAction,
   cancelAllRequests
 }; 

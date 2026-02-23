@@ -52,6 +52,23 @@ impl UserTicketViewsRepository {
         }
     }
 
+    /// Delete a ticket view record for a user
+    pub fn delete_view(
+        &self,
+        user_uuid_param: Uuid,
+        ticket_id_param: i32,
+    ) -> Result<usize, diesel::result::Error> {
+        use crate::schema::user_ticket_views::dsl::*;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        diesel::delete(
+            user_ticket_views
+                .filter(user_uuid.eq(user_uuid_param))
+                .filter(ticket_id.eq(ticket_id_param)),
+        )
+        .execute(&mut conn)
+    }
+
     /// Get recent tickets for a user
     pub fn get_recent_tickets(
         &self,

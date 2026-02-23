@@ -48,6 +48,54 @@ export interface PasskeyLoginResult {
   };
 }
 
+/**
+ * webauthn-rs may return options already unwrapped (primary path) or wrapped
+ * in { publicKey: ... } (fallback path). These types represent both formats.
+ */
+interface WrappedCreationOptions {
+  publicKey: PublicKeyCredentialCreationOptionsJSON;
+}
+
+interface WrappedRequestOptions {
+  publicKey: PublicKeyCredentialRequestOptionsJSON;
+}
+
+type CreationOptionsResponse =
+  | PublicKeyCredentialCreationOptionsJSON
+  | WrappedCreationOptions;
+
+type RequestOptionsResponse =
+  | (PublicKeyCredentialRequestOptionsJSON & { sessionId?: string })
+  | (WrappedRequestOptions & { sessionId?: string });
+
+/** Extract unwrapped creation options from either response format */
+function unwrapCreationOptions(
+  response: CreationOptionsResponse,
+): PublicKeyCredentialCreationOptionsJSON {
+  if ('publicKey' in response && response.publicKey && typeof response.publicKey === 'object') {
+    return response.publicKey;
+  }
+  return response as PublicKeyCredentialCreationOptionsJSON;
+}
+
+/** Extract unwrapped request options from either response format */
+function unwrapRequestOptions(
+  response: RequestOptionsResponse,
+): { options: PublicKeyCredentialRequestOptionsJSON; sessionId?: string } {
+  const sessionId = 'sessionId' in response ? response.sessionId : undefined;
+  let options: PublicKeyCredentialRequestOptionsJSON;
+
+  if ('publicKey' in response && response.publicKey && typeof response.publicKey === 'object') {
+    options = response.publicKey;
+  } else {
+    // Already unwrapped — clone to avoid mutating the original
+    const { sessionId: _, ...rest } = response as PublicKeyCredentialRequestOptionsJSON & { sessionId?: string };
+    options = rest;
+  }
+
+  return { options, sessionId };
+}
+
 class PasskeyService {
   /**
    * Check if WebAuthn is supported in the current browser
@@ -95,9 +143,9 @@ class PasskeyService {
   /**
    * Start passkey registration - gets challenge from server
    */
-  async startRegistration(passkey_name?: string): Promise<PublicKeyCredentialCreationOptionsJSON> {
+  async startRegistration(passkey_name?: string): Promise<CreationOptionsResponse> {
     try {
-      const response = await apiClient.post<PublicKeyCredentialCreationOptionsJSON>(
+      const response = await apiClient.post<CreationOptionsResponse>(
         '/auth/passkeys/register/start',
         { passkey_name }
       );
@@ -138,26 +186,14 @@ class PasskeyService {
       // Get registration options from server
       const options = await this.startRegistration(name);
 
-      // Log the raw options for debugging
-      logger.debug('Registration options received from server', {
-        options,
-        optionsKeys: Object.keys(options || {}),
-        hasPublicKey: 'publicKey' in (options || {}),
-        hasPublic_key: 'public_key' in (options || {}),
-      });
-
-      // webauthn-rs returns the options wrapped in { publicKey: ... } or { public_key: ... }
-      // SimpleWebAuthn expects the PublicKeyCredentialCreationOptions contents directly
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawOptions = options as any;
-      const publicKeyOptions: PublicKeyCredentialCreationOptionsJSON =
-        rawOptions.publicKey || rawOptions.public_key || options;
+      // Unwrap options — backend usually sends unwrapped, but handle wrapped fallback
+      const publicKeyOptions = unwrapCreationOptions(options);
 
       logger.debug('PublicKey options for registration', {
         publicKeyOptions,
-        hasChallenge: 'challenge' in (publicKeyOptions || {}),
-        hasRp: 'rp' in (publicKeyOptions || {}),
-        hasUser: 'user' in (publicKeyOptions || {}),
+        hasChallenge: 'challenge' in publicKeyOptions,
+        hasRp: 'rp' in publicKeyOptions,
+        hasUser: 'user' in publicKeyOptions,
       });
 
       // Prompt user to create credential
@@ -178,9 +214,9 @@ class PasskeyService {
    * Start passkey login - gets challenge from server
    * For usernameless (discoverable) login, don't pass email
    */
-  async startLogin(email?: string): Promise<PublicKeyCredentialRequestOptionsJSON & { sessionId?: string }> {
+  async startLogin(email?: string): Promise<RequestOptionsResponse> {
     try {
-      const response = await apiClient.post<PublicKeyCredentialRequestOptionsJSON & { sessionId?: string }>(
+      const response = await apiClient.post<RequestOptionsResponse>(
         '/auth/passkeys/login/start',
         email ? { email } : {}
       );
@@ -220,33 +256,13 @@ class PasskeyService {
       // Get authentication options from server
       const options = await this.startLogin(email);
 
-      // Log the raw options for debugging
-      logger.debug('Authentication options received from server', {
-        options,
-        optionsKeys: Object.keys(options || {}),
-        hasSessionId: 'sessionId' in (options || {}),
-        emailProvided: !!email,
-      });
-
-      // Extract session ID for discoverable auth (only present when no email)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sessionId = (options as any).sessionId;
-
-      // webauthn-rs returns the options, SimpleWebAuthn expects PublicKeyCredentialRequestOptions
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawOptions = options as any;
-      const publicKeyOptions: PublicKeyCredentialRequestOptionsJSON =
-        rawOptions.publicKey || rawOptions.public_key || options;
-
-      // Remove sessionId from options before passing to startAuthentication
-      if ('sessionId' in publicKeyOptions) {
-        delete (publicKeyOptions as Record<string, unknown>).sessionId;
-      }
+      // Unwrap options and extract sessionId (present for discoverable auth)
+      const { options: publicKeyOptions, sessionId } = unwrapRequestOptions(options);
 
       logger.debug('PublicKey options for authentication', {
         publicKeyOptions,
-        hasChallenge: 'challenge' in (publicKeyOptions || {}),
-        hasAllowCredentials: 'allowCredentials' in (publicKeyOptions || {}),
+        hasChallenge: 'challenge' in publicKeyOptions,
+        hasAllowCredentials: 'allowCredentials' in publicKeyOptions,
         sessionId,
       });
 
@@ -328,9 +344,9 @@ class PasskeySetupService {
   async startRegistration(
     credentials: PasskeySetupCredentials,
     passkeyName?: string
-  ): Promise<PublicKeyCredentialCreationOptionsJSON> {
+  ): Promise<CreationOptionsResponse> {
     try {
-      const response = await apiClient.post<PublicKeyCredentialCreationOptionsJSON>(
+      const response = await apiClient.post<CreationOptionsResponse>(
         '/auth/passkey-setup-login/start',
         {
           email: credentials.email,
@@ -381,22 +397,14 @@ class PasskeySetupService {
       // Get registration options from server
       const options = await this.startRegistration(credentials, name);
 
-      logger.debug('Registration options received from server (setup flow)', {
-        options,
-        optionsKeys: Object.keys(options || {}),
-      });
-
-      // Extract publicKey options (same as normal flow)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawOptions = options as any;
-      const publicKeyOptions: PublicKeyCredentialCreationOptionsJSON =
-        rawOptions.publicKey || rawOptions.public_key || options;
+      // Unwrap options — backend usually sends unwrapped, but handle wrapped fallback
+      const publicKeyOptions = unwrapCreationOptions(options);
 
       logger.debug('PublicKey options for registration (setup flow)', {
         publicKeyOptions,
-        hasChallenge: 'challenge' in (publicKeyOptions || {}),
-        hasRp: 'rp' in (publicKeyOptions || {}),
-        hasUser: 'user' in (publicKeyOptions || {}),
+        hasChallenge: 'challenge' in publicKeyOptions,
+        hasRp: 'rp' in publicKeyOptions,
+        hasUser: 'user' in publicKeyOptions,
       });
 
       // Prompt user to create credential

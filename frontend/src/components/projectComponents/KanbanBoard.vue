@@ -195,7 +195,7 @@ const handleAddTicket = (ticketId: number) => {
                 :data-ticket-id="ticket.id"
                 class="ticket-card bg-surface rounded-lg border border-default p-3 cursor-grab hover:border-strong hover:shadow-sm group select-none flex-shrink-0"
                 :class="{ 'opacity-50 scale-95': isDraggedTicket(ticket.id) }"
-                style="touch-action: none"
+                :style="{ touchAction: dragState.isDragging ? 'none' : 'auto' }"
                 @pointerdown="handlePointerDown(column.id, ticket, $event)"
               >
                 <!-- Header: ID + Priority -->

@@ -32,3 +32,15 @@ export interface Ticket {
   linked_tickets?: number[]
   projects?: Project[]
 }
+
+export interface RecentTicket {
+  id: number
+  title: string
+  status: TicketStatus
+  requester: string | null
+  assignee: string | null
+  created_at: string
+  updated_at: string
+  last_viewed_at: string
+  view_count: number
+}

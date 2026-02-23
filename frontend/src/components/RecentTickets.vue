@@ -2,11 +2,14 @@
 import { RouterLink } from 'vue-router'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
 import { ref, onMounted, computed } from 'vue'
-import { parseDate } from '@/utils/dateUtils'
+import { formatCompactRelativeTime } from '@/utils/dateUtils'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import { useTicketDrag, type DraggableTicket } from '@/composables/useTicketDrag'
-import type { Ticket } from '@/types/ticket'
+import { useClipboard } from '@/composables/useClipboard'
+import type { RecentTicket } from '@/types/ticket'
 
 const recentTicketsStore = useRecentTicketsStore()
 const {
@@ -20,6 +23,47 @@ const {
   handleTouchCancel
 } = useTicketDrag()
 
+// Context menu state
+const { copy } = useClipboard()
+const contextMenuTicket = ref<RecentTicket | null>(null)
+const contextMenuPos = ref({ x: 0, y: 0 })
+const showContextMenu = ref(false)
+
+const ticketContextMenuItems: MenuItem[] = [
+  { id: 'open-new-tab', label: 'Open in new tab', icon: 'M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25' },
+  { id: 'copy-link', label: 'Copy link', icon: 'M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244' },
+  { id: 'remove-recent', label: 'Remove from recent', icon: 'M6 18L18 6M6 6l12 12', danger: true, divider: true },
+]
+
+const handleTicketContextMenu = (ticket: RecentTicket, event: MouseEvent) => {
+  event.preventDefault()
+  event.stopPropagation()
+  contextMenuTicket.value = ticket
+  contextMenuPos.value = { x: event.clientX, y: event.clientY }
+  showContextMenu.value = true
+}
+
+const handleTicketContextMenuSelect = async (actionId: string) => {
+  const ticket = contextMenuTicket.value
+  if (!ticket) return
+
+  const ticketUrl = `/tickets/${ticket.id}`
+
+  switch (actionId) {
+    case 'open-new-tab':
+      window.open(ticketUrl, '_blank')
+      break
+
+    case 'copy-link':
+      await copy(`${window.location.origin}${ticketUrl}`)
+      break
+
+    case 'remove-recent':
+      await recentTicketsStore.removeTicket(ticket.id)
+      break
+  }
+}
+
 // Local drag state for reordering
 const draggedIndex = ref<number | null>(null)
 const dropTargetIndex = ref<number | null>(null)
@@ -27,13 +71,10 @@ const isOutsideList = ref(false)
 const listContainerRef = ref<HTMLElement | null>(null)
 
 // Convert store ticket to draggable ticket format
-// Note: requester_user/assignee_user may not be populated in recent tickets API response
-const toDraggableTicket = (ticket: Ticket): DraggableTicket => ({
+const toDraggableTicket = (ticket: RecentTicket): DraggableTicket => ({
   id: ticket.id,
   title: ticket.title,
   status: ticket.status,
-  priority: ticket.priority,
-  assignee: ticket.assignee_user?.name ?? null
 })
 
 // Only show loading skeleton on initial load (no data yet)
@@ -42,7 +83,7 @@ const showLoading = computed(() =>
 )
 
 // Custom drag start - track the dragged index
-const handleDragStart = (ticket: Ticket, index: number, event: DragEvent) => {
+const handleDragStart = (ticket: RecentTicket, index: number, event: DragEvent) => {
   draggedIndex.value = index
   isOutsideList.value = false
   baseDragStart(toDraggableTicket(ticket), 'recent-tickets', event)
@@ -125,24 +166,6 @@ onMounted(async () => {
   }
 })
 
-// Compact relative time using app's date utilities
-const relativeTime = (dateString: string | null | undefined): string => {
-  if (!dateString) return ''
-
-  // Use the app's parseDate to handle timezone correctly
-  const date = parseDate(dateString)
-  if (!date) return ''
-
-  const diff = Date.now() - date.getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'now'
-  if (mins < 60) return `${mins}m`
-  const hours = Math.floor(diff / 3600000)
-  if (hours < 24) return `${hours}h`
-  const days = Math.floor(diff / 86400000)
-  if (days < 7) return `${days}d`
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
 </script>
 
 <template>
@@ -164,7 +187,7 @@ const relativeTime = (dateString: string | null | undefined): string => {
         <RouterLink
           v-for="(ticket, index) in recentTicketsStore.recentTickets"
           :key="ticket.id"
-          :to="{ path: `/tickets/${ticket.id}`, query: { fromRecent: 'true' } }"
+          :to="`/tickets/${ticket.id}`"
           class="ticket-item group flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded hover:bg-surface-hover transition-colors cursor-grab select-none"
           :class="{
             'opacity-50': draggedIndex === index,
@@ -177,6 +200,7 @@ const relativeTime = (dateString: string | null | undefined): string => {
           @dragend="handleLocalDragEnd"
           @dragover="handleDragOver(index, $event)"
           @dragleave="handleDragLeave"
+          @contextmenu="handleTicketContextMenu(ticket, $event)"
           @touchstart="handleTouchStart(toDraggableTicket(ticket), 'recent-tickets', $event)"
           @touchmove="handleTouchMove"
           @touchend="handleTouchEnd"
@@ -195,7 +219,7 @@ const relativeTime = (dateString: string | null | undefined): string => {
 
           <!-- Time -->
           <span class="text-[10px] text-tertiary flex-shrink-0">
-            {{ relativeTime(ticket.last_viewed_at || ticket.updated_at || ticket.modified || ticket.created_at || ticket.created) }}
+            {{ formatCompactRelativeTime(ticket.last_viewed_at) }}
           </span>
         </RouterLink>
       </TransitionGroup>
@@ -205,6 +229,16 @@ const relativeTime = (dateString: string | null | undefined): string => {
     <div v-else class="flex-1 flex items-center justify-center p-2">
       <p class="text-xs text-tertiary">No recent tickets</p>
     </div>
+
+    <!-- Context Menu -->
+    <ContextMenu
+      v-if="showContextMenu"
+      :items="ticketContextMenuItems"
+      :x="contextMenuPos.x"
+      :y="contextMenuPos.y"
+      @select="handleTicketContextMenuSelect"
+      @close="showContextMenu = false"
+    />
 
     <!-- Drag Preview - only show when dragging OUTSIDE the list -->
     <TicketDragPreview

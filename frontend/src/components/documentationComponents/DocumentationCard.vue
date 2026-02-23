@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink } from 'vue-router'
-import { useDocumentationNavStore } from '@/stores/documentationNav'
+import { useRouter } from 'vue-router'
 import type { Page } from '@/services/documentationService'
 import { formatDate } from '@/utils/dateUtils'
 import { docUrl } from '@/utils/docUrl'
@@ -12,12 +11,9 @@ const props = defineProps<{
   page: Page
 }>()
 
-const docNavStore = useDocumentationNavStore()
+const router = useRouter()
 
-// Expansion state
-const isExpanded = computed(() => {
-  return docNavStore.expandedPages[props.page.id]
-})
+const navigateToPage = () => router.push(docUrl(props.page))
 
 // Has children
 const hasChildren = computed(() => {
@@ -73,34 +69,23 @@ const formatRelativeDate = (dateStr: string | undefined) => {
   if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`
   return formatDate(dateStr, 'MMM d')
 }
-
-// Toggle children expansion
-const toggleExpand = (event: Event) => {
-  event.preventDefault()
-  event.stopPropagation()
-  docNavStore.togglePage(String(props.page.id))
-}
 </script>
 
 <template>
   <article
     class="doc-card"
-    :class="{ 'is-expanded': isExpanded }"
+    role="link"
+    tabindex="0"
+    @click="navigateToPage"
+    @keydown.enter="navigateToPage"
   >
-    <!-- Card Header with Icon -->
-    <RouterLink :to="docUrl(page)" class="doc-card-header">
-      <!-- Large Icon Area -->
-      <div class="doc-card-icon">
-        <span class="icon-emoji">{{ page.icon || '📄' }}</span>
-      </div>
-    </RouterLink>
-
     <!-- Card Content -->
     <div class="doc-card-content">
-      <!-- Title -->
-      <RouterLink :to="docUrl(page)" class="doc-card-title">
+      <!-- Title with inline icon -->
+      <div class="doc-card-title">
+        <span class="icon-emoji">{{ page.icon || '📄' }}</span>
         <h3>{{ page.title }}</h3>
-      </RouterLink>
+      </div>
 
       <!-- Content Preview -->
       <p v-if="contentPreview" class="doc-card-description">
@@ -125,14 +110,14 @@ const toggleExpand = (event: Event) => {
         <span v-if="authorInfo" class="meta-author">{{ authorInfo.name }}</span>
 
         <!-- Separator -->
-        <span class="meta-separator">·</span>
+        <span class="meta-separator">&middot;</span>
 
         <!-- Last Updated -->
         <span class="meta-date">{{ formatRelativeDate(page.updated_at || page.lastUpdated) }}</span>
 
         <!-- Children Count -->
         <template v-if="hasChildren">
-          <span class="meta-separator">·</span>
+          <span class="meta-separator">&middot;</span>
           <span class="meta-children">
             <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
@@ -150,36 +135,16 @@ const toggleExpand = (event: Event) => {
       </div>
     </div>
 
-    <!-- Expandable Children Section -->
-    <div v-if="hasChildren" class="doc-card-children">
-      <button @click="toggleExpand" class="children-toggle">
-        <svg
-          class="chevron"
-          :class="{ 'rotate-180': isExpanded }"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-        <span>{{ page.children?.length }} sub-page{{ page.children?.length === 1 ? '' : 's' }}</span>
-      </button>
-
-      <Transition name="expand">
-        <div v-if="isExpanded" class="children-list">
-          <DocumentationChildCard
-            v-for="(child, index) in page.children"
-            :key="child.id"
-            :page="child"
-            :stagger-index="index"
-          />
-        </div>
-      </Transition>
+    <!-- Inline Children Section -->
+    <div v-if="hasChildren" class="doc-card-children" @click.stop>
+      <DocumentationChildCard
+        v-for="child in page.children!.slice(0, 3)"
+        :key="child.id"
+        :page="child"
+      />
+      <span v-if="page.children!.length > 3" class="children-more">
+        +{{ page.children!.length - 3 }} more
+      </span>
     </div>
   </article>
 </template>
@@ -193,6 +158,7 @@ const toggleExpand = (event: Event) => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  cursor: pointer;
 
   /* Subtle glassmorphism */
   backdrop-filter: blur(8px);
@@ -213,47 +179,6 @@ const toggleExpand = (event: Event) => {
   border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 
-/* Card Header */
-.doc-card-header {
-  position: relative;
-  display: block;
-  text-decoration: none;
-}
-
-.doc-card-icon {
-  width: 100%;
-  height: 5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-accent-muted) 50%, transparent) 0%,
-    var(--color-surface-alt) 100%
-  );
-  transition: background 300ms ease;
-}
-
-.doc-card:hover .doc-card-icon {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-accent) 20%, transparent) 0%,
-    color-mix(in srgb, var(--color-accent-muted) 60%, transparent) 50%,
-    var(--color-surface-alt) 100%
-  );
-}
-
-.icon-emoji {
-  font-size: 2.5rem;
-  line-height: 1;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
-  transition: transform 200ms ease;
-}
-
-.doc-card:hover .icon-emoji {
-  transform: scale(1.1);
-}
-
 /* Card Content */
 .doc-card-content {
   padding: 1rem 1.25rem;
@@ -264,7 +189,15 @@ const toggleExpand = (event: Event) => {
 }
 
 .doc-card-title {
-  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.icon-emoji {
+  font-size: 1.25rem;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .doc-card-title h3 {
@@ -360,38 +293,18 @@ const toggleExpand = (event: Event) => {
 /* Children Section */
 .doc-card-children {
   border-top: 1px solid var(--color-subtle);
-}
-
-.children-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.75rem 1.25rem;
-  background: var(--color-surface-alt);
-  border: none;
-  color: var(--color-secondary);
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 150ms ease, color 150ms ease;
-}
-
-.children-toggle:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-primary);
-}
-
-.children-toggle .chevron {
-  transition: transform 200ms ease;
-}
-
-.children-list {
   padding: 0.5rem 0.75rem 0.75rem;
   background: var(--color-surface-alt);
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
+}
+
+.children-more {
+  font-size: 0.75rem;
+  color: var(--color-tertiary);
+  padding: 0.25rem 0.75rem;
+  font-weight: 500;
 }
 
 /* Animations */
@@ -404,32 +317,8 @@ const toggleExpand = (event: Event) => {
   }
 }
 
-/* Expand/collapse transition */
-.expand-enter-active {
-  transition: all 300ms ease-out;
-  overflow: hidden;
-}
-
-.expand-leave-active {
-  transition: all 200ms ease-in;
-  overflow: hidden;
-}
-
-.expand-enter-from,
-.expand-leave-to {
-  opacity: 0;
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.expand-enter-to,
-.expand-leave-from {
-  max-height: 500px;
-}
-
 /* Focus state */
-.doc-card:focus-within {
+.doc-card:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
@@ -479,10 +368,6 @@ const toggleExpand = (event: Event) => {
   border-color: var(--color-primary);
 }
 
-[data-theme="epaper"] .doc-card-icon {
-  background: var(--color-surface-alt);
-}
-
 [data-theme="epaper"] .freshness-indicator {
   animation: none;
   box-shadow: none;
@@ -501,9 +386,7 @@ const toggleExpand = (event: Event) => {
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  .doc-card,
-  .icon-emoji,
-  .children-toggle .chevron {
+  .doc-card {
     transition: none;
   }
 

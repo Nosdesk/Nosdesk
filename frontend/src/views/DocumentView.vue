@@ -38,17 +38,18 @@ const {
   isConnecting,
 } = useDocumentation()
 
-// Document state — single ref replaces the old article + page dual refs
-const document = ref<Page | null>(null)
-const isLoading = ref(true)
+// Document state — use preloaded data from route guard when available
+const preloaded = route.meta.preloadedDocument as Page | undefined
+const document = ref<Page | null>(preloaded ?? null)
+const isLoading = ref(!preloaded)
 const isSaving = ref(false)
 const saveMessage = ref('')
 const showSuccessMessage = ref(false)
 
-// Content editing
-const editContent = ref('')
-const editTitle = ref('')
-const documentIcon = ref('📄')
+// Content editing — initialize from preloaded data if available
+const editContent = ref(preloaded?.content || '')
+const editTitle = ref(preloaded?.title || '')
+const documentIcon = ref(preloaded?.icon || '📄')
 
 // Ref for the title h1 element
 const titleElementRef = ref<HTMLElement | null>(null)
@@ -325,6 +326,11 @@ const handleDuplicatePage = async () => {
 
 // Fetch document content
 const fetchContent = async () => {
+  // Skip fetch if preloaded data was already consumed on mount
+  if (document.value && !isLoading.value && route.meta.preloadedDocument) {
+    route.meta.preloadedDocument = undefined
+    return
+  }
   isLoading.value = true
 
   // Check for ticket note mode
@@ -619,10 +625,8 @@ watch(documentObj, (newDocument) => {
 
     <!-- Main content -->
     <div class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
-      <!-- Loading state -->
-      <div v-if="isLoading" class="flex items-center justify-center h-full">
-        <div class="animate-spin h-8 w-8 border-2 border-accent border-t-transparent rounded-full"></div>
-      </div>
+      <!-- Loading fallback (ticket notes / edge cases — document pages are preloaded) -->
+      <div v-if="isLoading"></div>
 
       <!-- Document Content View -->
       <div v-else-if="document" class="w-full flex">

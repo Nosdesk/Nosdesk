@@ -3,13 +3,17 @@ import type { NodeSpec, MarkSpec, DOMOutputSpec } from 'prosemirror-model';
 
 const brDOM: DOMOutputSpec = ['br'];
 
-const calcYchangeDomAttrs = (attrs: any, domAttrs: any = {}) => {
-  domAttrs = Object.assign({}, domAttrs);
-  if (attrs.ychange !== null) {
-    domAttrs.ychange_user = attrs.ychange.user;
-    domAttrs.ychange_state = attrs.ychange.state;
+const calcYchangeDomAttrs = (
+  attrs: Record<string, unknown>,
+  domAttrs: Record<string, string> = {}
+): Record<string, string> => {
+  const result = { ...domAttrs };
+  if (attrs.ychange !== null && attrs.ychange !== undefined) {
+    const ychange = attrs.ychange as { user: string; state: string };
+    result.ychange_user = ychange.user;
+    result.ychange_state = ychange.state;
   }
-  return domAttrs;
+  return result;
 };
 
 // Specs for the nodes defined in this schema
@@ -100,7 +104,7 @@ export const nodes: {[key: string]: NodeSpec} = {
       if (node.attrs.language) {
         attrs['data-language'] = node.attrs.language;
       }
-      const codeAttrs: any = {};
+      const codeAttrs: Record<string, string> = {};
       if (node.attrs.language) {
         codeAttrs.class = `language-${node.attrs.language}`;
       }

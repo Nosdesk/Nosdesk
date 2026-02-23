@@ -845,6 +845,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets/{id}", web::patch().to(handlers::update_ticket_partial))
                     .route("/tickets/{id}", web::delete().to(handlers::delete_ticket))
                     .route("/tickets/{id}/view", web::post().to(handlers::record_ticket_view))
+                    .route("/tickets/{id}/view", web::delete().to(handlers::remove_recent_ticket))
                     .route("/import/file", web::post().to(handlers::import_tickets_from_json))
                     .route("/import/json", web::post().to(handlers::import_tickets_from_json_string))
                     .route("/tickets/{ticket_id}/link/{linked_ticket_id}", web::post().to(handlers::link_tickets))

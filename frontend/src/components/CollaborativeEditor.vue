@@ -2453,11 +2453,11 @@ defineExpose({
                 </div>
             </div>
 
-            <!-- Connection status indicator - shown when connecting or disconnected -->
-            <div v-if="connectionStatus === 'connecting'" class="connection-status-connecting">
+            <!-- Connection status indicator - v-show prevents layout shift on initial load -->
+            <div v-show="connectionStatus === 'connecting'" class="connection-status-connecting">
                 Connecting...
             </div>
-            <div v-else-if="connectionStatus === 'disconnected'" class="connection-status-disconnected">
+            <div v-show="connectionStatus === 'disconnected'" class="connection-status-disconnected">
                 Disconnected
             </div>
         </div>
@@ -2591,15 +2591,16 @@ defineExpose({
     padding: 0.5rem;
     background-color: var(--color-surface);
     border-bottom: 1px solid var(--color-default);
-    flex-wrap: wrap;
     gap: 0.25rem;
     align-items: center;
+    overflow-x: auto;
 }
 
 .toolbar-button {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
     padding: 0.25rem 0.5rem;
     background-color: var(--color-surface);
     border: none;
@@ -2622,6 +2623,7 @@ defineExpose({
 .toolbar-divider {
     width: 1px;
     height: 1.5rem;
+    flex-shrink: 0;
     background-color: var(--color-default);
     margin: 0 0.5rem;
 }
@@ -2679,22 +2681,24 @@ defineExpose({
     color: var(--color-primary);
 }
 
-.connection-status-connecting {
+.connection-status-connecting,
+.connection-status-disconnected {
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--color-status-warning, #f59e0b);
+    flex-shrink: 0;
+    white-space: nowrap;
     padding: 0.25rem 0.625rem;
     border-radius: 0.375rem;
+}
+
+.connection-status-connecting {
+    color: var(--color-status-warning, #f59e0b);
     background-color: var(--color-status-warning-bg, rgba(245, 158, 11, 0.15));
     border: 1px solid var(--color-status-warning-border, rgba(245, 158, 11, 0.3));
 }
 
 .connection-status-disconnected {
-    font-size: 0.75rem;
-    font-weight: 500;
     color: var(--color-status-error);
-    padding: 0.25rem 0.625rem;
-    border-radius: 0.375rem;
     background-color: var(--color-status-error-bg, rgba(239, 68, 68, 0.15));
     border: 1px solid var(--color-status-error-border, rgba(239, 68, 68, 0.3));
 }
@@ -2784,16 +2788,7 @@ defineExpose({
     background-color: var(--color-surface);
     border-radius: 0 0 0.5rem 0.5rem;
     color: var(--color-primary);
-    font-family:
-        ui-sans-serif,
-        system-ui,
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        Roboto,
-        "Helvetica Neue",
-        Arial,
-        sans-serif;
+    font-family: var(--font-sans, 'Inter', ui-sans-serif, system-ui, sans-serif);
     font-size: 1rem;
     line-height: 1.5;
     min-height: 200px;
@@ -2948,16 +2943,7 @@ defineExpose({
     color: var(--color-secondary);
     font-size: 0.75rem;
     border-bottom-left-radius: 0.25rem;
-    font-family:
-        ui-sans-serif,
-        system-ui,
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        Roboto,
-        "Helvetica Neue",
-        Arial,
-        sans-serif;
+    font-family: var(--font-sans, 'Inter', ui-sans-serif, system-ui, sans-serif);
 }
 
 .ProseMirror pre code {
@@ -3535,7 +3521,7 @@ defineExpose({
     left: -2px;
     font-size: 12px;
     background-color: currentColor;
-    font-family: sans-serif;
+    font-family: var(--font-sans, 'Inter', ui-sans-serif, system-ui, sans-serif);
     font-weight: normal;
     line-height: normal;
     user-select: none;

@@ -6,15 +6,16 @@
  */
 import { Plugin } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
+import type { Node as ProseMirrorNode } from 'prosemirror-model'
 import { getEmojiUrl } from '@/composables/useTwemoji'
 
 // Emoji regex pattern - matches most emoji including ZWJ sequences
 const emojiPattern = /(?:\p{Emoji_Presentation}|\p{Extended_Pictographic})(?:\uFE0F)?(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic})(?:\uFE0F)?)*|\p{Emoji}\uFE0F/gu
 
-function findEmojis(doc: any): Decoration[] {
+function findEmojis(doc: ProseMirrorNode): Decoration[] {
   const decorations: Decoration[] = []
 
-  doc.descendants((node: any, pos: number) => {
+  doc.descendants((node: ProseMirrorNode, pos: number) => {
     if (!node.isText) return
 
     const text = node.text || ''

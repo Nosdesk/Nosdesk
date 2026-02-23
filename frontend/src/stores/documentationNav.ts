@@ -9,15 +9,15 @@ interface ExpandedState {
 }
 
 // Page interface matching the documentation service
-interface NavPage {
+export interface NavPage {
   id: string | number;
   slug: string;
   title: string;
   icon: string | null;
+  status?: string;
   parent_id: string | number | null;
   display_order?: number;
   children: NavPage[];
-  [key: string]: any; // Allow other properties
 }
 
 export const useDocumentationNavStore = defineStore('documentationNav', () => {
@@ -163,7 +163,7 @@ export const useDocumentationNavStore = defineStore('documentationNav', () => {
   }
 
   // Update a specific field on a page reactively (no API call, just state update)
-  const updatePageField = (pageId: string | number, field: string, value: any) => {
+  const updatePageField = <K extends keyof NavPage>(pageId: string | number, field: K, value: NavPage[K]) => {
     const page = findInTree(pages.value, pageId)
     if (page) {
       page[field] = value

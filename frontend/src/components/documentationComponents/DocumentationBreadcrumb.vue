@@ -74,7 +74,14 @@ watch(
 </script>
 
 <template>
-  <nav v-if="breadcrumbs.length > 0 && !loading" aria-label="Breadcrumb">
+  <!-- Skeleton while loading — matches breadcrumb line height to prevent layout shift -->
+  <div v-if="loading" class="flex items-center gap-2 text-xs h-4">
+    <div class="h-3 w-24 rounded bg-surface-hover animate-pulse"></div>
+    <span class="text-tertiary select-none">/</span>
+    <div class="h-3 w-32 rounded bg-surface-hover animate-pulse"></div>
+  </div>
+
+  <nav v-else-if="breadcrumbs.length > 0" aria-label="Breadcrumb">
     <ol class="flex items-center flex-wrap gap-1.5 sm:gap-2 text-xs text-tertiary min-w-0">
       <li v-for="(item, index) in breadcrumbs" :key="index" class="flex items-center gap-1.5 sm:gap-2 min-w-0">
         <span v-if="index > 0" class="text-tertiary select-none">/</span>
