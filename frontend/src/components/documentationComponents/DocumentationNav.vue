@@ -223,7 +223,7 @@ const handleContextMenuSelect = async (actionId: string) => {
         startCollectionRename(collection)
         break
       case 'col-permissions':
-        router.push(`/documentation/collections/${collection.slug}`)
+        router.push({ path: `/documentation/collections/${collection.slug}`, query: { permissions: 'true' } })
         break
       case 'col-delete':
         if (!confirm(`Delete "${collection.name}"? Pages in this collection will not be deleted.`)) return
@@ -1030,7 +1030,10 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
       @close="showContextMenu = false"
     />
 
-    <!-- Move Document Modal -->
+  </nav>
+
+  <!-- Teleport modals to body so they escape nav overflow/stacking constraints -->
+  <Teleport to="body">
     <MoveDocumentModal
       v-if="showMoveModal"
       :page-id="moveModalPageId"
@@ -1038,15 +1041,16 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
       @close="showMoveModal = false"
       @moved="handlePageMoved"
     />
+  </Teleport>
 
-    <!-- Page Permissions Modal -->
+  <Teleport to="body">
     <PagePermissionsModal
       v-if="showPermissionsModal"
       :page-id="permissionsModalPageId"
       @close="showPermissionsModal = false"
       @updated="docNavStore.refreshPages()"
     />
-  </nav>
+  </Teleport>
 </template>
 
 <style scoped>

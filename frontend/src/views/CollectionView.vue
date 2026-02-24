@@ -60,6 +60,11 @@ const loadCollection = async () => {
   }
 
   loading.value = false
+
+  // Open permissions modal if navigated with ?permissions=true
+  if (route.query.permissions === 'true' && collection.value && authStore.isAdmin) {
+    showVisibilityModal.value = true
+  }
 }
 
 const handleIconChange = async (icon: string) => {
@@ -120,6 +125,13 @@ const handleDelete = async () => {
 onMounted(loadCollection)
 
 watch(() => route.params.slug, loadCollection)
+
+// Open permissions modal when query param is added while already on the page
+watch(() => route.query.permissions, (val) => {
+  if (val === 'true' && collection.value && authStore.isAdmin) {
+    showVisibilityModal.value = true
+  }
+})
 </script>
 
 <template>
