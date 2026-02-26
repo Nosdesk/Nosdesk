@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { getCollectionBySlug, addPageToCollection, updateCollection, deleteCollection, getPageOverridesInCollection } from '@/services/collectionService'
-import type { CollectionWithPages, PageOverrideInfo } from '@/services/collectionService'
+import type { CollectionWithPages, CollectionPage, PageOverrideInfo } from '@/services/collectionService'
 import documentationService from '@/services/documentationService'
 import { docUrl } from '@/utils/docUrl'
 import { docsEmitter } from '@/services/docsEmitter'
@@ -141,7 +141,7 @@ const { on, debouncedReload } = useSSEListeners({ reload: loadCollection })
 const collectionPageIds = computed(() => {
   if (!collection.value) return new Set<number>()
   const ids = new Set<number>()
-  const collect = (pages: typeof collection.value!.pages) => {
+  const collect = (pages: CollectionPage[]) => {
     for (const p of pages) {
       ids.add(p.id)
       if (p.children) collect(p.children)
