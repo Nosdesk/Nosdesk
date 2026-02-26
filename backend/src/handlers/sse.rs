@@ -1,5 +1,5 @@
 use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -74,6 +74,10 @@ pub enum SseEvent {
         field: String,
         value: serde_json::Value,
         updated_by: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+    DeviceDeleted {
+        device_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
     ProjectAssigned {
@@ -155,9 +159,17 @@ pub struct ClientInfo {
     pub last_ping: Instant,
 }
 
+/// Envelope that carries an SSE event through the broadcast channel,
+/// optionally tagged with the source client ID for echo suppression.
+#[derive(Debug, Clone)]
+pub struct BroadcastMessage {
+    pub event: SseEvent,
+    pub source_client_id: Option<String>,
+}
+
 // Global event broadcaster
-type EventSender = broadcast::Sender<SseEvent>;
-type EventReceiver = broadcast::Receiver<SseEvent>;
+type EventSender = broadcast::Sender<BroadcastMessage>;
+type EventReceiver = broadcast::Receiver<BroadcastMessage>;
 
 // Global state for managing SSE connections
 pub struct SseState {
@@ -183,15 +195,20 @@ impl SseState {
     }
 
     pub async fn broadcast_event(&self, event: SseEvent) {
+        self.broadcast_event_from(event, None).await;
+    }
+
+    /// Broadcast an event tagged with the source client ID.
+    /// Clients whose connection matches `source_client_id` will filter the echo.
+    pub async fn broadcast_event_from(&self, event: SseEvent, source_client_id: Option<String>) {
+        let msg = BroadcastMessage { event: event.clone(), source_client_id };
         // Fast, non-blocking broadcast - just send once
-        // Log when events are dropped for tracking issues
-        match self.sender.send(event.clone()) {
+        match self.sender.send(msg) {
             Ok(receiver_count) => {
                 #[cfg(debug_assertions)]
                 tracing::debug!("SSE: Event sent to {} receivers", receiver_count);
             }
             Err(_) => {
-                // No active receivers - log in debug mode to track dropped events
                 #[cfg(debug_assertions)]
                 tracing::warn!("SSE: Event dropped - no active receivers: {:?}", event);
             }
@@ -250,7 +267,7 @@ impl SseState {
 
 // SSE stream implementation
 pub struct SseStream {
-    event_stream: BroadcastStream<SseEvent>,
+    event_stream: BroadcastStream<BroadcastMessage>,
     heartbeat_interval: tokio::time::Interval,
     client_id: String,
     state: web::Data<SseState>,
@@ -283,9 +300,11 @@ impl Stream for SseStream {
 
         // Poll the BroadcastStream - this properly maintains waker registration across polls
         match Pin::new(&mut this.event_stream).poll_next(cx) {
-            Poll::Ready(Some(Ok(event))) => {
+            Poll::Ready(Some(Ok(msg))) => {
+                let event = &msg.event;
+
                 // Got event - determine event type and serialize
-                let event_type = match &event {
+                let event_type = match event {
                     SseEvent::TicketUpdated { .. } => "ticket-updated",
                     SseEvent::TicketCreated { .. } => "ticket-created",
                     SseEvent::TicketDeleted { .. } => "ticket-deleted",
@@ -297,6 +316,7 @@ impl Stream for SseStream {
                     SseEvent::DeviceUnlinked { .. } => "device-unlinked",
                     SseEvent::DeviceCreated { .. } => "device-created",
                     SseEvent::DeviceUpdated { .. } => "device-updated",
+                    SseEvent::DeviceDeleted { .. } => "device-deleted",
                     SseEvent::ProjectAssigned { .. } => "project-assigned",
                     SseEvent::ProjectUnassigned { .. } => "project-unassigned",
                     SseEvent::TicketLinked { .. } => "ticket-linked",
@@ -312,8 +332,20 @@ impl Stream for SseStream {
                     SseEvent::NotificationReceived { .. } => "notification-received",
                 };
 
-                // Serialize event data
-                let event_data = serde_json::to_string(&event).unwrap_or_default();
+                // Serialize event data with optional source_client_id envelope
+                let event_data = if msg.source_client_id.is_some() {
+                    // Include source_client_id alongside the serde-tagged event fields
+                    let mut value = serde_json::to_value(event).unwrap_or_default();
+                    if let serde_json::Value::Object(ref mut map) = value {
+                        map.insert(
+                            "source_client_id".to_string(),
+                            serde_json::Value::String(msg.source_client_id.unwrap_or_default()),
+                        );
+                    }
+                    serde_json::to_string(&value).unwrap_or_default()
+                } else {
+                    serde_json::to_string(event).unwrap_or_default()
+                };
                 let sse_data = format!("event: {event_type}\ndata: {event_data}\n\n");
 
                 return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(sse_data))));
@@ -395,13 +427,23 @@ pub async fn sse_events_stream(
     let receiver = state.sender.subscribe();
     let stream = SseStream::new(receiver, client_id.clone(), state.clone());
 
+    // Build initial "connected" event so the client knows its own ID
+    let connected_data = json!({ "client_id": client_id }).to_string();
+    let initial_event = format!("event: connected\ndata: {connected_data}\n\n");
+
+    // Chain the initial event with the ongoing stream
+    let initial = futures::stream::once(async move {
+        Ok::<_, actix_web::Error>(actix_web::web::Bytes::from(initial_event))
+    });
+    let full_stream = initial.chain(stream);
+
     // Return SSE response with optimized headers
     Ok(HttpResponse::Ok()
         .append_header(("Content-Type", "text/event-stream"))
         .append_header(("Cache-Control", "no-cache"))
         .append_header(("Connection", "keep-alive"))
         .append_header(("X-Accel-Buffering", "no")) // Disable nginx buffering
-        .streaming(stream))
+        .streaming(full_stream))
 }
 
 #[derive(Deserialize)]

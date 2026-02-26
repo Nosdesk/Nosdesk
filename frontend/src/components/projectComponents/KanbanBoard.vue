@@ -8,7 +8,9 @@ import AddTicketToProjectModal from './AddTicketToProjectModal.vue'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import { useKanbanDragDrop, type KanbanColumn } from '@/composables/useKanbanDragDrop'
+import { useProjectSSE } from '@/composables/useProjectSSE'
 import { formatCompactRelativeTime } from '@/utils/dateUtils'
+import type { TicketUpdatedEventData } from '@/types/sse'
 
 const props = defineProps<{
   projectId: number;
@@ -30,7 +32,9 @@ const columns = ref<KanbanColumn[]>([
 
 const showAddTicketModal = ref(false)
 const currentColumnId = ref<string | null>(null)
-const projectTicketIds = ref<number[]>([])
+const projectTicketIdSet = ref<Set<number>>(new Set())
+// Computed array for AddTicketToProjectModal (expects number[])
+const projectTicketIds = computed(() => [...projectTicketIdSet.value])
 
 // Fetch project tickets
 async function fetchProjectTickets() {
@@ -41,7 +45,7 @@ async function fetchProjectTickets() {
     error.value = null
 
     const tickets = await projectService.getProjectTickets(props.projectId)
-    projectTicketIds.value = tickets.map(ticket => ticket.id)
+    projectTicketIdSet.value = new Set(tickets.map(ticket => ticket.id))
 
     // Reset and distribute tickets to columns
     columns.value.forEach(column => { column.tickets = [] })
@@ -75,10 +79,91 @@ async function fetchProjectTickets() {
   }
 }
 
+// SSE integration for real-time updates
+useProjectSSE(projectIdRef, projectTicketIdSet, {
+  onTicketAssigned() {
+    // Full refresh to get complete card data for the new ticket
+    fetchProjectTickets()
+  },
+  onTicketUnassigned(ticketId: number) {
+    // Remove ticket from whichever column contains it
+    for (const column of columns.value) {
+      const idx = column.tickets.findIndex(t => t.id === ticketId)
+      if (idx !== -1) {
+        column.tickets.splice(idx, 1)
+        break
+      }
+    }
+  },
+  onTicketUpdated(data: TicketUpdatedEventData) {
+    // Find the ticket across all columns
+    for (const column of columns.value) {
+      const ticket = column.tickets.find(t => t.id === data.ticket_id)
+      if (!ticket) continue
+
+      if (data.field === 'status' && typeof data.value === 'string') {
+        // Status changed — move ticket between columns
+        const newColumnId = data.value === 'in-progress' ? 'in-progress'
+          : data.value === 'closed' ? 'closed' : 'open'
+
+        if (column.id !== newColumnId) {
+          const idx = column.tickets.indexOf(ticket)
+          column.tickets.splice(idx, 1)
+          const targetColumn = columns.value.find(c => c.id === newColumnId)
+          if (targetColumn) {
+            ticket.status = data.value
+            targetColumn.tickets.push(ticket)
+          }
+        }
+      } else if (data.field === 'title' && typeof data.value === 'string') {
+        ticket.title = data.value
+      } else if (data.field === 'priority' && typeof data.value === 'string') {
+        ticket.priority = data.value as 'low' | 'medium' | 'high'
+      } else if (data.field === 'modified' && typeof data.value === 'string') {
+        ticket.modified = data.value
+      } else if (data.field === 'assignee') {
+        if (typeof data.value === 'string') {
+          ticket.assignee_uuid = data.value || null
+          if (!data.value) ticket.assignee_name = null
+        } else if (typeof data.value === 'object' && data.value && 'uuid' in data.value) {
+          const v = data.value as { uuid: string; user_info?: { name?: string; avatar_thumb?: string } }
+          ticket.assignee_uuid = v.uuid
+          if (v.user_info) {
+            ticket.assignee_name = v.user_info.name || null
+            ticket.assignee_avatar = v.user_info.avatar_thumb || null
+          }
+        }
+      } else if (data.field === 'requester') {
+        if (typeof data.value === 'string') {
+          ticket.requester_uuid = data.value || null
+          if (!data.value) ticket.requester_name = null
+        } else if (typeof data.value === 'object' && data.value && 'uuid' in data.value) {
+          const v = data.value as { uuid: string; user_info?: { name?: string; avatar_thumb?: string } }
+          ticket.requester_uuid = v.uuid
+          if (v.user_info) {
+            ticket.requester_name = v.user_info.name || null
+            ticket.requester_avatar = v.user_info.avatar_thumb || null
+          }
+        }
+      }
+      break
+    }
+  },
+  onTicketDeleted(ticketId: number) {
+    for (const column of columns.value) {
+      const idx = column.tickets.findIndex(t => t.id === ticketId)
+      if (idx !== -1) {
+        column.tickets.splice(idx, 1)
+        break
+      }
+    }
+  },
+})
+
 // Handle external ticket drop (from recent tickets sidebar)
 async function handleExternalTicketDrop(ticketId: number, targetColumnId: string) {
   // Check if ticket is already in project
-  if (projectTicketIds.value.includes(ticketId)) {
+  if (projectTicketIdSet.value.has(ticketId)) {
     console.log(`Ticket ${ticketId} is already in this project`)
     return
   }

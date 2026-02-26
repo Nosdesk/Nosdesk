@@ -58,11 +58,11 @@ export function useTicketSSE(
   const recentlyAddedCommentIds = ref<Set<number>>(new Set());
   const activeViewerCount = ref<number>(0);
 
-  // Track fields currently being edited locally (skip SSE updates for these)
+  // Track fields currently being edited locally (e.g. title input focused).
+  // SSE updates for these fields are skipped to avoid overwriting mid-edit text.
+  // Echo suppression (own optimistic updates) is handled at the SSE service
+  // level via source_client_id matching — no time-window heuristics needed.
   const editingFields = ref<Set<string>>(new Set());
-
-  // Track pending updates with timestamps to handle out-of-order delivery
-  const pendingUpdates = ref<Map<string, number>>(new Map());
 
   /**
    * Mark a field as being edited locally.
@@ -74,43 +74,21 @@ export function useTicketSSE(
 
   /**
    * Mark a field as no longer being edited.
-   * Also records a timestamp to ignore any stale SSE updates still in flight.
    */
   function stopEditing(field: string): void {
     editingFields.value.delete(field);
-    // Record when we stopped editing to ignore stale updates for a short window
-    pendingUpdates.value.set(field, Date.now());
-    // Clean up after 2 seconds (enough time for any in-flight updates to arrive)
-    setTimeout(() => {
-      pendingUpdates.value.delete(field);
-    }, 2000);
   }
 
   /**
    * Check if an SSE update should be applied.
-   * Skips updates from current user or for fields being edited.
+   * Only skips updates for fields currently being interactively edited (e.g. title).
+   * Echo suppression is handled upstream by the SSE service (source_client_id check).
    */
-  function shouldApplyUpdate(field: string, updatedBy?: string): boolean {
-    // Skip if this field is currently being edited locally
+  function shouldApplyUpdate(field: string): boolean {
     if (editingFields.value.has(field)) {
       if (DEBUG_SSE) console.log(`[SSE] Skipping ${field} update - field is being edited`);
       return false;
     }
-
-    // Skip updates from current user (we already have them via optimistic update)
-    const currentUserUuid = authStore.user?.uuid;
-    if (currentUserUuid && updatedBy === currentUserUuid) {
-      if (DEBUG_SSE) console.log(`[SSE] Skipping ${field} update - from current user`);
-      return false;
-    }
-
-    // Skip if we recently stopped editing this field (stale update protection)
-    const pendingTime = pendingUpdates.value.get(field);
-    if (pendingTime && Date.now() - pendingTime < 1000) {
-      if (DEBUG_SSE) console.log(`[SSE] Skipping ${field} update - recent local edit`);
-      return false;
-    }
-
     return true;
   }
 
@@ -131,8 +109,8 @@ export function useTicketSSE(
       console.log('[SSE] ticket-updated:', data.field, data.value, 'by:', data.updated_by);
     }
 
-    // Check if we should apply this update
-    if (!shouldApplyUpdate(data.field, data.updated_by)) {
+    // Check if we should apply this update (only skips if field is being actively edited)
+    if (!shouldApplyUpdate(data.field)) {
       return;
     }
 
@@ -409,7 +387,7 @@ export function useTicketSSE(
     isConnected,
     recentlyAddedCommentIds,
     activeViewerCount,
-    // Field editing state for SSE update filtering
+    // Field editing state — protects actively-edited fields (e.g. title) from SSE overwrites
     startEditing,
     stopEditing,
   };

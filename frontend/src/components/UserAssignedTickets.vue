@@ -3,6 +3,7 @@ import { formatRelativeTime } from '@/utils/dateUtils';
 import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
+import { useSSEListeners } from "@/composables/useSSEListeners";
 import UserAvatar from "@/components/UserAvatar.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
@@ -175,6 +176,70 @@ watch(
     { immediate: true }
 );
 
+// SSE integration for real-time ticket updates
+const { on } = useSSEListeners();
+
+/** Check if a status value passes the current filter */
+const statusMatchesFilter = (status: string): boolean => {
+    if (!selectedStatus.value || selectedStatus.value === '') return true;
+    if (selectedStatus.value === 'active') return status === 'open' || status === 'in-progress';
+    return status === selectedStatus.value;
+};
+
+on('ticket-updated', (data) => {
+    const event = data as { ticket_id: number; field: string; value: unknown };
+    const idx = tickets.value.findIndex(t => t.id === event.ticket_id);
+    if (idx === -1) return;
+
+    const ticket = tickets.value[idx];
+    const field = event.field as keyof Ticket;
+
+    // Update the field in place
+    if (field in ticket) {
+        (ticket as Record<string, unknown>)[field] = event.value;
+    }
+
+    // If status changed and no longer matches filter, remove
+    if (field === 'status' && !statusMatchesFilter(String(event.value))) {
+        tickets.value.splice(idx, 1);
+        return;
+    }
+
+    // If assignee changed away from target user (for assigned view), remove
+    if (field === 'assignee' && props.ticketType === 'assigned') {
+        const assigneeVal = event.value as { uuid?: string } | string | null;
+        const assigneeUuid = typeof assigneeVal === 'object' && assigneeVal ? assigneeVal.uuid : assigneeVal;
+        if (assigneeUuid !== targetUserUuid.value) {
+            tickets.value.splice(idx, 1);
+        }
+    }
+});
+
+on('ticket-created', (data) => {
+    const event = data as { ticket: Record<string, unknown> };
+    if (!event.ticket) return;
+    const ticket = event.ticket as unknown as Ticket;
+
+    // Check if the ticket matches our target user
+    const matchesUser = props.ticketType === 'assigned'
+        ? ticket.assignee_uuid === targetUserUuid.value
+        : ticket.requester_uuid === targetUserUuid.value;
+    if (!matchesUser) return;
+
+    // Check status filter
+    if (!statusMatchesFilter(ticket.status)) return;
+
+    // Prepend and enforce limit
+    tickets.value.unshift(ticket);
+    if (tickets.value.length > props.limit) {
+        tickets.value.pop();
+    }
+});
+
+on('ticket-deleted', (data) => {
+    const event = data as { ticket_id: number };
+    tickets.value = tickets.value.filter(t => t.id !== event.ticket_id);
+});
 </script>
 
 <template>

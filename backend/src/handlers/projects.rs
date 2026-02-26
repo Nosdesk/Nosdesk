@@ -4,9 +4,18 @@ use tracing::debug;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{NewProject, ProjectUpdate};
 use crate::repository;
 use crate::utils::rbac::{require_admin, require_technician_or_admin};
+
+/// Extract the SSE client ID from the request header (for echo suppression).
+fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
+    req.headers()
+        .get("X-SSE-Client-Id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
 
 // Get all projects with ticket counts
 pub async fn get_all_projects(
@@ -139,12 +148,13 @@ pub async fn add_ticket_to_project(
     req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<(i32, i32)>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
+    sse_state: web::Data<SseState>,
 ) -> impl Responder {
     if let Err(e) = require_technician_or_admin(&req) {
         return e;
     }
 
+    let source_client_id = extract_sse_client_id(&req);
     let (project_id, ticket_id) = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -153,10 +163,15 @@ pub async fn add_ticket_to_project(
 
     match repository::add_ticket_to_project(&mut conn, project_id, ticket_id) {
         Ok(association) => {
-            // Broadcast SSE event for project assignment
             debug!(ticket_id = ticket_id, project_id = project_id, "Broadcasting SSE event: Ticket assigned to project");
-            use crate::utils::sse::SseBroadcaster;
-            SseBroadcaster::broadcast_project_assigned(&sse_state, ticket_id, project_id).await;
+            sse_state.broadcast_event_from(
+                SseEvent::ProjectAssigned {
+                    ticket_id,
+                    project_id,
+                    timestamp: chrono::Utc::now(),
+                },
+                source_client_id,
+            ).await;
 
             HttpResponse::Created().json(association)
         },
@@ -169,12 +184,13 @@ pub async fn remove_ticket_from_project(
     req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<(i32, i32)>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
+    sse_state: web::Data<SseState>,
 ) -> impl Responder {
     if let Err(e) = require_technician_or_admin(&req) {
         return e;
     }
 
+    let source_client_id = extract_sse_client_id(&req);
     let (project_id, ticket_id) = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -184,10 +200,15 @@ pub async fn remove_ticket_from_project(
     match repository::remove_ticket_from_project(&mut conn, project_id, ticket_id) {
         Ok(0) => HttpResponse::NotFound().json("Association not found"),
         Ok(_) => {
-            // Broadcast SSE event for project unassignment
             debug!(ticket_id = ticket_id, project_id = project_id, "Broadcasting SSE event: Ticket unassigned from project");
-            use crate::utils::sse::SseBroadcaster;
-            SseBroadcaster::broadcast_project_unassigned(&sse_state, ticket_id, project_id).await;
+            sse_state.broadcast_event_from(
+                SseEvent::ProjectUnassigned {
+                    ticket_id,
+                    project_id,
+                    timestamp: chrono::Utc::now(),
+                },
+                source_client_id,
+            ).await;
 
             HttpResponse::NoContent().finish()
         },

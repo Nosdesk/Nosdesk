@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, watchEffect, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, watchEffect, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { projectService } from '@/services/projectService'
 import type { TicketPriority } from '@/constants/ticketOptions'
@@ -9,8 +9,10 @@ import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MobileSearchBar from '@/components/MobileSearchBar.vue'
 import { useMobileSearch } from '@/composables/useMobileSearch'
+import { useProjectSSE } from '@/composables/useProjectSSE'
 import { useThemeStore } from '@/stores/theme'
 import { formatRelativeTime } from '@/utils/dateUtils'
+import type { TicketUpdatedEventData } from '@/types/sse'
 
 const props = defineProps<{
   projectId: number
@@ -46,6 +48,60 @@ const pageSize = 20
 // Scroll container for infinite scroll
 const scrollContainer = ref<HTMLElement | null>(null)
 
+// SSE: track ticket IDs belonging to this project
+const projectTicketIdSet = ref<Set<number>>(new Set())
+const projectIdRef = computed(() => props.projectId)
+
+// SSE integration for real-time updates
+useProjectSSE(projectIdRef, projectTicketIdSet, {
+  onTicketAssigned() {
+    loadTickets(1, false)
+  },
+  onTicketUnassigned(ticketId: number) {
+    tickets.value = tickets.value.filter(t => t.id !== ticketId)
+    filteredTickets.value = tickets.value
+    emit('ticket-count-change', projectTicketIdSet.value.size)
+  },
+  onTicketUpdated(data: TicketUpdatedEventData) {
+    const ticket = tickets.value.find(t => t.id === data.ticket_id)
+    if (!ticket) return
+
+    if (data.field === 'title' && typeof data.value === 'string') {
+      ticket.title = data.value
+    } else if (data.field === 'status' && typeof data.value === 'string') {
+      ticket.status = data.value
+    } else if (data.field === 'priority' && typeof data.value === 'string') {
+      ticket.priority = data.value
+    } else if (data.field === 'modified' && typeof data.value === 'string') {
+      ticket.modified = data.value
+      ticket.updated_at = data.value
+    } else if (data.field === 'assignee') {
+      if (typeof data.value === 'string') {
+        ticket.assignee = data.value || ''
+        if (!data.value) ticket.assignee_user = null
+      } else if (typeof data.value === 'object' && data.value && 'uuid' in data.value) {
+        const v = data.value as { uuid: string; user_info?: any }
+        ticket.assignee = v.uuid
+        if (v.user_info) ticket.assignee_user = v.user_info
+      }
+    } else if (data.field === 'requester') {
+      if (typeof data.value === 'string') {
+        ticket.requester = data.value || ''
+        if (!data.value) ticket.requester_user = null
+      } else if (typeof data.value === 'object' && data.value && 'uuid' in data.value) {
+        const v = data.value as { uuid: string; user_info?: any }
+        ticket.requester = v.uuid
+        if (v.user_info) ticket.requester_user = v.user_info
+      }
+    }
+  },
+  onTicketDeleted(ticketId: number) {
+    tickets.value = tickets.value.filter(t => t.id !== ticketId)
+    filteredTickets.value = tickets.value
+    emit('ticket-count-change', projectTicketIdSet.value.size)
+  },
+})
+
 // Load project tickets
 const loadTickets = async (page = 1, append = false) => {
   if (page === 1) {
@@ -59,6 +115,7 @@ const loadTickets = async (page = 1, append = false) => {
     // For now, get all tickets and paginate client-side
     // TODO: Backend should support paginated project tickets
     const allTickets = await projectService.getProjectTickets(props.projectId)
+    projectTicketIdSet.value = new Set(allTickets.map((t: any) => t.id))
 
     // Apply search filter
     let filtered = allTickets

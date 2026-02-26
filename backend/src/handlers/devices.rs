@@ -17,6 +17,14 @@ use crate::repository::groups as groups_repo;
 use crate::services::search::SearchService;
 use crate::services::search::indexing_tasks;
 
+/// Extract the SSE client ID from the request header (for echo suppression).
+fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
+    req.headers()
+        .get("X-SSE-Client-Id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
+
 // Pagination query parameters
 #[derive(Deserialize)]
 pub struct PaginationParams {
@@ -340,12 +348,15 @@ pub async fn create_device(
             // Newly created device has no groups yet
             let device_response = DeviceResponse::from_device_and_user(device, user, vec![], &mut conn);
 
-            // Broadcast SSE event for device creation
-            use crate::utils::sse::SseBroadcaster;
-            SseBroadcaster::broadcast_device_created(
-                &sse_state,
-                device_id,
-                serde_json::to_value(&device_response).unwrap_or_default(),
+            // Broadcast SSE event for device creation (with echo suppression)
+            let source_client_id = extract_sse_client_id(&req);
+            sse_state.broadcast_event_from(
+                crate::handlers::sse::SseEvent::DeviceCreated {
+                    device_id,
+                    device: serde_json::to_value(&device_response).unwrap_or_default(),
+                    timestamp: chrono::Utc::now(),
+                },
+                source_client_id,
             ).await;
 
             HttpResponse::Created().json(device_response)
@@ -422,18 +433,21 @@ pub async fn update_device(
             // Re-index the updated device in search
             indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device.clone());
 
-            // Broadcast SSE events for each field that was updated
+            // Broadcast SSE events for each field that was updated (with echo suppression)
+            let source_client_id = extract_sse_client_id(&req);
             if let Some(update_obj) = update_json.as_object() {
                 for (key, value) in update_obj {
                     if !value.is_null() {
                         debug!(device_id, field = %key, value = ?value, "Broadcasting SSE event for device update");
-                        use crate::utils::sse::SseBroadcaster;
-                        SseBroadcaster::broadcast_device_updated(
-                            &sse_state,
-                            device_id,
-                            key,
-                            value.clone(),
-                            &user_info.sub,
+                        sse_state.broadcast_event_from(
+                            crate::handlers::sse::SseEvent::DeviceUpdated {
+                                device_id,
+                                field: key.to_string(),
+                                value: value.clone(),
+                                updated_by: user_info.sub.clone(),
+                                timestamp: chrono::Utc::now(),
+                            },
+                            source_client_id.clone(),
                         ).await;
                     }
                 }
@@ -467,6 +481,7 @@ pub async fn delete_device(
     req: HttpRequest,
     pool: web::Data<Pool>,
     search_service: web::Data<Arc<SearchService>>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
 ) -> impl Responder {
     // Extract claims and check role
@@ -496,6 +511,17 @@ pub async fn delete_device(
             if rows_affected > 0 {
                 // Remove device from search index
                 indexing_tasks::spawn_delete_device(search_service.get_ref().clone(), device_id);
+
+                // Broadcast SSE event for device deletion (with echo suppression)
+                let source_client_id = extract_sse_client_id(&req);
+                sse_state.broadcast_event_from(
+                    crate::handlers::sse::SseEvent::DeviceDeleted {
+                        device_id,
+                        timestamp: chrono::Utc::now(),
+                    },
+                    source_client_id,
+                ).await;
+
                 HttpResponse::Ok().json(json!({
                     "message": format!("Device {} deleted successfully", device_id)
                 }))
@@ -673,6 +699,7 @@ pub async fn bulk_devices(
     req: HttpRequest,
     pool: web::Data<Pool>,
     search_service: web::Data<Arc<SearchService>>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
     body: web::Json<BulkDeviceActionRequest>,
 ) -> impl Responder {
     // Extract claims and check authentication
@@ -710,12 +737,22 @@ pub async fn bulk_devices(
     match action {
         "delete" => {
             let mut deleted = 0;
+            let source_client_id = extract_sse_client_id(&req);
             for id in ids {
                 match repository::delete_device(&mut conn, *id) {
                     Ok(rows) => {
                         deleted += rows;
                         // Remove from search index
                         indexing_tasks::spawn_delete_device(search_service.get_ref().clone(), *id);
+
+                        // Broadcast SSE event for each deleted device
+                        sse_state.broadcast_event_from(
+                            crate::handlers::sse::SseEvent::DeviceDeleted {
+                                device_id: *id,
+                                timestamp: chrono::Utc::now(),
+                            },
+                            source_client_id.clone(),
+                        ).await;
                     }
                     Err(e) => {
                         error!(device_id = *id, error = ?e, "Error deleting device in bulk operation");

@@ -650,6 +650,7 @@ pub async fn delete_documentation_page(
     req: HttpRequest,
     pool: web::Data<Pool>,
     search_service: web::Data<Arc<SearchService>>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
 ) -> impl Responder {
     let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
@@ -683,6 +684,23 @@ pub async fn delete_documentation_page(
                 Ok(_) => {
                     // Remove documentation from search index (trashed pages shouldn't appear in search)
                     indexing_tasks::spawn_delete_documentation(search_service.get_ref().clone(), page_id);
+
+                    // Broadcast SSE event for status change to deleted
+                    let source_client_id = req.headers()
+                        .get("X-SSE-Client-Id")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
+                    sse_state.broadcast_event_from(
+                        crate::handlers::sse::SseEvent::DocumentationUpdated {
+                            document_id: page_id,
+                            field: "status".to_string(),
+                            value: serde_json::json!("deleted"),
+                            updated_by: claims.sub.clone(),
+                            timestamp: chrono::Utc::now(),
+                        },
+                        source_client_id,
+                    ).await;
+
                     info!(page_id = page_id, deleted_by = %claims.name, "Documentation page moved to trash");
                     HttpResponse::NoContent().finish()
                 },
@@ -1393,6 +1411,7 @@ pub async fn restore_page(
     req: HttpRequest,
     pool: web::Data<Pool>,
     search_service: web::Data<Arc<SearchService>>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
 ) -> impl Responder {
     let page_id = path.into_inner();
@@ -1423,6 +1442,23 @@ pub async fn restore_page(
                 Ok(restored_page) => {
                     // Re-index in search
                     indexing_tasks::spawn_index_documentation(search_service.get_ref().clone(), restored_page.clone());
+
+                    // Broadcast SSE event for status change to draft
+                    let source_client_id = req.headers()
+                        .get("X-SSE-Client-Id")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
+                    sse_state.broadcast_event_from(
+                        crate::handlers::sse::SseEvent::DocumentationUpdated {
+                            document_id: page_id,
+                            field: "status".to_string(),
+                            value: serde_json::json!("draft"),
+                            updated_by: claims.sub.clone(),
+                            timestamp: chrono::Utc::now(),
+                        },
+                        source_client_id,
+                    ).await;
+
                     info!(page_id = page_id, restored_by = %claims.name, "Documentation page restored");
                     match to_page_response(restored_page, &mut conn) {
                         Ok(response) => HttpResponse::Ok().json(response),

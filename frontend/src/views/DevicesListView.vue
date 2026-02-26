@@ -72,8 +72,13 @@ useListSSE<Device>({
   updateItemField: listManager.updateItemField,
   removeItem: listManager.removeItem,
   prependItem: listManager.prependItem,
-  eventTypes: { updated: 'device-updated' },
-  getEventItemId: (data) => (data.data || data).device_id
+  eventTypes: { updated: 'device-updated', created: 'device-created', deleted: 'device-deleted' },
+  getEventItemId: (data) => {
+    const d = (data as Record<string, unknown>).data || data;
+    return (d as Record<string, unknown>).device_id as number | undefined
+      ?? ((d as Record<string, unknown>).device as Record<string, unknown> | undefined)?.id as number | undefined;
+  },
+  itemKey: 'device',
 });
 
 // Pre-warm user cache with all primary users from devices

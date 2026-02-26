@@ -60,18 +60,19 @@ impl WebhookService {
     /// Background task that listens to SSE events
     async fn event_listener(
         pool: Pool,
-        mut receiver: tokio::sync::broadcast::Receiver<SseEvent>,
+        mut receiver: tokio::sync::broadcast::Receiver<crate::handlers::sse::BroadcastMessage>,
         delivery_tx: mpsc::Sender<DeliveryTask>,
     ) {
         tracing::info!("Webhook event listener started");
 
         loop {
             match receiver.recv().await {
-                Ok(event) => {
+                Ok(msg) => {
+                    let event = &msg.event;
                     // Map SSE event to webhook event type
-                    if let Some(event_type) = WebhookEventType::from_sse_event(&event) {
+                    if let Some(event_type) = WebhookEventType::from_sse_event(event) {
                         if let Err(e) =
-                            Self::process_event(&pool, &delivery_tx, event_type, &event).await
+                            Self::process_event(&pool, &delivery_tx, event_type, event).await
                         {
                             tracing::error!(error = %e, "Failed to process webhook event");
                         }

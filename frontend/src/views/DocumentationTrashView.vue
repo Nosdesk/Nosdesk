@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { getTrashedPages, restorePage, permanentlyDeletePage } from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
+import { useSSEListeners } from '@/composables/useSSEListeners'
 import BackButton from '@/components/common/BackButton.vue'
 import DocumentationCardSkeleton from '@/components/documentationComponents/DocumentationCardSkeleton.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -41,6 +42,20 @@ const handlePermanentDelete = async (pageId: string | number) => {
     confirmingDeleteId.value = null
   }
 }
+
+// SSE integration for real-time updates
+const { on, debouncedReload } = useSSEListeners({ reload: loadTrashedPages })
+
+on('documentation-updated', (data) => {
+  const event = data as { document_id: number; field: string; value: unknown }
+  if (event.field !== 'status') return
+  const statusVal = typeof event.value === 'string' ? event.value : String(event.value)
+  if (statusVal === 'deleted') {
+    debouncedReload()
+  } else {
+    pages.value = pages.value.filter(p => p.id !== event.document_id)
+  }
+})
 
 onMounted(() => {
   titleManager.setCustomTitle('Trash')

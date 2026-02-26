@@ -2,6 +2,7 @@ import axios from 'axios';
 import { logger } from '@/utils/logger';
 import { createErrorFromResponse } from '@/utils/errors';
 import { ErrorTracker } from '@/utils/errorTracking';
+import { getSSEClientId } from '@/services/sseService';
 
 // API Configuration with Structured Logging and Error Handling
 //
@@ -100,6 +101,12 @@ apiClient.interceptors.request.use(
     const authProvider = localStorage.getItem('authProvider');
     if (authProvider) {
       config.headers['X-Auth-Provider'] = authProvider;
+    }
+
+    // SSE client ID for echo suppression (Pusher-style pattern)
+    const sseClientId = getSSEClientId();
+    if (sseClientId) {
+      config.headers['X-SSE-Client-Id'] = sseClientId;
     }
 
     // Verbose logging (development only)

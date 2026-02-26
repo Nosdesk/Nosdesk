@@ -4,6 +4,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { Project } from '@/types/project'
 import { projectService } from '@/services/projectService'
+import { useProjectSSE } from '@/composables/useProjectSSE'
 import Modal from '@/components/Modal.vue'
 import ProjectForm from '@/components/projectComponents/ProjectForm.vue'
 import AddTicketToProjectModal from '@/components/projectComponents/AddTicketToProjectModal.vue'
@@ -23,7 +24,28 @@ const error = ref<string | null>(null)
 const showEditModal = ref(false)
 const showAddTicketModal = ref(false)
 const ticketListRef = ref<InstanceType<typeof ProjectTicketList> | null>(null)
-const existingTicketIds = ref<number[]>([])
+const existingTicketIdSet = ref<Set<number>>(new Set())
+// Computed array for AddTicketToProjectModal (expects number[])
+const existingTicketIds = computed(() => [...existingTicketIdSet.value])
+
+// SSE: update ticket_count when tickets are added/removed/deleted
+useProjectSSE(projectId, existingTicketIdSet, {
+  onTicketAssigned() {
+    if (project.value) {
+      project.value = { ...project.value, ticket_count: existingTicketIdSet.value.size }
+    }
+  },
+  onTicketUnassigned() {
+    if (project.value) {
+      project.value = { ...project.value, ticket_count: existingTicketIdSet.value.size }
+    }
+  },
+  onTicketDeleted() {
+    if (project.value) {
+      project.value = { ...project.value, ticket_count: existingTicketIdSet.value.size }
+    }
+  },
+})
 const activeTab = computed(() => {
   if (route.query.view === 'list') return 'list'
   if (route.query.view === 'gantt') return 'gantt'
@@ -58,7 +80,7 @@ const fetchExistingTicketIds = async () => {
   if (!projectId.value) return
   try {
     const tickets = await projectService.getProjectTickets(projectId.value)
-    existingTicketIds.value = tickets.map((t: { id: number }) => t.id)
+    existingTicketIdSet.value = new Set(tickets.map((t: { id: number }) => t.id))
   } catch (err) {
     console.error('Failed to fetch existing tickets:', err)
   }

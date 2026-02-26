@@ -9,6 +9,7 @@ import { docUrl } from '@/utils/docUrl'
 import { docsEmitter } from '@/services/docsEmitter'
 import { useAuthStore } from '@/stores/auth'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
+import { useSSEListeners } from '@/composables/useSSEListeners'
 import BackButton from '@/components/common/BackButton.vue'
 import CollectionTreeList from '@/components/documentationComponents/CollectionTreeList.vue'
 import DocumentIconSelector from '@/components/DocumentIconSelector.vue'
@@ -130,6 +131,62 @@ watch(() => route.params.slug, loadCollection)
 watch(() => route.query.permissions, (val) => {
   if (val === 'true' && collection.value && authStore.isAdmin) {
     showVisibilityModal.value = true
+  }
+})
+
+// SSE integration for real-time updates
+const { on, debouncedReload } = useSSEListeners({ reload: loadCollection })
+
+/** Set of page IDs in this collection (flat lookup for SSE filtering) */
+const collectionPageIds = computed(() => {
+  if (!collection.value) return new Set<number>()
+  const ids = new Set<number>()
+  const collect = (pages: typeof collection.value!.pages) => {
+    for (const p of pages) {
+      ids.add(p.id)
+      if (p.children) collect(p.children)
+    }
+  }
+  collect(collection.value.pages)
+  return ids
+})
+
+on('collection-updated', (data) => {
+  if (!collection.value) return
+  const event = data as { collection_id: number; field: string; value: unknown }
+  if (event.collection_id !== collection.value.id) return
+  if (event.field === 'name' && typeof event.value === 'string') {
+    collection.value.name = event.value
+    titleManager.setCustomTitle(event.value)
+  } else if (event.field === 'icon' && typeof event.value === 'string') {
+    collection.value.icon = event.value
+  }
+})
+
+on('documentation-created', () => {
+  if (!collection.value) return
+  // Can't tell from the event if the page belongs to this collection
+  // (collection membership is a join table), so reload conservatively
+  debouncedReload()
+})
+
+on('documentation-updated', (data) => {
+  if (!collection.value) return
+  const event = data as { document_id: number; field: string; value: unknown }
+  // Only process events for pages that belong to this collection
+  if (!collectionPageIds.value.has(event.document_id)) return
+  if (event.field === 'status') {
+    debouncedReload()
+    return
+  }
+  // Update page fields in place (title, icon)
+  const page = collection.value.pages.find(p => p.id === event.document_id)
+  if (page) {
+    if (event.field === 'title' && typeof event.value === 'string') {
+      page.title = event.value
+    } else if (event.field === 'icon' && typeof event.value === 'string') {
+      page.icon = event.value
+    }
   }
 })
 </script>

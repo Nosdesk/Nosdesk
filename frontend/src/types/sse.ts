@@ -82,6 +82,21 @@ export interface DeviceUpdatedEventData {
 }
 
 /**
+ * device-created event data
+ */
+export interface DeviceCreatedEventData {
+  device_id: number
+  device: Record<string, unknown>
+}
+
+/**
+ * device-deleted event data
+ */
+export interface DeviceDeletedEventData {
+  device_id: number
+}
+
+/**
  * ticket-linked / ticket-unlinked event data
  */
 export interface TicketLinkEventData {
@@ -90,11 +105,18 @@ export interface TicketLinkEventData {
 }
 
 /**
+ * ticket-deleted event data
+ */
+export interface TicketDeletedEventData {
+  ticket_id: number
+}
+
+/**
  * project-assigned / project-unassigned event data
  */
 export interface ProjectEventData {
   ticket_id: number
-  project_id: string
+  project_id: number
 }
 
 /**
@@ -138,10 +160,13 @@ export interface NotificationReceivedEventData {
  */
 export type SSEEventData =
   | TicketUpdatedEventData
+  | TicketDeletedEventData
   | CommentAddedEventData
   | CommentDeletedEventData
   | DeviceLinkEventData
   | DeviceUpdatedEventData
+  | DeviceCreatedEventData
+  | DeviceDeletedEventData
   | TicketLinkEventData
   | ProjectEventData
   | ViewerCountEventData

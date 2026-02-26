@@ -8,6 +8,8 @@ import ProjectForm from '@/components/projectComponents/ProjectForm.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import { projectService } from '@/services/projectService'
+import { useSSE } from '@/services/sseService'
+import { unwrapEventData, type ProjectEventData } from '@/types/sse'
 import { formatRelativeTime, formatCompactRelativeTime } from '@/utils/dateUtils'
 import { useStaggeredList } from '@/composables/useStaggeredList'
 import { useMobileSearch } from '@/composables/useMobileSearch'
@@ -33,6 +35,25 @@ const statusOptions: { value: ProjectStatus | 'all', label: string }[] = [
   { value: 'completed', label: 'Completed' },
   { value: 'archived', label: 'Archived' },
 ]
+
+// SSE: update ticket counts in real-time
+const { addEventListener, removeEventListener } = useSSE()
+
+function handleProjectAssigned(rawData: unknown): void {
+  const data = unwrapEventData(rawData as ProjectEventData)
+  const project = projects.value.find(p => p.id === data.project_id)
+  if (project) {
+    project.ticket_count = (project.ticket_count || 0) + 1
+  }
+}
+
+function handleProjectUnassigned(rawData: unknown): void {
+  const data = unwrapEventData(rawData as ProjectEventData)
+  const project = projects.value.find(p => p.id === data.project_id)
+  if (project && project.ticket_count > 0) {
+    project.ticket_count -= 1
+  }
+}
 
 // Filtered projects
 const filteredProjects = computed(() => {
@@ -72,6 +93,9 @@ const formatStatus = (status: string) => status.charAt(0).toUpperCase() + status
 
 // Fetch projects on component mount
 onMounted(async () => {
+  addEventListener('project-assigned', handleProjectAssigned)
+  addEventListener('project-unassigned', handleProjectUnassigned)
+
   try {
     isLoading.value = true
     projects.value = await projectService.getProjects()
@@ -81,6 +105,12 @@ onMounted(async () => {
   } finally {
     isLoading.value = false
   }
+})
+
+onUnmounted(() => {
+  deregisterMobileSearch()
+  removeEventListener('project-assigned', handleProjectAssigned)
+  removeEventListener('project-unassigned', handleProjectUnassigned)
 })
 
 const openProject = (projectId: number) => {
@@ -191,9 +221,16 @@ const setupMobileSearch = () => {
 }
 
 onMounted(setupMobileSearch)
-onActivated(setupMobileSearch)
-onDeactivated(deregisterMobileSearch)
-onUnmounted(deregisterMobileSearch)
+onActivated(() => {
+  setupMobileSearch()
+  addEventListener('project-assigned', handleProjectAssigned)
+  addEventListener('project-unassigned', handleProjectUnassigned)
+})
+onDeactivated(() => {
+  deregisterMobileSearch()
+  removeEventListener('project-assigned', handleProjectAssigned)
+  removeEventListener('project-unassigned', handleProjectUnassigned)
+})
 
 // Sync search query changes to mobile search bar
 watch(searchQuery, updateSearchQuery)

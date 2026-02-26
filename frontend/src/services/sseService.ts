@@ -37,6 +37,7 @@ export type SSEEventType =
   | "device-unlinked"
   | "device-created"
   | "device-updated"
+  | "device-deleted"
   | "ticket-linked"
   | "ticket-unlinked"
   | "project-assigned"
@@ -64,6 +65,13 @@ class SSEService {
   private readonly baseReconnectDelay = 1000;
   private sseToken: string | null = null;
   private tokenExpiryTime: number | null = null;
+  // Unique client ID assigned by the server on connection (for echo suppression)
+  private _clientId: string | null = null;
+
+  /** SSE connection client ID (assigned by server, unique per tab/connection) */
+  get clientId(): string | null {
+    return this._clientId;
+  }
 
   // Connection status
   get connectionStatus() {
@@ -113,6 +121,22 @@ class SSEService {
   private setupEventHandlers() {
     if (!this.eventSource) return;
 
+    // Handle the initial "connected" event to capture our client ID
+    this.eventSource.addEventListener("connected", (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.client_id) {
+          this._clientId = data.client_id;
+          logger.debug(
+            `%c[SSE] Client ID assigned: ${this._clientId}`,
+            "color: #22c55e; font-weight: bold"
+          );
+        }
+      } catch (error) {
+        logger.error("SSE: Failed to parse connected event:", error);
+      }
+    });
+
     // Generic handler for all event types - DRY principle
     const handleEvent = (event: MessageEvent) => {
       const eventType = event.type as SSEEventType;
@@ -138,6 +162,22 @@ class SSEService {
 
       try {
         const data = JSON.parse(event.data);
+
+        // Echo suppression: skip events that originated from this client
+        if (this._clientId && data.source_client_id === this._clientId) {
+          logger.debug(
+            `%c[SSE] Skipping echo from own client: ${eventType}`,
+            "color: #f59e0b; font-weight: bold"
+          );
+          return;
+        }
+
+        // Strip source_client_id from data before passing to listeners
+        // (consumers don't need to know about it)
+        if (data.source_client_id !== undefined) {
+          delete data.source_client_id;
+        }
+
         logger.debug(
           `%c[SSE] Parsed event data:`,
           "color: #8b5cf6; font-weight: bold",
@@ -160,6 +200,7 @@ class SSEService {
       "device-unlinked",
       "device-created",
       "device-updated",
+      "device-deleted",
       "ticket-linked",
       "ticket-unlinked",
       "project-assigned",
@@ -310,6 +351,7 @@ class SSEService {
     this.isConnecting.value = false;
     this.lastError.value = null;
     this.reconnectAttempts = 0;
+    this._clientId = null;
   }
 
   // Cleanup resources
@@ -411,4 +453,12 @@ export function useSSE() {
     removeEventListener: sseService.removeEventListener.bind(sseService),
     triggerReconnection: sseService.triggerReconnection.bind(sseService),
   };
+}
+
+/**
+ * Get the current SSE client ID for use in API request headers.
+ * Returns null if not connected.
+ */
+export function getSSEClientId(): string | null {
+  return getSSEService().clientId;
 }

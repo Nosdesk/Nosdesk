@@ -14,6 +14,8 @@ import DeviceGroups from '@/components/DeviceGroups.vue';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
 import { getDeviceById, updateDevice, createDevice, deleteDevice, unmanageDevice } from '@/services/deviceService';
+import { useSSEListeners } from '@/composables/useSSEListeners';
+import type { DeviceUpdatedEventData, DeviceDeletedEventData } from '@/types/sse';
 import { IntuneIcon, EntraIcon } from '@/components/icons';
 import type { Device, DeviceFormData } from '@/types/device';
 
@@ -248,10 +250,32 @@ watch(() => route.params.id, () => {
   fetchDeviceData();
 });
 
-// Lifecycle
-onMounted(() => {
-  fetchDeviceData();
+// SSE integration for real-time updates
+const { on } = useSSEListeners();
+
+on('device-updated', (data) => {
+  const event = data as DeviceUpdatedEventData;
+  if (!device.value || event.device_id !== device.value.id) return;
+
+  const field = event.field as keyof typeof editValues.value;
+  if (field in editValues.value) {
+    const val = typeof event.value === 'string' ? event.value : String(event.value ?? '');
+    editValues.value[field] = val;
+  }
+  // Also update the device ref for non-editable display fields
+  if (event.field in device.value) {
+    (device.value as Record<string, unknown>)[event.field] = event.value;
+  }
 });
+
+on('device-deleted', (data) => {
+  const event = data as DeviceDeletedEventData;
+  if (!device.value || event.device_id !== device.value.id) return;
+  router.push('/devices');
+});
+
+// Lifecycle
+onMounted(fetchDeviceData);
 </script>
 
 <template>

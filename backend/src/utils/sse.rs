@@ -151,6 +151,19 @@ impl SseBroadcaster {
         }).await;
     }
 
+    /// Broadcast a device deletion to all connected clients
+    pub async fn broadcast_device_deleted(
+        state: &web::Data<SseState>,
+        device_id: i32,
+    ) {
+        Self::broadcast_generic_event(state, |timestamp| {
+            SseEvent::DeviceDeleted {
+                device_id,
+                timestamp,
+            }
+        }).await;
+    }
+
     /// Broadcast a ticket linking event to all connected clients
     pub async fn broadcast_ticket_linked(
         state: &web::Data<SseState>,

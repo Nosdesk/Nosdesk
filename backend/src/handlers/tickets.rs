@@ -19,7 +19,6 @@ use crate::services::notifications::{
 use crate::services::search::SearchService;
 use crate::services::search::indexing_tasks;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
-use crate::utils::sse::SseBroadcaster;
 use crate::handlers::helpers;
 
 // Helper function to validate assignee role
@@ -91,74 +90,85 @@ fn parse_and_validate_assignee_string(
     }
 }
 
+/// Extract the SSE client ID from the request header (for echo suppression).
+fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
+    req.headers()
+        .get("X-SSE-Client-Id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
+
 // Simple helper to broadcast SSE events without blocking
 async fn broadcast_sse_simple(
     sse_state: web::Data<crate::handlers::sse::SseState>,
     ticket_id: i32,
     event_type: String,
     data: serde_json::Value,
+    source_client_id: Option<String>,
 ) {
-    use crate::utils::sse::SseBroadcaster;
+    use crate::handlers::sse::SseEvent;
 
     tokio::spawn(async move {
-        match event_type.as_str() {
+        let event = match event_type.as_str() {
             "ticket_updated" => {
-                if let (Some(key), Some(value), Some(user_sub)) = (
-                    data.get("key").and_then(|v| v.as_str()),
-                    data.get("value"),
-                    data.get("user_sub").and_then(|v| v.as_str()),
-                ) {
-                    SseBroadcaster::broadcast_ticket_updated(
-                        &sse_state,
+                let key = data.get("key").and_then(|v| v.as_str());
+                let value = data.get("value");
+                let user_sub = data.get("user_sub").and_then(|v| v.as_str());
+                match (key, value, user_sub) {
+                    (Some(key), Some(value), Some(user_sub)) => Some(SseEvent::TicketUpdated {
                         ticket_id,
-                        key,
-                        value.clone(),
-                        user_sub,
-                    )
-                    .await;
+                        field: key.to_string(),
+                        value: value.clone(),
+                        updated_by: user_sub.to_string(),
+                        timestamp: chrono::Utc::now(),
+                    }),
+                    _ => None,
                 }
             }
             "ticket_linked" => {
-                if let Some(linked_id) = data.get("linked_ticket_id").and_then(|v| v.as_u64()) {
-                    SseBroadcaster::broadcast_ticket_linked(
-                        &sse_state,
+                data.get("linked_ticket_id").and_then(|v| v.as_u64()).map(|linked_id| {
+                    SseEvent::TicketLinked {
                         ticket_id,
-                        linked_id as i32,
-                    )
-                    .await;
-                }
+                        linked_ticket_id: linked_id as i32,
+                        timestamp: chrono::Utc::now(),
+                    }
+                })
             }
             "ticket_unlinked" => {
-                if let Some(linked_id) = data.get("linked_ticket_id").and_then(|v| v.as_u64()) {
-                    SseBroadcaster::broadcast_ticket_unlinked(
-                        &sse_state,
+                data.get("linked_ticket_id").and_then(|v| v.as_u64()).map(|linked_id| {
+                    SseEvent::TicketUnlinked {
                         ticket_id,
-                        linked_id as i32,
-                    )
-                    .await;
-                }
+                        linked_ticket_id: linked_id as i32,
+                        timestamp: chrono::Utc::now(),
+                    }
+                })
             }
             "device_linked" => {
-                if let Some(device_id) = data.get("device_id").and_then(|v| v.as_u64()) {
-                    SseBroadcaster::broadcast_device_linked(
-                        &sse_state,
+                data.get("device_id").and_then(|v| v.as_u64()).map(|device_id| {
+                    SseEvent::DeviceLinked {
                         ticket_id,
-                        device_id as i32,
-                    )
-                    .await;
-                }
+                        device_id: device_id as i32,
+                        timestamp: chrono::Utc::now(),
+                    }
+                })
             }
             "device_unlinked" => {
-                if let Some(device_id) = data.get("device_id").and_then(|v| v.as_u64()) {
-                    SseBroadcaster::broadcast_device_unlinked(
-                        &sse_state,
+                data.get("device_id").and_then(|v| v.as_u64()).map(|device_id| {
+                    SseEvent::DeviceUnlinked {
                         ticket_id,
-                        device_id as i32,
-                    )
-                    .await;
-                }
+                        device_id: device_id as i32,
+                        timestamp: chrono::Utc::now(),
+                    }
+                })
             }
-            _ => warn!(event_type = %event_type, "Unknown SSE event type"),
+            _ => {
+                warn!(event_type = %event_type, "Unknown SSE event type");
+                None
+            }
+        };
+
+        if let Some(event) = event {
+            sse_state.broadcast_event_from(event, source_client_id).await;
         }
     });
 }
@@ -466,8 +476,11 @@ pub async fn delete_ticket(
     pool: web::Data<crate::db::Pool>,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     search_service: web::Data<Arc<SearchService>>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
 ) -> impl Responder {
+    let source_client_id = extract_sse_client_id(&req);
+
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
@@ -498,6 +511,16 @@ pub async fn delete_ticket(
             if rows_affected > 0 {
                 // Remove ticket from search index
                 indexing_tasks::spawn_delete_ticket(search_service.get_ref().clone(), ticket_id);
+
+                // Broadcast ticket deletion via SSE
+                sse_state.broadcast_event_from(
+                    crate::handlers::sse::SseEvent::TicketDeleted {
+                        ticket_id,
+                        timestamp: chrono::Utc::now(),
+                    },
+                    source_client_id,
+                ).await;
+
                 HttpResponse::NoContent().finish()
             } else {
                 HttpResponse::NotFound().json("Ticket not found")
@@ -745,6 +768,7 @@ pub async fn update_ticket_partial(
     body: web::Json<Value>,
 ) -> impl Responder {
     let ticket_id = params.into_inner();
+    let source_client_id = extract_sse_client_id(&req);
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -925,6 +949,7 @@ pub async fn update_ticket_partial(
                                     "auto_assigned": true,
                                     "rule_name": result.rule_name
                                 }),
+                                source_client_id.clone(),
                             )
                             .await;
 
@@ -976,6 +1001,7 @@ pub async fn update_ticket_partial(
                         "value": value,
                         "user_sub": user_info.sub
                     }),
+                    source_client_id.clone(),
                 )
                 .await;
             }
@@ -1093,6 +1119,8 @@ pub async fn link_tickets(
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    let source_client_id = extract_sse_client_id(&req);
+
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
@@ -1127,6 +1155,7 @@ pub async fn link_tickets(
                 json!({
                     "linked_ticket_id": linked_ticket_id
                 }),
+                source_client_id,
             )
             .await;
 
@@ -1146,6 +1175,8 @@ pub async fn unlink_tickets(
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    let source_client_id = extract_sse_client_id(&req);
+
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
@@ -1180,6 +1211,7 @@ pub async fn unlink_tickets(
                 json!({
                     "linked_ticket_id": linked_ticket_id
                 }),
+                source_client_id,
             )
             .await;
 
@@ -1199,6 +1231,8 @@ pub async fn add_device_to_ticket(
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    let source_client_id = extract_sse_client_id(&req);
+
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
@@ -1233,6 +1267,7 @@ pub async fn add_device_to_ticket(
                 json!({
                     "device_id": device_id
                 }),
+                source_client_id,
             )
             .await;
 
@@ -1252,6 +1287,8 @@ pub async fn remove_device_from_ticket(
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
+    let source_client_id = extract_sse_client_id(&req);
+
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
@@ -1287,6 +1324,7 @@ pub async fn remove_device_from_ticket(
                     json!({
                         "device_id": device_id
                     }),
+                    source_client_id,
                 )
                 .await;
 
@@ -1404,6 +1442,8 @@ pub async fn bulk_tickets(
     search_service: web::Data<Arc<SearchService>>,
     body: web::Json<BulkActionRequest>,
 ) -> impl Responder {
+    let source_client_id = extract_sse_client_id(&req);
+
     // Extract claims and check authentication
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
@@ -1445,6 +1485,14 @@ pub async fn bulk_tickets(
                         deleted += rows;
                         // Remove from search index
                         indexing_tasks::spawn_delete_ticket(search_service.get_ref().clone(), *id);
+                        // Broadcast ticket deletion via SSE
+                        sse_state.broadcast_event_from(
+                            crate::handlers::sse::SseEvent::TicketDeleted {
+                                ticket_id: *id,
+                                timestamp: chrono::Utc::now(),
+                            },
+                            source_client_id.clone(),
+                        ).await;
                     }
                     Err(e) => {
                         error!(ticket_id = id, error = ?e, "Failed to delete ticket");
@@ -1493,13 +1541,16 @@ pub async fn bulk_tickets(
 
                 if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
                     updated += 1;
-                    // Send SSE update
-                    SseBroadcaster::broadcast_ticket_updated(
-                        &sse_state,
-                        *id,
-                        "status",
-                        json!(status_str),
-                        &claims.sub,
+                    // Send SSE update with source_client_id for echo suppression
+                    sse_state.broadcast_event_from(
+                        crate::handlers::sse::SseEvent::TicketUpdated {
+                            ticket_id: *id,
+                            field: "status".to_string(),
+                            value: json!(status_str),
+                            updated_by: claims.sub.clone(),
+                            timestamp: chrono::Utc::now(),
+                        },
+                        source_client_id.clone(),
                     ).await;
                 }
             }
@@ -1541,13 +1592,15 @@ pub async fn bulk_tickets(
 
                 if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
                     updated += 1;
-                    // Send SSE update
-                    SseBroadcaster::broadcast_ticket_updated(
-                        &sse_state,
-                        *id,
-                        "priority",
-                        json!(priority_str),
-                        &claims.sub,
+                    sse_state.broadcast_event_from(
+                        crate::handlers::sse::SseEvent::TicketUpdated {
+                            ticket_id: *id,
+                            field: "priority".to_string(),
+                            value: json!(priority_str),
+                            updated_by: claims.sub.clone(),
+                            timestamp: chrono::Utc::now(),
+                        },
+                        source_client_id.clone(),
                     ).await;
                 }
             }
@@ -1591,13 +1644,15 @@ pub async fn bulk_tickets(
 
                 if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
                     updated += 1;
-                    // Send SSE update
-                    SseBroadcaster::broadcast_ticket_updated(
-                        &sse_state,
-                        *id,
-                        "assignee_uuid",
-                        json!(assignee_str),
-                        &claims.sub,
+                    sse_state.broadcast_event_from(
+                        crate::handlers::sse::SseEvent::TicketUpdated {
+                            ticket_id: *id,
+                            field: "assignee_uuid".to_string(),
+                            value: json!(assignee_str),
+                            updated_by: claims.sub.clone(),
+                            timestamp: chrono::Utc::now(),
+                        },
+                        source_client_id.clone(),
                     ).await;
                 }
             }

@@ -192,6 +192,11 @@ pub async fn add_comment_to_ticket(
     req: actix_web::HttpRequest,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
+    let source_client_id = req.headers()
+        .get("X-SSE-Client-Id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     debug!(ticket_id, "Adding comment to ticket");
     debug!(content = %comment_data.content, "Comment content");
     debug!(attachments_count = comment_data.attachments.len(), "Attachments count");
@@ -419,17 +424,26 @@ pub async fn add_comment_to_ticket(
 
             debug!(ticket_id, "SSE: About to broadcast comment-added event");
             
-            // Use the centralized SSE broadcasting utility
-            use crate::utils::sse::SseBroadcaster;
-            SseBroadcaster::broadcast_comment_added(&sse_state, ticket_id, response.clone()).await;
+            // Broadcast with source_client_id for echo suppression
+            sse_state.broadcast_event_from(
+                crate::handlers::sse::SseEvent::CommentAdded {
+                    ticket_id,
+                    comment: response.clone(),
+                    timestamp: chrono::Utc::now(),
+                },
+                source_client_id.clone(),
+            ).await;
 
             // Also broadcast the ticket modified date update
-            SseBroadcaster::broadcast_ticket_updated(
-                &sse_state,
-                ticket_id,
-                "modified",
-                serde_json::json!(chrono::Utc::now()),
-                &claims.sub,
+            sse_state.broadcast_event_from(
+                crate::handlers::sse::SseEvent::TicketUpdated {
+                    ticket_id,
+                    field: "modified".to_string(),
+                    value: serde_json::json!(chrono::Utc::now()),
+                    updated_by: claims.sub.clone(),
+                    timestamp: chrono::Utc::now(),
+                },
+                source_client_id,
             ).await;
 
             debug!(ticket_id, "SSE: Successfully broadcasted comment-added and modified events");
@@ -534,12 +548,17 @@ pub async fn add_comment_to_ticket(
 }
 
 pub async fn delete_comment(
+    req: actix_web::HttpRequest,
     path: web::Path<i32>,
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     let comment_id = path.into_inner();
+    let source_client_id = req.headers()
+        .get("X-SSE-Client-Id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
     debug!(comment_id, "Deleting comment");
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -561,9 +580,15 @@ pub async fn delete_comment(
                 // Remove comment from search index
                 indexing_tasks::spawn_delete_comment(search_service.get_ref().clone(), comment_id);
 
-                // Broadcast SSE event for the deleted comment using centralized utility
-                use crate::utils::sse::SseBroadcaster;
-                SseBroadcaster::broadcast_comment_deleted(&sse_state, ticket_id, comment_id).await;
+                // Broadcast SSE event for the deleted comment
+                sse_state.broadcast_event_from(
+                    crate::handlers::sse::SseEvent::CommentDeleted {
+                        ticket_id,
+                        comment_id,
+                        timestamp: chrono::Utc::now(),
+                    },
+                    source_client_id,
+                ).await;
 
                 info!(comment_id, "Successfully deleted comment");
                 HttpResponse::Ok().json(json!({"success": true, "message": "Comment deleted"}))

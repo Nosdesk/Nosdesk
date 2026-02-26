@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { getUncollectedPages } from '@/services/collectionService'
 import type { CollectionPage } from '@/services/collectionService'
+import { useSSEListeners } from '@/composables/useSSEListeners'
 import BackButton from '@/components/common/BackButton.vue'
 import DocumentationCardGrid from '@/components/documentationComponents/DocumentationCardGrid.vue'
 import DocumentationCardSkeleton from '@/components/documentationComponents/DocumentationCardSkeleton.vue'
@@ -24,6 +25,25 @@ const loadDrafts = async () => {
   }))
   loading.value = false
 }
+
+// SSE integration for real-time updates
+const { on, debouncedReload } = useSSEListeners({ reload: loadDrafts })
+
+on('documentation-updated', (data) => {
+  const event = data as { document_id: number; field: string; value: unknown }
+  if (event.field !== 'status') return
+  const statusVal = typeof event.value === 'string' ? event.value : String(event.value)
+  const idx = pagesForGrid.value.findIndex(p => p.id === event.document_id)
+  if (statusVal === 'draft' && idx === -1) {
+    debouncedReload()
+  } else if (statusVal !== 'draft' && idx !== -1) {
+    pagesForGrid.value.splice(idx, 1)
+  }
+})
+
+on('documentation-created', () => {
+  debouncedReload()
+})
 
 onMounted(() => {
   titleManager.setCustomTitle('Drafts')
