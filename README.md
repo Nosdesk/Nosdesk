@@ -76,7 +76,7 @@ Open [http://localhost:8080](http://localhost:8080) in your browser. On first la
 ## Development
 
 ```bash
-# Start with hot reloading
+# Start with hot reloading (binds to 127.0.0.1 only)
 docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 
 # View logs
@@ -84,6 +84,14 @@ docker compose -f compose.yaml -f compose.dev.yaml logs -f
 
 # Run database migrations
 docker compose -f compose.yaml -f compose.dev.yaml exec backend diesel migration run
+```
+
+By default the dev backend is reachable only from `localhost` to avoid LAN
+exposure. To test collaboration features from other devices, expose the
+backend on all interfaces:
+
+```bash
+BACKEND_BIND=0.0.0.0 docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 ```
 
 For API testing, import `api-insomnia.json` into [Insomnia](https://insomnia.rest/).

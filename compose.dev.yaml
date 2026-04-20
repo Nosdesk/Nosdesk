@@ -1,17 +1,19 @@
 services:
+  # Postgres and Redis are reachable only on the internal Compose network.
+  # Use `docker compose exec postgres psql ...` / `... redis-cli ...` for shell access.
+
   # Backend - Development override
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile.dev
-    container_name: nosdesk-backend-dev
     stdin_open: true
     tty: true
     env_file: docker.env
-    networks:
-      - nosdesk_nosdesk-network
-    ports:
-      - "8080:8080"
+    ports: !override
+      # Defaults to localhost-only; set BACKEND_BIND=0.0.0.0 to expose on LAN
+      # for collaboration testing from other devices.
+      - "${BACKEND_BIND:-127.0.0.1}:8080:8080"
     volumes:
       # Source code with :delegated for better macOS performance
       - ./backend/src:/app/src:delegated
@@ -39,8 +41,9 @@ services:
   # Frontend Build Service - Development (for live reloading)
   frontend-watch:
     image: node:20-alpine
-    container_name: nosdesk-frontend-watch
     working_dir: /app
+    networks:
+      - nosdesk-network
     volumes:
       - ./frontend:/app
       - ./backend/public:/app/dist # Mount the backend public directory to dist
@@ -58,7 +61,3 @@ volumes:
     driver: local
   backend_uploads:
     driver: local
-
-networks:
-  nosdesk_nosdesk-network:
-    external: true

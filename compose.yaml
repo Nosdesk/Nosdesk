@@ -1,15 +1,14 @@
+name: nosdesk
+
 services:
   # PostgreSQL Database
   postgres:
     image: postgres:18-alpine
-    container_name: nosdesk-postgres
     restart: unless-stopped
     env_file: docker.env
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
-    ports:
-      - "5432:5432"
     networks:
       - nosdesk-network
     healthcheck:
@@ -25,14 +24,11 @@ services:
   # Redis Cache
   redis:
     image: redis:8-alpine
-    container_name: nosdesk-redis
     restart: unless-stopped
     env_file: docker.env
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-nosdesk_redis_password}
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
     networks:
       - nosdesk-network
     healthcheck:
@@ -47,14 +43,12 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     platform: linux/amd64
-    container_name: nosdesk-backend
     restart: unless-stopped
     env_file: docker.env
     volumes:
       - backend_uploads:/app/uploads
     ports:
-      - "3000:8080"
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     networks:
       - nosdesk-network
     depends_on:
@@ -79,6 +73,3 @@ volumes:
 networks:
   nosdesk-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
