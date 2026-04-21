@@ -28,30 +28,47 @@ pub enum SendInvitationResult {
     EmailSendError(String),
 }
 
-/// Helper function to create and send an invitation to a user.
-/// This consolidates the duplicated invitation logic between create_user and resend_invitation.
-async fn send_user_invitation(
+impl std::fmt::Display for SendInvitationResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Success => write!(f, "success"),
+            Self::EmailServiceError(_) => write!(f, "email_service_error"),
+            Self::TokenStorageError(_) => write!(f, "token_storage_error"),
+            Self::EmailSendError(_) => write!(f, "email_send_error"),
+        }
+    }
+}
+
+/// Output of [`prepare_invitation`] — ready-to-use pieces that every
+/// invitation-email caller needs. Kept private so the two thin public
+/// helpers stay the only entry points.
+struct PreparedInvitation {
+    raw_token: String,
+    email_service: crate::utils::email::EmailService,
+    branding: crate::utils::email::EmailBranding,
+}
+
+/// Mint an invitation token, record it, and load the pieces needed to
+/// send the email. Shared prelude for both [`send_user_invitation`] and
+/// [`send_guest_ticket_confirmation`] — the two only differ in the
+/// metadata stamped on the token and which email template they send.
+async fn prepare_invitation(
     conn: &mut DbConnection,
     req: &HttpRequest,
     user_uuid: Uuid,
-    user_email: &str,
-    user_name: &str,
-    admin_name: &str,
-) -> SendInvitationResult {
-    // Create invitation token
+    metadata: Option<serde_json::Value>,
+) -> Result<PreparedInvitation, SendInvitationResult> {
     let invitation_token = crate::utils::reset_tokens::ResetTokenUtils::create_reset_token(
         user_uuid,
         crate::utils::reset_tokens::TokenType::Invitation,
     );
 
-    // Get request metadata
     let ip_address = req.connection_info().realip_remote_addr().map(|s| s.to_string());
     let user_agent = req.headers()
         .get("User-Agent")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
 
-    // Store the invitation token
     if let Err(e) = repository::reset_tokens::create_reset_token(
         conn,
         &invitation_token.token_hash,
@@ -60,38 +77,88 @@ async fn send_user_invitation(
         ip_address.as_deref(),
         user_agent.as_deref(),
         invitation_token.expires_at,
-        None,
+        metadata,
     ) {
-        return SendInvitationResult::TokenStorageError(format!("{e:?}"));
+        return Err(SendInvitationResult::TokenStorageError(format!("{e:?}")));
     }
 
-    // Get frontend base URL
     let base_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| {
         let conn_info = req.connection_info();
         format!("{}://{}", conn_info.scheme(), conn_info.host())
     });
 
-    // Initialize email service
-    let email_service = match crate::utils::email::EmailService::from_env() {
-        Ok(service) => service,
-        Err(e) => return SendInvitationResult::EmailServiceError(format!("{e:?}")),
-    };
-
-    // Get branding for email
+    let email_service = crate::utils::email::EmailService::from_env()
+        .map_err(|e| SendInvitationResult::EmailServiceError(format!("{e:?}")))?;
     let branding = get_email_branding(conn, &base_url);
 
-    // Send invitation email
-    if let Err(e) = email_service.send_invitation_email(
-        user_email,
-        user_name,
-        &invitation_token.raw_token,
-        &branding,
-        admin_name,
-    ).await {
-        return SendInvitationResult::EmailSendError(format!("{e:?}"));
-    }
+    Ok(PreparedInvitation {
+        raw_token: invitation_token.raw_token,
+        email_service,
+        branding,
+    })
+}
 
-    SendInvitationResult::Success
+/// Create and send a generic (admin-initiated) invitation email.
+/// Used by `create_user` and `resend_invitation`, and reused by the
+/// guest-ticket flow when the legacy no-verification path is active.
+pub async fn send_user_invitation(
+    conn: &mut DbConnection,
+    req: &HttpRequest,
+    user_uuid: Uuid,
+    user_email: &str,
+    user_name: &str,
+    admin_name: &str,
+) -> SendInvitationResult {
+    let prep = match prepare_invitation(conn, req, user_uuid, None).await {
+        Ok(p) => p,
+        Err(result) => return result,
+    };
+
+    match prep
+        .email_service
+        .send_invitation_email(user_email, user_name, &prep.raw_token, &prep.branding, admin_name)
+        .await
+    {
+        Ok(_) => SendInvitationResult::Success,
+        Err(e) => SendInvitationResult::EmailSendError(format!("{e:?}")),
+    }
+}
+
+/// Create and send a guest-ticket-confirmation email — same invitation
+/// token/flow as [`send_user_invitation`] but with submission-themed copy
+/// and a metadata tag that the accept handler can inspect.
+pub async fn send_guest_ticket_confirmation(
+    conn: &mut DbConnection,
+    req: &HttpRequest,
+    user_uuid: Uuid,
+    user_email: &str,
+    user_name: &str,
+) -> SendInvitationResult {
+    let prep = match prepare_invitation(
+        conn,
+        req,
+        user_uuid,
+        Some(serde_json::json!({ "source": "guest_ticket_submission" })),
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(result) => return result,
+    };
+
+    match prep
+        .email_service
+        .send_guest_ticket_confirmation_email(
+            user_email,
+            user_name,
+            &prep.raw_token,
+            &prep.branding,
+        )
+        .await
+    {
+        Ok(_) => SendInvitationResult::Success,
+        Err(e) => SendInvitationResult::EmailSendError(format!("{e:?}")),
+    }
 }
 
 // Pagination query parameters

@@ -21,6 +21,8 @@ pub mod invitation;
 pub mod system;
 pub mod debug;
 pub mod branding;
+pub mod guest;
+pub mod guest_settings;
 pub mod backup;
 pub mod groups;
 pub mod categories;

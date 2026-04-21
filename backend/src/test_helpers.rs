@@ -158,6 +158,9 @@ impl TestFixtures {
             requester_uuid: requester,
             assignee_uuid: None,
             category_id,
+            submitted_via: None,
+            guest_lookup_token: None,
+            verification_state: None,
         };
 
         diesel::insert_into(tickets::table)

@@ -84,6 +84,7 @@ mod tests {
             favicon_url: None,
             primary_color: None,
             updated_by: None,
+            ..Default::default()
         };
 
         let updated = update_site_settings(&mut conn, update).unwrap();

@@ -353,6 +353,9 @@ mod tests {
             closed_at: None,
             closed_by: None,
             category_id: None,
+            submitted_via: None,
+            guest_lookup_token: None,
+            verification_state: None,
         };
         overrides(&mut ticket);
         ticket

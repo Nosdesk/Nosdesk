@@ -14,6 +14,7 @@ pub mod encryption;
 pub mod file_validation;
 pub mod rate_limit;
 pub mod redis_yjs_cache;
+pub mod security_events;
 pub mod rbac;
 pub mod pdf;
 pub mod webauthn;

@@ -667,6 +667,9 @@ pub async fn create_empty_ticket(
         requester_uuid: Some(user_uuid), // Use authenticated user's UUID
         assignee_uuid: None,
         category_id: None,
+        submitted_via: None,
+        guest_lookup_token: None,
+        verification_state: None,
     };
 
     // Create the ticket and then add empty article content
@@ -794,6 +797,7 @@ pub async fn update_ticket_partial(
         updated_at: Some(chrono::Utc::now().naive_utc()),
         closed_at: None,
         category_id: None,
+        verification_state: None,
     };
 
     // Handle simple string fields
@@ -1531,6 +1535,7 @@ pub async fn bulk_tickets(
                     requester_uuid: None,
                     assignee_uuid: None,
                     updated_at: Some(chrono::Utc::now().naive_utc()),
+                    verification_state: None,
                     closed_at: if status == crate::models::TicketStatus::Closed {
                         Some(Some(chrono::Utc::now().naive_utc()))
                     } else {
@@ -1588,6 +1593,7 @@ pub async fn bulk_tickets(
                     updated_at: Some(chrono::Utc::now().naive_utc()),
                     closed_at: None,
                     category_id: None,
+                    verification_state: None,
                 };
 
                 if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
@@ -1640,6 +1646,7 @@ pub async fn bulk_tickets(
                     updated_at: Some(chrono::Utc::now().naive_utc()),
                     closed_at: None,
                     category_id: None,
+                    verification_state: None,
                 };
 
                 if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
@@ -1798,6 +1805,7 @@ mod tests {
             updated_at: Some(chrono::Utc::now().naive_utc()),
             closed_at: None,
             category_id: None,
+            verification_state: None,
         };
 
         let updated = repository::update_ticket_partial(&mut conn, ticket.id, update)

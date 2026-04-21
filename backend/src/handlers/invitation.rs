@@ -1,12 +1,16 @@
 use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use serde_json::json;
+use std::sync::Arc;
 use chrono::Utc;
 use tracing::{info, warn, error};
 
 use crate::db::DbConnection;
 use crate::handlers::helpers;
+use crate::handlers::sse::SseState;
 use crate::models::{AcceptInvitationRequest, AcceptInvitationResponse, ValidateInvitationRequest, ValidateInvitationResponse};
 use crate::repository;
+use crate::services::search::SearchService;
+use crate::services::search::indexing_tasks;
 use crate::utils::auth::hash_password;
 use crate::utils::reset_tokens::TokenType;
 
@@ -33,6 +37,7 @@ pub async fn validate_invitation(
                 user_email: None,
                 user_name: None,
                 message: Some("Invalid or expired invitation link".to_string()),
+                context: None,
             });
         }
     };
@@ -44,6 +49,7 @@ pub async fn validate_invitation(
             user_email: None,
             user_name: None,
             message: Some("Invalid invitation link".to_string()),
+            context: None,
         });
     }
 
@@ -54,6 +60,7 @@ pub async fn validate_invitation(
             user_email: None,
             user_name: None,
             message: Some("This invitation has already been used".to_string()),
+            context: None,
         });
     }
 
@@ -65,6 +72,7 @@ pub async fn validate_invitation(
             user_email: None,
             user_name: None,
             message: Some("This invitation has expired".to_string()),
+            context: None,
         });
     }
 
@@ -77,6 +85,7 @@ pub async fn validate_invitation(
                 user_email: None,
                 user_name: None,
                 message: Some("User not found".to_string()),
+                context: None,
             });
         }
     };
@@ -84,17 +93,34 @@ pub async fn validate_invitation(
     // Get user's primary email
     let user_email = repository::user_helpers::get_primary_email(&user.uuid, &mut conn);
 
+    // Derive context from the metadata we stamped when issuing the token,
+    // so the frontend can swap copy to "confirm your ticket submission"
+    // instead of the generic onboarding flow.
+    let context = token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("source"))
+        .and_then(|s| s.as_str())
+        .map(|s| match s {
+            "guest_ticket_submission" => "guest_ticket".to_string(),
+            other => other.to_string(),
+        })
+        .or_else(|| Some("invitation".to_string()));
+
     HttpResponse::Ok().json(ValidateInvitationResponse {
         valid: true,
         user_email,
         user_name: Some(user.name),
         message: None,
+        context,
     })
 }
 
 /// Accept an invitation and set the user's password
 pub async fn accept_invitation(
     db_pool: web::Data<crate::db::Pool>,
+    sse_state: web::Data<SseState>,
+    search_service: web::Data<Arc<SearchService>>,
     request_data: web::Json<AcceptInvitationRequest>,
     http_request: HttpRequest,
 ) -> impl Responder {
@@ -241,6 +267,38 @@ pub async fn accept_invitation(
         // Don't fail the request for this
     }
 
+    // Release any guest-submission tickets that were waiting on this
+    // verification. Each newly-verified ticket is pushed into the live SSE
+    // stream and the search index so techs pick it up immediately — the
+    // same side-effects that would have fired at submit time for a
+    // non-gated ticket.
+    match repository::tickets::verify_pending_tickets_for_user(&mut conn, user.uuid) {
+        Ok(released) if !released.is_empty() => {
+            info!(
+                user_uuid = %user.uuid,
+                count = released.len(),
+                "Released pending guest tickets on invitation acceptance"
+            );
+            for ticket in released {
+                indexing_tasks::spawn_index_ticket(
+                    search_service.get_ref().clone(),
+                    ticket.clone(),
+                    None,
+                );
+                crate::utils::sse::SseBroadcaster::broadcast_ticket_created(
+                    &sse_state,
+                    ticket.id,
+                    serde_json::to_value(&ticket).unwrap_or_default(),
+                )
+                .await;
+            }
+        }
+        Ok(_) => {}
+        Err(e) => {
+            warn!(user_uuid = %user.uuid, error = %e, "Failed to release pending tickets");
+        }
+    }
+
     // Log security event for invitation acceptance
     if let Err(e) = log_invitation_acceptance_event(&user.uuid, &http_request, &mut conn).await {
         warn!("Failed to log invitation acceptance event: {}", e);
@@ -261,50 +319,22 @@ async fn log_invitation_acceptance_event(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use diesel::prelude::*;
-    use crate::schema::security_events;
+    use crate::utils::security_events::{record_security_event, SecurityEventInput};
 
-    // Extract IP address and user agent
-    let ip_address = request.peer_addr()
-        .and_then(|addr| addr.ip().to_string().parse().ok());
-
-    let user_agent = request.headers()
-        .get("user-agent")
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string());
-
-    #[derive(diesel::Insertable)]
-    #[diesel(table_name = security_events)]
-    struct NewSecurityEvent {
-        user_uuid: uuid::Uuid,
-        event_type: String,
-        ip_address: Option<ipnetwork::IpNetwork>,
-        user_agent: Option<String>,
-        location: Option<String>,
-        details: Option<serde_json::Value>,
-        severity: String,
-        created_at: chrono::NaiveDateTime,
-        session_id: Option<i32>,
-    }
-
-    let new_event = NewSecurityEvent {
-        user_uuid: *user_uuid,
-        event_type: "invitation_accepted".to_string(),
-        ip_address,
-        user_agent,
-        location: None,
-        details: Some(json!({
-            "action": "invitation_accepted",
-            "success": true
-        })),
-        severity: "info".to_string(),
-        created_at: Utc::now().naive_utc(),
-        session_id: None,
-    };
-
-    diesel::insert_into(security_events::table)
-        .values(&new_event)
-        .execute(conn)?;
+    record_security_event(
+        conn,
+        SecurityEventInput {
+            user_uuid: *user_uuid,
+            event_type: "invitation_accepted",
+            severity: "info",
+            details: Some(json!({
+                "action": "invitation_accepted",
+                "success": true
+            })),
+            request: Some(request),
+            session_id: None,
+        },
+    )?;
 
     Ok(())
 }

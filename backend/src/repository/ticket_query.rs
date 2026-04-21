@@ -284,6 +284,17 @@ impl TicketQuery {
         &self,
         mut query: tickets::BoxedQuery<'a, diesel::pg::Pg>,
     ) -> tickets::BoxedQuery<'a, diesel::pg::Pg> {
+        // Guest-submission verification gate: hide tickets that are still
+        // waiting for the submitter to confirm their email. Techs only see
+        // them once the verification link has been clicked (at which point
+        // `verification_state` flips to 'verified') or for authenticated
+        // submissions where the column stays NULL.
+        query = query.filter(
+            tickets::verification_state
+                .is_null()
+                .or(tickets::verification_state.ne("pending")),
+        );
+
         // Visibility filter - user sees own tickets + tickets in visible categories
         if let Some(user_uuid) = self.visible_to_user {
             if let Some(ref visible_cats) = self.visible_category_ids {

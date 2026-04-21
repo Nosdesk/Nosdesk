@@ -692,6 +692,17 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         updated_by -> Nullable<Uuid>,
+        guest_tickets_enabled -> Bool,
+        guest_public_docs_enabled -> Bool,
+        guest_kb_search_enabled -> Bool,
+        guest_ticket_lookup_enabled -> Bool,
+        guest_help_page_enabled -> Bool,
+        #[max_length = 32]
+        guest_ticket_default_priority -> Nullable<Varchar>,
+        guest_ticket_rate_limit_per_hour -> Int4,
+        guest_ticket_email_verification -> Bool,
+        guest_ticket_attachments_enabled -> Bool,
+        guest_ticket_intro_message -> Nullable<Text>,
     }
 }
 
@@ -776,6 +787,11 @@ diesel::table! {
         closed_at -> Nullable<Timestamptz>,
         closed_by -> Nullable<Uuid>,
         category_id -> Nullable<Int4>,
+        #[max_length = 32]
+        submitted_via -> Nullable<Varchar>,
+        guest_lookup_token -> Nullable<Uuid>,
+        #[max_length = 32]
+        verification_state -> Nullable<Varchar>,
     }
 }
 

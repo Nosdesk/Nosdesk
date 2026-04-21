@@ -49,6 +49,37 @@ pub fn create_ticket(conn: &mut DbConnection, new_ticket: NewTicket) -> QueryRes
         .get_result(conn)
 }
 
+/// Look up a ticket by its opaque guest-lookup token. Used by the public
+/// `/api/public/tickets/{token}` status endpoint.
+pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult<Ticket> {
+    tickets::table
+        .filter(tickets::guest_lookup_token.eq(token))
+        .first(conn)
+}
+
+/// Flip every `verification_state = 'pending'` ticket requested by the given
+/// user over to `'verified'` and return the newly-released tickets.
+///
+/// Called by the accept-invitation flow: once the submitter has proven they
+/// own the email they gave us, every guest ticket they've filed (potentially
+/// more than one within the 7-day invitation window) is released into the
+/// tech queue at the same time.
+pub fn verify_pending_tickets_for_user(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+) -> QueryResult<Vec<Ticket>> {
+    diesel::update(
+        tickets::table
+            .filter(tickets::requester_uuid.eq(Some(user_uuid)))
+            .filter(tickets::verification_state.eq("pending")),
+    )
+    .set((
+        tickets::verification_state.eq("verified"),
+        tickets::updated_at.eq(chrono::Utc::now().naive_utc()),
+    ))
+    .get_results(conn)
+}
+
 pub fn update_ticket(conn: &mut DbConnection, ticket_id: i32, ticket: NewTicket) -> QueryResult<Ticket> {
     diesel::update(tickets::table.find(ticket_id))
         .set(&ticket)
@@ -218,6 +249,9 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
             Uuid::parse_str(&ticket_json.assignee).ok()
         },
         category_id: None,
+        submitted_via: None,
+        guest_lookup_token: None,
+        verification_state: None,
     };
 
     let ticket = create_ticket(conn, new_ticket)?;
@@ -379,6 +413,92 @@ mod tests {
     fn extract_storage_path_unknown_returns_none() {
         assert_eq!(extract_storage_path_from_url("/other/path.pdf"), None);
         assert_eq!(extract_storage_path_from_url("https://example.com/file"), None);
+    }
+
+    // ---- Guest-submission helpers ----
+
+    use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    /// Insert a ticket with an explicit verification state. The shared
+    /// fixture helper always passes `None`, which is the wrong shape for
+    /// testing the pending-release path.
+    fn insert_ticket_with_state(
+        conn: &mut DbConnection,
+        requester: Uuid,
+        state: Option<&str>,
+    ) -> Ticket {
+        let new_ticket = NewTicket {
+            title: "T".into(),
+            status: TicketStatus::Open,
+            priority: TicketPriority::Medium,
+            requester_uuid: Some(requester),
+            assignee_uuid: None,
+            category_id: None,
+            submitted_via: Some("guest".into()),
+            guest_lookup_token: Some(Uuid::new_v4()),
+            verification_state: state.map(|s| s.to_string()),
+        };
+        diesel::insert_into(tickets::table)
+            .values(&new_ticket)
+            .get_result(conn)
+            .expect("insert ticket")
+    }
+
+    #[test]
+    fn verify_pending_flips_only_requesters_pending_tickets() {
+        let mut conn = setup_test_connection();
+        let alice = TestFixtures::create_user(&mut conn, "Alice", UserRole::User);
+        let bob = TestFixtures::create_user(&mut conn, "Bob", UserRole::User);
+
+        // Alice has two pending + one already-verified + one nullable
+        // (authenticated) ticket. Bob has one pending. Only Alice's two
+        // pending tickets should flip.
+        let alice_pending_1 = insert_ticket_with_state(&mut conn, alice.uuid, Some("pending"));
+        let alice_pending_2 = insert_ticket_with_state(&mut conn, alice.uuid, Some("pending"));
+        let alice_verified = insert_ticket_with_state(&mut conn, alice.uuid, Some("verified"));
+        let alice_null = insert_ticket_with_state(&mut conn, alice.uuid, None);
+        let bob_pending = insert_ticket_with_state(&mut conn, bob.uuid, Some("pending"));
+
+        let released =
+            verify_pending_tickets_for_user(&mut conn, alice.uuid).expect("verify returns");
+
+        let released_ids: Vec<i32> = released.iter().map(|t| t.id).collect();
+        assert_eq!(released_ids.len(), 2);
+        assert!(released_ids.contains(&alice_pending_1.id));
+        assert!(released_ids.contains(&alice_pending_2.id));
+
+        // Already-verified, null, and Bob's pending should be untouched.
+        let mut fetch = |id| get_ticket_by_id(&mut conn, id).unwrap();
+        assert_eq!(fetch(alice_verified.id).verification_state.as_deref(), Some("verified"));
+        assert_eq!(fetch(alice_null.id).verification_state, None);
+        assert_eq!(fetch(bob_pending.id).verification_state.as_deref(), Some("pending"));
+    }
+
+    #[test]
+    fn verify_pending_noop_when_user_has_no_pending() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "NoPending", UserRole::User);
+        let released = verify_pending_tickets_for_user(&mut conn, user.uuid).unwrap();
+        assert!(released.is_empty());
+    }
+
+    #[test]
+    fn find_by_lookup_token_returns_match() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Lookup", UserRole::User);
+        let ticket = insert_ticket_with_state(&mut conn, user.uuid, Some("verified"));
+        let token = ticket.guest_lookup_token.expect("fixture sets a token");
+
+        let found = find_by_lookup_token(&mut conn, token).expect("found");
+        assert_eq!(found.id, ticket.id);
+    }
+
+    #[test]
+    fn find_by_lookup_token_not_found_for_random_uuid() {
+        let mut conn = setup_test_connection();
+        let result = find_by_lookup_token(&mut conn, Uuid::new_v4());
+        assert!(matches!(result, Err(diesel::result::Error::NotFound)));
     }
 }
 

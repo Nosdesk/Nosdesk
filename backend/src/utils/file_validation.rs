@@ -108,6 +108,58 @@ impl From<FileValidationError> for actix_web::Error {
     }
 }
 
+/// Public guest upload: tight allowlist of MIME types. Anything not on this
+/// list is rejected outright. Keep this list conservative — expanding it is
+/// a security decision.
+const GUEST_ALLOWED_MIME_TYPES: &[&str] = &[
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "application/pdf",
+    "text/plain",
+];
+
+/// Extensions the guest upload path will accept. Must line up semantically
+/// with [`GUEST_ALLOWED_MIME_TYPES`]. Files whose magic bytes don't match
+/// their extension are rejected.
+const GUEST_ALLOWED_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "png", "gif", "webp", "pdf", "txt", "log",
+];
+
+/// Per-file cap for guest uploads — deliberately tighter than the
+/// authenticated `MAX_FILE_SIZE_MB` so a spam wave can't exhaust disk.
+pub const GUEST_MAX_FILE_SIZE_MB: usize = 10;
+
+/// Hard cap on the number of attachments a single guest-submitted ticket
+/// can reference.
+pub const GUEST_MAX_FILES_PER_TICKET: usize = 5;
+
+/// Upload-token freshness window. Attachments not claimed by a submission
+/// within this many minutes are considered orphaned and rejected at claim
+/// time (they'll be swept later by the temp-file cleanup job).
+pub const GUEST_ATTACHMENT_TTL_MINUTES: i64 = 60;
+
+/// Pull the lowercased extension out of a filename. Used by both
+/// [`FileValidator::validate_file`] and
+/// [`FileValidator::validate_guest_upload`] — keeps the two validators
+/// agreeing on what "extension" means (filesystem path-parsed, not
+/// substring-after-last-dot which would misparse e.g. `.tar.gz`).
+fn file_extension(filename: &str) -> Option<String> {
+    Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+}
+
+/// Detect a MIME type from file magic bytes. Returns `None` if the
+/// content doesn't match any signature `infer` knows — the two
+/// validators handle that case differently (permissive fallback for the
+/// authenticated path, reject-unless-text for the guest path).
+fn detected_mime(bytes: &[u8]) -> Option<&'static str> {
+    infer::get(bytes).map(|kind| kind.mime_type())
+}
+
 /// File validator with security-focused validation
 pub struct FileValidator;
 
@@ -149,38 +201,78 @@ impl FileValidator {
     /// # Returns
     /// The detected MIME type if safe, or "application/octet-stream" for unknown types
     pub fn validate_file(bytes: &[u8], filename: Option<&str>) -> Result<String, FileValidationError> {
-        // First, check filename extension if provided
         if let Some(name) = filename {
-            let extension = Path::new(name)
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.to_lowercase());
-
-            if let Some(ext) = extension {
+            if let Some(ext) = file_extension(name) {
                 if BLOCKED_EXTENSIONS.contains(&ext.as_str()) {
                     return Err(FileValidationError::BlockedExtension { extension: ext });
                 }
             }
         }
 
-        // Try to detect MIME type from magic number
-        if let Some(kind) = infer::get(bytes) {
-            let detected_type = kind.mime_type();
-
-            // Block dangerous MIME types
-            if BLOCKED_MIME_TYPES.contains(&detected_type) {
+        if let Some(mime) = detected_mime(bytes) {
+            if BLOCKED_MIME_TYPES.contains(&mime) {
                 return Err(FileValidationError::BlockedMimeType {
-                    detected: detected_type.to_string(),
+                    detected: mime.to_string(),
                 });
             }
-
-            return Ok(detected_type.to_string());
+            return Ok(mime.to_string());
         }
 
-        // Magic number detection failed - this is common for text files (txt, csv, json, md, etc.)
-        // These are generally safe, so allow them with a generic MIME type
-        // The extension was already checked above if provided
+        // Magic-byte detection commonly misses text/csv/json/md. These are
+        // generally safe (extension-blocked above if dangerous) so we let
+        // them through with a generic MIME type.
         Ok("application/octet-stream".to_string())
+    }
+
+    /// Stricter sibling of [`validate_file`] for the public guest upload
+    /// endpoint. Uses an *allowlist* (not a blocklist) — any file whose
+    /// magic-byte-detected MIME type isn't in [`GUEST_ALLOWED_MIME_TYPES`]
+    /// is rejected, and the extension must also appear on the matching
+    /// allowlist. Text/log files, where magic-byte detection doesn't fire,
+    /// are allowed only when the extension is `.txt` or `.log`.
+    pub fn validate_guest_upload(
+        bytes: &[u8],
+        filename: &str,
+    ) -> Result<String, FileValidationError> {
+        // Size is enforced at chunk read time via validate_chunk_size with a
+        // tighter guest cap, but double-check the total here.
+        let max_size = GUEST_MAX_FILE_SIZE_MB * 1024 * 1024;
+        if bytes.len() > max_size {
+            return Err(FileValidationError::FileTooLarge {
+                size: bytes.len(),
+                max_size,
+            });
+        }
+
+        let extension = file_extension(filename);
+        let ext_ok = extension
+            .as_deref()
+            .map(|e| GUEST_ALLOWED_EXTENSIONS.contains(&e))
+            .unwrap_or(false);
+
+        if !ext_ok {
+            return Err(FileValidationError::BlockedExtension {
+                extension: extension.unwrap_or_else(|| "(none)".to_string()),
+            });
+        }
+
+        if let Some(detected) = detected_mime(bytes) {
+            if !GUEST_ALLOWED_MIME_TYPES.contains(&detected) {
+                return Err(FileValidationError::BlockedMimeType {
+                    detected: detected.to_string(),
+                });
+            }
+            return Ok(detected.to_string());
+        }
+
+        // Magic detection didn't match — only allowed for plaintext-ish
+        // extensions where `infer` often returns nothing.
+        match extension.as_deref() {
+            Some("txt") | Some("log") => Ok("text/plain".to_string()),
+            _ => Err(FileValidationError::BlockedMimeType {
+                detected: "unknown".to_string(),
+            }),
+        }
     }
 
     /// Sanitize filename to prevent path traversal and other attacks
@@ -312,4 +404,96 @@ mod tests {
         assert!(FileValidator::validate_file(plain_text, Some("config.json")).is_ok());
     }
 
+    // ---- Guest upload allowlist tests ----
+    //
+    // Each fake file below starts with the real magic bytes of the claimed
+    // format. `infer::get` only needs the header, so a short prefix is
+    // enough to verify the allowlist pathway without reading real files
+    // off disk.
+
+    const PNG_HEADER: &[u8] = b"\x89PNG\r\n\x1a\n";
+    const JPEG_HEADER: &[u8] = b"\xFF\xD8\xFF\xE0\x00\x10JFIF";
+    const GIF_HEADER: &[u8] = b"GIF89a";
+    const PDF_HEADER: &[u8] = b"%PDF-1.7\n";
+
+    #[test]
+    fn guest_upload_accepts_allowed_images() {
+        assert!(FileValidator::validate_guest_upload(PNG_HEADER, "screenshot.png").is_ok());
+        assert!(FileValidator::validate_guest_upload(JPEG_HEADER, "photo.jpg").is_ok());
+        assert!(FileValidator::validate_guest_upload(GIF_HEADER, "animation.gif").is_ok());
+    }
+
+    #[test]
+    fn guest_upload_accepts_pdf() {
+        assert!(FileValidator::validate_guest_upload(PDF_HEADER, "report.pdf").is_ok());
+    }
+
+    #[test]
+    fn guest_upload_accepts_text_and_log_by_extension() {
+        // Plain text has no magic bytes, so acceptance falls through to the
+        // extension check. Only the two plaintext extensions pass.
+        let text = b"error: something went wrong";
+        assert!(FileValidator::validate_guest_upload(text, "notes.txt").is_ok());
+        assert!(FileValidator::validate_guest_upload(text, "app.log").is_ok());
+    }
+
+    #[test]
+    fn guest_upload_rejects_unknown_extension() {
+        // Right magic bytes, wrong extension → still rejected.
+        assert!(matches!(
+            FileValidator::validate_guest_upload(PNG_HEADER, "screenshot.webm"),
+            Err(FileValidationError::BlockedExtension { .. })
+        ));
+    }
+
+    #[test]
+    fn guest_upload_rejects_executable_magic() {
+        // Raw shell script — not on the MIME allowlist. infer won't detect
+        // a MIME so we land in the text/log fallback, which rejects the
+        // `.sh` extension.
+        let sh = b"#!/bin/bash\necho pwned";
+        assert!(matches!(
+            FileValidator::validate_guest_upload(sh, "rogue.sh"),
+            Err(FileValidationError::BlockedExtension { .. })
+        ));
+    }
+
+    #[test]
+    fn guest_upload_rejects_mime_spoofing() {
+        // Binary claiming .png but contents are a ZIP (a common malware
+        // wrapper). `infer` detects the zip MIME; it's not on the allowlist.
+        let zip_header: &[u8] = b"PK\x03\x04\x14\x00\x00\x00\x08\x00";
+        assert!(matches!(
+            FileValidator::validate_guest_upload(zip_header, "innocent.png"),
+            Err(FileValidationError::BlockedMimeType { .. })
+        ));
+    }
+
+    #[test]
+    fn guest_upload_rejects_oversized_file() {
+        let too_big = vec![0u8; GUEST_MAX_FILE_SIZE_MB * 1024 * 1024 + 1];
+        assert!(matches!(
+            FileValidator::validate_guest_upload(&too_big, "payload.png"),
+            Err(FileValidationError::FileTooLarge { .. })
+        ));
+    }
+
+    #[test]
+    fn guest_upload_rejects_missing_extension() {
+        assert!(matches!(
+            FileValidator::validate_guest_upload(PNG_HEADER, "noextension"),
+            Err(FileValidationError::BlockedExtension { .. })
+        ));
+    }
+
+    #[test]
+    fn guest_upload_rejects_unknown_magic_bytes_on_image_extension() {
+        // Extension says .png but the content has no recognisable header
+        // and no text/log fallback applies.
+        let garbage = b"not really an image";
+        assert!(matches!(
+            FileValidator::validate_guest_upload(garbage, "fake.png"),
+            Err(FileValidationError::BlockedMimeType { .. })
+        ));
+    }
 }

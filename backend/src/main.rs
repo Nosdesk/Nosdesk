@@ -668,6 +668,23 @@ async fn main() -> std::io::Result<()> {
 
             // Public branding config (needed for favicon/logo before login)
             .route("/api/branding", web::get().to(handlers::branding::get_public_branding))
+
+            // Public (unauthenticated) guest endpoints — feature flags checked per handler.
+            // Tighter JSON payload limit here than the app-wide default: the only
+            // write endpoint in this scope is /tickets with a 10KB description cap,
+            // so 32KB is generous headroom without expanding the DoS surface.
+            .service(
+                web::scope("/api/public")
+                    .app_data(web::JsonConfig::default().limit(32 * 1024))
+                    .wrap(RateLimiter::default())
+                    .route("/settings", web::get().to(handlers::guest::get_public_settings))
+                    .route("/tickets", web::post().to(handlers::guest::submit_guest_ticket))
+                    .route("/tickets/{token}", web::get().to(handlers::guest::get_guest_ticket_status))
+                    .route("/files/temp", web::post().to(handlers::guest::upload_guest_attachment))
+                    .route("/docs", web::get().to(handlers::guest::list_public_docs))
+                    .route("/docs/search", web::get().to(handlers::guest::search_public_docs))
+                    .route("/docs/{slug}", web::get().to(handlers::guest::get_public_doc))
+            )
             
             // Public WebSocket for collaboration (auth handled in WebSocket handler)
             .service(
@@ -774,6 +791,10 @@ async fn main() -> std::io::Result<()> {
                     // Branding configuration (admin only)
                     .route("/admin/branding/config", web::get().to(handlers::branding::get_branding_config))
                     .route("/admin/branding/config", web::patch().to(handlers::branding::update_branding_config))
+
+                    // Guest access controls (admin only)
+                    .route("/admin/guest-settings", web::get().to(handlers::guest_settings::get_guest_settings))
+                    .route("/admin/guest-settings", web::patch().to(handlers::guest_settings::update_guest_settings))
                     .route("/admin/branding/image", web::post().to(handlers::branding::upload_branding_image))
                     .route("/admin/branding/image", web::delete().to(handlers::branding::delete_branding_image))
 

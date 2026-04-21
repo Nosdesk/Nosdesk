@@ -1,7 +1,7 @@
 use diesel::prelude::*;
 use uuid::Uuid;
 use crate::db::DbConnection;
-use crate::models::{User, UserEmail};
+use crate::models::{User, UserEmail, UserRole};
 
 /// Get a user's primary email address
 /// This is now the canonical way to get a user's email since users table no longer has email field
@@ -62,6 +62,136 @@ pub fn create_user_with_email(
 
         Ok((user, user_email))
     })
+}
+
+/// Source tag written to `user_emails.source` when an account is created by
+/// a public guest-ticket submission. Used to distinguish "I'm a drive-by
+/// reporter" accounts from real registered users.
+pub const GUEST_EMAIL_SOURCE: &str = "guest_submission";
+
+/// Outcome of [`find_or_create_guest_user`]. Separating "new" vs "reused"
+/// vs "claimed by a real account" lets the caller decide whether to send a
+/// fresh invitation email, skip it, or reject the submission entirely.
+pub enum GuestUserResult {
+    /// A new guest-origin account was just provisioned. Callers that send
+    /// invitation/confirmation emails should only send on this variant so
+    /// the same email isn't re-sent on every subsequent submission.
+    Created(User),
+    /// An existing guest-origin account was reused (same unverified email
+    /// from a previous submission). No fresh invitation is needed — the
+    /// original invitation (if any) is still valid or already used.
+    Existing(User),
+    /// Email is already registered to a verified or privileged account.
+    /// The caller should reject the submission and ask the user to sign in
+    /// rather than attaching the ticket to someone else's account.
+    EmailClaimed,
+}
+
+/// Atomically find-or-create a requester account for a public guest ticket
+/// submission.
+///
+/// **Reuse rule:** only accounts whose primary email was itself created by a
+/// previous guest submission (source = [`GUEST_EMAIL_SOURCE`], unverified,
+/// role = `User`) are reused. Any other match — verified email, admin,
+/// technician, OAuth-linked — returns [`GuestUserResult::EmailClaimed`].
+///
+/// **Concurrency:** the lookup and insert run inside a single DB transaction.
+/// If a racing insert causes a unique-violation, the transaction retries the
+/// lookup so the second caller gets the row the first caller just wrote.
+pub fn find_or_create_guest_user(
+    email: &str,
+    name: &str,
+    conn: &mut DbConnection,
+) -> Result<GuestUserResult, diesel::result::Error> {
+    use diesel::result::{DatabaseErrorKind, Error as DieselError};
+
+    conn.transaction::<_, DieselError, _>(|conn| {
+        // 1. Look up existing user.
+        if let Some(existing) = lookup_for_guest(email, conn)? {
+            return Ok(existing);
+        }
+
+        // 2. Create a fresh guest account.
+        let new_user = crate::models::NewUser {
+            uuid: Uuid::now_v7(),
+            name: name.trim().to_string(),
+            role: UserRole::User,
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            theme: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_enabled: false,
+            mfa_backup_codes: None,
+            passkey_credentials: None,
+        };
+
+        match create_user_with_email(
+            new_user,
+            email.to_string(),
+            false,
+            Some(GUEST_EMAIL_SOURCE.to_string()),
+            conn,
+        ) {
+            Ok((user, _)) => Ok(GuestUserResult::Created(user)),
+            // Race: a concurrent request created the row between our lookup
+            // and our insert. Look it up again under the same transaction.
+            // A racing winner's row is an "existing" guest from our
+            // perspective even if it was created moments ago — it means
+            // the winner already triggered (or will trigger) the invitation
+            // email, and we must not send a second one.
+            Err(DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                match lookup_for_guest(email, conn)? {
+                    Some(result) => Ok(result),
+                    // Extremely unlikely: unique violation but row vanished.
+                    // Treat as claimed rather than loop forever.
+                    None => Ok(GuestUserResult::EmailClaimed),
+                }
+            }
+            Err(e) => Err(e),
+        }
+    })
+}
+
+/// Internal helper: load the user by email and classify them as reusable or
+/// claimed based on email-source + verification state.
+fn lookup_for_guest(
+    email: &str,
+    conn: &mut DbConnection,
+) -> Result<Option<GuestUserResult>, diesel::result::Error> {
+    use crate::schema::{user_emails, users};
+
+    // Fetch the user and their primary email row together so we can classify.
+    let row: Option<(User, bool, Option<String>)> = users::table
+        .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
+        .filter(user_emails::email.ilike(email))
+        .filter(user_emails::is_primary.eq(true))
+        .select((
+            users::all_columns,
+            user_emails::is_verified,
+            user_emails::source,
+        ))
+        .first::<(User, bool, Option<String>)>(conn)
+        .optional()?;
+
+    let Some((user, is_verified, source)) = row else {
+        return Ok(None);
+    };
+
+    // Only reuse accounts that came from a prior guest submission AND are
+    // still unverified AND have the baseline `User` role. Anything else is
+    // a real account — never attach a public submission to it.
+    let reusable = !is_verified
+        && user.role == UserRole::User
+        && source.as_deref() == Some(GUEST_EMAIL_SOURCE);
+
+    Ok(Some(if reusable {
+        GuestUserResult::Existing(user)
+    } else {
+        GuestUserResult::EmailClaimed
+    }))
 }
 
 /// Helper to get user with their primary email for responses
@@ -226,5 +356,150 @@ mod tests {
         let map = get_primary_emails_batch(&[u1.uuid, u2.uuid], &mut conn);
         assert_eq!(map.get(&u1.uuid), Some(&"b1@test.com".to_string()));
         assert_eq!(map.get(&u2.uuid), Some(&"b2@test.com".to_string()));
+    }
+
+    // ---- find_or_create_guest_user tests ----
+
+    /// Insert a user_emails row with a specific `is_verified` and `source`.
+    /// The `TestFixtures::create_user_email` helper defaults to
+    /// `is_verified = true, source = None`, which is the wrong shape for
+    /// guest-origin fixtures.
+    fn insert_email(
+        conn: &mut DbConnection,
+        user_uuid: Uuid,
+        email: &str,
+        is_verified: bool,
+        source: Option<&str>,
+    ) {
+        use crate::schema::user_emails;
+        let new_email = crate::models::NewUserEmail {
+            user_uuid,
+            email: email.to_string(),
+            email_type: "personal".into(),
+            is_primary: true,
+            is_verified,
+            source: source.map(|s| s.to_string()),
+        };
+        diesel::insert_into(user_emails::table)
+            .values(&new_email)
+            .execute(conn)
+            .expect("insert email");
+    }
+
+    #[test]
+    fn find_or_create_guest_user_creates_when_email_is_new() {
+        let mut conn = setup_test_connection();
+        let result = find_or_create_guest_user("fresh@example.com", "Fresh User", &mut conn)
+            .expect("should succeed");
+
+        match result {
+            GuestUserResult::Created(user) => {
+                assert_eq!(user.name, "Fresh User");
+                assert_eq!(user.role, UserRole::User);
+                // The matching email row should be unverified and tagged
+                // with the guest source so the lookup classifies it as reusable.
+                let email = get_user_by_email("fresh@example.com", &mut conn).unwrap();
+                assert_eq!(email.uuid, user.uuid);
+            }
+            other => panic!("expected Created, got {:?}", std::mem::discriminant(&other)),
+        }
+    }
+
+    #[test]
+    fn find_or_create_guest_user_reuses_unverified_guest_origin_account() {
+        let mut conn = setup_test_connection();
+        let existing = TestFixtures::create_user(&mut conn, "Existing Guest", UserRole::User);
+        insert_email(
+            &mut conn,
+            existing.uuid,
+            "returning@example.com",
+            false,
+            Some(GUEST_EMAIL_SOURCE),
+        );
+
+        let result = find_or_create_guest_user("returning@example.com", "Anyone", &mut conn)
+            .expect("should succeed");
+
+        match result {
+            GuestUserResult::Existing(user) => assert_eq!(user.uuid, existing.uuid),
+            _ => panic!("expected Existing"),
+        }
+    }
+
+    #[test]
+    fn find_or_create_guest_user_rejects_verified_email() {
+        let mut conn = setup_test_connection();
+        let verified = TestFixtures::create_user(&mut conn, "Verified User", UserRole::User);
+        insert_email(
+            &mut conn,
+            verified.uuid,
+            "verified@example.com",
+            true,
+            Some(GUEST_EMAIL_SOURCE),
+        );
+
+        let result = find_or_create_guest_user("verified@example.com", "Attacker", &mut conn)
+            .expect("should succeed");
+
+        assert!(matches!(result, GuestUserResult::EmailClaimed));
+    }
+
+    #[test]
+    fn find_or_create_guest_user_rejects_privileged_role_even_if_unverified() {
+        // Paranoid safety net: an unverified *admin* email must never be
+        // reusable by a guest submission.
+        let mut conn = setup_test_connection();
+        let admin = TestFixtures::create_user(&mut conn, "Admin", UserRole::Admin);
+        insert_email(
+            &mut conn,
+            admin.uuid,
+            "admin@example.com",
+            false,
+            Some(GUEST_EMAIL_SOURCE),
+        );
+
+        let result = find_or_create_guest_user("admin@example.com", "Attacker", &mut conn)
+            .expect("should succeed");
+
+        assert!(matches!(result, GuestUserResult::EmailClaimed));
+    }
+
+    #[test]
+    fn find_or_create_guest_user_rejects_non_guest_source() {
+        // An unverified user-role account whose email came from elsewhere
+        // (e.g. an invitation that was never accepted) shouldn't be
+        // claimable by a public submission.
+        let mut conn = setup_test_connection();
+        let invited = TestFixtures::create_user(&mut conn, "Invited", UserRole::User);
+        insert_email(
+            &mut conn,
+            invited.uuid,
+            "invited@example.com",
+            false,
+            Some("admin_invitation"),
+        );
+
+        let result = find_or_create_guest_user("invited@example.com", "Someone", &mut conn)
+            .expect("should succeed");
+
+        assert!(matches!(result, GuestUserResult::EmailClaimed));
+    }
+
+    #[test]
+    fn find_or_create_guest_user_is_case_insensitive_on_lookup() {
+        let mut conn = setup_test_connection();
+        // First call creates.
+        let r1 = find_or_create_guest_user("Alice@Example.com", "Alice", &mut conn).unwrap();
+        let created_uuid = match r1 {
+            GuestUserResult::Created(u) => u.uuid,
+            _ => panic!("expected Created"),
+        };
+
+        // Second call with different casing hits the same account.
+        let r2 = find_or_create_guest_user("ALICE@example.COM", "Alice Again", &mut conn).unwrap();
+        match r2 {
+            GuestUserResult::Existing(u) => assert_eq!(u.uuid, created_uuid),
+            _ => panic!("expected Existing on repeat submission"),
+        }
     }
 }

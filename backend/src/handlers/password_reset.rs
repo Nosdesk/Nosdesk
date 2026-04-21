@@ -305,51 +305,23 @@ async fn log_password_reset_event(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use diesel::prelude::*;
-    use crate::schema::security_events;
+    use crate::utils::security_events::{record_security_event, SecurityEventInput};
 
-    // Extract IP address and user agent
-    let ip_address = request.peer_addr()
-        .and_then(|addr| addr.ip().to_string().parse().ok());
-
-    let user_agent = request.headers()
-        .get("user-agent")
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string());
-
-    #[derive(diesel::Insertable)]
-    #[diesel(table_name = security_events)]
-    struct NewSecurityEvent {
-        user_uuid: uuid::Uuid,
-        event_type: String,
-        ip_address: Option<ipnetwork::IpNetwork>,
-        user_agent: Option<String>,
-        location: Option<String>,
-        details: Option<serde_json::Value>,
-        severity: String,
-        created_at: chrono::NaiveDateTime,
-        session_id: Option<i32>,
-    }
-
-    let new_event = NewSecurityEvent {
-        user_uuid: *user_uuid,
-        event_type: "password_reset".to_string(),
-        ip_address,
-        user_agent,
-        location: None,
-        details: Some(json!({
-            "action": "password_reset_completed",
-            "method": "email_token",
-            "success": true
-        })),
-        severity: "info".to_string(),
-        created_at: Utc::now().naive_utc(),
-        session_id: None,
-    };
-
-    diesel::insert_into(security_events::table)
-        .values(&new_event)
-        .execute(conn)?;
+    record_security_event(
+        conn,
+        SecurityEventInput {
+            user_uuid: *user_uuid,
+            event_type: "password_reset",
+            severity: "info",
+            details: Some(json!({
+                "action": "password_reset_completed",
+                "method": "email_token",
+                "success": true
+            })),
+            request: Some(request),
+            session_id: None,
+        },
+    )?;
 
     Ok(())
 }

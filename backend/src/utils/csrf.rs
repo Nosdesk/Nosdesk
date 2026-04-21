@@ -154,7 +154,11 @@ where
             || path.starts_with("/api/auth/invitation/")
             || path == "/api/auth/passkeys/login/start"
             || path == "/api/auth/passkeys/login/finish"
-            || path == "/api/debug/frontend-logs";
+            || path == "/api/debug/frontend-logs"
+            // Public guest surface: unauthenticated, no session cookie, so
+            // no CSRF surface to protect. Rate limiting is handled by the
+            // scope's dedicated limiter + per-handler Redis counters.
+            || path.starts_with("/api/public/");
 
         if is_public_endpoint {
             // Skip CSRF validation for public auth endpoints

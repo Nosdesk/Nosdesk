@@ -96,6 +96,13 @@ export const adminNavGroups: AdminNavGroup[] = [
     label: 'System',
     items: [
       {
+        title: 'Guest Access',
+        description: 'Control what unauthenticated visitors can see and submit',
+        icon: 'user',
+        route: '/admin/guest-access',
+        keywords: ['guest', 'public', 'anonymous', 'ticket submission', 'access', 'self-service']
+      },
+      {
         title: 'Authentication Providers',
         description: 'Configure SSO, Microsoft Entra, and local authentication',
         icon: 'lock',

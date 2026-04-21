@@ -484,6 +484,8 @@ class AuthService {
     user_email?: string;
     user_name?: string;
     message?: string;
+    /** `"guest_ticket"` for public-form submissions, `"invitation"` for admin-sent invites. */
+    context?: 'guest_ticket' | 'invitation' | string;
   }> {
     try {
       const response = await apiClient.post('/auth/invitation/validate', { token });

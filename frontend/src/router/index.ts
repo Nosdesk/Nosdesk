@@ -88,6 +88,38 @@ const router = createRouter({
       }
     },
     {
+      path: '/submit-ticket',
+      name: 'guest-submit-ticket',
+      component: () => import('@/views/public/GuestTicketSubmitView.vue'),
+      meta: { layout: 'blank', requiresAuth: false, title: 'Submit a Ticket' }
+    },
+    {
+      path: '/ticket-status/:token',
+      name: 'guest-ticket-status',
+      component: () => import('@/views/public/GuestTicketStatusView.vue'),
+      props: true,
+      meta: { layout: 'blank', requiresAuth: false, title: 'Ticket Status' }
+    },
+    {
+      path: '/docs',
+      name: 'public-docs-list',
+      component: () => import('@/views/public/PublicDocsView.vue'),
+      meta: { layout: 'blank', requiresAuth: false, title: 'Documentation' }
+    },
+    {
+      path: '/docs/:slug',
+      name: 'public-doc',
+      component: () => import('@/views/public/PublicDocView.vue'),
+      props: true,
+      meta: { layout: 'blank', requiresAuth: false, title: 'Documentation' }
+    },
+    {
+      path: '/help',
+      name: 'public-help',
+      component: () => import('@/views/public/HelpView.vue'),
+      meta: { layout: 'blank', requiresAuth: false, title: 'Help' }
+    },
+    {
       path: '/',
       name: 'home',
       component: DashboardView,
@@ -475,6 +507,12 @@ const router = createRouter({
           name: 'admin-branding',
           component: () => import('../views/BrandingSettingsView.vue'),
           meta: { title: 'Branding' }
+        },
+        {
+          path: 'guest-access',
+          name: 'admin-guest-access',
+          component: () => import('../views/GuestAccessSettingsView.vue'),
+          meta: { title: 'Guest Access', requiresAuth: true, adminRequired: true }
         },
         {
           path: 'email-settings',

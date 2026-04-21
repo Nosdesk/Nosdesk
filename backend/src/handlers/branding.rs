@@ -104,6 +104,7 @@ pub async fn update_branding_config(
         favicon_url: None,
         primary_color: body.primary_color.as_ref().map(|c| Some(c.clone())),
         updated_by: Some(user_uuid),
+        ..Default::default()
     };
 
     match site_settings::update_site_settings(&mut conn, update) {

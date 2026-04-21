@@ -116,6 +116,10 @@ pub struct Ticket {
     pub closed_at: Option<NaiveDateTime>,
     pub closed_by: Option<Uuid>,
     pub category_id: Option<i32>,
+    pub submitted_via: Option<String>,
+    #[serde(serialize_with = "serialize_optional_uuid_as_string")]
+    pub guest_lookup_token: Option<Uuid>,
+    pub verification_state: Option<String>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
@@ -129,6 +133,9 @@ pub struct NewTicket {
     pub requester_uuid: Option<Uuid>,
     pub assignee_uuid: Option<Uuid>,
     pub category_id: Option<i32>,
+    pub submitted_via: Option<String>,
+    pub guest_lookup_token: Option<Uuid>,
+    pub verification_state: Option<String>,
 }
 
 // Add a new struct for partial ticket updates
@@ -142,6 +149,7 @@ pub struct TicketUpdate {
     pub assignee_uuid: Option<Option<Uuid>>,
     pub updated_at: Option<NaiveDateTime>,
     pub closed_at: Option<Option<NaiveDateTime>>,
+    pub verification_state: Option<Option<String>>,
     pub category_id: Option<Option<i32>>,
 }
 
@@ -1977,6 +1985,12 @@ pub struct ValidateInvitationResponse {
     pub user_email: Option<String>,
     pub user_name: Option<String>,
     pub message: Option<String>,
+    /// Classification of the invitation's origin so the frontend can tailor
+    /// copy ("confirm your ticket submission" vs generic onboarding).
+    /// `"guest_ticket"` when the token was issued by a public ticket
+    /// submission; `"invitation"` for an admin-sent invitation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
 }
 
 /// Response for session operations
@@ -2045,9 +2059,19 @@ pub struct SiteSettings {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub updated_by: Option<Uuid>,
+    pub guest_tickets_enabled: bool,
+    pub guest_public_docs_enabled: bool,
+    pub guest_kb_search_enabled: bool,
+    pub guest_ticket_lookup_enabled: bool,
+    pub guest_help_page_enabled: bool,
+    pub guest_ticket_default_priority: Option<String>,
+    pub guest_ticket_rate_limit_per_hour: i32,
+    pub guest_ticket_email_verification: bool,
+    pub guest_ticket_attachments_enabled: bool,
+    pub guest_ticket_intro_message: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::site_settings)]
 pub struct UpdateSiteSettings {
     pub app_name: Option<String>,
@@ -2056,6 +2080,16 @@ pub struct UpdateSiteSettings {
     pub favicon_url: Option<Option<String>>,
     pub primary_color: Option<Option<String>>,
     pub updated_by: Option<Uuid>,
+    pub guest_tickets_enabled: Option<bool>,
+    pub guest_public_docs_enabled: Option<bool>,
+    pub guest_kb_search_enabled: Option<bool>,
+    pub guest_ticket_lookup_enabled: Option<bool>,
+    pub guest_help_page_enabled: Option<bool>,
+    pub guest_ticket_default_priority: Option<Option<String>>,
+    pub guest_ticket_rate_limit_per_hour: Option<i32>,
+    pub guest_ticket_email_verification: Option<bool>,
+    pub guest_ticket_attachments_enabled: Option<bool>,
+    pub guest_ticket_intro_message: Option<Option<String>>,
 }
 
 // API response for site settings (without internal fields)
@@ -2067,6 +2101,16 @@ pub struct SiteSettingsResponse {
     pub favicon_url: Option<String>,
     pub primary_color: Option<String>,
     pub updated_at: NaiveDateTime,
+    pub guest_tickets_enabled: bool,
+    pub guest_public_docs_enabled: bool,
+    pub guest_kb_search_enabled: bool,
+    pub guest_ticket_lookup_enabled: bool,
+    pub guest_help_page_enabled: bool,
+    pub guest_ticket_default_priority: Option<String>,
+    pub guest_ticket_rate_limit_per_hour: i32,
+    pub guest_ticket_email_verification: bool,
+    pub guest_ticket_attachments_enabled: bool,
+    pub guest_ticket_intro_message: Option<String>,
 }
 
 impl From<SiteSettings> for SiteSettingsResponse {
@@ -2078,6 +2122,52 @@ impl From<SiteSettings> for SiteSettingsResponse {
             favicon_url: settings.favicon_url,
             primary_color: settings.primary_color,
             updated_at: settings.updated_at,
+            guest_tickets_enabled: settings.guest_tickets_enabled,
+            guest_public_docs_enabled: settings.guest_public_docs_enabled,
+            guest_kb_search_enabled: settings.guest_kb_search_enabled,
+            guest_ticket_lookup_enabled: settings.guest_ticket_lookup_enabled,
+            guest_help_page_enabled: settings.guest_help_page_enabled,
+            guest_ticket_default_priority: settings.guest_ticket_default_priority,
+            guest_ticket_rate_limit_per_hour: settings.guest_ticket_rate_limit_per_hour,
+            guest_ticket_email_verification: settings.guest_ticket_email_verification,
+            guest_ticket_attachments_enabled: settings.guest_ticket_attachments_enabled,
+            guest_ticket_intro_message: settings.guest_ticket_intro_message,
+        }
+    }
+}
+
+// Public subset — safe to expose on /api/public/settings (no auth required)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PublicSiteSettings {
+    pub app_name: String,
+    pub logo_url: Option<String>,
+    pub logo_light_url: Option<String>,
+    pub favicon_url: Option<String>,
+    pub primary_color: Option<String>,
+    pub guest_tickets_enabled: bool,
+    pub guest_public_docs_enabled: bool,
+    pub guest_kb_search_enabled: bool,
+    pub guest_ticket_lookup_enabled: bool,
+    pub guest_help_page_enabled: bool,
+    pub guest_ticket_attachments_enabled: bool,
+    pub guest_ticket_intro_message: Option<String>,
+}
+
+impl From<&SiteSettings> for PublicSiteSettings {
+    fn from(s: &SiteSettings) -> Self {
+        PublicSiteSettings {
+            app_name: s.app_name.clone(),
+            logo_url: s.logo_url.clone(),
+            logo_light_url: s.logo_light_url.clone(),
+            favicon_url: s.favicon_url.clone(),
+            primary_color: s.primary_color.clone(),
+            guest_tickets_enabled: s.guest_tickets_enabled,
+            guest_public_docs_enabled: s.guest_public_docs_enabled,
+            guest_kb_search_enabled: s.guest_kb_search_enabled,
+            guest_ticket_lookup_enabled: s.guest_ticket_lookup_enabled,
+            guest_help_page_enabled: s.guest_help_page_enabled,
+            guest_ticket_attachments_enabled: s.guest_ticket_attachments_enabled,
+            guest_ticket_intro_message: s.guest_ticket_intro_message.clone(),
         }
     }
 }

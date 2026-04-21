@@ -84,41 +84,25 @@ async fn log_password_change_event(
     user_uuid: &Uuid,
     conn: &mut DbConnection,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use diesel::prelude::*;
-    use crate::schema::security_events;
+    use crate::utils::security_events::{record_security_event, SecurityEventInput};
 
-    #[derive(diesel::Insertable)]
-    #[diesel(table_name = security_events)]
-    struct NewSecurityEvent {
-        user_uuid: Uuid,
-        event_type: String,
-        ip_address: Option<ipnetwork::IpNetwork>,
-        user_agent: Option<String>,
-        location: Option<String>,
-        details: Option<serde_json::Value>,
-        severity: String,
-        created_at: chrono::NaiveDateTime,
-        session_id: Option<i32>,
-    }
-
-    let new_event = NewSecurityEvent {
-        user_uuid: *user_uuid,
-        event_type: "password_changed".to_string(),
-        ip_address: None,
-        user_agent: None,
-        location: None,
-        details: Some(json!({
-            "action": "password_change",
-            "success": true
-        })),
-        severity: "info".to_string(),
-        created_at: chrono::Utc::now().naive_utc(),
-        session_id: None,
-    };
-
-    diesel::insert_into(security_events::table)
-        .values(&new_event)
-        .execute(conn)?;
+    record_security_event(
+        conn,
+        SecurityEventInput {
+            user_uuid: *user_uuid,
+            event_type: "password_changed",
+            severity: "info",
+            details: Some(json!({
+                "action": "password_change",
+                "success": true
+            })),
+            // Handler doesn't have the request in scope; this call site
+            // pre-dates the shared helper and keeps its previous "no IP"
+            // behavior. If we want IP here later, wire the request in.
+            request: None,
+            session_id: None,
+        },
+    )?;
 
     Ok(())
 }

@@ -598,6 +598,62 @@ impl EmailService {
         let subject = format!("You've Been Invited to {} - Set Up Your Account", branding.app_name);
         self.send_html_email(to, &subject, &html_body).await
     }
+
+    /// Send a confirmation email for a guest ticket submission. The link
+    /// uses the same accept-invitation flow as a normal invitation, but the
+    /// copy is tailored to the ticket-submission context — the email is
+    /// framed as "confirm your submission" rather than "welcome / set up
+    /// your account", which is what the submitter actually requested.
+    pub async fn send_guest_ticket_confirmation_email(
+        &self,
+        to: &str,
+        user_name: &str,
+        invitation_token: &str,
+        branding: &EmailBranding,
+    ) -> Result<(), String> {
+        if !self.config.is_configured() {
+            return Err("Email is not configured".to_string());
+        }
+
+        let confirm_link = format!(
+            "{}/accept-invitation?token={}",
+            branding.base_url, invitation_token
+        );
+        let template = EmailTemplate::new(branding);
+
+        let content = format!(
+            r#"<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
+                Hi <strong>{}</strong>,
+            </p>
+            <p style="margin: 0 0 8px 0; color: #374151; font-size: 16px; line-height: 1.6;">
+                Thanks for submitting a ticket to <strong>{}</strong>. Confirm your email to release it to our team:
+            </p>"#,
+            escape_html(user_name),
+            escape_html(&branding.app_name)
+        );
+
+        // Use the app's accent color for the guest confirmation flow so it
+        // reads as "your helpdesk" rather than a generic invitation.
+        let accent = &branding.primary_color;
+
+        let html_body = template.build(
+            "Confirm your ticket submission",
+            accent,
+            &content,
+            "Confirm email & send ticket",
+            &confirm_link,
+            accent,
+            NoticeType::Info,
+            &[
+                "Link expires in <strong>7 days</strong>",
+                "Confirming also gives you access to your ticket portal to track progress and reply",
+            ],
+            "If you didn't submit a ticket, you can safely ignore this email — no account will be created.",
+        );
+
+        let subject = format!("Confirm your ticket submission to {}", branding.app_name);
+        self.send_html_email(to, &subject, &html_body).await
+    }
 }
 
 #[cfg(test)]
