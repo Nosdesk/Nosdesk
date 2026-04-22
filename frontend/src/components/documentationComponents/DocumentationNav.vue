@@ -10,6 +10,7 @@ import MoveDocumentModal from './MoveDocumentModal.vue'
 import PagePermissionsModal from './PagePermissionsModal.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import { storeToRefs } from 'pinia'
 import { useSSE } from '@/services/sseService'
 import { getCollections, getCollection, updateCollection, deleteCollection } from '@/services/collectionService'
@@ -89,6 +90,24 @@ const contextMenuPos = ref({ x: 0, y: 0 })
 const showContextMenu = ref(false)
 const contextMenuType = ref<'page' | 'collection'>('page')
 const contextMenuCollection = ref<CollectionWithDetails | null>(null)
+const pendingDeleteCollection = ref<CollectionWithDetails | null>(null)
+
+async function doDeleteCollection() {
+  const collection = pendingDeleteCollection.value
+  pendingDeleteCollection.value = null
+  if (!collection) return
+  try {
+    const success = await deleteCollection(collection.id)
+    if (success) {
+      await reloadSidebar()
+      if (route.path === `/documentation/collections/${collection.slug}`) {
+        router.push('/documentation')
+      }
+    }
+  } catch (error) {
+    console.error('Failed to delete collection:', error)
+  }
+}
 
 // Modals triggered from context menu
 const showMoveModal = ref(false)
@@ -226,18 +245,7 @@ const handleContextMenuSelect = async (actionId: string) => {
         router.push({ path: `/documentation/collections/${collection.slug}`, query: { permissions: 'true' } })
         break
       case 'col-delete':
-        if (!confirm(`Delete "${collection.name}"? Pages in this collection will not be deleted.`)) return
-        try {
-          const success = await deleteCollection(collection.id)
-          if (success) {
-            await reloadSidebar()
-            if (route.path === `/documentation/collections/${collection.slug}`) {
-              router.push('/documentation')
-            }
-          }
-        } catch (error) {
-          console.error('Failed to delete collection:', error)
-        }
+        pendingDeleteCollection.value = collection
         break
     }
     return
@@ -1051,6 +1059,16 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
       @updated="docNavStore.refreshPages()"
     />
   </Teleport>
+
+  <ConfirmModal
+    :show="pendingDeleteCollection !== null"
+    variant="danger"
+    :title="pendingDeleteCollection ? `Delete ${pendingDeleteCollection.name}?` : 'Delete collection?'"
+    message="Pages in this collection will not be deleted."
+    confirm-label="Delete"
+    @confirm="doDeleteCollection"
+    @close="pendingDeleteCollection = null"
+  />
 </template>
 
 <style scoped>

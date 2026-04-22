@@ -542,7 +542,14 @@ watch(documentObj, (newDocument) => {
   <div class="bg-app flex flex-col h-full">
     <!-- Header bar -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
-      <div class="p-2 flex items-center gap-2 flex-wrap">
+      <!--
+        Row sizes itself to its children; every toolbar button in this
+        view (BackButton, publish, star, copy, menu) is `h-8`, so the
+        row is a stable 3 rem whether or not the right-side cluster is
+        mounted. `flex-nowrap` keeps everything on one line on narrow
+        viewports instead of wrapping to a second row.
+      -->
+      <div class="p-2 flex items-center gap-2 flex-nowrap">
         <!-- Back button -->
         <BackButton :fallbackRoute="fallbackRoute" :label="backButtonLabel" />
 
@@ -625,8 +632,14 @@ watch(documentObj, (newDocument) => {
 
     <!-- Main content -->
     <div class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
-      <!-- Loading fallback (ticket notes / edge cases — document pages are preloaded) -->
-      <div v-if="isLoading"></div>
+      <!--
+        Loading fallback. Document pages are preloaded by the route
+        guard and typical fetches land well under Nielsen's 1 s flow
+        boundary, so any indicator flashes and hurts more than it
+        helps. Render nothing — the header + nav stay visible and the
+        body fills in when data arrives.
+      -->
+      <div v-if="isLoading" />
 
       <!-- Document Content View -->
       <div v-else-if="document" class="w-full flex">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { getUncollectedPages } from '@/services/collectionService'
 import type { CollectionPage } from '@/services/collectionService'
@@ -10,20 +10,27 @@ import DocumentationCardSkeleton from '@/components/documentationComponents/Docu
 
 const titleManager = useTitleManager()
 
-const loading = ref(true)
+// Skeleton only on the first paint; SSE refetches keep the current
+// cards on screen to avoid flicker. Matches the Archived / Trash
+// views' stale-while-revalidate treatment.
+const initialLoading = ref(true)
 const pagesForGrid = ref<any[]>([])
 
+const showSkeleton = computed(() => initialLoading.value && pagesForGrid.value.length === 0)
+
 const loadDrafts = async () => {
-  loading.value = true
-  const drafts = await getUncollectedPages()
-  pagesForGrid.value = drafts.map((p: CollectionPage) => ({
-    ...p,
-    children: [],
-    author: '',
-    content: '',
-    description: null,
-  }))
-  loading.value = false
+  try {
+    const drafts = await getUncollectedPages()
+    pagesForGrid.value = drafts.map((p: CollectionPage) => ({
+      ...p,
+      children: [],
+      author: '',
+      content: '',
+      description: null,
+    }))
+  } finally {
+    initialLoading.value = false
+  }
 }
 
 // SSE integration for real-time updates
@@ -74,15 +81,15 @@ onMounted(() => {
             </div>
           </div>
           <span
-            class="text-xs bg-surface-alt px-2 py-1 rounded-full"
-            :class="loading ? 'text-transparent animate-pulse' : 'text-tertiary'"
+            v-if="!showSkeleton"
+            class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary"
           >
-            {{ loading ? '0 pages' : `${pagesForGrid.length} page${pagesForGrid.length !== 1 ? 's' : ''}` }}
+            {{ pagesForGrid.length }} page{{ pagesForGrid.length !== 1 ? 's' : '' }}
           </span>
         </div>
 
         <!-- Pages -->
-        <DocumentationCardSkeleton v-if="loading" :count="6" />
+        <DocumentationCardSkeleton v-if="showSkeleton" :count="6" />
         <DocumentationCardGrid v-else :pages="pagesForGrid" />
       </div>
     </div>

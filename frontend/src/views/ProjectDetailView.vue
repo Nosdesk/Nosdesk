@@ -6,6 +6,7 @@ import type { Project } from '@/types/project'
 import { projectService } from '@/services/projectService'
 import { useProjectSSE } from '@/composables/useProjectSSE'
 import Modal from '@/components/Modal.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import ProjectForm from '@/components/projectComponents/ProjectForm.vue'
 import AddTicketToProjectModal from '@/components/projectComponents/AddTicketToProjectModal.vue'
 import KanbanBoard from '@/components/projectComponents/KanbanBoard.vue'
@@ -52,21 +53,15 @@ const activeTab = computed(() => {
   return 'kanban'
 })
 
-// Fetch project details on component mount
-onMounted(async () => {
+const loadProject = async () => {
   if (!projectId.value) {
     router.push('/projects')
     return
   }
-
   try {
     isLoading.value = true
     error.value = null
-
-    // Fetch project details
     project.value = await projectService.getProject(projectId.value)
-
-    // Fetch existing ticket IDs for the modal filter
     await fetchExistingTicketIds()
   } catch (err) {
     console.error('Failed to fetch project details:', err)
@@ -74,7 +69,14 @@ onMounted(async () => {
   } finally {
     isLoading.value = false
   }
-})
+}
+
+onMounted(loadProject)
+
+// Project-to-project navigation reuses the component instance now
+// that App.vue no longer force-remounts on every path change, so we
+// refetch here when the id changes.
+watch(projectId, loadProject)
 
 const fetchExistingTicketIds = async () => {
   if (!projectId.value) return
@@ -124,17 +126,20 @@ const handleTitleUpdate = async (newTitle: string) => {
   }
 }
 
-const handleDeleteProject = async () => {
+const showDeleteProjectConfirm = ref(false)
+
+const handleDeleteProject = () => {
   if (!project.value) return
-  
-  if (!confirm(`Are you sure you want to delete the project "${project.value.name}"?`)) {
-    return
-  }
-  
+  showDeleteProjectConfirm.value = true
+}
+
+const doDeleteProject = async () => {
+  showDeleteProjectConfirm.value = false
+  if (!project.value) return
   try {
     isLoading.value = true
     error.value = null
-    
+
     await projectService.deleteProject(project.value.id)
     router.push('/projects')
   } catch (err) {
@@ -156,12 +161,17 @@ const handleAddTicketComplete = async () => {
   }
 }
 
-const handleRemoveTicket = async (ticketId: number) => {
-  if (!project.value) return
+const pendingRemoveTicketId = ref<number | null>(null)
 
-  if (!confirm('Are you sure you want to remove this ticket from the project?')) {
-    return
-  }
+const handleRemoveTicket = (ticketId: number) => {
+  if (!project.value) return
+  pendingRemoveTicketId.value = ticketId
+}
+
+const doRemoveTicket = async () => {
+  const ticketId = pendingRemoveTicketId.value
+  pendingRemoveTicketId.value = null
+  if (!project.value || ticketId == null) return
 
   try {
     error.value = null
@@ -368,5 +378,25 @@ defineExpose({
       @add-ticket="handleAddTicketComplete"
       @refresh="handleAddTicketComplete"
     />
+
+    <ConfirmModal
+      :show="showDeleteProjectConfirm"
+      variant="danger"
+      :title="project ? `Delete ${project.name}?` : 'Delete project?'"
+      message="Tickets linked to this project will remain, but the project will be permanently removed."
+      confirm-label="Delete"
+      @confirm="doDeleteProject"
+      @close="showDeleteProjectConfirm = false"
+    />
+
+    <ConfirmModal
+      :show="pendingRemoveTicketId !== null"
+      variant="warning"
+      title="Remove ticket from project?"
+      message="The ticket will stay in the system but will no longer be linked to this project."
+      confirm-label="Remove"
+      @confirm="doRemoveTicket"
+      @close="pendingRemoveTicketId = null"
+    />
   </div>
-</template> 
+</template>

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { getCollections, createCollection, reorderCollections } from '@/services/collectionService'
 import type { CollectionWithDetails } from '@/services/collectionService'
 import { useAuthStore } from '@/stores/auth'
 import DocumentIconSelector from '@/components/DocumentIconSelector.vue'
+import Skeleton from '@/components/common/Skeleton.vue'
+import SkeletonBar from '@/components/common/SkeletonBar.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -20,10 +22,23 @@ const dropIndex = ref<number | null>(null)
 
 const canReorder = authStore.isTechnician
 
+// Only show the skeleton on the first load; background refetches
+// (e.g. after a create / reorder) keep the existing cards on screen
+// so nothing flashes.
+const showSkeleton = computed(() => loading.value && collections.value.length === 0)
+// Seed the skeleton count from the previous render when we have one,
+// fall back to 3 for the cold first paint.
+const skeletonCount = computed(() =>
+  collections.value.length > 0 ? Math.min(collections.value.length, 6) : 3,
+)
+
 const loadCollections = async () => {
   loading.value = true
-  collections.value = await getCollections()
-  loading.value = false
+  try {
+    collections.value = await getCollections()
+  } finally {
+    loading.value = false
+  }
 }
 
 const handleCreate = async () => {
@@ -152,10 +167,34 @@ onMounted(loadCollections)
       </div>
     </form>
 
-    <!-- Loading Skeleton -->
-    <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      <div v-for="i in 3" :key="i" class="h-24 rounded-lg bg-surface-alt animate-pulse"></div>
-    </div>
+    <!--
+      Loading skeleton — must mirror the real collection-card layout
+      (icon + title + optional description + footer row) so the cards
+      don't reshuffle when the real data lands.
+    -->
+    <Skeleton
+      v-if="showSkeleton"
+      label="Loading collections"
+      class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+    >
+      <div
+        v-for="i in skeletonCount"
+        :key="i"
+        class="flex flex-col gap-3 p-4 rounded-lg bg-surface border border-default"
+      >
+        <div class="flex items-start gap-3">
+          <SkeletonBar class="w-7 h-7 rounded flex-shrink-0" />
+          <div class="flex-1 space-y-2">
+            <SkeletonBar class="h-3.5 w-3/4" />
+            <SkeletonBar class="h-3 w-full" />
+          </div>
+        </div>
+        <div class="flex items-center justify-between pt-3 border-t border-subtle">
+          <SkeletonBar class="h-3 w-16" />
+          <SkeletonBar class="h-4 w-12 rounded" />
+        </div>
+      </div>
+    </Skeleton>
 
     <!-- Collection Cards -->
     <div v-else-if="collections.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

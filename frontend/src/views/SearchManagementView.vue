@@ -150,6 +150,16 @@
       </div>
 
     </div>
+
+    <ConfirmModal
+      :show="showRebuildConfirm"
+      variant="info"
+      title="Rebuild the search index?"
+      message="This may take a few moments depending on the amount of data."
+      confirm-label="Rebuild"
+      @confirm="doRebuildIndex"
+      @close="showRebuildConfirm = false"
+    />
   </div>
 </template>
 
@@ -159,6 +169,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 
 import { searchService } from '@/services/searchService'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import type { IndexStats, RebuildResponse } from '@/types/search'
 
 const authStore = useAuthStore()
@@ -198,14 +209,16 @@ const fetchStats = async () => {
   }
 }
 
+const showRebuildConfirm = ref(false)
+
 // Rebuild the search index
-const rebuildIndex = async () => {
+const rebuildIndex = () => {
   if (isRebuilding.value) return
+  showRebuildConfirm.value = true
+}
 
-  if (!confirm('Are you sure you want to rebuild the search index? This may take a few moments depending on the amount of data.')) {
-    return
-  }
-
+const doRebuildIndex = async () => {
+  showRebuildConfirm.value = false
   isRebuilding.value = true
   rebuildResults.value = null
 

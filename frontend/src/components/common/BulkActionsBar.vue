@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 
 export interface BulkAction {
   id: string
@@ -41,12 +42,24 @@ const getActionClasses = (action: BulkAction) => {
   }
 }
 
+const pendingAction = ref<BulkAction | null>(null)
+const pendingMessage = computed(() =>
+  pendingAction.value?.confirmMessage
+    || `Are you sure you want to ${pendingAction.value?.label.toLowerCase()} ${props.selectedCount} ${pluralLabel.value}?`
+)
+
 const handleAction = (action: BulkAction) => {
   if (action.confirm) {
-    const message = action.confirmMessage || `Are you sure you want to ${action.label.toLowerCase()} ${props.selectedCount} ${pluralLabel.value}?`
-    if (!confirm(message)) return
+    pendingAction.value = action
+    return
   }
   emit('action', action.id)
+}
+
+const confirmPending = () => {
+  const action = pendingAction.value
+  pendingAction.value = null
+  if (action) emit('action', action.id)
 }
 </script>
 
@@ -137,4 +150,14 @@ const handleAction = (action: BulkAction) => {
       </div>
     </div>
   </Transition>
+
+  <ConfirmModal
+    :show="pendingAction !== null"
+    :variant="pendingAction?.variant === 'danger' ? 'danger' : 'info'"
+    :title="pendingAction?.label ?? ''"
+    :message="pendingMessage"
+    :confirm-label="pendingAction?.label ?? 'Confirm'"
+    @confirm="confirmPending"
+    @close="pendingAction = null"
+  />
 </template>

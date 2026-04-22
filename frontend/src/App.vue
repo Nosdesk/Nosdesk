@@ -221,7 +221,7 @@ onMounted(async () => {
         >
           <Transition name="page" mode="out-in">
             <KeepAlive :include="['TicketsListView', 'UsersListView', 'DevicesListView', 'ProjectsView', 'DocumentationIndexView']">
-              <component :is="Component" :key="viewRoute.path" ref="currentViewComponent" class="h-full overflow-auto" />
+              <component :is="Component" ref="currentViewComponent" class="h-full overflow-auto" />
             </KeepAlive>
           </Transition>
         </RouterView>

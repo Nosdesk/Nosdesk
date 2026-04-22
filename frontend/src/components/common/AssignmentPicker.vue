@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useDataStore } from '@/stores/dataStore'
 import { groupService } from '@/services/groupService'
 
@@ -26,6 +26,30 @@ const dataStore = useDataStore()
 const searchQuery = ref('')
 const showDropdown = ref(false)
 const loading = ref(false)
+
+// The dropdown uses the native HTML `popover` attribute + top-layer.
+// Because top-layer paints above all stacking contexts (same layer
+// `<dialog>.showModal()` renders in), we don't need `<Teleport>`,
+// z-index fiddling, or any awareness of the surrounding modal. We
+// still position it manually via `position: fixed` + the input's
+// bounding rect, reapplied on scroll/resize so anchoring stays
+// correct if the modal body scrolls.
+const inputWrapperRef = ref<HTMLElement | null>(null)
+const popoverRef = ref<HTMLElement | null>(null)
+const dropdownPosition = ref({ left: 0, bottom: 0, width: 0 })
+
+function updateDropdownPosition() {
+  const el = inputWrapperRef.value
+  if (!el) return
+  const r = el.getBoundingClientRect()
+  dropdownPosition.value = {
+    left: r.left,
+    width: r.width,
+    // Opens above the input: `bottom` from viewport bottom equals
+    // viewport height minus the input's top edge (plus a small gap).
+    bottom: window.innerHeight - r.top + 4,
+  }
+}
 
 // Groups loaded once on mount
 const allGroups = ref<Array<{ id: number; name: string }>>([])
@@ -130,6 +154,29 @@ const onBlur = () => {
   }, 200)
 }
 
+// Sync the native popover state with our `showDropdown` ref and keep
+// the dropdown anchored to the input while it's open. Scroll listener
+// is in capture phase so a modal body's scroll still triggers a
+// reposition even if the handler stops propagation.
+watch(showDropdown, async (open) => {
+  if (open) {
+    await nextTick()
+    updateDropdownPosition()
+    popoverRef.value?.showPopover?.()
+    window.addEventListener('scroll', updateDropdownPosition, true)
+    window.addEventListener('resize', updateDropdownPosition)
+  } else {
+    popoverRef.value?.hidePopover?.()
+    window.removeEventListener('scroll', updateDropdownPosition, true)
+    window.removeEventListener('resize', updateDropdownPosition)
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', updateDropdownPosition, true)
+  window.removeEventListener('resize', updateDropdownPosition)
+})
+
 onMounted(async () => {
   const groups = await groupService.getGroups()
   allGroups.value = groups.map(g => ({ id: g.id, name: g.name }))
@@ -140,8 +187,8 @@ onMounted(async () => {
 
 <template>
   <div class="flex flex-col gap-2">
-    <!-- Search input + dropdown (positioned first so dropdown opens above chips) -->
-    <div class="relative">
+    <!-- Search input + dropdown -->
+    <div ref="inputWrapperRef" class="relative">
       <input
         v-model="searchQuery"
         :placeholder="placeholder"
@@ -150,12 +197,27 @@ onMounted(async () => {
         @blur="onBlur"
         class="w-full px-3 py-2 text-sm rounded-lg border border-default bg-surface text-primary placeholder:text-tertiary focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent/30"
       />
+    </div>
 
-      <!-- Dropdown (opens upward) -->
-      <div
-        v-if="showDropdown"
-        class="absolute z-50 left-0 right-0 bottom-full mb-1 max-h-60 overflow-y-auto rounded-lg border border-default bg-surface shadow-lg"
-      >
+    <!--
+      Native `popover` element. The browser promotes it to the top
+      layer (the same layer `<dialog>.showModal()` uses), which paints
+      above every ancestor stacking context, so we don't need
+      `<Teleport>`, a z-index token, or any knowledge of the
+      surrounding modal. `popover="manual"` means we control
+      show/hide ourselves; the @blur handler on the input closes it
+      after a short delay so dropdown clicks still register.
+    -->
+    <div
+      ref="popoverRef"
+      popover="manual"
+      class="assignment-picker-popover max-h-60 overflow-y-auto rounded-lg border border-default bg-surface shadow-lg"
+      :style="{
+        left: `${dropdownPosition.left}px`,
+        width: `${dropdownPosition.width}px`,
+        bottom: `${dropdownPosition.bottom}px`,
+      }"
+    >
         <div v-if="loading && !hasResults" class="p-3 text-xs text-tertiary text-center">
           Searching...
         </div>
@@ -210,7 +272,6 @@ onMounted(async () => {
             </button>
           </div>
         </template>
-      </div>
     </div>
 
     <!-- Selected items as chips -->
@@ -241,3 +302,24 @@ onMounted(async () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+/*
+  Reset the user-agent styling that browsers apply to any `[popover]`
+  element — centered `margin: auto`, a default padding, and a solid
+  border — so our Tailwind classes control the look. `position:
+  fixed` keeps the anchoring math (left / width / bottom) working in
+  the top layer.
+*/
+.assignment-picker-popover {
+  position: fixed;
+  margin: 0;
+  padding: 0;
+  border-width: 1px;
+  inset: auto;
+}
+
+.assignment-picker-popover:popover-open {
+  display: block;
+}
+</style>

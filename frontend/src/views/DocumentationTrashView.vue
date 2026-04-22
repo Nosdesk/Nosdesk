@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { getTrashedPages, restorePage, permanentlyDeletePage } from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
 import { useSSEListeners } from '@/composables/useSSEListeners'
 import BackButton from '@/components/common/BackButton.vue'
-import DocumentationCardSkeleton from '@/components/documentationComponents/DocumentationCardSkeleton.vue'
+import DocumentationRowSkeleton from '@/components/documentationComponents/DocumentationRowSkeleton.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { formatDate } from '@/utils/dateUtils'
@@ -13,14 +13,20 @@ import { formatDate } from '@/utils/dateUtils'
 const titleManager = useTitleManager()
 const docNavStore = useDocumentationNavStore()
 
-const loading = ref(true)
+// See the matching comment in DocumentationArchivedView — skeleton is
+// first-paint only, SSE-driven refetches do not blank the list.
+const initialLoading = ref(true)
 const pages = ref<Page[]>([])
 const confirmingDeleteId = ref<string | number | null>(null)
 
+const showSkeleton = computed(() => initialLoading.value && pages.value.length === 0)
+
 const loadTrashedPages = async () => {
-  loading.value = true
-  pages.value = await getTrashedPages()
-  loading.value = false
+  try {
+    pages.value = await getTrashedPages()
+  } finally {
+    initialLoading.value = false
+  }
 }
 
 const handleRestore = async (pageId: string | number) => {
@@ -88,15 +94,20 @@ onMounted(() => {
             </div>
           </div>
           <span
-            class="text-xs bg-surface-alt px-2 py-1 rounded-full"
-            :class="loading ? 'text-transparent animate-pulse' : 'text-tertiary'"
+            v-if="!showSkeleton"
+            class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary"
           >
-            {{ loading ? '0 pages' : `${pages.length} page${pages.length !== 1 ? 's' : ''}` }}
+            {{ pages.length }} page{{ pages.length !== 1 ? 's' : '' }}
           </span>
         </div>
 
         <!-- Loading -->
-        <DocumentationCardSkeleton v-if="loading" :count="4" />
+        <DocumentationRowSkeleton
+          v-if="showSkeleton"
+          :count="4"
+          :actions-per-row="2"
+          label="Loading trashed pages"
+        />
 
         <!-- Empty state -->
         <EmptyState

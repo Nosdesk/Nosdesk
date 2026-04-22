@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { getArchivedPages, restorePage } from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
 import { useSSEListeners } from '@/composables/useSSEListeners'
 import BackButton from '@/components/common/BackButton.vue'
-import DocumentationCardSkeleton from '@/components/documentationComponents/DocumentationCardSkeleton.vue'
+import DocumentationRowSkeleton from '@/components/documentationComponents/DocumentationRowSkeleton.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { formatDate } from '@/utils/dateUtils'
@@ -14,13 +14,20 @@ import { docUrl } from '@/utils/docUrl'
 const titleManager = useTitleManager()
 const docNavStore = useDocumentationNavStore()
 
-const loading = ref(true)
+// `initialLoading` gates the skeleton — only true on the first paint
+// when we have no data at all. Background refetches triggered by SSE
+// events leave the existing rows on screen so there's no flicker.
+const initialLoading = ref(true)
 const pages = ref<Page[]>([])
 
+const showSkeleton = computed(() => initialLoading.value && pages.value.length === 0)
+
 const loadArchivedPages = async () => {
-  loading.value = true
-  pages.value = await getArchivedPages()
-  loading.value = false
+  try {
+    pages.value = await getArchivedPages()
+  } finally {
+    initialLoading.value = false
+  }
 }
 
 const handleRestore = async (pageId: string | number) => {
@@ -76,15 +83,15 @@ onMounted(() => {
             </div>
           </div>
           <span
-            class="text-xs bg-surface-alt px-2 py-1 rounded-full"
-            :class="loading ? 'text-transparent animate-pulse' : 'text-tertiary'"
+            v-if="!showSkeleton"
+            class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary"
           >
-            {{ loading ? '0 pages' : `${pages.length} page${pages.length !== 1 ? 's' : ''}` }}
+            {{ pages.length }} page{{ pages.length !== 1 ? 's' : '' }}
           </span>
         </div>
 
         <!-- Loading -->
-        <DocumentationCardSkeleton v-if="loading" :count="4" />
+        <DocumentationRowSkeleton v-if="showSkeleton" :count="4" label="Loading archived pages" />
 
         <!-- Empty state -->
         <EmptyState

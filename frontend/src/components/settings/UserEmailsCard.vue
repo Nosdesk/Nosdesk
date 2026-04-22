@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import userService from '@/services/userService';
+import ConfirmModal from '@/components/common/ConfirmModal.vue';
 
 // Props
 const props = withDefaults(defineProps<{
@@ -84,13 +85,18 @@ const setAsPrimary = async (emailId: number, emailAddress: string) => {
 };
 
 // Delete email
-const deleteEmail = async (emailId: number, emailAddress: string) => {
-  if (!confirm(`Are you sure you want to remove ${emailAddress}?`)) {
-    return;
-  }
+const pendingDeleteEmail = ref<{ id: number; address: string } | null>(null);
 
+const deleteEmail = (emailId: number, emailAddress: string) => {
+  pendingDeleteEmail.value = { id: emailId, address: emailAddress };
+};
+
+const doDeleteEmail = async () => {
+  const target = pendingDeleteEmail.value;
+  pendingDeleteEmail.value = null;
+  if (!target) return;
   try {
-    await userService.deleteUserEmail(props.userUuid, emailId);
+    await userService.deleteUserEmail(props.userUuid, target.id);
     emit('success', 'Email address removed successfully');
     await fetchUserEmails(); // Refresh list
   } catch (error) {
@@ -237,5 +243,15 @@ watch(() => props.userUuid, () => {
         </div>
       </div>
     </div>
+
+    <ConfirmModal
+      :show="pendingDeleteEmail !== null"
+      variant="danger"
+      title="Remove email address?"
+      :message="pendingDeleteEmail ? `${pendingDeleteEmail.address} will no longer be associated with this account.` : ''"
+      confirm-label="Remove"
+      @confirm="doDeleteEmail"
+      @close="pendingDeleteEmail = null"
+    />
   </div>
 </template>

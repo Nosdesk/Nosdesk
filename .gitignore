@@ -75,4 +75,5 @@ Thumbs.db
 # Local dev scratch
 .playwright-mcp/
 nosdesk_backup_*.sql
+nosdesk_pre_*.sql
 docs/

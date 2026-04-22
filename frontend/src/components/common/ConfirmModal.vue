@@ -1,0 +1,72 @@
+<!--
+Styled confirmation dialog that replaces ad-hoc `window.confirm`
+calls. Thin wrapper over the design-system `Modal.vue`; consumer
+owns the `show` state and handles the `confirm` event.
+
+Usage:
+  <ConfirmModal
+    :show="showConfirm"
+    variant="danger"
+    title="Remove stored password?"
+    message="..."
+    confirm-label="Remove"
+    @confirm="doRemove"
+    @close="showConfirm = false"
+  />
+-->
+<template>
+  <Modal :show="show" :title="title" size="sm" @close="emit('close')">
+    <div class="flex flex-col gap-5">
+      <p class="text-sm text-secondary whitespace-pre-line">{{ message }}</p>
+
+      <div class="flex justify-end gap-2">
+        <button
+          type="button"
+          class="px-4 py-2 text-sm rounded-lg text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+          @click="emit('close')"
+        >
+          {{ cancelLabel }}
+        </button>
+        <button
+          type="button"
+          :class="[
+            'px-4 py-2 text-sm rounded-lg text-white transition-colors',
+            variant === 'danger'
+              ? 'bg-status-error hover:opacity-90'
+              : variant === 'warning'
+                ? 'bg-status-warning hover:opacity-90'
+                : 'bg-accent hover:opacity-90',
+          ]"
+          @click="emit('confirm')"
+        >
+          {{ confirmLabel }}
+        </button>
+      </div>
+    </div>
+  </Modal>
+</template>
+
+<script setup lang="ts">
+import Modal from '@/components/Modal.vue';
+
+withDefaults(
+  defineProps<{
+    show: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    variant?: 'danger' | 'warning' | 'info';
+  }>(),
+  {
+    confirmLabel: 'Confirm',
+    cancelLabel: 'Cancel',
+    variant: 'info',
+  },
+);
+
+const emit = defineEmits<{
+  (e: 'confirm'): void;
+  (e: 'close'): void;
+}>();
+</script>

@@ -28,12 +28,6 @@ declare module 'vue-router' {
   }
 }
 
-declare global {
-  interface Window {
-    hasUnsavedChanges?: boolean;
-  }
-}
-
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -632,15 +626,6 @@ router.beforeResolve((to) => {
 // Modern Vue Router 4 pattern using return values instead of next() callbacks
 
 /**
- * Check for unsaved changes before navigation
- */
-async function checkUnsavedChanges(to: RouteLocationNormalized, from: RouteLocationNormalized) {
-  if (window.hasUnsavedChanges && !window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
-    return false; // Cancel navigation
-  }
-}
-
-/**
  * Check if system requires initial setup/onboarding
  * Redirects to onboarding if no admin user exists
  * Result is cached after first successful check to avoid API calls on every navigation
@@ -742,7 +727,6 @@ async function checkAdminAccess(to: RouteLocationNormalized, _from: RouteLocatio
 }
 
 // Register middleware in order of execution
-router.beforeEach(checkUnsavedChanges);
 router.beforeEach(checkOnboarding);
 router.beforeEach(checkAuthentication);
 router.beforeEach(checkAdminAccess);

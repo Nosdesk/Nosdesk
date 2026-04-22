@@ -226,7 +226,7 @@
                   :disabled="clearing"
                   @click="clearCredential"
                 >
-                  {{ clearing ? 'Clearing...' : 'Clear stored password' }}
+                  {{ clearing ? 'Removing...' : 'Remove stored password' }}
                 </button>
               </div>
             </div>
@@ -295,6 +295,26 @@
         </form>
       </div>
     </div>
+
+    <ConfirmModal
+      :show="showClearCredentialConfirm"
+      variant="danger"
+      title="Remove stored password?"
+      message="The worker will stop authenticating until a new one is saved."
+      confirm-label="Remove"
+      @confirm="doClearCredential"
+      @close="showClearCredentialConfirm = false"
+    />
+
+    <ConfirmModal
+      :show="showDeleteChannelConfirm"
+      variant="danger"
+      title="Delete this email channel?"
+      message="Tickets already opened from it stay intact, but no new messages will be ingested. This cannot be undone."
+      confirm-label="Delete channel"
+      @confirm="doDeleteChannel"
+      @close="showDeleteChannelConfirm = false"
+    />
   </div>
 </template>
 
@@ -303,6 +323,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
+import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import {
   channelsService,
   type Channel,
@@ -515,21 +536,23 @@ async function testConnection() {
   }
 }
 
-async function clearCredential() {
+const showClearCredentialConfirm = ref(false);
+const showDeleteChannelConfirm = ref(false);
+
+function clearCredential() {
   if (!channel.value) return;
-  if (
-    !window.confirm(
-      'Clear the stored IMAP password? The worker will stop authenticating until a new one is saved.'
-    )
-  ) {
-    return;
-  }
+  showClearCredentialConfirm.value = true;
+}
+
+async function doClearCredential() {
+  showClearCredentialConfirm.value = false;
+  if (!channel.value) return;
   clearMessages();
   clearing.value = true;
   try {
     await channelsService.clearCredential(channel.value.id);
     await loadExisting();
-    successMessage.value = 'Password cleared';
+    successMessage.value = 'Password removed';
     setTimeout(() => (successMessage.value = ''), 3000);
   } catch (e: unknown) {
     errorMessage.value = createErrorFromResponse(e).getUserMessage();
@@ -538,15 +561,14 @@ async function clearCredential() {
   }
 }
 
-async function confirmAndDelete() {
+function confirmAndDelete() {
   if (!channel.value) return;
-  if (
-    !window.confirm(
-      'Delete this email channel? Tickets already opened from it stay intact, but no new messages will be ingested. This cannot be undone.'
-    )
-  ) {
-    return;
-  }
+  showDeleteChannelConfirm.value = true;
+}
+
+async function doDeleteChannel() {
+  showDeleteChannelConfirm.value = false;
+  if (!channel.value) return;
   clearMessages();
   deleting.value = true;
   try {

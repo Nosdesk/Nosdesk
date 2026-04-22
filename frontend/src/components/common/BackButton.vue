@@ -48,10 +48,18 @@ const handleBack = () => {
 </script>
 
 <template>
+  <!--
+    `h-8` / `h-6` (2rem / 1.5rem) matches the height of the other
+    toolbar buttons in the app (icon buttons are `p-1.5` + a 1.25rem
+    svg → 2rem). Declaring it here means every toolbar that contains
+    a BackButton has a stable intrinsic row height without needing a
+    `min-h` or fixed `h-12` on the row itself — the row sizes to its
+    children, which is how flexbox is meant to be used.
+  -->
   <button
     @click="handleBack"
-    class="text-secondary hover:text-primary flex items-center gap-1 group"
-    :class="compact ? 'text-xs' : 'text-sm'"
+    class="text-secondary hover:text-primary inline-flex items-center gap-1 group px-1 rounded"
+    :class="compact ? 'h-6 text-xs' : 'h-8 text-sm'"
   >
     <svg
       class="group-hover:-translate-x-0.5 transition-transform"

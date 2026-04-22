@@ -206,7 +206,7 @@
             type="text"
             required
             maxlength="255"
-            placeholder="Brief summary of the issue"
+            placeholder="A short summary of what you need"
             :aria-invalid="fieldErrors.title ? 'true' : 'false'"
             class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors"
           />
@@ -221,7 +221,7 @@
             required
             rows="5"
             maxlength="10000"
-            placeholder="Describe what happened, what you expected, and any steps to reproduce."
+            placeholder="Tell us what's going on and how we can help."
             :aria-invalid="fieldErrors.description ? 'true' : 'false'"
             class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent resize-y transition-colors"
           ></textarea>

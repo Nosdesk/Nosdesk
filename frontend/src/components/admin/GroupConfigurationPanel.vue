@@ -5,6 +5,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import ColorHueSlider from '@/components/common/ColorHueSlider.vue';
 import Modal from '@/components/Modal.vue';
+import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import DeviceOsIcon from '@/components/common/DeviceOsIcon.vue';
 import { groupService } from '@/services/groupService';
@@ -453,12 +454,16 @@ const deleteGroup = async () => {
 };
 
 // Unmanage group (remove from Microsoft sync)
-const unmanageGroup = async () => {
+const showUnmanageConfirm = ref(false);
+
+const unmanageGroup = () => {
   if (!group.value) return;
+  showUnmanageConfirm.value = true;
+};
 
-  const confirmed = confirm(`Are you sure you want to unmanage "${group.value.name}" from Microsoft Entra ID? This will allow manual editing but the group will no longer sync with Microsoft.`);
-  if (!confirmed) return;
-
+const doUnmanageGroup = async () => {
+  showUnmanageConfirm.value = false;
+  if (!group.value) return;
   isUnmanaging.value = true;
   errorMessage.value = '';
 
@@ -1077,5 +1082,15 @@ onMounted(() => {
         </div>
       </div>
     </Modal>
+
+    <ConfirmModal
+      :show="showUnmanageConfirm"
+      variant="warning"
+      :title="group ? `Unmanage ${group.name}?` : 'Unmanage group?'"
+      message="The group will no longer sync with Microsoft Entra ID. Manual edits become allowed, but existing sync history is preserved."
+      confirm-label="Unmanage"
+      @confirm="doUnmanageGroup"
+      @close="showUnmanageConfirm = false"
+    />
   </div>
 </template>

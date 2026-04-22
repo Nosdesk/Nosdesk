@@ -4,6 +4,7 @@ import { ref, computed, onMounted, onActivated, onDeactivated, onUnmounted, watc
 import { useRouter } from 'vue-router'
 import type { Project, ProjectStatus } from '@/types/project'
 import Modal from '@/components/Modal.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import ProjectForm from '@/components/projectComponents/ProjectForm.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
@@ -168,9 +169,17 @@ const handleCreateProject = async (projectData: Omit<Project, 'id' | 'ticket_cou
   }
 }
 
-const removeProject = async (event: Event, projectId: number) => {
+const pendingDeleteProjectId = ref<number | null>(null)
+
+const removeProject = (event: Event, projectId: number) => {
   event.stopPropagation()
-  if (!confirm('Are you sure you want to remove this project?')) return
+  pendingDeleteProjectId.value = projectId
+}
+
+const doRemoveProject = async () => {
+  const projectId = pendingDeleteProjectId.value
+  pendingDeleteProjectId.value = null
+  if (projectId == null) return
 
   try {
     isLoading.value = true
@@ -459,6 +468,16 @@ watch(searchQuery, updateSearchQuery)
         @cancel="showEditModal = false"
       />
     </Modal>
+
+    <ConfirmModal
+      :show="pendingDeleteProjectId !== null"
+      variant="danger"
+      title="Delete this project?"
+      message="The project will be removed. Tickets linked to it will remain."
+      confirm-label="Delete"
+      @confirm="doRemoveProject"
+      @close="pendingDeleteProjectId = null"
+    />
   </div>
 </template>
 

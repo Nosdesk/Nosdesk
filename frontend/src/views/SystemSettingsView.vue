@@ -90,6 +90,16 @@
         </div>
       </div>
     </div>
+
+    <ConfirmModal
+      :show="showCleanupConfirm"
+      variant="danger"
+      title="Clean up stale images?"
+      message="This action cannot be undone."
+      confirm-label="Clean up"
+      @confirm="doCleanupStaleImages"
+      @close="showCleanupConfirm = false"
+    />
   </div>
 </template>
 
@@ -99,6 +109,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 
 import SystemInfoCard from '@/components/admin/SystemInfoCard.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import userService from '@/services/userService'
 
 const authStore = useAuthStore()
@@ -131,14 +142,15 @@ onMounted(() => {
   }
 })
 
-const cleanupStaleImages = async () => {
+const showCleanupConfirm = ref(false)
+
+const cleanupStaleImages = () => {
   if (isCleaningUp.value) return
+  showCleanupConfirm.value = true
+}
 
-  // Confirm action
-  if (!confirm('Are you sure you want to clean up stale images? This action cannot be undone.')) {
-    return
-  }
-
+const doCleanupStaleImages = async () => {
+  showCleanupConfirm.value = false
   isCleaningUp.value = true
   cleanupResults.value = null
 

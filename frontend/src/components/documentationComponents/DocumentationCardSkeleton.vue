@@ -1,44 +1,43 @@
-<script setup lang="ts">
-defineProps<{
-  count?: number
-}>()
-</script>
-
+<!--
+Skeleton mirroring `DocumentationCard` / `DocumentationCardGrid`:
+icon banner + title + description block + metadata strip. Grid
+breakpoints MUST match `DocumentationCardGrid` so the skeleton doesn't
+reflow at a different breakpoint than the real cards.
+-->
 <template>
-  <div class="skeleton-grid">
+  <Skeleton label="Loading pages" class="skeleton-grid">
     <div
-      v-for="i in (count || 6)"
-      :key="`skeleton-${i}`"
+      v-for="i in count"
+      :key="i"
       class="skeleton-card"
     >
-      <!-- Icon area skeleton -->
       <div class="skeleton-header">
-        <div class="skeleton-icon"></div>
+        <SkeletonBar class="w-10 h-10 rounded-lg" />
       </div>
-
-      <!-- Content skeleton -->
       <div class="skeleton-content">
-        <!-- Title -->
-        <div class="skeleton-title"></div>
-
-        <!-- Description lines -->
-        <div class="skeleton-description">
-          <div class="skeleton-line skeleton-line--full"></div>
-          <div class="skeleton-line skeleton-line--long"></div>
-          <div class="skeleton-line skeleton-line--medium"></div>
+        <SkeletonBar class="h-5 w-[70%] rounded" />
+        <div class="flex flex-col gap-2">
+          <SkeletonBar class="h-3 w-full" />
+          <SkeletonBar class="h-3 w-[90%]" />
+          <SkeletonBar class="h-3 w-[60%]" />
         </div>
-
-        <!-- Metadata -->
         <div class="skeleton-meta">
-          <div class="skeleton-avatar"></div>
-          <div class="skeleton-meta-text"></div>
-          <div class="skeleton-meta-dot"></div>
-          <div class="skeleton-meta-text skeleton-meta-text--short"></div>
+          <SkeletonBar class="w-5 h-5 rounded-full" />
+          <SkeletonBar class="h-2.5 w-14" />
+          <SkeletonBar class="w-1 h-1 rounded-full" />
+          <SkeletonBar class="h-2.5 w-10" />
         </div>
       </div>
     </div>
-  </div>
+  </Skeleton>
 </template>
+
+<script setup lang="ts">
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
+
+withDefaults(defineProps<{ count?: number }>(), { count: 6 });
+</script>
 
 <style scoped>
 .skeleton-grid {
@@ -80,15 +79,6 @@ defineProps<{
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
-}
-
-.skeleton-icon {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 0.5rem;
-  background: var(--color-surface-hover);
-  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 .skeleton-content {
@@ -98,43 +88,6 @@ defineProps<{
   gap: 0.75rem;
 }
 
-.skeleton-title {
-  height: 1.25rem;
-  width: 70%;
-  border-radius: 0.25rem;
-  background: var(--color-surface-hover);
-  animation: shimmer 1.5s ease-in-out infinite;
-  animation-delay: 150ms;
-}
-
-.skeleton-description {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.skeleton-line {
-  height: 0.75rem;
-  border-radius: 0.25rem;
-  background: var(--color-surface-hover);
-  animation: shimmer 1.5s ease-in-out infinite;
-}
-
-.skeleton-line--full {
-  width: 100%;
-  animation-delay: 200ms;
-}
-
-.skeleton-line--long {
-  width: 90%;
-  animation-delay: 250ms;
-}
-
-.skeleton-line--medium {
-  width: 60%;
-  animation-delay: 300ms;
-}
-
 .skeleton-meta {
   display: flex;
   align-items: center;
@@ -142,46 +95,5 @@ defineProps<{
   margin-top: 0.5rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-subtle);
-}
-
-.skeleton-avatar {
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 50%;
-  background: var(--color-surface-hover);
-  animation: shimmer 1.5s ease-in-out infinite;
-  animation-delay: 350ms;
-}
-
-.skeleton-meta-text {
-  height: 0.625rem;
-  width: 3.5rem;
-  border-radius: 0.125rem;
-  background: var(--color-surface-hover);
-  animation: shimmer 1.5s ease-in-out infinite;
-  animation-delay: 400ms;
-}
-
-.skeleton-meta-text--short {
-  width: 2.5rem;
-  animation-delay: 450ms;
-}
-
-.skeleton-meta-dot {
-  width: 0.25rem;
-  height: 0.25rem;
-  border-radius: 50%;
-  background: var(--color-surface-hover);
-  animation: shimmer 1.5s ease-in-out infinite;
-  animation-delay: 425ms;
-}
-
-@keyframes shimmer {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
 }
 </style>

@@ -14,6 +14,7 @@ import BackButton from '@/components/common/BackButton.vue'
 import CollectionTreeList from '@/components/documentationComponents/CollectionTreeList.vue'
 import DocumentIconSelector from '@/components/DocumentIconSelector.vue'
 import CollectionVisibilityModal from '@/components/documentationComponents/CollectionVisibilityModal.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue'
 
 const route = useRoute()
@@ -113,9 +114,16 @@ const onVisibilityUpdated = async () => {
   await loadCollection()
 }
 
-const handleDelete = async () => {
+const showDeleteConfirm = ref(false)
+
+const handleDelete = () => {
   if (!collection.value) return
-  if (!confirm(`Delete "${collection.value.name}"? Pages in this collection will not be deleted.`)) return
+  showDeleteConfirm.value = true
+}
+
+const doDelete = async () => {
+  showDeleteConfirm.value = false
+  if (!collection.value) return
   const success = await deleteCollection(collection.value.id)
   if (success) {
     docNavStore.refreshPages()
@@ -418,6 +426,16 @@ on('documentation-updated', (data) => {
       :currentUsers="collection.visible_to_users || []"
       @close="showVisibilityModal = false"
       @updated="onVisibilityUpdated"
+    />
+
+    <ConfirmModal
+      :show="showDeleteConfirm"
+      variant="danger"
+      :title="collection ? `Delete ${collection.name}?` : 'Delete collection?'"
+      message="Pages in this collection will not be deleted."
+      confirm-label="Delete"
+      @confirm="doDelete"
+      @close="showDeleteConfirm = false"
     />
   </div>
 </template>

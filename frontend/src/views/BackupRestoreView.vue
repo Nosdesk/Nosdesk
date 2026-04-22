@@ -337,6 +337,16 @@
         </div>
       </div>
     </div>
+
+    <ConfirmModal
+      :show="pendingDeleteJobId !== null"
+      variant="danger"
+      title="Delete this backup?"
+      message="The backup file will be permanently removed."
+      confirm-label="Delete"
+      @confirm="doDeleteJob"
+      @close="pendingDeleteJobId = null"
+    />
   </div>
 </template>
 
@@ -345,6 +355,7 @@ import { ref, onMounted, computed } from 'vue';
 
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import PasswordInput from '@/components/common/PasswordInput.vue';
+import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import backupService from '@/services/backupService';
 import { downloadDocumentationExport, type ExportProgress } from '@/services/markdownExportService';
 import type { BackupJob, RestorePreview } from '@/types/backup';
@@ -428,9 +439,16 @@ const downloadBackup = (id: string) => {
   backupService.downloadBackup(id);
 };
 
-const deleteJob = async (id: string) => {
-  if (!confirm('Are you sure you want to delete this backup?')) return;
+const pendingDeleteJobId = ref<string | null>(null);
 
+const deleteJob = (id: string) => {
+  pendingDeleteJobId.value = id;
+};
+
+const doDeleteJob = async () => {
+  const id = pendingDeleteJobId.value;
+  pendingDeleteJobId.value = null;
+  if (!id) return;
   try {
     await backupService.deleteJob(id);
     await loadJobs();
