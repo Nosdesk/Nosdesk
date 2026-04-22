@@ -32,14 +32,21 @@ impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for TestTransaction {
 
 /// Obtain a single pooled connection wrapped in a test transaction.
 ///
-/// Uses `DATABASE_URL` (same DB the dev container already has) — safe because
-/// `begin_test_transaction` ensures everything is rolled back on drop.
+/// Requires `TEST_DATABASE_URL` to point at a dedicated test database.
+/// We deliberately do *not* fall back to `DATABASE_URL`: PostgreSQL
+/// sequences are non-transactional, so every fixture insert would burn
+/// an id out of the dev database's `tickets_id_seq` etc., pushing
+/// ticket numbers into the thousands after a handful of `cargo test`
+/// runs. The dev compose file provisions `helpdesk_test` and wires
+/// this env var; see `init-db.sql`.
 pub fn setup_test_connection() -> DbConnection {
     dotenv::dotenv().ok();
 
-    let database_url = std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("DATABASE_URL or TEST_DATABASE_URL must be set for tests");
+    let database_url = std::env::var("TEST_DATABASE_URL").expect(
+        "TEST_DATABASE_URL must be set (use a dedicated DB, not DATABASE_URL — \
+         sequences advance even on rolled-back transactions and would trash \
+         dev ticket/user ids)",
+    );
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let pool = r2d2::Pool::builder()

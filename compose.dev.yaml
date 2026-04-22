@@ -36,6 +36,11 @@ services:
       - RUST_BACKTRACE=1
       - CARGO_MESSAGE_FORMAT=short
       - CARGO_TERM_COLOR=always
+      # Tests run against a dedicated database so test fixtures don't
+      # burn sequence values out of the dev DB. See `init-db.sql` for
+      # the CREATE DATABASE + GRANT, and `backend/src/test_helpers.rs`
+      # for the hard-fail when this is unset.
+      - TEST_DATABASE_URL=postgres://${POSTGRES_USER:-nosdesk}:${POSTGRES_PASSWORD:-nosdesk_password}@postgres:5432/helpdesk_test
     healthcheck:
       start_period: 120s # Longer for dev due to compilation time
 

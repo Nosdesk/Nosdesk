@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn all_returns_correct_count() {
-        assert_eq!(WebhookEventType::all().len(), 20);
+        assert_eq!(WebhookEventType::all().len(), 21);
     }
 
     #[test]

@@ -19,7 +19,7 @@
 //! back with the right fields and `last_seen_uid` advances.
 //!
 //! A pool *is* required because the adapter writes runtime_state after
-//! each poll. We lean on the same `TEST_DATABASE_URL` / `DATABASE_URL`
+//! each poll. We lean on the dedicated `TEST_DATABASE_URL`
 //! the library tests use.
 
 use std::sync::Arc;
@@ -64,9 +64,12 @@ fn greenmail_reachable() -> bool {
 
 fn build_pool() -> Pool {
     dotenv::dotenv().ok();
+    // Require a dedicated test DB — see `src/test_helpers.rs` for the
+    // non-transactional-sequence rationale. This integration test
+    // commits rows (no test transaction) and tears them down in
+    // `teardown`, but we still don't want it mingling with dev data.
     let url = std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("DATABASE_URL must be set for integration tests");
+        .expect("TEST_DATABASE_URL must be set for integration tests");
     let manager = ConnectionManager::<diesel::PgConnection>::new(url);
     r2d2::Pool::builder()
         .max_size(4)
