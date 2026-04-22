@@ -1127,6 +1127,74 @@ fn check_microsoft_config() -> Result<(), String> {
     Ok(())
 }
 
+/// Scheduler-callable entry point. Runs a delta sync of users + devices
+/// + groups against the default Microsoft provider, intended for
+/// periodic invocation via [`crate::services::scheduler`].
+///
+/// This is a thin wrapper over the HTTP handler's background path
+/// (`perform_sync`) — it skips the claims/session-id machinery the
+/// interactive sync view needs and reports outcomes through the
+/// scheduler's own status registry instead of writing `sync_history`
+/// rows. When the user-initiated handler and the scheduled job
+/// eventually want to share a sync_history audit trail we can hoist
+/// that logic — for now the two paths coexist without interfering.
+///
+/// Returns early with `Ok(())` when Microsoft credentials are not
+/// configured so the job doesn't spam errors on installs that aren't
+/// using Intune integration.
+pub async fn run_scheduled_delta_sync(pool: &crate::db::Pool) -> anyhow::Result<()> {
+    if check_microsoft_config().is_err() {
+        // Not configured — treat as a clean no-op so the scheduler
+        // status registry shows "ok" instead of a noisy error.
+        debug!("MS Graph scheduled sync skipped — provider not configured");
+        return Ok(());
+    }
+
+    let provider = get_default_microsoft_provider()
+        .map_err(|e| anyhow::anyhow!("MS Graph provider lookup failed: {e}"))?;
+
+    let mut conn = pool
+        .get()
+        .map_err(|e| anyhow::anyhow!("db pool: {e}"))?;
+
+    let entities = vec!["users".to_string(), "devices".to_string(), "groups".to_string()];
+    // Synthetic session id — `update_sync_progress` writes to an
+    // in-memory map keyed on the id. Scheduled runs don't surface
+    // progress through the admin UI, so the id is used exclusively as
+    // a cleanup key. The Drop guard below removes both map entries
+    // on any exit path (success, error, or panic) — without it, each
+    // 30-min tick would leak a handful of bytes into the statics.
+    let session_id = uuid::Uuid::new_v4().to_string();
+    initialize_sync_session(&session_id);
+    let _guard = SyncSessionGuard { session_id: session_id.clone() };
+
+    match perform_sync(&mut conn, provider.id, &entities, &session_id, true).await {
+        Ok(result) if result.success => Ok(()),
+        Ok(result) => Err(anyhow::anyhow!("sync completed with errors: {}", result.message)),
+        Err(e) => Err(anyhow::anyhow!("sync failed: {e}")),
+    }
+}
+
+/// RAII guard that drops the per-run entries from both `SYNC_PROGRESS`
+/// and `SYNC_CANCELLATION` when the scheduled sync finishes. Scoped
+/// to this module because only the scheduled-sync path needs it —
+/// interactive syncs keep their entries so the admin UI can render
+/// the final state after the sync returns.
+struct SyncSessionGuard {
+    session_id: String,
+}
+
+impl Drop for SyncSessionGuard {
+    fn drop(&mut self) {
+        if let Ok(mut map) = SYNC_PROGRESS.lock() {
+            map.remove(&self.session_id);
+        }
+        if let Ok(mut map) = SYNC_CANCELLATION.lock() {
+            map.remove(&self.session_id);
+        }
+    }
+}
+
 /// Test Graph connection by making a simple API call
 async fn test_graph_connection(_provider_id: i32) -> Result<serde_json::Value, String> {
     let start_time = std::time::Instant::now();
@@ -1981,6 +2049,7 @@ async fn update_existing_microsoft_user_optimized(
         theme: None, // Preserve user's theme preference
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?), // Always update Microsoft UUID with proper conversion
         updated_at: Some(chrono::Utc::now().naive_utc()),
+            signature: None,
     };
 
     // Update user if there are changes
@@ -2090,6 +2159,7 @@ async fn link_existing_user_to_microsoft_optimized(
         theme: None, // Preserve user's theme preference
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?), // Store Microsoft UUID with proper conversion
         updated_at: Some(chrono::Utc::now().naive_utc()),
+            signature: None,
     };
 
     // Always update to store the Microsoft UUID
@@ -3389,6 +3459,7 @@ async fn update_user_avatar_by_id(
             theme: None, // Preserve user's theme preference
             microsoft_uuid: None, // Don't update Microsoft UUID when updating avatar
             updated_at: Some(chrono::Utc::now().naive_utc()),
+            signature: None,
         };
 
         match user_repo::update_user(user_uuid, user_update, conn) {
@@ -4170,6 +4241,7 @@ async fn update_existing_microsoft_user_no_photos(
         theme: None, // Preserve user's theme preference
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?),
         updated_at: Some(chrono::Utc::now().naive_utc()),
+            signature: None,
     };
 
     if user_update.name.is_some() || false /* email removed */ || user_update.microsoft_uuid.is_some() {
@@ -4233,6 +4305,7 @@ async fn link_existing_user_to_microsoft_no_photos(
         theme: None, // Preserve user's theme preference
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?),
         updated_at: Some(chrono::Utc::now().naive_utc()),
+            signature: None,
     };
 
     user_repo::update_user(&existing_user.uuid, user_update, conn)

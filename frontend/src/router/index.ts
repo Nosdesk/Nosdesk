@@ -521,6 +521,12 @@ const router = createRouter({
           meta: { title: 'Email Configuration' }
         },
         {
+          path: 'channels/email',
+          name: 'admin-channels-email',
+          component: () => import('../views/ChannelsEmailSettingsView.vue'),
+          meta: { title: 'Email Ingestion', requiresAuth: true, adminRequired: true }
+        },
+        {
           path: 'data-import',
           name: 'admin-data-import',
           component: () => import('../views/DataImportView.vue'),

@@ -23,6 +23,10 @@ export interface Comment {
   user_uuid: string
   created_at: string
   ticket_id: number
+  /** True = tech-to-tech note. Never shown to requesters; never relayed back through the originating channel. */
+  is_internal?: boolean
+  /** Set when the comment originated from a channel (email Message-ID, Slack thread_ts, etc). */
+  channel_metadata?: Record<string, unknown> | null
   attachments?: Attachment[]
   user?: UserInfo
 }

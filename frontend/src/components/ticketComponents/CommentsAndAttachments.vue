@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { formatDate, formatDateTime } from '@/utils/dateUtils';
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
 import AttachmentPreview from "@/components/ticketComponents/AttachmentPreview.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import SimpleEditor from "@/components/common/SimpleEditor.vue";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
+import CommentContent from "@/components/ticketComponents/CommentContent.vue";
+import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePicker.vue";
 import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
 
@@ -22,6 +24,17 @@ interface CommentWithAttachments {
     content: string;
     user_uuid: string;
     createdAt: string;
+    /** True = tech-to-tech note; renders with the warning badge/tint
+        and is suppressed from requester-facing views on the backend. */
+    is_internal?: boolean;
+    /** Set when a channel message arrived via a tech forwarding a
+        customer's email. Carries `forwarded_by_user_uuid` so the UI
+        can render a "Forwarded by X" badge; the ticket's requester
+        is already the original customer. */
+    channel_metadata?: {
+        forwarded_by_user_uuid?: string;
+        [key: string]: unknown;
+    } | null;
     attachments?: {
         id: number;
         url: string;
@@ -36,6 +49,16 @@ const props = defineProps<{
     comments: CommentWithAttachments[];
     currentUser: string;
     recentlyAddedCommentIds?: Set<number>;
+    /** Optional template context for the canned-response picker —
+        `{{ticket_id}}`, `{{customer_name}}` etc. substitute at
+        insert time. Omit when the composer isn't on a ticket. */
+    templateVars?: {
+        ticket_id?: number | string;
+        ticket_title?: string;
+        customer_name?: string;
+        tech_name?: string;
+        app_name?: string;
+    };
 }>();
 
 const newCommentContent = ref<string>("");
@@ -44,6 +67,10 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 const showRecordingInterface = ref(false);
 const isDraggingFile = ref(false);
 const conversionMessage = ref<string | null>(null);
+// Internal notes are tech-to-tech: hidden from requesters and not
+// relayed back through the originating channel. Defaults off so the
+// common path (public reply) stays the single-click case.
+const isInternal = ref<boolean>(false);
 
 const emit = defineEmits<{
     (
@@ -52,6 +79,7 @@ const emit = defineEmits<{
             content: string;
             user_uuid: string;
             files: File[];
+            is_internal: boolean;
         },
     ): void;
     (
@@ -72,28 +100,42 @@ const hasTextContent = (html: string): boolean => {
     return temp.textContent?.trim().length > 0;
 };
 
+// Template vars for the canned-response picker. `templateVars` prop
+// is optional; default to an empty object so tokens like
+// `{{customer_name}}` render as-is rather than erroring.
+const cannedResponseVars = computed(() => props.templateVars ?? {});
+
+// Inserts rendered canned-response text into the composer. SimpleEditor's
+// v-model is HTML; plain text with newlines is rendered by wrapping in
+// paragraphs — `\n\n` becomes a paragraph break, single `\n` a `<br>`.
+function insertCannedResponse(text: string) {
+    const html = text
+        .split(/\n\n+/)
+        .map((para) => `<p>${para.replace(/\n/g, "<br>")}</p>`)
+        .join("");
+    // Append rather than replace — the tech may have started typing
+    // context before pulling a template.
+    newCommentContent.value = newCommentContent.value
+        ? `${newCommentContent.value}${html}`
+        : html;
+}
+
 const addComment = () => {
     if (!hasTextContent(newCommentContent.value) && newAttachments.value.length === 0)
         return;
 
-    console.log("Emitting addComment event with data:", {
-        content: newCommentContent.value,
-        user_uuid: props.currentUser,
-        files: newAttachments.value,
-    });
-
-    // Emit the comment with raw files - parent will handle upload
     emit("addComment", {
         content: newCommentContent.value,
         user_uuid: props.currentUser,
         files: newAttachments.value,
+        is_internal: isInternal.value,
     });
 
-    // Reset form
+    // Reset form — including the internal flag, so the next reply
+    // defaults back to public and a tech has to opt in each time.
     newCommentContent.value = "";
     newAttachments.value = [];
-
-    console.log("Comment submission complete, form reset");
+    isInternal.value = false;
 };
 
 const processFiles = async (files: File[]): Promise<File[]> => {
@@ -390,12 +432,50 @@ const handleDrop = async (event: DragEvent) => {
                             class="hidden"
                         />
 
+                        <!-- Public reply (default) vs Internal note. The
+                             mode colours the submit button so it's visually
+                             obvious what will be sent. -->
+                        <div
+                            class="flex items-center gap-1 rounded-md bg-surface-alt border border-default p-0.5 self-start text-xs font-medium"
+                            role="group"
+                            aria-label="Reply visibility"
+                        >
+                            <button
+                                type="button"
+                                @click="isInternal = false"
+                                :class="[
+                                    'px-2.5 py-1 rounded transition-colors',
+                                    !isInternal
+                                        ? 'bg-accent text-white'
+                                        : 'text-secondary hover:text-primary'
+                                ]"
+                            >
+                                Public reply
+                            </button>
+                            <button
+                                type="button"
+                                @click="isInternal = true"
+                                :class="[
+                                    'px-2.5 py-1 rounded transition-colors',
+                                    isInternal
+                                        ? 'bg-status-warning text-white'
+                                        : 'text-secondary hover:text-primary'
+                                ]"
+                                title="Visible only to techs; not relayed back through the ticket's channel"
+                            >
+                                Internal note
+                            </button>
+                        </div>
+
                         <div class="flex gap-2">
                             <button
                                 type="submit"
-                                class="flex-1 bg-accent text-white h-10 px-4 rounded-md hover:opacity-90 transition-colors text-sm font-medium"
+                                :class="[
+                                    'flex-1 text-white h-10 px-4 rounded-md hover:opacity-90 transition-colors text-sm font-medium',
+                                    isInternal ? 'bg-status-warning' : 'bg-accent'
+                                ]"
                             >
-                                Add
+                                {{ isInternal ? 'Add internal note' : 'Add' }}
                             </button>
                             <!-- Voice Recording Button -->
                             <button
@@ -440,6 +520,11 @@ const handleDrop = async (event: DragEvent) => {
                                     />
                                 </svg>
                             </button>
+                            <!-- Canned Responses Picker -->
+                            <CannedResponsePicker
+                                :vars="cannedResponseVars"
+                                @insert="insertCannedResponse"
+                            />
                         </div>
                     </form>
                 </div>
@@ -456,7 +541,9 @@ const handleDrop = async (event: DragEvent) => {
                         :class="[
                             props.recentlyAddedCommentIds?.has(comment.id)
                                 ? 'bg-accent/20 border-accent/50 animate-pulse'
-                                : 'bg-surface-alt border-subtle',
+                                : comment.is_internal
+                                    ? 'bg-status-warning-bg/30 border-status-warning-border/50'
+                                    : 'bg-surface-alt border-subtle',
                         ]"
                     >
                         <!-- Mobile: Compact header with avatar, name, date, and actions inline -->
@@ -473,10 +560,23 @@ const handleDrop = async (event: DragEvent) => {
                                     class="flex-shrink-0"
                                 />
                                 <div class="flex-1 min-w-0">
-                                    <span class="text-sm text-primary font-medium truncate block">
+                                    <span class="text-sm text-primary font-medium truncate">
                                         {{ comment.user?.name || comment.user_uuid }}
                                     </span>
-                                    <span class="text-xs text-tertiary">
+                                    <span
+                                        v-if="comment.is_internal"
+                                        class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-status-warning text-white"
+                                    >
+                                        Internal
+                                    </span>
+                                    <span
+                                        v-if="comment.channel_metadata?.forwarded_by_user_uuid"
+                                        class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent"
+                                        title="A technician forwarded this email into the helpdesk"
+                                    >
+                                        Forwarded
+                                    </span>
+                                    <span class="text-xs text-tertiary block">
                                         {{ formattedDate(comment.createdAt) }}
                                     </span>
                                 </div>
@@ -511,10 +611,9 @@ const handleDrop = async (event: DragEvent) => {
 
                             <!-- Mobile: Full-width content below header -->
                             <div class="sm:hidden w-full">
-                                <MarkdownRenderer
+                                <CommentContent
                                     v-if="hasRealContent(comment)"
                                     :content="comment.content"
-                                    class="text-primary"
                                 />
                                 <p v-else-if="isAudioOnlyComment(comment)" class="text-primary text-sm">
                                     {{ getAudioDisplayName(comment.attachments[0].name) }}
@@ -536,16 +635,28 @@ const handleDrop = async (event: DragEvent) => {
                                     <span class="text-sm text-primary font-medium">
                                         {{ comment.user?.name || comment.user_uuid }}
                                     </span>
+                                    <span
+                                        v-if="comment.is_internal"
+                                        class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-status-warning text-white"
+                                    >
+                                        Internal
+                                    </span>
+                                    <span
+                                        v-if="comment.channel_metadata?.forwarded_by_user_uuid"
+                                        class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent"
+                                        title="A technician forwarded this email into the helpdesk"
+                                    >
+                                        Forwarded
+                                    </span>
                                     <span class="text-xs text-tertiary">
                                         {{ formattedDate(comment.createdAt) }}
                                     </span>
                                 </div>
                                 <!-- Content below header -->
                                 <div class="min-w-0">
-                                    <MarkdownRenderer
+                                    <CommentContent
                                         v-if="hasRealContent(comment)"
                                         :content="comment.content"
-                                        class="text-primary"
                                     />
                                     <p v-else-if="isAudioOnlyComment(comment)" class="text-primary text-sm">
                                         {{ getAudioDisplayName(comment.attachments[0].name) }}

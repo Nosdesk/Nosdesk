@@ -71,3 +71,8 @@ Thumbs.db
 *.tmp
 *.temp
 .cache/
+
+# Local dev scratch
+.playwright-mcp/
+nosdesk_backup_*.sql
+docs/

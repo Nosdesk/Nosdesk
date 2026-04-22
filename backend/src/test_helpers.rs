@@ -73,6 +73,7 @@ impl TestFixtures {
             mfa_enabled: false,
             mfa_backup_codes: None,
             passkey_credentials: None,
+            signature: None,
         };
 
         diesel::insert_into(users::table)
@@ -82,6 +83,24 @@ impl TestFixtures {
     }
 
     /// Insert a group and return it.
+    /// Insert a channel fixture and return it. Used by repository and
+    /// service tests that need a channel to scope their messages against.
+    /// Defaults are sensible for phase-1 email testing; override via
+    /// `channels::update` if a test needs something different.
+    pub fn create_channel(conn: &mut DbConnection, provider: &str) -> Channel {
+        let new_channel = NewChannel {
+            provider: provider.to_string(),
+            name: format!("test-{provider}"),
+            enabled: true,
+            config: serde_json::json!({}),
+        };
+
+        diesel::insert_into(channels::table)
+            .values(&new_channel)
+            .get_result(conn)
+            .expect("Failed to create test channel")
+    }
+
     pub fn create_group(conn: &mut DbConnection, name: &str) -> Group {
         let new_group = NewGroup {
             name: name.to_string(),
@@ -161,6 +180,7 @@ impl TestFixtures {
             submitted_via: None,
             guest_lookup_token: None,
             verification_state: None,
+            origin_channel_id: None,
         };
 
         diesel::insert_into(tickets::table)
@@ -175,6 +195,8 @@ impl TestFixtures {
             content: content.to_string(),
             ticket_id,
             user_uuid,
+            channel_metadata: None,
+            is_internal: false,
         };
 
         diesel::insert_into(comments::table)

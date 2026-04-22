@@ -182,11 +182,71 @@ diesel::table! {
 }
 
 diesel::table! {
+    canned_responses (id) {
+        id -> Int4,
+        #[max_length = 255]
+        title -> Varchar,
+        body -> Text,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     category_group_visibility (category_id, group_id) {
         category_id -> Int4,
         group_id -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    channel_credentials (id) {
+        id -> Int4,
+        channel_id -> Int4,
+        #[max_length = 64]
+        credential_type -> Varchar,
+        encrypted_value -> Text,
+        expires_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    channel_messages (id) {
+        id -> Int8,
+        channel_id -> Int4,
+        #[max_length = 998]
+        external_id -> Varchar,
+        #[max_length = 16]
+        direction -> Varchar,
+        ticket_id -> Nullable<Int4>,
+        comment_id -> Nullable<Int4>,
+        #[max_length = 998]
+        in_reply_to -> Nullable<Varchar>,
+        #[max_length = 320]
+        from_address -> Nullable<Varchar>,
+        author_user_uuid -> Nullable<Uuid>,
+        raw_metadata -> Nullable<Jsonb>,
+        received_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    channels (id) {
+        id -> Int4,
+        #[max_length = 64]
+        provider -> Varchar,
+        #[max_length = 255]
+        name -> Varchar,
+        enabled -> Bool,
+        config -> Jsonb,
+        runtime_state -> Jsonb,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        last_polled_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -200,6 +260,9 @@ diesel::table! {
         updated_at -> Timestamptz,
         is_edited -> Bool,
         edit_count -> Int4,
+        channel_metadata -> Nullable<Jsonb>,
+        is_internal -> Bool,
+        deleted_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -703,6 +766,8 @@ diesel::table! {
         guest_ticket_email_verification -> Bool,
         guest_ticket_attachments_enabled -> Bool,
         guest_ticket_intro_message -> Nullable<Text>,
+        channel_auto_ack_enabled -> Bool,
+        channel_auto_ack_template -> Nullable<Text>,
     }
 }
 
@@ -792,6 +857,7 @@ diesel::table! {
         guest_lookup_token -> Nullable<Uuid>,
         #[max_length = 32]
         verification_state -> Nullable<Varchar>,
+        origin_channel_id -> Nullable<Int4>,
     }
 }
 
@@ -880,6 +946,7 @@ diesel::table! {
         mfa_enabled -> Bool,
         mfa_backup_codes -> Nullable<Jsonb>,
         passkey_credentials -> Nullable<Jsonb>,
+        signature -> Nullable<Text>,
     }
 }
 
@@ -937,9 +1004,15 @@ diesel::joinable!(assignment_rules -> ticket_categories (category_id));
 diesel::joinable!(attachments -> comments (comment_id));
 diesel::joinable!(attachments -> users (uploaded_by));
 diesel::joinable!(backup_jobs -> users (created_by));
+diesel::joinable!(canned_responses -> users (created_by));
 diesel::joinable!(category_group_visibility -> groups (group_id));
 diesel::joinable!(category_group_visibility -> ticket_categories (category_id));
 diesel::joinable!(category_group_visibility -> users (created_by));
+diesel::joinable!(channel_credentials -> channels (channel_id));
+diesel::joinable!(channel_messages -> channels (channel_id));
+diesel::joinable!(channel_messages -> comments (comment_id));
+diesel::joinable!(channel_messages -> tickets (ticket_id));
+diesel::joinable!(channel_messages -> users (author_user_uuid));
 diesel::joinable!(comments -> tickets (ticket_id));
 diesel::joinable!(comments -> users (user_uuid));
 diesel::joinable!(device_groups -> devices (device_id));
@@ -991,6 +1064,7 @@ diesel::joinable!(ticket_categories -> users (created_by));
 diesel::joinable!(ticket_devices -> devices (device_id));
 diesel::joinable!(ticket_devices -> tickets (ticket_id));
 diesel::joinable!(ticket_devices -> users (created_by));
+diesel::joinable!(tickets -> channels (origin_channel_id));
 diesel::joinable!(tickets -> ticket_categories (category_id));
 diesel::joinable!(user_groups -> groups (group_id));
 diesel::joinable!(user_ticket_views -> tickets (ticket_id));
@@ -999,4 +1073,4 @@ diesel::joinable!(webhook_deliveries -> webhooks (webhook_id));
 diesel::joinable!(webhooks -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,category_group_visibility,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);

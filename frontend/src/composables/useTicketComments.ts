@@ -39,7 +39,7 @@ export function useTicketComments(
 ) {
 
   // Add comment
-  async function addComment(data: { content: string; user_uuid: string; files: File[] }): Promise<void> {
+  async function addComment(data: { content: string; user_uuid: string; files: File[]; is_internal?: boolean }): Promise<void> {
     if (!ticket.value) return;
 
     // Validate input
@@ -64,6 +64,7 @@ export function useTicketComments(
       createdAt: new Date().toISOString(),
       created_at: new Date().toISOString(),
       ticket_id: ticket.value.id,
+      is_internal: data.is_internal === true,
       attachments: [],
       user: currentUser ? {
         uuid: currentUser.uuid,
@@ -113,6 +114,7 @@ export function useTicketComments(
         ticket.value.id,
         data.content,
         attachments,
+        data.is_internal === true,
       );
 
       // Replace the optimistic comment with the real one from HTTP response

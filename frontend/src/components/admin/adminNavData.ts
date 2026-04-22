@@ -70,6 +70,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         icon: 'database',
         route: '/admin/data-import',
         keywords: ['import', 'data', 'intune', 'csv', 'microsoft', 'graph', 'migration']
+      },
+      {
+        title: 'Email Ingestion',
+        description: 'Poll a support mailbox over IMAP and turn messages into tickets',
+        icon: 'mail',
+        route: '/admin/channels/email',
+        keywords: ['email', 'imap', 'ingestion', 'inbox', 'mailbox', 'channel', 'pipeline', 'tickets']
       }
     ]
   },

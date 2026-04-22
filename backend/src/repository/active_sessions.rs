@@ -6,6 +6,15 @@ use crate::db::DbConnection;
 use crate::models::{ActiveSession, NewActiveSession};
 use crate::schema::active_sessions;
 
+/// Delete sessions whose `expires_at` is in the past. Intended to be
+/// called on a periodic schedule (see `services::scheduler`) so the
+/// `active_sessions` table doesn't accrete dead rows indefinitely.
+/// Returns the number of rows removed.
+pub fn cleanup_expired(conn: &mut DbConnection) -> Result<usize, diesel::result::Error> {
+    diesel::delete(active_sessions::table.filter(active_sessions::expires_at.lt(Utc::now().naive_utc())))
+        .execute(conn)
+}
+
 /// Create a new active session
 pub fn create_session(
     conn: &mut DbConnection,

@@ -13,6 +13,21 @@ pub fn get_comments_by_ticket_id(conn: &mut DbConnection, ticket_id: i32) -> Que
         .load(conn)
 }
 
+/// Requester-visible comment list: drops internal notes and soft-deleted
+/// rows. Used by the guest-portal / public status views. Never call this
+/// from tech-facing endpoints — techs need to see internal notes.
+pub fn get_public_comments_by_ticket_id(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+) -> QueryResult<Vec<Comment>> {
+    comments::table
+        .filter(comments::ticket_id.eq(ticket_id))
+        .filter(comments::is_internal.eq(false))
+        .filter(comments::deleted_at.is_null())
+        .order(comments::created_at.desc())
+        .load(conn)
+}
+
 pub fn create_comment(conn: &mut DbConnection, new_comment: NewComment) -> QueryResult<Comment> {
     let result = diesel::insert_into(comments::table)
         .values(&new_comment)
@@ -124,6 +139,37 @@ mod tests {
     }
 
     #[test]
+    fn public_comments_exclude_internal_and_deleted() {
+        use diesel::prelude::*;
+
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "visible", UserRole::User);
+        let ticket = TestFixtures::create_ticket(&mut conn, "V", Some(user.uuid), None);
+
+        // Public.
+        let public = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "requester can see this");
+
+        // Internal: set the flag post-insert since the fixture hardcodes
+        // is_internal=false.
+        let internal = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "tech-only note");
+        diesel::update(comments::table.find(internal.id))
+            .set(comments::is_internal.eq(true))
+            .execute(&mut conn)
+            .unwrap();
+
+        // Soft-deleted.
+        let deleted = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "retracted");
+        diesel::update(comments::table.find(deleted.id))
+            .set(comments::deleted_at.eq(Some(chrono::Utc::now().naive_utc())))
+            .execute(&mut conn)
+            .unwrap();
+
+        let visible = get_public_comments_by_ticket_id(&mut conn, ticket.id).unwrap();
+        let ids: Vec<i32> = visible.iter().map(|c| c.id).collect();
+        assert_eq!(ids, vec![public.id]);
+    }
+
+    #[test]
     fn create_comment_updates_ticket_timestamp() {
         let mut conn = setup_test_connection();
         let user = TestFixtures::create_user(&mut conn, "tsuser", UserRole::User);
@@ -137,6 +183,8 @@ mod tests {
             content: "bump".to_string(),
             ticket_id: ticket.id,
             user_uuid: user.uuid,
+            channel_metadata: None,
+            is_internal: false,
         };
         create_comment(&mut conn, new_comment).unwrap();
 

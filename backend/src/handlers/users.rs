@@ -1353,6 +1353,7 @@ pub async fn upload_user_image(
             theme: None, // Don't update theme when uploading images
             microsoft_uuid: None, // Don't update Microsoft UUID in regular user updates
             updated_at: Some(chrono::Utc::now().naive_utc()),
+            signature: None,
         };
         
         match repository::update_user(&user.uuid, user_update, &mut conn) {
@@ -1773,6 +1774,16 @@ pub async fn update_user_by_uuid(
         theme: user_data.theme.clone(),
         microsoft_uuid: None, // Don't update Microsoft UUID in regular user updates
         updated_at: Some(chrono::Utc::now().naive_utc()),
+        // Signature: treat empty string as "clear". None leaves it
+        // as-is. Keeps the round-trip sane when the agent deletes all
+        // the text in the signature textarea.
+        signature: user_data.signature.as_ref().map(|s| {
+            if s.trim().is_empty() {
+                None
+            } else {
+                Some(s.clone())
+            }
+        }),
     };
 
     match repository::update_user(&user.uuid, user_update, &mut conn) {
@@ -2519,6 +2530,7 @@ pub async fn bulk_users(
                     theme: None,
                     microsoft_uuid: None,
                     updated_at: Some(chrono::Utc::now().naive_utc()),
+                    signature: None,
                 };
 
                 if repository::update_user(&uuid, user_update, &mut conn).is_ok() {

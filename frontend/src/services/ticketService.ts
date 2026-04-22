@@ -147,13 +147,19 @@ export const unlinkTicket = async (ticketId: number, linkedTicketId: number): Pr
 export const addCommentToTicket = async (
   ticketId: number,
   content: string,
-  attachments: { url: string; name: string }[] = []
+  attachments: { url: string; name: string }[] = [],
+  isInternal: boolean = false
 ): Promise<Comment> => {
   try {
     const response = await apiClient.post(`/tickets/${ticketId}/comments`, {
       content,
       // user information is extracted from JWT token on backend for security
-      attachments
+      attachments,
+      // `is_internal = true` hides the note from requester-facing views
+      // and suppresses the channel outbound relay (see backend
+      // `repository::comments::get_public_comments_by_ticket_id` and
+      // `services::channels::relay::decide_relay`).
+      is_internal: isInternal
     });
     return response.data;
   } catch (error) {

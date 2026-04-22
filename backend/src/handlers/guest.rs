@@ -396,6 +396,7 @@ pub async fn submit_guest_ticket(
         } else {
             None
         },
+        origin_channel_id: None,
     };
 
     let ticket = match repository::tickets::create_ticket(&mut conn, new_ticket) {
@@ -413,6 +414,8 @@ pub async fn submit_guest_ticket(
         content: description.to_string(),
         user_uuid: user.uuid,
         ticket_id: ticket.id,
+        channel_metadata: None,
+        is_internal: false,
     };
     let first_comment_id = match repository::comments::create_comment(&mut conn, new_comment) {
         Ok(c) => Some(c.id),

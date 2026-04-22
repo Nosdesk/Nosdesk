@@ -1,8 +1,51 @@
 use lettre::{
     Message, SmtpTransport, Transport,
-    message::{header::ContentType, Mailbox},
+    message::{
+        header::{ContentType, Header, HeaderName, HeaderValue, InReplyTo, MessageId, References},
+        Mailbox, MultiPart,
+    },
     transport::smtp::authentication::Credentials,
 };
+
+/// `Auto-Submitted` header (RFC 3834 §5). Set on any system-authored
+/// reply we send (currently just the auto-acknowledgement on new
+/// tickets). An auto-responder on the customer's end should see this
+/// value and silently drop the message rather than bouncing back an
+/// OOO — which is exactly how we handle the same header on inbound
+/// (see `email_imap::detect_loop_markers`). Without this header our
+/// auto-ack can ping-pong forever against an Exchange OOO.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AutoSubmitted(String);
+impl Header for AutoSubmitted {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("Auto-Submitted")
+    }
+    fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self(s.into()))
+    }
+    fn display(&self) -> HeaderValue {
+        HeaderValue::new(Self::name(), self.0.clone())
+    }
+}
+
+/// `X-Auto-Response-Suppress` — Microsoft / Exchange-specific
+/// loop-breaker. Honoured by Outlook and Exchange Online's
+/// transport rules; harmless on other MTAs. Paired with
+/// `Auto-Submitted` to cover both the RFC 3834 world and the
+/// Exchange world.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct XAutoResponseSuppress(String);
+impl Header for XAutoResponseSuppress {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("X-Auto-Response-Suppress")
+    }
+    fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self(s.into()))
+    }
+    fn display(&self) -> HeaderValue {
+        HeaderValue::new(Self::name(), self.0.clone())
+    }
+}
 use std::env;
 
 /// Simple HTML escaping for email content to prevent XSS
@@ -310,6 +353,29 @@ pub struct EmailConfig {
     pub from_name: String,
     pub from_email: String,
     pub enabled: bool,
+    /// Connection security. Defaults to [`SmtpSecurity::StartTls`] —
+    /// the production path. [`SmtpSecurity::Plaintext`] exists for local
+    /// integration tests against Greenmail (port 3025 is plaintext).
+    /// NEVER set to `None` in production; credentials ride the wire
+    /// in the clear.
+    pub security: SmtpSecurity,
+}
+
+/// SMTP transport security mode. Kept as its own enum so calling code
+/// can't accidentally set `smtp_port = 3025` and silently fall into a
+/// plaintext send path — the two values are set explicitly together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmtpSecurity {
+    /// Implicit TLS on port 465 (`relay()`).
+    Tls,
+    /// STARTTLS upgrade on port 587 (`starttls_relay()`). Default for
+    /// all env-loaded configs.
+    StartTls,
+    /// No TLS. Intended only for local test servers (Greenmail, Mailpit).
+    /// Named `Plaintext` rather than `None` so the variant is impossible
+    /// to mistake for "I don't care"; production configs that land on
+    /// this value are bugs.
+    Plaintext,
 }
 
 impl EmailConfig {
@@ -330,6 +396,7 @@ impl EmailConfig {
                 from_name: String::new(),
                 from_email: String::new(),
                 enabled: false,
+                security: SmtpSecurity::StartTls,
             });
         }
 
@@ -362,6 +429,7 @@ impl EmailConfig {
             from_name,
             from_email,
             enabled,
+            security: SmtpSecurity::StartTls,
         })
     }
 
@@ -405,14 +473,22 @@ impl EmailService {
             self.config.smtp_password.clone(),
         );
 
-        // Use starttls_relay for explicit STARTTLS on port 587
-        let transport = SmtpTransport::starttls_relay(&self.config.smtp_host)
-            .map_err(|e| format!("Failed to create SMTP transport: {e}"))?
+        let builder = match self.config.security {
+            SmtpSecurity::Tls => SmtpTransport::relay(&self.config.smtp_host)
+                .map_err(|e| format!("Failed to create SMTP transport: {e}"))?,
+            SmtpSecurity::StartTls => SmtpTransport::starttls_relay(&self.config.smtp_host)
+                .map_err(|e| format!("Failed to create SMTP transport: {e}"))?,
+            // Plain transport for local test servers — no TLS, no auth
+            // negotiation. Credentials still ride but the connection
+            // is cleartext, so we warn loudly in the doc comment on
+            // `SmtpSecurity::Plaintext`.
+            SmtpSecurity::Plaintext => SmtpTransport::builder_dangerous(&self.config.smtp_host),
+        };
+
+        Ok(builder
             .port(self.config.smtp_port)
             .credentials(creds)
-            .build();
-
-        Ok(transport)
+            .build())
     }
 
     /// Send a simple text email
@@ -654,6 +730,107 @@ impl EmailService {
         let subject = format!("Confirm your ticket submission to {}", branding.app_name);
         self.send_html_email(to, &subject, &html_body).await
     }
+
+    /// Send a technician's reply to a ticket as an email. Sets the
+    /// threading headers (`Message-ID`, `In-Reply-To`, `References`) so
+    /// the recipient's mail client groups the conversation correctly,
+    /// and so a future inbound reply from the customer can be routed
+    /// back to this ticket by the threading cascade.
+    ///
+    /// `message_id` is the ID we want to stamp on this outbound message
+    /// (no angle brackets — those are added here). It should be produced
+    /// by [`crate::services::channels::threading::format_outbound_message_id`]
+    /// so the inbound pipeline recognizes it later.
+    ///
+    /// `in_reply_to` / `references` must already carry angle brackets;
+    /// they are joined verbatim into the header values.
+    pub async fn send_ticket_reply(
+        &self,
+        outbound: OutboundEmail<'_>,
+    ) -> Result<(), String> {
+        if !self.config.is_configured() {
+            return Err("Email is not configured".to_string());
+        }
+        let message = self.build_ticket_reply_message(&outbound)?;
+        let mailer = self.build_transport()?;
+        mailer
+            .send(&message)
+            .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
+        Ok(())
+    }
+
+    /// Separated from [`Self::send_ticket_reply`] so unit tests can
+    /// inspect the serialized form (headers, body parts) without a live
+    /// SMTP transport.
+    pub(crate) fn build_ticket_reply_message(
+        &self,
+        outbound: &OutboundEmail<'_>,
+    ) -> Result<Message, String> {
+        let to_mailbox: Mailbox = outbound
+            .to
+            .parse()
+            .map_err(|e| format!("Invalid recipient email: {e}"))?;
+
+        let mut builder = Message::builder()
+            .from(self.config.from_mailbox()?)
+            .to(to_mailbox)
+            .subject(outbound.subject)
+            .header(MessageId::from(format!("<{}>", outbound.message_id)));
+
+        if let Some(parent) = outbound.in_reply_to {
+            builder = builder.header(InReplyTo::from(parent.to_string()));
+        }
+        if !outbound.references.is_empty() {
+            builder = builder.header(References::from(outbound.references.join(" ")));
+        }
+        // RFC 3834 + Exchange loop-prevention headers for auto-replies.
+        // Emitted only for system-authored messages (auto-ack); tech
+        // replies are human and don't carry this.
+        if outbound.auto_submitted {
+            builder = builder
+                .header(AutoSubmitted("auto-replied".to_string()))
+                .header(XAutoResponseSuppress("All".to_string()));
+        }
+
+        // Prefer multipart/alternative when both text + html are given so
+        // clients can pick. Text-only falls back to a single part.
+        let message = if let Some(html) = outbound.body_html {
+            builder
+                .multipart(MultiPart::alternative_plain_html(
+                    outbound.body_text.to_string(),
+                    html.to_string(),
+                ))
+                .map_err(|e| format!("Failed to build ticket reply: {e}"))?
+        } else {
+            builder
+                .header(ContentType::TEXT_PLAIN)
+                .body(outbound.body_text.to_string())
+                .map_err(|e| format!("Failed to build ticket reply: {e}"))?
+        };
+
+        Ok(message)
+    }
+}
+
+/// Parameters for [`EmailService::send_ticket_reply`]. Keeps the argument
+/// list short as the channel abstraction grows (attachments land here in
+/// task #20).
+pub struct OutboundEmail<'a> {
+    pub to: &'a str,
+    pub subject: &'a str,
+    pub body_text: &'a str,
+    pub body_html: Option<&'a str>,
+    /// Generated by the threading helper, NOT wrapped in angle brackets.
+    pub message_id: &'a str,
+    /// Parent message's `Message-ID` with its `<...>` wrapper.
+    pub in_reply_to: Option<&'a str>,
+    /// Full ancestor chain, each entry already wrapped in `<...>`.
+    pub references: &'a [String],
+    /// `true` when this is a system-authored automatic response (the
+    /// initial "we got your ticket" auto-ack). Causes RFC 3834 loop-
+    /// prevention headers to be emitted so the recipient's OOO /
+    /// auto-responder won't bounce back and trigger a ping-pong.
+    pub auto_submitted: bool,
 }
 
 #[cfg(test)]
@@ -681,9 +858,143 @@ mod tests {
             from_name: "Test App".to_string(),
             from_email: "noreply@example.com".to_string(),
             enabled: true,
+            security: SmtpSecurity::StartTls,
         };
 
         let mailbox = config.from_mailbox().unwrap();
         assert_eq!(mailbox.to_string(), "Test App <noreply@example.com>");
+    }
+
+    // ---------- send_ticket_reply message construction ----------
+    //
+    // These tests exercise the serialized Message so the threading
+    // headers match what `services::channels::threading` expects when
+    // the customer's reply comes back in. No SMTP transport involved.
+
+    fn svc() -> EmailService {
+        EmailService::new(EmailConfig {
+            smtp_host: "smtp.example.com".into(),
+            smtp_port: 587,
+            smtp_username: "u".into(),
+            smtp_password: "p".into(),
+            from_name: "Support".into(),
+            from_email: "support@yourco.com".into(),
+            enabled: true,
+            security: SmtpSecurity::StartTls,
+        })
+    }
+
+    fn rendered(msg: &Message) -> String {
+        String::from_utf8(msg.formatted()).expect("valid utf-8")
+    }
+
+    #[test]
+    fn ticket_reply_sets_message_id_with_angle_brackets() {
+        let msg = svc()
+            .build_ticket_reply_message(&OutboundEmail {
+                to: "alice@example.com",
+                subject: "[#42] Re: Printer fire",
+                body_text: "On it",
+                body_html: None,
+                message_id: "ticket-42.comment-7.deadbeef@yourco.com",
+                in_reply_to: None,
+                references: &[],
+                auto_submitted: false,
+            })
+            .unwrap();
+        assert!(
+            rendered(&msg).contains("Message-ID: <ticket-42.comment-7.deadbeef@yourco.com>"),
+            "expected Message-ID header with brackets: {}",
+            rendered(&msg)
+        );
+    }
+
+    #[test]
+    fn ticket_reply_omits_threading_headers_when_no_parent() {
+        let msg = svc()
+            .build_ticket_reply_message(&OutboundEmail {
+                to: "alice@example.com",
+                subject: "[#42] New case",
+                body_text: "hi",
+                body_html: None,
+                message_id: "ticket-42.comment-1.aaaaaaaa@yourco.com",
+                in_reply_to: None,
+                references: &[],
+                auto_submitted: false,
+            })
+            .unwrap();
+        let dump = rendered(&msg);
+        assert!(!dump.contains("In-Reply-To:"));
+        assert!(!dump.contains("References:"));
+    }
+
+    #[test]
+    fn ticket_reply_writes_in_reply_to_and_references() {
+        let refs = vec!["<first@x>".to_string(), "<second@x>".to_string()];
+        let msg = svc()
+            .build_ticket_reply_message(&OutboundEmail {
+                to: "alice@example.com",
+                subject: "[#42] Re: thread",
+                body_text: "reply",
+                body_html: None,
+                message_id: "ticket-42.comment-3.cafef00d@yourco.com",
+                in_reply_to: Some("<second@x>"),
+                references: &refs,
+                auto_submitted: false,
+            })
+            .unwrap();
+        let dump = rendered(&msg);
+        assert!(dump.contains("In-Reply-To: <second@x>"), "dump:\n{dump}");
+        assert!(
+            dump.contains("References: <first@x> <second@x>"),
+            "dump:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn ticket_reply_builds_multipart_when_html_provided() {
+        let msg = svc()
+            .build_ticket_reply_message(&OutboundEmail {
+                to: "alice@example.com",
+                subject: "[#42] hi",
+                body_text: "plain body",
+                body_html: Some("<p>html body</p>"),
+                message_id: "ticket-42.comment-5.f00dbabe@yourco.com",
+                in_reply_to: None,
+                references: &[],
+                auto_submitted: false,
+            })
+            .unwrap();
+        let dump = rendered(&msg);
+        assert!(dump.contains("multipart/alternative"), "dump:\n{dump}");
+        assert!(dump.contains("plain body"), "dump:\n{dump}");
+        assert!(dump.contains("<p>html body</p>"), "dump:\n{dump}");
+    }
+
+    #[test]
+    fn send_ticket_reply_refuses_when_disabled() {
+        let disabled = EmailService::new(EmailConfig {
+            smtp_host: String::new(),
+            smtp_port: 587,
+            smtp_username: String::new(),
+            smtp_password: String::new(),
+            from_name: String::new(),
+            from_email: String::new(),
+            enabled: false,
+            security: SmtpSecurity::StartTls,
+        });
+        let outbound = OutboundEmail {
+            to: "x@example.com",
+            subject: "hi",
+            body_text: "hi",
+            body_html: None,
+            message_id: "ticket-1.comment-1.aa@host",
+            in_reply_to: None,
+            references: &[],
+                auto_submitted: false,
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let err = rt.block_on(disabled.send_ticket_reply(outbound)).unwrap_err();
+        assert!(err.contains("not configured"), "unexpected error: {err}");
     }
 }

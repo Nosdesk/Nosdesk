@@ -32,6 +32,9 @@ pub mod plugins;
 pub mod plugin_collections;
 pub mod passkeys;
 pub mod search;
+pub mod channels;
+pub mod scheduler;
+pub mod canned_responses;
 
 // Import all handlers from modules
 pub use auth::*;
@@ -191,6 +194,7 @@ pub async fn add_comment_to_ticket(
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
+    email_service: web::Data<Option<Arc<crate::utils::email::EmailService>>>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
@@ -248,6 +252,10 @@ pub async fn add_comment_to_ticket(
         content: comment_data.content.clone(),
         user_uuid: user_uuid_parsed,  // Use the user_uuid from JWT token
         ticket_id,
+        channel_metadata: None,
+        // is_internal defaults to false here. Task #19 adds the toggle
+        // from the UI; for now every authenticated comment is public.
+        is_internal: false,
     };
 
     // Insert the comment
@@ -449,6 +457,21 @@ pub async fn add_comment_to_ticket(
             ).await;
 
             debug!(ticket_id, "SSE: Successfully broadcasted comment-added and modified events");
+
+            // Relay the comment back through the originating channel
+            // (email today, chat once those adapters exist). Fire-and-
+            // forget: the comment is already persisted and broadcast,
+            // so a failed SMTP send must not block the HTTP response.
+            if let (Some(ticket_info), Some(email_svc)) =
+                (ticket.as_ref(), email_service.get_ref().as_ref())
+            {
+                crate::services::channels::outbound::spawn_relay_for_comment(
+                    ticket_info.clone(),
+                    comment.clone(),
+                    pool.get_ref().clone(),
+                    email_svc.clone(),
+                );
+            }
 
             // Index the new comment in search
             let ticket_title_for_search = ticket.as_ref().map(|t| t.title.clone()).unwrap_or_else(|| format!("Ticket #{}", ticket_id));

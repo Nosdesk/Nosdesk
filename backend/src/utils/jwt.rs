@@ -562,6 +562,7 @@ mod tests {
             created_at: chrono::Utc::now().naive_utc(),
             updated_at: chrono::Utc::now().naive_utc(),
             password_changed_at: None,
+            signature: None,
         };
 
         let sid = uuid::Uuid::new_v4();

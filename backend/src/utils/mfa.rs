@@ -476,6 +476,7 @@ mod tests {
             mfa_enabled: false,
             mfa_backup_codes: None,
             passkey_credentials: None,
+            signature: None,
         };
 
         assert!(!user_has_mfa_enabled(&base_user));

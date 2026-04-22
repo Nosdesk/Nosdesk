@@ -34,6 +34,7 @@ const formData = ref({
     pronouns: "",
     avatar_url: "",
     banner_url: "",
+    signature: "",
 });
 
 // Original data for comparison
@@ -113,6 +114,11 @@ const pronounsModified = computed(() => {
     );
 });
 
+const signatureModified = computed(() => {
+    const originalSig = displayUser.value?.signature || "";
+    return formData.value.signature !== originalSig;
+});
+
 // Watch for user data changes
 watch(
     () => displayUser.value,
@@ -123,6 +129,7 @@ watch(
             formData.value.pronouns = newUserData.pronouns || "";
             formData.value.avatar_url = newUserData.avatar_url || "";
             formData.value.banner_url = newUserData.banner_url || "";
+            formData.value.signature = newUserData.signature || "";
 
             originalData.value.name = newUserData.name || "";
             originalData.value.email = newUserData.email || "";
@@ -382,6 +389,38 @@ const updatePronouns = async () => {
     } catch (err) {
         emit("error", "Failed to update pronouns");
         console.error("Error updating pronouns:", err);
+    } finally {
+        loading.value = false;
+    }
+};
+
+const updateSignature = async () => {
+    loading.value = true;
+    try {
+        const userUuid = displayUser.value?.uuid;
+        if (!userUuid) {
+            emit("error", "User not authenticated");
+            return;
+        }
+        // Empty string clears the signature; backend treats it as
+        // `None` so future outbound replies stop appending.
+        const updatedUser = await userService.updateUser(userUuid, {
+            signature: formData.value.signature,
+        });
+        if (updatedUser) {
+            emit("success", "Signature updated");
+            if (authStore.user?.uuid === userUuid && authStore.user) {
+                authStore.user = {
+                    ...authStore.user,
+                    signature: updatedUser.signature,
+                };
+            }
+        } else {
+            emit("error", "Failed to update signature");
+        }
+    } catch (err) {
+        emit("error", "Failed to update signature");
+        console.error("Error updating signature:", err);
     } finally {
         loading.value = false;
     }
@@ -676,6 +715,40 @@ const getRoleDisplayName = (role: string) => {
                             >
                                 Save
                             </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Email signature — appended to outbound channel replies -->
+                <div class="pt-2 pb-6" :class="showBanner ? 'sm:pl-[9.5rem]' : ''">
+                    <div class="flex flex-col gap-1.5">
+                        <label
+                            for="user-email-signature"
+                            class="text-xs font-medium text-tertiary uppercase tracking-wide"
+                        >
+                            Email signature
+                        </label>
+                        <p id="user-email-signature-hint" class="text-xs text-tertiary">
+                            Appended to your outbound replies on channel-originated tickets (email). Separator is standard <code class="text-[10px] bg-surface-alt px-1 rounded">-- </code>.
+                        </p>
+                        <div class="flex flex-col gap-3">
+                            <textarea
+                                id="user-email-signature"
+                                v-model="formData.signature"
+                                rows="4"
+                                aria-describedby="user-email-signature-hint"
+                                class="w-full px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary placeholder-tertiary focus:ring-2 focus:ring-accent focus:outline-none resize-y font-mono text-sm"
+                                placeholder="Tech Name&#10;IT Support"
+                            ></textarea>
+                            <div class="flex justify-end">
+                                <button
+                                    @click="updateSignature"
+                                    :disabled="!signatureModified || loading"
+                                    class="px-4 py-2.5 bg-accent text-white rounded-lg hover:opacity-90 focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Save
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

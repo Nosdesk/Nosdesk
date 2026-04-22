@@ -36,6 +36,7 @@ actix-web-actors = "4.3.1"  # WebSocket actors for Actix
 actix = "0.13.5"            # Actor framework
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }  # Stream wrappers for tokio types
+tokio-util = "0.7"  # CancellationToken used by the periodic scheduler + future graceful-shutdown wiring
 lazy_static = "1.5.0"        # For static mutable state
 dashmap = "6.1.0"            # Thread-safe concurrent hashmap
 env_logger = "0.11.0"
@@ -117,6 +118,12 @@ sanitize-filename = "0.5"  # Filename sanitization for uploads
 
 # Full-text search
 tantivy = "0.22"           # Fast full-text search engine (Rust equivalent of Lucene)
+
+# Channel adapter: IMAP ingestion
+async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }  # Async IMAP client for pull-based email ingestion
+tokio-native-tls = "0.3"   # TLS transport for async-imap over 993 (tokio io traits)
+native-tls = "0.2"         # Underlying TLS connector type
+mailparse = "0.16"         # RFC 5322 parser — headers, attachments, References chain
 
 # For testing only
 [dev-dependencies]

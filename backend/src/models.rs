@@ -120,6 +120,10 @@ pub struct Ticket {
     #[serde(serialize_with = "serialize_optional_uuid_as_string")]
     pub guest_lookup_token: Option<Uuid>,
     pub verification_state: Option<String>,
+    /// FK to the channel this ticket originated from (email mailbox, Slack
+    /// workspace, etc.). Null for tickets submitted via the normal UI or
+    /// the guest web form.
+    pub origin_channel_id: Option<i32>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
@@ -136,6 +140,7 @@ pub struct NewTicket {
     pub submitted_via: Option<String>,
     pub guest_lookup_token: Option<Uuid>,
     pub verification_state: Option<String>,
+    pub origin_channel_id: Option<i32>,
 }
 
 // Add a new struct for partial ticket updates
@@ -150,6 +155,7 @@ pub struct TicketUpdate {
     pub updated_at: Option<NaiveDateTime>,
     pub closed_at: Option<Option<NaiveDateTime>>,
     pub verification_state: Option<Option<String>>,
+    pub origin_channel_id: Option<Option<i32>>,
     pub category_id: Option<Option<i32>>,
 }
 
@@ -274,6 +280,16 @@ pub struct Comment {
     pub updated_at: NaiveDateTime,
     pub is_edited: bool,
     pub edit_count: i32,
+    /// Free-form per-channel metadata (our emitted Message-ID for email,
+    /// Slack thread_ts, Discord message id, etc.). Null for comments
+    /// authored through the normal Nosdesk UI without channel context.
+    pub channel_metadata: Option<serde_json::Value>,
+    /// True = tech-to-tech note. Never shown to requesters in their
+    /// portal view; never relayed back through the originating channel.
+    pub is_internal: bool,
+    /// Soft-delete marker. Set by future channel-edit/delete pipeline
+    /// handlers when Slack/Teams/Discord signal a deleted message.
+    pub deleted_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -282,6 +298,10 @@ pub struct NewComment {
     pub content: String,
     pub ticket_id: i32,
     pub user_uuid: Uuid,
+    #[serde(default)]
+    pub channel_metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    pub is_internal: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
@@ -614,6 +634,10 @@ pub struct User {
     pub mfa_enabled: bool,
     pub mfa_backup_codes: Option<serde_json::Value>,
     pub passkey_credentials: Option<serde_json::Value>,
+    /// Free-form text appended to outbound channel replies as the
+    /// agent's email signature. Stored as-is; user owns formatting.
+    /// `None` / empty → no signature appended.
+    pub signature: Option<String>,
 }
 
 // New user for creation
@@ -635,6 +659,8 @@ pub struct NewUser {
     pub mfa_enabled: bool,
     pub mfa_backup_codes: Option<serde_json::Value>,
     pub passkey_credentials: Option<serde_json::Value>,
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 // Add a separate struct for user registration with password
@@ -664,6 +690,9 @@ pub struct UserUpdate {
     pub theme: Option<String>,
     pub microsoft_uuid: Option<Uuid>,
     pub updated_at: Option<chrono::NaiveDateTime>,
+    /// `Option<Option<String>>` semantics: outer `None` = leave as-is;
+    /// `Some(None)` = clear; `Some(Some(s))` = set.
+    pub signature: Option<Option<String>>,
 }
 
 // User update with password for admin/user management
@@ -678,6 +707,10 @@ pub struct UserUpdateWithPassword {
     pub avatar_thumb: Option<String>,
     pub theme: Option<String>,
     pub password: Option<String>,
+    /// Free-form text appended to outbound channel replies as the
+    /// agent's signature. `None` in the payload → no change. Empty
+    /// string clears it.
+    pub signature: Option<String>,
 }
 
 // User profile update for profile management
@@ -691,6 +724,8 @@ pub struct UserProfileUpdate {
     pub banner_url: Option<String>,
     pub avatar_thumb: Option<String>,
     pub password: Option<String>,
+    /// Email signature appended to outbound channel replies.
+    pub signature: Option<String>,
 }
 
 // User response with minimal information
@@ -2069,6 +2104,13 @@ pub struct SiteSettings {
     pub guest_ticket_email_verification: bool,
     pub guest_ticket_attachments_enabled: bool,
     pub guest_ticket_intro_message: Option<String>,
+    /// Whether to send a one-off "thanks, we got your message" reply
+    /// when a channel message opens a fresh ticket. Defaults true.
+    pub channel_auto_ack_enabled: bool,
+    /// Admin-overridden template for the auto-ack body. `None` uses
+    /// the built-in default (see
+    /// [`crate::services::channels::auto_ack::DEFAULT_TEMPLATE`]).
+    pub channel_auto_ack_template: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -2090,6 +2132,8 @@ pub struct UpdateSiteSettings {
     pub guest_ticket_email_verification: Option<bool>,
     pub guest_ticket_attachments_enabled: Option<bool>,
     pub guest_ticket_intro_message: Option<Option<String>>,
+    pub channel_auto_ack_enabled: Option<bool>,
+    pub channel_auto_ack_template: Option<Option<String>>,
 }
 
 // API response for site settings (without internal fields)
@@ -3840,4 +3884,152 @@ pub struct CollectionSchemaResponse {
     pub schema: serde_json::Value,
     pub version: i32,
     pub row_count: i64,
+}
+
+// ============================================================================
+// Channels — multi-channel message ingestion framework
+// ============================================================================
+//
+// See services/channels/mod.rs for the adapter trait hierarchy and event
+// shapes; these structs are the persisted representations. The tables
+// model N channel instances from day one even though phase 1 ships a
+// single-mailbox admin UI.
+
+/// Direction of a [`ChannelMessage`]. Stored as a string in the DB so new
+/// variants don't require schema churn; validated by a CHECK constraint.
+pub const CHANNEL_DIRECTION_INBOUND: &str = "inbound";
+pub const CHANNEL_DIRECTION_OUTBOUND: &str = "outbound";
+
+/// Credential-type tags stored on [`ChannelCredential::credential_type`].
+/// Not an enum because new providers (Slack, Teams, Discord) each bring
+/// their own credential kinds — keeping this as a string keeps the schema
+/// open for extension without migration.
+pub const CRED_TYPE_IMAP_PASSWORD: &str = "imap_password";
+
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::channels)]
+pub struct Channel {
+    pub id: i32,
+    pub provider: String,
+    pub name: String,
+    pub enabled: bool,
+    pub config: serde_json::Value,
+    pub runtime_state: serde_json::Value,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub last_polled_at: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::channels)]
+pub struct NewChannel {
+    pub provider: String,
+    pub name: String,
+    pub enabled: bool,
+    pub config: serde_json::Value,
+}
+
+/// Partial update to an existing channel. `Option<Option<T>>` fields use
+/// `Some(None)` to explicitly clear; plain `None` means "don't change."
+#[derive(Debug, Default, AsChangeset)]
+#[diesel(table_name = crate::schema::channels)]
+pub struct ChannelUpdate {
+    pub provider: Option<String>,
+    pub name: Option<String>,
+    pub enabled: Option<bool>,
+    pub config: Option<serde_json::Value>,
+    pub runtime_state: Option<serde_json::Value>,
+    pub last_polled_at: Option<Option<NaiveDateTime>>,
+    pub updated_at: Option<NaiveDateTime>,
+}
+
+/// Encrypted secret associated with a channel. The plaintext value never
+/// leaves `utils::encryption`; this struct carries only the ciphertext.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::channel_credentials)]
+#[diesel(belongs_to(Channel))]
+pub struct ChannelCredential {
+    pub id: i32,
+    pub channel_id: i32,
+    pub credential_type: String,
+    pub encrypted_value: String,
+    pub expires_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::channel_credentials)]
+pub struct NewChannelCredential {
+    pub channel_id: i32,
+    pub credential_type: String,
+    pub encrypted_value: String,
+    pub expires_at: Option<NaiveDateTime>,
+}
+
+/// Ledger row — one per inbound or outbound message through a channel.
+/// Used for dedup (unique on `channel_id, external_id, direction`),
+/// thread resolution (lookup by `external_id`), and audit.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::channel_messages)]
+#[diesel(belongs_to(Channel))]
+#[diesel(belongs_to(Ticket))]
+pub struct ChannelMessage {
+    pub id: i64,
+    pub channel_id: i32,
+    pub external_id: String,
+    pub direction: String,
+    pub ticket_id: Option<i32>,
+    pub comment_id: Option<i32>,
+    pub in_reply_to: Option<String>,
+    pub from_address: Option<String>,
+    pub author_user_uuid: Option<Uuid>,
+    pub raw_metadata: Option<serde_json::Value>,
+    pub received_at: NaiveDateTime,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::channel_messages)]
+pub struct NewChannelMessage {
+    pub channel_id: i32,
+    pub external_id: String,
+    pub direction: String,
+    pub ticket_id: Option<i32>,
+    pub comment_id: Option<i32>,
+    pub in_reply_to: Option<String>,
+    pub from_address: Option<String>,
+    pub author_user_uuid: Option<Uuid>,
+    pub raw_metadata: Option<serde_json::Value>,
+}
+// ---------- Canned responses ----------
+
+/// Reusable reply template that techs can pull into the ticket
+/// composer with one click. Shared across the team (not per-user);
+/// `created_by` is informational.
+#[derive(Debug, Clone, Serialize, Deserialize, Queryable, Identifiable)]
+#[diesel(table_name = crate::schema::canned_responses)]
+pub struct CannedResponse {
+    pub id: i32,
+    pub title: String,
+    pub body: String,
+    pub created_by: Option<Uuid>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Insertable, Deserialize)]
+#[diesel(table_name = crate::schema::canned_responses)]
+pub struct NewCannedResponse {
+    pub title: String,
+    pub body: String,
+    pub created_by: Option<Uuid>,
+}
+
+/// Partial-update payload. `Option<T>` fields leave the column
+/// untouched when `None`.
+#[derive(Debug, Default, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::canned_responses)]
+pub struct CannedResponseUpdate {
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub updated_at: Option<NaiveDateTime>,
 }

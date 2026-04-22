@@ -31,6 +31,10 @@ export interface Ticket {
   linkedTickets?: number[]
   linked_tickets?: number[]
   projects?: Project[]
+  /** Channel this ticket was opened through (email_imap, ...). Null for tickets created via the UI / API. */
+  origin_channel_id?: number | null
+  /** Provider name echoed from the originating channel for quick display. Matches `channels.provider`. */
+  submitted_via?: string | null
 }
 
 export interface RecentTicket {

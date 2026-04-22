@@ -26,6 +26,25 @@ pub fn auth_conn(
     Ok((claims, user_uuid, conn))
 }
 
+/// Admin-only helper with no target user: enforce admin role, return a
+/// pooled DB connection. Use this for admin-settings endpoints that
+/// act on *singletons* (site_settings, channels, etc.) rather than a
+/// specific target user — the target-user variant [`admin_user_conn`]
+/// is for endpoints like "admin updates user X's role."
+pub fn admin_conn(
+    req: &HttpRequest,
+    pool: &web::Data<Pool>,
+) -> Result<DbConnection, HttpResponse> {
+    let claims = req.extensions().get::<Claims>().cloned()
+        .ok_or_else(|| HttpResponse::Unauthorized()
+            .json(json!({"error": "Authentication required"})))?;
+    if !crate::utils::rbac::is_admin(&claims) {
+        return Err(HttpResponse::Forbidden()
+            .json(json!({"error": "Admin required"})));
+    }
+    db_conn(pool)
+}
+
 /// Admin-only helper: authenticate caller, enforce admin role, parse target UUID, load target user.
 /// Returns (admin Claims, target User, DbConnection) or an appropriate error response.
 pub fn admin_user_conn(

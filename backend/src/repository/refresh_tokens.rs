@@ -58,6 +58,15 @@ pub fn revoke_token_family(
     .execute(conn)
 }
 
+/// Delete refresh tokens whose `expires_at` is in the past. Intended
+/// for periodic invocation via `services::scheduler`. Revoked-but-not-
+/// expired tokens are kept so audit trails survive — only naturally
+/// expired rows are pruned.
+pub fn cleanup_expired(conn: &mut DbConnection) -> Result<usize, diesel::result::Error> {
+    diesel::delete(refresh_tokens::table.filter(refresh_tokens::expires_at.lt(Utc::now().naive_utc())))
+        .execute(conn)
+}
+
 /// Revoke a refresh token by hash
 pub fn revoke_refresh_token(
     conn: &mut DbConnection,

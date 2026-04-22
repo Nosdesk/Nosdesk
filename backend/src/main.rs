@@ -514,6 +514,19 @@ async fn main() -> std::io::Result<()> {
     // Initialize SSE state for real-time ticket updates (must be created before YjsAppState)
     let sse_state = web::Data::new(handlers::sse::SseState::new());
 
+    // Build the email service once — it's reused by the notification
+    // service and by the channels dispatcher for outbound ticket
+    // replies. `None` means SMTP isn't configured; both callers treat
+    // that as "email disabled" rather than a fatal error.
+    let email_service: Option<std::sync::Arc<utils::email::EmailService>> =
+        match utils::email::EmailService::from_env() {
+            Ok(svc) => Some(std::sync::Arc::new(svc)),
+            Err(e) => {
+                info!(error = ?e, "Email service not configured - email notifications and channel outbound disabled");
+                None
+            }
+        };
+
     // Initialize notification service for in-app and email notifications
     let notification_service = {
         use std::sync::Arc;
@@ -532,25 +545,25 @@ async fn main() -> std::io::Result<()> {
         service.register_channel(in_app_channel);
 
         // Register email channel if email service is configured
-        match utils::email::EmailService::from_env() {
-            Ok(email_service) => {
-                let app_name = std::env::var("APP_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
-                let email_channel = Arc::new(services::notifications::channels::email::EmailChannel::new(
-                    Arc::new(email_service),
-                    pool.clone(),
-                    frontend_url.clone(),
-                    app_name,
-                    type_id_cache,
-                ));
-                service.register_channel(email_channel);
-            }
-            Err(e) => {
-                info!(error = ?e, "Email service not configured - email notifications disabled");
-            }
+        if let Some(email_svc) = email_service.clone() {
+            let app_name = std::env::var("APP_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
+            let email_channel = Arc::new(services::notifications::channels::email::EmailChannel::new(
+                email_svc,
+                pool.clone(),
+                frontend_url.clone(),
+                app_name,
+                type_id_cache,
+            ));
+            service.register_channel(email_channel);
         }
 
         web::Data::new(service)
     };
+
+    // Wrap the channels-outbound email handle so handlers can inject it.
+    // `Option` lets the comment handler skip relay when SMTP is disabled
+    // rather than failing the request.
+    let email_service_data = web::Data::new(email_service.clone());
 
     // Initialize webhook service for external integrations
     let webhook_service = {
@@ -605,7 +618,83 @@ async fn main() -> std::io::Result<()> {
     let storage_data = web::Data::new(storage.clone());
 
     info!(host = %host, port = %port, environment = %environment, "Server starting");
-    
+
+    // Boot the channel-worker supervisor. The supervisor owns a
+    // `ChannelRegistry` and is the only task that mutates it; handlers
+    // drive start/stop via an mpsc command channel exposed as
+    // `web::Data<ChannelControl>`. This is the pattern Tokio docs and
+    // industry tools (Vector) converge on — see
+    // `services::channels::supervisor` for the full rationale.
+    let channel_control_data = {
+        use services::channels::registry::RegistryDeps;
+        use services::channels::supervisor;
+        let deps = RegistryDeps {
+            pool: pool.clone(),
+            email: email_service.clone(),
+            sse: Some(sse_state.clone()),
+            search: Some(search_service.get_ref().clone()),
+            storage: Some(storage.clone()),
+            http: None,
+        };
+        // `spawn` hydrates the registry from the DB before accepting
+        // commands, so existing enabled channels are polling by the
+        // time this line returns. The join handle is dropped — the
+        // supervisor lives for the process lifetime, and the mpsc
+        // senders held by `web::Data` keep it alive.
+        let (control, _join) = supervisor::spawn(deps);
+        web::Data::new(control)
+    };
+
+    // Boot the periodic-task scheduler. Each `spawn_periodic` returns
+    // a JoinHandle we intentionally drop — tasks live for the runtime's
+    // lifetime, and cancellation (when we add a SIGTERM handler) fires
+    // through the shared `scheduler_shutdown` token.
+    //
+    // See `services::scheduled_jobs` for the concrete job bodies and
+    // `services::scheduler` for the rationale behind rolling this
+    // rather than pulling in `tokio-cron-scheduler` (short version:
+    // idiomatic Rust + avoids documented footguns in that crate).
+    let scheduler_status = services::scheduler::status_registry();
+    let scheduler_shutdown = tokio_util::sync::CancellationToken::new();
+    {
+        use services::scheduled_jobs as jobs;
+        use services::scheduler::spawn_periodic;
+        use std::time::Duration;
+
+        // Hourly: prune expired auth sessions + refresh tokens so the
+        // tables don't accrete dead rows indefinitely.
+        let p = pool.clone();
+        spawn_periodic(
+            "active_sessions.cleanup",
+            Duration::from_secs(60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::cleanup_expired_sessions(p.clone()),
+        );
+        let p = pool.clone();
+        spawn_periodic(
+            "refresh_tokens.cleanup",
+            Duration::from_secs(60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::cleanup_expired_refresh_tokens(p.clone()),
+        );
+
+        // Every 30 min: Microsoft Graph delta sync (skipped at runtime
+        // when the provider isn't configured).
+        let p = pool.clone();
+        spawn_periodic(
+            "msgraph.delta_sync",
+            Duration::from_secs(30 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::msgraph_delta_sync(p.clone()),
+        );
+
+        info!("scheduler: 3 periodic jobs spawned");
+    }
+    let scheduler_status_data = web::Data::new(scheduler_status);
+
     let server_result = HttpServer::new(move || {
         // Configure CORS with specific allowed origins
         let mut cors = Cors::default()
@@ -648,6 +737,9 @@ async fn main() -> std::io::Result<()> {
             .app_data(system_state.clone())
             .app_data(storage_data.clone())
             .app_data(notification_service.clone())
+            .app_data(email_service_data.clone())
+            .app_data(channel_control_data.clone())
+            .app_data(scheduler_status_data.clone())
             .app_data(webhook_service.clone())
             .app_data(plugin_proxy_service.clone())
             .app_data(search_service.clone())
@@ -795,6 +887,27 @@ async fn main() -> std::io::Result<()> {
                     // Guest access controls (admin only)
                     .route("/admin/guest-settings", web::get().to(handlers::guest_settings::get_guest_settings))
                     .route("/admin/guest-settings", web::patch().to(handlers::guest_settings::update_guest_settings))
+
+                    // Multi-channel ingestion (admin only). Phase-1 UI
+                    // surfaces only the email_imap provider; backend
+                    // is generic over channel rows.
+                    .route("/admin/channels", web::get().to(handlers::channels::list_channels))
+                    .route("/admin/channels", web::post().to(handlers::channels::create_channel))
+                    .route("/admin/channels/{id}", web::get().to(handlers::channels::get_channel))
+                    .route("/admin/channels/{id}", web::patch().to(handlers::channels::update_channel))
+                    .route("/admin/channels/{id}", web::delete().to(handlers::channels::delete_channel))
+                    .route("/admin/channels/{id}/credentials", web::delete().to(handlers::channels::clear_credential))
+                    .route("/admin/channels/{id}/test-connection", web::post().to(handlers::channels::test_connection))
+
+                    // Periodic-task scheduler status (read-only).
+                    .route("/admin/scheduler/status", web::get().to(handlers::scheduler::get_status))
+
+                    // Canned responses — reads open to any authenticated
+                    // user (composer picker); writes admin-only.
+                    .route("/canned-responses", web::get().to(handlers::canned_responses::list_canned))
+                    .route("/admin/canned-responses", web::post().to(handlers::canned_responses::create_canned))
+                    .route("/admin/canned-responses/{id}", web::patch().to(handlers::canned_responses::update_canned))
+                    .route("/admin/canned-responses/{id}", web::delete().to(handlers::canned_responses::delete_canned))
                     .route("/admin/branding/image", web::post().to(handlers::branding::upload_branding_image))
                     .route("/admin/branding/image", web::delete().to(handlers::branding::delete_branding_image))
 

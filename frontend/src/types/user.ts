@@ -15,6 +15,8 @@ export interface User {
   banner_url?: string | null;
   avatar_thumb?: string | null;
   theme?: string | null;
+  /** Email signature appended to outbound channel replies. */
+  signature?: string | null;
   created_at: string;
   updated_at: string;
   open_ticket_count?: number;
@@ -42,6 +44,8 @@ export interface UserProfileUpdate {
   pronouns?: string | null;
   avatar_url?: string | null;
   banner_url?: string | null;
+  /** Empty string clears the stored signature; omit to leave unchanged. */
+  signature?: string | null;
 }
 
 /**

@@ -252,6 +252,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
         submitted_via: None,
         guest_lookup_token: None,
         verification_state: None,
+        origin_channel_id: None,
     };
 
     let ticket = create_ticket(conn, new_ticket)?;
@@ -298,6 +299,8 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
                 content: comment_json.content.clone(),
                 ticket_id: ticket.id,
                 user_uuid: default_user_uuid,
+                channel_metadata: None,
+                is_internal: false,
             };
 
             let comment = crate::repository::comments::create_comment(conn, new_comment)?;
@@ -438,6 +441,7 @@ mod tests {
             submitted_via: Some("guest".into()),
             guest_lookup_token: Some(Uuid::new_v4()),
             verification_state: state.map(|s| s.to_string()),
+            origin_channel_id: None,
         };
         diesel::insert_into(tickets::table)
             .values(&new_ticket)

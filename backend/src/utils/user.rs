@@ -76,6 +76,7 @@ impl NewUserBuilder {
             mfa_enabled: false,
             mfa_backup_codes: None,
             passkey_credentials: None,
+            signature: None,
         };
         (new_user, self.email)
     }
@@ -97,6 +98,7 @@ impl NewUserBuilder {
             mfa_enabled: false,
             mfa_backup_codes: None,
             passkey_credentials: None,
+            signature: None,
         }
     }
 }

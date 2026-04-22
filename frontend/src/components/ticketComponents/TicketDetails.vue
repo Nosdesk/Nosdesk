@@ -48,6 +48,10 @@ const props = defineProps<{
     assignee_user?: UserInfo | null;
     category_id?: number | null;
     category?: CategoryInfo | null;
+    /** Opened via a channel (email_imap, ...); drives the "via email" header pill. */
+    origin_channel_id?: number | null;
+    /** Provider string mirrored from the channel. */
+    submitted_via?: string | null;
   };
   createdDate: string;
   modifiedDate: string;
@@ -221,7 +225,24 @@ watchEffect(async () => {
         <div class="flex flex-col gap-3">
           <!-- Title Section -->
           <div class="flex flex-col gap-1.5">
-            <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Title</h3>
+            <div class="flex items-center justify-between gap-2">
+              <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Title</h3>
+              <!-- Origin-channel hint: small badge when the ticket was
+                   opened via the email / chat ingestion pipeline. Lets
+                   techs spot at a glance that a reply will be relayed
+                   back to the requester's inbox. -->
+              <span
+                v-if="ticket.origin_channel_id"
+                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent"
+                :title="`Opened via ${ticket.submitted_via ?? 'channel'} — replies are relayed back through the thread`"
+              >
+                <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                  <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                </svg>
+                via {{ ticket.submitted_via === 'email_imap' ? 'email' : ticket.submitted_via ?? 'channel' }}
+              </span>
+            </div>
             <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
               <ContentEditable
                 :modelValue="ticket.title || ''"

@@ -126,6 +126,7 @@ pub fn find_or_create_guest_user(
             mfa_enabled: false,
             mfa_backup_codes: None,
             passkey_credentials: None,
+            signature: None,
         };
 
         match create_user_with_email(
@@ -153,6 +154,42 @@ pub fn find_or_create_guest_user(
             Err(e) => Err(e),
         }
     })
+}
+
+/// Return the verified / privileged Nosdesk user that owns the given
+/// email (case-insensitive match against ANY of the user's verified
+/// emails — primary or secondary), if any.
+///
+/// "Verified or privileged" means either: the email row itself is
+/// marked `is_verified = true`, OR the user holds a role above
+/// [`UserRole::User`] (technician / admin) on any of their emails.
+///
+/// Checking secondaries matters for the channel-pipeline
+/// impersonation guard: a tech with `tech@yourco.com` primary and
+/// `tech.alias@yourco.com` verified secondary should trigger the
+/// tech-forward branch from either sending address, not just the
+/// primary. A non-verified baseline-user row — typical of the guest-
+/// submission auto-provisioning path — does NOT match.
+pub fn find_verified_user_by_email(
+    email: &str,
+    conn: &mut DbConnection,
+) -> Result<Option<User>, diesel::result::Error> {
+    use crate::schema::{user_emails, users};
+
+    let row: Option<(User, bool)> = users::table
+        .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
+        .filter(user_emails::email.ilike(email))
+        .select((users::all_columns, user_emails::is_verified))
+        .first::<(User, bool)>(conn)
+        .optional()?;
+
+    Ok(row.and_then(|(user, is_verified)| {
+        if is_verified || user.role != UserRole::User {
+            Some(user)
+        } else {
+            None
+        }
+    }))
 }
 
 /// Internal helper: load the user by email and classify them as reusable or
@@ -333,6 +370,7 @@ mod tests {
             mfa_enabled: false,
             mfa_backup_codes: None,
             passkey_credentials: None,
+            signature: None,
         };
 
         let (user, email_record) = create_user_with_email(
