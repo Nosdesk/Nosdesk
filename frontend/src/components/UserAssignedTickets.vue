@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { formatRelativeTime } from '@/utils/dateUtils';
-import { ref, computed, watch } from "vue";
-import { useRouter } from "vue-router";
+import { ref, computed, watch, onMounted } from "vue";
 import { useAuthStore } from "@/stores/auth";
 import { useSSEListeners } from "@/composables/useSSEListeners";
-import UserAvatar from "@/components/UserAvatar.vue";
-import StatusBadge from "@/components/StatusBadge.vue";
-import BaseDropdown from "@/components/common/BaseDropdown.vue";
-import ticketService, { type Ticket } from "@/services/ticketService";
+import { useWidgetConfigState } from "@/composables/useWidgetConfigState";
+import TicketRow from "@/components/TicketRow.vue";
+import TicketRowSkeleton from "@/components/TicketRowSkeleton.vue";
+import BaseDropdown, { type DropdownOption } from "@/components/common/BaseDropdown.vue";
+import FilterToggle from "@/components/common/FilterToggle.vue";
+import DashboardWidgetShell from "@/views/dashboard/DashboardWidgetShell.vue";
+import ticketService, { getRecentTickets, type Ticket } from "@/services/ticketService";
 
 const props = withDefaults(defineProps<{
     limit?: number;
@@ -27,54 +28,63 @@ const props = withDefaults(defineProps<{
     showFilters: true,
 });
 
-const router = useRouter();
-const authStore = useAuthStore();
+const auth = useAuthStore();
 
-const tickets = ref<Ticket[]>([]);
-const loading = ref(true);
-const error = ref<string | null>(null);
-// When filters are hidden, default to showing all tickets; otherwise default to active
-const selectedStatus = ref(props.filterStatus || (props.showFilters ? "active" : ""));
-const sortBy = ref("priority-date"); // default sort by priority first, then date
+// When this widget is rendered on the dashboard (current user's own
+// view), filter + sort choices persist to the widget's config so a
+// reload returns the user to where they were. When it is rendered on
+// another user's profile page, `userUuid` is set and the widget-id
+// resolves to null, so the config composable becomes a no-op for
+// persistence — two instances can't fight for the same config slot.
+const dashboardWidgetId = computed<string | null>(() => {
+    if (props.userUuid) return null;
+    return props.ticketType === 'requested' ? 'requested-tickets' : 'assigned-tickets';
+});
 
-// Computed: target user UUID (prop or current user)
-const targetUserUuid = computed(() => props.userUuid || authStore.user?.uuid || "");
+const config = useWidgetConfigState(dashboardWidgetId, {
+    status: props.filterStatus || (props.showFilters ? "active" : ""),
+    sort: "priority-date",
+    highPriority: false,
+    newActivity: false,
+});
 
-// Computed: whether showing data for the current user
-const isCurrentUser = computed(() => !props.userUuid || props.userUuid === authStore.user?.uuid);
+const targetUserUuid = computed(() => props.userUuid || auth.user?.uuid || "");
+const isCurrentUser = computed(() => !props.userUuid || props.userUuid === auth.user?.uuid);
 
-// Computed: display title
+// `You're` in a template string needs escaping, so keep it in script.
+const emptyDescription = computed(() => (isCurrentUser.value ? "You're all caught up!" : ''));
+
 const displayTitle = computed(() => {
     if (props.title) return props.title;
     return props.ticketType === 'requested' ? 'Requested Tickets' : 'Assigned Tickets';
 });
 
-// Computed: "See All" link
 const seeAllLink = computed(() => {
-    const baseLink = '/tickets';
     const paramKey = props.ticketType === 'requested' ? 'requester' : 'assignee';
     const userParam = props.userUuid || 'current';
-    return `${baseLink}?${paramKey}=${userParam}`;
+    return `/tickets?${paramKey}=${userParam}`;
 });
 
-// Status options for the filter
-const statusOptions = [
-    { value: "active", label: "Active" }, // Default: open + in-progress
-    { value: "", label: "All" },
-    { value: "open", label: "Open" },
-    { value: "in-progress", label: "In Progress" },
-    { value: "closed", label: "Closed" },
+// Status filter options. `tones` tags each option with the status
+// colours it represents. Single statuses get one dot, meta options
+// that span multiple get a cluster (Active unions open + in-progress,
+// All unions all three), so the gutter always carries information.
+const statusOptions: DropdownOption[] = [
+    { value: "active", label: "Active", description: "Open + In Progress", tones: ["bg-status-open", "bg-status-in-progress"] },
+    { value: "open", label: "Open", tones: ["bg-status-open"] },
+    { value: "in-progress", label: "In Progress", tones: ["bg-status-in-progress"] },
+    { value: "closed", label: "Closed", tones: ["bg-status-closed"] },
+    { value: "", label: "All", description: "Every status", tones: ["bg-status-open", "bg-status-in-progress", "bg-status-closed"] },
 ];
 
-// Sort options
-const sortOptions = [
-    { value: "priority-date", label: "Priority, then Date" },
-    { value: "priority", label: "Highest Priority" },
-    { value: "date", label: "Latest Modified" },
+// Sort options. Strictly-by-priority was dropped intentionally:
+// without a date tiebreak the intra-tier order is arbitrary.
+const sortOptions: DropdownOption[] = [
+    { value: "priority-date", label: "Priority", description: "Priority, then recent" },
+    { value: "date", label: "Recent", description: "Most recently modified" },
+    { value: "oldest", label: "Oldest", description: "Oldest first, for triage" },
 ];
 
-
-// Priority order for sorting (higher priority = lower number)
 const PRIORITY_ORDER: Record<string, number> = {
     'critical': 0,
     'high': 1,
@@ -82,135 +92,179 @@ const PRIORITY_ORDER: Record<string, number> = {
     'low': 3,
 };
 
-// Get tickets for the target user (assigned or requested based on ticketType)
-const fetchTickets = async () => {
+// -- New-activity cross-reference -------------------------------------
+
+// Map of ticket id → ISO timestamp of the current user's last view of
+// that ticket, populated from /tickets/recent. A ticket has "new
+// activity" when its `modified` is after the user's last view.
+// Tickets never viewed don't appear here and are treated as no new
+// activity — the indicator is about updates since you last looked,
+// not about tickets you haven't touched yet.
+const lastViewedById = ref<Map<number, string>>(new Map());
+
+async function refreshRecentViews() {
+    try {
+        const views = await getRecentTickets();
+        lastViewedById.value = new Map(views.map((v) => [v.id, v.last_viewed_at]));
+    } catch (err) {
+        // Non-fatal — the new-activity signal just won't be available.
+        console.error('Failed to fetch recent ticket views:', err);
+    }
+}
+
+function hasNewActivity(ticket: Ticket): boolean {
+    const lastViewed = lastViewedById.value.get(ticket.id);
+    if (!lastViewed) return false;
+    return new Date(ticket.modified).getTime() > new Date(lastViewed).getTime();
+}
+
+function isHighPriority(ticket: Ticket): boolean {
+    const p = ticket.priority as string;
+    return p === 'high' || p === 'critical';
+}
+
+// -- Fetch --------------------------------------------------------------
+
+// `rawTickets` is the server response; `tickets` is the displayed
+// list after client-side filters. Splitting them means toggles that
+// only narrow the visible set (high-priority, new-activity) update
+// instantly without a round-trip — only state that changes what the
+// server returns (status, sort, target user) refetches.
+const rawTickets = ref<Ticket[]>([]);
+const loading = ref(true);
+const refreshing = ref(false);
+const hasLoadedOnce = ref(false);
+const error = ref<string | null>(null);
+
+const tickets = computed<Ticket[]>(() => {
+    let out = rawTickets.value;
+    if (config.highPriority) out = out.filter(isHighPriority);
+    if (config.newActivity) out = out.filter(hasNewActivity);
+    return out.slice(0, props.limit);
+});
+
+async function fetchTickets() {
     if (!targetUserUuid.value) return;
 
-    loading.value = true;
+    if (hasLoadedOnce.value) {
+        refreshing.value = true;
+    } else {
+        loading.value = true;
+    }
     error.value = null;
 
     try {
-        // "active" and "" both mean fetch all (active filters client-side)
-        const statusFilter = selectedStatus.value && selectedStatus.value !== "active"
-            ? selectedStatus.value
+        // "active" collapses open + in-progress client-side (the server
+        // status filter only matches a single status at a time).
+        const statusFilter = config.status && config.status !== "active"
+            ? config.status
             : undefined;
 
-        // For multi-level sort (priority-date), fetch by priority first
-        // For single-level sorts, use the appropriate field
-        const sortField = sortBy.value === "date" ? "modified" : "priority";
+        // Sort field + direction per sortBy:
+        //  - priority-date: priority desc (client re-sorts with date tiebreak)
+        //  - date:          modified desc
+        //  - oldest:        created_at asc
+        let sortField: 'priority' | 'modified' | 'created_at' = 'priority';
+        let sortDirection: 'asc' | 'desc' = 'desc';
+        if (config.sort === 'date') {
+            sortField = 'modified';
+        } else if (config.sort === 'oldest') {
+            sortField = 'created_at';
+            sortDirection = 'asc';
+        }
 
-        // Build query params based on ticket type
+        // Fetch more than the display limit so the "active" client
+        // filter still leaves enough rows to fill the widget.
         const queryParams: Parameters<typeof ticketService.getPaginatedTickets>[0] = {
             page: 1,
-            pageSize: props.limit * 3, // Fetch more to account for client-side filtering/sorting
+            pageSize: props.limit * 3,
             sortField,
-            sortDirection: "desc",
+            sortDirection,
             status: statusFilter,
         };
-
-        // Set assignee or requester based on ticket type
         if (props.ticketType === 'requested') {
             queryParams.requester = targetUserUuid.value;
         } else {
             queryParams.assignee = targetUserUuid.value;
         }
 
-        // Use a unique request key to prevent race conditions when multiple instances exist
         const requestKey = `user-tickets-${props.ticketType}-${targetUserUuid.value}`;
         const response = await ticketService.getPaginatedTickets(queryParams, requestKey);
 
-        // Client-side filter for "active" status (open + in-progress)
-        let filteredTickets = response.data;
-        if (selectedStatus.value === "active") {
-            filteredTickets = response.data.filter(
-                (ticket) =>
-                    ticket.status === "open" || ticket.status === "in-progress",
-            );
+        let data = response.data;
+        if (config.status === "active") {
+            data = data.filter((t) => t.status === "open" || t.status === "in-progress");
         }
-
-        // Apply client-side sorting for multi-level sort (priority, then date)
-        if (sortBy.value === "priority-date") {
-            filteredTickets.sort((a, b) => {
-                // First sort by priority (critical > high > medium > low)
+        if (config.sort === "priority-date") {
+            data = data.slice().sort((a, b) => {
                 const priorityA = PRIORITY_ORDER[a.priority] ?? 4;
                 const priorityB = PRIORITY_ORDER[b.priority] ?? 4;
-                if (priorityA !== priorityB) {
-                    return priorityA - priorityB;
-                }
-                // Then sort by modified date (newest first)
+                if (priorityA !== priorityB) return priorityA - priorityB;
                 return new Date(b.modified).getTime() - new Date(a.modified).getTime();
             });
         }
 
-        // Limit to the requested number
-        tickets.value = filteredTickets.slice(0, props.limit);
+        rawTickets.value = data;
     } catch (err) {
         console.error(`Error fetching ${props.ticketType} tickets:`, err);
         error.value = `Failed to load ${props.ticketType} tickets`;
     } finally {
         loading.value = false;
+        refreshing.value = false;
+        hasLoadedOnce.value = true;
     }
-};
+}
 
-const navigateToTicket = (ticketId: number) => {
-    router.push(`/tickets/${ticketId}`);
-};
+onMounted(refreshRecentViews);
 
-// Watch for changes and fetch - uses immediate:true to handle initial load
-// This is the Vue 3 recommended pattern for data fetching that depends on reactive state
+// Refetch only when inputs that change what the server returns change.
+// Client-only filters (high-priority, new-activity) are computed from
+// `rawTickets` and don't need a round-trip.
 watch(
     [
         targetUserUuid,
         () => props.filterStatus,
         () => props.ticketType,
-        selectedStatus,
-        sortBy,
+        () => config.status,
+        () => config.sort,
     ],
     ([userUuid, newPropStatus]) => {
-        if (newPropStatus) selectedStatus.value = newPropStatus;
-        // Fetch when a valid userUuid is available
-        if (userUuid) {
-            fetchTickets();
-        }
+        if (newPropStatus) config.status = newPropStatus;
+        if (userUuid) fetchTickets();
     },
-    { immediate: true }
+    { immediate: true },
 );
 
-// SSE integration for real-time ticket updates
+// -- SSE live updates ---------------------------------------------------
+
 const { on } = useSSEListeners();
 
-/** Check if a status value passes the current filter */
-const statusMatchesFilter = (status: string): boolean => {
-    if (!selectedStatus.value || selectedStatus.value === '') return true;
-    if (selectedStatus.value === 'active') return status === 'open' || status === 'in-progress';
-    return status === selectedStatus.value;
-};
+function statusMatchesFilter(status: string): boolean {
+    if (!config.status) return true;
+    if (config.status === 'active') return status === 'open' || status === 'in-progress';
+    return status === config.status;
+}
 
 on('ticket-updated', (data) => {
     const event = data as { ticket_id: number; field: string; value: unknown };
-    const idx = tickets.value.findIndex(t => t.id === event.ticket_id);
+    const idx = rawTickets.value.findIndex(t => t.id === event.ticket_id);
     if (idx === -1) return;
 
-    const ticket = tickets.value[idx];
+    const ticket = rawTickets.value[idx];
     const field = event.field as keyof Ticket;
-
-    // Update the field in place
     if (field in ticket) {
         (ticket as Record<string, unknown>)[field] = event.value;
     }
 
-    // If status changed and no longer matches filter, remove
     if (field === 'status' && !statusMatchesFilter(String(event.value))) {
-        tickets.value.splice(idx, 1);
+        rawTickets.value.splice(idx, 1);
         return;
     }
-
-    // If assignee changed away from target user (for assigned view), remove
     if (field === 'assignee' && props.ticketType === 'assigned') {
         const assigneeVal = event.value as { uuid?: string } | string | null;
         const assigneeUuid = typeof assigneeVal === 'object' && assigneeVal ? assigneeVal.uuid : assigneeVal;
         if (assigneeUuid !== targetUserUuid.value) {
-            tickets.value.splice(idx, 1);
+            rawTickets.value.splice(idx, 1);
         }
     }
 });
@@ -220,209 +274,93 @@ on('ticket-created', (data) => {
     if (!event.ticket) return;
     const ticket = event.ticket as unknown as Ticket;
 
-    // Check if the ticket matches our target user
     const matchesUser = props.ticketType === 'assigned'
         ? ticket.assignee_uuid === targetUserUuid.value
         : ticket.requester_uuid === targetUserUuid.value;
     if (!matchesUser) return;
-
-    // Check status filter
     if (!statusMatchesFilter(ticket.status)) return;
 
-    // Prepend and enforce limit
-    tickets.value.unshift(ticket);
-    if (tickets.value.length > props.limit) {
-        tickets.value.pop();
-    }
+    rawTickets.value.unshift(ticket);
 });
 
 on('ticket-deleted', (data) => {
     const event = data as { ticket_id: number };
-    tickets.value = tickets.value.filter(t => t.id !== event.ticket_id);
+    rawTickets.value = rawTickets.value.filter(t => t.id !== event.ticket_id);
 });
 </script>
 
 <template>
-    <div
-        class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
+    <DashboardWidgetShell
+        :title="showTitle ? displayTitle : ''"
+        :action-to="seeAllLink"
+        :loading="loading"
+        :refreshing="refreshing"
+        :error="error"
+        :empty="!loading && !error && tickets.length === 0"
+        :empty-title="`No ${props.ticketType === 'requested' ? 'requested' : 'assigned'} tickets`"
+        :empty-description="emptyDescription"
+        min-body-height="200px"
     >
-        <!-- Header with title and filter -->
-        <div
-            class="px-3 sm:px-4 py-3 bg-surface-alt border-b border-default flex items-center justify-between gap-2"
-        >
-            <div v-if="showTitle" class="flex items-center gap-2 min-w-0 flex-shrink">
-                <h2 class="text-base sm:text-lg font-medium text-primary truncate">
-                    {{ displayTitle }}
-                </h2>
-                <router-link
-                    :to="seeAllLink"
-                    class="text-xs px-2 py-1 sm:px-3 sm:py-1.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors font-medium flex-shrink-0"
-                >
-                    All
-                </router-link>
-            </div>
+        <template #skeleton>
+            <TicketRowSkeleton :count="5" />
+        </template>
 
-            <div v-if="showFilters" class="flex gap-1 flex-shrink-0">
+        <template v-if="showFilters" #subheader>
+            <div class="flex items-center gap-2 px-3 py-1.5 border-b border-default bg-surface-alt/40">
                 <BaseDropdown
-                    v-model="sortBy"
-                    :options="sortOptions"
-                    size="xs"
-                />
-                <BaseDropdown
-                    v-model="selectedStatus"
+                    v-model="config.status"
                     :options="statusOptions"
                     size="xs"
+                    class="flex-shrink-0"
+                    :aria-label="`${displayTitle} status filter`"
+                />
+
+                <div class="flex-1 min-w-0" />
+
+                <div class="flex items-center gap-1 flex-shrink-0">
+                    <FilterToggle
+                        v-model="config.highPriority"
+                        label="High priority only"
+                        active-class="bg-priority-high/15 text-priority-high"
+                    >
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                        </svg>
+                    </FilterToggle>
+                    <FilterToggle
+                        v-model="config.newActivity"
+                        label="New activity only"
+                        active-class="bg-accent/15 text-accent"
+                    >
+                        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <circle cx="12" cy="12" r="4" />
+                            <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.4" />
+                        </svg>
+                    </FilterToggle>
+                </div>
+
+                <BaseDropdown
+                    v-model="config.sort"
+                    :options="sortOptions"
+                    size="xs"
+                    class="flex-shrink-0"
                 />
             </div>
-        </div>
+        </template>
 
-        <!-- Loading state -->
-        <div v-if="loading" class="px-4 py-12 flex justify-center items-center">
-            <div class="flex items-center gap-3 text-secondary">
-                <svg
-                    class="w-5 h-5 animate-spin"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                >
-                    <circle
-                        class="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        stroke-width="4"
-                    ></circle>
-                    <path
-                        class="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                </svg>
-                <span class="text-sm font-medium">Loading tickets...</span>
-            </div>
-        </div>
-
-        <!-- Error state -->
-        <div v-else-if="error" class="px-4 py-8 text-center">
-            <div class="flex flex-col items-center gap-3">
-                <svg
-                    class="w-10 h-10 text-status-error"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                >
-                    <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    ></path>
-                </svg>
-                <p class="text-status-error font-medium">{{ error }}</p>
-                <button
-                    @click="fetchTickets"
-                    class="px-4 py-2 bg-surface-alt border border-default rounded-lg text-primary hover:bg-surface-hover transition-colors text-sm font-medium"
-                >
-                    Try Again
-                </button>
-            </div>
-        </div>
-
-        <!-- Empty state -->
-        <div v-else-if="tickets.length === 0" class="px-4 py-8 text-center">
-            <div class="flex flex-col items-center gap-3">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="h-10 w-10 text-tertiary"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                >
-                    <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.5"
-                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
-                    />
-                </svg>
-                <div>
-                    <p class="text-secondary font-medium">
-                        No {{ props.ticketType === 'requested' ? 'requested' : 'assigned' }} tickets
-                    </p>
-                    <p v-if="isCurrentUser" class="text-tertiary text-sm mt-1">
-                        You're all caught up!
-                    </p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Ticket list -->
-        <div v-else class="divide-y divide-default">
-            <div
-                v-for="ticket in tickets"
-                :key="ticket.id"
-                @click="navigateToTicket(ticket.id)"
-                class="px-4 py-4 hover:bg-surface-hover transition-all duration-200 cursor-pointer group"
-            >
-                <div class="flex gap-4">
-                    <!-- Ticket content -->
-                    <div class="flex flex-col gap-1 flex-1 min-w-0 space-y-2">
-                        <!-- Title and ID -->
-                        <div class="flex items-start gap-2">
-                            <h3
-                                class="text-primary font-medium group-hover:text-accent transition-colors flex-1 leading-snug"
-                            >
-                                {{ ticket.title }}
-                            </h3>
-                        </div>
-
-                        <!-- Metadata: ID, Status, Priority -->
-                        <div class="flex items-center gap-3 text-xs">
-                            <span class="font-mono text-tertiary">#{{ ticket.id }}</span>
-                            <StatusBadge type="status" :value="ticket.status" :compact="true" />
-                            <StatusBadge type="priority" :value="ticket.priority" :short="true" :compact="true" />
-                        </div>
-
-                        <!-- From and Time (always on bottom) -->
-                        <div class="flex items-center gap-3 text-xs text-tertiary">
-                            <div v-if="ticket.requester_user" class="flex items-center gap-1.5">
-                                <span>From:</span>
-                                <UserAvatar
-                                    :name="ticket.requester_user.name"
-                                    :avatar="ticket.requester_user.avatar_thumb"
-                                    :userUuid="ticket.requester_user.uuid"
-                                    size="xs"
-                                    :showName="true"
-                                    class="text-secondary"
-                                />
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                <span>{{ formatRelativeTime(ticket.modified) }}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Arrow indicator -->
-                    <div class="flex-shrink-0 flex items-center">
-                        <svg
-                            class="w-5 h-5 text-tertiary group-hover:text-primary group-hover:translate-x-1 transition-all"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M9 5l7 7-7 7"
-                            />
-                        </svg>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+        <ul class="divide-y divide-default">
+            <li v-for="ticket in tickets" :key="ticket.id">
+                <TicketRow
+                    :id="ticket.id"
+                    :title="ticket.title"
+                    :status="ticket.status"
+                    :priority="ticket.priority"
+                    :timestamp="ticket.modified"
+                    :requester="ticket.requester_user"
+                    :new-activity="hasNewActivity(ticket)"
+                    :to="`/tickets/${ticket.id}`"
+                />
+            </li>
+        </ul>
+    </DashboardWidgetShell>
 </template>

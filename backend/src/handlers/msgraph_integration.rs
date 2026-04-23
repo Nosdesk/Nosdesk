@@ -2050,6 +2050,7 @@ async fn update_existing_microsoft_user_optimized(
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?), // Always update Microsoft UUID with proper conversion
         updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
+            dashboard_layout: None,
     };
 
     // Update user if there are changes
@@ -2160,6 +2161,7 @@ async fn link_existing_user_to_microsoft_optimized(
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?), // Store Microsoft UUID with proper conversion
         updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
+            dashboard_layout: None,
     };
 
     // Always update to store the Microsoft UUID
@@ -3460,6 +3462,7 @@ async fn update_user_avatar_by_id(
             microsoft_uuid: None, // Don't update Microsoft UUID when updating avatar
             updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
+            dashboard_layout: None,
         };
 
         match user_repo::update_user(user_uuid, user_update, conn) {
@@ -4242,6 +4245,7 @@ async fn update_existing_microsoft_user_no_photos(
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?),
         updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
+            dashboard_layout: None,
     };
 
     if user_update.name.is_some() || false /* email removed */ || user_update.microsoft_uuid.is_some() {
@@ -4306,6 +4310,7 @@ async fn link_existing_user_to_microsoft_no_photos(
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?),
         updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
+            dashboard_layout: None,
     };
 
     user_repo::update_user(&existing_user.uuid, user_update, conn)

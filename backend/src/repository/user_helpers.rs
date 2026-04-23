@@ -127,6 +127,7 @@ pub fn find_or_create_guest_user(
             mfa_backup_codes: None,
             passkey_credentials: None,
             signature: None,
+            dashboard_layout: None,
         };
 
         match create_user_with_email(
@@ -253,6 +254,7 @@ pub fn get_user_with_primary_email(
         updated_at: user.updated_at,
         open_ticket_count: None,
         device_count: None,
+        dashboard_layout: user.dashboard_layout,
     }
 }
 
@@ -303,6 +305,7 @@ pub fn get_users_with_primary_emails(
             updated_at: user.updated_at,
             open_ticket_count: None,
             device_count: None,
+            dashboard_layout: user.dashboard_layout,
         }
     }).collect()
 }
@@ -371,6 +374,7 @@ mod tests {
             mfa_backup_codes: None,
             passkey_credentials: None,
             signature: None,
+            dashboard_layout: None,
         };
 
         let (user, email_record) = create_user_with_email(

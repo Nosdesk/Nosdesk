@@ -77,6 +77,7 @@ impl NewUserBuilder {
             mfa_backup_codes: None,
             passkey_credentials: None,
             signature: None,
+            dashboard_layout: None,
         };
         (new_user, self.email)
     }
@@ -99,6 +100,7 @@ impl NewUserBuilder {
             mfa_backup_codes: None,
             passkey_credentials: None,
             signature: None,
+            dashboard_layout: None,
         }
     }
 }

@@ -638,6 +638,10 @@ pub struct User {
     /// agent's email signature. Stored as-is; user owns formatting.
     /// `None` / empty → no signature appended.
     pub signature: Option<String>,
+    /// Per-user dashboard customization. `None` means the client falls
+    /// back to the role default. Shape is authoritative client-side
+    /// (`{ widgets: [{ id, visible }] }`) and validated on update.
+    pub dashboard_layout: Option<serde_json::Value>,
 }
 
 // New user for creation
@@ -661,6 +665,8 @@ pub struct NewUser {
     pub passkey_credentials: Option<serde_json::Value>,
     #[serde(default)]
     pub signature: Option<String>,
+    #[serde(default)]
+    pub dashboard_layout: Option<serde_json::Value>,
 }
 
 // Add a separate struct for user registration with password
@@ -693,6 +699,11 @@ pub struct UserUpdate {
     /// `Option<Option<String>>` semantics: outer `None` = leave as-is;
     /// `Some(None)` = clear; `Some(Some(s))` = set.
     pub signature: Option<Option<String>>,
+    /// `None` = no change. `Some(value)` = persist this JSON blob as
+    /// the user's dashboard layout. Reset-to-defaults is handled
+    /// client-side: the frontend computes the role default and sends
+    /// it as a concrete payload.
+    pub dashboard_layout: Option<serde_json::Value>,
 }
 
 // User update with password for admin/user management
@@ -711,6 +722,9 @@ pub struct UserUpdateWithPassword {
     /// agent's signature. `None` in the payload → no change. Empty
     /// string clears it.
     pub signature: Option<String>,
+    /// Dashboard layout JSON (see `UserUpdate::dashboard_layout`).
+    #[serde(default)]
+    pub dashboard_layout: Option<serde_json::Value>,
 }
 
 // User profile update for profile management
@@ -747,6 +761,9 @@ pub struct UserResponse {
     pub open_ticket_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device_count: Option<i64>,
+    /// Per-user dashboard layout JSON, or null = client uses defaults.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dashboard_layout: Option<serde_json::Value>,
 }
 
 // User info for comments - minimal user data to include with comments
@@ -785,6 +802,7 @@ impl From<User> for UserResponse {
             updated_at: user.updated_at,
             open_ticket_count: None,
             device_count: None,
+            dashboard_layout: user.dashboard_layout,
         }
     }
 }

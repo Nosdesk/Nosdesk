@@ -953,6 +953,7 @@ mod tests {
             mfa_backup_codes: None,
             passkey_credentials: None,
             signature: None,
+            dashboard_layout: None,
         };
         create_user_with_email(admin, "claimed@example.com".into(), true, None, &mut conn)
             .expect("seed admin");
@@ -998,6 +999,7 @@ mod tests {
             mfa_backup_codes: None,
             passkey_credentials: None,
             signature: None,
+            dashboard_layout: None,
         };
         let (tech, _) =
             create_user_with_email(tech_user, "tech@yourco.com".into(), true, None, &mut conn)
@@ -1078,6 +1080,7 @@ My printer is literally on fire.
             mfa_backup_codes: None,
             passkey_credentials: None,
             signature: None,
+            dashboard_layout: None,
         };
         create_user_with_email(tech, "admin2@yourco.com".into(), true, None, &mut conn)
             .expect("seed admin");

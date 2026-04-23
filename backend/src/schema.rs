@@ -947,6 +947,7 @@ diesel::table! {
         mfa_backup_codes -> Nullable<Jsonb>,
         passkey_credentials -> Nullable<Jsonb>,
         signature -> Nullable<Text>,
+        dashboard_layout -> Nullable<Jsonb>,
     }
 }
 

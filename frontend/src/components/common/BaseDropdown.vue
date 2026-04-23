@@ -6,6 +6,16 @@ export interface DropdownOption {
   label: string
   description?: string
   icon?: string
+  /**
+   * One or more Tailwind background-color classes rendered as small
+   * leading dots before the label (in both the trigger and menu).
+   * Use a single tone for options that map to one domain value
+   * (e.g. Open → status-open), or multiple tones for meta options
+   * that span several (e.g. Active → open + in-progress, All → all
+   * three). Single tones render as one 8px dot; multiple tones
+   * render as a chip-stack of smaller 4px dots in sequence.
+   */
+  tones?: string[]
 }
 
 const props = withDefaults(defineProps<{
@@ -109,22 +119,44 @@ const sizeClasses = computed(() => {
 // Reactive position tracking for scroll updates
 const menuPosition = ref({ top: 0, left: 0, width: 0 })
 
-// Update position based on trigger and menu elements
+// Update position based on trigger and menu elements. Clamps both
+// axes to the viewport so the menu never spills off-screen:
+//  - Vertical: flip to open upward when space below is tight.
+//  - Horizontal: anchor to trigger's left edge by default; if the menu
+//    would overflow the right edge, shift left so its right edge
+//    aligns with the viewport (right-align the menu to the trigger).
+//    As a last resort for ultra-narrow viewports, clamp to the left
+//    margin so the left edge is always visible.
+const VIEWPORT_MARGIN_PX = 8
+
 const updatePosition = () => {
   if (!triggerRef.value || !menuRef.value) return
 
   const triggerRect = triggerRef.value.getBoundingClientRect()
   const menuHeight = menuRef.value.offsetHeight
   const viewportHeight = window.innerHeight
+  const viewportWidth = window.innerWidth
   const spaceBelow = viewportHeight - triggerRect.bottom
 
   // Open upward if not enough space below
   const openUpward = spaceBelow < menuHeight && triggerRect.top > menuHeight
 
+  // Min width of 240px gives enough room for 30–35ch of option text
+  // before wrapping kicks in. Short triggers ("Priority", icon-only,
+  // etc.) still get a readable menu; wide triggers still match.
+  const menuWidth = Math.max(triggerRect.width, 240)
+
+  // Horizontal clamp: prefer the trigger's left edge, fall back to a
+  // right-aligned position, then to the viewport left margin.
+  let left = triggerRect.left
+  if (left + menuWidth > viewportWidth - VIEWPORT_MARGIN_PX) {
+    left = Math.max(VIEWPORT_MARGIN_PX, viewportWidth - menuWidth - VIEWPORT_MARGIN_PX)
+  }
+
   menuPosition.value = {
     top: openUpward ? triggerRect.top - menuHeight - 2 : triggerRect.bottom + 2,
-    left: triggerRect.left,
-    width: Math.max(triggerRect.width, 180)
+    left,
+    width: menuWidth,
   }
 }
 
@@ -312,10 +344,25 @@ onUnmounted(() => {
       ]"
     >
       <span
-        class="truncate"
+        class="truncate flex items-center gap-2 min-w-0"
         :class="hasSelection ? 'text-primary' : 'text-tertiary'"
       >
-        {{ displayText }}
+        <span
+          v-if="selectedOption?.tones?.length"
+          aria-hidden="true"
+          class="flex items-center gap-0.5 flex-shrink-0"
+        >
+          <span
+            v-for="(t, i) in selectedOption.tones"
+            :key="i"
+            :class="[
+              t,
+              'rounded-full',
+              selectedOption.tones.length === 1 ? 'w-2 h-2' : 'w-1 h-1',
+            ]"
+          />
+        </span>
+        <span class="truncate">{{ displayText }}</span>
       </span>
       <svg
         class="w-4 h-4 text-tertiary flex-shrink-0 ml-2 transition-transform duration-200"
@@ -390,25 +437,45 @@ onUnmounted(() => {
                 </div>
               </template>
 
-              <!-- Check mark for single-select mode -->
-              <template v-else>
+              <!--
+                Left gutter for single-select. A fixed-size box keeps
+                every row's label column aligned regardless of what
+                the gutter is showing: check when selected, a dot
+                (single tone) or dot-cluster (multi-tone meta option)
+                when the option carries tones, empty otherwise.
+              -->
+              <span v-else class="w-4 h-4 flex items-center justify-center flex-shrink-0">
                 <svg
                   v-if="isSelected(option.value)"
-                  class="w-4 h-4 text-accent flex-shrink-0"
+                  class="w-4 h-4 text-accent"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
                 >
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                 </svg>
-                <div v-else class="w-4 flex-shrink-0" />
-              </template>
+                <span
+                  v-else-if="option.tones?.length"
+                  aria-hidden="true"
+                  class="flex items-center gap-0.5"
+                >
+                  <span
+                    v-for="(t, i) in option.tones"
+                    :key="i"
+                    :class="[
+                      t,
+                      'rounded-full',
+                      option.tones.length === 1 ? 'w-2 h-2' : 'w-1 h-1',
+                    ]"
+                  />
+                </span>
+              </span>
 
               <div class="flex-1 min-w-0">
-                <div class="truncate" :class="(option.value === 'all' ? allSelected : isSelected(option.value)) ? 'font-medium' : ''">
+                <div :class="(option.value === 'all' ? allSelected : isSelected(option.value)) ? 'font-medium' : ''">
                   {{ option.label }}
                 </div>
-                <div v-if="option.description" class="text-xs text-tertiary truncate mt-0.5">
+                <div v-if="option.description" class="text-xs text-tertiary mt-0.5 leading-snug">
                   {{ option.description }}
                 </div>
               </div>

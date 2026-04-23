@@ -356,6 +356,7 @@ mod tests {
             microsoft_uuid: None,
             updated_at: None,
             signature: None,
+            dashboard_layout: None,
         };
 
         let updated = update_user(&user.uuid, update, &mut conn).unwrap();

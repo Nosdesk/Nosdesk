@@ -28,6 +28,74 @@ pub enum SendInvitationResult {
     EmailSendError(String),
 }
 
+/// Cap the persisted dashboard layout at a kilobyte — we expect a
+/// handful of widget ids and booleans, anything approaching 1 KB is a
+/// sign of a malformed payload.
+const MAX_DASHBOARD_LAYOUT_BYTES: usize = 4 * 1024;
+
+/// Validate the shape of a user-supplied `dashboard_layout` JSON blob
+/// before it is persisted. Expected form:
+///
+/// ```json
+/// { "widgets": [
+///     { "id": "string", "visible": true, "span": 1, "config": {...} },
+///     ...
+/// ] }
+/// ```
+///
+/// `config` is an arbitrary per-widget config object — the shape is owned
+/// by the widget, not enforced here. The overall byte cap is the
+/// backstop against a client shoving megabytes of junk through.
+fn validate_dashboard_layout(layout: &serde_json::Value) -> Result<(), &'static str> {
+    if serde_json::to_vec(layout).map(|v| v.len()).unwrap_or(usize::MAX)
+        > MAX_DASHBOARD_LAYOUT_BYTES
+    {
+        return Err("dashboard_layout exceeds the size limit");
+    }
+    let obj = layout
+        .as_object()
+        .ok_or("dashboard_layout must be a JSON object")?;
+    let widgets = obj
+        .get("widgets")
+        .and_then(|w| w.as_array())
+        .ok_or("dashboard_layout.widgets must be an array")?;
+    for entry in widgets {
+        let entry = entry
+            .as_object()
+            .ok_or("dashboard_layout.widgets[] must be objects")?;
+        let id_ok = entry
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(|s| !s.is_empty() && s.len() <= 64)
+            .unwrap_or(false);
+        if !id_ok {
+            return Err("dashboard_layout.widgets[].id must be a non-empty string up to 64 chars");
+        }
+        if !entry.get("visible").map(|v| v.is_boolean()).unwrap_or(false) {
+            return Err("dashboard_layout.widgets[].visible must be a boolean");
+        }
+        // `span` is optional; when present it must be an integer 1-3
+        // (the client restricts the UI to these three column spans).
+        if let Some(span) = entry.get("span") {
+            let span_ok = span
+                .as_i64()
+                .map(|n| (1..=3).contains(&n))
+                .unwrap_or(false);
+            if !span_ok {
+                return Err("dashboard_layout.widgets[].span must be 1, 2, or 3 when present");
+            }
+        }
+        // `config` is optional; shape is owned by the widget. Only the
+        // outer type is enforced, object or nothing.
+        if let Some(config) = entry.get("config") {
+            if !config.is_object() {
+                return Err("dashboard_layout.widgets[].config must be an object when present");
+            }
+        }
+    }
+    Ok(())
+}
+
 impl std::fmt::Display for SendInvitationResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -1354,6 +1422,7 @@ pub async fn upload_user_image(
             microsoft_uuid: None, // Don't update Microsoft UUID in regular user updates
             updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
+            dashboard_layout: None,
         };
         
         match repository::update_user(&user.uuid, user_update, &mut conn) {
@@ -1762,6 +1831,17 @@ pub async fn update_user_by_uuid(
         }
     }
 
+    // Validate dashboard_layout shape so malformed client payloads
+    // can't land garbage JSON in the column.
+    if let Some(ref layout) = user_data.dashboard_layout {
+        if let Err(msg) = validate_dashboard_layout(layout) {
+            return HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": msg,
+            }));
+        }
+    }
+
     // Update user
     let user_update = UserUpdate {
         name: user_data.name.clone(),
@@ -1784,6 +1864,7 @@ pub async fn update_user_by_uuid(
                 Some(s.clone())
             }
         }),
+        dashboard_layout: user_data.dashboard_layout.clone(),
     };
 
     match repository::update_user(&user.uuid, user_update, &mut conn) {
@@ -1838,6 +1919,19 @@ pub async fn update_user_by_uuid(
                     &user_uuid,
                     "avatar_thumb",
                     json!(updated_user.avatar_thumb.clone()),
+                    &updated_by,
+                ).await;
+            }
+            if user_data.dashboard_layout.is_some() {
+                // Push the full layout payload so other tabs/devices can
+                // mirror the change without a round-trip. The user_uuid
+                // filter on the frontend side means this only affects
+                // the owning user's own sessions.
+                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
+                    &sse_state,
+                    &user_uuid,
+                    "dashboard_layout",
+                    json!(updated_user.dashboard_layout.clone()),
                     &updated_by,
                 ).await;
             }
@@ -2531,6 +2625,7 @@ pub async fn bulk_users(
                     microsoft_uuid: None,
                     updated_at: Some(chrono::Utc::now().naive_utc()),
                     signature: None,
+                    dashboard_layout: None,
                 };
 
                 if repository::update_user(&uuid, user_update, &mut conn).is_ok() {

@@ -1,0 +1,299 @@
+/**
+ * Dashboard widget registry.
+ *
+ * A widget is a discrete, self-contained Vue component that the user
+ * can reorder or hide on their dashboard. Each entry describes what
+ * the component is, which roles may use it, and the fixed column
+ * span it occupies inside the 3-column grid. The preset span is
+ * deliberate — this iteration is "reorder + show/hide," not free-form
+ * resize; giving each widget a design-time span keeps layouts tidy
+ * without introducing a grid library.
+ *
+ * Layouts stored on the user row reference widgets by `id`. The store
+ * merges new registry entries at the tail of the stored order, so
+ * shipping a new widget is a no-op for existing users.
+ */
+import type { Component } from 'vue'
+import type { DashboardLayout, UserRole } from '@/types/user'
+import UserAssignedTickets from '@/components/UserAssignedTickets.vue'
+import TicketHeatmap from '@/components/TicketHeatmap.vue'
+import StaffYoursStats from './StaffYoursStats.vue'
+import StaffQueueStats from './StaffQueueStats.vue'
+import UserSummaryStats from './UserSummaryStats.vue'
+import RecentlyViewedWidget from './RecentlyViewedWidget.vue'
+import UnassignedQueueWidget from './UnassignedQueueWidget.vue'
+import StarredDocsWidget from './StarredDocsWidget.vue'
+import MyDevicesWidget from './MyDevicesWidget.vue'
+import ChannelHealthWidget from './ChannelHealthWidget.vue'
+
+export type WidgetSpan = 1 | 2 | 3
+
+export interface WidgetDef {
+  /** Stable identifier persisted in user layouts. */
+  id: string
+  /** Human-readable title shown in the "add widget" picker. */
+  title: string
+  /** One-line description shown next to the title in the picker. */
+  description: string
+  /** The Vue component rendered for this widget. */
+  component: Component
+  /** Static props passed to the component when rendered. */
+  props?: Record<string, unknown>
+  /** Column span inside the 3-col dashboard grid. */
+  span: WidgetSpan
+  /** Which roles may use this widget. */
+  roles: UserRole[]
+  /**
+   * Whether the widget is visible by default. When a new widget is
+   * added to the registry, existing users inherit this flag the first
+   * time their layout is merged. Defaults to `true` when omitted —
+   * set `false` for niche widgets users should opt in to via the
+   * "Add widget" picker rather than having them appear unprompted.
+   */
+  defaultVisible?: boolean
+  /**
+   * When `true`, the widget renders at its natural content height and
+   * opts out of the grid's row-stretch. Use for compact widgets (stat
+   * rails, glance panels) that would show distracting empty space if
+   * stretched to match a tall list sibling. The unused grid-cell
+   * space below falls through to the dashboard background — no
+   * empty-card chrome, so the uneven bottom reads as "this widget is
+   * compact by design" rather than "this card isn't filling."
+   */
+  naturalHeight?: boolean
+}
+
+export const WIDGET_REGISTRY: WidgetDef[] = [
+  {
+    id: 'assigned-tickets',
+    title: 'Assigned Tickets',
+    description: 'Your current work queue with status and priority.',
+    component: UserAssignedTickets,
+    props: { limit: 10 },
+    span: 2,
+    roles: ['technician', 'admin'],
+  },
+  {
+    id: 'stats-yours',
+    title: 'Your Counts',
+    description: 'Quick counts of tickets assigned to you by status.',
+    component: StaffYoursStats,
+    span: 1,
+    roles: ['technician', 'admin'],
+    naturalHeight: true,
+  },
+  {
+    id: 'stats-queue',
+    title: 'Queue Counts',
+    description: 'Unassigned and total ticket counts across the queue.',
+    component: StaffQueueStats,
+    span: 1,
+    roles: ['technician', 'admin'],
+    naturalHeight: true,
+  },
+  {
+    id: 'unassigned-queue',
+    title: 'Unassigned Queue',
+    description: 'Oldest open tickets with no assignee — grab the next one.',
+    component: UnassignedQueueWidget,
+    span: 2,
+    roles: ['technician', 'admin'],
+    defaultVisible: false,
+  },
+  {
+    id: 'recently-viewed',
+    title: 'Recently Viewed',
+    description: 'Tickets you looked at most recently.',
+    component: RecentlyViewedWidget,
+    span: 1,
+    roles: ['technician', 'admin', 'user'],
+    defaultVisible: false,
+  },
+  {
+    id: 'starred-docs',
+    title: 'Starred Docs',
+    description: 'Documentation pages you have starred for quick access.',
+    component: StarredDocsWidget,
+    span: 1,
+    roles: ['technician', 'admin', 'user'],
+    defaultVisible: false,
+  },
+  {
+    id: 'my-devices',
+    title: 'My Devices',
+    description: 'Devices assigned to you as their primary user.',
+    component: MyDevicesWidget,
+    span: 1,
+    roles: ['technician', 'admin', 'user'],
+    defaultVisible: false,
+  },
+  {
+    id: 'channel-health',
+    title: 'Channel Health',
+    description: 'Status of inbound email channels — last poll, enabled state, errors.',
+    component: ChannelHealthWidget,
+    span: 1,
+    roles: ['admin'],
+    defaultVisible: false,
+  },
+  {
+    id: 'activity-heatmap',
+    title: 'Activity Heatmap',
+    description: '365-day heatmap of tickets you closed.',
+    component: TicketHeatmap,
+    props: { ticketStatus: 'closed', title: 'Your Activity' },
+    span: 3,
+    roles: ['technician', 'admin'],
+  },
+  {
+    id: 'requested-tickets',
+    title: 'Your Requests',
+    description: 'Tickets you have opened with current status.',
+    component: UserAssignedTickets,
+    props: { ticketType: 'requested', limit: 10, title: 'Your Requests' },
+    span: 2,
+    roles: ['user'],
+  },
+  {
+    id: 'stats-summary',
+    title: 'Request Summary',
+    description: 'Count of your requests by status.',
+    component: UserSummaryStats,
+    span: 1,
+    roles: ['user'],
+    naturalHeight: true,
+  },
+]
+
+/** Return widget definitions available to the given role. */
+export function widgetsForRole(role: UserRole): WidgetDef[] {
+  return WIDGET_REGISTRY.filter((w) => w.roles.includes(role))
+}
+
+/**
+ * Curated default layout for technicians and admins.
+ *
+ *   Row 1 — at-a-glance metrics
+ *     [ Your Counts (span 2)  |  Queue Counts (span 1) ]
+ *   Row 2 — the working set, scanning left-to-right for what needs doing
+ *     [ Unassigned Queue  |  Recently Viewed  |  Assigned Tickets ]
+ *   Row 3 — context
+ *     [ Activity Heatmap (span 3) ]
+ *
+ * Queue Counts starts with the four metrics that matter day-to-day
+ * for a triage-style workflow (open / in-progress / high priority /
+ * closed today) rather than the unconfigured default of just
+ * [unassigned, all]. Users can still swap any of this via the
+ * per-widget picker and the dashboard edit mode.
+ *
+ * Widgets not listed in `visible` are appended at the tail hidden,
+ * so they show up in the "Add widget" picker without cluttering the
+ * initial view.
+ */
+const STAFF_VISIBLE: DashboardLayout['widgets'] = [
+  { id: 'stats-yours', visible: true, span: 2 },
+  {
+    id: 'stats-queue',
+    visible: true,
+    span: 1,
+    config: { metrics: ['open', 'in-progress', 'high-priority', 'closed-today'] },
+  },
+  { id: 'unassigned-queue', visible: true, span: 1 },
+  { id: 'recently-viewed', visible: true, span: 1 },
+  { id: 'assigned-tickets', visible: true, span: 1 },
+  { id: 'activity-heatmap', visible: true, span: 3 },
+]
+
+/** The default layout for a role. Staff roles (technician / admin)
+ * get a curated ordering with spans + Queue-metric defaults. Regular
+ * users get the registry-order fallback since their widget set is
+ * small enough that a hand-curated layout adds no value. */
+export function defaultLayoutFor(role: UserRole): DashboardLayout {
+  if (role === 'technician' || role === 'admin') {
+    const available = new Set(widgetsForRole(role).map((w) => w.id))
+    const visible = STAFF_VISIBLE.filter((w) => available.has(w.id))
+    const visibleIds = new Set(visible.map((w) => w.id))
+    const hidden = widgetsForRole(role)
+      .filter((w) => !visibleIds.has(w.id))
+      .map((w) => ({ id: w.id, visible: false }))
+    return { widgets: [...visible, ...hidden] }
+  }
+  return {
+    widgets: widgetsForRole(role).map((w) => ({
+      id: w.id,
+      visible: w.defaultVisible ?? true,
+    })),
+  }
+}
+
+/**
+ * Reconcile a stored layout against the current registry for the
+ * given role: drop unknown ids, drop ids the role cannot use, and
+ * append any newly-registered widgets at the tail with `visible: true`.
+ * Always returns a well-formed layout the UI can render without extra
+ * null checks.
+ *
+ * When the user has no stored layout at all, we seed from the role's
+ * curated `defaultLayoutFor(role)` instead of raw registry order —
+ * otherwise first-time users would land on a layout that doesn't
+ * match what "Reset to defaults" produces.
+ */
+export function mergeWithRegistry(
+  stored: DashboardLayout | null | undefined,
+  role: UserRole,
+): DashboardLayout {
+  if (!stored?.widgets?.length) {
+    return defaultLayoutFor(role)
+  }
+  const available = new Set(widgetsForRole(role).map((w) => w.id))
+  const base = stored.widgets
+  const seen = new Set<string>()
+  const kept = base
+    .filter((e) => available.has(e.id) && !seen.has(e.id))
+    .map((e) => {
+      seen.add(e.id)
+      const entry: {
+        id: string
+        visible: boolean
+        span?: WidgetSpan
+        config?: Record<string, unknown>
+      } = {
+        id: e.id,
+        visible: !!e.visible,
+      }
+      if (e.span === 1 || e.span === 2 || e.span === 3) {
+        entry.span = e.span
+      }
+      if (e.config && typeof e.config === 'object' && !Array.isArray(e.config)) {
+        entry.config = e.config as Record<string, unknown>
+      }
+      return entry
+    })
+  const missing = widgetsForRole(role)
+    .filter((w) => !seen.has(w.id))
+    .map((w) => ({ id: w.id, visible: w.defaultVisible ?? true }))
+  return { widgets: [...kept, ...missing] }
+}
+
+/** Look up a widget def by id. Returns undefined for unknown ids. */
+export function widgetById(id: string): WidgetDef | undefined {
+  return WIDGET_REGISTRY.find((w) => w.id === id)
+}
+
+/** Tailwind class for a widget's column span in the 3-col grid. */
+export function spanClass(span: WidgetSpan): string {
+  switch (span) {
+    case 1:
+      return 'xl:col-span-1'
+    case 2:
+      return 'xl:col-span-2'
+    case 3:
+      return 'xl:col-span-3'
+  }
+}
+
+/** Effective column span for a stored layout entry: user override
+ *  (set via the resize control) wins, else the registry default. */
+export function effectiveSpanFor(entry: { id: string; span?: WidgetSpan }): WidgetSpan {
+  return entry.span ?? widgetById(entry.id)?.span ?? 1
+}

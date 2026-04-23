@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import { getTickets } from "@/services/ticketService";
 import type { Ticket } from "@/services/ticketService";
 import HeatmapTooltip from "@/components/HeatmapTooltip.vue";
+import DashboardWidgetShell from "@/views/dashboard/DashboardWidgetShell.vue";
 
 interface Props {
     ticketStatus?: "open" | "in-progress" | "closed";
@@ -241,19 +242,17 @@ onActivated(() => {
 </script>
 
 <template>
-    <div class="bg-surface rounded-lg px-3 py-4 sm:p-6 w-full">
-        <!-- Header -->
-        <div class="mb-4">
-            <h3 class="text-secondary text-sm font-medium">
-                {{ props.title || (props.ticketStatus === "closed" ? "Closed Tickets" : "Ticket Activity") }}
-            </h3>
-        </div>
-
-        <!-- Error State -->
-        <div v-if="error" class="text-status-error text-sm mb-4">
-            {{ error }}
-        </div>
-
+    <!--
+      Shares `DashboardWidgetShell` for chrome + error state; the
+      heatmap grid + legend are the body. Passing `flush-body="false"`
+      gives us the inner padding the grid needs without re-implementing
+      it.
+    -->
+    <DashboardWidgetShell
+        :title="props.title || (props.ticketStatus === 'closed' ? 'Closed Tickets' : 'Ticket Activity')"
+        :error="error"
+        :flush-body="false"
+    >
         <!-- Heatmap Container -->
         <div class="w-full">
             <div class="flex flex-col gap-2 w-full">
@@ -350,7 +349,7 @@ onActivated(() => {
                 </div>
             </div>
         </div>
-    </div>
+    </DashboardWidgetShell>
 </template>
 
 <style scoped>
