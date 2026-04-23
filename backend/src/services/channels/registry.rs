@@ -357,14 +357,19 @@ async fn record_last_error(channel: &Channel, msg: &str, deps: &RegistryDeps) {
 }
 
 /// Merge a new `last_error` into the channel's `runtime_state` JSON.
-/// Other fields (`last_seen_uid`, `uid_validity`) are preserved.
+/// Other fields (`last_seen_uid`, `uid_validity`) are preserved by
+/// re-reading the row from the DB rather than using the `&Channel`
+/// passed in — during a poll the adapter may have advanced those
+/// fields via its own `persist_state`, and writing back the stale
+/// pre-poll snapshot would silently undo the advance.
 fn write_last_error(
     conn: &mut crate::db::DbConnection,
     channel: &Channel,
     new_error: Option<&str>,
 ) -> Result<(), diesel::result::Error> {
+    let fresh = channels_repo::find(conn, channel.id)?;
     let mut state: ImapRuntimeState =
-        serde_json::from_value(channel.runtime_state.clone()).unwrap_or_default();
+        serde_json::from_value(fresh.runtime_state).unwrap_or_default();
     state.last_error = new_error.map(str::to_string);
     let blob = serde_json::to_value(&state).unwrap_or_else(|_| serde_json::json!({}));
     channels_repo::update_runtime_state(conn, channel.id, blob).map(|_| ())

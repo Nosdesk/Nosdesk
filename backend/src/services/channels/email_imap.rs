@@ -385,6 +385,22 @@ impl EmailImapAdapter {
     /// Inner loop of [`Self::poll`] once a session is authenticated.
     /// Separated for readability — the session lifetime management
     /// stays in `poll` so there's one pairing of `open` / `logout`.
+    ///
+    /// Two-step fetch pattern:
+    ///
+    ///   1. `UID SEARCH UID {since+1}:*` returns the list of candidate
+    ///      UIDs as a concrete set. Cheap round-trip, no message bodies.
+    ///   2. `UID FETCH <uid>` once per UID so one unparseable message
+    ///      (or IMAP-layer parser desync on a specific body) doesn't
+    ///      blow up the whole batch.
+    ///
+    /// This replaces an earlier `UID FETCH {since+1}:*` that pulled
+    /// everything in one stream. That shape fails atomically on the
+    /// first bad message — leaving the channel stuck re-fetching the
+    /// same poison UID forever until an operator intervenes. Per-UID
+    /// fetch is a few extra round-trips, but the poll completes and
+    /// advances `last_seen_uid` past each message as soon as it has
+    /// been either ingested or logged off as unparseable.
     async fn fetch_new_messages(
         &mut self,
         session: &mut ImapSession,
@@ -414,52 +430,48 @@ impl EmailImapAdapter {
             }
         };
 
+        // Persist the UIDVALIDITY observation right away. Even if the
+        // subsequent fetches fail, we don't want to redo the rescan
+        // reset on the next poll — otherwise a persistently-bad
+        // mailbox would loop in "reset to UID 0 → fetch fails →
+        // restart → reset again" forever.
+        if rescan_needed {
+            self.persist_state().await?;
+        }
+
         let since = self.state.last_seen_uid;
-        // `{since+1}:*` is IMAP shorthand for "everything with UID > since".
-        // When the mailbox is empty this returns zero rows — no error.
-        let range = format!("{}:*", since.saturating_add(1));
-
-        let stream = session
-            .uid_fetch(&range, FETCH_SPEC)
+        let search_query = format!("UID {}:*", since.saturating_add(1));
+        let uid_set = session
+            .uid_search(&search_query)
             .await
-            .map_err(ChannelError::transient("uid_fetch"))?;
-        let fetches: Vec<_> = stream
-            .try_collect()
-            .await
-            .map_err(ChannelError::transient("fetch stream"))?;
+            .map_err(ChannelError::transient("uid_search"))?;
+        let mut uids: Vec<u32> = uid_set.into_iter().filter(|&u| u > since).collect();
+        uids.sort_unstable();
 
-        let mut events = Vec::with_capacity(fetches.len());
+        let mut events = Vec::with_capacity(uids.len());
         let mut max_uid = self.state.last_seen_uid;
-        for fetch in fetches {
-            let Some(uid) = fetch.uid else {
-                warn!(channel = self.id, "fetch row missing UID — skipping");
-                continue;
-            };
-            // Defensive: with `{since+1}:*` the server shouldn't return
-            // lower UIDs, but some servers echo `*` as the highest
-            // existing UID even when the range is empty.
-            if uid <= since && !rescan_needed {
-                continue;
+
+        for uid in uids {
+            match fetch_single_uid(session, uid).await {
+                Ok(Some(msg)) => events.push(InboundEvent::MessageReceived(msg)),
+                Ok(None) => warn!(channel = self.id, uid, "fetch returned no body — skipping"),
+                Err(e) => warn!(
+                    channel = self.id,
+                    uid,
+                    error = %e,
+                    "skipping unparseable message"
+                ),
             }
-            let Some(body) = fetch.body() else {
-                warn!(channel = self.id, uid, "fetch row missing body — skipping");
-                continue;
-            };
-            let internal_date = fetch.internal_date().map(|d| d.with_timezone(&Utc));
-            match parse_rfc822_into_inbound_message(body, internal_date) {
-                Ok(msg) => events.push(InboundEvent::MessageReceived(msg)),
-                Err(e) => warn!(channel = self.id, uid, error = %e, "malformed message — skipping"),
-            }
+            // Advance past every UID we attempted, regardless of
+            // outcome. A poison message that can't be parsed has
+            // already been logged; we don't want to replay it on
+            // every poll.
             if uid > max_uid {
                 max_uid = uid;
             }
         }
 
-        // Persist advance. Write even when events is empty *if* we
-        // rescanned UIDVALIDITY (max_uid stayed 0 but the validity
-        // marker changed and must be saved). Otherwise skip the write
-        // when nothing moved — saves a DB round-trip on idle mailboxes.
-        if max_uid > self.state.last_seen_uid || rescan_needed {
+        if max_uid > self.state.last_seen_uid {
             self.state.last_seen_uid = max_uid;
             self.persist_state().await?;
         }
@@ -475,6 +487,37 @@ impl EmailImapAdapter {
             .map(|_| ())
             .map_err(ChannelError::transient("persist runtime_state"))
     }
+}
+
+/// Fetch a single UID and parse it. All errors — IMAP-layer, missing
+/// body, RFC 5322 parse failure — come back as `Err(String)` so the
+/// caller can log per-UID and move on without tearing down the whole
+/// batch. `Ok(None)` means the fetch succeeded but the server didn't
+/// return a body for this UID (message deleted between SEARCH and
+/// FETCH, typically).
+async fn fetch_single_uid(
+    session: &mut ImapSession,
+    uid: u32,
+) -> Result<Option<InboundMessage>, String> {
+    let stream = session
+        .uid_fetch(uid.to_string(), FETCH_SPEC)
+        .await
+        .map_err(|e| format!("uid_fetch: {e}"))?;
+    let fetches: Vec<_> = stream
+        .try_collect()
+        .await
+        .map_err(|e| format!("fetch stream: {e}"))?;
+
+    let Some(fetch) = fetches.into_iter().find(|f| f.uid == Some(uid)) else {
+        return Ok(None);
+    };
+    let Some(body) = fetch.body() else {
+        return Ok(None);
+    };
+    let internal_date = fetch.internal_date().map(|d| d.with_timezone(&Utc));
+    parse_rfc822_into_inbound_message(body, internal_date)
+        .map(Some)
+        .map_err(|e| format!("parse rfc822: {e}"))
 }
 
 // ---------- Pure parser ----------
