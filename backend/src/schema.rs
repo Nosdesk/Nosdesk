@@ -615,6 +615,31 @@ diesel::table! {
 }
 
 diesel::table! {
+    plugin_local_signing_key (id) {
+        id -> Int4,
+        pubkey -> Text,
+        encrypted_sk -> Bytea,
+        #[max_length = 64]
+        fingerprint -> Varchar,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    plugin_trusted_publishers (id) {
+        id -> Int4,
+        pubkey -> Text,
+        #[max_length = 200]
+        display_name -> Varchar,
+        #[max_length = 32]
+        tier -> Varchar,
+        website -> Nullable<Text>,
+        added_at -> Timestamptz,
+        revoked_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     plugins (id) {
         id -> Int4,
         uuid -> Uuid,
@@ -638,6 +663,10 @@ diesel::table! {
         bundle_uploaded_at -> Nullable<Timestamptz>,
         #[max_length = 20]
         source -> Varchar,
+        signer_pubkey -> Nullable<Text>,
+        #[max_length = 32]
+        signer_source -> Nullable<Varchar>,
+        signature_metadata -> Nullable<Jsonb>,
     }
 }
 
@@ -1074,4 +1103,4 @@ diesel::joinable!(webhook_deliveries -> webhooks (webhook_id));
 diesel::joinable!(webhooks -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);

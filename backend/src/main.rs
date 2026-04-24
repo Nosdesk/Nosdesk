@@ -463,6 +463,18 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // Bootstrap local plugin signing key before provisioning so any
+    // verification path can resolve the `local` trust tier.
+    {
+        let mut conn = pool.get().expect("Failed to get connection for local key bootstrap");
+        if let Err(e) = services::plugins::local_key::ensure_local_signing_key(&mut conn) {
+            error!(error = %e, "Failed to bootstrap plugin local signing key");
+            return Err(std::io::Error::other(format!(
+                "Failed to bootstrap plugin local signing key: {e}"
+            )));
+        }
+    }
+
     // Provision plugins from /app/plugins/ directory
     {
         let mut conn = pool.get().expect("Failed to get connection for plugin provisioning");
@@ -1074,7 +1086,6 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/plugins/{uuid}/settings", web::post().to(handlers::plugins::set_plugin_setting))
                     .route("/admin/plugins/{uuid}/settings/{key}", web::delete().to(handlers::plugins::delete_plugin_setting))
                     .route("/admin/plugins/{uuid}/activity", web::get().to(handlers::plugins::get_plugin_activity))
-                    .route("/admin/plugins/{uuid}/bundle", web::post().to(handlers::plugins::upload_plugin_bundle))
                     .route("/admin/plugins/install", web::post().to(handlers::plugins::install_plugin_from_zip))
 
                     // ===== PLUGIN API (For plugins to use) =====

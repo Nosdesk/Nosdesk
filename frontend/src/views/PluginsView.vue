@@ -34,9 +34,6 @@ const editingSecrets = ref<Set<string>>(new Set());
 const showUninstallConfirm = ref(false);
 const uninstallTarget = ref<Plugin | null>(null);
 
-// Bundle upload state
-const bundleUploading = ref<string | null>(null);
-
 // Install from zip state
 const showInstallModal = ref(false);
 const installFile = ref<File | null>(null);
@@ -163,49 +160,6 @@ async function executeUninstall() {
     logger.error('Failed to uninstall plugin', { error: err });
   }
 }
-
-// Handle bundle file selection
-async function handleBundleUpload(plugin: Plugin, event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  if (!file) return;
-
-  if (!file.name.endsWith('.js')) {
-    errorMessage.value = 'Bundle must be a JavaScript file (.js)';
-    return;
-  }
-
-  if (file.size > 500 * 1024) {
-    errorMessage.value = 'Bundle must be less than 500KB';
-    return;
-  }
-
-  bundleUploading.value = plugin.uuid;
-  errorMessage.value = '';
-
-  try {
-    const updated = await pluginService.uploadBundle(plugin.uuid, file);
-    const index = plugins.value.findIndex(p => p.uuid === plugin.uuid);
-    if (index !== -1) {
-      plugins.value[index] = updated;
-    }
-    successMessage.value = 'Bundle uploaded successfully';
-    setTimeout(() => successMessage.value = '', 3000);
-    logger.info('Plugin bundle uploaded', { uuid: plugin.uuid, size: file.size });
-  } catch (err) {
-    errorMessage.value = 'Failed to upload bundle';
-    logger.error('Failed to upload bundle', { error: err, plugin: plugin.uuid });
-  } finally {
-    bundleUploading.value = null;
-    input.value = '';
-  }
-}
-
-// Check if plugin can have bundles (only official/verified)
-function canUploadBundle(plugin: Plugin): boolean {
-  return plugin.trust_level === 'official' || plugin.trust_level === 'verified';
-}
-
 
 // Trust level badge
 function getTrustLevelBadge(level: PluginTrustLevel): { label: string; class: string } {

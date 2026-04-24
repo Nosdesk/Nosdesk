@@ -3392,6 +3392,15 @@ pub struct Plugin {
     pub bundle_size: Option<i32>,
     pub bundle_uploaded_at: Option<NaiveDateTime>,
     pub source: String,
+    /// Base64 Ed25519 pubkey that signed this bundle. `None` for
+    /// dev-mode installs that bypassed signature verification.
+    pub signer_pubkey: Option<String>,
+    /// Which authority chain recognised this signer: `nosdesk-root`
+    /// | `verified-publisher` | `community-publisher` | `local` |
+    /// `dev`. See `services::plugins::signing::sources`.
+    pub signer_source: Option<String>,
+    /// Full signature envelope captured at install time for audit.
+    pub signature_metadata: Option<serde_json::Value>,
 }
 
 /// New plugin for insertion
@@ -3407,6 +3416,9 @@ pub struct NewPlugin {
     pub trust_level: String,
     pub installed_by: Option<Uuid>,
     pub source: String,
+    pub signer_pubkey: Option<String>,
+    pub signer_source: Option<String>,
+    pub signature_metadata: Option<serde_json::Value>,
 }
 
 /// Plugin update changeset
@@ -3419,6 +3431,12 @@ pub struct PluginUpdate {
     pub manifest: Option<serde_json::Value>,
     pub enabled: Option<bool>,
     pub trust_level: Option<String>,
+    /// Double-option so an update can explicitly clear the field
+    /// (e.g. if a plugin gets converted to dev-mode) vs leave it
+    /// alone. `Some(None)` writes NULL, `None` is no-op.
+    pub signer_pubkey: Option<Option<String>>,
+    pub signer_source: Option<Option<String>>,
+    pub signature_metadata: Option<Option<serde_json::Value>>,
 }
 
 /// Plugin bundle update changeset
@@ -3428,6 +3446,53 @@ pub struct PluginBundleUpdate {
     pub bundle_hash: Option<String>,
     pub bundle_size: Option<i32>,
     pub bundle_uploaded_at: Option<NaiveDateTime>,
+}
+
+/// Publisher whose Ed25519 pubkey is trusted to sign `verified` or
+/// `community` tier plugins. Populated from the signed nosdesk.com
+/// keylist; revocation is expressed by setting `revoked_at`.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::plugin_trusted_publishers)]
+pub struct TrustedPublisher {
+    pub id: i32,
+    pub pubkey: String,
+    pub display_name: String,
+    pub tier: String,
+    pub website: Option<String>,
+    pub added_at: NaiveDateTime,
+    pub revoked_at: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, Insertable, AsChangeset)]
+#[diesel(table_name = crate::schema::plugin_trusted_publishers)]
+pub struct NewTrustedPublisher {
+    pub pubkey: String,
+    pub display_name: String,
+    pub tier: String,
+    pub website: Option<String>,
+    pub revoked_at: Option<NaiveDateTime>,
+}
+
+/// Single-row table holding the instance's local Ed25519 signing
+/// keypair. `encrypted_sk` is AES-256-GCM ciphertext under the same
+/// key material as MFA secrets (see `utils::encryption`).
+#[derive(Debug, Clone, Queryable, Identifiable)]
+#[diesel(table_name = crate::schema::plugin_local_signing_key)]
+pub struct LocalSigningKey {
+    pub id: i32,
+    pub pubkey: String,
+    pub encrypted_sk: Vec<u8>,
+    pub fingerprint: String,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::plugin_local_signing_key)]
+pub struct NewLocalSigningKey {
+    pub id: i32,
+    pub pubkey: String,
+    pub encrypted_sk: Vec<u8>,
+    pub fingerprint: String,
 }
 
 /// Plugin data type - settings (admin-configured) or storage (plugin-managed)

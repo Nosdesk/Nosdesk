@@ -299,6 +299,9 @@ mod tests {
             trust_level: "sandbox".to_string(),
             installed_by: None,
             source: "test".to_string(),
+            signer_pubkey: None,
+            signer_source: None,
+            signature_metadata: None,
         }
     }
 

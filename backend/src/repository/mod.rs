@@ -40,6 +40,7 @@ pub mod webhooks;
 // Plugins
 pub mod plugins;
 pub mod plugin_collections;
+pub mod plugin_publishers;
 
 // Re-export all functions
 pub use article_content::*;

@@ -89,28 +89,6 @@ const pluginService = {
   },
 
   /**
-   * Upload a plugin bundle (admin only)
-   * @param uuid - Plugin UUID
-   * @param file - JavaScript bundle file
-   */
-  async uploadBundle(uuid: string, file: File): Promise<Plugin> {
-    try {
-      const formData = new FormData();
-      formData.append('bundle', file);
-
-      const response = await apiClient.post(`/admin/plugins/${uuid}/bundle`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to upload plugin bundle', { error, uuid });
-      throw error;
-    }
-  },
-
-  /**
    * Install a plugin from a zip file (admin only)
    * The zip should contain manifest.json and optionally bundle.js
    * @param file - Zip file containing the plugin
