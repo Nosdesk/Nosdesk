@@ -90,6 +90,25 @@ pub fn delete_identity(
     .execute(conn)
 }
 
+/// Replace the password hash on a user's `local` auth identity.
+/// Used by the CLI admin password-reset path. Returns the number of
+/// rows updated, which the caller can use to confirm the user
+/// actually had a local identity (a Microsoft/OIDC-only account
+/// would hit zero rows).
+pub fn update_local_password_hash(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    new_hash: &str,
+) -> Result<usize, Error> {
+    diesel::update(
+        user_auth_identities::table
+            .filter(user_auth_identities::user_uuid.eq(user_uuid))
+            .filter(user_auth_identities::provider_type.eq("local")),
+    )
+    .set(user_auth_identities::password_hash.eq(new_hash))
+    .execute(conn)
+}
+
 /// Get multiple user UUIDs by their external IDs (batch lookup for efficiency)
 pub fn get_user_uuids_by_external_ids(
     external_ids: &[&str],

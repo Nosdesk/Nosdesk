@@ -275,6 +275,27 @@ pub fn update_user_mfa(
         .get_result(conn)
 }
 
+/// Wipe MFA enrolment for a user: clear the TOTP secret and backup
+/// codes, flip `mfa_enabled` off, and bump `updated_at`. Used by
+/// the CLI admin lockout-recovery path — the user re-enrols on
+/// their next login. `UserMfaUpdate` uses `Option<T>`, which for a
+/// nullable column would be ambiguous between "leave alone" and
+/// "set NULL"; we write the clearing SQL directly to avoid the
+/// ambiguity.
+pub fn clear_user_mfa(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+) -> Result<usize, Error> {
+    diesel::update(users::table.filter(users::uuid.eq(user_uuid)))
+        .set((
+            users::mfa_secret.eq::<Option<String>>(None),
+            users::mfa_enabled.eq(false),
+            users::mfa_backup_codes.eq::<Option<serde_json::Value>>(None),
+            users::updated_at.eq(chrono::Utc::now().naive_utc()),
+        ))
+        .execute(conn)
+}
+
 /// Update user passkey credentials by UUID
 pub fn update_user_passkey_credentials(
     conn: &mut DbConnection,

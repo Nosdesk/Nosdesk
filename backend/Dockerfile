@@ -50,8 +50,10 @@ COPY backend/Cargo.toml backend/Cargo.lock ./
 COPY backend/src ./src
 COPY backend/migrations ./migrations
 
-# Build only the application (dependencies are already compiled)
-RUN cargo build --release --bin backend
+# Build the server + the nosdesk-cli admin tool together; both
+# link against the same library crate and the extra binary is a
+# trivial addition to a build we're doing anyway.
+RUN cargo build --release --bin backend --bin nosdesk-cli
 
 # Stage 4: Build frontend
 FROM node:18-alpine as frontend-builder
@@ -99,8 +101,11 @@ RUN useradd -m -u 1001 appuser
 # Set working directory
 WORKDIR /app
 
-# Copy the compiled binary from builder stage
+# Copy the compiled binaries from builder stage. `nosdesk-cli` is
+# placed on PATH so admins can `docker compose exec backend
+# nosdesk-cli ...` without caring about its location.
 COPY --from=builder /app/target/release/backend ./backend
+COPY --from=builder /app/target/release/nosdesk-cli /usr/local/bin/nosdesk-cli
 
 # Copy diesel CLI from builder stage
 COPY --from=builder /usr/local/cargo/bin/diesel /usr/local/bin/diesel
