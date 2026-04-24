@@ -91,7 +91,13 @@ pub fn encrypt_bytes_with_aad(plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
 /// Decrypt bytes produced by `encrypt_bytes_with_aad`. The caller
 /// must pass the same AAD context that was used at encryption time;
 /// any mismatch fails the auth tag check.
-pub fn decrypt_bytes_with_aad(ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
+///
+/// Returns `Zeroizing<Vec<u8>>` so the plaintext is zeroed when
+/// dropped. Callers who need to hold the bytes longer should keep
+/// the `Zeroizing` wrapper; dereferencing to `&[u8]` is cheap.
+pub fn decrypt_bytes_with_aad(ciphertext: &[u8], aad: &[u8]) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    use zeroize::Zeroizing;
+
     let key_bytes = get_encryption_key()?;
     let unbound_key = UnboundKey::new(&AES_256_GCM, &key_bytes)
         .map_err(|_| anyhow!("Failed to create decryption key"))?;
@@ -105,12 +111,17 @@ pub fn decrypt_bytes_with_aad(ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>> 
     let nonce =
         Nonce::try_assume_unique_for_key(nonce_bytes).map_err(|_| anyhow!("Invalid nonce"))?;
 
-    let mut in_out = body.to_vec();
-    let plaintext = opening_key
+    // `in_out` holds the decrypted plaintext in place after
+    // `open_in_place`. Wrapping in Zeroizing means any panic or
+    // early return past this point still wipes the buffer before
+    // the allocator reclaims the pages.
+    let mut in_out: Zeroizing<Vec<u8>> = Zeroizing::new(body.to_vec());
+    let plaintext_len = opening_key
         .open_in_place(nonce, Aad::from(aad), &mut in_out)
-        .map_err(|_| anyhow!("Decryption failed - invalid key, AAD context, or corrupted data"))?;
-
-    Ok(plaintext.to_vec())
+        .map_err(|_| anyhow!("Decryption failed - invalid key, AAD context, or corrupted data"))?
+        .len();
+    in_out.truncate(plaintext_len);
+    Ok(in_out)
 }
 
 /// Decrypt a hex-encoded ciphertext using AES-256-GCM
@@ -183,10 +194,8 @@ mod tests {
         let ctx_b = b"nosdesk.mfa.totp.v1";
 
         let ct = encrypt_bytes_with_aad(plaintext, ctx_a).expect("encrypt with aad a");
-        assert_eq!(
-            decrypt_bytes_with_aad(&ct, ctx_a).expect("decrypt with aad a"),
-            plaintext
-        );
+        let decrypted = decrypt_bytes_with_aad(&ct, ctx_a).expect("decrypt with aad a");
+        assert_eq!(decrypted.as_slice(), plaintext.as_slice());
 
         // Wrong AAD context must fail the auth tag check. This is
         // the property that stops ciphertext swapping between tables

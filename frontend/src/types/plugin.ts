@@ -48,8 +48,58 @@ export interface PluginSettingDefinition {
 // Plugin Data Types
 // =============================================================================
 
-export type PluginTrustLevel = 'official' | 'verified' | 'community';
-export type PluginSource = 'provisioned' | 'uploaded';
+export type PluginTrustLevel = 'official' | 'verified' | 'community' | 'local';
+export type PluginSource = 'provisioned' | 'uploaded' | 'cli' | 'registry';
+
+// =============================================================================
+// Registry types (mirror the JSON served by nosdesk.com)
+// =============================================================================
+
+export interface RegistryPublisher {
+  pubkey: string;
+  display_name: string;
+  tier: 'verified' | 'community';
+  website: string | null;
+  added_at: string;
+  revoked_at: string | null;
+}
+
+export interface RegistryVersion {
+  version: string;
+  released_at: string;
+  download_url: string;
+  sha256: string;
+  min_nosdesk_version: string | null;
+}
+
+export interface RegistryPlugin {
+  name: string;
+  display_name: string;
+  tier: PluginTrustLevel;
+  publisher_pubkey: string;
+  description: string | null;
+  homepage: string | null;
+  versions: RegistryVersion[];
+}
+
+export interface RegistrySnapshot {
+  fetched_at: string;
+  publishers: {
+    version: number;
+    generated_at: string;
+    publishers: RegistryPublisher[];
+  };
+  index: {
+    version: number;
+    generated_at: string;
+    plugins: RegistryPlugin[];
+  };
+}
+
+export interface InstallFromRegistryRequest {
+  plugin_name: string;
+  version?: string;
+}
 
 export interface Plugin {
   uuid: string;

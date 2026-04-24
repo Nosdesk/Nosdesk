@@ -479,6 +479,12 @@ const router = createRouter({
           meta: { title: 'Plugins' }
         },
         {
+          path: 'plugins/registry',
+          name: 'admin-plugin-registry',
+          component: () => import('../views/PluginRegistryView.vue'),
+          meta: { title: 'Plugin Registry' }
+        },
+        {
           path: 'auth-providers',
           name: 'admin-auth-providers',
           component: () => import('../views/AuthProvidersView.vue'),

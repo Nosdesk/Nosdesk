@@ -8,8 +8,11 @@
 use diesel::prelude::*;
 
 use crate::db::DbConnection;
-use crate::models::{LocalSigningKey, NewLocalSigningKey, NewTrustedPublisher, TrustedPublisher};
-use crate::schema::{plugin_local_signing_key, plugin_trusted_publishers};
+use crate::models::{
+    LocalSigningKey, NewLocalSigningKey, NewTrustedPublisher, PluginRegistryState,
+    PluginRegistryStateUpdate, TrustedPublisher,
+};
+use crate::schema::{plugin_local_signing_key, plugin_registry_state, plugin_trusted_publishers};
 
 pub fn list_active_publishers(
     conn: &mut DbConnection,
@@ -86,4 +89,24 @@ pub fn insert_local_signing_key(
     diesel::insert_into(plugin_local_signing_key::table)
         .values(&record)
         .get_result::<LocalSigningKey>(conn)
+}
+
+/// Load the singleton registry state. The row is seeded at migration
+/// time with version=0, so callers never see `Option`.
+pub fn get_registry_state(
+    conn: &mut DbConnection,
+) -> Result<PluginRegistryState, diesel::result::Error> {
+    plugin_registry_state::table
+        .filter(plugin_registry_state::id.eq(1))
+        .first::<PluginRegistryState>(conn)
+}
+
+pub fn update_registry_state(
+    conn: &mut DbConnection,
+    mut update: PluginRegistryStateUpdate,
+) -> Result<PluginRegistryState, diesel::result::Error> {
+    update.updated_at = Some(chrono::Utc::now().naive_utc());
+    diesel::update(plugin_registry_state::table.filter(plugin_registry_state::id.eq(1)))
+        .set(&update)
+        .get_result::<PluginRegistryState>(conn)
 }

@@ -3492,6 +3492,32 @@ pub struct NewLocalSigningKey {
     pub fingerprint: String,
 }
 
+/// Single-row table that persists the anti-rollback counters from
+/// the last registry snapshot the instance accepted. Durability
+/// across restarts is load-bearing: without it, an attacker who
+/// forces a restart could race the first boot fetch with an older
+/// signed snapshot.
+#[derive(Debug, Clone, Queryable, Identifiable)]
+#[diesel(table_name = crate::schema::plugin_registry_state)]
+pub struct PluginRegistryState {
+    pub id: i32,
+    pub publishers_version: i64,
+    pub index_version: i64,
+    pub last_fetched_at: Option<NaiveDateTime>,
+    pub last_fetch_error: Option<String>,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, AsChangeset, Default)]
+#[diesel(table_name = crate::schema::plugin_registry_state)]
+pub struct PluginRegistryStateUpdate {
+    pub publishers_version: Option<i64>,
+    pub index_version: Option<i64>,
+    pub last_fetched_at: Option<Option<NaiveDateTime>>,
+    pub last_fetch_error: Option<Option<String>>,
+    pub updated_at: Option<NaiveDateTime>,
+}
+
 /// Plugin data type - settings (admin-configured) or storage (plugin-managed)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

@@ -7,6 +7,7 @@ pub mod install;
 pub mod local_key;
 pub mod provisioning;
 pub mod proxy;
+pub mod registry;
 pub mod signing;
 pub mod trust;
 pub mod validation;

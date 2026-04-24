@@ -224,11 +224,11 @@ pub fn canonical_digest(entries: &[ArchiveEntry]) -> [u8; 32] {
 
 /// The exact byte sequence an Ed25519 signature covers. A
 /// domain-separator prefix keeps future uses of the same key (e.g.
-/// registry-index signing) from accidentally producing cross-protocol
-/// signature confusion.
+/// registry-index signing via `nosdesk-registry-v1:`) from accidentally
+/// producing cross-protocol signature confusion.
 pub fn canonical_sign_input(digest_hex: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(64 + digest_hex.len());
-    out.extend_from_slice(b"nosdesk-plugin-signature-v1:");
+    out.extend_from_slice(b"nosdesk-plugin-v1:");
     out.extend_from_slice(digest_hex.as_bytes());
     out
 }

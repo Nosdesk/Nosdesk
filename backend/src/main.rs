@@ -475,6 +475,35 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // Surface the compiled-in Nosdesk root pubkey fingerprint on
+    // every startup. Operators can diff this against what they
+    // know the real root to be; an attacker who swaps the backend
+    // binary with one linking a different root will announce the
+    // substitution in the logs on the next boot.
+    match services::plugins::signing::root_pubkey() {
+        Some(root_b64) => {
+            use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+            match BASE64.decode(root_b64.as_bytes()) {
+                Ok(bytes) if bytes.len() == 32 => {
+                    info!(
+                        fingerprint = %services::plugins::signing::fingerprint(&bytes),
+                        "Nosdesk plugin root pubkey loaded"
+                    );
+                }
+                _ => {
+                    warn!(
+                        "NOSDESK_ROOT_PUBKEY is set but not a valid base64-encoded 32-byte Ed25519 pubkey; official-tier installs will fail"
+                    );
+                }
+            }
+        }
+        None => {
+            warn!(
+                "NOSDESK_ROOT_PUBKEY is not baked in; registry sync and official-tier installs will fail"
+            );
+        }
+    }
+
     // Provision plugins from /app/plugins/ directory
     {
         let mut conn = pool.get().expect("Failed to get connection for plugin provisioning");
@@ -586,6 +615,26 @@ async fn main() -> std::io::Result<()> {
 
     // Initialize plugin proxy service for external requests
     let plugin_proxy_service = web::Data::new(services::plugins::PluginProxyService::new());
+
+    // Plugin registry cache. `None` at boot — populated by the
+    // first successful sync. The admin UI reads this for the
+    // browse-registry view.
+    let registry_cache = web::Data::new(services::plugins::registry::new_cache());
+
+    // Kick off the background registry sync loop. Disabled when
+    // `NOSDESK_REGISTRY_URL=""` (air-gapped deployments); logged and
+    // skipped with no further side effects. Failures are warn-and-
+    // continue — the background task retries next cycle rather
+    // than unwinding.
+    if let Some(registry_url) = services::plugins::registry::configured_url() {
+        services::plugins::registry::spawn_sync_loop(
+            pool.clone(),
+            registry_url,
+            registry_cache.as_ref().clone(),
+        );
+    } else {
+        info!("NOSDESK_REGISTRY_URL is empty; registry sync disabled");
+    }
 
     // Initialize search service for full-text search
     let search_service = {
@@ -754,6 +803,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(scheduler_status_data.clone())
             .app_data(webhook_service.clone())
             .app_data(plugin_proxy_service.clone())
+            .app_data(registry_cache.clone())
             .app_data(search_service.clone())
             .app_data(json_config)
             .app_data(multipart_config)
@@ -1087,6 +1137,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/plugins/{uuid}/settings/{key}", web::delete().to(handlers::plugins::delete_plugin_setting))
                     .route("/admin/plugins/{uuid}/activity", web::get().to(handlers::plugins::get_plugin_activity))
                     .route("/admin/plugins/install", web::post().to(handlers::plugins::install_plugin_from_zip))
+                    .route("/admin/plugins/registry", web::get().to(handlers::plugins::get_registry))
+                    .route("/admin/plugins/registry/install", web::post().to(handlers::plugins::install_from_registry))
 
                     // ===== PLUGIN API (For plugins to use) =====
                     .route("/plugins/enabled", web::get().to(handlers::plugins::list_enabled_plugins))

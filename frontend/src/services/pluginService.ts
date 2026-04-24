@@ -13,6 +13,8 @@ import type {
   CollectionSchemaInfo,
   CollectionRow,
   CollectionListResponse,
+  RegistrySnapshot,
+  InstallFromRegistryRequest,
 } from '@/types/plugin';
 
 /**
@@ -108,6 +110,26 @@ const pluginService = {
       logger.error('Failed to install plugin from zip', { error });
       throw error;
     }
+  },
+
+  /**
+   * Fetch the cached registry snapshot (publishers + plugin catalog).
+   * Returns 503 when the instance hasn't completed a successful
+   * registry sync yet — the caller should surface a retry prompt.
+   */
+  async getRegistry(): Promise<RegistrySnapshot> {
+    const response = await apiClient.get('/admin/plugins/registry');
+    return response.data;
+  },
+
+  /**
+   * Install a plugin from the registry. The backend resolves the
+   * plugin + version, downloads the signed zip, verifies the hash
+   * and signature, then upserts via the shared install pipeline.
+   */
+  async installFromRegistry(request: InstallFromRegistryRequest): Promise<Plugin> {
+    const response = await apiClient.post('/admin/plugins/registry/install', request);
+    return response.data;
   },
 
   // ===========================================================================

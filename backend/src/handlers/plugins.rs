@@ -20,7 +20,7 @@ use crate::models::{
     SetPluginDataRequest, UpdatePluginRequest,
 };
 use crate::repository::plugins as plugin_repo;
-use crate::services::plugins::{install, signing, trust};
+use crate::services::plugins::{install, registry, signing, trust};
 use crate::utils::encryption;
 use crate::utils::rbac::require_admin;
 
@@ -993,4 +993,278 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
             HttpResponse::InternalServerError().json(err.to_string())
         }
     }
+}
+
+// =============================================================================
+// Registry handlers
+// =============================================================================
+
+/// Serve the cached registry snapshot to the admin UI. Returns 503
+/// if the background sync has never completed successfully this
+/// process (no snapshot to show).
+pub async fn get_registry(
+    req: HttpRequest,
+    cache: web::Data<registry::SharedCache>,
+) -> impl Responder {
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+    let guard = cache.read().await;
+    match &*guard {
+        Some(snapshot) => HttpResponse::Ok().json(serde_json::json!({
+            "fetched_at": snapshot.fetched_at,
+            "publishers": snapshot.publishers,
+            "index": snapshot.index,
+        })),
+        None => HttpResponse::ServiceUnavailable()
+            .json("Registry snapshot not available yet; background sync has not completed"),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct InstallFromRegistryRequest {
+    pub plugin_name: String,
+    /// Omit for the latest published version.
+    pub version: Option<String>,
+}
+
+/// Resolve a plugin from the cached registry, download its zip,
+/// verify sha256 + signature, and install through the shared
+/// install pipeline. Admin-only.
+pub async fn install_from_registry(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    cache: web::Data<registry::SharedCache>,
+    body: web::Json<InstallFromRegistryRequest>,
+) -> impl Responder {
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+    let claims = match req.extensions().get::<Claims>().cloned() {
+        Some(c) => c,
+        None => return HttpResponse::Unauthorized().json("Authentication required"),
+    };
+
+    // Snapshot the registry entry we intend to install so we can
+    // drop the read guard before doing any network or DB work.
+    // Captured fields are also what we'll cross-check against the
+    // downloaded zip's signature envelope + manifest before commit.
+    let (download_url, expected_sha256, claimed_publisher_pubkey, claimed_tier) = {
+        let guard = cache.read().await;
+        let snapshot = match &*guard {
+            Some(s) => s,
+            None => {
+                return HttpResponse::ServiceUnavailable().json(
+                    "Registry snapshot not available yet; wait for background sync",
+                );
+            }
+        };
+        let entry = match snapshot.find_plugin(&body.plugin_name) {
+            Some(e) => e,
+            None => {
+                return HttpResponse::NotFound()
+                    .json(format!("plugin {:?} not in registry", body.plugin_name));
+            }
+        };
+        let version = match entry.resolve_version(body.version.as_deref()) {
+            Some(v) => v,
+            None => {
+                return HttpResponse::NotFound().json(format!(
+                    "plugin {:?} has no version {:?}",
+                    body.plugin_name, body.version
+                ));
+            }
+        };
+        (
+            version.download_url.clone(),
+            version.sha256.clone(),
+            entry.publisher_pubkey.clone(),
+            entry.tier.clone(),
+        )
+    };
+
+    let http = match registry::build_http_client() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("HTTP client build failed: {}", e);
+            return HttpResponse::InternalServerError().json("HTTP client unavailable");
+        }
+    };
+
+    let bytes = match download_bundle(&http, &download_url).await {
+        Ok(b) => b,
+        Err(e) => return HttpResponse::BadGateway().json(format!("download failed: {e}")),
+    };
+
+    // Independent content check BEFORE the signature verifier
+    // touches the bytes. The signature would catch tampering too,
+    // but the registry's published sha256 is a second witness and
+    // surfaces a clearer error if the CDN is serving stale files.
+    let actual_sha = sha256_hex(&bytes);
+    if actual_sha != expected_sha256 {
+        warn!(
+            plugin = %body.plugin_name,
+            expected = %expected_sha256,
+            actual = %actual_sha,
+            "Registry SHA-256 mismatch",
+        );
+        return HttpResponse::BadGateway().json(
+            "downloaded bundle does not match registry-published sha256",
+        );
+    }
+
+    let verified = match signing::verify_archive(&bytes) {
+        Ok(v) => v,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(format!("signature rejected: {e}"));
+        }
+    };
+
+    // Cross-check the zip against what the registry claimed.
+    // Without these asserts, the signed registry could point at a
+    // zip by a different (still-trusted) publisher and we'd install
+    // it under mis-attributed provenance. The registry is signed by
+    // the Nosdesk root so these fields are tamper-proof in transit;
+    // the check catches CDN tampering, lingering mis-wired URLs,
+    // and registry-side mistakes with a clear 400 rather than a
+    // silent discrepancy.
+    if verified.envelope.signer_pubkey != claimed_publisher_pubkey {
+        warn!(
+            plugin = %body.plugin_name,
+            registry_pubkey = %claimed_publisher_pubkey,
+            actual_pubkey = %verified.envelope.signer_pubkey,
+            "Registry / zip publisher mismatch",
+        );
+        return HttpResponse::BadRequest().json(
+            "zip signer does not match the publisher the registry advertised",
+        );
+    }
+
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let tier = match trust::resolve(&mut conn, &verified.envelope) {
+        Ok(t) => t,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(format!("publisher not trusted: {e}"));
+        }
+    };
+    if tier.trust_level() != claimed_tier {
+        warn!(
+            plugin = %body.plugin_name,
+            registry_tier = %claimed_tier,
+            resolved_tier = tier.trust_level(),
+            "Registry / resolved-tier mismatch",
+        );
+        return HttpResponse::BadRequest().json(
+            "zip's resolved trust tier does not match the tier the registry advertised",
+        );
+    }
+
+    // Verify the zip's manifest.name matches the registry key
+    // before install so we can't be tricked into installing a
+    // different plugin under the registry-claimed identity.
+    if let Some(manifest_bytes) = signing::find_entry(&verified.files, "manifest.json") {
+        if let Ok(manifest_value) = serde_json::from_slice::<serde_json::Value>(manifest_bytes) {
+            let zip_name = manifest_value
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if zip_name != body.plugin_name {
+                warn!(
+                    plugin = %body.plugin_name,
+                    zip_name,
+                    "Registry / manifest name mismatch",
+                );
+                return HttpResponse::BadRequest().json(
+                    "zip manifest name does not match the plugin the registry advertised",
+                );
+            }
+        }
+    }
+
+    let signer = trust::PluginSignerFields::from_verified(&verified, &tier);
+
+    let options = install::InstallOptions {
+        source: "registry",
+        installed_by: Uuid::parse_str(&claims.sub).ok(),
+        log_activity: true,
+        provision_settings: false,
+        skip_if_unchanged: false,
+    };
+    let outcome = match install::install_verified(&mut conn, &verified.files, signer, options) {
+        Ok(o) => o,
+        Err(e) => return install_error_to_response(e),
+    };
+
+    let was_create = matches!(outcome, install::InstallOutcome::Created(_));
+    let plugin = match outcome {
+        install::InstallOutcome::Created(p)
+        | install::InstallOutcome::Updated(p)
+        | install::InstallOutcome::Unchanged(p) => p,
+    };
+    info!(
+        "Plugin installed from registry: {} v{} by {}",
+        plugin.name, plugin.version, claims.sub
+    );
+
+    match PluginResponse::try_from(plugin) {
+        Ok(response) => {
+            if was_create {
+                HttpResponse::Created().json(response)
+            } else {
+                HttpResponse::Ok().json(response)
+            }
+        }
+        Err(e) => {
+            error!("Failed to build plugin response: {}", e);
+            HttpResponse::InternalServerError().json("Plugin installed but response failed")
+        }
+    }
+}
+
+async fn download_bundle(http: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
+    // Enforce https:// on registry-supplied download URLs. The URL
+    // is root-signed, so the attacker would need root-key access to
+    // set a malicious http:// value in a signed index — but a
+    // well-meaning maintainer could also slip one in by mistake
+    // and trigger SSRF to the instance's internal services. Hard
+    // refuse anything that isn't https.
+    let parsed = url::Url::parse(url).map_err(|e| format!("invalid download_url {url}: {e}"))?;
+    if parsed.scheme() != "https" {
+        return Err(format!(
+            "registry download_url must be https://; got scheme {:?}",
+            parsed.scheme()
+        ));
+    }
+
+    let resp = http
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("fetch {url}: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("fetch {url}: HTTP {}", resp.status()));
+    }
+    if let Some(len) = resp.content_length() {
+        if len as usize > signing::MAX_ARCHIVE_SIZE {
+            return Err(format!("bundle exceeds {} bytes", signing::MAX_ARCHIVE_SIZE));
+        }
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("read {url}: {e}"))?;
+    if bytes.len() > signing::MAX_ARCHIVE_SIZE {
+        return Err(format!("bundle exceeds {} bytes", signing::MAX_ARCHIVE_SIZE));
+    }
+    Ok(bytes.to_vec())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use ring::digest::{Context, SHA256};
+    let mut ctx = Context::new(&SHA256);
+    ctx.update(bytes);
+    hex::encode(ctx.finish().as_ref())
 }
