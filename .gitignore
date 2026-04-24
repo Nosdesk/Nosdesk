@@ -77,3 +77,8 @@ Thumbs.db
 nosdesk_backup_*.sql
 nosdesk_pre_*.sql
 docs/
+
+# Signed plugin zips dropped for provisioning. The directory is
+# tracked (README explains the convention) but the artefacts are
+# either built in CI or downloaded from the registry.
+/plugins/*.zip

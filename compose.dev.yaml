@@ -29,8 +29,10 @@ services:
       - backend_uploads:/app/uploads
       # Seed data files
       - ./backend/seeds:/app/seeds:ro
-      # Plugins provisioning directory
-      - ./examples/plugins:/app/plugins:ro
+      # Signed plugin zips (*.zip) picked up at startup. In dev, set
+      # NOSDESK_DEV_MODE=1 in docker.env to also accept unsigned
+      # zips produced by `nosdesk-plugin sign --dev`.
+      - ./plugins:/app/plugins:ro
     environment:
       - RUST_LOG=debug,actix_web=debug,actix_server=info,diesel=debug
       - RUST_BACKTRACE=1

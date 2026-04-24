@@ -7,6 +7,8 @@
 //! on purpose, since this layer touches the database and the
 //! compiled-in root key whereas signing stays pure.
 
+use tracing::error;
+
 use crate::db::DbConnection;
 use crate::repository::plugin_publishers;
 use crate::services::plugins::signing::{self, sources, SignatureEnvelope, VerifiedArchive};
@@ -128,6 +130,12 @@ impl std::error::Error for TrustError {}
 
 impl From<diesel::result::Error> for TrustError {
     fn from(value: diesel::result::Error) -> Self {
+        // Log the raw Diesel error before wrapping it in the
+        // client-facing variant. The `Display` impl intentionally
+        // returns a generic string so column names / input values
+        // don't leak to API responses; the detail is captured here
+        // where only the server log sees it.
+        error!(error = %value, "Plugin trust-chain DB lookup failed");
         TrustError::Db(value)
     }
 }

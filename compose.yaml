@@ -47,6 +47,12 @@ services:
     env_file: docker.env
     volumes:
       - backend_uploads:/app/uploads
+      # Drop signed plugin zips (*.zip) into ./plugins/ to provision
+      # them on startup. The file's presence IS the declaration; the
+      # backend verifies each zip's signature against the trust chain
+      # (baked-in root, registered publishers, or local signing key)
+      # and refuses anything unsigned.
+      - ./plugins:/app/plugins:ro
     ports:
       - "127.0.0.1:8080:8080"
     networks:

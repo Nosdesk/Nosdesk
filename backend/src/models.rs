@@ -3431,12 +3431,9 @@ pub struct PluginUpdate {
     pub manifest: Option<serde_json::Value>,
     pub enabled: Option<bool>,
     pub trust_level: Option<String>,
-    /// Double-option so an update can explicitly clear the field
-    /// (e.g. if a plugin gets converted to dev-mode) vs leave it
-    /// alone. `Some(None)` writes NULL, `None` is no-op.
-    pub signer_pubkey: Option<Option<String>>,
-    pub signer_source: Option<Option<String>>,
-    pub signature_metadata: Option<Option<serde_json::Value>>,
+    pub signer_pubkey: Option<String>,
+    pub signer_source: Option<String>,
+    pub signature_metadata: Option<serde_json::Value>,
 }
 
 /// Plugin bundle update changeset

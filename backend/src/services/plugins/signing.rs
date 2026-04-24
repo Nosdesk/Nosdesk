@@ -44,6 +44,13 @@ pub const MAX_TOTAL_SIZE: u64 = 8 * 1024 * 1024;
 /// budget. A realistic envelope is a few hundred bytes.
 pub const MAX_ENVELOPE_SIZE: usize = 64 * 1024;
 
+/// Hard cap on the raw signed-zip blob size, enforced at every
+/// boundary that accepts one (HTTP upload handler, filesystem
+/// provisioning). Decouples outer-file limits from inner decompressed
+/// limits; an attacker can't feed in a 2 GB ciphertext just to force
+/// us to scan it.
+pub const MAX_ARCHIVE_SIZE: usize = 2 * 1024 * 1024;
+
 /// Base64 Ed25519 pubkey of the Nosdesk root signing key, baked in at
 /// compile time via the `NOSDESK_ROOT_PUBKEY` env var. `None` in local
 /// dev builds where the env var is unset, in which case official-tier
@@ -150,7 +157,6 @@ pub enum SigningError {
     InvalidPubkey,
     InvalidSignatureField,
     KeyGen(String),
-    SignFailed(String),
 }
 
 impl std::fmt::Display for SigningError {
@@ -183,7 +189,6 @@ impl std::fmt::Display for SigningError {
                 write!(f, "signature field is not a valid base64 64-byte value")
             }
             Self::KeyGen(m) => write!(f, "failed to generate signing key: {m}"),
-            Self::SignFailed(m) => write!(f, "failed to sign archive: {m}"),
         }
     }
 }
@@ -374,11 +379,11 @@ pub fn sign_entries(
     entries: &[ArchiveEntry],
     signing_key: &Ed25519KeyPair,
     signer_source: &str,
-) -> Result<SignatureEnvelope, SigningError> {
+) -> SignatureEnvelope {
     let digest = canonical_digest(entries);
     let digest_hex = hex::encode(digest);
     let signature = signing_key.sign(&canonical_sign_input(&digest_hex));
-    Ok(SignatureEnvelope {
+    SignatureEnvelope {
         version: ENVELOPE_VERSION,
         algorithm: "ed25519".into(),
         signer_pubkey: base64_encode(signing_key.public_key().as_ref()),
@@ -386,7 +391,7 @@ pub fn sign_entries(
         signed_at: chrono::Utc::now().to_rfc3339(),
         signed_digest: digest_hex,
         signature: base64_encode(signature.as_ref()),
-    })
+    }
 }
 
 /// Compute the fingerprint shown in admin UIs for a pubkey. First 8
@@ -509,7 +514,7 @@ mod tests {
             ("bundle.js", b"export default {};"),
         ]);
         let entries = read_archive(&zip).unwrap();
-        let envelope = sign_entries(&entries, &kp, sources::LOCAL).unwrap();
+        let envelope = sign_entries(&entries, &kp, sources::LOCAL);
         let signed = embed_envelope(&zip, &envelope);
 
         let verified = verify_archive(&signed).unwrap();
@@ -537,7 +542,7 @@ mod tests {
             ("bundle.js", b"export default {};"),
         ]);
         let entries = read_archive(&zip).unwrap();
-        let envelope = sign_entries(&entries, &kp, sources::LOCAL).unwrap();
+        let envelope = sign_entries(&entries, &kp, sources::LOCAL);
         let mut signed_entries = entries.clone();
         signed_entries.push(ArchiveEntry {
             name: SIGNATURE_FILE.into(),
@@ -567,7 +572,7 @@ mod tests {
         let other_kp = rng_keypair();
         let zip = make_zip(&[("manifest.json", b"{\"name\":\"hello\"}")]);
         let entries = read_archive(&zip).unwrap();
-        let mut envelope = sign_entries(&entries, &kp, sources::LOCAL).unwrap();
+        let mut envelope = sign_entries(&entries, &kp, sources::LOCAL);
         // Keep the digest valid, but claim `other_kp`'s pubkey →
         // signature was computed by `kp` but the envelope says
         // `other_kp`, so ED25519 verify fails.
@@ -584,7 +589,7 @@ mod tests {
         let kp = rng_keypair();
         let zip = make_zip(&[("manifest.json", b"{\"name\":\"hello\"}")]);
         let entries = read_archive(&zip).unwrap();
-        let mut envelope = sign_entries(&entries, &kp, sources::LOCAL).unwrap();
+        let mut envelope = sign_entries(&entries, &kp, sources::LOCAL);
         envelope.signed_digest = "00".repeat(32);
         let signed = embed_envelope(&zip, &envelope);
         match verify_archive(&signed) {
@@ -598,7 +603,7 @@ mod tests {
         let kp = rng_keypair();
         let zip = make_zip(&[("manifest.json", b"{}")]);
         let entries = read_archive(&zip).unwrap();
-        let mut envelope = sign_entries(&entries, &kp, sources::LOCAL).unwrap();
+        let mut envelope = sign_entries(&entries, &kp, sources::LOCAL);
         envelope.version = 99;
         let signed = embed_envelope(&zip, &envelope);
         match verify_archive(&signed) {
@@ -632,7 +637,7 @@ mod tests {
         let kp = rng_keypair();
         let zip = make_zip(&[("manifest.json", b"{}")]);
         let entries = read_archive(&zip).unwrap();
-        let envelope = sign_entries(&entries, &kp, sources::LOCAL).unwrap();
+        let envelope = sign_entries(&entries, &kp, sources::LOCAL);
         let mut envelope_bytes = serde_json::to_vec(&envelope).unwrap();
         envelope_bytes.extend(std::iter::repeat(b' ').take(MAX_ENVELOPE_SIZE + 1));
         let bloated = make_zip(&[
@@ -654,7 +659,7 @@ mod tests {
         let kp = rng_keypair();
         let zip = make_zip(&[("manifest.json", b"{}")]);
         let entries = read_archive(&zip).unwrap();
-        let envelope = sign_entries(&entries, &kp, sources::LOCAL).unwrap();
+        let envelope = sign_entries(&entries, &kp, sources::LOCAL);
         let mut as_json = serde_json::to_value(&envelope).unwrap();
         as_json
             .as_object_mut()

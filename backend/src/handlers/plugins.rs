@@ -4,11 +4,8 @@
 
 use actix_multipart::Multipart;
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
-use chrono::Utc;
 use diesel::result::Error as DieselError;
 use futures::StreamExt;
-use hex;
-use ring::digest::{Context, SHA256};
 use serde::Deserialize;
 use std::path::PathBuf;
 use tokio::fs;
@@ -18,12 +15,12 @@ use uuid::Uuid;
 use crate::db::{DbConnection, Pool};
 use crate::handlers::helpers;
 use crate::models::{
-    Claims, InstallPluginRequest, NewPlugin, PluginActivityResponse, PluginBundleUpdate,
+    Claims, InstallPluginRequest, NewPlugin, PluginActivityResponse,
     PluginResponse, PluginSettingResponse, PluginStorageResponse, PluginUpdate,
     SetPluginDataRequest, UpdatePluginRequest,
 };
 use crate::repository::plugins as plugin_repo;
-use crate::services::plugins::{signing, trust};
+use crate::services::plugins::{install, signing, trust};
 use crate::utils::encryption;
 use crate::utils::rbac::require_admin;
 
@@ -784,10 +781,6 @@ fn get_bundle_path(plugin_uuid: Uuid) -> PathBuf {
         .join("bundle.js")
 }
 
-/// Maximum bundle size (500 KB). Referenced by the signed-zip handler
-/// when it extracts the bundle entry from a verified archive.
-const MAX_BUNDLE_SIZE: usize = 500 * 1024;
-
 /// Serve a plugin bundle (authenticated users)
 pub async fn serve_plugin_bundle(
     req: HttpRequest,
@@ -844,8 +837,9 @@ pub async fn serve_plugin_bundle(
 // Plugin Zip Upload Handler
 // =============================================================================
 
-/// Maximum zip file size (2MB)
-const MAX_ZIP_SIZE: usize = 2 * 1024 * 1024;
+// Outer zip-file size ceiling is shared with the provisioner via
+// `signing::MAX_ARCHIVE_SIZE`, so both install entry points enforce
+// the same ceiling.
 
 /// Install a plugin from a zip file (admin only)
 ///
@@ -899,10 +893,10 @@ pub async fn install_plugin_from_zip(
                 }
             };
 
-            if zip_data.len() + data.len() > MAX_ZIP_SIZE {
+            if zip_data.len() + data.len() > signing::MAX_ARCHIVE_SIZE {
                 return HttpResponse::BadRequest().json(format!(
                     "Zip file too large. Maximum size is {} MB",
-                    MAX_ZIP_SIZE / (1024 * 1024)
+                    signing::MAX_ARCHIVE_SIZE / (1024 * 1024)
                 ));
             }
 
@@ -946,170 +940,57 @@ pub async fn install_plugin_from_zip(
         );
     }
 
-    let signer_fields = trust::PluginSignerFields::from_verified(&verified, &resolved_tier);
-
-    // Read manifest.json straight from the verified entry set. Using
-    // verified.files (not a fresh zip parse) guarantees we install
-    // exactly the bytes the signature covered.
-    let manifest_bytes = match signing::find_entry(&verified.files, "manifest.json") {
-        Some(b) => b,
-        None => {
-            return HttpResponse::BadRequest().json("Zip file must contain manifest.json");
-        }
+    let signer = trust::PluginSignerFields::from_verified(&verified, &resolved_tier);
+    let options = install::InstallOptions {
+        source: "uploaded",
+        installed_by: Uuid::parse_str(&claims.sub).ok(),
+        log_activity: true,
+        provision_settings: false,
+        skip_if_unchanged: false,
     };
 
-    let manifest: crate::models::PluginManifest = match serde_json::from_slice(manifest_bytes) {
-        Ok(m) => m,
-        Err(e) => {
-            error!("Invalid manifest.json: {}", e);
-            return HttpResponse::BadRequest().json(format!("Invalid manifest.json: {e}"));
-        }
+    let outcome = match install::install_verified(&mut conn, &verified.files, signer, options) {
+        Ok(o) => o,
+        Err(e) => return install_error_to_response(e),
     };
 
-    let name = match validate_plugin_name(&manifest.name) {
-        Ok(n) => n,
-        Err(e) => return e,
+    let was_create = matches!(outcome, install::InstallOutcome::Created(_));
+    let plugin = match outcome {
+        install::InstallOutcome::Created(p) | install::InstallOutcome::Updated(p) => p,
+        install::InstallOutcome::Unchanged(p) => p,
     };
-
-    let bundle_data = signing::find_entry(&verified.files, "bundle.js").map(|b| b.to_vec());
-    if let Some(ref data) = bundle_data {
-        if data.len() > MAX_BUNDLE_SIZE {
-            return HttpResponse::BadRequest().json(format!(
-                "Bundle too large. Maximum size is {} KB",
-                MAX_BUNDLE_SIZE / 1024
-            ));
-        }
-    }
-
-    let manifest_json = match serde_json::to_value(&manifest) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("Failed to serialize manifest: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to process manifest");
-        }
-    };
-
-    // Upsert: new installs go through `create_plugin`; existing rows
-    // get their manifest + signer provenance refreshed in place. The
-    // signed zip is the one way to write bundle bytes, so every path
-    // that touches code is signature-gated.
-    let installed_by = Uuid::parse_str(&claims.sub).ok();
-    let existing = plugin_repo::get_plugin_by_name(&mut conn, &name).ok();
-    let was_update = existing.is_some();
-
-    let plugin = match existing {
-        Some(existing) => {
-            let update = crate::models::PluginUpdate {
-                display_name: Some(manifest.display_name.clone()),
-                version: Some(manifest.version.clone()),
-                description: manifest.description.clone(),
-                manifest: Some(manifest_json),
-                enabled: None,
-                trust_level: Some(signer_fields.trust_level.clone()),
-                signer_pubkey: Some(signer_fields.signer_pubkey.clone()),
-                signer_source: Some(signer_fields.signer_source.clone()),
-                signature_metadata: Some(signer_fields.signature_metadata.clone()),
-            };
-            match plugin_repo::update_plugin_by_uuid(&mut conn, existing.uuid, update) {
-                Ok(p) => p,
-                Err(e) => {
-                    error!("Failed to update plugin: {}", e);
-                    return HttpResponse::InternalServerError().json("Failed to update plugin");
-                }
-            }
-        }
-        None => {
-            let new_plugin = NewPlugin {
-                name,
-                display_name: manifest.display_name.clone(),
-                version: manifest.version.clone(),
-                description: manifest.description.clone(),
-                manifest: manifest_json,
-                enabled: true,
-                trust_level: signer_fields.trust_level.clone(),
-                installed_by,
-                source: "uploaded".to_string(),
-                signer_pubkey: signer_fields.signer_pubkey.clone(),
-                signer_source: signer_fields.signer_source.clone(),
-                signature_metadata: signer_fields.signature_metadata.clone(),
-            };
-            match plugin_repo::create_plugin(&mut conn, new_plugin) {
-                Ok(p) => p,
-                Err(e) => {
-                    error!("Failed to create plugin: {}", e);
-                    return HttpResponse::InternalServerError().json("Failed to create plugin");
-                }
-            }
-        }
-    };
-
-    // Store bundle if present
-    let has_bundle = bundle_data.is_some();
-    if let Some(data) = bundle_data {
-        let mut context = Context::new(&SHA256);
-        context.update(&data);
-        let hash = hex::encode(context.finish().as_ref());
-
-        let bundle_path = get_bundle_path(plugin.uuid);
-        if let Some(parent) = bundle_path.parent() {
-            if let Err(e) = fs::create_dir_all(parent).await {
-                error!("Failed to create plugin directory: {}", e);
-                return HttpResponse::InternalServerError().json("Failed to store bundle");
-            }
-        }
-        if let Err(e) = fs::write(&bundle_path, &data).await {
-            error!("Failed to write bundle: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to store bundle");
-        }
-        let update = PluginBundleUpdate {
-            bundle_hash: Some(hash),
-            bundle_size: Some(data.len() as i32),
-            bundle_uploaded_at: Some(Utc::now().naive_utc()),
-        };
-        let _ = plugin_repo::update_plugin_bundle(&mut conn, plugin.uuid, update);
-    }
-
-    if !manifest.collections.is_empty() {
-        if let Err(e) = crate::services::plugins::validation::sync_collection_schemas(
-            &mut conn,
-            plugin.id,
-            &manifest,
-        ) {
-            warn!("Failed to sync collection schemas for plugin {}: {}", plugin.name, e);
-        }
-    }
-
-    let action = if was_update { "updated" } else { "installed" };
-    let _ = plugin_repo::log_plugin_activity(
-        &mut conn,
-        plugin.id,
-        action.to_string(),
-        Some(serde_json::json!({
-            "version": manifest.version,
-            "source": "zip_upload",
-            "has_bundle": has_bundle,
-            "signer_source": signer_fields.signer_source,
-            "trust_level": signer_fields.trust_level,
-        })),
-        installed_by,
-    );
 
     info!(
-        "Plugin {} from zip: {} v{} by {}",
-        action, manifest.name, manifest.version, claims.sub
+        "Plugin installed from zip: {} v{} by {}",
+        plugin.name, plugin.version, claims.sub
     );
 
     match PluginResponse::try_from(plugin) {
         Ok(response) => {
-            if was_update {
-                HttpResponse::Ok().json(response)
-            } else {
+            if was_create {
                 HttpResponse::Created().json(response)
+            } else {
+                HttpResponse::Ok().json(response)
             }
         }
         Err(e) => {
             error!("Failed to create plugin response: {}", e);
             HttpResponse::InternalServerError().json("Plugin created but response failed")
+        }
+    }
+}
+
+fn install_error_to_response(err: install::InstallError) -> HttpResponse {
+    match err {
+        install::InstallError::MissingManifest
+        | install::InstallError::InvalidManifest(_)
+        | install::InstallError::InvalidName(_)
+        | install::InstallError::BundleTooLarge(_) => {
+            HttpResponse::BadRequest().json(err.to_string())
+        }
+        install::InstallError::BundleWriteFailed(_) | install::InstallError::Db(_) => {
+            error!("Plugin install failed: {}", err);
+            HttpResponse::InternalServerError().json(err.to_string())
         }
     }
 }

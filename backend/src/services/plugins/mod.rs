@@ -3,6 +3,7 @@
 //! Services for plugin functionality including external request proxying
 //! and provisioning.
 
+pub mod install;
 pub mod local_key;
 pub mod provisioning;
 pub mod proxy;
