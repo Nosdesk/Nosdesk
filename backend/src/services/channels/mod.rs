@@ -199,19 +199,28 @@ pub enum InboundAttachment {
     },
 }
 
-/// Loop / auto-reply markers gathered at ingestion time per RFC 3834 and
-/// common practice. The pipeline short-circuits on any of these so our
-/// auto-reply doesn't play ping-pong with the customer's out-of-office.
+/// Loop / auto-reply markers gathered at ingestion time. The pipeline
+/// short-circuits on any of these so our auto-reply doesn't ping-pong
+/// with the customer's out-of-office or feed back into a mailing list.
+///
+/// Field names describe the *semantic signal* rather than the
+/// underlying transport header so chat / webhook adapters can reuse
+/// the same struct with their own detection logic. Email's mapping:
+///   - `is_auto_reply`  ← `Auto-Submitted` header per RFC 3834
+///   - `is_bulk`        ← `Precedence: bulk | list | junk`
+///   - `is_suppressed`  ← `X-Loop` / `X-Auto-Response-Suppress`
+/// Chat / webhook adapters that don't carry equivalents just leave
+/// them all false and rely on their own duplicate-event handling.
 #[derive(Debug, Clone, Default)]
 pub struct LoopMarkers {
-    pub auto_submitted: bool,       // Auto-Submitted != "no"
-    pub precedence_bulk: bool,      // Precedence: bulk / list / junk
-    pub x_loop_present: bool,       // X-Loop / X-Auto-Response-Suppress
+    pub is_auto_reply: bool,
+    pub is_bulk: bool,
+    pub is_suppressed: bool,
 }
 
 impl LoopMarkers {
     pub fn any(&self) -> bool {
-        self.auto_submitted || self.precedence_bulk || self.x_loop_present
+        self.is_auto_reply || self.is_bulk || self.is_suppressed
     }
 }
 
@@ -355,8 +364,8 @@ mod tests {
 
     #[test]
     fn loop_markers_any_detects_each_flag() {
-        assert!(LoopMarkers { auto_submitted: true, ..Default::default() }.any());
-        assert!(LoopMarkers { precedence_bulk: true, ..Default::default() }.any());
-        assert!(LoopMarkers { x_loop_present: true, ..Default::default() }.any());
+        assert!(LoopMarkers { is_auto_reply: true, ..Default::default() }.any());
+        assert!(LoopMarkers { is_bulk: true, ..Default::default() }.any());
+        assert!(LoopMarkers { is_suppressed: true, ..Default::default() }.any());
     }
 }

@@ -36,7 +36,7 @@ use crate::db::Pool;
 use crate::handlers::sse::SseState;
 use crate::models::Channel;
 use crate::repository::channels as channels_repo;
-use crate::services::channels::email_imap::{build_email_imap_adapter, ImapRuntimeState};
+use crate::services::channels::email_imap::build_email_imap_adapter;
 use crate::services::channels::pipeline::{self, PipelineContext};
 use crate::services::channels::{ChannelError, PullAdapter};
 use crate::services::search::SearchService;
@@ -433,22 +433,37 @@ async fn record_last_error(channel: &Channel, msg: &str, deps: &RegistryDeps) {
     }
 }
 
-/// Merge a new `last_error` into the channel's `runtime_state` JSON.
-/// Other fields (`last_seen_uid`, `uid_validity`) are preserved by
-/// re-reading the row from the DB rather than using the `&Channel`
-/// passed in — during a poll the adapter may have advanced those
-/// fields via its own `persist_state`, and writing back the stale
-/// pre-poll snapshot would silently undo the advance.
+/// Merge a `last_error` update into the channel's `runtime_state`
+/// JSON without touching other keys.
+///
+/// Provider-agnostic on purpose: operates directly on the JSON object
+/// so a Slack / Teams / webhook adapter with its own `runtime_state`
+/// shape can also flow through this helper. Every adapter uses
+/// `last_error` as a common error slot; anything else is its own
+/// namespace.
+///
+/// Re-reads the row from the DB rather than using the `&Channel`
+/// passed in because during a poll the adapter may have advanced its
+/// own runtime-state fields (UID cursors, delta tokens, etc.) and
+/// writing back the pre-poll snapshot would silently undo the advance.
 fn write_last_error(
     conn: &mut crate::db::DbConnection,
     channel: &Channel,
     new_error: Option<&str>,
 ) -> Result<(), diesel::result::Error> {
     let fresh = channels_repo::find(conn, channel.id)?;
-    let mut state: ImapRuntimeState =
-        serde_json::from_value(fresh.runtime_state).unwrap_or_default();
-    state.last_error = new_error.map(str::to_string);
-    let blob = serde_json::to_value(&state).unwrap_or_else(|_| serde_json::json!({}));
+    let mut state = match fresh.runtime_state {
+        serde_json::Value::Object(m) => m,
+        _ => serde_json::Map::new(),
+    };
+    state.insert(
+        "last_error".to_string(),
+        match new_error {
+            Some(msg) => serde_json::Value::String(msg.to_string()),
+            None => serde_json::Value::Null,
+        },
+    );
+    let blob = serde_json::Value::Object(state);
     channels_repo::update_runtime_state(conn, channel.id, blob).map(|_| ())
 }
 
@@ -528,6 +543,7 @@ mod tests {
 
     use super::*;
     use crate::models::{NewChannel, UserRole};
+    use crate::services::channels::email_imap::ImapRuntimeState;
     use crate::services::channels::{
         ChannelAdapter, ChannelError, ExternalIdentity, InboundEvent, InboundMessage, LoopMarkers,
         OutboundContent, OutboundMessage, ThreadContext,

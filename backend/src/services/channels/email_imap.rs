@@ -156,6 +156,14 @@ pub struct EmailImapAdapter {
     /// runtime state. [`ChannelAdapter::send_reply`] ignores it.
     pool: crate::db::Pool,
     state: ImapRuntimeState,
+    /// Cached `IDLE` capability. `None` = not yet probed — we will
+    /// check `CAPABILITY` on the next successful session. `Some(true)`
+    /// = advertised, we use IDLE. `Some(false)` = not advertised (or
+    /// advertised-but-broken), we fall back to polled cadence without
+    /// further attempts. Latches to `Some(false)` on IDLE init failure
+    /// so a server that *says* it supports IDLE but rejects the
+    /// command doesn't fill the logs with per-poll warnings.
+    idle_supported: Option<bool>,
 }
 
 impl EmailImapAdapter {
@@ -173,6 +181,7 @@ impl EmailImapAdapter {
             email,
             pool,
             state: initial_state,
+            idle_supported: None,
         }
     }
 
@@ -259,18 +268,49 @@ async fn open_session(
 
     let client = async_imap::Client::new(tls_stream);
     // async_imap's login returns `(Error, Client)` on failure — we only
-    // care about the error message; drop the client. LOGIN failures are
-    // almost always bad credentials, so classify as Configuration rather
-    // than Transient (a bad-password worker should stop, not back off
-    // forever). A timeout is Transient since that's a network / server
-    // availability signal.
+    // care about the error; drop the client. Sub-classify so a
+    // network blip doesn't permanently disable the worker:
+    //   - Io / ConnectionLost / Parse → Transient (retry on backoff)
+    //   - No / Bad / Validate → Configuration (admin must fix)
+    //   - Anything else → Configuration as a safer default
+    // A timeout is Transient since that's an availability signal, not
+    // a credential problem.
     match tokio::time::timeout(IMAP_OP_TIMEOUT, client.login(&config.username, password)).await {
         Ok(Ok(session)) => Ok(session),
-        Ok(Err((e, _))) => Err(ChannelError::Configuration(format!("login: {e}"))),
+        Ok(Err((e, _))) => Err(classify_login_error(e)),
         Err(_) => Err(ChannelError::Transient(format!(
             "login: timed out after {}s",
             IMAP_OP_TIMEOUT.as_secs()
         ))),
+    }
+}
+
+/// Split `async_imap::error::Error` from a LOGIN attempt into the
+/// `ChannelError` severity tiers. Kept here next to `open_session` so
+/// any change to the classification logic lives with the code that
+/// invokes LOGIN; no other callers need this specific mapping.
+fn classify_login_error(e: async_imap::error::Error) -> ChannelError {
+    use async_imap::error::Error;
+    let msg = format!("login: {e}");
+    match e {
+        // Network-level failures are transient — a full reconnect on
+        // the next poll typically recovers.
+        Error::Io(_) | Error::ConnectionLost => ChannelError::Transient(msg),
+        // Parse errors are a server-side quirk or upstream client bug;
+        // either way, spinning backoff is preferable to permanent
+        // disable because the LOGIN might succeed cleanly later.
+        Error::Parse(_) => ChannelError::Transient(msg),
+        // NO ("wrong creds"), BAD ("rejected command"), Validate
+        // ("config had an invalid IMAP string"): admin has to fix
+        // something, so stop the worker and write last_error.
+        Error::No(_) | Error::Bad(_) | Error::Validate(_) => ChannelError::Configuration(msg),
+        // Append is about writing messages, not login; if it somehow
+        // surfaces here it's a protocol mismatch we can't recover
+        // from automatically. `async_imap::error::Error` is marked
+        // `#[non_exhaustive]`, so any future variant falls into the
+        // same Configuration bucket — safer to stop and alert than to
+        // spin on an unknown failure mode.
+        _ => ChannelError::Configuration(msg),
     }
 }
 
@@ -473,6 +513,18 @@ impl PullAdapter for EmailImapAdapter {
 
         let mut session = open_session(&self.config, &password).await?;
 
+        // Probe IDLE support once per adapter. Servers that don't
+        // advertise IDLE get polled-only behaviour — without this
+        // check we'd send IDLE, fail, and warn on every poll forever.
+        if self.idle_supported.is_none() {
+            self.idle_supported = Some(probe_idle_support(&mut session).await);
+            debug!(
+                channel = self.id,
+                supported = self.idle_supported.unwrap_or(false),
+                "probed IDLE capability"
+            );
+        }
+
         // 1. Drain any unseen messages up front. On a fresh connect this
         //    catches up anything that arrived while the worker was down.
         let mut events = match self.fetch_new_messages(&mut session).await {
@@ -483,22 +535,21 @@ impl PullAdapter for EmailImapAdapter {
             }
         };
 
-        // 2. If there's something to deliver, return immediately — the
-        //    pipeline can start on it while the next poll re-opens the
-        //    session and enters IDLE. Keeping sessions short during
-        //    active delivery gives the registry tight control over
-        //    backoff and shutdown.
-        if !events.is_empty() {
+        // 2. If there's something to deliver, or the server can't IDLE,
+        //    return now. Keeping sessions short during active delivery
+        //    (or when we have to fall back to polled cadence) lets the
+        //    registry control backoff and shutdown tightly.
+        if !events.is_empty() || self.idle_supported != Some(true) {
             let _ = tokio::time::timeout(IMAP_OP_TIMEOUT, session.logout()).await;
             return Ok(events);
         }
 
-        // 3. Nothing new yet. Use IMAP IDLE to block until the server
-        //    pushes a notification (or the 29-min re-IDLE deadline hits,
-        //    or the worker is cancelled via the outer `select!`). On a
-        //    genuine notification we do ONE more fetch in the same
-        //    session so the events land in this poll's return rather
-        //    than waiting another cycle.
+        // 3. Nothing new yet and IDLE is available. Block until the
+        //    server pushes a notification (or the 29-min re-IDLE
+        //    deadline hits, or the worker is cancelled via the outer
+        //    `select!`). On a genuine notification we do ONE more fetch
+        //    in the same session so events land in this poll's return
+        //    rather than waiting another cycle.
         match idle_wait(session).await {
             Ok((mut session, had_notification)) => {
                 if had_notification {
@@ -511,16 +562,15 @@ impl PullAdapter for EmailImapAdapter {
                 Ok(events)
             }
             Err(e) => {
-                // IDLE failure is non-fatal — drop to the registry's
-                // normal cadence. The most common cause is a server that
-                // doesn't advertise the IDLE capability; treating that
-                // as Transient would spin a tight backoff loop while
-                // ingestion still works via the drain in step 1.
+                // Server advertised IDLE but rejected it. Latch the
+                // capability to false so we don't try again; we'll keep
+                // ingesting through the drain in step 1 on every poll.
                 warn!(
                     channel = self.id,
                     error = %e,
-                    "IDLE failed; falling back to polled cadence"
+                    "IDLE failed despite CAPABILITY advertisement; falling back to polled cadence"
                 );
+                self.idle_supported = Some(false);
                 Ok(events)
             }
         }
@@ -651,6 +701,25 @@ impl EmailImapAdapter {
     }
 }
 
+/// Ask the server for its CAPABILITY list and return whether `IDLE`
+/// is advertised. Any failure (network glitch, unexpected response)
+/// is treated as "not supported" so the adapter falls back safely to
+/// polled cadence rather than spinning on a broken probe. Callers
+/// cache the result so this only runs once per adapter lifetime.
+async fn probe_idle_support(session: &mut ImapSession) -> bool {
+    match timed("capabilities", session.capabilities()).await {
+        Ok(caps) => caps.has_str("IDLE"),
+        Err(e) => {
+            // RFC 2177 compliance detail: capabilities can change across
+            // LOGIN (and some servers report different sets before vs
+            // after). If the probe fails we'd rather assume no IDLE
+            // than try it and log noisily every poll.
+            debug!(error = %e, "CAPABILITY probe failed; assuming IDLE unsupported");
+            false
+        }
+    }
+}
+
 /// Enter IMAP IDLE and block until the server pushes a notification,
 /// `IDLE_WAIT` elapses, or the caller drops this future (shutdown).
 ///
@@ -664,10 +733,13 @@ async fn idle_wait(session: ImapSession) -> Result<(ImapSession, bool), ChannelE
     let mut handle = session.idle();
     timed("idle init", handle.init()).await?;
 
-    // `wait_with_timeout` returns a `(future, StopSource)` pair. Dropping
-    // `_stop` cancels the wait on function exit — but tokio's normal
-    // cancellation-via-drop of this whole future also tears it down
-    // cleanly, so the stop-source is just a safety net.
+    // `wait_with_timeout` returns a `(future, StopSource)` pair. The
+    // StopSource binding is **load-bearing**: the wait future internally
+    // checks a token derived from it, and dropping the StopSource
+    // cancels the wait. If a future refactor removes the `_stop`
+    // binding as "unused", the wait will cancel immediately on every
+    // call. Keep the binding. Dropping naturally at function exit (or
+    // earlier, on tokio cancellation) tears down the IDLE cleanly.
     let (wait_fut, _stop) = handle.wait_with_timeout(IDLE_WAIT);
     let response = wait_fut
         .await
@@ -998,21 +1070,24 @@ fn split_address_list(raw: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Detect RFC 3834 auto-reply markers. Matches what `LoopMarkers` docs
-/// describe.
+/// Detect RFC 3834 auto-reply markers and map them onto the channel-
+/// neutral `LoopMarkers` signals. Mapping per `LoopMarkers` docs:
+///   - `is_auto_reply` ← `Auto-Submitted` header != "no"
+///   - `is_bulk`       ← `Precedence: bulk | list | junk`
+///   - `is_suppressed` ← `X-Loop` or `X-Auto-Response-Suppress`
 fn detect_loop_markers(headers: &[mailparse::MailHeader]) -> LoopMarkers {
-    let auto_submitted = header_first(headers, "Auto-Submitted")
+    let is_auto_reply = header_first(headers, "Auto-Submitted")
         .map(|v| !v.trim().eq_ignore_ascii_case("no"))
         .unwrap_or(false);
 
-    let precedence_bulk = header_first(headers, "Precedence")
+    let is_bulk = header_first(headers, "Precedence")
         .map(|v| {
             let lc = v.trim().to_ascii_lowercase();
             lc == "bulk" || lc == "list" || lc == "junk"
         })
         .unwrap_or(false);
 
-    let x_loop_present = headers.iter().any(|h| {
+    let is_suppressed = headers.iter().any(|h| {
         let k = h.get_key_ref();
         k.eq_ignore_ascii_case("X-Loop")
             || k.eq_ignore_ascii_case("X-Auto-Response-Suppress")
@@ -1021,9 +1096,9 @@ fn detect_loop_markers(headers: &[mailparse::MailHeader]) -> LoopMarkers {
     });
 
     LoopMarkers {
-        auto_submitted,
-        precedence_bulk,
-        x_loop_present,
+        is_auto_reply,
+        is_bulk,
+        is_suppressed,
     }
 }
 
@@ -1212,22 +1287,22 @@ mod tests {
         let raw = b"From: a@b\r\nAuto-Submitted: auto-replied\r\nSubject: x\r\n\r\nbody";
         let headers = parse_headers(raw);
         let lm = detect_loop_markers(&headers);
-        assert!(lm.auto_submitted);
-        assert!(!lm.precedence_bulk);
+        assert!(lm.is_auto_reply);
+        assert!(!lm.is_bulk);
     }
 
     #[test]
     fn loop_markers_ignores_auto_submitted_no() {
         let raw = b"From: a@b\r\nAuto-Submitted: no\r\nSubject: x\r\n\r\nbody";
         let headers = parse_headers(raw);
-        assert!(!detect_loop_markers(&headers).auto_submitted);
+        assert!(!detect_loop_markers(&headers).is_auto_reply);
     }
 
     #[test]
     fn loop_markers_detects_precedence_bulk() {
         let raw = b"From: a@b\r\nPrecedence: bulk\r\nSubject: x\r\n\r\nbody";
         let headers = parse_headers(raw);
-        assert!(detect_loop_markers(&headers).precedence_bulk);
+        assert!(detect_loop_markers(&headers).is_bulk);
     }
 
     #[test]
@@ -1241,7 +1316,7 @@ mod tests {
             let raw = format!("From: a@b\r\n{name}: 1\r\nSubject: x\r\n\r\nbody");
             let headers = parse_headers(raw.as_bytes());
             assert!(
-                detect_loop_markers(&headers).x_loop_present,
+                detect_loop_markers(&headers).is_suppressed,
                 "expected {name} to be detected"
             );
         }
@@ -1380,6 +1455,6 @@ Auto-Submitted: auto-replied\r\n\
 I'll be back Monday\r\n";
         let msg = parse_rfc822_into_inbound_message(raw, None).unwrap();
         assert!(msg.loop_markers.any());
-        assert!(msg.loop_markers.auto_submitted);
+        assert!(msg.loop_markers.is_auto_reply);
     }
 }

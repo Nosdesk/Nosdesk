@@ -180,28 +180,38 @@ pub async fn process_event(
         return Ok(PipelineOutcome::SkippedNoIdentity);
     };
 
-    // Identity resolution. Routes through the forward-aware branch
-    // when the envelope sender is a verified tech; otherwise falls
-    // into the normal guest-user path. See `resolve_identity` for
-    // the full decision tree.
-    let (sender, forwarded_by_uuid) = match resolve_identity(channel, &msg, &sender_email, conn)? {
-        Resolved::Identified { user, forwarded_by } => (user, forwarded_by),
-        Resolved::Skip(outcome) => return Ok(outcome),
-    };
-
     // Thread resolution — `None` means "start a new ticket". Stays
     // outside the transaction below because it's a read-only lookup and
     // because the trait's `async fn` contract can't be invoked inside
-    // Diesel's synchronous transaction closure.
+    // Diesel's synchronous transaction closure. A concurrent ingest of
+    // the same message would be caught by the UNIQUE constraint on
+    // `channel_messages` at transaction commit, so the read-then-write
+    // isn't a correctness hazard here.
     let existing_ticket_id = adapter.resolve_thread(&msg, channel.id, conn).await;
 
-    // Atomically: get-or-create ticket → insert comment → write the
-    // channel_messages dedup row. Without this wrapped in a transaction,
-    // a failure on the final insert would leave an orphan comment in the
-    // DB and let the next poll re-ingest the same message (dedup row
-    // missing) into a second comment on the same ticket.
-    let sender_uuid = sender.uuid;
-    let (ticket, comment, is_new_ticket) = conn.transaction::<_, PipelineError, _>(|conn| {
+    // Atomically: identity resolve (which may create a guest user row)
+    // → get-or-create ticket → insert comment → write the
+    // `channel_messages` dedup row. Everything that writes during
+    // ingestion happens inside this transaction, so a failure on any
+    // step rolls the lot back. Before this was a transaction, a
+    // partial success would orphan a guest user (if identity resolve
+    // created one), a comment (if the dedup row write failed), and
+    // let the next poll re-ingest into a second comment on the same
+    // ticket.
+    let ingest = conn.transaction::<_, PipelineError, _>(|conn| {
+        // Identity resolution. Routes through the forward-aware
+        // branch when the envelope sender is a verified tech;
+        // otherwise falls into the normal guest-user path. See
+        // `resolve_identity` for the full decision tree.
+        let (sender, forwarded_by_uuid) = match resolve_identity(channel, &msg, &sender_email, conn)? {
+            Resolved::Identified { user, forwarded_by } => (user, forwarded_by),
+            // Skip paths write nothing; the transaction commits as a
+            // no-op and the outer code turns `Ingest::Skip` into the
+            // matching `PipelineOutcome`.
+            Resolved::Skip(outcome) => return Ok(Ingest::Skip(outcome)),
+        };
+        let sender_uuid = sender.uuid;
+
         let (ticket, comment, is_new_ticket) = match existing_ticket_id {
             Some(ticket_id) => {
                 let ticket = tickets_repo::get_ticket_by_id(conn, ticket_id)?;
@@ -233,12 +243,30 @@ pub async fn process_event(
             },
         )?;
 
-        Ok((ticket, comment, is_new_ticket))
+        Ok(Ingest::Done {
+            ticket,
+            comment,
+            is_new_ticket,
+            sender_uuid,
+        })
     })?;
 
+    let (ticket, comment, is_new_ticket, sender_uuid) = match ingest {
+        Ingest::Skip(outcome) => return Ok(outcome),
+        Ingest::Done {
+            ticket,
+            comment,
+            is_new_ticket,
+            sender_uuid,
+        } => (ticket, comment, is_new_ticket, sender_uuid),
+    };
+
     // Attachments — best effort. Each failure is logged and skipped so
-    // one malformed file doesn't lose the whole message.
-    persist_attachments(conn, &ctx, comment.id, sender.uuid, &msg.attachments).await;
+    // one malformed file doesn't lose the whole message. Runs outside
+    // the transaction because it may do network fetches (External
+    // attachments) and storage writes, which shouldn't hold a DB row
+    // lock for seconds at a time.
+    persist_attachments(conn, &ctx, comment.id, sender_uuid, &msg.attachments).await;
 
     // Side effects (optional).
     if let Some(sse) = &ctx.sse {
@@ -312,6 +340,21 @@ pub async fn process_event(
 }
 
 // ---------- DB helpers ----------
+
+/// Outcome carried out of the ingest transaction. `Skip` signals that
+/// identity resolution said stop (EmailClaimed, forwarded-tech-to-tech,
+/// etc.) and the transaction committed a no-op; `Done` carries the
+/// rows the transaction created so the caller can drive post-commit
+/// side effects (attachments, SSE, search index, auto-ack).
+enum Ingest {
+    Skip(PipelineOutcome),
+    Done {
+        ticket: Ticket,
+        comment: Comment,
+        is_new_ticket: bool,
+        sender_uuid: uuid::Uuid,
+    },
+}
 
 /// Outcome of identity resolution. Either we've got a `User` to
 /// attribute the ticket to (plus, optionally, the tech who forwarded
@@ -844,7 +887,7 @@ mod tests {
         let mut conn = setup_test_connection();
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
         let mut msg = sample_message("<loop@ex>", vec![], Some("Out of office"));
-        msg.loop_markers.auto_submitted = true;
+        msg.loop_markers.is_auto_reply = true;
 
         let outcome = process_event(
             &StubAdapter,
