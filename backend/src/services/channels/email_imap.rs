@@ -100,6 +100,40 @@ fn default_use_tls() -> bool {
     true
 }
 
+impl ImapChannelConfig {
+    /// Quick fail-fast validation before we try to use this config to
+    /// stand up a worker. Catches the obvious "admin saved an empty
+    /// string" mistakes that would otherwise show up as cryptic TCP /
+    /// IMAP errors once per poll, forever.
+    pub fn validate(&self) -> Result<(), String> {
+        for (field, value) in [
+            ("host", &self.host),
+            ("username", &self.username),
+            ("reply_domain", &self.reply_domain),
+            ("mailbox", &self.mailbox),
+        ] {
+            if value.trim().is_empty() {
+                return Err(format!("{field} must not be empty"));
+            }
+        }
+        if self.port == 0 {
+            return Err("port must be in 1..=65535".into());
+        }
+        // Not a full RFC 1035 check — just enough to reject whitespace
+        // or quoted junk that would otherwise fail deep in the TCP
+        // stack. Alphanumerics + `.-_` cover both DNS names and
+        // dotted-quad IPs.
+        if !self
+            .host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        {
+            return Err("host contains characters outside a-z, 0-9, and `.-_`".into());
+        }
+        Ok(())
+    }
+}
+
 // ---------- Adapter ----------
 
 /// Concrete [`ChannelAdapter`] for `provider = "email_imap"`. Holds the
@@ -165,6 +199,7 @@ pub fn build_email_imap_adapter(
 ) -> Result<EmailImapAdapter, String> {
     let config: ImapChannelConfig = serde_json::from_value(channel.config.clone())
         .map_err(|e| format!("invalid email_imap config: {e}"))?;
+    config.validate()?;
     let state: ImapRuntimeState =
         serde_json::from_value(channel.runtime_state.clone()).unwrap_or_default();
     Ok(EmailImapAdapter::new(channel.id, config, email, pool, state))
@@ -196,9 +231,7 @@ async fn open_session(
     }
 
     let addr = (config.host.as_str(), config.port);
-    let tcp = TcpStream::connect(addr)
-        .await
-        .map_err(ChannelError::transient("tcp connect"))?;
+    let tcp = timed("tcp connect", TcpStream::connect(addr)).await?;
 
     // Defence in depth: the admin UI already labels
     // `insecure_skip_cert_verify` as dev-only, but an admin who
@@ -222,21 +255,23 @@ async fn open_session(
         .build()
         .map_err(ChannelError::configuration("tls connector init"))?;
     let tls = tokio_native_tls::TlsConnector::from(native_connector);
-    let tls_stream = tls
-        .connect(&config.host, tcp)
-        .await
-        .map_err(ChannelError::transient("tls handshake"))?;
+    let tls_stream = timed("tls handshake", tls.connect(&config.host, tcp)).await?;
 
     let client = async_imap::Client::new(tls_stream);
-    let session = client
-        .login(&config.username, password)
-        // async_imap's login returns `(Error, Client)` on failure — we
-        // only care about the error message; drop the client.
-        .await
-        .map_err(|(e, _)| e)
-        .map_err(ChannelError::configuration("login"))?;
-
-    Ok(session)
+    // async_imap's login returns `(Error, Client)` on failure — we only
+    // care about the error message; drop the client. LOGIN failures are
+    // almost always bad credentials, so classify as Configuration rather
+    // than Transient (a bad-password worker should stop, not back off
+    // forever). A timeout is Transient since that's a network / server
+    // availability signal.
+    match tokio::time::timeout(IMAP_OP_TIMEOUT, client.login(&config.username, password)).await {
+        Ok(Ok(session)) => Ok(session),
+        Ok(Err((e, _))) => Err(ChannelError::Configuration(format!("login: {e}"))),
+        Err(_) => Err(ChannelError::Transient(format!(
+            "login: timed out after {}s",
+            IMAP_OP_TIMEOUT.as_secs()
+        ))),
+    }
 }
 
 /// Probe an IMAP server with the given config and password. Connects,
@@ -258,17 +293,26 @@ pub async fn test_imap_connection(
     // EXAMINE is read-only — it verifies the mailbox exists without
     // touching `\Seen` flags. SELECT would also work but leaves a
     // server-side session state we don't need.
-    session
-        .examine(&config.mailbox)
-        .await
-        .map_err(|e| format!("mailbox '{}' inaccessible: {e}", config.mailbox))?;
+    match tokio::time::timeout(IMAP_OP_TIMEOUT, session.examine(&config.mailbox)).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => return Err(format!("mailbox '{}' inaccessible: {e}", config.mailbox)),
+        Err(_) => {
+            return Err(format!(
+                "mailbox '{}' inaccessible: timed out after {}s",
+                config.mailbox,
+                IMAP_OP_TIMEOUT.as_secs()
+            ))
+        }
+    }
 
-    session
-        .logout()
-        .await
-        .map_err(|e| format!("logout failed: {e}"))?;
-
-    Ok(())
+    match tokio::time::timeout(IMAP_OP_TIMEOUT, session.logout()).await {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(e)) => Err(format!("logout failed: {e}")),
+        Err(_) => Err(format!(
+            "logout failed: timed out after {}s",
+            IMAP_OP_TIMEOUT.as_secs()
+        )),
+    }
 }
 
 #[async_trait]
@@ -331,15 +375,66 @@ impl ChannelAdapter for EmailImapAdapter {
     }
 }
 
-/// Default poll cadence when `channels.config` doesn't specify one.
-/// 60s is conservative for IMAP — IDLE replaces this in a later pass.
-const DEFAULT_POLL_SECS: u64 = 60;
+/// Polling cadence between IDLE cycles. Each poll call internally
+/// uses IMAP IDLE to wait for server-pushed notifications (up to
+/// `IDLE_WAIT`), so the registry-level sleep is only a small
+/// anti-tight-loop pause after a poll returns. Sub-second responsiveness
+/// comes from IDLE, not from this interval.
+const DEFAULT_POLL_SECS: u64 = 1;
+
+/// Upper bound on a single IDLE wait, per RFC 2177's guidance that
+/// clients SHOULD re-issue IDLE at least every 29 minutes to stay
+/// ahead of server-side inactivity timeouts. `async-imap`'s
+/// `wait_with_timeout` resets this on any server message (including
+/// keep-alive `* OK Still here`), so for a well-behaved server the
+/// wait only terminates on real activity.
+const IDLE_WAIT: Duration = Duration::from_secs(29 * 60);
+
+/// Ceiling for any single IMAP operation. A well-behaved server
+/// completes any of our calls (SELECT, SEARCH, FETCH, LOGIN, LOGOUT) in
+/// well under a second. 30s is generous for a bad-network day and
+/// aggressive enough that a half-open TCP session or a wedged server
+/// can't stall the worker indefinitely. A timeout bubbles up as a
+/// `Transient` error so the normal backoff path applies.
+const IMAP_OP_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Ceiling on messages fetched per poll. A UIDVALIDITY rollover on a
+/// 100k-message mailbox would otherwise have us SEARCH → N × FETCH
+/// single-threaded in one poll, tying up the worker for an hour and
+/// holding an IMAP session hostage the whole time. Chunking the rescan
+/// across polls at this cap keeps each poll bounded; the cursor
+/// catches up within a few iterations for any realistic backlog.
+const MAX_FETCH_PER_POLL: usize = 200;
+
+/// Pool acquisition timeout for poll-path DB reads. The pool's
+/// default 30s is too long for a per-poll operation — we'd rather
+/// fail the poll quickly and retry than stall the worker.
+const POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// IMAP fetch spec. `RFC822` gives us the full raw message,
 /// `INTERNALDATE` gives the server's stamp (preferred over the Date
 /// header, which clients can forge or clock-skew), `UID` echoes the id
 /// so we can advance `last_seen_uid` safely.
 const FETCH_SPEC: &str = "(UID INTERNALDATE BODY.PEEK[])";
+
+/// Wrap any fallible async operation with the shared timeout. Both the
+/// operation's error and a timeout become `ChannelError::Transient`
+/// with a `{label}:` prefix so log lines identify which operation
+/// tripped. Covers TCP connect, TLS handshake, and every IMAP call
+/// whose error type implements `Display`.
+async fn timed<F, T, E>(label: &'static str, fut: F) -> Result<T, ChannelError>
+where
+    F: std::future::Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    match tokio::time::timeout(IMAP_OP_TIMEOUT, fut).await {
+        Ok(r) => r.map_err(ChannelError::transient(label)),
+        Err(_) => Err(ChannelError::Transient(format!(
+            "{label}: timed out after {}s",
+            IMAP_OP_TIMEOUT.as_secs()
+        ))),
+    }
+}
 
 #[async_trait]
 impl PullAdapter for EmailImapAdapter {
@@ -358,22 +453,77 @@ impl PullAdapter for EmailImapAdapter {
     async fn poll(&mut self) -> Result<Vec<InboundEvent>, ChannelError> {
         // Credentials are loaded every poll so a rotation picked up by
         // the admin UI takes effect on the next cycle without a worker
-        // restart. The DB hit is negligible at a 60s cadence.
+        // restart. The DB hit is negligible at this cadence.
+        //
+        // A DB failure during the lookup is Transient (retry next poll) —
+        // using Configuration here would stop the worker permanently for
+        // what might be a connection blip. Only the "no credential row
+        // exists" case is a genuine Configuration problem.
         let password = {
-            let mut conn = self.pool.get().map_err(ChannelError::transient("db pool"))?;
+            let mut conn = self
+                .pool
+                .get_timeout(POOL_ACQUIRE_TIMEOUT)
+                .map_err(ChannelError::transient("db pool"))?;
             channels_repo::get_credential(&mut conn, self.channel_id, CRED_TYPE_IMAP_PASSWORD)
-                .map_err(ChannelError::configuration("credential"))?
+                .map_err(ChannelError::transient("credential lookup"))?
                 .ok_or_else(|| {
                     ChannelError::Configuration("no IMAP password stored for channel".into())
                 })?
         };
 
         let mut session = open_session(&self.config, &password).await?;
-        let fetch_result = self.fetch_new_messages(&mut session).await;
-        // Always try to log out, even on error — leaving sessions open
-        // makes some servers refuse subsequent connects.
-        let _ = session.logout().await;
-        fetch_result
+
+        // 1. Drain any unseen messages up front. On a fresh connect this
+        //    catches up anything that arrived while the worker was down.
+        let mut events = match self.fetch_new_messages(&mut session).await {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = tokio::time::timeout(IMAP_OP_TIMEOUT, session.logout()).await;
+                return Err(e);
+            }
+        };
+
+        // 2. If there's something to deliver, return immediately — the
+        //    pipeline can start on it while the next poll re-opens the
+        //    session and enters IDLE. Keeping sessions short during
+        //    active delivery gives the registry tight control over
+        //    backoff and shutdown.
+        if !events.is_empty() {
+            let _ = tokio::time::timeout(IMAP_OP_TIMEOUT, session.logout()).await;
+            return Ok(events);
+        }
+
+        // 3. Nothing new yet. Use IMAP IDLE to block until the server
+        //    pushes a notification (or the 29-min re-IDLE deadline hits,
+        //    or the worker is cancelled via the outer `select!`). On a
+        //    genuine notification we do ONE more fetch in the same
+        //    session so the events land in this poll's return rather
+        //    than waiting another cycle.
+        match idle_wait(session).await {
+            Ok((mut session, had_notification)) => {
+                if had_notification {
+                    events = self
+                        .fetch_new_messages(&mut session)
+                        .await
+                        .unwrap_or_default();
+                }
+                let _ = tokio::time::timeout(IMAP_OP_TIMEOUT, session.logout()).await;
+                Ok(events)
+            }
+            Err(e) => {
+                // IDLE failure is non-fatal — drop to the registry's
+                // normal cadence. The most common cause is a server that
+                // doesn't advertise the IDLE capability; treating that
+                // as Transient would spin a tight backoff loop while
+                // ingestion still works via the drain in step 1.
+                warn!(
+                    channel = self.id,
+                    error = %e,
+                    "IDLE failed; falling back to polled cadence"
+                );
+                Ok(events)
+            }
+        }
     }
 
     fn poll_interval(&self) -> Duration {
@@ -405,10 +555,7 @@ impl EmailImapAdapter {
         &mut self,
         session: &mut ImapSession,
     ) -> Result<Vec<InboundEvent>, ChannelError> {
-        let mailbox = session
-            .select(&self.config.mailbox)
-            .await
-            .map_err(ChannelError::transient("select"))?;
+        let mailbox = timed("select", session.select(&self.config.mailbox)).await?;
 
         // UIDVALIDITY check — the one IMAP invariant we really care
         // about. Without this, a server that renumbers UIDs (rare,
@@ -441,12 +588,24 @@ impl EmailImapAdapter {
 
         let since = self.state.last_seen_uid;
         let search_query = format!("UID {}:*", since.saturating_add(1));
-        let uid_set = session
-            .uid_search(&search_query)
-            .await
-            .map_err(ChannelError::transient("uid_search"))?;
+        let uid_set = timed("uid_search", session.uid_search(&search_query)).await?;
         let mut uids: Vec<u32> = uid_set.into_iter().filter(|&u| u > since).collect();
         uids.sort_unstable();
+
+        // Cap the per-poll batch so a massive backlog (UIDVALIDITY
+        // rollover on a huge mailbox, a channel that's been offline for
+        // a while) catches up across several polls instead of holding
+        // the session hostage for minutes on a single call.
+        let total = uids.len();
+        if total > MAX_FETCH_PER_POLL {
+            debug!(
+                channel = self.id,
+                total,
+                batch = MAX_FETCH_PER_POLL,
+                "backlog exceeds per-poll cap; remaining UIDs will be picked up on subsequent polls"
+            );
+            uids.truncate(MAX_FETCH_PER_POLL);
+        }
 
         let mut events = Vec::with_capacity(uids.len());
         let mut max_uid = self.state.last_seen_uid;
@@ -482,11 +641,41 @@ impl EmailImapAdapter {
     async fn persist_state(&self) -> Result<(), ChannelError> {
         let blob = serde_json::to_value(&self.state)
             .map_err(ChannelError::other("runtime_state json"))?;
-        let mut conn = self.pool.get().map_err(ChannelError::transient("db pool"))?;
+        let mut conn = self
+            .pool
+            .get_timeout(POOL_ACQUIRE_TIMEOUT)
+            .map_err(ChannelError::transient("db pool"))?;
         channels_repo::update_runtime_state(&mut conn, self.channel_id, blob)
             .map(|_| ())
             .map_err(ChannelError::transient("persist runtime_state"))
     }
+}
+
+/// Enter IMAP IDLE and block until the server pushes a notification,
+/// `IDLE_WAIT` elapses, or the caller drops this future (shutdown).
+///
+/// Returns the session so the caller can use it for a follow-up fetch
+/// if a notification actually arrived; the bool is `true` when the
+/// IDLE loop saw server data (as opposed to a timeout or keep-alive),
+/// which is the only case where an immediate fetch is worth it.
+async fn idle_wait(session: ImapSession) -> Result<(ImapSession, bool), ChannelError> {
+    use async_imap::extensions::idle::IdleResponse;
+
+    let mut handle = session.idle();
+    timed("idle init", handle.init()).await?;
+
+    // `wait_with_timeout` returns a `(future, StopSource)` pair. Dropping
+    // `_stop` cancels the wait on function exit — but tokio's normal
+    // cancellation-via-drop of this whole future also tears it down
+    // cleanly, so the stop-source is just a safety net.
+    let (wait_fut, _stop) = handle.wait_with_timeout(IDLE_WAIT);
+    let response = wait_fut
+        .await
+        .map_err(ChannelError::transient("idle wait"))?;
+
+    let had_notification = matches!(response, IdleResponse::NewData(_));
+    let session = timed("idle done", handle.done()).await?;
+    Ok((session, had_notification))
 }
 
 /// Fetch a single UID and parse it. All errors — IMAP-layer, missing
@@ -499,14 +688,31 @@ async fn fetch_single_uid(
     session: &mut ImapSession,
     uid: u32,
 ) -> Result<Option<InboundMessage>, String> {
-    let stream = session
-        .uid_fetch(uid.to_string(), FETCH_SPEC)
-        .await
-        .map_err(|e| format!("uid_fetch: {e}"))?;
-    let fetches: Vec<_> = stream
-        .try_collect()
-        .await
-        .map_err(|e| format!("fetch stream: {e}"))?;
+    let stream = match tokio::time::timeout(
+        IMAP_OP_TIMEOUT,
+        session.uid_fetch(uid.to_string(), FETCH_SPEC),
+    )
+    .await
+    {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => return Err(format!("uid_fetch: {e}")),
+        Err(_) => {
+            return Err(format!(
+                "uid_fetch: timed out after {}s",
+                IMAP_OP_TIMEOUT.as_secs()
+            ))
+        }
+    };
+    let fetches: Vec<_> = match tokio::time::timeout(IMAP_OP_TIMEOUT, stream.try_collect()).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => return Err(format!("fetch stream: {e}")),
+        Err(_) => {
+            return Err(format!(
+                "fetch stream: timed out after {}s",
+                IMAP_OP_TIMEOUT.as_secs()
+            ))
+        }
+    };
 
     let Some(fetch) = fetches.into_iter().find(|f| f.uid == Some(uid)) else {
         return Ok(None);
@@ -855,6 +1061,76 @@ mod tests {
         let state: ImapRuntimeState = serde_json::from_value(serde_json::json!({})).unwrap();
         assert_eq!(state.last_seen_uid, 0);
         assert!(state.uid_validity.is_none());
+    }
+
+    #[test]
+    fn validate_accepts_reasonable_config() {
+        let cfg = ImapChannelConfig {
+            host: "mail.example.com".into(),
+            port: 993,
+            username: "u@example.com".into(),
+            mailbox: "INBOX".into(),
+            use_tls: true,
+            reply_domain: "example.com".into(),
+            insecure_skip_cert_verify: false,
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_empty_host() {
+        let cfg = ImapChannelConfig {
+            host: "".into(),
+            port: 993,
+            username: "u@example.com".into(),
+            mailbox: "INBOX".into(),
+            use_tls: true,
+            reply_domain: "example.com".into(),
+            insecure_skip_cert_verify: false,
+        };
+        assert!(cfg.validate().unwrap_err().contains("host"));
+    }
+
+    #[test]
+    fn validate_rejects_zero_port() {
+        let cfg = ImapChannelConfig {
+            host: "mail.example.com".into(),
+            port: 0,
+            username: "u@example.com".into(),
+            mailbox: "INBOX".into(),
+            use_tls: true,
+            reply_domain: "example.com".into(),
+            insecure_skip_cert_verify: false,
+        };
+        assert!(cfg.validate().unwrap_err().contains("port"));
+    }
+
+    #[test]
+    fn validate_rejects_whitespace_only_reply_domain() {
+        let cfg = ImapChannelConfig {
+            host: "mail.example.com".into(),
+            port: 993,
+            username: "u@example.com".into(),
+            mailbox: "INBOX".into(),
+            use_tls: true,
+            reply_domain: "   ".into(),
+            insecure_skip_cert_verify: false,
+        };
+        assert!(cfg.validate().unwrap_err().contains("reply_domain"));
+    }
+
+    #[test]
+    fn validate_rejects_host_with_spaces() {
+        let cfg = ImapChannelConfig {
+            host: "mail example com".into(),
+            port: 993,
+            username: "u@example.com".into(),
+            mailbox: "INBOX".into(),
+            use_tls: true,
+            reply_domain: "example.com".into(),
+            insecure_skip_cert_verify: false,
+        };
+        assert!(cfg.validate().unwrap_err().contains("host"));
     }
 
     #[test]

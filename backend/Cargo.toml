@@ -125,6 +125,13 @@ tokio-native-tls = "0.3"   # TLS transport for async-imap over 993 (tokio io tra
 native-tls = "0.2"         # Underlying TLS connector type
 mailparse = "0.16"         # RFC 5322 parser — headers, attachments, References chain
 
+# Application metrics. No recorder is installed by default — `counter!`
+# / `histogram!` calls are zero-cost until a subscriber (e.g.
+# `metrics-exporter-prometheus`) is wired in. Instrumenting now means
+# the call sites are already in place when the /metrics endpoint is
+# added.
+metrics = "0.24"
+
 # For testing only
 [dev-dependencies]
 actix-rt = "2.10.0"

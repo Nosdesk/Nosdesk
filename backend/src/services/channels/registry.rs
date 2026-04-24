@@ -27,6 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix_web::web;
+use metrics::counter;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
@@ -51,6 +52,19 @@ const MAX_BACKOFF: Duration = Duration::from_secs(300);
 /// Fallback delay for [`ChannelError::RateLimited`] when the provider
 /// didn't tell us how long to wait.
 const DEFAULT_RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(60);
+
+/// Consecutive-failure threshold at which a worker gives up. With
+/// backoff starting at 5s and capping at 5min, hitting this count
+/// means the channel has been broken for roughly 90 minutes. At that
+/// point we stop (persisting a last_error) rather than continue
+/// hammering a mail server that's clearly not coming back without
+/// admin action. A fresh Upsert or a restart reboots the worker.
+const DEAD_CHANNEL_THRESHOLD: u32 = 20;
+
+/// Pool acquisition timeout for registry-level DB calls. Short enough
+/// that a stalled pool surfaces as a transient error rather than
+/// silently pinning a worker for 30 seconds waiting on a connection.
+const POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Shared dependencies every worker needs. Cloning is cheap — the
 /// inner handles are all `Arc` / `web::Data`.
@@ -136,6 +150,14 @@ impl ChannelRegistry {
 
     /// Build + spawn one worker. If the channel is already running
     /// this is a no-op (the admin must stop it first).
+    ///
+    /// Spawn shape: an outer "supervisor" task awaits the inner worker
+    /// task's `JoinHandle`. That way a panic inside the worker surfaces
+    /// as a loud `error!` log (with the panic payload, when available)
+    /// instead of the task silently vanishing from Tokio's radar.
+    /// Restart is deliberately NOT automatic — a panicking worker is a
+    /// bug that wants admin attention, not an infinite loop masking
+    /// the problem.
     pub fn start(&mut self, channel: Channel) -> Result<(), StartError> {
         if self.workers.contains_key(&channel.id) {
             debug!(channel = channel.id, "worker already running — skip");
@@ -146,9 +168,24 @@ impl ChannelRegistry {
         let (stop_tx, stop_rx) = watch::channel(false);
         let deps = self.deps.clone();
         let channel_id = channel.id;
+        let worker_id = format!("{}:{}", channel.provider, channel_id);
 
         let task = tokio::spawn(async move {
-            run_worker(channel, adapter, deps, stop_rx).await;
+            let inner = tokio::spawn(async move {
+                run_worker(channel, adapter, deps, stop_rx).await;
+            });
+            match inner.await {
+                Ok(()) => {}
+                Err(e) if e.is_panic() => {
+                    counter!("nosdesk_channels_worker_panics_total").increment(1);
+                    error!(
+                        worker = %worker_id,
+                        panic = %format_panic(e),
+                        "channel worker panicked — not restarting; admin must stop and restart the channel"
+                    );
+                }
+                Err(e) => error!(worker = %worker_id, error = %e, "channel worker task aborted"),
+            }
         });
 
         self.workers
@@ -220,6 +257,10 @@ async fn run_worker(
     let worker_id = format!("{}:{}", channel.provider, channel.id);
     info!(worker = %worker_id, "channel worker loop started");
     let mut backoff = BASE_BACKOFF;
+    // Consecutive transient / rate-limit cycles. Reset on any
+    // successful poll. Runs up against `DEAD_CHANNEL_THRESHOLD` to
+    // stop a persistently-broken channel from polling forever.
+    let mut consecutive_failures: u32 = 0;
 
     loop {
         if *stop.borrow() {
@@ -232,13 +273,29 @@ async fn run_worker(
             r = run_one_poll(adapter.as_mut(), &channel, &deps) => r,
         };
 
+        // Low-cardinality `outcome` label so dashboards can group by
+        // result class without unbounded per-channel splits. Channel
+        // provenance stays on the tracing side.
+        let outcome_label = match &outcome {
+            PollOutcome::Ok => "ok",
+            PollOutcome::Transient => "transient",
+            PollOutcome::RateLimited(_) => "rate_limited",
+            PollOutcome::Configuration => "configuration",
+        };
+        counter!("nosdesk_channels_poll_total", "outcome" => outcome_label).increment(1);
+
         let sleep_for = match outcome {
             PollOutcome::Ok => {
                 backoff = BASE_BACKOFF;
+                consecutive_failures = 0;
                 adapter.poll_interval()
             }
-            PollOutcome::RateLimited(retry_after) => retry_after.unwrap_or(DEFAULT_RATE_LIMIT_BACKOFF),
+            PollOutcome::RateLimited(retry_after) => {
+                consecutive_failures += 1;
+                retry_after.unwrap_or(DEFAULT_RATE_LIMIT_BACKOFF)
+            }
             PollOutcome::Transient => {
+                consecutive_failures += 1;
                 let d = backoff;
                 backoff = (backoff * 2).min(MAX_BACKOFF);
                 d
@@ -248,6 +305,20 @@ async fn run_worker(
                 break;
             }
         };
+
+        if consecutive_failures >= DEAD_CHANNEL_THRESHOLD {
+            counter!("nosdesk_channels_dead_total").increment(1);
+            error!(
+                worker = %worker_id,
+                failures = consecutive_failures,
+                "channel crossed the dead-channel threshold — stopping until an admin re-enables it"
+            );
+            let reason = format!(
+                "stopped after {consecutive_failures} consecutive failures; re-enable the channel to resume"
+            );
+            record_last_error(&channel, &reason, &deps).await;
+            break;
+        }
 
         debug!(worker = %worker_id, ?sleep_for, "sleeping before next poll");
         if sleep_with_cancel(sleep_for, &mut stop).await {
@@ -288,7 +359,7 @@ pub async fn run_one_poll(
     }
 
     let ctx = deps.pipeline_context();
-    let mut conn = match deps.pool.get() {
+    let mut conn = match deps.pool.get_timeout(POOL_ACQUIRE_TIMEOUT) {
         Ok(c) => c,
         Err(e) => {
             warn!(channel = channel.id, error = %e, "pool exhausted — treating as transient");
@@ -303,9 +374,15 @@ pub async fn run_one_poll(
         let base: &mut dyn crate::services::channels::ChannelAdapter = adapter;
         match pipeline::process_event(base, channel, event, &mut conn, &ctx).await {
             Ok(outcome) => {
+                counter!(
+                    "nosdesk_channels_pipeline_outcome_total",
+                    "outcome" => pipeline_outcome_label(&outcome),
+                )
+                .increment(1);
                 debug!(channel = channel.id, ?outcome, "processed inbound event");
             }
             Err(e) => {
+                counter!("nosdesk_channels_pipeline_error_total").increment(1);
                 // A single bad message must not kill the loop — log
                 // and move on. The ingestion pipeline only errors on
                 // DB failures or attachment issues; the channel row
@@ -348,7 +425,7 @@ async fn classify_error(channel: &Channel, err: &ChannelError, deps: &RegistryDe
 }
 
 async fn record_last_error(channel: &Channel, msg: &str, deps: &RegistryDeps) {
-    let Ok(mut conn) = deps.pool.get() else {
+    let Ok(mut conn) = deps.pool.get_timeout(POOL_ACQUIRE_TIMEOUT) else {
         return;
     };
     if let Err(e) = write_last_error(&mut conn, channel, Some(msg)) {
@@ -380,6 +457,43 @@ fn clear_last_error(
     channel: &Channel,
 ) -> Result<(), diesel::result::Error> {
     write_last_error(conn, channel, None)
+}
+
+/// Low-cardinality label for the pipeline outcome enum, for use in
+/// `counter!` metric tags. Keeping this in one place means any new
+/// variant added to `PipelineOutcome` has exactly one place to gain a
+/// label.
+fn pipeline_outcome_label(outcome: &pipeline::PipelineOutcome) -> &'static str {
+    use pipeline::PipelineOutcome;
+    match outcome {
+        PipelineOutcome::TicketOpened { .. } => "ticket_opened",
+        PipelineOutcome::ReplyAppended { .. } => "reply_appended",
+        PipelineOutcome::SkippedDuplicate => "skipped_duplicate",
+        PipelineOutcome::SkippedLoop => "skipped_loop",
+        PipelineOutcome::SkippedUnsupportedVariant => "skipped_unsupported",
+        PipelineOutcome::SkippedNoIdentity => "skipped_no_identity",
+        PipelineOutcome::SkippedEmailClaimed => "skipped_email_claimed",
+    }
+}
+
+/// Extract a readable string from a `JoinError`'s panic payload. The
+/// stdlib panic! macro stores the payload as `&'static str` or `String`
+/// depending on whether the format string has interpolations; both
+/// cover the usual cases. Anything else (custom panic types) falls
+/// through to a placeholder.
+fn format_panic(e: tokio::task::JoinError) -> String {
+    match e.try_into_panic() {
+        Ok(panic) => {
+            if let Some(s) = panic.downcast_ref::<&str>() {
+                (*s).to_string()
+            } else if let Some(s) = panic.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "<non-string panic payload>".to_string()
+            }
+        }
+        Err(_) => "<unavailable>".to_string(),
+    }
 }
 
 /// Sleep for `d` but wake early if the shutdown signal fires. Returns

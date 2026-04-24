@@ -1195,6 +1195,7 @@ dependencies = [
  "lib0",
  "log",
  "mailparse",
+ "metrics",
  "mime",
  "mockall",
  "native-tls",
@@ -3753,6 +3754,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "744133e4a0e0a658e1374cf3bf8e415c4052a15a111acd372764c55b4177d490"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "metrics"
+version = "0.24.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d5312e9ba3771cfa961b585728215e3d972c950a3eed9252aa093d6301277e8"
+dependencies = [
+ "ahash",
+ "portable-atomic",
 ]
 
 [[package]]

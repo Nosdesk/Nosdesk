@@ -32,6 +32,7 @@
 use std::sync::Arc;
 
 use actix_web::web;
+use diesel::Connection;
 use serde_json::json;
 use tracing::{debug, info, warn};
 
@@ -188,43 +189,52 @@ pub async fn process_event(
         Resolved::Skip(outcome) => return Ok(outcome),
     };
 
-    // Thread resolution — `None` means "start a new ticket".
+    // Thread resolution — `None` means "start a new ticket". Stays
+    // outside the transaction below because it's a read-only lookup and
+    // because the trait's `async fn` contract can't be invoked inside
+    // Diesel's synchronous transaction closure.
     let existing_ticket_id = adapter.resolve_thread(&msg, channel.id, conn).await;
 
-    let (ticket, comment, is_new_ticket) = match existing_ticket_id {
-        Some(ticket_id) => {
-            let ticket = tickets_repo::get_ticket_by_id(conn, ticket_id)?;
-            let comment =
-                insert_inbound_comment(conn, ticket.id, sender.uuid, &msg, forwarded_by_uuid)?;
-            (ticket, comment, false)
-        }
-        None => {
-            let ticket = open_ticket_from_message(conn, channel, &msg, sender.uuid)?;
-            let comment =
-                insert_inbound_comment(conn, ticket.id, sender.uuid, &msg, forwarded_by_uuid)?;
-            (ticket, comment, true)
-        }
-    };
+    // Atomically: get-or-create ticket → insert comment → write the
+    // channel_messages dedup row. Without this wrapped in a transaction,
+    // a failure on the final insert would leave an orphan comment in the
+    // DB and let the next poll re-ingest the same message (dedup row
+    // missing) into a second comment on the same ticket.
+    let sender_uuid = sender.uuid;
+    let (ticket, comment, is_new_ticket) = conn.transaction::<_, PipelineError, _>(|conn| {
+        let (ticket, comment, is_new_ticket) = match existing_ticket_id {
+            Some(ticket_id) => {
+                let ticket = tickets_repo::get_ticket_by_id(conn, ticket_id)?;
+                let comment =
+                    insert_inbound_comment(conn, ticket.id, sender_uuid, &msg, forwarded_by_uuid)?;
+                (ticket, comment, false)
+            }
+            None => {
+                let ticket = open_ticket_from_message(conn, channel, &msg, sender_uuid)?;
+                let comment =
+                    insert_inbound_comment(conn, ticket.id, sender_uuid, &msg, forwarded_by_uuid)?;
+                (ticket, comment, true)
+            }
+        };
 
-    // Record the channel_messages row last so dedup only sees fully
-    // persisted messages. If anything above fails the transaction rolls
-    // back (for tests) and on prod we'll re-ingest on the next poll —
-    // acceptable because the comment insert would not have committed.
-    let in_reply_to = msg.references.first().cloned();
-    channels_repo::record_message(
-        conn,
-        NewChannelMessage {
-            channel_id: channel.id,
-            external_id: msg.external_id.clone(),
-            direction: CHANNEL_DIRECTION_INBOUND.to_string(),
-            ticket_id: Some(ticket.id),
-            comment_id: Some(comment.id),
-            in_reply_to,
-            from_address: Some(sender_email.clone()),
-            author_user_uuid: Some(sender.uuid),
-            raw_metadata: Some(msg.raw_metadata.clone()),
-        },
-    )?;
+        let in_reply_to = msg.references.first().cloned();
+        channels_repo::record_message(
+            conn,
+            NewChannelMessage {
+                channel_id: channel.id,
+                external_id: msg.external_id.clone(),
+                direction: CHANNEL_DIRECTION_INBOUND.to_string(),
+                ticket_id: Some(ticket.id),
+                comment_id: Some(comment.id),
+                in_reply_to,
+                from_address: Some(sender_email.clone()),
+                author_user_uuid: Some(sender_uuid),
+                raw_metadata: Some(msg.raw_metadata.clone()),
+            },
+        )?;
+
+        Ok((ticket, comment, is_new_ticket))
+    })?;
 
     // Attachments — best effort. Each failure is logged and skipped so
     // one malformed file doesn't lose the whole message.
