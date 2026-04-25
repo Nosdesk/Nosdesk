@@ -113,6 +113,22 @@ This drops the binary at `~/.cargo/bin/nosdesk-cli`. Re-run the same
 command after pulling Nosdesk updates; cargo's incremental build only
 rebuilds what changed.
 
+The `backend` crate links against `libpq` (PostgreSQL client). Install
+it from your package manager before the first `cargo install`:
+
+```bash
+# macOS (libpq is keg-only on Homebrew)
+brew install libpq
+export LIBRARY_PATH="/opt/homebrew/opt/libpq/lib:$LIBRARY_PATH"
+export PKG_CONFIG_PATH="/opt/homebrew/opt/libpq/lib/pkgconfig:$PKG_CONFIG_PATH"
+
+# Debian/Ubuntu
+sudo apt install libpq-dev pkg-config
+```
+
+Add the macOS exports to your shell rc so future installs pick them
+up automatically.
+
 If you don't want a local toolchain, the same binary ships in the
 production Docker image at `/usr/local/bin/nosdesk-cli`:
 
