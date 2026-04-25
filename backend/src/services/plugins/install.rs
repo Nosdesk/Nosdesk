@@ -8,9 +8,6 @@
 //! row shape, stages bundles the same way, and logs the same audit
 //! trail.
 
-use std::fs;
-use std::path::PathBuf;
-
 use chrono::Utc;
 use ring::digest::{Context, SHA256};
 use tracing::{debug, error, warn};
@@ -248,95 +245,127 @@ pub fn install_verified(
     let manifest_json = serde_json::to_value(&manifest)
         .map_err(|e| InstallError::InvalidManifest(e.to_string()))?;
 
-    let existing = plugin_repo::get_plugin_by_name(conn, &manifest.name).ok();
+    // Every DB write below happens inside one transaction so the
+    // install is all-or-nothing: row insert/update, bundle bytes
+    // (now inline as BYTEA), collection schema sync, settings
+    // provisioning, and the activity log either all commit or
+    // all roll back. No half-applied installs, no orphan files.
+    use diesel::Connection;
+    conn.transaction::<_, InstallError, _>(|tx| {
+        // Postgres advisory lock keyed on the plugin name. Two
+        // concurrent installs of the same plugin (e.g. an admin
+        // upload racing the registry installer) serialize on this
+        // lock; concurrent installs of different names proceed in
+        // parallel. The lock releases on transaction commit or
+        // rollback automatically.
+        use diesel::sql_query;
+        use diesel::sql_types::Text;
+        use diesel::RunQueryDsl;
+        sql_query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind::<Text, _>(&manifest.name)
+            .execute(tx)?;
 
-    let outcome = match existing {
-        Some(existing) if options.skip_if_unchanged => {
-            let existing_manifest: PluginManifest = existing
-                .parse_manifest()
-                .map_err(|e| InstallError::InvalidManifest(e.to_string()))?;
-            let version_same = existing_manifest.version == manifest.version;
-            let bundle_same = !bundle_hash_differs(&existing, bundle_bytes);
-            let icon_same = existing.icon_svg.as_deref() == icon_bytes.as_deref();
-            if version_same && bundle_same && icon_same {
-                if options.provision_settings {
-                    provision_settings_from_env(conn, &existing, &manifest);
+        let existing = plugin_repo::get_plugin_by_name(tx, &manifest.name).ok();
+
+        let outcome = match existing {
+            Some(existing) if options.skip_if_unchanged => {
+                // No-op gate: every field that defines the install
+                // identity must match. If a publisher re-signs with
+                // a new key (different signer_pubkey) or edits the
+                // manifest body without bumping version, we still
+                // want to apply the update.
+                let version_same = matches!(
+                    existing.parse_manifest(),
+                    Ok(em) if em.version == manifest.version
+                );
+                let bundle_same = !bundle_hash_differs(&existing, bundle_bytes);
+                let icon_same = existing.icon_svg.as_deref() == icon_bytes.as_deref();
+                let manifest_same = existing.manifest == manifest_json;
+                let signer_same = existing.signer_pubkey == signer.signer_pubkey;
+                if version_same && bundle_same && icon_same && manifest_same && signer_same {
+                    if options.provision_settings {
+                        provision_settings_from_env(tx, &existing, &manifest);
+                    }
+                    return Ok(InstallOutcome::Unchanged(existing));
                 }
-                return Ok(InstallOutcome::Unchanged(existing));
+                InstallOutcome::Updated(update_row(
+                    tx,
+                    existing,
+                    &manifest,
+                    manifest_json,
+                    &signer,
+                    &icon_bytes,
+                    options.installed_by,
+                )?)
             }
-            InstallOutcome::Updated(update_row(
-                conn,
+            Some(existing) => InstallOutcome::Updated(update_row(
+                tx,
                 existing,
                 &manifest,
                 manifest_json,
                 &signer,
                 &icon_bytes,
                 options.installed_by,
-            )?)
-        }
-        Some(existing) => InstallOutcome::Updated(update_row(
-            conn,
-            existing,
-            &manifest,
-            manifest_json,
-            &signer,
-            &icon_bytes,
-            options.installed_by,
-        )?),
-        None => InstallOutcome::Created(create_row(
-            conn,
-            &manifest,
-            manifest_json,
-            signer.clone(),
-            &options,
-            icon_bytes.clone(),
-        )?),
-    };
-
-    let plugin = outcome.plugin();
-
-    if let Some(bytes) = bundle_bytes {
-        stage_bundle(conn, plugin, bytes)?;
-    }
-
-    if !manifest.collections.is_empty() {
-        // Hard-fail on schema sync errors. The previous warn-and-
-        // continue behaviour left the row marked Installed with a
-        // half-applied schema, so subsequent reads/writes from the
-        // plugin would blow up at runtime against a column that
-        // didn't exist. Better to surface the failure at install
-        // time so the operator can investigate before the plugin
-        // starts serving requests.
-        validation::sync_collection_schemas(conn, plugin.id, &manifest)
-            .map_err(InstallError::CollectionSchemaSync)?;
-    }
-
-    if options.provision_settings {
-        provision_settings_from_env(conn, plugin, &manifest);
-    }
-
-    if options.log_activity {
-        let action = match &outcome {
-            InstallOutcome::Created(_) => "installed",
-            InstallOutcome::Updated(_) => "updated",
-            InstallOutcome::Unchanged(_) => "unchanged",
+            )?),
+            None => InstallOutcome::Created(create_row(
+                tx,
+                &manifest,
+                manifest_json,
+                signer.clone(),
+                &options,
+                icon_bytes.clone(),
+            )?),
         };
-        let _ = plugin_repo::log_plugin_activity(
-            conn,
-            plugin.id,
-            action.to_string(),
-            Some(serde_json::json!({
-                "version": manifest.version,
-                "source": options.source,
-                "has_bundle": bundle_bytes.is_some(),
-                "signer_source": signer.signer_source,
-                "trust_level": signer.trust_level,
-            })),
-            options.installed_by,
-        );
-    }
 
-    Ok(outcome)
+        let plugin = outcome.plugin();
+
+        if let Some(bytes) = bundle_bytes {
+            stage_bundle(tx, plugin, bytes)?;
+        }
+
+        if !manifest.collections.is_empty() {
+            // Hard-fail on schema sync errors. The previous warn-
+            // and-continue behaviour left the row marked Installed
+            // with a half-applied schema, so subsequent reads/writes
+            // from the plugin blew up at runtime against a column
+            // that didn't exist. Surface the failure at install
+            // time so the operator can investigate before the
+            // plugin starts serving requests.
+            validation::sync_collection_schemas(tx, plugin.id, &manifest)
+                .map_err(InstallError::CollectionSchemaSync)?;
+        }
+
+        if options.provision_settings {
+            provision_settings_from_env(tx, plugin, &manifest);
+        }
+
+        if options.log_activity {
+            // Activity log is inside the same transaction as the
+            // state change. A logging failure rolls the install
+            // back; an install with no audit trail would be the
+            // exact case auditors want loud.
+            let action = match &outcome {
+                InstallOutcome::Created(_) => "installed",
+                InstallOutcome::Updated(_) => "updated",
+                InstallOutcome::Unchanged(_) => "unchanged",
+            };
+            plugin_repo::log_plugin_activity(
+                tx,
+                plugin.id,
+                action.to_string(),
+                Some(serde_json::json!({
+                    "version": manifest.version,
+                    "source": options.source,
+                    "has_bundle": bundle_bytes.is_some(),
+                    "signer_source": signer.signer_source,
+                    "trust_level": signer.trust_level,
+                })),
+                options.installed_by,
+            )?;
+        }
+
+        Ok(outcome)
+    })
 }
 
 fn update_row(
@@ -436,9 +465,12 @@ fn create_row(
     Ok(plugin_repo::create_plugin(conn, new_plugin, InstallToken::new())?)
 }
 
-/// Stage pre-verified bundle bytes to the uploads volume. Takes
-/// `&[u8]` rather than a path so we never re-source the bytes from
-/// disk after verification, which would reopen a TOCTOU window.
+/// Persist pre-verified bundle bytes inline on the plugin row.
+/// Replaces the previous on-disk staging: `bundle_js` BYTEA, plus
+/// the denormalised `bundle_hash` / `bundle_size` /
+/// `bundle_uploaded_at` metadata, all written in one transactional
+/// row update. Atomicity for free; no torn writes between two
+/// backing stores; no orphan files to garbage-collect on uninstall.
 fn stage_bundle(
     conn: &mut DbConnection,
     plugin: &Plugin,
@@ -448,15 +480,8 @@ fn stage_bundle(
     ctx.update(content);
     let hash = hex::encode(ctx.finish().as_ref());
 
-    let upload_dir = PathBuf::from("/app/uploads/plugins").join(plugin.uuid.to_string());
-    fs::create_dir_all(&upload_dir)
-        .map_err(|e| InstallError::BundleWriteFailed(format!("create_dir_all: {e}")))?;
-
-    let dest_path = upload_dir.join("bundle.js");
-    fs::write(&dest_path, content)
-        .map_err(|e| InstallError::BundleWriteFailed(format!("write: {e}")))?;
-
     let update = PluginBundleUpdate {
+        bundle_js: Some(content.to_vec()),
         bundle_hash: Some(hash),
         bundle_size: Some(content.len() as i32),
         bundle_uploaded_at: Some(Utc::now().naive_utc()),
@@ -469,8 +494,9 @@ fn stage_bundle(
 
 /// True when new bundle bytes differ from what the `plugins` row
 /// records OR the staged copy is missing (stale row after a backup
-/// restore). Applied by both entry points so a restored backup
-/// doesn't get stuck serving missing bundles.
+/// restore). Applied by both entry points so the no-op fast
+/// path doesn't skip a re-stage when the row's bytes are stale
+/// or absent.
 fn bundle_hash_differs(plugin: &Plugin, new_bytes: Option<&[u8]>) -> bool {
     let Some(new_bytes) = new_bytes else {
         return false;
@@ -479,12 +505,7 @@ fn bundle_hash_differs(plugin: &Plugin, new_bytes: Option<&[u8]>) -> bool {
     ctx.update(new_bytes);
     let new_hash = hex::encode(ctx.finish().as_ref());
 
-    let dest_path = PathBuf::from("/app/uploads/plugins")
-        .join(plugin.uuid.to_string())
-        .join("bundle.js");
-    let dest_exists = dest_path.exists();
-
-    plugin.bundle_hash.as_ref() != Some(&new_hash) || !dest_exists
+    plugin.bundle_hash.as_ref() != Some(&new_hash) || plugin.bundle_js.is_none()
 }
 
 // Plugin name validation lives in `manifest_validate::validate_name`

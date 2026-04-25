@@ -680,6 +680,7 @@ diesel::table! {
         icon_svg -> Nullable<Bytea>,
         #[max_length = 32]
         state -> Varchar,
+        bundle_js -> Nullable<Bytea>,
     }
 }
 

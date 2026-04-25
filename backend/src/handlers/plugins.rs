@@ -7,8 +7,6 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error as DieselError;
 use futures::StreamExt;
 use serde::Deserialize;
-use std::path::PathBuf;
-use tokio::fs;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -16,7 +14,7 @@ use crate::db::{DbConnection, Pool};
 use crate::handlers::helpers;
 use crate::models::{
     Claims, PluginActivityResponse,
-    PluginResponse, PluginSettingResponse, PluginStorageResponse, PluginUpdate,
+    PluginResponse, PluginSettingResponse, PluginStorageResponse,
     SetPluginDataRequest, UpdatePluginRequest,
 };
 use crate::repository::plugins as plugin_repo;
@@ -162,11 +160,12 @@ pub async fn update_plugin(
         Err(e) => return e,
     };
 
-    // Get existing plugin
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
+    // Confirm the plugin exists; the lifecycle dispatch below
+    // also looks it up, but failing fast here gives a 404 instead
+    // of a generic InternalServerError if it's missing.
+    if let Err(e) = get_plugin_or_error(&mut conn, plugin_uuid) {
+        return e;
+    }
 
     // Enable/disable goes through `lifecycle::apply` so the state
     // transition + activity log are atomic, the (state, action)
@@ -288,9 +287,10 @@ pub async fn uninstall_plugin(
 
     match crate::services::plugins::lifecycle::apply(&mut conn, plugin_uuid, action, actor) {
         Ok(outcome) => {
-            if crate::services::plugins::lifecycle::outcome_removes_bundle(&outcome) {
-                remove_bundle_file_or_warn(plugin_uuid).await;
-            }
+            // Bundle bytes live inline on the plugin row, so cascade
+            // uninstall removes them via FK cascade and preserve
+            // uninstall leaves them on the row (cheap; the next
+            // reinstall overwrites). No filesystem side effect.
             match outcome {
                 crate::services::plugins::lifecycle::ActionOutcome::Deleted { .. } => {
                     info!("Plugin uninstalled (cascade): {}", plugin_uuid);
@@ -316,24 +316,6 @@ pub async fn uninstall_plugin(
         Err(e) => {
             error!("Failed to uninstall plugin: {}", e);
             HttpResponse::InternalServerError().json("Failed to uninstall plugin")
-        }
-    }
-}
-
-/// Remove the staged bundle from the uploads volume, swallowing
-/// `NotFound` (no bundle was ever staged for this plugin) and
-/// logging anything else as a warn; failure to clean up the
-/// bundle isn't worth failing the whole uninstall over, but it
-/// IS worth knowing about.
-async fn remove_bundle_file_or_warn(plugin_uuid: Uuid) {
-    let bundle_path = get_bundle_path(plugin_uuid);
-    if let Err(e) = fs::remove_file(&bundle_path).await {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            warn!(
-                error = %e,
-                path = %bundle_path.display(),
-                "Failed to remove plugin bundle on uninstall"
-            );
         }
     }
 }
@@ -721,13 +703,6 @@ pub async fn proxy_plugin_request(
 // Plugin Bundle Handlers
 // =============================================================================
 
-/// Get the bundle storage path for a plugin
-fn get_bundle_path(plugin_uuid: Uuid) -> PathBuf {
-    PathBuf::from("/app/uploads/plugins")
-        .join(plugin_uuid.to_string())
-        .join("bundle.js")
-}
-
 /// Serve a plugin's `icon.svg` bytes. No auth required: icons are
 /// shown in plugin lists that any logged-in user might see, and
 /// they carry no secrets. Cache freely; the URL doesn't change
@@ -793,28 +768,17 @@ pub async fn serve_plugin_bundle(
         return HttpResponse::Forbidden().json("Plugin is disabled");
     }
 
-    // Check if bundle has been uploaded
-    if plugin.bundle_uploaded_at.is_none() {
+    let Some(bytes) = plugin.bundle_js else {
         return HttpResponse::NotFound().json("Plugin bundle not found");
-    }
-
-    // Read and serve the bundle
-    let bundle_path = get_bundle_path(plugin_uuid);
-
-    match fs::read(&bundle_path).await {
-        Ok(data) => HttpResponse::Ok()
-            .content_type("application/javascript")
-            .insert_header(("Cache-Control", "private, max-age=3600"))
-            .insert_header((
-                "ETag",
-                plugin.bundle_hash.as_deref().unwrap_or("unknown"),
-            ))
-            .body(data),
-        Err(e) => {
-            error!("Failed to read plugin bundle: {}", e);
-            HttpResponse::NotFound().json("Plugin bundle not found")
-        }
-    }
+    };
+    HttpResponse::Ok()
+        .content_type("application/javascript")
+        .insert_header(("Cache-Control", "private, max-age=3600"))
+        .insert_header((
+            "ETag",
+            plugin.bundle_hash.as_deref().unwrap_or("unknown"),
+        ))
+        .body(bytes)
 }
 
 // =============================================================================

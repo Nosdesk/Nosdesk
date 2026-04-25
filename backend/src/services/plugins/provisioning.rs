@@ -40,8 +40,58 @@ pub enum ProvisionResult {
     Failed(String, String),
 }
 
+/// Postgres advisory-lock key for the provisioning sweep.
+/// Arbitrary stable i64; only meaningful as a unique identifier.
+const PROVISION_LOCK_KEY: i64 = 0x4e6f73_5052_5658; // "NosPRVX"
+
 /// Scan `PLUGINS_DIR` and provision every `*.zip` file in it.
+/// Two backend processes coming up at the same time (rolling
+/// restart, debug + release running side by side) would otherwise
+/// race on the same zip files; a session-scoped advisory lock
+/// serialises the sweep. If the lock is already held, this call
+/// returns early without scanning.
 pub fn provision_plugins(conn: &mut DbConnection) -> Vec<ProvisionResult> {
+    use diesel::sql_query;
+    use diesel::sql_types::BigInt;
+    use diesel::QueryableByName;
+    use diesel::RunQueryDsl;
+
+    #[derive(QueryableByName)]
+    struct LockResult {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        pg_try_advisory_lock: bool,
+    }
+
+    let acquired: bool = match sql_query("SELECT pg_try_advisory_lock($1)")
+        .bind::<BigInt, _>(PROVISION_LOCK_KEY)
+        .get_result::<LockResult>(conn)
+    {
+        Ok(r) => r.pg_try_advisory_lock,
+        Err(e) => {
+            error!("Failed to acquire provisioning advisory lock: {e}");
+            return vec![];
+        }
+    };
+    if !acquired {
+        info!("Another process holds the provisioning lock; skipping this sweep");
+        return vec![];
+    }
+
+    let result = provision_plugins_locked(conn);
+
+    // Release the session lock. If this fails the lock will be
+    // released when the connection closes anyway, so just log.
+    if let Err(e) = sql_query("SELECT pg_advisory_unlock($1)")
+        .bind::<BigInt, _>(PROVISION_LOCK_KEY)
+        .execute(conn)
+    {
+        warn!("Failed to release provisioning advisory lock: {e}");
+    }
+
+    result
+}
+
+fn provision_plugins_locked(conn: &mut DbConnection) -> Vec<ProvisionResult> {
     let plugins_path = Path::new(PLUGINS_DIR);
     if !plugins_path.is_dir() {
         info!("Plugins directory does not exist, skipping provisioning");

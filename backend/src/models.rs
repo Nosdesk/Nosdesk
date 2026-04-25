@@ -3411,6 +3411,13 @@ pub struct Plugin {
     /// enum on read; consumers match exhaustively, eliminating
     /// the typo class that the constants module was prone to.
     pub state: PluginState,
+    /// Bundle bytes stored inline. Replaces the previous on-disk
+    /// uploads-volume staging so install becomes a single
+    /// transactional write (DB row + bundle bytes commit together
+    /// or both roll back). NULL only on legacy rows installed
+    /// before this column existed; reinstall populates it. Capped
+    /// at `install::MAX_BUNDLE_SIZE` (500 KB).
+    pub bundle_js: Option<Vec<u8>>,
 }
 
 impl Plugin {
@@ -3560,10 +3567,14 @@ pub struct PluginUpdate {
     pub icon_svg: Option<Option<Vec<u8>>>,
 }
 
-/// Plugin bundle update changeset
+/// Plugin bundle update changeset. `bundle_js` carries the raw
+/// bytes; `bundle_hash`/`size`/`uploaded_at` are denormalised
+/// metadata kept in sync. All four fields are written in the
+/// same row update so they can't drift.
 #[derive(Debug, AsChangeset)]
 #[diesel(table_name = crate::schema::plugins)]
 pub struct PluginBundleUpdate {
+    pub bundle_js: Option<Vec<u8>>,
     pub bundle_hash: Option<String>,
     pub bundle_size: Option<i32>,
     pub bundle_uploaded_at: Option<NaiveDateTime>,

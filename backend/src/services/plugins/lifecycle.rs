@@ -165,8 +165,8 @@ impl From<diesel::result::Error> for ActionError {
 
 /// Apply an action to a plugin row. The DB update + activity log
 /// are written inside a single transaction; failure rolls both
-/// back. Disk side effects (bundle file removal for uninstall
-/// flavours) are caller responsibilities; see [`outcome_removes_bundle`].
+/// back. Bundle bytes are stored inline on the plugin row, so
+/// uninstall flavours don't need any caller-side disk side effects.
 pub fn apply(
     conn: &mut DbConnection,
     plugin_uuid: Uuid,
@@ -228,6 +228,20 @@ pub fn apply(
                     None,
                     actor,
                 )?;
+                // Emit a structured tracing event before the
+                // cascade delete wipes the plugin_activity row.
+                // This is the only forensic trail of a hard-
+                // delete that survives in an external log
+                // pipeline; ops grep on `target=plugin_audit`.
+                tracing::warn!(
+                    target: "plugin_audit",
+                    plugin_uuid = %plugin_uuid,
+                    plugin_name = %name,
+                    actor = ?actor,
+                    prior_state = %prior,
+                    action = "UninstallCascade",
+                    "plugin hard-deleted; in-DB audit trail removed by FK cascade"
+                );
                 plugin_repo::delete_plugin_by_uuid(tx, plugin_uuid)?;
                 Ok(ActionOutcome::Deleted { uuid: plugin_uuid, name })
             }
@@ -255,21 +269,6 @@ pub fn apply(
             }),
         }
     })
-}
-
-/// Did the action delete the plugin's bundle from disk? Callers
-/// that own the on-disk bundle (the install pipeline) consult
-/// this to decide whether to remove the bundle file after the
-/// transaction commits. We expose it as a helper rather than
-/// bundle file management inside `apply` because the disk
-/// location lives in the install module.
-pub fn outcome_removes_bundle(outcome: &ActionOutcome) -> bool {
-    match outcome {
-        ActionOutcome::Deleted { .. } => true,
-        ActionOutcome::StateChanged { plugin, .. } => {
-            matches!(plugin.state, PluginState::Uninstalled)
-        }
-    }
 }
 
 fn set_state(
