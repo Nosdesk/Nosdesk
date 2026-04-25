@@ -9,7 +9,7 @@ import pluginService from '@/services/pluginService';
 import { getTicketById, getTickets, addCommentToTicket } from '@/services/ticketService';
 import { getDeviceById, getDevices } from '@/services/deviceService';
 import { logger } from '@/utils/logger';
-import type { Plugin, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@/types/plugin';
+import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@/types/plugin';
 import type { Ticket } from '@/types/ticket';
 import type { Device } from '@/types/device';
 
@@ -61,12 +61,37 @@ export interface PluginFetchOptions extends Omit<RequestInit, 'body'> {
  * The API is sandboxed - each plugin gets its own instance with access only to what it's permitted.
  */
 export function createPluginAPI(plugin: Plugin): PluginAPI {
-  const permissions = new Set(plugin.manifest.permissions);
+  const permissions = new Set<string>(plugin.manifest.permissions);
   const eventHandlers = new Map<PluginEvent, EventHandler[]>();
 
-  // Check if plugin has a specific permission
-  const hasPermission = (permission: string): boolean => {
+  // Typed permission check. Accepts non-network permissions
+  // directly; for `network:<host>` use `hasNetworkPermission(host)`.
+  const hasPermission = (permission: PluginPermission): boolean => {
     return permissions.has(permission);
+  };
+
+  // Host-coverage check shared by `api.fetch` (and any future
+  // network-using surface). Mirrors the backend proxy's logic so a
+  // denied request fails closed at the boundary instead of round-
+  // tripping. Single-level wildcard semantics: `*.example.com`
+  // covers `example.com` and `<one_label>.example.com`, not deeper.
+  const hasNetworkPermission = (host: string): boolean => {
+    const target = host.toLowerCase();
+    for (const p of permissions) {
+      if (!p.startsWith('network:')) continue;
+      const pattern = p.slice('network:'.length).toLowerCase();
+      if (pattern.startsWith('*.')) {
+        const apex = pattern.slice(2);
+        if (target === apex) return true;
+        if (target.endsWith(`.${apex}`)) {
+          const prefix = target.slice(0, target.length - apex.length - 1);
+          if (prefix.length > 0 && !prefix.includes('.')) return true;
+        }
+      } else if (pattern === target) {
+        return true;
+      }
+    }
+    return false;
   };
 
   // Current context (set by the UI slot system)
@@ -227,8 +252,26 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     },
 
     // === INTEGRATE: External services ===
-    // Note: Permission validation is handled by the backend proxy service
+    // The backend proxy is the source of truth for network
+    // permission enforcement, but we also fail closed here so a
+    // denied plugin doesn't burn round-trips and the rejection
+    // pattern is consistent with every other gated method.
     async fetch(url: string, options?: PluginFetchOptions): Promise<Response | null> {
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        logger.warn(`Plugin ${plugin.name} fetch refused: invalid URL`, { url });
+        return null;
+      }
+      if (!hasNetworkPermission(parsed.host)) {
+        logger.warn(
+          `Plugin ${plugin.name} fetch refused: no matching network:<host> permission`,
+          { host: parsed.host }
+        );
+        return null;
+      }
+
       try {
         const request: PluginProxyRequest = {
           url,
@@ -303,7 +346,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         return {
           async create(data: Record<string, unknown>): Promise<CollectionRow | null> {
             if (!hasCollectionWrite) {
-              logger.warn(`Plugin ${plugin.name} denied collections:write permission`);
+              logger.warn(`Plugin ${plugin.name} denied collection:write permission`);
               return null;
             }
             try {
@@ -315,7 +358,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           },
           async get(uuid: string): Promise<CollectionRow | null> {
             if (!hasCollectionRead) {
-              logger.warn(`Plugin ${plugin.name} denied collections:read permission`);
+              logger.warn(`Plugin ${plugin.name} denied collection:read permission`);
               return null;
             }
             try {
@@ -327,7 +370,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           },
           async update(uuid: string, data: Record<string, unknown>): Promise<CollectionRow | null> {
             if (!hasCollectionWrite) {
-              logger.warn(`Plugin ${plugin.name} denied collections:write permission`);
+              logger.warn(`Plugin ${plugin.name} denied collection:write permission`);
               return null;
             }
             try {
@@ -339,7 +382,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           },
           async delete(uuid: string): Promise<boolean> {
             if (!hasCollectionWrite) {
-              logger.warn(`Plugin ${plugin.name} denied collections:write permission`);
+              logger.warn(`Plugin ${plugin.name} denied collection:write permission`);
               return false;
             }
             try {
@@ -352,7 +395,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           },
           async list(params?: { limit?: number; offset?: number; filter?: string; sort_by?: string; sort_order?: string }): Promise<CollectionListResponse> {
             if (!hasCollectionRead) {
-              logger.warn(`Plugin ${plugin.name} denied collections:read permission`);
+              logger.warn(`Plugin ${plugin.name} denied collection:read permission`);
               return { rows: [], total: 0 };
             }
             try {

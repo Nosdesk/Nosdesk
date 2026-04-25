@@ -7,6 +7,7 @@
  */
 import { ref, onMounted } from 'vue';
 import pluginService from '@/services/pluginService';
+import { unloadPlugin } from '@/plugins/loader';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
@@ -14,7 +15,7 @@ import EmptyState from '@/components/common/EmptyState.vue';
 import Modal from '@/components/Modal.vue';
 import { logger } from '@/utils/logger';
 import { formatFileSize } from '@/utils/formatFileSize';
-import type { Plugin, PluginSetting, PluginTrustLevel, PluginSource } from '@/types/plugin';
+import type { Plugin, PluginSetting, PluginTrustLevel, PluginSource, PluginState } from '@/types/plugin';
 
 // State
 const plugins = ref<Plugin[]>([]);
@@ -59,17 +60,30 @@ async function loadPlugins() {
   }
 }
 
-// Toggle plugin enabled state
+// Toggle Installed <-> Disabled. Quarantined plugins are not
+// toggleable from this UI; the backend lifecycle gate refuses
+// the transition so we hide the control instead of risking a
+// 409 round-trip.
 async function togglePlugin(plugin: Plugin) {
+  if (plugin.state !== 'installed' && plugin.state !== 'disabled') {
+    return;
+  }
+  const enable = plugin.state === 'disabled';
   try {
-    const updated = await pluginService.updatePlugin(plugin.uuid, {
-      enabled: !plugin.enabled,
-    });
+    const updated = await pluginService.updatePlugin(plugin.uuid, { enabled: enable });
     const index = plugins.value.findIndex(p => p.uuid === plugin.uuid);
     if (index !== -1) {
       plugins.value[index] = updated;
     }
-    successMessage.value = `Plugin ${updated.enabled ? 'enabled' : 'disabled'}`;
+    // When disabling, tear down the plugin's slot/event/action
+    // registrations so the UI stops surfacing it without a full
+    // page reload. Re-enabling rewalks `loadPlugins` on next view
+    // mount; for live re-add we'd call into loadPlugin(updated)
+    // explicitly, deferred until we have a slot-aware reload.
+    if (updated.state !== 'installed') {
+      unloadPlugin(updated.uuid);
+    }
+    successMessage.value = `Plugin ${updated.state === 'installed' ? 'enabled' : 'disabled'}`;
     setTimeout(() => successMessage.value = '', 3000);
   } catch (err) {
     errorMessage.value = 'Failed to update plugin';
@@ -148,9 +162,15 @@ function confirmUninstall(plugin: Plugin) {
 // Execute uninstall
 async function executeUninstall() {
   if (!uninstallTarget.value) return;
+  const target = uninstallTarget.value;
   try {
-    await pluginService.uninstallPlugin(uninstallTarget.value.uuid);
-    plugins.value = plugins.value.filter(p => p.uuid !== uninstallTarget.value?.uuid);
+    await pluginService.uninstallPlugin(target.uuid);
+    plugins.value = plugins.value.filter(p => p.uuid !== target.uuid);
+    // Tear down in-memory registrations so the plugin disappears
+    // from every host slot immediately. Same pattern as toggle:
+    // structural ownership of registrations by uuid means we
+    // don't have to walk the manifest to know what to undo.
+    unloadPlugin(target.uuid);
     showUninstallConfirm.value = false;
     successMessage.value = 'Plugin uninstalled successfully';
     setTimeout(() => successMessage.value = '', 3000);
@@ -184,6 +204,25 @@ function getSourceBadge(source: PluginSource): { label: string; class: string } 
       return { label: 'Uploaded', class: 'bg-tertiary/10 text-tertiary' };
     default:
       return { label: 'Unknown', class: 'bg-surface-alt text-secondary' };
+  }
+}
+
+// State badge styling. Each lifecycle state renders a distinct
+// pill so an admin can tell apart admin-paused (`Disabled`) from
+// trust-failure (`Quarantined`) from "row preserved across
+// uninstall" (`Uninstalled`). Drives both the row badge and the
+// read-only label that replaces the toggle for non-toggleable
+// states.
+function getStateBadge(state: PluginState): { label: string; class: string; textClass: string } {
+  switch (state) {
+    case 'installed':
+      return { label: 'Active', class: 'bg-status-success/10 text-status-success', textClass: 'text-status-success' };
+    case 'disabled':
+      return { label: 'Disabled', class: 'bg-status-warning/10 text-status-warning', textClass: 'text-status-warning' };
+    case 'quarantined':
+      return { label: 'Quarantined', class: 'bg-status-error/10 text-status-error', textClass: 'text-status-error' };
+    case 'uninstalled':
+      return { label: 'Uninstalled', class: 'bg-surface-alt text-tertiary', textClass: 'text-tertiary' };
   }
 }
 
@@ -364,10 +403,11 @@ async function executeInstall() {
                       {{ getSourceBadge(plugin.source).label }}
                     </span>
                     <span
-                      v-if="!plugin.enabled"
-                      class="px-1.5 py-0.5 text-xs rounded font-medium bg-status-warning/10 text-status-warning"
+                      v-if="plugin.state !== 'installed'"
+                      class="px-1.5 py-0.5 text-xs rounded font-medium"
+                      :class="getStateBadge(plugin.state).class"
                     >
-                      Disabled
+                      {{ getStateBadge(plugin.state).label }}
                     </span>
                   </div>
                   <p v-if="plugin.description" class="text-sm text-secondary mt-1.5 line-clamp-2">
@@ -389,12 +429,12 @@ async function executeInstall() {
                   <button
                     @click="togglePlugin(plugin)"
                     class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface"
-                    :class="plugin.enabled ? 'bg-accent' : 'bg-border'"
-                    :title="plugin.enabled ? 'Disable plugin' : 'Enable plugin'"
+                    :class="plugin.state === 'installed' ? 'bg-accent' : 'bg-border'"
+                    :title="plugin.state === 'installed' ? 'Disable plugin' : 'Enable plugin'"
                   >
                     <span
                       class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-                      :class="plugin.enabled ? 'translate-x-4' : 'translate-x-0'"
+                      :class="plugin.state === 'installed' ? 'translate-x-4' : 'translate-x-0'"
                     ></span>
                   </button>
                   <button
@@ -472,18 +512,30 @@ async function executeInstall() {
                 </button>
               </div>
               <div class="flex items-center gap-2">
-                <span class="text-xs text-tertiary">{{ plugin.enabled ? 'Enabled' : 'Disabled' }}</span>
-                <button
-                  @click="togglePlugin(plugin)"
-                  class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface"
-                  :class="plugin.enabled ? 'bg-accent' : 'bg-border'"
-                  :title="plugin.enabled ? 'Disable plugin' : 'Enable plugin'"
-                >
-                  <span
-                    class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-                    :class="plugin.enabled ? 'translate-x-4' : 'translate-x-0'"
-                  ></span>
-                </button>
+                <!-- Quarantined / uninstalled rows are read-only;
+                     no toggle, just a label, since the backend
+                     lifecycle gate refuses Enable from those states. -->
+                <span
+                  v-if="plugin.state === 'quarantined' || plugin.state === 'uninstalled'"
+                  class="text-xs"
+                  :class="getStateBadge(plugin.state).textClass"
+                >{{ getStateBadge(plugin.state).label }}</span>
+                <template v-else>
+                  <span class="text-xs text-tertiary">{{ plugin.state === 'installed' ? 'Enabled' : 'Disabled' }}</span>
+                  <button
+                    @click="togglePlugin(plugin)"
+                    type="button"
+                    :aria-label="plugin.state === 'installed' ? `Disable ${plugin.display_name}` : `Enable ${plugin.display_name}`"
+                    class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface"
+                    :class="plugin.state === 'installed' ? 'bg-accent' : 'bg-border'"
+                    :title="plugin.state === 'installed' ? 'Disable plugin' : 'Enable plugin'"
+                  >
+                    <span
+                      class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                      :class="plugin.state === 'installed' ? 'translate-x-4' : 'translate-x-0'"
+                    ></span>
+                  </button>
+                </template>
               </div>
             </div>
           </div>

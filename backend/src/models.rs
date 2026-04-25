@@ -3391,8 +3391,11 @@ pub struct Plugin {
     pub bundle_size: Option<i32>,
     pub bundle_uploaded_at: Option<NaiveDateTime>,
     pub source: String,
-    /// Base64 Ed25519 pubkey that signed this bundle. `None` for
-    /// dev-mode installs that bypassed signature verification.
+    /// Base64 Ed25519 pubkey that signed this bundle. The current
+    /// install pipeline always populates this (every install path
+    /// goes through signature verification), so production rows
+    /// have `Some`; the column is `Option` only to tolerate
+    /// pre-signing-system rows in upgraded databases.
     pub signer_pubkey: Option<String>,
     /// Which authority chain recognised this signer: `nosdesk-root`
     /// | `verified-publisher` | `community-publisher` | `local` |
@@ -3425,7 +3428,7 @@ impl Plugin {
 /// Custom Diesel `ToSql<Text>` / `FromSql<Text>` impls handle the
 /// wire conversion. Adding a new variant means migrating the DB
 /// CHECK constraint AND extending the exhaustive matches that
-/// fall out elsewhere — the compiler points at every site.
+/// fall out elsewhere; the compiler points at every site.
 #[derive(
     Debug,
     Clone,
@@ -3783,7 +3786,7 @@ pub struct PluginManifest {
 
     /// Support contact: email or URL. Surfaced on the registry
     /// browse UI so users know where to ask for help. Format
-    /// validated lightly — must contain `@` or look like a URL.
+    /// validated lightly: must contain `@` or look like a URL.
     pub support_contact: Option<String>,
 
     /// Engine compatibility. Plugin will be refused if the
@@ -3799,14 +3802,14 @@ pub struct PluginManifest {
     /// without those, having the declaration prevents silent
     /// "plugin assumes peer is present" footguns.
     #[serde(default)]
-    pub dependencies: std::collections::HashMap<String, String>,
+    pub dependencies: std::collections::BTreeMap<String, String>,
 
     /// Discovery taxonomy for the registry browse UI. Values are
     /// validated against an allowlist of known categories.
     #[serde(default)]
     pub categories: Vec<String>,
 
-    /// Free-form discovery tags. No allowlist — the registry build
+    /// Free-form discovery tags. No allowlist; the registry build
     /// can lowercase + dedupe but doesn't reject unknowns.
     #[serde(default)]
     pub tags: Vec<String>,
@@ -3826,7 +3829,7 @@ pub struct PluginManifest {
     /// Components this plugin contributes. Keyed by component name
     /// (used as the entry-point key in the bundle's default export).
     #[serde(default)]
-    pub components: std::collections::HashMap<String, PluginComponentConfig>,
+    pub components: std::collections::BTreeMap<String, PluginComponentConfig>,
 
     /// Events the plugin subscribes to. Validated against an
     /// allowlist; unknown events refused.
@@ -3840,7 +3843,7 @@ pub struct PluginManifest {
     /// Plugin-owned collections. Each carries its own
     /// `schema_version` so future migrations can be expressed.
     #[serde(default)]
-    pub collections: std::collections::HashMap<String, CollectionDefinition>,
+    pub collections: std::collections::BTreeMap<String, CollectionDefinition>,
 
     /// Declarative auth configuration: maps exact hostnames to
     /// auth strategies the proxy injects automatically. Wildcards
@@ -3848,7 +3851,7 @@ pub struct PluginManifest {
     /// loosen this if a real use case appears); each declared host
     /// must be covered by at least one `network:` permission.
     #[serde(default)]
-    pub auth: std::collections::HashMap<crate::services::plugins::types::Host, PluginAuthConfig>,
+    pub auth: std::collections::BTreeMap<crate::services::plugins::types::Host, PluginAuthConfig>,
 
     /// Lifecycle policy declarations. Default cascades plugin data
     /// on uninstall; plugins that store user-meaningful work
@@ -3866,19 +3869,21 @@ pub struct PluginManifest {
     /// Menu contributions, keyed by menu identifier (e.g.
     /// `ticket-context`). Reserved in v1.
     #[serde(default)]
-    pub menus: std::collections::HashMap<String, Vec<PluginMenuItem>>,
+    pub menus: std::collections::BTreeMap<String, Vec<PluginMenuItem>>,
 
     /// URL-handler claims, e.g. `nosdesk://plugin/<plugin-name>/...`
     /// patterns this plugin owns. Reserved in v1.
     #[serde(default)]
     pub url_handlers: Vec<PluginUrlHandler>,
 
-    /// Forward-compat bucket for typed inter-plugin exports. v1
-    /// rejects any non-empty value; the field name is reserved so
-    /// later plugins can use it for the same purpose without a
-    /// manifest_version bump.
+    /// Forward-compat bucket for typed inter-plugin exports.
+    /// Modelled as a `BTreeMap<String, serde_json::Value>` so the
+    /// same `is_empty()` predicate gates every reserved field;
+    /// previously this was `serde_json::Value` with an
+    /// `is_null()` check that let `{}` slip through. v1 refuses
+    /// any non-empty value at install.
     #[serde(default)]
-    pub extensions: serde_json::Value,
+    pub extensions: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 /// Engine compatibility constraints. Both values are required.
@@ -3942,7 +3947,7 @@ pub struct PluginMenuItem {
     pub group: Option<String>,
 }
 
-/// URL handler claim — `nosdesk://plugin/<plugin-name>/<pattern>`.
+/// URL handler claim, e.g. `nosdesk://plugin/<plugin-name>/<pattern>`.
 /// Reserved in v1.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3971,7 +3976,7 @@ pub enum PluginAuthConfig {
         header: String,
         secret: String,
     },
-    /// OAuth2 Client Credentials flow — exchanges client_id + client_secret for a bearer token
+    /// OAuth2 Client Credentials flow: exchanges client_id + client_secret for a bearer token
     Oauth2ClientCredentials {
         token_url: String,
         client_id_secret: String,
@@ -4049,6 +4054,7 @@ impl PluginComponentKind {
 
 /// Plugin component action for unified "+ Add" menu
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginComponentAction {
     pub label: String,
 }
@@ -4093,19 +4099,18 @@ pub struct PluginSettingOption {
     pub label: String,
 }
 
-/// Request to install a plugin
+/// Request to toggle a plugin's lifecycle state. The endpoint
+/// only honours the enabled-toggle (Installed <-> Disabled);
+/// manifest edits used to be allowed here but were removed
+/// because they bypassed signature reverification: an admin
+/// could rewrite a verified plugin's stored manifest while the
+/// signer fields kept claiming the original signer signed it.
+/// Manifest changes now flow through the signed install paths
+/// (zip upload, registry install) which re-verify end-to-end.
 #[derive(Debug, Deserialize)]
-pub struct InstallPluginRequest {
-    pub manifest: PluginManifest,
-    #[serde(default)]
-    pub trust_level: Option<String>,
-}
-
-/// Request to update a plugin
-#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdatePluginRequest {
     pub enabled: Option<bool>,
-    pub manifest: Option<PluginManifest>,
 }
 
 /// Plugin response (for API)
@@ -4123,11 +4128,6 @@ pub struct PluginResponse {
     /// or `disabled`; the others are rendered as read-only audit
     /// entries.
     pub state: PluginState,
-    /// Backward-compat derived from `state == "installed"`.
-    /// Existing frontend toggles consume this; new code should
-    /// branch on `state` directly. Slated for removal once the
-    /// state-machine UI work in Theme 2 lands.
-    pub enabled: bool,
     pub trust_level: String,
     pub installed_by: Option<Uuid>,
     pub installed_at: NaiveDateTime,
@@ -4150,7 +4150,6 @@ impl TryFrom<Plugin> for PluginResponse {
 
     fn try_from(p: Plugin) -> Result<Self, Self::Error> {
         let manifest = p.parse_manifest()?;
-        let enabled = p.is_active();
         Ok(PluginResponse {
             uuid: p.uuid,
             name: p.name,
@@ -4158,7 +4157,6 @@ impl TryFrom<Plugin> for PluginResponse {
             version: p.version,
             description: p.description,
             manifest,
-            enabled,
             state: p.state,
             trust_level: p.trust_level,
             installed_by: p.installed_by,

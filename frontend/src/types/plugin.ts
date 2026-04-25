@@ -210,13 +210,11 @@ export interface Plugin {
   version: string;
   description: string | null;
   manifest: PluginManifest;
-  /** Backward-compat: derived from `state === 'installed'`. New
-   * code should branch on `state` directly. */
-  enabled: boolean;
   /** Lifecycle state. `installed` is active; `disabled` is admin-
    * paused; `quarantined` is a trust-failure parking lot; and
    * `uninstalled` is a row preserved for data attachment after
-   * a plugin declared `lifecycle.on_uninstall: "preserve"`. */
+   * a plugin declared `lifecycle.on_uninstall: "preserve"`. The
+   * loader treats only `installed` as a serving-eligible state. */
   state: PluginState;
   trust_level: PluginTrustLevel;
   source: PluginSource;
@@ -297,11 +295,6 @@ export interface CollectionSchemaInfo {
 // =============================================================================
 // API Request/Response Types
 // =============================================================================
-
-export interface InstallPluginRequest {
-  manifest: PluginManifest;
-  trust_level?: PluginTrustLevel;
-}
 
 export interface UpdatePluginRequest {
   enabled?: boolean;

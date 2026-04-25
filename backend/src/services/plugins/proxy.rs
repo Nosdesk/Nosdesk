@@ -416,7 +416,7 @@ mod tests {
                 nosdesk: ">=0.0.0".into(),
                 plugin_api: "1".into(),
             },
-            dependencies: HashMap::new(),
+            dependencies: std::collections::BTreeMap::new(),
             categories: vec![],
             tags: vec![],
             screenshots: vec![],
@@ -424,16 +424,16 @@ mod tests {
                 .into_iter()
                 .map(|p| Permission::parse(p).expect("test permission must be valid"))
                 .collect(),
-            components: HashMap::new(),
+            components: std::collections::BTreeMap::new(),
             events: vec![],
             settings: vec![],
-            collections: HashMap::new(),
-            auth: HashMap::new(),
+            collections: std::collections::BTreeMap::new(),
+            auth: std::collections::BTreeMap::new(),
             lifecycle: crate::models::PluginLifecyclePolicy::default(),
             commands: vec![],
-            menus: HashMap::new(),
+            menus: std::collections::BTreeMap::new(),
             url_handlers: vec![],
-            extensions: serde_json::Value::Null,
+            extensions: std::collections::BTreeMap::new(),
         }
     }
 
@@ -502,7 +502,7 @@ mod tests {
 
     #[test]
     fn test_auth_header_name_bearer() {
-        let mut auth = HashMap::new();
+        let mut auth = std::collections::BTreeMap::new();
         auth.insert(
             host("api.example.com"),
             PluginAuthConfig::Bearer { secret: "token".to_string() },
@@ -518,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_auth_header_name_api_key() {
-        let mut auth = HashMap::new();
+        let mut auth = std::collections::BTreeMap::new();
         auth.insert(
             host("api.example.com"),
             PluginAuthConfig::ApiKey {
@@ -547,7 +547,7 @@ mod tests {
     #[tokio::test]
     async fn test_bearer_auth() {
         let service = PluginProxyService::new();
-        let mut auth = HashMap::new();
+        let mut auth = std::collections::BTreeMap::new();
         auth.insert(
             host("api.github.com"),
             PluginAuthConfig::Bearer { secret: "github_token".to_string() },
@@ -571,7 +571,7 @@ mod tests {
     #[tokio::test]
     async fn test_basic_auth() {
         let service = PluginProxyService::new();
-        let mut auth = HashMap::new();
+        let mut auth = std::collections::BTreeMap::new();
         auth.insert(
             host("api.example.com"),
             PluginAuthConfig::Basic {
@@ -600,7 +600,7 @@ mod tests {
     #[tokio::test]
     async fn test_api_key_auth() {
         let service = PluginProxyService::new();
-        let mut auth = HashMap::new();
+        let mut auth = std::collections::BTreeMap::new();
         auth.insert(
             host("api.example.com"),
             PluginAuthConfig::ApiKey {

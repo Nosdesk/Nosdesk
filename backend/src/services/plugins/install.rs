@@ -29,6 +29,34 @@ use crate::services::plugins::{manifest_validate, signing, svg_validate, trust, 
 /// is a tighter practical limit specifically for plugin JS bundles.
 pub const MAX_BUNDLE_SIZE: usize = 500 * 1024;
 
+/// Capability token proving "this plugin row is being inserted as
+/// part of the verified install pipeline." `plugin_repo::create_plugin`
+/// requires one to insert a row, so any code path that wants to
+/// create a plugin row must have a route to construct a token, and
+/// the only way to do that in production is through the install
+/// pipeline (the `new()` constructor is private to this module).
+///
+/// `#[non_exhaustive]` blocks struct-literal construction from
+/// outside this crate even if a future field-visibility loosening
+/// would otherwise expose the inner unit. Do NOT add `Default`,
+/// `Clone`, or `Copy` derives to this type: each would be a
+/// public constructor.
+///
+/// Tests construct tokens via `for_test()`, gated by `#[cfg(test)]`.
+#[non_exhaustive]
+pub struct InstallToken;
+
+impl InstallToken {
+    fn new() -> Self {
+        Self
+    }
+
+    #[cfg(test)]
+    pub fn for_test() -> Self {
+        Self
+    }
+}
+
 /// Caller policy knobs. The install core is entry-point-agnostic;
 /// these fields describe what an install means from the invoking
 /// path's perspective.
@@ -75,11 +103,13 @@ pub enum InstallError {
     BundleTooLarge(usize),
     BundleWriteFailed(String),
     InvalidIcon(svg_validate::SvgValidationError),
-    /// Manifest schema rule violated (unknown permission, wrong
-    /// `manifest_version`, author / publisher mismatch, etc.).
-    /// Distinct from `InvalidManifest` (which is parse-level) so
-    /// the API response can give a precise reason.
-    InvalidManifestSchema(manifest_validate::ManifestValidationError),
+    /// One or more manifest schema rules violated (unknown
+    /// permission, wrong `manifest_version`, author / publisher
+    /// mismatch, etc.). Carries every accumulated error from the
+    /// validator so install UX can surface them all at once;
+    /// distinct from `InvalidManifest` (which is parse-level) so
+    /// the API response can give precise reasons.
+    InvalidManifestSchema(Vec<manifest_validate::ManifestValidationError>),
     /// Reinstall over an `Uninstalled`-with-preserve row was
     /// attempted with a signer pubkey that doesn't match the one
     /// captured at the original install. Closes the cross-publisher
@@ -90,11 +120,18 @@ pub enum InstallError {
         existing_fingerprint: String,
         attempted_fingerprint: String,
     },
+    /// Plugin-owned collection schema migration failed (manifest
+    /// declared a column we couldn't add, schema_version diverged
+    /// from DB shape, etc.). Previously this was warn-and-continue,
+    /// which left the row marked Installed and the bundle serving
+    /// against a half-migrated schema, so plugin reads/writes
+    /// blew up at runtime. Now hard-fails the install.
+    CollectionSchemaSync(String),
     Db(diesel::result::Error),
 }
 
-impl From<manifest_validate::ManifestValidationError> for InstallError {
-    fn from(value: manifest_validate::ManifestValidationError) -> Self {
+impl From<Vec<manifest_validate::ManifestValidationError>> for InstallError {
+    fn from(value: Vec<manifest_validate::ManifestValidationError>) -> Self {
         InstallError::InvalidManifestSchema(value)
     }
 }
@@ -109,7 +146,19 @@ impl std::fmt::Display for InstallError {
             }
             Self::BundleWriteFailed(m) => write!(f, "failed to stage bundle: {m}"),
             Self::InvalidIcon(e) => write!(f, "icon.svg rejected: {e}"),
-            Self::InvalidManifestSchema(e) => write!(f, "manifest rejected: {e}"),
+            Self::InvalidManifestSchema(errs) => {
+                write!(f, "manifest rejected: ")?;
+                let mut first = true;
+                for e in errs {
+                    if !first {
+                        write!(f, "; ")?;
+                    }
+                    write!(f, "{e}")?;
+                    first = false;
+                }
+                Ok(())
+            }
+            Self::CollectionSchemaSync(m) => write!(f, "collection schema sync failed: {m}"),
             Self::ReinstallSignerMismatch {
                 existing_fingerprint,
                 attempted_fingerprint,
@@ -154,7 +203,7 @@ pub fn install_verified(
         .map_err(|e| InstallError::InvalidManifest(e.to_string()))?;
 
     // Plugin name is validated as part of manifest_validate::validate
-    // below — no need for a separate first-pass check.
+    // below; no need for a separate first-pass check.
 
     // Manifest schema check. Looks up the publisher's display name
     // when needed for author binding; `find_publisher_by_pubkey`
@@ -222,6 +271,7 @@ pub fn install_verified(
                 manifest_json,
                 &signer,
                 &icon_bytes,
+                options.installed_by,
             )?)
         }
         Some(existing) => InstallOutcome::Updated(update_row(
@@ -231,6 +281,7 @@ pub fn install_verified(
             manifest_json,
             &signer,
             &icon_bytes,
+            options.installed_by,
         )?),
         None => InstallOutcome::Created(create_row(
             conn,
@@ -249,12 +300,15 @@ pub fn install_verified(
     }
 
     if !manifest.collections.is_empty() {
-        if let Err(e) = validation::sync_collection_schemas(conn, plugin.id, &manifest) {
-            warn!(
-                "Failed to sync collection schemas for plugin {}: {}",
-                manifest.name, e
-            );
-        }
+        // Hard-fail on schema sync errors. The previous warn-and-
+        // continue behaviour left the row marked Installed with a
+        // half-applied schema, so subsequent reads/writes from the
+        // plugin would blow up at runtime against a column that
+        // didn't exist. Better to surface the failure at install
+        // time so the operator can investigate before the plugin
+        // starts serving requests.
+        validation::sync_collection_schemas(conn, plugin.id, &manifest)
+            .map_err(InstallError::CollectionSchemaSync)?;
     }
 
     if options.provision_settings {
@@ -292,6 +346,7 @@ fn update_row(
     manifest_json: serde_json::Value,
     signer: &trust::PluginSignerFields,
     icon_bytes: &Option<Vec<u8>>,
+    installed_by: Option<Uuid>,
 ) -> Result<Plugin, InstallError> {
     // Re-installing a previously uninstalled plugin is a state
     // transition (`Uninstalled -> Installed`); route it through
@@ -306,7 +361,7 @@ fn update_row(
         let action = PluginAction::Reinstall {
             signer_pubkey: signer.signer_pubkey.clone(),
         };
-        match apply(conn, existing.uuid, action, None) {
+        match apply(conn, existing.uuid, action, installed_by) {
             Ok(_) => {}
             Err(ActionError::SignerMismatch {
                 existing_fingerprint,
@@ -375,7 +430,10 @@ fn create_row(
         signature_metadata: signer.signature_metadata,
         icon_svg: icon_bytes,
     };
-    Ok(plugin_repo::create_plugin(conn, new_plugin)?)
+    // The install pipeline is the only production constructor of
+    // `InstallToken`, so this call is the unique entry point for
+    // new plugin rows in the codebase.
+    Ok(plugin_repo::create_plugin(conn, new_plugin, InstallToken::new())?)
 }
 
 /// Stage pre-verified bundle bytes to the uploads volume. Takes

@@ -24,7 +24,7 @@ pub fn list_all_plugins(conn: &mut DbConnection) -> Result<Vec<Plugin>, diesel::
 }
 
 /// List plugins in the `installed` lifecycle state. Other states
-/// (`disabled`, `quarantined`, `uninstalled`) are filtered out —
+/// (`disabled`, `quarantined`, `uninstalled`) are filtered out;
 /// they're rendered in admin views via `list_all_plugins` but
 /// don't appear in the runtime loader.
 pub fn list_enabled_plugins(conn: &mut DbConnection) -> Result<Vec<Plugin>, diesel::result::Error> {
@@ -54,10 +54,25 @@ pub fn get_plugin_by_uuid(
         .first::<Plugin>(conn)
 }
 
-/// Create a new plugin
+/// Create a new plugin row.
+///
+/// The [`InstallToken`](crate::services::plugins::install::InstallToken)
+/// argument is structurally how this function says "I refuse to
+/// insert plugin rows that haven't been through the verified
+/// install pipeline." The token's only public constructor is
+/// private to `services::plugins::install`, so the only code that
+/// can call this function in production is the install pipeline
+/// itself. Tests use `InstallToken::for_test()` (gated by
+/// `#[cfg(test)]`) to construct fixtures.
+///
+/// This closes the historical bypass where any handler could
+/// build a `NewPlugin` and call `create_plugin` directly,
+/// sidestepping signature verification, manifest validation, and
+/// trust-tier resolution.
 pub fn create_plugin(
     conn: &mut DbConnection,
     new_plugin: NewPlugin,
+    _token: crate::services::plugins::install::InstallToken,
 ) -> Result<Plugin, diesel::result::Error> {
     diesel::insert_into(plugins::table)
         .values(&new_plugin)
@@ -94,17 +109,19 @@ pub fn update_plugin_bundle(
         .get_result(conn)
 }
 
-/// Fetch only the icon bytes for a plugin. Selecting the BYTEA
-/// column directly avoids loading the whole row (manifest JSON,
-/// signer metadata, etc.) on every icon serve.
+/// Fetch the lifecycle state plus the icon bytes for a plugin.
+/// Returning both atomically lets callers gate serving on
+/// `state == Installed` without a separate round-trip; selecting
+/// just these two columns avoids loading the manifest JSON or
+/// signer metadata on every icon request.
 pub fn get_plugin_icon(
     conn: &mut DbConnection,
     plugin_uuid: Uuid,
-) -> Result<Option<Vec<u8>>, diesel::result::Error> {
+) -> Result<(crate::models::PluginState, Option<Vec<u8>>), diesel::result::Error> {
     plugins::table
         .filter(plugins::uuid.eq(plugin_uuid))
-        .select(plugins::icon_svg)
-        .first::<Option<Vec<u8>>>(conn)
+        .select((plugins::state, plugins::icon_svg))
+        .first::<(crate::models::PluginState, Option<Vec<u8>>)>(conn)
 }
 
 // =============================================================================
@@ -302,7 +319,17 @@ pub fn get_plugin_activity(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::plugins::install::InstallToken;
     use crate::test_helpers::setup_test_connection;
+
+    /// Test fixture: insert a plugin row using the test-only
+    /// `InstallToken::for_test()` constructor. Production code
+    /// can only build a token through the verified install
+    /// pipeline; tests bypass that for fixture setup.
+    fn create_test_plugin(conn: &mut DbConnection, name: &str, enabled: bool) -> Plugin {
+        create_plugin(conn, make_new_plugin(name, enabled), InstallToken::for_test())
+            .expect("test plugin insert must succeed")
+    }
 
     fn make_new_plugin(name: &str, enabled: bool) -> NewPlugin {
         NewPlugin {
@@ -329,7 +356,7 @@ mod tests {
     #[test]
     fn create_and_get_plugin() {
         let mut conn = setup_test_connection();
-        let plugin = create_plugin(&mut conn, make_new_plugin("test-plugin", true)).unwrap();
+        let plugin = create_test_plugin(&mut conn, "test-plugin", true);
 
         let fetched = get_plugin_by_uuid(&mut conn, plugin.uuid).unwrap();
         assert_eq!(fetched.name, "test-plugin");
@@ -339,8 +366,8 @@ mod tests {
     #[test]
     fn list_all_plugins_test() {
         let mut conn = setup_test_connection();
-        create_plugin(&mut conn, make_new_plugin("plug-a", true)).unwrap();
-        create_plugin(&mut conn, make_new_plugin("plug-b", false)).unwrap();
+        create_test_plugin(&mut conn, "plug-a", true);
+        create_test_plugin(&mut conn, "plug-b", false);
 
         let all = list_all_plugins(&mut conn).unwrap();
         let names: Vec<&str> = all.iter().map(|p| p.name.as_str()).collect();
@@ -351,8 +378,8 @@ mod tests {
     #[test]
     fn list_enabled_plugins_test() {
         let mut conn = setup_test_connection();
-        create_plugin(&mut conn, make_new_plugin("enabled-plug", true)).unwrap();
-        create_plugin(&mut conn, make_new_plugin("disabled-plug", false)).unwrap();
+        create_test_plugin(&mut conn, "enabled-plug", true);
+        create_test_plugin(&mut conn, "disabled-plug", false);
 
         let enabled = super::list_enabled_plugins(&mut conn).unwrap();
         let names: Vec<&str> = enabled.iter().map(|p| p.name.as_str()).collect();
@@ -363,7 +390,7 @@ mod tests {
     #[test]
     fn delete_plugin_test() {
         let mut conn = setup_test_connection();
-        let plugin = create_plugin(&mut conn, make_new_plugin("doomed", true)).unwrap();
+        let plugin = create_test_plugin(&mut conn, "doomed", true);
 
         delete_plugin_by_uuid(&mut conn, plugin.uuid).unwrap();
         assert!(get_plugin_by_uuid(&mut conn, plugin.uuid).is_err());
@@ -372,7 +399,7 @@ mod tests {
     #[test]
     fn plugin_data_crud() {
         let mut conn = setup_test_connection();
-        let plugin = create_plugin(&mut conn, make_new_plugin("data-plug", true)).unwrap();
+        let plugin = create_test_plugin(&mut conn, "data-plug", true);
 
         // Set data
         let entry = set_plugin_data(

@@ -1128,7 +1128,6 @@ async fn main() -> std::io::Result<()> {
 
                     // ===== PLUGIN MANAGEMENT (Admin) =====
                     .route("/admin/plugins", web::get().to(handlers::plugins::list_plugins))
-                    .route("/admin/plugins", web::post().to(handlers::plugins::install_plugin))
                     .route("/admin/plugins/{uuid}", web::get().to(handlers::plugins::get_plugin))
                     .route("/admin/plugins/{uuid}", web::put().to(handlers::plugins::update_plugin))
                     .route("/admin/plugins/{uuid}", web::delete().to(handlers::plugins::uninstall_plugin))

@@ -4,7 +4,6 @@ import type {
   Plugin,
   PluginSetting,
   PluginStorage,
-  InstallPluginRequest,
   UpdatePluginRequest,
   SetPluginSettingRequest,
   SetPluginStorageRequest,
@@ -35,19 +34,6 @@ const pluginService = {
       return response.data || [];
     } catch (error) {
       logger.error('Failed to list plugins', { error });
-      throw error;
-    }
-  },
-
-  /**
-   * Install a new plugin (admin only)
-   */
-  async installPlugin(request: InstallPluginRequest): Promise<Plugin> {
-    try {
-      const response = await apiClient.post('/admin/plugins', request);
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to install plugin', { error });
       throw error;
     }
   },

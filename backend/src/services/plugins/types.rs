@@ -18,7 +18,12 @@ use std::str::FromStr;
 /// A DNS hostname that has passed strict syntactic validation.
 /// Lowercase, LDH labels, no port, no userinfo, no wildcards, no
 /// IP literal, no path. Construct via [`Host::parse`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// `Ord` is implemented (via the inner lowercase string) so
+/// `BTreeMap<Host, _>` produces deterministic iteration order,
+/// which matters when re-serialising the manifest for canonical
+/// digest computation.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Host(String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]

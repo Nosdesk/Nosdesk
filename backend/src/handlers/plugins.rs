@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::db::{DbConnection, Pool};
 use crate::handlers::helpers;
 use crate::models::{
-    Claims, InstallPluginRequest, NewPlugin, PluginActivityResponse,
+    Claims, PluginActivityResponse,
     PluginResponse, PluginSettingResponse, PluginStorageResponse, PluginUpdate,
     SetPluginDataRequest, UpdatePluginRequest,
 };
@@ -34,20 +34,6 @@ pub struct PaginationQuery {
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-
-/// Map the canonical plugin-name validator (used everywhere the
-/// install pipeline runs) to a 400 response for the legacy
-/// JSON-install handler. The rules themselves live in
-/// `services::plugins::manifest_validate::validate_name` so the
-/// JSON path can't drift from what the signed-zip / registry /
-/// CLI paths accept.
-fn validate_plugin_name(name: &str) -> Result<String, HttpResponse> {
-    let trimmed = name.trim();
-    crate::services::plugins::manifest_validate::validate_name(trimmed)
-        .map_err(|e| HttpResponse::BadRequest().json(e.to_string()))?;
-    Ok(trimmed.to_string())
-}
 
 /// Get a plugin by UUID or return a 404/500 error response
 fn get_plugin_or_error(
@@ -117,121 +103,6 @@ pub async fn list_enabled_plugins(req: HttpRequest, pool: web::Data<Pool>) -> im
         Err(e) => {
             error!("Failed to list enabled plugins: {}", e);
             HttpResponse::InternalServerError().json("Failed to list plugins")
-        }
-    }
-}
-
-/// Install a new plugin (admin only)
-pub async fn install_plugin(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-    body: web::Json<InstallPluginRequest>,
-) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
-        return e;
-    }
-
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
-    };
-
-    let installed_by = Uuid::parse_str(&claims.sub).ok();
-
-    // Validate plugin name
-    let name = match validate_plugin_name(&body.manifest.name) {
-        Ok(n) => n,
-        Err(e) => return e,
-    };
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Check if plugin with same name already exists
-    if plugin_repo::get_plugin_by_name(&mut conn, &name).is_ok() {
-        return HttpResponse::Conflict().json("Plugin with this name already exists");
-    }
-
-    let manifest_json = match serde_json::to_value(&body.manifest) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("Failed to serialize manifest: {}", e);
-            return HttpResponse::BadRequest().json("Invalid manifest format");
-        }
-    };
-
-    // Manifest-only installs cannot establish a trust chain: there's
-    // no bundle to verify. Ignore any client-supplied `trust_level`
-    // (it would let any admin mint an "official" label) and pin these
-    // rows to `community` with no signer metadata. New plugins with
-    // bundles must go through the signed zip upload or registry path.
-    if body.trust_level.is_some() {
-        warn!(
-            "Ignoring client-supplied trust_level on manifest-only install of plugin '{}'",
-            name
-        );
-    }
-    let trust_level = "community".to_string();
-
-    let new_plugin = NewPlugin {
-        name,
-        display_name: body.manifest.display_name.clone(),
-        version: body.manifest.version.clone(),
-        description: body.manifest.description.clone(),
-        manifest: manifest_json,
-        state: crate::models::PluginState::Installed,
-        trust_level,
-        installed_by,
-        source: "uploaded".to_string(),
-        signer_pubkey: None,
-        signer_source: None,
-        signature_metadata: None,
-        icon_svg: None,
-    };
-
-    match plugin_repo::create_plugin(&mut conn, new_plugin) {
-        Ok(plugin) => {
-            info!(
-                "Plugin installed: {} ({}) by {:?}",
-                plugin.uuid, plugin.name, installed_by
-            );
-
-            // Sync collection schemas from manifest
-            if !body.manifest.collections.is_empty() {
-                if let Err(e) = crate::services::plugins::validation::sync_collection_schemas(
-                    &mut conn,
-                    plugin.id,
-                    &body.manifest,
-                ) {
-                    warn!("Failed to sync collection schemas for plugin {}: {}", plugin.name, e);
-                }
-            }
-
-            // Log the installation activity
-            let _ = plugin_repo::log_plugin_activity(
-                &mut conn,
-                plugin.id,
-                "installed".to_string(),
-                Some(serde_json::json!({
-                    "version": plugin.version,
-                    "installed_by": installed_by,
-                })),
-                installed_by,
-            );
-
-            match PluginResponse::try_from(plugin) {
-                Ok(response) => HttpResponse::Created().json(response),
-                Err(e) => {
-                    error!("Failed to serialize plugin response: {}", e);
-                    HttpResponse::InternalServerError().json("Plugin installed but response failed")
-                }
-            }
-        }
-        Err(e) => {
-            error!("Failed to install plugin: {}", e);
-            HttpResponse::InternalServerError().json("Failed to install plugin")
         }
     }
 }
@@ -332,61 +203,17 @@ pub async fn update_plugin(
         }
     }
 
-    // Manifest update (separate from state toggle). Skipped if
-    // body.manifest is absent, in which case we just return the
-    // current row reflecting whatever lifecycle changes happened
-    // above.
-    let updated_plugin = if let Some(ref manifest) = body.manifest {
-        let mut update = PluginUpdate::default();
-        update.display_name = Some(manifest.display_name.clone());
-        update.version = Some(manifest.version.clone());
-        update.description = manifest.description.clone();
-        if let Ok(v) = serde_json::to_value(manifest) {
-            update.manifest = Some(v);
-        }
-
-        match plugin_repo::update_plugin_by_uuid(&mut conn, plugin_uuid, update) {
-            Ok(updated) => {
-                info!("Plugin manifest updated: {} ({})", updated.uuid, updated.name);
-                if let Err(e) = crate::services::plugins::validation::sync_collection_schemas(
-                    &mut conn,
-                    plugin.id,
-                    manifest,
-                ) {
-                    warn!(
-                        "Failed to sync collection schemas for plugin {}: {}",
-                        updated.name, e
-                    );
-                }
-                let _ = plugin_repo::log_plugin_activity(
-                    &mut conn,
-                    plugin.id,
-                    "manifest_updated".to_string(),
-                    Some(serde_json::json!({ "version": manifest.version })),
-                    user_uuid,
-                );
-                updated
-            }
-            Err(DieselError::NotFound) => {
-                return HttpResponse::NotFound().json("Plugin not found");
-            }
-            Err(e) => {
-                error!("Failed to update plugin manifest: {}", e);
-                return HttpResponse::InternalServerError().json("Failed to update plugin");
-            }
-        }
-    } else {
-        // No manifest update; re-fetch to capture any state change
-        // from the lifecycle dispatch above.
-        match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
-            Ok(p) => p,
-            Err(DieselError::NotFound) => {
-                return HttpResponse::NotFound().json("Plugin not found");
-            }
-            Err(e) => {
-                error!("Failed to re-fetch plugin: {}", e);
-                return HttpResponse::InternalServerError().json("Failed to load plugin");
-            }
+    // Manifest edits used to be allowed here; that branch was
+    // removed because it bypassed signature reverification. Any
+    // change to the stored manifest now flows through the signed
+    // install paths (zip upload, registry install) which
+    // re-verify end-to-end.
+    let updated_plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
+        Ok(p) => p,
+        Err(DieselError::NotFound) => return HttpResponse::NotFound().json("Plugin not found"),
+        Err(e) => {
+            error!("Failed to re-fetch plugin: {}", e);
+            return HttpResponse::InternalServerError().json("Failed to load plugin");
         }
     };
 
@@ -495,7 +322,7 @@ pub async fn uninstall_plugin(
 
 /// Remove the staged bundle from the uploads volume, swallowing
 /// `NotFound` (no bundle was ever staged for this plugin) and
-/// logging anything else as a warn — failure to clean up the
+/// logging anything else as a warn; failure to clean up the
 /// bundle isn't worth failing the whole uninstall over, but it
 /// IS worth knowing about.
 async fn remove_bundle_file_or_warn(plugin_uuid: Uuid) {
@@ -901,7 +728,7 @@ fn get_bundle_path(plugin_uuid: Uuid) -> PathBuf {
         .join("bundle.js")
 }
 
-/// Serve a plugin's `icon.svg` bytes. No auth required — icons are
+/// Serve a plugin's `icon.svg` bytes. No auth required: icons are
 /// shown in plugin lists that any logged-in user might see, and
 /// they carry no secrets. Cache freely; the URL doesn't change
 /// when the icon does, but the contents do, so we send a weak
@@ -918,11 +745,18 @@ pub async fn serve_plugin_icon(
         Err(e) => return e,
     };
     match plugin_repo::get_plugin_icon(&mut conn, plugin_uuid) {
-        Ok(Some(bytes)) => HttpResponse::Ok()
+        Ok((state, _)) if !matches!(state, crate::models::PluginState::Installed) => {
+            // Quarantined / disabled / uninstalled plugins do not
+            // serve their icon. Mirrors the bundle handler's
+            // is_active() gate so an inactive plugin's bytes never
+            // leak through any serving endpoint.
+            HttpResponse::NotFound().finish()
+        }
+        Ok((_, Some(bytes))) => HttpResponse::Ok()
             .content_type("image/svg+xml")
             .insert_header(("Cache-Control", "public, max-age=300"))
             .body(bytes),
-        Ok(None) => HttpResponse::NotFound().finish(),
+        Ok((_, None)) => HttpResponse::NotFound().finish(),
         Err(DieselError::NotFound) => HttpResponse::NotFound().finish(),
         Err(e) => {
             error!("Failed to load plugin icon: {}", e);
@@ -1150,6 +984,14 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
             // fine, but it conflicts with the existing row's
             // ownership claim. Admin needs to hard-uninstall first.
             HttpResponse::Conflict().json(err.to_string())
+        }
+        install::InstallError::CollectionSchemaSync(_) => {
+            // 422: the manifest is structurally valid but its
+            // declared collection schema couldn't be applied
+            // against the current DB. Operator-fixable via
+            // schema inspection / corrective migration.
+            error!("Plugin install failed: {}", err);
+            HttpResponse::UnprocessableEntity().json(err.to_string())
         }
         install::InstallError::BundleWriteFailed(_) | install::InstallError::Db(_) => {
             error!("Plugin install failed: {}", err);
@@ -1396,7 +1238,7 @@ pub async fn install_from_registry(
 async fn download_bundle(http: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
     // Enforce https:// on registry-supplied download URLs. The URL
     // is root-signed, so the attacker would need root-key access to
-    // set a malicious http:// value in a signed index — but a
+    // set a malicious http:// value in a signed index, but a
     // well-meaning maintainer could also slip one in by mistake
     // and trigger SSRF to the instance's internal services. Hard
     // refuse anything that isn't https.

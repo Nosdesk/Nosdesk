@@ -166,7 +166,7 @@ impl From<diesel::result::Error> for ActionError {
 /// Apply an action to a plugin row. The DB update + activity log
 /// are written inside a single transaction; failure rolls both
 /// back. Disk side effects (bundle file removal for uninstall
-/// flavours) are caller responsibilities — see [`should_remove_bundle`].
+/// flavours) are caller responsibilities; see [`outcome_removes_bundle`].
 pub fn apply(
     conn: &mut DbConnection,
     plugin_uuid: Uuid,
@@ -344,7 +344,7 @@ mod tests {
     use super::*;
 
     /// Cases the match arms accept (state, action) for. Used as
-    /// the source-of-truth in the legality tests below — if the
+    /// the source-of-truth in the legality tests below. If the
     /// match table drifts from this list, the tests fail.
     fn legal_transitions() -> Vec<(PluginState, &'static str)> {
         vec![

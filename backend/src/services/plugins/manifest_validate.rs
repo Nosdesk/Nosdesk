@@ -52,10 +52,10 @@ pub const SUPPORTED_PLUGIN_API_VERSION: &str = "1";
 /// Adding a slot is a two-step coordinated change: extend the
 /// frontend `PluginSlot` union + `PLUGIN_SLOTS` registry, and
 /// add the literal here. Mounting the slot in a Vue template is
-/// independent — plugins can author against the slot before
+/// independent: plugins can author against the slot before
 /// the template lands, the contribution just doesn't render
 /// until the mount point exists.
-pub const KNOWN_SLOTS: &[&str] = &[
+pub(crate) const KNOWN_SLOTS: &[&str] = &[
     // Global
     "navbar-items",
     "settings-integrations",
@@ -74,7 +74,7 @@ pub const KNOWN_SLOTS: &[&str] = &[
 
 /// Context types a component can request. The runtime passes the
 /// matching object on the `context` prop.
-pub const KNOWN_CONTEXTS: &[&str] = &[
+pub(crate) const KNOWN_CONTEXTS: &[&str] = &[
     "ticket",
     // Reserved:
     "device",
@@ -87,12 +87,12 @@ pub const KNOWN_CONTEXTS: &[&str] = &[
 /// from `frontend/src/types/plugin.ts::PLUGIN_EVENTS`.
 ///
 /// Subscribing to an event whose dispatch site doesn't yet exist
-/// is a silent no-op (handler never fires) — the same pub/sub
+/// is a silent no-op (handler never fires), the same pub/sub
 /// "loose subscription" pattern industry plugin systems use.
 /// New events are added by extending the dispatcher's SSE map or
 /// `TICKET_FIELD_TO_EVENT` table on the frontend, then mirroring
 /// the literal here.
-pub const KNOWN_EVENTS: &[&str] = &[
+pub(crate) const KNOWN_EVENTS: &[&str] = &[
     "ticket:created",
     "ticket:updated",
     "ticket:status_changed",
@@ -107,7 +107,7 @@ pub const KNOWN_EVENTS: &[&str] = &[
 /// Setting types accepted on `settings[].type`. Each maps to a
 /// frontend renderer + a backend storage policy (notably:
 /// `secret` is encrypted at rest).
-pub const KNOWN_SETTING_TYPES: &[&str] = &[
+pub(crate) const KNOWN_SETTING_TYPES: &[&str] = &[
     "string",
     "number",
     "boolean",
@@ -127,7 +127,7 @@ pub const KNOWN_SETTING_TYPES: &[&str] = &[
 /// Categories the registry browse UI groups by. Plugins declaring
 /// unknown categories are refused; this keeps the taxonomy curated
 /// rather than letting it drift into a long tail of one-off names.
-pub const KNOWN_CATEGORIES: &[&str] = &[
+pub(crate) const KNOWN_CATEGORIES: &[&str] = &[
     "integrations",
     "automation",
     "analytics",
@@ -158,6 +158,13 @@ pub enum ManifestValidationError {
         kind: &'static str,
         requirement: String,
         current: String,
+    },
+    /// Distinct from `EngineNotSatisfied` so error UX can tell a
+    /// plugin author "your version constraint is malformed" from
+    /// "your constraint doesn't match this Nosdesk version".
+    InvalidEngineRequirement {
+        kind: &'static str,
+        requirement: String,
     },
     PluginApiMismatch {
         requested: String,
@@ -219,6 +226,10 @@ impl std::fmt::Display for ManifestValidationError {
                 f,
                 "engines.{kind} requirement {requirement:?} not satisfied by current version {current:?}"
             ),
+            Self::InvalidEngineRequirement { kind, requirement } => write!(
+                f,
+                "engines.{kind} requirement {requirement:?} is not a valid semver expression"
+            ),
             Self::PluginApiMismatch { requested, supported } => write!(
                 f,
                 "engines.plugin_api {requested:?} not supported (expected {supported:?})"
@@ -276,23 +287,40 @@ pub struct ValidationContext<'a> {
     pub nosdesk_version: &'a str,
 }
 
-/// Run every check the v1 manifest schema requires. Errors are
-/// returned in declaration order; only the first failure is
-/// reported. Plugins authoring against this should treat each
-/// possible error as an explicit rule — none is implicit.
+/// Run every check the v1 manifest schema requires.
+///
+/// Errors accumulate into a `Vec` so install UX can surface every
+/// problem at once; an author fixing one issue doesn't need a
+/// retry to learn about the next. The exception is
+/// `manifest_version`: if it doesn't match this binary's schema,
+/// none of the downstream checks would interpret correctly, so we
+/// short-circuit. The same applies to the `engines.plugin_api`
+/// constant compare inside `validate_engines`. Everything else is
+/// independent and accumulates.
 pub fn validate(
     manifest: &PluginManifest,
     ctx: &ValidationContext,
-) -> Result<(), ManifestValidationError> {
+) -> Result<(), Vec<ManifestValidationError>> {
+    // Hard gate: if the wrong schema version, every downstream
+    // check is meaningless. Return a single-element Vec so callers
+    // can treat the error type uniformly.
     if manifest.manifest_version != SUPPORTED_MANIFEST_VERSION {
-        return Err(ManifestValidationError::UnsupportedManifestVersion(
+        return Err(vec![ManifestValidationError::UnsupportedManifestVersion(
             manifest.manifest_version,
-        ));
+        )]);
     }
 
-    validate_name(&manifest.name)?;
-    validate_engines(manifest, ctx)?;
-    validate_author(manifest, ctx)?;
+    let mut errors: Vec<ManifestValidationError> = Vec::new();
+
+    if let Err(e) = validate_name(&manifest.name) {
+        errors.push(e);
+    }
+    if let Err(e) = validate_engines(manifest, ctx) {
+        errors.push(e);
+    }
+    if let Err(e) = validate_author(manifest, ctx) {
+        errors.push(e);
+    }
 
     // Permissions are now typed (`Vec<Permission>`); deserialisation
     // already rejected unknown strings and malformed `network:`
@@ -301,31 +329,37 @@ pub fn validate(
 
     for event in &manifest.events {
         if !KNOWN_EVENTS.contains(&event.as_str()) {
-            return Err(ManifestValidationError::InvalidEvent(event.clone()));
+            errors.push(ManifestValidationError::InvalidEvent(event.clone()));
         }
     }
 
     for component in manifest.components.values() {
-        validate_component(component)?;
+        if let Err(e) = validate_component(component) {
+            errors.push(e);
+        }
     }
 
     for setting in &manifest.settings {
-        validate_setting(setting)?;
+        if let Err(e) = validate_setting(setting) {
+            errors.push(e);
+        }
     }
 
     for category in &manifest.categories {
         if !KNOWN_CATEGORIES.contains(&category.as_str()) {
-            return Err(ManifestValidationError::InvalidCategory(category.clone()));
+            errors.push(ManifestValidationError::InvalidCategory(category.clone()));
         }
     }
 
     for screenshot in &manifest.screenshots {
-        validate_screenshot_path(screenshot)?;
+        if let Err(e) = validate_screenshot_path(screenshot) {
+            errors.push(e);
+        }
     }
 
     for (collection_name, def) in &manifest.collections {
         if def.schema_version != 1 {
-            return Err(ManifestValidationError::UnsupportedCollectionSchemaVersion {
+            errors.push(ManifestValidationError::UnsupportedCollectionSchemaVersion {
                 collection: collection_name.clone(),
                 version: def.schema_version,
             });
@@ -345,19 +379,19 @@ pub fn validate(
         let auth_pattern =
             crate::services::plugins::types::HostPattern::Exact(host.clone());
         if !network_patterns.iter().any(|p| p.covers(&auth_pattern)) {
-            return Err(ManifestValidationError::AuthRefersToUndeclaredHost(
+            errors.push(ManifestValidationError::AuthRefersToUndeclaredHost(
                 host.as_str().to_string(),
             ));
         }
     }
 
     for (plugin_name, requirement) in &manifest.dependencies {
-        semver::VersionReq::parse(requirement.trim()).map_err(|_| {
-            ManifestValidationError::InvalidDependencyVersion {
+        if semver::VersionReq::parse(requirement.trim()).is_err() {
+            errors.push(ManifestValidationError::InvalidDependencyVersion {
                 plugin: plugin_name.clone(),
                 requirement: requirement.clone(),
-            }
-        })?;
+            });
+        }
     }
 
     // URL-shaped fields. `bugs` must be a `WebUrl` (https-only).
@@ -368,7 +402,7 @@ pub fn validate(
     // (`javascript:`, `file:`, `data:`).
     if let Some(bugs) = &manifest.bugs {
         if crate::services::plugins::types::WebUrl::parse(bugs).is_err() {
-            return Err(ManifestValidationError::InvalidBugsUrl(bugs.clone()));
+            errors.push(ManifestValidationError::InvalidBugsUrl(bugs.clone()));
         }
     }
     if let Some(contact) = &manifest.support_contact {
@@ -379,50 +413,47 @@ pub fn validate(
             && !contact.starts_with('@')
             && !contact.ends_with('@');
         if !looks_like_url && !looks_like_email {
-            return Err(ManifestValidationError::InvalidContactUrl(contact.clone()));
+            errors.push(ManifestValidationError::InvalidContactUrl(contact.clone()));
         }
     }
 
-    // Reserved fields: refuse non-empty values for everything not
-    // yet implemented at runtime. Plugin authors who want to use
-    // these will hit a clear "not yet supported" message rather
-    // than silent no-ops.
-    if !manifest.commands.is_empty() {
-        return Err(ManifestValidationError::ReservedFieldNotEmpty { field: "commands" });
-    }
-    if !manifest.menus.is_empty() {
-        return Err(ManifestValidationError::ReservedFieldNotEmpty { field: "menus" });
-    }
-    if !manifest.url_handlers.is_empty() {
-        return Err(ManifestValidationError::ReservedFieldNotEmpty {
-            field: "url_handlers",
-        });
-    }
-    if !manifest.extensions.is_null() {
-        return Err(ManifestValidationError::ReservedFieldNotEmpty { field: "extensions" });
+    // Reserved fields: refuse non-empty values for every field
+    // whose runtime hasn't shipped. Each entry pairs a field name
+    // with `bool: is the field empty?`; one helper, one predicate,
+    // no per-field "is empty" semantic drift. Adding a new
+    // reserved field is one line in this list.
+    let reserved: &[(&'static str, bool)] = &[
+        ("commands", manifest.commands.is_empty()),
+        ("menus", manifest.menus.is_empty()),
+        ("url_handlers", manifest.url_handlers.is_empty()),
+        ("extensions", manifest.extensions.is_empty()),
+    ];
+    for (field, empty) in reserved {
+        if !empty {
+            errors.push(ManifestValidationError::ReservedFieldNotEmpty { field });
+        }
     }
 
     // Localisation syntax reservation: any string of the form
     // `%key%` is reserved for a future i18n resolver. Refuse
     // surface-visible strings that look like keys today so plugins
     // can't accidentally claim the syntax.
-    let l10n_re = LocalisationKeyMatcher::new();
-    if l10n_re.looks_like_key(&manifest.display_name) {
-        return Err(ManifestValidationError::LocalisationKeyReserved {
+    if looks_like_localisation_key(&manifest.display_name) {
+        errors.push(ManifestValidationError::LocalisationKeyReserved {
             location: "displayName",
             value: manifest.display_name.clone(),
         });
     }
     for setting in &manifest.settings {
-        if l10n_re.looks_like_key(&setting.label) {
-            return Err(ManifestValidationError::LocalisationKeyReserved {
+        if looks_like_localisation_key(&setting.label) {
+            errors.push(ManifestValidationError::LocalisationKeyReserved {
                 location: "settings[].label",
                 value: setting.label.clone(),
             });
         }
         if let Some(d) = &setting.description {
-            if l10n_re.looks_like_key(d) {
-                return Err(ManifestValidationError::LocalisationKeyReserved {
+            if looks_like_localisation_key(d) {
+                errors.push(ManifestValidationError::LocalisationKeyReserved {
                     location: "settings[].description",
                     value: d.clone(),
                 });
@@ -430,37 +461,25 @@ pub fn validate(
         }
     }
 
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
-/// Heuristic for the reserved localisation syntax `%key%`. Matches
-/// strings that consist of a leading `%`, identifier characters
-/// (letters, digits, underscore, dot), and a trailing `%`. Used to
-/// refuse manifest strings that would collide with future i18n
-/// bundles.
-struct LocalisationKeyMatcher;
-
-impl LocalisationKeyMatcher {
-    fn new() -> Self {
-        Self
-    }
-
-    fn looks_like_key(&self, s: &str) -> bool {
-        let bytes = s.as_bytes();
-        if bytes.len() < 3 {
-            return false;
-        }
-        if bytes[0] != b'%' || bytes[bytes.len() - 1] != b'%' {
-            return false;
-        }
-        let inner = &s[1..s.len() - 1];
-        if inner.is_empty() {
-            return false;
-        }
-        inner
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
-    }
+/// Heuristic for the reserved localisation syntax `%key%`: leading
+/// `%`, identifier characters (letters, digits, underscore, dot),
+/// trailing `%`. Used to refuse manifest strings that would collide
+/// with future i18n bundles.
+fn looks_like_localisation_key(s: &str) -> bool {
+    let inner = match s.strip_prefix('%').and_then(|s| s.strip_suffix('%')) {
+        Some(i) if !i.is_empty() => i,
+        _ => return false,
+    };
+    inner
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
 }
 
 /// Canonical plugin-name rules. 1-100 chars, lowercase ASCII +
@@ -487,22 +506,20 @@ fn validate_engines(
     // Real semver matching. The plugin declares a constraint
     // (e.g. ">=1.5.0", "^2.0", "1.x"); the running backend
     // declares its current version via env!("CARGO_PKG_VERSION").
-    // Refuse install if the constraint isn't satisfied.
     let req_str = manifest.engines.nosdesk.trim();
     let req = semver::VersionReq::parse(req_str).map_err(|_| {
-        ManifestValidationError::EngineNotSatisfied {
+        ManifestValidationError::InvalidEngineRequirement {
             kind: "nosdesk",
             requirement: req_str.into(),
-            current: ctx.nosdesk_version.into(),
         }
     })?;
-    let current = semver::Version::parse(ctx.nosdesk_version).map_err(|_| {
-        ManifestValidationError::EngineNotSatisfied {
-            kind: "nosdesk",
-            requirement: req_str.into(),
-            current: ctx.nosdesk_version.into(),
-        }
-    })?;
+    // The running backend's version comes from the build, not the
+    // manifest, so a parse failure here is a build-system bug, not
+    // a plugin-author problem. Treat it as `expect`-worthy: the
+    // value is fed by `env!("CARGO_PKG_VERSION")` which Cargo
+    // guarantees is valid semver.
+    let current = semver::Version::parse(ctx.nosdesk_version)
+        .expect("backend CARGO_PKG_VERSION must be valid semver");
     if !req.matches(&current) {
         return Err(ManifestValidationError::EngineNotSatisfied {
             kind: "nosdesk",
@@ -641,6 +658,43 @@ mod tests {
         Host::parse(s).expect("test host must parse")
     }
 
+    /// `validate` accumulates errors; tests usually want to check
+    /// "did this specific variant appear?" without caring about
+    /// other errors in the Vec. This macro keeps the assertions
+    /// terse and gives a useful panic message on mismatch.
+    macro_rules! assert_err {
+        ($result:expr, $pat:pat $(,)?) => {
+            match $result {
+                Err(errs) => assert!(
+                    errs.iter().any(|e| matches!(e, $pat)),
+                    "expected error matching `{}`, got: {:?}",
+                    stringify!($pat),
+                    errs
+                ),
+                Ok(()) => panic!(
+                    "expected error matching `{}`, got Ok",
+                    stringify!($pat)
+                ),
+            }
+        };
+        ($result:expr, $pat:pat if $cond:expr $(,)?) => {
+            match $result {
+                Err(errs) => assert!(
+                    errs.iter().any(|e| matches!(e, $pat if $cond)),
+                    "expected error matching `{} if {}`, got: {:?}",
+                    stringify!($pat),
+                    stringify!($cond),
+                    errs
+                ),
+                Ok(()) => panic!(
+                    "expected error matching `{} if {}`, got Ok",
+                    stringify!($pat),
+                    stringify!($cond)
+                ),
+            }
+        };
+    }
+
     fn baseline_manifest() -> PluginManifest {
         PluginManifest {
             manifest_version: 1,
@@ -658,21 +712,21 @@ mod tests {
                 nosdesk: ">=0.1.0".into(),
                 plugin_api: "1".into(),
             },
-            dependencies: HashMap::new(),
+            dependencies: std::collections::BTreeMap::new(),
             categories: vec!["integrations".into()],
             tags: vec!["github".into()],
             screenshots: vec![],
             permissions: vec![perm("ticket:read"), perm("network:api.github.com")],
-            components: HashMap::new(),
+            components: std::collections::BTreeMap::new(),
             events: vec!["ticket:created".into()],
             settings: vec![],
-            collections: HashMap::new(),
-            auth: HashMap::new(),
+            collections: std::collections::BTreeMap::new(),
+            auth: std::collections::BTreeMap::new(),
             lifecycle: PluginLifecyclePolicy::default(),
             commands: vec![],
-            menus: HashMap::new(),
+            menus: std::collections::BTreeMap::new(),
             url_handlers: vec![],
-            extensions: serde_json::Value::Null,
+            extensions: std::collections::BTreeMap::new(),
         }
     }
 
@@ -685,10 +739,10 @@ mod tests {
     fn rejects_wrong_manifest_version() {
         let mut m = baseline_manifest();
         m.manifest_version = 2;
-        match validate(&m, &ctx_official()) {
-            Err(ManifestValidationError::UnsupportedManifestVersion(2)) => {}
-            other => panic!("expected UnsupportedManifestVersion, got {other:?}"),
-        }
+        assert_err!(
+            validate(&m, &ctx_official()),
+            ManifestValidationError::UnsupportedManifestVersion(2),
+        );
     }
 
     #[test]
@@ -712,7 +766,7 @@ mod tests {
     #[test]
     fn malformed_network_permission_fails_at_deserialise() {
         // `network:` with empty host, IP literal, port, userinfo,
-        // wildcard-only — all rejected at parse time by `HostPattern::parse`.
+        // wildcard-only: all rejected at parse time by `HostPattern::parse`.
         assert!(Permission::parse("network:").is_err());
         assert!(Permission::parse("network:127.0.0.1").is_err());
         assert!(Permission::parse("network:foo:8080").is_err());
@@ -751,10 +805,10 @@ mod tests {
     fn rejects_unknown_event() {
         let mut m = baseline_manifest();
         m.events.push("ticket:undefined".into());
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::InvalidEvent(_))
-        ));
+            ManifestValidationError::InvalidEvent(_),
+        );
     }
 
     #[test]
@@ -772,10 +826,10 @@ mod tests {
                 action: None,
             },
         );
-        match validate(&m, &ctx_official()) {
-            Err(ManifestValidationError::UnsupportedComponentKind(k)) if k == "admin_page" => {}
-            other => panic!("expected UnsupportedComponentKind, got {other:?}"),
-        }
+        assert_err!(
+            validate(&m, &ctx_official()),
+            ManifestValidationError::UnsupportedComponentKind(k) if k == "admin_page",
+        );
     }
 
     #[test]
@@ -793,10 +847,7 @@ mod tests {
                 action: None,
             },
         );
-        assert!(matches!(
-            validate(&m, &ctx_official()),
-            Err(ManifestValidationError::InvalidSlot(_))
-        ));
+        assert_err!(validate(&m, &ctx_official()), ManifestValidationError::InvalidSlot(_));
     }
 
     #[test]
@@ -810,20 +861,20 @@ mod tests {
                 fields: HashMap::new(),
             },
         );
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::UnsupportedCollectionSchemaVersion { .. })
-        ));
+            ManifestValidationError::UnsupportedCollectionSchemaVersion { .. },
+        );
     }
 
     #[test]
     fn rejects_official_with_wrong_author() {
         let mut m = baseline_manifest();
         m.author = Some("Some Other Person".into());
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::AuthorMismatch { .. })
-        ));
+            ManifestValidationError::AuthorMismatch { .. },
+        );
     }
 
     #[test]
@@ -836,50 +887,50 @@ mod tests {
                 secret: "tok".into(),
             },
         );
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::AuthRefersToUndeclaredHost(_))
-        ));
+            ManifestValidationError::AuthRefersToUndeclaredHost(_),
+        );
     }
 
     #[test]
     fn rejects_unknown_category() {
         let mut m = baseline_manifest();
         m.categories.push("unknown-category".into());
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::InvalidCategory(_))
-        ));
+            ManifestValidationError::InvalidCategory(_),
+        );
     }
 
     #[test]
     fn rejects_screenshot_path_traversal() {
         let mut m = baseline_manifest();
         m.screenshots.push("../etc/passwd".into());
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::InvalidScreenshotPath(_))
-        ));
+            ManifestValidationError::InvalidScreenshotPath(_),
+        );
     }
 
     #[test]
     fn rejects_wrong_plugin_api_version() {
         let mut m = baseline_manifest();
         m.engines.plugin_api = "2".into();
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::PluginApiMismatch { .. })
-        ));
+            ManifestValidationError::PluginApiMismatch { .. },
+        );
     }
 
     #[test]
     fn rejects_unsatisfied_nosdesk_constraint() {
         let mut m = baseline_manifest();
         m.engines.nosdesk = ">=99.0.0".into();
-        match validate(&m, &ctx_official()) {
-            Err(ManifestValidationError::EngineNotSatisfied { kind, .. }) if kind == "nosdesk" => {}
-            other => panic!("expected EngineNotSatisfied(nosdesk), got {other:?}"),
-        }
+        assert_err!(
+            validate(&m, &ctx_official()),
+            ManifestValidationError::EngineNotSatisfied { kind: "nosdesk", .. },
+        );
     }
 
     #[test]
@@ -891,12 +942,15 @@ mod tests {
 
     #[test]
     fn rejects_unparseable_nosdesk_constraint() {
+        // Distinct error variant for malformed requirements; lets
+        // the install UI tell authors "fix your semver string"
+        // separately from "your constraint excludes us".
         let mut m = baseline_manifest();
         m.engines.nosdesk = "not a semver req".into();
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::EngineNotSatisfied { kind: "nosdesk", .. })
-        ));
+            ManifestValidationError::InvalidEngineRequirement { kind: "nosdesk", .. },
+        );
     }
 
     #[test]
@@ -904,11 +958,10 @@ mod tests {
         let mut m = baseline_manifest();
         m.dependencies
             .insert("calendar-core".into(), "garbage".into());
-        match validate(&m, &ctx_official()) {
-            Err(ManifestValidationError::InvalidDependencyVersion { plugin, .. })
-                if plugin == "calendar-core" => {}
-            other => panic!("expected InvalidDependencyVersion, got {other:?}"),
-        }
+        assert_err!(
+            validate(&m, &ctx_official()),
+            ManifestValidationError::InvalidDependencyVersion { plugin, .. } if plugin == "calendar-core",
+        );
     }
 
     #[test]
@@ -933,10 +986,26 @@ mod tests {
             scope: PluginSettingScope::User,
             options: None,
         });
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::UnsupportedSettingScope { .. })
-        ));
+            ManifestValidationError::UnsupportedSettingScope { .. },
+        );
+    }
+
+    #[test]
+    fn rejects_non_empty_extensions() {
+        // Closes the M3 inconsistency: previously `extensions:
+        // serde_json::Value` used `is_null()`, which let an empty
+        // object `{}` slip through. The field is now a BTreeMap
+        // and the same `is_empty()` predicate applies as for the
+        // other reserved fields.
+        let mut m = baseline_manifest();
+        m.extensions
+            .insert("future_feature".into(), serde_json::json!({"x": 1}));
+        assert_err!(
+            validate(&m, &ctx_official()),
+            ManifestValidationError::ReservedFieldNotEmpty { field: "extensions" },
+        );
     }
 
     #[test]
@@ -948,33 +1017,30 @@ mod tests {
             title: "Sync".into(),
             when: None,
         });
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::ReservedFieldNotEmpty { field: "commands" })
-        ));
+            ManifestValidationError::ReservedFieldNotEmpty { field: "commands" },
+        );
     }
 
     #[test]
     fn rejects_localisation_key_in_display_name() {
         let mut m = baseline_manifest();
         m.display_name = "%my.app.name%".into();
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::LocalisationKeyReserved {
-                location: "displayName",
-                ..
-            })
-        ));
+            ManifestValidationError::LocalisationKeyReserved { location: "displayName", .. },
+        );
     }
 
     #[test]
     fn rejects_invalid_bugs_url() {
         let mut m = baseline_manifest();
         m.bugs = Some("not a url".into());
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::InvalidBugsUrl(_))
-        ));
+            ManifestValidationError::InvalidBugsUrl(_),
+        );
     }
 
     #[test]
@@ -986,9 +1052,9 @@ mod tests {
         for bad in ["http://example.com", "javascript:alert(1)", "file:///etc/passwd"] {
             let mut m = baseline_manifest();
             m.bugs = Some(bad.into());
-            assert!(
-                matches!(validate(&m, &ctx_official()), Err(ManifestValidationError::InvalidBugsUrl(_))),
-                "expected {bad:?} to be rejected as bugs URL"
+            assert_err!(
+                validate(&m, &ctx_official()),
+                ManifestValidationError::InvalidBugsUrl(_),
             );
         }
     }
@@ -1011,10 +1077,10 @@ mod tests {
     fn rejects_garbage_support_contact() {
         let mut m = baseline_manifest();
         m.support_contact = Some("not an email or url".into());
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::InvalidContactUrl(_))
-        ));
+            ManifestValidationError::InvalidContactUrl(_),
+        );
     }
 
     #[test]
@@ -1022,9 +1088,9 @@ mod tests {
         for bad in ["http://example.com", "javascript:alert(1)"] {
             let mut m = baseline_manifest();
             m.support_contact = Some(bad.into());
-            assert!(
-                matches!(validate(&m, &ctx_official()), Err(ManifestValidationError::InvalidContactUrl(_))),
-                "expected {bad:?} to be rejected as support_contact"
+            assert_err!(
+                validate(&m, &ctx_official()),
+                ManifestValidationError::InvalidContactUrl(_),
             );
         }
     }
@@ -1036,29 +1102,63 @@ mod tests {
         // host extracting the zip.
         let mut m = baseline_manifest();
         m.screenshots.push("..\\foo.png".into());
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::InvalidScreenshotPath(_))
-        ));
+            ManifestValidationError::InvalidScreenshotPath(_),
+        );
     }
 
     #[test]
     fn rejects_screenshot_with_scheme() {
         let mut m = baseline_manifest();
         m.screenshots.push("https://attacker.test/x.png".into());
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::InvalidScreenshotPath(_))
-        ));
+            ManifestValidationError::InvalidScreenshotPath(_),
+        );
     }
 
     #[test]
     fn rejects_screenshot_protocol_relative() {
         let mut m = baseline_manifest();
         m.screenshots.push("//cdn.attacker.test/x.png".into());
-        assert!(matches!(
+        assert_err!(
             validate(&m, &ctx_official()),
-            Err(ManifestValidationError::InvalidScreenshotPath(_))
+            ManifestValidationError::InvalidScreenshotPath(_),
+        );
+    }
+
+    #[test]
+    fn validate_accumulates_multiple_errors() {
+        // The accumulator behaviour: an author with three problems
+        // hears about all three, not just the first. Saves install
+        // round-trips during plugin development.
+        let mut m = baseline_manifest();
+        m.events.push("ticket:undefined".into());
+        m.categories.push("unknown-category".into());
+        m.screenshots.push("../etc/passwd".into());
+
+        let errs = validate(&m, &ctx_official()).unwrap_err();
+        assert!(errs.iter().any(|e| matches!(e, ManifestValidationError::InvalidEvent(_))));
+        assert!(errs.iter().any(|e| matches!(e, ManifestValidationError::InvalidCategory(_))));
+        assert!(errs.iter().any(|e| matches!(e, ManifestValidationError::InvalidScreenshotPath(_))));
+        assert!(errs.len() >= 3, "expected >= 3 errors, got {}: {errs:?}", errs.len());
+    }
+
+    #[test]
+    fn manifest_version_mismatch_short_circuits() {
+        // The exception to accumulation: if the schema version is
+        // wrong, every other check is meaningless. Single error.
+        let mut m = baseline_manifest();
+        m.manifest_version = 99;
+        m.events.push("ticket:undefined".into()); // would also fail
+        m.categories.push("unknown-category".into()); // would also fail
+
+        let errs = validate(&m, &ctx_official()).unwrap_err();
+        assert_eq!(errs.len(), 1);
+        assert!(matches!(
+            errs[0],
+            ManifestValidationError::UnsupportedManifestVersion(99)
         ));
     }
 }

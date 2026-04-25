@@ -10,6 +10,7 @@ import pluginService from '@/services/pluginService';
 import { logger } from '@/utils/logger';
 import { preloadPluginBundle } from './componentLoader';
 import type { Plugin, PluginSlot, PluginManifest } from '@/types/plugin';
+import { PLUGIN_SLOTS } from '@/types/plugin';
 
 // =============================================================================
 // Types
@@ -127,6 +128,17 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
       );
       continue;
     }
+    // Defence-in-depth: the manifest validator already gates this
+    // server-side, but we don't want a typoed slot to register a
+    // garbage entry that no host template will ever mount. Skip
+    // and log instead.
+    if (!(config.slot in PLUGIN_SLOTS)) {
+      logger.warn(
+        `Skipping plugin component with unknown slot: ${config.slot}`,
+        { plugin: plugin.name, componentName }
+      );
+      continue;
+    }
     const slot = config.slot as PluginSlot;
 
     const registration: PluginSlotRegistration = {
@@ -178,6 +190,43 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
     version: plugin.version,
     components: Object.keys(manifest.components),
   });
+}
+
+/**
+ * Tear down everything we registered for a plugin uuid: slot
+ * contributions, action contributions, and the loaded-plugin
+ * entry. Called when a plugin is disabled or uninstalled so the
+ * UI stops surfacing it without a full page reload. Idempotent;
+ * safe to call on a plugin that wasn't loaded.
+ */
+export function unloadPlugin(uuid: string): void {
+  if (!loadedPlugins.value.has(uuid)) {
+    return;
+  }
+
+  const next = new Map(loadedPlugins.value);
+  next.delete(uuid);
+  loadedPlugins.value = next;
+
+  for (const [slot, regs] of slotRegistrations.entries()) {
+    const filtered = regs.filter(r => r.pluginUuid !== uuid);
+    if (filtered.length === 0) {
+      slotRegistrations.delete(slot);
+    } else if (filtered.length !== regs.length) {
+      slotRegistrations.set(slot, filtered);
+    }
+  }
+
+  for (const [slot, regs] of actionRegistrations.entries()) {
+    const filtered = regs.filter(r => r.pluginUuid !== uuid);
+    if (filtered.length === 0) {
+      actionRegistrations.delete(slot);
+    } else if (filtered.length !== regs.length) {
+      actionRegistrations.set(slot, filtered);
+    }
+  }
+
+  logger.info(`Unloaded plugin: ${uuid}`);
 }
 
 /**
