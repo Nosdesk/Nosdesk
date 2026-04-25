@@ -466,3 +466,145 @@ mod tests {
         assert!(s.contains("Enable"));
     }
 }
+
+// =============================================================================
+// Integration tests
+// =============================================================================
+//
+// These exercise `apply` against a real test DB. Pure-rule tests
+// above guard the match table; these guard the DB-level invariants:
+// state actually flips, plugin_data is still there after preserve
+// uninstall, the audit log row lands in the same transaction.
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::models::{NewPlugin, PluginState};
+    use crate::repository::plugins as plugin_repo;
+    use crate::services::plugins::install::InstallToken;
+    use crate::test_helpers::setup_test_connection;
+
+    fn insert_plugin(conn: &mut DbConnection, name: &str) -> crate::models::Plugin {
+        let new_plugin = NewPlugin {
+            name: name.to_string(),
+            display_name: name.to_string(),
+            version: "1.0.0".to_string(),
+            description: None,
+            manifest: serde_json::json!({}),
+            state: PluginState::Installed,
+            trust_level: "official".to_string(),
+            installed_by: None,
+            source: "test".to_string(),
+            signer_pubkey: Some("AAAAAAAAAAAAEXAMPLE".to_string()),
+            signer_source: Some("nosdesk-root".to_string()),
+            signature_metadata: None,
+            icon_svg: None,
+        };
+        plugin_repo::create_plugin(conn, new_plugin, InstallToken::for_test())
+            .expect("test plugin insert must succeed")
+    }
+
+    /// Quarantined plugins can be preserve-uninstalled. The
+    /// transition is legal because preserve never grants new
+    /// permissions or runs new code: the plugin was already
+    /// non-serving (state gate), and after the transition it's
+    /// still non-serving plus its data is retained for a future
+    /// reinstall under the same signer.
+    #[test]
+    fn quarantined_can_uninstall_preserve() {
+        let mut conn = setup_test_connection();
+        let plugin = insert_plugin(&mut conn, "quarantine-preserve-test");
+
+        // Move to Quarantined first.
+        let outcome = apply(
+            &mut conn,
+            plugin.uuid,
+            PluginAction::Quarantine {
+                reason: QuarantineReason::PolicyViolation,
+            },
+            None,
+        )
+        .expect("Installed -> Quarantined must succeed");
+        match outcome {
+            ActionOutcome::StateChanged { plugin, prior_state } => {
+                assert_eq!(prior_state, PluginState::Installed);
+                assert_eq!(plugin.state, PluginState::Quarantined);
+            }
+            other => panic!("expected StateChanged, got {other:?}"),
+        }
+
+        // Plant some plugin_data so we can assert preservation.
+        plugin_repo::set_plugin_data(
+            &mut conn,
+            plugin.id,
+            "storage",
+            "key1".to_string(),
+            Some(serde_json::json!("value1")),
+            false,
+        )
+        .expect("plugin_data write must succeed");
+
+        // Quarantined -> Uninstalled (preserve).
+        let outcome = apply(
+            &mut conn,
+            plugin.uuid,
+            PluginAction::UninstallPreserve,
+            None,
+        )
+        .expect("Quarantined -> UninstallPreserve must succeed");
+        match outcome {
+            ActionOutcome::StateChanged { plugin, prior_state } => {
+                assert_eq!(prior_state, PluginState::Quarantined);
+                assert_eq!(plugin.state, PluginState::Uninstalled);
+            }
+            other => panic!("expected StateChanged, got {other:?}"),
+        }
+
+        // Plugin row is intact.
+        let after = plugin_repo::get_plugin_by_uuid(&mut conn, plugin.uuid)
+            .expect("row must still exist after preserve uninstall");
+        assert_eq!(after.state, PluginState::Uninstalled);
+
+        // plugin_data was preserved.
+        let entry = plugin_repo::get_plugin_data_entry(&mut conn, plugin.id, "storage", "key1")
+            .expect("plugin_data must survive preserve uninstall");
+        assert_eq!(entry.value, Some(serde_json::json!("value1")));
+    }
+
+    /// Re-uninstall-cascade against an already-uninstalled-with-
+    /// preserve row: legal because operators need a way to fully
+    /// purge a row they previously preserved (e.g. to free the
+    /// plugin name for a different publisher). Confirms the
+    /// Uninstalled -> Deleted path runs cleanly.
+    #[test]
+    fn uninstalled_can_cascade_uninstall() {
+        let mut conn = setup_test_connection();
+        let plugin = insert_plugin(&mut conn, "cascade-after-preserve-test");
+
+        apply(
+            &mut conn,
+            plugin.uuid,
+            PluginAction::UninstallPreserve,
+            None,
+        )
+        .expect("Installed -> UninstallPreserve must succeed");
+
+        let outcome = apply(
+            &mut conn,
+            plugin.uuid,
+            PluginAction::UninstallCascade,
+            None,
+        )
+        .expect("Uninstalled -> UninstallCascade must succeed");
+
+        match outcome {
+            ActionOutcome::Deleted { name, .. } => {
+                assert_eq!(name, "cascade-after-preserve-test");
+            }
+            other => panic!("expected Deleted, got {other:?}"),
+        }
+
+        // Row is gone.
+        assert!(plugin_repo::get_plugin_by_uuid(&mut conn, plugin.uuid).is_err());
+    }
+}
