@@ -20,7 +20,7 @@ export {
 } from './loader';
 
 // Plugin API
-export { createPluginAPI, type PluginAPI } from './api';
+export { createPluginAPI, getHostApiForPlugin, type PluginAPI } from './api';
 
 // Component Loader
 export {

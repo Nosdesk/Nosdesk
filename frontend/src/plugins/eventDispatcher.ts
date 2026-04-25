@@ -7,7 +7,7 @@
 
 import { useSSE, type SSEEventType } from '@/services/sseService';
 import { getLoadedPlugins } from './loader';
-import { createPluginAPI } from './api';
+import { getHostApiForPlugin } from './api';
 import { logger } from '@/utils/logger';
 import type { PluginEvent } from '@/types/plugin';
 
@@ -51,7 +51,7 @@ const RESTRICTED_EVENTS: PluginEvent[] = [
 // =============================================================================
 
 // Cached plugin APIs for event dispatch
-const pluginApis = new Map<string, ReturnType<typeof createPluginAPI>>();
+const pluginApis = new Map<string, ReturnType<typeof getHostApiForPlugin>>();
 
 // Cleanup function reference
 let cleanupFn: (() => void) | null = null;
@@ -74,7 +74,7 @@ export function initializeEventDispatcher(): () => void {
   // Build plugin API cache
   pluginApis.clear();
   for (const { plugin } of getLoadedPlugins()) {
-    pluginApis.set(plugin.uuid, createPluginAPI(plugin));
+    pluginApis.set(plugin.uuid, getHostApiForPlugin(plugin));
   }
 
   logger.info('Event dispatcher initialized', {
@@ -158,7 +158,7 @@ function dispatchToPlugins(event: PluginEvent, data: unknown): void {
 export function refreshPluginApis(): void {
   pluginApis.clear();
   for (const { plugin } of getLoadedPlugins()) {
-    pluginApis.set(plugin.uuid, createPluginAPI(plugin));
+    pluginApis.set(plugin.uuid, getHostApiForPlugin(plugin));
   }
   logger.debug('Plugin APIs refreshed', { count: pluginApis.size });
 }

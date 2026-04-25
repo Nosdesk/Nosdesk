@@ -8,7 +8,7 @@
  */
 import { onErrorCaptured, ref, watchEffect } from 'vue';
 import { getLoadedPlugin, type PluginSlotRegistration } from '../loader';
-import { createPluginAPI } from '../api';
+import { getHostApiForPlugin } from '../api';
 import { createPluginComponent, canRenderComponent } from '../componentLoader';
 import { logger } from '@/utils/logger';
 import type { Ticket } from '@/types/ticket';
@@ -40,7 +40,7 @@ const asyncComponent = canRender
 
 // Create plugin API once at setup
 const loaded = getLoadedPlugin(props.registration.pluginUuid);
-const api = loaded ? createPluginAPI(loaded.plugin) : null;
+const api = loaded ? getHostApiForPlugin(loaded.plugin) : null;
 
 // Keep API context in sync with props
 watchEffect(() => {

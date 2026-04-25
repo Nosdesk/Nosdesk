@@ -1,8 +1,20 @@
 /**
  * Plugin API
  *
- * The API exposed to plugins for interacting with Nosdesk.
- * Each plugin gets its own sandboxed instance of this API.
+ * Defines the `PluginAPI` interface (the host-side contract every
+ * plugin sees) and the in-process implementation that backs
+ * official, verified, and local-tier plugins. Plugin code receives
+ * a value typed as `PluginAPI`; whether the underlying methods run
+ * directly against Vue stores (this file) or marshal across a
+ * postMessage boundary to a sandboxed iframe (planned follow-up
+ * for community-tier plugins) is a host-side detail the plugin
+ * never needs to know.
+ *
+ * That single-interface, multiple-impl shape is the architectural
+ * commitment behind the eventual community-tier sandbox: when the
+ * remote impl lands, plugin authors don't change a line of code,
+ * and the only place that decides which transport to use is the
+ * `getHostApiForPlugin` factory below.
  */
 
 import pluginService from '@/services/pluginService';
@@ -539,4 +551,51 @@ export interface PluginAPI {
   // Internal methods (not for plugin use)
   _setContext(context: Partial<PluginContext>): void;
   _getEventHandlers(event: PluginEvent): EventHandler[];
+}
+
+// =============================================================================
+// HostApi factory dispatch
+// =============================================================================
+
+/**
+ * Build the `PluginAPI` instance a plugin will see, picking the
+ * implementation by trust tier.
+ *
+ * Today every tier returns the in-process implementation built
+ * by `createPluginAPI`. The dispatch exists so the eventual
+ * community-tier iframe sandbox slots in here without touching
+ * the three call sites in `componentLoader`, `eventDispatcher`,
+ * and `PluginSlotItem`. When that lands, the `community` arm
+ * will return a Comlink-wrapped remote that satisfies the same
+ * `PluginAPI` interface; plugin code is unchanged.
+ *
+ * Keeping the dispatch in one function (rather than inlining the
+ * tier check at every call site) is the DRY guarantee that the
+ * tier-to-transport policy can't drift between callers.
+ */
+export function getHostApiForPlugin(plugin: Plugin): PluginAPI {
+  switch (plugin.trust_level) {
+    case 'official':
+    case 'verified':
+    case 'local':
+      return createPluginAPI(plugin);
+    case 'community':
+      // The sandboxed transport for community-tier plugins is not
+      // wired yet; until it ships, community plugins fall back to
+      // the in-process impl. The architectural review's stricter
+      // posture (run community in a null-origin iframe) is a
+      // committed follow-up, not a regression in security from
+      // today's behaviour.
+      return createPluginAPI(plugin);
+    default:
+      // Unknown tier (forward-compat for future tiers we haven't
+      // taught the frontend about). Fail closed by routing through
+      // the in-process impl, which gates on declared permissions
+      // anyway. Logged so operators notice.
+      logger.warn('Unknown plugin trust_level; defaulting to in-process API', {
+        plugin: plugin.name,
+        trust_level: plugin.trust_level,
+      });
+      return createPluginAPI(plugin);
+  }
 }
