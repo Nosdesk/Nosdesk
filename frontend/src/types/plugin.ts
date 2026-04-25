@@ -7,23 +7,100 @@
 // Plugin Manifest
 // =============================================================================
 
+// Mirrors the Rust PluginManifest. The schema is locked behind
+// manifest_version: 1; future schema bumps land as a new
+// PluginManifestV2 type rather than mutations of this one.
 export interface PluginManifest {
+  manifest_version: 1;
   name: string;
   displayName: string;
   version: string;
   description?: string;
-  icon?: string; // URL, data URI, or emoji for plugin icon
-  repository?: string; // URL to source repository (GitHub, etc.)
-  homepage?: string; // Plugin homepage or documentation URL
-  author?: string; // Author name or organization
+  license?: string;
+  author?: string;
+  repository?: string;
+  homepage?: string;
+  /** Issue tracker URL, distinct from `repository`. */
+  bugs?: string;
+  /** Email or URL for end-user support. */
+  support_contact?: string;
+  // Plugin-level icon is NOT stored in the manifest. By convention,
+  // plugins ship `icon.svg` at the zip root; the backend extracts
+  // it into the `plugins.icon_svg` column and serves it from
+  // GET /api/plugins/<uuid>/icon. UI components use that URL.
+  engines: PluginEngines;
+  /** Other plugins this one requires. Map of plugin name to
+   * semver requirement. The install pipeline validates the
+   * requirement is well-formed; runtime enforcement of dep
+   * presence lands in a future Nosdesk version. */
+  dependencies?: Record<string, string>;
+  categories?: string[];
+  tags?: string[];
+  screenshots?: string[];
   permissions: string[];
   components: Record<string, PluginComponentConfig>;
   events: string[];
   settings: PluginSettingDefinition[];
   collections?: Record<string, CollectionDefinition>;
+  lifecycle?: PluginLifecyclePolicy;
+  /** RESERVED in v1: declared, validated, but the runtime
+   * dispatcher hasn't shipped. Plugins must leave these empty
+   * until support lands. */
+  commands?: PluginCommandDefinition[];
+  menus?: Record<string, PluginMenuItem[]>;
+  url_handlers?: PluginUrlHandler[];
+  /** RESERVED for typed inter-plugin exports. */
+  extensions?: unknown;
 }
 
+export interface PluginCommandDefinition {
+  /** Stable namespaced identifier, e.g. `github.sync`. */
+  id: string;
+  title: string;
+  /** Optional context filter that scopes when the command is
+   * available (e.g. `ticket`). */
+  when?: string;
+}
+
+export interface PluginMenuItem {
+  command: string;
+  /** Optional grouping hint, e.g. `integrations`. */
+  group?: string;
+}
+
+export interface PluginUrlHandler {
+  /** Glob-like pattern under the plugin's namespace, e.g.
+   * `link/*` becomes `nosdesk://plugin/<plugin-name>/link/*`. */
+  pattern: string;
+  command?: string;
+}
+
+export interface PluginEngines {
+  /** SemVer requirement against the running Nosdesk version. */
+  nosdesk: string;
+  /** Plugin runtime API major version. v1 is "1". */
+  plugin_api: string;
+}
+
+export interface PluginLifecyclePolicy {
+  /** What to do with plugin-owned data on uninstall. Default cascade. */
+  on_uninstall?: 'cascade' | 'preserve';
+}
+
+/** Component "kind". Only `slot` is implemented in v1; the others
+ * are reserved so a forward-looking manifest can declare them now
+ * (the install pipeline rejects with a clear "kind not yet
+ * supported" error). */
+export type PluginComponentKind =
+  | 'slot'
+  | 'settings'
+  | 'admin_page'
+  | 'worker'
+  | 'webhook';
+
 export interface PluginComponentConfig {
+  /** Defaults to 'slot' on the wire when unset. */
+  kind?: PluginComponentKind;
   slot: PluginSlot;
   entry: string;
   context?: string[];
@@ -36,11 +113,26 @@ export interface PluginComponentConfig {
 
 export interface PluginSettingDefinition {
   key: string;
-  type: 'string' | 'number' | 'boolean' | 'secret' | 'select';
+  type:
+    | 'string'
+    | 'number'
+    | 'boolean'
+    | 'secret'
+    | 'select'
+    // Reserved — wire-format-supported, frontend renderer pending:
+    | 'multiline_string'
+    | 'select_multi'
+    | 'json'
+    | 'url'
+    | 'date';
   label: string;
   description?: string;
   required?: boolean;
   default?: unknown;
+  /** Storage scope. `global` (default) means one value per
+   * instance; `user` means one value per logged-in user. RESERVED
+   * in v1: backend refuses `user` until per-user storage lands. */
+  scope?: 'global' | 'user';
   options?: { value: string; label: string }[];
 }
 
@@ -50,6 +142,13 @@ export interface PluginSettingDefinition {
 
 export type PluginTrustLevel = 'official' | 'verified' | 'community' | 'local';
 export type PluginSource = 'provisioned' | 'uploaded' | 'cli' | 'registry';
+
+/** Lifecycle state of a plugin row, mirroring the Rust enum. */
+export type PluginState =
+  | 'installed'
+  | 'disabled'
+  | 'quarantined'
+  | 'uninstalled';
 
 // =============================================================================
 // Registry types (mirror the JSON served by nosdesk.com)
@@ -79,6 +178,9 @@ export interface RegistryPlugin {
   publisher_pubkey: string;
   description: string | null;
   homepage: string | null;
+  /** https URL of the plugin's icon SVG. Optional; missing means
+   * the registry build didn't pick one up from the source repo. */
+  icon_url?: string | null;
   versions: RegistryVersion[];
 }
 
@@ -108,7 +210,14 @@ export interface Plugin {
   version: string;
   description: string | null;
   manifest: PluginManifest;
+  /** Backward-compat: derived from `state === 'installed'`. New
+   * code should branch on `state` directly. */
   enabled: boolean;
+  /** Lifecycle state. `installed` is active; `disabled` is admin-
+   * paused; `quarantined` is a trust-failure parking lot; and
+   * `uninstalled` is a row preserved for data attachment after
+   * a plugin declared `lifecycle.on_uninstall: "preserve"`. */
+  state: PluginState;
   trust_level: PluginTrustLevel;
   source: PluginSource;
   installed_by: string | null;
@@ -157,6 +266,9 @@ export interface CollectionFieldDefinition {
 }
 
 export interface CollectionDefinition {
+  /** Required in manifest_version 1. Future migrations declare a
+   * higher value plus a `migrations` array (not yet implemented). */
+  schema_version: 1;
   label?: string;
   fields: Record<string, CollectionFieldDefinition>;
 }
@@ -255,28 +367,40 @@ export const PLUGIN_SLOTS: Record<PluginSlot, { multiple: boolean; description: 
 // Plugin Permissions
 // =============================================================================
 
+// Canonical permission namespace mirrors the backend allowlist
+// in `services/plugins/manifest_validate.rs::KNOWN_PERMISSIONS`
+// and is enforced at runtime by `hasPermission()` checks in
+// `plugins/api.ts`. Singular resource names, `<resource>:<action>`
+// shape, plus a `network:<host>` prefix for outbound HTTP claims.
+//
+// Adding a permission: extend the backend allowlist, add the
+// runtime check at the relevant `api.*` method, and add the
+// literal to this union. The user-visible label/description
+// table below feeds the install confirmation UI.
 export type PluginPermission =
-  | 'tickets:read'
-  | 'tickets:comment'
-  | 'tickets:link'
-  | 'devices:read'
-  | 'documents:read'
-  | 'storage'
-  | 'collections'
-  | 'collections:read'
-  | 'collections:write'
-  | `external:${string}`;
+  | 'ticket:read'
+  | 'ticket:write'
+  | 'ticket:comment'
+  | 'ticket:delete'
+  | 'device:read'
+  | 'device:write'
+  | 'user:read'
+  | 'storage:plugin'
+  | 'collection:read'
+  | 'collection:write'
+  | `network:${string}`;
 
 export const PLUGIN_PERMISSIONS: { value: PluginPermission; label: string; description: string }[] = [
-  { value: 'tickets:read', label: 'Read Tickets', description: 'Read ticket data' },
-  { value: 'tickets:comment', label: 'Comment on Tickets', description: 'Add comments to tickets' },
-  { value: 'tickets:link', label: 'Link Tickets', description: 'Add external links to tickets' },
-  { value: 'devices:read', label: 'Read Devices', description: 'Read device data' },
-  { value: 'documents:read', label: 'Read Documents', description: 'Read document data' },
-  { value: 'storage', label: 'Plugin Storage', description: 'Store plugin-specific data' },
-  { value: 'collections', label: 'Collections', description: 'Read and write typed collection data' },
-  { value: 'collections:read', label: 'Read Collections', description: 'Read typed collection data' },
-  { value: 'collections:write', label: 'Write Collections', description: 'Write typed collection data' },
+  { value: 'ticket:read',       label: 'Read Tickets',       description: 'Read ticket data' },
+  { value: 'ticket:write',      label: 'Write Tickets',      description: 'Create and update tickets' },
+  { value: 'ticket:comment',    label: 'Comment on Tickets', description: 'Add comments to tickets' },
+  { value: 'ticket:delete',     label: 'Delete Tickets',     description: 'Delete tickets' },
+  { value: 'device:read',       label: 'Read Devices',       description: 'Read device data' },
+  { value: 'device:write',      label: 'Write Devices',      description: 'Create and update devices' },
+  { value: 'user:read',         label: 'Read Users',         description: 'Read user profile data' },
+  { value: 'storage:plugin',    label: 'Plugin Storage',     description: 'Store plugin-scoped key-value data' },
+  { value: 'collection:read',   label: 'Read Collections',   description: 'Read typed collection rows' },
+  { value: 'collection:write',  label: 'Write Collections',  description: 'Create and update typed collection rows' },
 ];
 
 // =============================================================================

@@ -113,8 +113,20 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
     manifest,
   });
 
-  // Register components in slots
+  // Register components in slots. v1 only honors `kind === "slot"`
+  // (default when omitted); reserved kinds like `admin_page` /
+  // `worker` are quietly skipped here so a forward-looking manifest
+  // doesn't break the dispatcher. The backend already refuses to
+  // INSTALL such plugins on this version, so this is a belt-and-
+  // suspenders skip in case we ever loosen the install gate.
   for (const [componentName, config] of Object.entries(manifest.components)) {
+    if (config.kind && config.kind !== 'slot') {
+      logger.debug(
+        `Skipping plugin component with unsupported kind: ${config.kind}`,
+        { plugin: plugin.name, componentName }
+      );
+      continue;
+    }
     const slot = config.slot as PluginSlot;
 
     const registration: PluginSlotRegistration = {
@@ -137,7 +149,11 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
         componentName,
         slot,
         label: config.action.label,
-        icon: config.icon || manifest.icon,
+        // Per-component icon comes from the manifest's component
+        // config (small inline glyph or override). Plugin-level
+        // identity icon is served from /api/plugins/<uuid>/icon and
+        // referenced separately by the plugin list views.
+        icon: config.icon,
         componentLabel: config.label,
       };
 

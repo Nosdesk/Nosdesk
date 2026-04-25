@@ -76,6 +76,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
   };
 
   const api: PluginAPI = {
+    version: '1.0.0',
+
     // === Plugin Info ===
     plugin: {
       uuid: plugin.uuid,
@@ -87,8 +89,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     // === READ: Access core data ===
     tickets: {
       async get(id: number): Promise<Ticket | null> {
-        if (!hasPermission('tickets:read')) {
-          logger.warn(`Plugin ${plugin.name} denied tickets:read permission`);
+        if (!hasPermission('ticket:read')) {
+          logger.warn(`Plugin ${plugin.name} denied ticket:read permission`);
           return null;
         }
         try {
@@ -99,8 +101,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         }
       },
       async list(): Promise<Ticket[]> {
-        if (!hasPermission('tickets:read')) {
-          logger.warn(`Plugin ${plugin.name} denied tickets:read permission`);
+        if (!hasPermission('ticket:read')) {
+          logger.warn(`Plugin ${plugin.name} denied ticket:read permission`);
           return [];
         }
         try {
@@ -111,8 +113,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         }
       },
       async addComment(ticketId: number, comment: PluginComment): Promise<boolean> {
-        if (!hasPermission('tickets:comment')) {
-          logger.warn(`Plugin ${plugin.name} denied tickets:comment permission`);
+        if (!hasPermission('ticket:comment')) {
+          logger.warn(`Plugin ${plugin.name} denied ticket:comment permission`);
           return false;
         }
         try {
@@ -127,8 +129,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
 
     devices: {
       async get(id: number): Promise<Device | null> {
-        if (!hasPermission('devices:read')) {
-          logger.warn(`Plugin ${plugin.name} denied devices:read permission`);
+        if (!hasPermission('device:read')) {
+          logger.warn(`Plugin ${plugin.name} denied device:read permission`);
           return null;
         }
         try {
@@ -139,8 +141,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         }
       },
       async list(): Promise<Device[]> {
-        if (!hasPermission('devices:read')) {
-          logger.warn(`Plugin ${plugin.name} denied devices:read permission`);
+        if (!hasPermission('device:read')) {
+          logger.warn(`Plugin ${plugin.name} denied device:read permission`);
           return [];
         }
         try {
@@ -155,8 +157,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     // === ATTACHMENTS: Access ticket attachments ===
     attachments: {
       async list(ticketId: number): Promise<PluginAttachment[]> {
-        if (!hasPermission('tickets:read')) {
-          logger.warn(`Plugin ${plugin.name} denied tickets:read permission`);
+        if (!hasPermission('ticket:read')) {
+          logger.warn(`Plugin ${plugin.name} denied ticket:read permission`);
           return [];
         }
         try {
@@ -184,8 +186,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         }
       },
       async getContent(attachmentId: number, ticketId: number): Promise<{ blob: Blob; name: string; mimeType: string } | null> {
-        if (!hasPermission('tickets:read')) {
-          logger.warn(`Plugin ${plugin.name} denied tickets:read permission`);
+        if (!hasPermission('ticket:read')) {
+          logger.warn(`Plugin ${plugin.name} denied ticket:read permission`);
           return null;
         }
         try {
@@ -202,8 +204,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         }
       },
       async getBase64(attachmentId: number, ticketId: number): Promise<{ data: string; name: string; mimeType: string } | null> {
-        if (!hasPermission('tickets:read')) {
-          logger.warn(`Plugin ${plugin.name} denied tickets:read permission`);
+        if (!hasPermission('ticket:read')) {
+          logger.warn(`Plugin ${plugin.name} denied ticket:read permission`);
           return null;
         }
         try {
@@ -252,8 +254,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     // === STORE: Plugin data ===
     storage: {
       async get<T>(key: string): Promise<T | null> {
-        if (!hasPermission('storage')) {
-          logger.warn(`Plugin ${plugin.name} denied storage permission`);
+        if (!hasPermission('storage:plugin')) {
+          logger.warn(`Plugin ${plugin.name} denied storage:plugin permission`);
           return null;
         }
         try {
@@ -265,8 +267,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         }
       },
       async set<T>(key: string, value: T): Promise<boolean> {
-        if (!hasPermission('storage')) {
-          logger.warn(`Plugin ${plugin.name} denied storage permission`);
+        if (!hasPermission('storage:plugin')) {
+          logger.warn(`Plugin ${plugin.name} denied storage:plugin permission`);
           return false;
         }
         try {
@@ -278,8 +280,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         }
       },
       async delete(key: string): Promise<boolean> {
-        if (!hasPermission('storage')) {
-          logger.warn(`Plugin ${plugin.name} denied storage permission`);
+        if (!hasPermission('storage:plugin')) {
+          logger.warn(`Plugin ${plugin.name} denied storage:plugin permission`);
           return false;
         }
         try {
@@ -295,8 +297,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     // === COLLECTIONS: Typed collection data ===
     collections: {
       get(collectionName: string) {
-        const hasCollectionRead = hasPermission('collections') || hasPermission('collections:read');
-        const hasCollectionWrite = hasPermission('collections') || hasPermission('collections:write');
+        const hasCollectionRead = hasPermission('collection:read');
+        const hasCollectionWrite = hasPermission('collection:write');
 
         return {
           async create(data: Record<string, unknown>): Promise<CollectionRow | null> {
@@ -418,6 +420,19 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
 // =============================================================================
 
 export interface PluginAPI {
+  /** Plugin runtime API version exposed to plugin code as a
+   * semver string. The major component is the breaking-change
+   * signal — `engines.plugin_api: "1"` matches every `1.x.y`
+   * runtime; bumping to `"2"` requires every plugin to opt in.
+   * The minor component advances when we ADD API methods within
+   * the v1 family, letting plugins capability-detect:
+   *
+   *     // semver-aware feature detect
+   *     const [major, minor] = api.version.split('.').map(Number);
+   *     if (major >= 1 && minor >= 2 && api.notifications) { ... }
+   */
+  version: string;
+
   // Plugin info
   plugin: {
     uuid: string;

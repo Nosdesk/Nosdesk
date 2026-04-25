@@ -50,10 +50,30 @@ COPY backend/Cargo.toml backend/Cargo.lock ./
 COPY backend/src ./src
 COPY backend/migrations ./migrations
 
+# Ed25519 root pubkey for the plugin registry trust chain. Baked
+# into the compiled binary via `option_env!("NOSDESK_ROOT_PUBKEY")`
+# in services/plugins/signing.rs. Published at
+# https://nosdesk.com/registry/root.pub for anyone reproducing an
+# official Nosdesk build. Forks that want their own trust root
+# override this at build time:
+#
+#     docker build --build-arg NOSDESK_ROOT_PUBKEY='<base64>' ...
+#
+# Empty default: a binary built without the arg has `root_pubkey()
+# == None`, official + verified installs fail closed, only the
+# CLI-installed `local` tier and filesystem-provisioned plugins
+# work. Correct for an unconfigured fork, useless for an official
+# release — CI must set the arg.
+ARG NOSDESK_ROOT_PUBKEY=""
+
 # Build the server + the nosdesk-cli admin tool together; both
 # link against the same library crate and the extra binary is a
-# trivial addition to a build we're doing anyway.
-RUN cargo build --release --bin backend --bin nosdesk-cli
+# trivial addition to a build we're doing anyway. The pubkey is
+# passed inline rather than via `ENV` so it doesn't persist into
+# the layer's metadata; it IS a public value, but keeping build
+# secrets discipline tidy by convention.
+RUN NOSDESK_ROOT_PUBKEY="$NOSDESK_ROOT_PUBKEY" \
+    cargo build --release --bin backend --bin nosdesk-cli
 
 # Stage 4: Build frontend
 FROM node:18-alpine as frontend-builder

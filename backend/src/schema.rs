@@ -662,7 +662,6 @@ diesel::table! {
         version -> Varchar,
         description -> Nullable<Text>,
         manifest -> Jsonb,
-        enabled -> Bool,
         #[max_length = 50]
         trust_level -> Varchar,
         installed_by -> Nullable<Uuid>,
@@ -678,6 +677,9 @@ diesel::table! {
         #[max_length = 32]
         signer_source -> Nullable<Varchar>,
         signature_metadata -> Nullable<Jsonb>,
+        icon_svg -> Nullable<Bytea>,
+        #[max_length = 32]
+        state -> Varchar,
     }
 }
 

@@ -42,6 +42,13 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        # Passed through to the Rust build so option_env!() picks up
+        # the real Nosdesk root pubkey. Operators can override by
+        # setting NOSDESK_ROOT_PUBKEY in docker.env (or their shell)
+        # before running `docker compose build`. Unset = empty =
+        # official/verified installs fail closed until configured.
+        NOSDESK_ROOT_PUBKEY: ${NOSDESK_ROOT_PUBKEY:-}
     platform: linux/amd64
     restart: unless-stopped
     env_file: docker.env

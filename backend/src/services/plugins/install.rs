@@ -21,7 +21,8 @@ use crate::models::{
     NewPlugin, Plugin, PluginBundleUpdate, PluginManifest, PluginUpdate,
 };
 use crate::repository::plugins as plugin_repo;
-use crate::services::plugins::{signing, trust, validation};
+use crate::repository::plugin_publishers;
+use crate::services::plugins::{manifest_validate, signing, svg_validate, trust, validation};
 
 /// Cap on the staged bundle.js size. The outer archive cap is
 /// enforced by `signing::MAX_ENTRY_SIZE` at verification time; this
@@ -71,10 +72,31 @@ impl InstallOutcome {
 pub enum InstallError {
     MissingManifest,
     InvalidManifest(String),
-    InvalidName(String),
     BundleTooLarge(usize),
     BundleWriteFailed(String),
+    InvalidIcon(svg_validate::SvgValidationError),
+    /// Manifest schema rule violated (unknown permission, wrong
+    /// `manifest_version`, author / publisher mismatch, etc.).
+    /// Distinct from `InvalidManifest` (which is parse-level) so
+    /// the API response can give a precise reason.
+    InvalidManifestSchema(manifest_validate::ManifestValidationError),
+    /// Reinstall over an `Uninstalled`-with-preserve row was
+    /// attempted with a signer pubkey that doesn't match the one
+    /// captured at the original install. Closes the cross-publisher
+    /// data inheritance bypass: the preserved plugin_data belongs
+    /// to the original signer, so resurrecting under a different
+    /// publisher would silently inherit it.
+    ReinstallSignerMismatch {
+        existing_fingerprint: String,
+        attempted_fingerprint: String,
+    },
     Db(diesel::result::Error),
+}
+
+impl From<manifest_validate::ManifestValidationError> for InstallError {
+    fn from(value: manifest_validate::ManifestValidationError) -> Self {
+        InstallError::InvalidManifestSchema(value)
+    }
 }
 
 impl std::fmt::Display for InstallError {
@@ -82,11 +104,19 @@ impl std::fmt::Display for InstallError {
         match self {
             Self::MissingManifest => write!(f, "zip does not contain manifest.json"),
             Self::InvalidManifest(m) => write!(f, "invalid manifest.json: {m}"),
-            Self::InvalidName(m) => write!(f, "invalid plugin name: {m}"),
             Self::BundleTooLarge(sz) => {
                 write!(f, "bundle is {sz} bytes, exceeds {MAX_BUNDLE_SIZE}")
             }
             Self::BundleWriteFailed(m) => write!(f, "failed to stage bundle: {m}"),
+            Self::InvalidIcon(e) => write!(f, "icon.svg rejected: {e}"),
+            Self::InvalidManifestSchema(e) => write!(f, "manifest rejected: {e}"),
+            Self::ReinstallSignerMismatch {
+                existing_fingerprint,
+                attempted_fingerprint,
+            } => write!(
+                f,
+                "reinstall refused: this plugin name was previously installed by signer {existing_fingerprint}; attempted reinstall is signed by {attempted_fingerprint}. Hard-uninstall (cascade) the existing row before reinstalling under a different publisher."
+            ),
             // Raw Diesel error stays in the log, not the response.
             Self::Db(_) => write!(f, "database error"),
         }
@@ -106,10 +136,16 @@ impl From<diesel::result::Error> for InstallError {
 /// pipeline. Signature verification + trust resolution are the
 /// caller's job; by the time the bytes get here, they've been
 /// vouched for.
+///
+/// `tier` is the resolved trust tier from `trust::resolve`. It's
+/// load-bearing because the manifest validator uses it for author
+/// binding (official → "Nosdesk", verified/community → matches
+/// publishers.json display name, local → skipped).
 pub fn install_verified(
     conn: &mut DbConnection,
     files: &[signing::ArchiveEntry],
     signer: trust::PluginSignerFields,
+    tier: trust::ResolvedTier,
     options: InstallOptions,
 ) -> Result<InstallOutcome, InstallError> {
     let manifest_bytes =
@@ -117,7 +153,31 @@ pub fn install_verified(
     let manifest: PluginManifest = serde_json::from_slice(manifest_bytes)
         .map_err(|e| InstallError::InvalidManifest(e.to_string()))?;
 
-    validate_plugin_name(&manifest.name)?;
+    // Plugin name is validated as part of manifest_validate::validate
+    // below — no need for a separate first-pass check.
+
+    // Manifest schema check. Looks up the publisher's display name
+    // when needed for author binding; `find_publisher_by_pubkey`
+    // returns `Ok(None)` for tiers that don't have a publisher row
+    // (official, local), and validate() handles those branches.
+    let publisher_display_name: Option<String> = match tier {
+        trust::ResolvedTier::Verified | trust::ResolvedTier::Community => signer
+            .signer_pubkey
+            .as_ref()
+            .map(|pk| plugin_publishers::find_publisher_by_pubkey(conn, pk))
+            .transpose()?
+            .flatten()
+            .map(|p| p.display_name),
+        _ => None,
+    };
+    manifest_validate::validate(
+        &manifest,
+        &manifest_validate::ValidationContext {
+            tier: &tier,
+            publisher_display_name: publisher_display_name.as_deref(),
+            nosdesk_version: env!("CARGO_PKG_VERSION"),
+        },
+    )?;
 
     let bundle_bytes = signing::find_entry(files, "bundle.js");
     if let Some(b) = bundle_bytes {
@@ -125,6 +185,16 @@ pub fn install_verified(
             return Err(InstallError::BundleTooLarge(b.len()));
         }
     }
+
+    // Optional icon. Validated here so the same rules apply on
+    // both the registry-install path and the zip-upload path.
+    let icon_bytes: Option<Vec<u8>> = match signing::find_entry(files, "icon.svg") {
+        Some(bytes) => {
+            svg_validate::validate(bytes).map_err(InstallError::InvalidIcon)?;
+            Some(bytes.to_vec())
+        }
+        None => None,
+    };
 
     let manifest_json = serde_json::to_value(&manifest)
         .map_err(|e| InstallError::InvalidManifest(e.to_string()))?;
@@ -138,21 +208,37 @@ pub fn install_verified(
                 .map_err(|e| InstallError::InvalidManifest(e.to_string()))?;
             let version_same = existing_manifest.version == manifest.version;
             let bundle_same = !bundle_hash_differs(&existing, bundle_bytes);
-            if version_same && bundle_same {
+            let icon_same = existing.icon_svg.as_deref() == icon_bytes.as_deref();
+            if version_same && bundle_same && icon_same {
                 if options.provision_settings {
                     provision_settings_from_env(conn, &existing, &manifest);
                 }
                 return Ok(InstallOutcome::Unchanged(existing));
             }
             InstallOutcome::Updated(update_row(
-                conn, existing, &manifest, manifest_json, &signer,
+                conn,
+                existing,
+                &manifest,
+                manifest_json,
+                &signer,
+                &icon_bytes,
             )?)
         }
         Some(existing) => InstallOutcome::Updated(update_row(
-            conn, existing, &manifest, manifest_json, &signer,
+            conn,
+            existing,
+            &manifest,
+            manifest_json,
+            &signer,
+            &icon_bytes,
         )?),
         None => InstallOutcome::Created(create_row(
-            conn, &manifest, manifest_json, signer.clone(), &options,
+            conn,
+            &manifest,
+            manifest_json,
+            signer.clone(),
+            &options,
+            icon_bytes.clone(),
         )?),
     };
 
@@ -205,17 +291,63 @@ fn update_row(
     manifest: &PluginManifest,
     manifest_json: serde_json::Value,
     signer: &trust::PluginSignerFields,
+    icon_bytes: &Option<Vec<u8>>,
 ) -> Result<Plugin, InstallError> {
+    // Re-installing a previously uninstalled plugin is a state
+    // transition (`Uninstalled -> Installed`); route it through
+    // the lifecycle module so signer continuity is enforced and
+    // the activity log is written atomically. The lifecycle
+    // module refuses the reinstall if the new signer's pubkey
+    // doesn't match the one captured at the original install,
+    // which is the architectural fix for the cross-publisher
+    // data-inheritance bypass.
+    if existing.state == crate::models::PluginState::Uninstalled {
+        use crate::services::plugins::lifecycle::{apply, ActionError, PluginAction};
+        let action = PluginAction::Reinstall {
+            signer_pubkey: signer.signer_pubkey.clone(),
+        };
+        match apply(conn, existing.uuid, action, None) {
+            Ok(_) => {}
+            Err(ActionError::SignerMismatch {
+                existing_fingerprint,
+                attempted_fingerprint,
+            }) => {
+                return Err(InstallError::ReinstallSignerMismatch {
+                    existing_fingerprint,
+                    attempted_fingerprint,
+                });
+            }
+            Err(ActionError::Db(e)) => return Err(InstallError::Db(e)),
+            Err(ActionError::NoSuchPlugin) => {
+                return Err(InstallError::Db(diesel::result::Error::NotFound));
+            }
+            Err(e @ ActionError::InvalidTransition { .. }) => {
+                // Should be unreachable: we just checked the state
+                // is `Uninstalled` and lifecycle accepts that for
+                // Reinstall. Treat as a programming error.
+                return Err(InstallError::InvalidManifest(format!(
+                    "lifecycle refused reinstall: {e}"
+                )));
+            }
+        }
+    }
+
     let update = PluginUpdate {
         display_name: Some(manifest.display_name.clone()),
         version: Some(manifest.version.clone()),
         description: manifest.description.clone(),
         manifest: Some(manifest_json),
-        enabled: None,
+        // State changes flow through `lifecycle::apply` (above);
+        // never write `state` directly from the install path.
+        state: None,
         trust_level: Some(signer.trust_level.clone()),
         signer_pubkey: signer.signer_pubkey.clone(),
         signer_source: signer.signer_source.clone(),
         signature_metadata: signer.signature_metadata.clone(),
+        // `Some(Some(bytes))` writes the icon. `Some(None)` clears
+        // it (previous version had one, this one doesn't). The
+        // icon is always replaced wholesale on update, no merging.
+        icon_svg: Some(icon_bytes.clone()),
     };
     Ok(plugin_repo::update_plugin_by_uuid(conn, existing.uuid, update)?)
 }
@@ -226,6 +358,7 @@ fn create_row(
     manifest_json: serde_json::Value,
     signer: trust::PluginSignerFields,
     options: &InstallOptions,
+    icon_bytes: Option<Vec<u8>>,
 ) -> Result<Plugin, InstallError> {
     let new_plugin = NewPlugin {
         name: manifest.name.clone(),
@@ -233,13 +366,14 @@ fn create_row(
         version: manifest.version.clone(),
         description: manifest.description.clone(),
         manifest: manifest_json,
-        enabled: true,
+        state: crate::models::PluginState::Installed,
         trust_level: signer.trust_level,
         installed_by: options.installed_by,
         source: options.source.to_string(),
         signer_pubkey: signer.signer_pubkey,
         signer_source: signer.signer_source,
         signature_metadata: signer.signature_metadata,
+        icon_svg: icon_bytes,
     };
     Ok(plugin_repo::create_plugin(conn, new_plugin)?)
 }
@@ -295,34 +429,10 @@ fn bundle_hash_differs(plugin: &Plugin, new_bytes: Option<&[u8]>) -> bool {
     plugin.bundle_hash.as_ref() != Some(&new_hash) || !dest_exists
 }
 
-/// Names must be 1-100 chars, lowercase ASCII letters / digits /
-/// hyphens. Shared by HTTP and filesystem installs so neither can
-/// smuggle in a name the other would reject.
-fn validate_plugin_name(name: &str) -> Result<(), InstallError> {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return Err(InstallError::InvalidName("name is required".into()));
-    }
-    if trimmed.len() > 100 {
-        return Err(InstallError::InvalidName(
-            "must be 100 characters or fewer".into(),
-        ));
-    }
-    if !trimmed
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-    {
-        return Err(InstallError::InvalidName(
-            "only lowercase ASCII letters, digits, and hyphens".into(),
-        ));
-    }
-    if trimmed != name {
-        return Err(InstallError::InvalidName(
-            "leading / trailing whitespace is not allowed".into(),
-        ));
-    }
-    Ok(())
-}
+// Plugin name validation lives in `manifest_validate::validate_name`
+// and is invoked as part of the schema check above. Keeping the
+// rules in one place means HTTP / registry / CLI / provisioning
+// installs can't drift apart.
 
 /// Provision plugin settings from environment variables using the
 /// pattern `PLUGIN_{PLUGIN_NAME}_{SETTING_KEY}=value`. Plugin name

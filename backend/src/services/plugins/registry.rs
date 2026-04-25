@@ -110,6 +110,12 @@ pub struct PluginIndexEntry {
     pub publisher_pubkey: String,
     pub description: Option<String>,
     pub homepage: Option<String>,
+    /// Optional `https://` URL of an SVG icon for the registry
+    /// browse UI. Pre-install rendering only; once installed, the
+    /// icon comes from the bundled `icon.svg` extracted into the
+    /// `plugins.icon_svg` column.
+    #[serde(default)]
+    pub icon_url: Option<String>,
     pub versions: Vec<VersionEntry>,
 }
 

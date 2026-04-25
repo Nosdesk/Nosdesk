@@ -36,23 +36,16 @@ pub struct PaginationQuery {
 // =============================================================================
 
 
-/// Validate plugin name
+/// Map the canonical plugin-name validator (used everywhere the
+/// install pipeline runs) to a 400 response for the legacy
+/// JSON-install handler. The rules themselves live in
+/// `services::plugins::manifest_validate::validate_name` so the
+/// JSON path can't drift from what the signed-zip / registry /
+/// CLI paths accept.
 fn validate_plugin_name(name: &str) -> Result<String, HttpResponse> {
     let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return Err(HttpResponse::BadRequest().json("Plugin name is required"));
-    }
-    if trimmed.len() > 100 {
-        return Err(HttpResponse::BadRequest().json("Plugin name must be 100 characters or less"));
-    }
-    // Plugin names should be lowercase with dashes
-    if !trimmed
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-    {
-        return Err(HttpResponse::BadRequest()
-            .json("Plugin name must be lowercase with dashes only (e.g., 'my-plugin')"));
-    }
+    crate::services::plugins::manifest_validate::validate_name(trimmed)
+        .map_err(|e| HttpResponse::BadRequest().json(e.to_string()))?;
     Ok(trimmed.to_string())
 }
 
@@ -188,13 +181,14 @@ pub async fn install_plugin(
         version: body.manifest.version.clone(),
         description: body.manifest.description.clone(),
         manifest: manifest_json,
-        enabled: true,
+        state: crate::models::PluginState::Installed,
         trust_level,
         installed_by,
         source: "uploaded".to_string(),
         signer_pubkey: None,
         signer_source: None,
         signature_metadata: None,
+        icon_svg: None,
     };
 
     match plugin_repo::create_plugin(&mut conn, new_plugin) {
@@ -303,73 +297,134 @@ pub async fn update_plugin(
         Err(e) => return e,
     };
 
-    let mut update = PluginUpdate::default();
-
+    // Enable/disable goes through `lifecycle::apply` so the state
+    // transition + activity log are atomic, the (state, action)
+    // pair is exhaustively legality-checked, and a quarantined
+    // plugin can't be silently un-quarantined via this endpoint.
     if let Some(enabled) = body.enabled {
-        update.enabled = Some(enabled);
+        let action = if enabled {
+            crate::services::plugins::lifecycle::PluginAction::Enable
+        } else {
+            crate::services::plugins::lifecycle::PluginAction::Disable
+        };
+        match crate::services::plugins::lifecycle::apply(
+            &mut conn,
+            plugin_uuid,
+            action,
+            user_uuid,
+        ) {
+            Ok(_) => {}
+            Err(crate::services::plugins::lifecycle::ActionError::NoSuchPlugin) => {
+                return HttpResponse::NotFound().json("Plugin not found");
+            }
+            Err(crate::services::plugins::lifecycle::ActionError::InvalidTransition {
+                from,
+                action,
+            }) => {
+                return HttpResponse::Conflict().json(format!(
+                    "Cannot {action} a plugin in state {from}"
+                ));
+            }
+            Err(e) => {
+                error!("Failed to toggle plugin state: {}", e);
+                return HttpResponse::InternalServerError().json("Failed to toggle plugin");
+            }
+        }
     }
 
-    if let Some(ref manifest) = body.manifest {
+    // Manifest update (separate from state toggle). Skipped if
+    // body.manifest is absent, in which case we just return the
+    // current row reflecting whatever lifecycle changes happened
+    // above.
+    let updated_plugin = if let Some(ref manifest) = body.manifest {
+        let mut update = PluginUpdate::default();
         update.display_name = Some(manifest.display_name.clone());
         update.version = Some(manifest.version.clone());
         update.description = manifest.description.clone();
         if let Ok(v) = serde_json::to_value(manifest) {
             update.manifest = Some(v);
         }
-    }
 
-    match plugin_repo::update_plugin_by_uuid(&mut conn, plugin_uuid, update) {
-        Ok(updated) => {
-            info!("Plugin updated: {} ({})", updated.uuid, updated.name);
-
-            // Sync collection schemas if manifest was updated
-            if let Some(ref manifest) = body.manifest {
+        match plugin_repo::update_plugin_by_uuid(&mut conn, plugin_uuid, update) {
+            Ok(updated) => {
+                info!("Plugin manifest updated: {} ({})", updated.uuid, updated.name);
                 if let Err(e) = crate::services::plugins::validation::sync_collection_schemas(
                     &mut conn,
                     plugin.id,
                     manifest,
                 ) {
-                    warn!("Failed to sync collection schemas for plugin {}: {}", updated.name, e);
+                    warn!(
+                        "Failed to sync collection schemas for plugin {}: {}",
+                        updated.name, e
+                    );
                 }
+                let _ = plugin_repo::log_plugin_activity(
+                    &mut conn,
+                    plugin.id,
+                    "manifest_updated".to_string(),
+                    Some(serde_json::json!({ "version": manifest.version })),
+                    user_uuid,
+                );
+                updated
             }
-
-            // Log the update activity
-            let _ = plugin_repo::log_plugin_activity(
-                &mut conn,
-                plugin.id,
-                "updated".to_string(),
-                Some(serde_json::json!({
-                    "enabled": body.enabled,
-                    "version_updated": body.manifest.is_some(),
-                })),
-                user_uuid,
-            );
-
-            match PluginResponse::try_from(updated) {
-                Ok(response) => HttpResponse::Ok().json(response),
-                Err(e) => {
-                    error!("Failed to serialize plugin response: {}", e);
-                    HttpResponse::InternalServerError().json("Plugin updated but response failed")
-                }
+            Err(DieselError::NotFound) => {
+                return HttpResponse::NotFound().json("Plugin not found");
+            }
+            Err(e) => {
+                error!("Failed to update plugin manifest: {}", e);
+                return HttpResponse::InternalServerError().json("Failed to update plugin");
             }
         }
-        Err(DieselError::NotFound) => HttpResponse::NotFound().json("Plugin not found"),
+    } else {
+        // No manifest update; re-fetch to capture any state change
+        // from the lifecycle dispatch above.
+        match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => {
+                return HttpResponse::NotFound().json("Plugin not found");
+            }
+            Err(e) => {
+                error!("Failed to re-fetch plugin: {}", e);
+                return HttpResponse::InternalServerError().json("Failed to load plugin");
+            }
+        }
+    };
+
+    match PluginResponse::try_from(updated_plugin) {
+        Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => {
-            error!("Failed to update plugin: {}", e);
-            HttpResponse::InternalServerError().json("Failed to update plugin")
+            error!("Failed to serialize plugin response: {}", e);
+            HttpResponse::InternalServerError().json("Plugin updated but response failed")
         }
     }
 }
 
-/// Uninstall a plugin (admin only)
+/// Uninstall a plugin (admin only).
+///
+/// Behaviour depends on the manifest's
+/// `lifecycle.on_uninstall`:
+///
+///   - `cascade` (default): delete the `plugins` row. Postgres
+///     ON DELETE CASCADE clears every dependent row
+///     (plugin_data, plugin_collection_rows, plugin_activity).
+///   - `preserve`: flip `state` to `Uninstalled`, remove the
+///     staged bundle file, but keep the row + plugin_data so a
+///     future reinstall of the same plugin name reattaches the
+///     data automatically.
+///
+/// Both paths dispatch through `lifecycle::apply`, which writes
+/// the state change and the activity log inside one transaction
+/// and rejects illegal transitions exhaustively.
 pub async fn uninstall_plugin(
     req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<Uuid>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
-        return e;
-    }
+    let claims = match require_admin(&req) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let actor = Uuid::parse_str(&claims.sub).ok();
 
     let plugin_uuid = path.into_inner();
 
@@ -378,15 +433,80 @@ pub async fn uninstall_plugin(
         Err(e) => return e,
     };
 
-    match plugin_repo::delete_plugin_by_uuid(&mut conn, plugin_uuid) {
-        Ok(count) if count > 0 => {
-            info!("Plugin uninstalled: {}", plugin_uuid);
+    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+
+    // Read the policy from the stored manifest. If parsing fails
+    // (corrupt row, manifest schema drift), fall back to Preserve:
+    // the destructive default would silently delete user data
+    // tied to a row we can't introspect, which is a one-way street
+    // an admin can't undo. Preserve keeps the row and lets the
+    // admin inspect, fix, or hard-delete via cascade explicitly.
+    let policy = plugin
+        .parse_manifest()
+        .ok()
+        .map(|m| m.lifecycle.on_uninstall)
+        .unwrap_or(crate::models::PluginUninstallPolicy::Preserve);
+
+    let action = match policy {
+        crate::models::PluginUninstallPolicy::Cascade => {
+            crate::services::plugins::lifecycle::PluginAction::UninstallCascade
+        }
+        crate::models::PluginUninstallPolicy::Preserve => {
+            crate::services::plugins::lifecycle::PluginAction::UninstallPreserve
+        }
+    };
+
+    match crate::services::plugins::lifecycle::apply(&mut conn, plugin_uuid, action, actor) {
+        Ok(outcome) => {
+            if crate::services::plugins::lifecycle::outcome_removes_bundle(&outcome) {
+                remove_bundle_file_or_warn(plugin_uuid).await;
+            }
+            match outcome {
+                crate::services::plugins::lifecycle::ActionOutcome::Deleted { .. } => {
+                    info!("Plugin uninstalled (cascade): {}", plugin_uuid);
+                }
+                crate::services::plugins::lifecycle::ActionOutcome::StateChanged { .. } => {
+                    info!(
+                        "Plugin uninstalled (preserve), data retained: {}",
+                        plugin_uuid
+                    );
+                }
+            }
             HttpResponse::NoContent().finish()
         }
-        Ok(_) => HttpResponse::NotFound().json("Plugin not found"),
+        Err(crate::services::plugins::lifecycle::ActionError::NoSuchPlugin) => {
+            HttpResponse::NotFound().json("Plugin not found")
+        }
+        Err(crate::services::plugins::lifecycle::ActionError::InvalidTransition {
+            from,
+            action,
+        }) => HttpResponse::Conflict().json(format!(
+            "Cannot {action} a plugin in state {from}"
+        )),
         Err(e) => {
             error!("Failed to uninstall plugin: {}", e);
             HttpResponse::InternalServerError().json("Failed to uninstall plugin")
+        }
+    }
+}
+
+/// Remove the staged bundle from the uploads volume, swallowing
+/// `NotFound` (no bundle was ever staged for this plugin) and
+/// logging anything else as a warn — failure to clean up the
+/// bundle isn't worth failing the whole uninstall over, but it
+/// IS worth knowing about.
+async fn remove_bundle_file_or_warn(plugin_uuid: Uuid) {
+    let bundle_path = get_bundle_path(plugin_uuid);
+    if let Err(e) = fs::remove_file(&bundle_path).await {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            warn!(
+                error = %e,
+                path = %bundle_path.display(),
+                "Failed to remove plugin bundle on uninstall"
+            );
         }
     }
 }
@@ -715,7 +835,7 @@ pub async fn proxy_plugin_request(
     };
 
     // Check if plugin is enabled
-    if !plugin.enabled {
+    if !plugin.is_active() {
         return HttpResponse::Forbidden().json("Plugin is disabled");
     }
 
@@ -781,6 +901,36 @@ fn get_bundle_path(plugin_uuid: Uuid) -> PathBuf {
         .join("bundle.js")
 }
 
+/// Serve a plugin's `icon.svg` bytes. No auth required — icons are
+/// shown in plugin lists that any logged-in user might see, and
+/// they carry no secrets. Cache freely; the URL doesn't change
+/// when the icon does, but the contents do, so we send a weak
+/// `ETag` derived from the plugin's `updated_at` via the route's
+/// `Last-Modified` semantics. For simplicity we just cache for 5
+/// minutes and let the next install bust it via row update.
+pub async fn serve_plugin_icon(
+    pool: web::Data<Pool>,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    let plugin_uuid = path.into_inner();
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    match plugin_repo::get_plugin_icon(&mut conn, plugin_uuid) {
+        Ok(Some(bytes)) => HttpResponse::Ok()
+            .content_type("image/svg+xml")
+            .insert_header(("Cache-Control", "public, max-age=300"))
+            .body(bytes),
+        Ok(None) => HttpResponse::NotFound().finish(),
+        Err(DieselError::NotFound) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            error!("Failed to load plugin icon: {}", e);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
 /// Serve a plugin bundle (authenticated users)
 pub async fn serve_plugin_bundle(
     req: HttpRequest,
@@ -805,7 +955,7 @@ pub async fn serve_plugin_bundle(
         Err(e) => return e,
     };
 
-    if !plugin.enabled {
+    if !plugin.is_active() {
         return HttpResponse::Forbidden().json("Plugin is disabled");
     }
 
@@ -949,7 +1099,13 @@ pub async fn install_plugin_from_zip(
         skip_if_unchanged: false,
     };
 
-    let outcome = match install::install_verified(&mut conn, &verified.files, signer, options) {
+    let outcome = match install::install_verified(
+        &mut conn,
+        &verified.files,
+        signer,
+        resolved_tier,
+        options,
+    ) {
         Ok(o) => o,
         Err(e) => return install_error_to_response(e),
     };
@@ -984,9 +1140,16 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
     match err {
         install::InstallError::MissingManifest
         | install::InstallError::InvalidManifest(_)
-        | install::InstallError::InvalidName(_)
-        | install::InstallError::BundleTooLarge(_) => {
+        | install::InstallError::BundleTooLarge(_)
+        | install::InstallError::InvalidIcon(_)
+        | install::InstallError::InvalidManifestSchema(_) => {
             HttpResponse::BadRequest().json(err.to_string())
+        }
+        install::InstallError::ReinstallSignerMismatch { .. } => {
+            // Conflict, not BadRequest: the request is structurally
+            // fine, but it conflicts with the existing row's
+            // ownership claim. Admin needs to hard-uninstall first.
+            HttpResponse::Conflict().json(err.to_string())
         }
         install::InstallError::BundleWriteFailed(_) | install::InstallError::Db(_) => {
             error!("Plugin install failed: {}", err);
@@ -1193,7 +1356,13 @@ pub async fn install_from_registry(
         provision_settings: false,
         skip_if_unchanged: false,
     };
-    let outcome = match install::install_verified(&mut conn, &verified.files, signer, options) {
+    let outcome = match install::install_verified(
+        &mut conn,
+        &verified.files,
+        signer,
+        tier,
+        options,
+    ) {
         Ok(o) => o,
         Err(e) => return install_error_to_response(e),
     };

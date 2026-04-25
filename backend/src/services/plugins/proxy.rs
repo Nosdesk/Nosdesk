@@ -50,53 +50,41 @@ impl PluginProxyService {
         }
     }
 
-    /// Check if a plugin has permission to access a URL
+    /// Check if a plugin has permission to access a URL.
     ///
-    /// Permissions are in the format "external:<domain>" where domain can be:
-    /// - Exact match: "external:api.example.com"
-    /// - Wildcard: "external:*.example.com"
+    /// Both the URL host and the manifest's `network:<pattern>`
+    /// permissions go through the same `Host` / `HostPattern`
+    /// parsers, so case, normalisation, and wildcard semantics are
+    /// shared with the validator. Any URL that doesn't normalise
+    /// to a valid named host (IP literals, malformed URLs) is
+    /// refused outright.
     fn has_permission(&self, manifest: &PluginManifest, url: &str) -> bool {
         let parsed = match url::Url::parse(url) {
             Ok(u) => u,
             Err(_) => return false,
         };
-
-        let host = match parsed.host_str() {
-            Some(h) => h,
-            None => return false,
+        let Some(host_str) = parsed.host_str() else {
+            return false;
+        };
+        let Ok(host) = crate::services::plugins::types::Host::parse(host_str) else {
+            return false;
         };
 
-        for permission in &manifest.permissions {
-            if let Some(domain) = permission.strip_prefix("external:") {
-                // Check for wildcard match
-                if domain.starts_with("*.") {
-                    let suffix = &domain[1..]; // Gets ".example.com"
-                    if host.ends_with(suffix) || host == &domain[2..] {
-                        return true;
-                    }
-                } else if domain == host {
-                    return true;
-                }
-            }
-        }
-
-        false
+        manifest
+            .permissions
+            .iter()
+            .filter_map(crate::services::plugins::types::Permission::network_pattern)
+            .any(|pattern| pattern.matches(&host))
     }
 
     /// Get the auth header name that the manifest's auth config would inject for a given URL.
     /// Used to strip plugin-supplied headers that would conflict with declared auth.
     fn get_auth_header_name(manifest: &PluginManifest, url: &str) -> Option<String> {
         let parsed = url::Url::parse(url).ok()?;
-        let host = parsed.host_str()?;
+        let host_str = parsed.host_str()?;
+        let host = crate::services::plugins::types::Host::parse(host_str).ok()?;
 
-        let auth_config = manifest.auth.iter().find(|(domain, _)| {
-            if domain.starts_with("*.") {
-                let suffix = &domain[1..];
-                host.ends_with(suffix) || host == &domain[2..]
-            } else {
-                *domain == host
-            }
-        })?.1;
+        let auth_config = manifest.auth.get(&host)?;
 
         match auth_config {
             PluginAuthConfig::ApiKey { header, .. } => Some(header.to_lowercase()),
@@ -116,17 +104,10 @@ impl PluginProxyService {
         secrets: &HashMap<String, String>,
     ) -> Option<(String, String)> {
         let parsed = url::Url::parse(url).ok()?;
-        let host = parsed.host_str()?;
+        let host_str = parsed.host_str()?;
+        let host = crate::services::plugins::types::Host::parse(host_str).ok()?;
 
-        // Find matching auth config from manifest
-        let auth_config = manifest.auth.iter().find(|(domain, _)| {
-            if domain.starts_with("*.") {
-                let suffix = &domain[1..];
-                host.ends_with(suffix) || host == &domain[2..]
-            } else {
-                *domain == host
-            }
-        })?.1;
+        let auth_config = manifest.auth.get(&host)?;
 
         match auth_config {
             PluginAuthConfig::Bearer { secret } => {
@@ -416,30 +397,54 @@ impl Default for PluginProxyService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::plugins::types::{Host, Permission};
 
-    fn create_test_manifest(permissions: Vec<String>) -> PluginManifest {
+    fn create_test_manifest(permissions: Vec<&str>) -> PluginManifest {
         PluginManifest {
+            manifest_version: 1,
             name: "test-plugin".to_string(),
             display_name: "Test Plugin".to_string(),
             version: "1.0.0".to_string(),
             description: None,
-            icon: None,
+            license: None,
+            author: None,
             repository: None,
             homepage: None,
-            author: None,
-            permissions,
+            bugs: None,
+            support_contact: None,
+            engines: crate::models::PluginEngines {
+                nosdesk: ">=0.0.0".into(),
+                plugin_api: "1".into(),
+            },
+            dependencies: HashMap::new(),
+            categories: vec![],
+            tags: vec![],
+            screenshots: vec![],
+            permissions: permissions
+                .into_iter()
+                .map(|p| Permission::parse(p).expect("test permission must be valid"))
+                .collect(),
             components: HashMap::new(),
             events: vec![],
             settings: vec![],
             collections: HashMap::new(),
             auth: HashMap::new(),
+            lifecycle: crate::models::PluginLifecyclePolicy::default(),
+            commands: vec![],
+            menus: HashMap::new(),
+            url_handlers: vec![],
+            extensions: serde_json::Value::Null,
         }
+    }
+
+    fn host(s: &str) -> Host {
+        Host::parse(s).expect("test host must be valid")
     }
 
     #[test]
     fn test_exact_domain_permission() {
         let service = PluginProxyService::new();
-        let manifest = create_test_manifest(vec!["external:api.example.com".to_string()]);
+        let manifest = create_test_manifest(vec!["network:api.example.com"]);
 
         assert!(service.has_permission(&manifest, "https://api.example.com/v1/data"));
         assert!(!service.has_permission(&manifest, "https://other.example.com/data"));
@@ -449,7 +454,7 @@ mod tests {
     #[test]
     fn test_wildcard_domain_permission() {
         let service = PluginProxyService::new();
-        let manifest = create_test_manifest(vec!["external:*.example.com".to_string()]);
+        let manifest = create_test_manifest(vec!["network:*.example.com"]);
 
         assert!(service.has_permission(&manifest, "https://api.example.com/v1/data"));
         assert!(service.has_permission(&manifest, "https://www.example.com/data"));
@@ -458,9 +463,39 @@ mod tests {
     }
 
     #[test]
+    fn test_wildcard_does_not_match_deeper_subdomain() {
+        // Single-label wildcard semantics: `*.example.com` does
+        // NOT cover `v1.api.example.com`. This is the correct
+        // outcome for the spec we documented; record it.
+        let service = PluginProxyService::new();
+        let manifest = create_test_manifest(vec!["network:*.example.com"]);
+        assert!(!service.has_permission(&manifest, "https://v1.api.example.com/data"));
+    }
+
+    #[test]
+    fn test_url_with_uppercase_host_normalises() {
+        // Browsers and most HTTP clients lowercase the host, but
+        // a curl-style direct call could include uppercase. The
+        // typed `Host::parse` enforces lowercase normalisation on
+        // both sides so the match is consistent.
+        let service = PluginProxyService::new();
+        let manifest = create_test_manifest(vec!["network:api.example.com"]);
+        assert!(service.has_permission(&manifest, "https://API.EXAMPLE.COM/data"));
+    }
+
+    #[test]
+    fn test_ip_literal_url_is_refused() {
+        // The proxy refuses URL hosts that don't normalise to a
+        // named host. `Host::parse` rejects IP literals.
+        let service = PluginProxyService::new();
+        let manifest = create_test_manifest(vec!["network:*.example.com"]);
+        assert!(!service.has_permission(&manifest, "https://127.0.0.1/data"));
+    }
+
+    #[test]
     fn test_no_permission() {
         let service = PluginProxyService::new();
-        let manifest = create_test_manifest(vec!["tickets:read".to_string()]);
+        let manifest = create_test_manifest(vec!["ticket:read"]);
 
         assert!(!service.has_permission(&manifest, "https://api.example.com/data"));
     }
@@ -469,7 +504,7 @@ mod tests {
     fn test_auth_header_name_bearer() {
         let mut auth = HashMap::new();
         auth.insert(
-            "api.example.com".to_string(),
+            host("api.example.com"),
             PluginAuthConfig::Bearer { secret: "token".to_string() },
         );
         let mut manifest = create_test_manifest(vec![]);
@@ -485,7 +520,7 @@ mod tests {
     fn test_auth_header_name_api_key() {
         let mut auth = HashMap::new();
         auth.insert(
-            "api.example.com".to_string(),
+            host("api.example.com"),
             PluginAuthConfig::ApiKey {
                 header: "X-API-Key".to_string(),
                 secret: "key".to_string(),
@@ -514,7 +549,7 @@ mod tests {
         let service = PluginProxyService::new();
         let mut auth = HashMap::new();
         auth.insert(
-            "api.github.com".to_string(),
+            host("api.github.com"),
             PluginAuthConfig::Bearer { secret: "github_token".to_string() },
         );
         let mut manifest = create_test_manifest(vec![]);
@@ -538,7 +573,7 @@ mod tests {
         let service = PluginProxyService::new();
         let mut auth = HashMap::new();
         auth.insert(
-            "api.example.com".to_string(),
+            host("api.example.com"),
             PluginAuthConfig::Basic {
                 username_secret: "user".to_string(),
                 password_secret: "pass".to_string(),
@@ -567,7 +602,7 @@ mod tests {
         let service = PluginProxyService::new();
         let mut auth = HashMap::new();
         auth.insert(
-            "api.example.com".to_string(),
+            host("api.example.com"),
             PluginAuthConfig::ApiKey {
                 header: "X-API-Key".to_string(),
                 secret: "api_key".to_string(),
@@ -600,29 +635,5 @@ mod tests {
             .await;
 
         assert_eq!(result, None);
-    }
-
-    #[tokio::test]
-    async fn test_wildcard_auth_match() {
-        let service = PluginProxyService::new();
-        let mut auth = HashMap::new();
-        auth.insert(
-            "*.example.com".to_string(),
-            PluginAuthConfig::Bearer { secret: "token".to_string() },
-        );
-        let mut manifest = create_test_manifest(vec![]);
-        manifest.auth = auth;
-
-        let mut secrets = HashMap::new();
-        secrets.insert("token".to_string(), "mytoken".to_string());
-
-        let result = service
-            .get_auth_for_url("test", "https://api.example.com/data", &manifest, &secrets)
-            .await;
-
-        assert_eq!(
-            result,
-            Some(("Authorization".to_string(), "Bearer mytoken".to_string()))
-        );
     }
 }

@@ -316,8 +316,9 @@ fn plugin_install(zip_path: &Path) -> Result<()> {
         skip_if_unchanged: false,
     };
 
-    let outcome = install::install_verified(&mut conn, &verified.files, signer, options)
-        .map_err(|e| anyhow!("install failed: {e}"))?;
+    let outcome =
+        install::install_verified(&mut conn, &verified.files, signer, tier, options)
+            .map_err(|e| anyhow!("install failed: {e}"))?;
 
     let (action, plugin) = match &outcome {
         install::InstallOutcome::Created(p) => ("installed", p),

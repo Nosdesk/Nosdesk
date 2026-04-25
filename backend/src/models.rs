@@ -3383,7 +3383,6 @@ pub struct Plugin {
     pub version: String,
     pub description: Option<String>,
     pub manifest: serde_json::Value,
-    pub enabled: bool,
     pub trust_level: String,
     pub installed_by: Option<Uuid>,
     pub installed_at: NaiveDateTime,
@@ -3401,6 +3400,121 @@ pub struct Plugin {
     pub signer_source: Option<String>,
     /// Full signature envelope captured at install time for audit.
     pub signature_metadata: Option<serde_json::Value>,
+    /// Validated `icon.svg` bytes extracted from the signed zip at
+    /// install time. Served verbatim from `GET /api/plugins/{uuid}/icon`.
+    pub icon_svg: Option<Vec<u8>>,
+    /// Lifecycle state. Stringly-typed in the DB (VARCHAR with a
+    /// CHECK constraint) but parsed into the typed `PluginState`
+    /// enum on read; consumers match exhaustively, eliminating
+    /// the typo class that the constants module was prone to.
+    pub state: PluginState,
+}
+
+impl Plugin {
+    /// True when the plugin is in the `installed` state (active +
+    /// loaded). Replaces the old `enabled` boolean for callers that
+    /// only need a yes/no view.
+    pub fn is_active(&self) -> bool {
+        matches!(self.state, PluginState::Installed)
+    }
+}
+
+/// Lifecycle state of a plugin row. Stored as a `VARCHAR(32)` in
+/// `plugins.state` with a CHECK constraint enforcing the allowlist;
+/// the typed enum here is the canonical in-memory representation.
+/// Custom Diesel `ToSql<Text>` / `FromSql<Text>` impls handle the
+/// wire conversion. Adding a new variant means migrating the DB
+/// CHECK constraint AND extending the exhaustive matches that
+/// fall out elsewhere — the compiler points at every site.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    diesel::AsExpression,
+    diesel::FromSqlRow,
+    serde::Serialize,
+)]
+#[diesel(sql_type = diesel::sql_types::Text)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginState {
+    /// Active. Bundle is served, components render, events dispatch.
+    Installed,
+    /// Admin paused. Bundle is NOT served, components don't render,
+    /// but the row + plugin_data are intact and a flip back to
+    /// `Installed` restores everything.
+    Disabled,
+    /// Trust-chain failure (signer revoked, signature mismatched on
+    /// re-check). Refused for new use; existing data preserved for
+    /// audit. Triggered by background revocation sweeps; never set
+    /// by user action.
+    Quarantined,
+    /// Plugin was uninstalled via a manifest declaring
+    /// `lifecycle.on_uninstall = preserve`. The row + plugin_data
+    /// + collection rows are kept so a future reinstall of the same
+    /// plugin name reattaches the data automatically. Bundle is
+    /// removed from disk.
+    Uninstalled,
+}
+
+impl PluginState {
+    pub fn as_db_str(&self) -> &'static str {
+        match self {
+            PluginState::Installed => "installed",
+            PluginState::Disabled => "disabled",
+            PluginState::Quarantined => "quarantined",
+            PluginState::Uninstalled => "uninstalled",
+        }
+    }
+
+    pub fn from_db_str(s: &str) -> Result<Self, String> {
+        match s {
+            "installed" => Ok(PluginState::Installed),
+            "disabled" => Ok(PluginState::Disabled),
+            "quarantined" => Ok(PluginState::Quarantined),
+            "uninstalled" => Ok(PluginState::Uninstalled),
+            other => Err(format!("unknown plugin state {other:?}")),
+        }
+    }
+}
+
+impl std::fmt::Display for PluginState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_db_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PluginState {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        PluginState::from_db_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+impl diesel::serialize::ToSql<diesel::sql_types::Text, diesel::pg::Pg> for PluginState {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut diesel::serialize::Output<'b, '_, diesel::pg::Pg>,
+    ) -> diesel::serialize::Result {
+        <str as diesel::serialize::ToSql<diesel::sql_types::Text, diesel::pg::Pg>>::to_sql(
+            self.as_db_str(),
+            &mut out.reborrow(),
+        )
+    }
+}
+
+impl diesel::deserialize::FromSql<diesel::sql_types::Text, diesel::pg::Pg> for PluginState {
+    fn from_sql(
+        bytes: <diesel::pg::Pg as diesel::backend::Backend>::RawValue<'_>,
+    ) -> diesel::deserialize::Result<Self> {
+        let s = <String as diesel::deserialize::FromSql<
+            diesel::sql_types::Text,
+            diesel::pg::Pg,
+        >>::from_sql(bytes)?;
+        PluginState::from_db_str(&s).map_err(|e| e.into())
+    }
 }
 
 /// New plugin for insertion
@@ -3412,13 +3526,15 @@ pub struct NewPlugin {
     pub version: String,
     pub description: Option<String>,
     pub manifest: serde_json::Value,
-    pub enabled: bool,
+    /// Initial lifecycle state, almost always `PluginState::Installed`.
+    pub state: PluginState,
     pub trust_level: String,
     pub installed_by: Option<Uuid>,
     pub source: String,
     pub signer_pubkey: Option<String>,
     pub signer_source: Option<String>,
     pub signature_metadata: Option<serde_json::Value>,
+    pub icon_svg: Option<Vec<u8>>,
 }
 
 /// Plugin update changeset
@@ -3429,11 +3545,16 @@ pub struct PluginUpdate {
     pub version: Option<String>,
     pub description: Option<String>,
     pub manifest: Option<serde_json::Value>,
-    pub enabled: Option<bool>,
+    pub state: Option<PluginState>,
     pub trust_level: Option<String>,
     pub signer_pubkey: Option<String>,
     pub signer_source: Option<String>,
     pub signature_metadata: Option<serde_json::Value>,
+    /// `Some(Some(bytes))` writes the icon, `Some(None)` clears it,
+    /// `None` leaves it alone. Distinct from the other signer
+    /// fields' `Option<T>` because clearing-to-NULL on update is
+    /// realistic here (a new plugin version might drop its icon).
+    pub icon_svg: Option<Option<Vec<u8>>>,
 }
 
 /// Plugin bundle update changeset
@@ -3605,31 +3726,231 @@ pub struct NewPluginActivity {
 
 // ===== PLUGIN API TYPES =====
 
-/// Plugin manifest structure (matches frontend manifest.json format)
+/// Plugin manifest structure (matches frontend manifest.json format).
+///
+/// `deny_unknown_fields` is load-bearing: every field a plugin
+/// declares must be one this binary understands, otherwise we fail
+/// closed at install. Combined with `manifest_version`, that lets
+/// us evolve the schema without ambiguity. v2 plugins declare
+/// `manifest_version: 2` and the parser dispatches to a different
+/// struct; v1 plugins are forever interpreted by the rules below.
+///
+/// Trust-affecting fields (`name`, `permissions`, `engines`, etc.)
+/// are part of the canonical archive digest because they live in
+/// `manifest.json`, so the signer commits to all of them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginManifest {
+    /// MUST be 1 for the schema described here. Future bumps go to
+    /// 2/3/etc. Validators dispatch on this.
+    pub manifest_version: u32,
+
+    /// Stable plugin identifier. Lowercase ASCII letters, digits,
+    /// and hyphens. Used as the DB key and display URL slug.
     pub name: String,
+
+    /// User-facing name. Free-form, locale-neutral.
     #[serde(rename = "displayName")]
     pub display_name: String,
+
+    /// SemVer string (e.g. "2.1.0"). Compared between installs to
+    /// detect upgrades.
     pub version: String,
+
+    /// Short user-facing description. Free-form.
     pub description: Option<String>,
-    pub icon: Option<String>,
-    pub repository: Option<String>,
-    pub homepage: Option<String>,
+
+    /// SPDX license identifier (e.g. "MIT", "Apache-2.0",
+    /// "BUSL-1.1"). Optional but strongly recommended.
+    pub license: Option<String>,
+
+    /// Author display name. For non-official plugins (verified /
+    /// community tier), the install pipeline asserts this matches
+    /// the publishers.json entry for the signing key. Local-tier
+    /// installs skip the check.
     pub author: Option<String>,
+
+    /// Source repository URL.
+    pub repository: Option<String>,
+
+    /// Plugin homepage / documentation URL.
+    pub homepage: Option<String>,
+
+    /// Issue tracker URL. Distinct from `repository` because some
+    /// plugins host code on one host and bugs on another (e.g.
+    /// Bugzilla, Linear, internal tracker).
+    pub bugs: Option<String>,
+
+    /// Support contact: email or URL. Surfaced on the registry
+    /// browse UI so users know where to ask for help. Format
+    /// validated lightly — must contain `@` or look like a URL.
+    pub support_contact: Option<String>,
+
+    /// Engine compatibility. Plugin will be refused if the
+    /// instance doesn't satisfy these constraints.
+    pub engines: PluginEngines,
+
+    /// Other plugins this one depends on. Each value is a semver
+    /// requirement against the dep's `version`. The install
+    /// pipeline refuses if a declared dep isn't installed; it does
+    /// NOT auto-install transitively (registry-driven install
+    /// surfaces the prompt for the operator). Reserved shape for
+    /// future inter-plugin APIs and ordering guarantees; even
+    /// without those, having the declaration prevents silent
+    /// "plugin assumes peer is present" footguns.
     #[serde(default)]
-    pub permissions: Vec<String>,
+    pub dependencies: std::collections::HashMap<String, String>,
+
+    /// Discovery taxonomy for the registry browse UI. Values are
+    /// validated against an allowlist of known categories.
+    #[serde(default)]
+    pub categories: Vec<String>,
+
+    /// Free-form discovery tags. No allowlist — the registry build
+    /// can lowercase + dedupe but doesn't reject unknowns.
+    #[serde(default)]
+    pub tags: Vec<String>,
+
+    /// Paths inside the zip pointing at PNG/SVG screenshots for
+    /// the registry browse UI. Validated at install.
+    #[serde(default)]
+    pub screenshots: Vec<String>,
+
+    /// Capability grants the plugin requests. Parsed at manifest
+    /// load time into typed `Permission` values; unknown or
+    /// malformed entries fail deserialisation, so consumers past
+    /// this point never see raw permission strings.
+    #[serde(default)]
+    pub permissions: Vec<crate::services::plugins::types::Permission>,
+
+    /// Components this plugin contributes. Keyed by component name
+    /// (used as the entry-point key in the bundle's default export).
     #[serde(default)]
     pub components: std::collections::HashMap<String, PluginComponentConfig>,
+
+    /// Events the plugin subscribes to. Validated against an
+    /// allowlist; unknown events refused.
     #[serde(default)]
     pub events: Vec<String>,
+
+    /// Plugin-defined settings rendered in the admin UI.
     #[serde(default)]
     pub settings: Vec<PluginSettingDefinition>,
+
+    /// Plugin-owned collections. Each carries its own
+    /// `schema_version` so future migrations can be expressed.
     #[serde(default)]
     pub collections: std::collections::HashMap<String, CollectionDefinition>,
-    /// Declarative auth configuration: maps domain patterns to auth strategies
+
+    /// Declarative auth configuration: maps exact hostnames to
+    /// auth strategies the proxy injects automatically. Wildcards
+    /// are NOT permitted as auth keys (a future schema bump can
+    /// loosen this if a real use case appears); each declared host
+    /// must be covered by at least one `network:` permission.
     #[serde(default)]
-    pub auth: std::collections::HashMap<String, PluginAuthConfig>,
+    pub auth: std::collections::HashMap<crate::services::plugins::types::Host, PluginAuthConfig>,
+
+    /// Lifecycle policy declarations. Default cascades plugin data
+    /// on uninstall; plugins that store user-meaningful work
+    /// should declare `on_uninstall: "preserve"`.
+    #[serde(default)]
+    pub lifecycle: PluginLifecyclePolicy,
+
+    /// Palette-triggerable actions the plugin contributes. Reserved
+    /// in v1: declared, validated, but the runtime palette is not
+    /// yet implemented. Refused at install if non-empty until the
+    /// dispatcher lands.
+    #[serde(default)]
+    pub commands: Vec<PluginCommandDefinition>,
+
+    /// Menu contributions, keyed by menu identifier (e.g.
+    /// `ticket-context`). Reserved in v1.
+    #[serde(default)]
+    pub menus: std::collections::HashMap<String, Vec<PluginMenuItem>>,
+
+    /// URL-handler claims, e.g. `nosdesk://plugin/<plugin-name>/...`
+    /// patterns this plugin owns. Reserved in v1.
+    #[serde(default)]
+    pub url_handlers: Vec<PluginUrlHandler>,
+
+    /// Forward-compat bucket for typed inter-plugin exports. v1
+    /// rejects any non-empty value; the field name is reserved so
+    /// later plugins can use it for the same purpose without a
+    /// manifest_version bump.
+    #[serde(default)]
+    pub extensions: serde_json::Value,
+}
+
+/// Engine compatibility constraints. Both values are required.
+/// Refused at install when not satisfied.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginEngines {
+    /// SemVer requirement against the running Nosdesk version
+    /// (e.g. ">=1.5.0", "^2.0", "1.4.x").
+    pub nosdesk: String,
+
+    /// Plugin runtime API major version the plugin was built
+    /// against. Currently must be "1". The runtime exposes the
+    /// supported version range to plugin code via `api.version`.
+    pub plugin_api: String,
+}
+
+/// Declarative lifecycle policy. v1 honours `on_uninstall` only;
+/// future fields here can land without breaking older manifests
+/// because new defaults are added with `#[serde(default)]`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PluginLifecyclePolicy {
+    /// What happens to plugin-owned data when the plugin is
+    /// uninstalled. `cascade` deletes all `plugin_data` and
+    /// `plugin_collection_rows` for the plugin; `preserve` keeps
+    /// them, supporting reinstall-without-data-loss flows.
+    #[serde(default)]
+    pub on_uninstall: PluginUninstallPolicy,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginUninstallPolicy {
+    #[default]
+    Cascade,
+    Preserve,
+}
+
+/// Palette command contributed by a plugin. Reserved for the
+/// future command-palette dispatcher; v1 install refuses non-empty
+/// `commands` arrays.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginCommandDefinition {
+    /// Stable namespaced identifier, e.g. `github.sync`.
+    pub id: String,
+    /// User-facing label.
+    pub title: String,
+    /// Optional context filter (matches `KNOWN_CONTEXTS`).
+    pub when: Option<String>,
+}
+
+/// Menu item contributed by a plugin. Reserved in v1.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginMenuItem {
+    /// Command id this entry invokes.
+    pub command: String,
+    /// Optional grouping hint (e.g. `integrations`).
+    pub group: Option<String>,
+}
+
+/// URL handler claim — `nosdesk://plugin/<plugin-name>/<pattern>`.
+/// Reserved in v1.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginUrlHandler {
+    /// Glob-like pattern under the plugin's namespace, e.g. `link/*`.
+    pub pattern: String,
+    /// Command id to invoke when matched.
+    pub command: Option<String>,
 }
 
 /// Authentication configuration for a specific domain/host pattern
@@ -3658,16 +3979,72 @@ pub enum PluginAuthConfig {
     },
 }
 
-/// Plugin component configuration in manifest
+/// Plugin component configuration in manifest. The `kind` field
+/// reserves space for future component shapes (settings tabs,
+/// admin pages, background workers, webhook handlers); v1 only
+/// implements `slot`-kind components, but the field is required
+/// so future plugins can be expressed without a manifest version
+/// bump.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginComponentConfig {
+    /// What this component IS. Defaults to `slot` for backward
+    /// readability; future kinds expand the allowed set.
+    #[serde(default)]
+    pub kind: PluginComponentKind,
+
+    /// For `kind = slot`: the slot identifier (validated against
+    /// allowlist). For other kinds, semantics differ.
     pub slot: String,
+
+    /// Entry-point key inside the plugin's bundle default export.
     pub entry: String,
+
+    /// Context types the component receives at render time
+    /// (e.g. `["ticket"]`). Validated against allowlist.
     #[serde(default)]
     pub context: Vec<String>,
+
     pub label: Option<String>,
     pub icon: Option<String>,
     pub action: Option<PluginComponentAction>,
+}
+
+/// Component kind. Only `Slot` is implemented in v1; the others
+/// are reserved enum variants so a future plugin declaring
+/// `kind: "admin_page"` is parseable today (and rejected at
+/// install with a clear "kind not yet supported" error rather
+/// than a parse failure that looks like a bug).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginComponentKind {
+    #[default]
+    Slot,
+    /// Reserved: a settings panel rendered inside the plugin's
+    /// settings dialog instead of the declarative settings form.
+    Settings,
+    /// Reserved: a full admin page mounted at /admin/plugins/<name>/...
+    AdminPage,
+    /// Reserved: a backend worker invoked on a schedule.
+    Worker,
+    /// Reserved: a webhook handler matching a registered path.
+    Webhook,
+}
+
+impl PluginComponentKind {
+    /// Wire-format string for this kind (matches the serde
+    /// `rename_all = "snake_case"`). Used by validators when
+    /// reporting "kind X is not supported" without depending on
+    /// `serde_json` to round-trip.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Slot => "slot",
+            Self::Settings => "settings",
+            Self::AdminPage => "admin_page",
+            Self::Worker => "worker",
+            Self::Webhook => "webhook",
+        }
+    }
 }
 
 /// Plugin component action for unified "+ Add" menu
@@ -3678,6 +4055,7 @@ pub struct PluginComponentAction {
 
 /// Plugin setting definition in manifest
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginSettingDefinition {
     pub key: String,
     #[serde(rename = "type")]
@@ -3687,6 +4065,32 @@ pub struct PluginSettingDefinition {
     #[serde(default)]
     pub required: bool,
     pub default: Option<serde_json::Value>,
+    /// Storage scope. `global` (default) means one value per
+    /// instance; `user` means one value per logged-in user
+    /// (e.g. each user's own GitHub PAT). Reserved in v1: the
+    /// install validator refuses `user`-scoped settings until the
+    /// per-user storage layer lands. Declaring the field now
+    /// prevents the storage layout from being implicitly committed
+    /// to "everything global" by the first wave of plugins.
+    #[serde(default)]
+    pub scope: PluginSettingScope,
+    #[serde(default)]
+    pub options: Option<Vec<PluginSettingOption>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginSettingScope {
+    #[default]
+    Global,
+    User,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginSettingOption {
+    pub value: String,
+    pub label: String,
 }
 
 /// Request to install a plugin
@@ -3713,6 +4117,16 @@ pub struct PluginResponse {
     pub version: String,
     pub description: Option<String>,
     pub manifest: PluginManifest,
+    /// Lifecycle state. Serialises to one of `installed` /
+    /// `disabled` / `quarantined` / `uninstalled` on the wire.
+    /// The frontend toggles render rows where this is `installed`
+    /// or `disabled`; the others are rendered as read-only audit
+    /// entries.
+    pub state: PluginState,
+    /// Backward-compat derived from `state == "installed"`.
+    /// Existing frontend toggles consume this; new code should
+    /// branch on `state` directly. Slated for removal once the
+    /// state-machine UI work in Theme 2 lands.
     pub enabled: bool,
     pub trust_level: String,
     pub installed_by: Option<Uuid>,
@@ -3736,6 +4150,7 @@ impl TryFrom<Plugin> for PluginResponse {
 
     fn try_from(p: Plugin) -> Result<Self, Self::Error> {
         let manifest = p.parse_manifest()?;
+        let enabled = p.is_active();
         Ok(PluginResponse {
             uuid: p.uuid,
             name: p.name,
@@ -3743,7 +4158,8 @@ impl TryFrom<Plugin> for PluginResponse {
             version: p.version,
             description: p.description,
             manifest,
-            enabled: p.enabled,
+            enabled,
+            state: p.state,
             trust_level: p.trust_level,
             installed_by: p.installed_by,
             installed_at: p.installed_at,
@@ -3857,9 +4273,14 @@ pub struct CollectionFieldDefinition {
     pub reference: Option<String>,
 }
 
-/// Collection definition in plugin manifest
+/// Collection definition in plugin manifest. `schema_version` is
+/// required so future plugin versions can express migrations
+/// (rename, drop, retype a field) without losing data. v1
+/// recognises only schema_version 1.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CollectionDefinition {
+    pub schema_version: u32,
     pub label: Option<String>,
     pub fields: std::collections::HashMap<String, CollectionFieldDefinition>,
 }

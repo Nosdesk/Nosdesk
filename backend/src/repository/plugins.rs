@@ -23,10 +23,13 @@ pub fn list_all_plugins(conn: &mut DbConnection) -> Result<Vec<Plugin>, diesel::
         .load::<Plugin>(conn)
 }
 
-/// List enabled plugins
+/// List plugins in the `installed` lifecycle state. Other states
+/// (`disabled`, `quarantined`, `uninstalled`) are filtered out —
+/// they're rendered in admin views via `list_all_plugins` but
+/// don't appear in the runtime loader.
 pub fn list_enabled_plugins(conn: &mut DbConnection) -> Result<Vec<Plugin>, diesel::result::Error> {
     plugins::table
-        .filter(plugins::enabled.eq(true))
+        .filter(plugins::state.eq(crate::models::PluginState::Installed))
         .order(plugins::name.asc())
         .load::<Plugin>(conn)
 }
@@ -89,6 +92,19 @@ pub fn update_plugin_bundle(
     diesel::update(plugins::table.filter(plugins::uuid.eq(plugin_uuid)))
         .set(&update)
         .get_result(conn)
+}
+
+/// Fetch only the icon bytes for a plugin. Selecting the BYTEA
+/// column directly avoids loading the whole row (manifest JSON,
+/// signer metadata, etc.) on every icon serve.
+pub fn get_plugin_icon(
+    conn: &mut DbConnection,
+    plugin_uuid: Uuid,
+) -> Result<Option<Vec<u8>>, diesel::result::Error> {
+    plugins::table
+        .filter(plugins::uuid.eq(plugin_uuid))
+        .select(plugins::icon_svg)
+        .first::<Option<Vec<u8>>>(conn)
 }
 
 // =============================================================================
@@ -295,13 +311,18 @@ mod tests {
             version: "1.0.0".to_string(),
             description: None,
             manifest: serde_json::json!({}),
-            enabled,
+            state: if enabled {
+                crate::models::PluginState::Installed
+            } else {
+                crate::models::PluginState::Disabled
+            },
             trust_level: "sandbox".to_string(),
             installed_by: None,
             source: "test".to_string(),
             signer_pubkey: None,
             signer_source: None,
             signature_metadata: None,
+            icon_svg: None,
         }
     }
 

@@ -247,7 +247,20 @@ function tierLabel(tier: PluginTrustLevel): string {
           class="border border-default rounded-lg p-4 bg-surface"
         >
           <div class="flex items-start justify-between gap-4">
-            <div class="min-w-0">
+            <div class="flex items-start gap-3 min-w-0">
+              <div class="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                <img
+                  v-if="plugin.icon_url"
+                  :src="plugin.icon_url"
+                  :alt="plugin.display_name"
+                  class="w-full h-full object-cover"
+                  referrerpolicy="no-referrer"
+                />
+                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"/>
+                </svg>
+              </div>
+            <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 flex-wrap">
                 <h3 class="font-semibold">{{ plugin.display_name }}</h3>
                 <span class="text-xs text-secondary">{{ plugin.name }}</span>
@@ -270,6 +283,7 @@ function tierLabel(tier: PluginTrustLevel): string {
                   latest: v{{ plugin.versions[0].version }}
                 </span>
               </div>
+            </div>
             </div>
             <button
               type="button"

@@ -187,19 +187,16 @@ function getSourceBadge(source: PluginSource): { label: string; class: string } 
   }
 }
 
-// Determine plugin icon type
-function getPluginIconType(icon?: string): 'image' | 'emoji' | 'none' {
-  if (!icon) return 'none';
-  // URLs and data URIs are images
-  if (icon.startsWith('http://') || icon.startsWith('https://') || icon.startsWith('/') || icon.startsWith('data:')) {
-    return 'image';
-  }
-  // Short strings (1-4 chars) are likely emojis
-  if (icon.length <= 4) {
-    return 'emoji';
-  }
-  // Fallback to none for unrecognized formats
-  return 'none';
+// Per-plugin icon URL. Backend serves the SVG bytes from the
+// `plugins.icon_svg` column; if the plugin shipped no `icon.svg`
+// the response is 404 and `iconLoadFailed` flips so the fallback
+// glyph renders instead.
+function pluginIconUrl(uuid: string): string {
+  return `/api/plugins/${uuid}/icon`;
+}
+const iconLoadFailed = ref<Set<string>>(new Set());
+function markIconFailed(uuid: string): void {
+  iconLoadFailed.value.add(uuid);
 }
 
 // Format date
@@ -332,23 +329,18 @@ async function executeInstall() {
             <!-- Main content -->
             <div class="p-4">
               <div class="flex items-start gap-3">
-                <!-- Icon -->
+                <!-- Icon: backend serves icon.svg bytes from the
+                     verified bundle. <img src=...> sandboxes any
+                     embedded scripts. Fallback glyph kicks in on
+                     404 (plugin shipped no icon) or load error. -->
                 <div class="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  <!-- Custom image icon -->
                   <img
-                    v-if="getPluginIconType(plugin.manifest.icon) === 'image'"
-                    :src="plugin.manifest.icon"
+                    v-if="!iconLoadFailed.has(plugin.uuid)"
+                    :src="pluginIconUrl(plugin.uuid)"
                     :alt="plugin.display_name"
                     class="w-full h-full object-cover"
+                    @error="markIconFailed(plugin.uuid)"
                   />
-                  <!-- Emoji icon -->
-                  <span
-                    v-else-if="getPluginIconType(plugin.manifest.icon) === 'emoji'"
-                    class="text-xl"
-                  >
-                    {{ plugin.manifest.icon }}
-                  </span>
-                  <!-- Default plugin icon -->
                   <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
                   </svg>

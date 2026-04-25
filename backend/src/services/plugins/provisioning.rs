@@ -116,7 +116,7 @@ fn provision_zip(conn: &mut DbConnection, zip_path: &Path, label: &str) -> Provi
         Err(e) => return ProvisionResult::Failed(label.into(), format!("read zip: {e}")),
     };
 
-    let (files, signer) = match resolve_signer(conn, &bytes, label) {
+    let (files, signer, tier) = match resolve_signer(conn, &bytes, label) {
         Ok(r) => r,
         Err(msg) => return ProvisionResult::Failed(label.into(), msg),
     };
@@ -129,7 +129,7 @@ fn provision_zip(conn: &mut DbConnection, zip_path: &Path, label: &str) -> Provi
         skip_if_unchanged: true,
     };
 
-    match install::install_verified(conn, &files, signer, options) {
+    match install::install_verified(conn, &files, signer, tier, options) {
         Ok(install::InstallOutcome::Created(p)) => ProvisionResult::Created(p.name),
         Ok(install::InstallOutcome::Updated(p)) => ProvisionResult::Updated(p.name),
         Ok(install::InstallOutcome::Unchanged(p)) => ProvisionResult::Unchanged(p.name),
@@ -139,19 +139,29 @@ fn provision_zip(conn: &mut DbConnection, zip_path: &Path, label: &str) -> Provi
 
 /// Verify the zip's signature and resolve the trust tier, or fall
 /// back to dev-mode unsigned handling in debug builds with
-/// `NOSDESK_DEV_MODE=1`. Returns the entries to install and the
-/// signer fields to stamp on the row.
+/// `NOSDESK_DEV_MODE=1`. Returns the entries to install, the
+/// signer fields to stamp on the row, and the resolved tier (the
+/// install pipeline's manifest validator needs it for author
+/// binding). Dev-mode unsigned installs use `Local` tier — the
+/// validator skips author checks for that tier.
 fn resolve_signer(
     conn: &mut DbConnection,
     bytes: &[u8],
     label: &str,
-) -> Result<(Vec<signing::ArchiveEntry>, trust::PluginSignerFields), String> {
+) -> Result<
+    (
+        Vec<signing::ArchiveEntry>,
+        trust::PluginSignerFields,
+        trust::ResolvedTier,
+    ),
+    String,
+> {
     match signing::verify_archive(bytes) {
         Ok(verified) => {
             let tier = trust::resolve(conn, &verified.envelope)
                 .map_err(|e| format!("Publisher not trusted: {e}"))?;
             let signer = trust::PluginSignerFields::from_verified(&verified, &tier);
-            Ok((verified.files, signer))
+            Ok((verified.files, signer, tier))
         }
         Err(signing::SigningError::MissingSignature) if dev_mode_enabled() => {
             warn!(
@@ -161,7 +171,11 @@ fn resolve_signer(
             );
             let entries = signing::read_archive(bytes)
                 .map_err(|e| format!("Zip format error: {e}"))?;
-            Ok((entries, trust::PluginSignerFields::dev_mode()))
+            Ok((
+                entries,
+                trust::PluginSignerFields::dev_mode(),
+                trust::ResolvedTier::Local,
+            ))
         }
         Err(e) => Err(format!("Signature rejected: {e}")),
     }

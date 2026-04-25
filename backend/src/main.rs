@@ -1143,6 +1143,7 @@ async fn main() -> std::io::Result<()> {
                     // ===== PLUGIN API (For plugins to use) =====
                     .route("/plugins/enabled", web::get().to(handlers::plugins::list_enabled_plugins))
                     .route("/plugins/{uuid}/bundle", web::get().to(handlers::plugins::serve_plugin_bundle))
+                    .route("/plugins/{uuid}/icon", web::get().to(handlers::plugins::serve_plugin_icon))
                     .route("/plugins/{uuid}/storage/{key}", web::get().to(handlers::plugins::get_plugin_storage))
                     .route("/plugins/{uuid}/storage", web::post().to(handlers::plugins::set_plugin_storage))
                     .route("/plugins/{uuid}/storage/{key}", web::delete().to(handlers::plugins::delete_plugin_storage))
