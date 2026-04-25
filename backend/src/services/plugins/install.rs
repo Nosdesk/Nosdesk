@@ -163,8 +163,44 @@ impl std::fmt::Display for InstallError {
                 f,
                 "reinstall refused: this plugin name was previously installed by signer {existing_fingerprint}; attempted reinstall is signed by {attempted_fingerprint}. Hard-uninstall (cascade) the existing row before reinstalling under a different publisher."
             ),
-            // Raw Diesel error stays in the log, not the response.
-            Self::Db(_) => write!(f, "database error"),
+            // Categorise without leaking SQL detail. The full
+            // Diesel error is on the operator's side via the
+            // `error!` log emitted by `From<diesel::Error>`; the
+            // category here helps a UI distinguish "retry might
+            // work" (deadlock, serialization) from "fix your
+            // request" (constraint violation) from "something is
+            // wrong with the server" (connection pool, query
+            // builder).
+            Self::Db(e) => {
+                use diesel::result::{DatabaseErrorKind, Error as DE};
+                match e {
+                    DE::NotFound => write!(f, "not found"),
+                    DE::DatabaseError(DatabaseErrorKind::UniqueViolation, _) => {
+                        write!(f, "duplicate value violates a unique constraint")
+                    }
+                    DE::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _) => {
+                        write!(f, "foreign key constraint violated")
+                    }
+                    DE::DatabaseError(DatabaseErrorKind::CheckViolation, _) => {
+                        write!(f, "check constraint violated")
+                    }
+                    DE::DatabaseError(DatabaseErrorKind::SerializationFailure, _) => {
+                        write!(f, "serialization failure (transaction may succeed if retried)")
+                    }
+                    DE::DatabaseError(DatabaseErrorKind::ReadOnlyTransaction, _) => {
+                        write!(f, "read-only transaction")
+                    }
+                    DE::DatabaseError(_, _) => write!(f, "database constraint error"),
+                    DE::QueryBuilderError(_) => write!(f, "query construction error"),
+                    DE::DeserializationError(_) => write!(f, "row deserialisation error"),
+                    DE::SerializationError(_) => write!(f, "value serialisation error"),
+                    DE::RollbackTransaction => write!(f, "transaction rolled back"),
+                    DE::AlreadyInTransaction | DE::NotInTransaction => {
+                        write!(f, "transaction state error")
+                    }
+                    _ => write!(f, "database error"),
+                }
+            }
         }
     }
 }
@@ -416,6 +452,19 @@ fn update_row(
         }
     }
 
+    // Tri-state icon write:
+    //   None             -> leave the column alone (icon unchanged)
+    //   Some(Some(bytes)) -> write new icon bytes
+    //   Some(None)       -> clear the column (previous version had
+    //                       an icon, this one doesn't)
+    // Avoids re-writing the BYTEA column on every reinstall when
+    // the icon is unchanged.
+    let icon_update = if existing.icon_svg.as_deref() == icon_bytes.as_deref() {
+        None
+    } else {
+        Some(icon_bytes.clone())
+    };
+
     let update = PluginUpdate {
         display_name: Some(manifest.display_name.clone()),
         version: Some(manifest.version.clone()),
@@ -428,10 +477,7 @@ fn update_row(
         signer_pubkey: signer.signer_pubkey.clone(),
         signer_source: signer.signer_source.clone(),
         signature_metadata: signer.signature_metadata.clone(),
-        // `Some(Some(bytes))` writes the icon. `Some(None)` clears
-        // it (previous version had one, this one doesn't). The
-        // icon is always replaced wholesale on update, no merging.
-        icon_svg: Some(icon_bytes.clone()),
+        icon_svg: icon_update,
     };
     Ok(plugin_repo::update_plugin_by_uuid(conn, existing.uuid, update)?)
 }

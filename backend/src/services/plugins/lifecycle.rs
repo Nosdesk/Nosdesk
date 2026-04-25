@@ -56,9 +56,14 @@ pub enum PluginAction {
     /// handler layer; the lifecycle module does not police *who*
     /// can call it.
     RestoreFromQuarantine,
-    /// Uninstall but retain plugin_data and collection rows for
-    /// future reinstall (`lifecycle.on_uninstall = preserve` in
-    /// the manifest). From any active state.
+    /// Uninstall but retain plugin_data, collection rows, and the
+    /// inline bundle bytes for future reinstall
+    /// (`lifecycle.on_uninstall = preserve` in the manifest).
+    /// From any active state including `Quarantined`. The bundle
+    /// bytes stay on the row (cheap; capped at 500 KB) so a
+    /// resurrect via `Reinstall` doesn't have to re-fetch them
+    /// from the registry just to overwrite. The next signed
+    /// install will overwrite them anyway.
     UninstallPreserve,
     /// Uninstall and delete everything (`lifecycle.on_uninstall =
     /// cascade`). Removes the plugin row; FK cascade takes the
