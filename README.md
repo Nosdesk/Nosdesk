@@ -96,6 +96,64 @@ BACKEND_BIND=0.0.0.0 docker compose -f compose.yaml -f compose.dev.yaml up -d --
 
 For API testing, import `api-insomnia.json` into [Insomnia](https://insomnia.rest/).
 
+## CLI tools
+
+Nosdesk ships a `nosdesk-cli` binary for plugin authoring, signing, and a
+handful of break-glass admin operations against a running instance.
+
+### Install
+
+If you have a local Rust toolchain:
+
+```bash
+cargo install --path backend --bin nosdesk-cli
+```
+
+This drops the binary at `~/.cargo/bin/nosdesk-cli`. Re-run the same
+command after pulling Nosdesk updates; cargo's incremental build only
+rebuilds what changed.
+
+If you don't want a local toolchain, the same binary ships in the
+production Docker image at `/usr/local/bin/nosdesk-cli`:
+
+```bash
+docker compose run --rm --no-deps --entrypoint nosdesk-cli backend --help
+```
+
+### Subcommands
+
+```
+nosdesk-cli plugin gen-key  --out ~/.nosdesk/plugin-key
+nosdesk-cli plugin sign     <plugin-dir> --key <sk> --out <zip> --source <tier>
+nosdesk-cli plugin verify   <zip>
+nosdesk-cli plugin install  <zip>
+
+nosdesk-cli admin reset-password <email>
+nosdesk-cli admin clear-mfa      <email>
+```
+
+`plugin sign` and friends are pure file-IO; they don't need a running
+Nosdesk. `plugin install` and the `admin` subcommands talk to the
+configured database directly, so they need `DATABASE_URL` set (the
+backend's `docker.env` already exports it for the Docker workflow).
+
+### Signing a plugin
+
+```bash
+cd ~/dev/<plugin-repo>
+mkdir -p dist
+nosdesk-cli plugin sign . \
+  --key <path-to-your-signing-key> \
+  --out dist/<plugin-name>-<version>.zip \
+  --source <nosdesk-root|verified-publisher|community-publisher|local>
+shasum -a 256 dist/<plugin-name>-<version>.zip
+```
+
+The `--source` value must match how your signing key is registered with
+the trust chain on the target Nosdesk instance(s). See
+`docs/plugin-registry-plan.md` (this repo) for how trust tiers resolve
+on the install pipeline.
+
 ## License
 
 This project is licensed under the Business Source License. See the [LICENSE](LICENSE) file for details.
