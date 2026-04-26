@@ -1,18 +1,24 @@
 <script setup lang="ts">
 /**
- * Read-only side panel showing source timestamps, content stats,
- * and contributors for a documentation page. Mirrors what Outline
- * surfaces under its "Insights" menu item — MVP scope, no
- * analytics pipeline required.
+ * Read-only secondary surface showing source timestamps, content
+ * stats, and contributors for a documentation page. Mirrors what
+ * Outline surfaces under its "Insights" menu item — MVP scope,
+ * no analytics pipeline required.
  *
- * Stats are computed from the editor's current text content (word
- * / character / emoji counts, reading time at 200 WPM). The
- * contributor list pulls the unique set of `created_by` UUIDs
- * from the revision history and resolves each via the dataStore.
+ * Layout is owned by `<ResponsivePanel>`: side panel at md+,
+ * bottom sheet on phone. This component just renders the body
+ * content and the contributor / stats query logic; chrome
+ * (header, close, drag handle, backdrop) lives in the wrapper.
+ *
+ * Stats are computed from the editor's current text content
+ * (word / character / emoji counts, reading time at 200 WPM).
+ * The contributor list pulls the unique set of `created_by`
+ * UUIDs from the revision history and resolves each via the
+ * dataStore.
  */
 import { computed, ref, onMounted, watch } from 'vue'
 import UserAvatar from '@/components/UserAvatar.vue'
-import Icon from '@/components/common/Icon.vue'
+import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
 import { useDataStore } from '@/stores/dataStore'
 import apiClient from '@/services/apiConfig'
 
@@ -23,6 +29,8 @@ interface ContributorInfo {
 }
 
 interface Props {
+  /** Open state. Owned by the parent. */
+  open: boolean
   pageId: number
   createdAt: string | null
   updatedAt: string | null
@@ -123,24 +131,13 @@ watch(() => props.pageId, loadContributors)
 </script>
 
 <template>
-  <aside
-    class="flex h-full w-full flex-col border-l border-default bg-surface md:w-80"
-    role="complementary"
-    aria-label="Page insights"
+  <ResponsivePanel
+    :open="open"
+    title="Insights"
+    side-panel-class="w-80"
+    @close="emit('close')"
   >
-    <header class="flex items-center justify-between border-b border-default px-4 py-3">
-      <h2 class="text-sm font-semibold text-primary">Insights</h2>
-      <button
-        type="button"
-        @click="emit('close')"
-        aria-label="Close insights"
-        class="rounded p-1 text-tertiary transition-colors hover:bg-surface-hover hover:text-primary"
-      >
-        <Icon name="close" size="sm" />
-      </button>
-    </header>
-
-    <div class="flex flex-1 flex-col gap-6 overflow-y-auto px-4 py-4 text-sm">
+    <div class="flex flex-1 flex-col gap-6 px-4 py-4 text-sm">
       <section>
         <h3 class="mb-2 text-xs font-semibold tracking-wide text-tertiary uppercase">Source</h3>
         <ul class="flex flex-col gap-1 text-secondary" role="list">
@@ -197,5 +194,5 @@ watch(() => props.pageId, loadContributors)
         </ul>
       </section>
     </div>
-  </aside>
+  </ResponsivePanel>
 </template>

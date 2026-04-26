@@ -1,18 +1,11 @@
 <template>
-  <div class="revision-history-sidebar">
-    <!-- Header -->
-    <div class="revision-history-header">
-      <h3 class="text-lg font-semibold text-primary">Revision History</h3>
-      <button
-        @click="$emit('close')"
-        class="text-secondary hover:text-primary transition-colors"
-        title="Close revision history"
-      >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-    </div>
+  <ResponsivePanel
+    :open="open"
+    title="Revision History"
+    side-panel-class="w-80"
+    @close="$emit('close')"
+  >
+    <div class="revision-history-body">
 
     <!-- Loading State -->
     <div v-if="loading" class="flex items-center justify-center py-8">
@@ -159,7 +152,8 @@
         </div>
       </div>
     </div>
-  </div>
+    </div>
+  </ResponsivePanel>
 </template>
 
 <script setup lang="ts">
@@ -168,6 +162,7 @@ import { ref, onMounted, watch, computed } from 'vue'
 import { useVersionHistory } from '@/composables/useVersionHistory'
 import type { ArticleRevision } from '@/services/versionHistoryService'
 import UserAvatar from '@/components/UserAvatar.vue'
+import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
 import { useDataStore } from '@/stores/dataStore'
 import apiClient from '@/services/apiConfig'
 
@@ -181,12 +176,17 @@ interface DocumentationRevisionResponse {
 }
 
 interface Props {
+  /** Open state. Owned by the parent so the layout wrapper can
+   * decide whether to mount/unmount. Defaults to true to keep
+   * existing call sites working without a prop change. */
+  open?: boolean
   ticketId?: number
   documentId?: number
   type?: 'ticket' | 'documentation'
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  open: true,
   type: 'ticket'
 })
 
@@ -413,20 +413,14 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.revision-history-sidebar {
+/* Width / chrome live in <ResponsivePanel> now; this is just
+   the body container that holds the revision list inside the
+   panel's content slot. */
+.revision-history-body {
   display: flex;
   flex-direction: column;
-  width: 320px;
-  background-color: var(--color-surface);
-  border-left: 1px solid var(--color-default);
-}
-
-.revision-history-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--color-default);
+  flex: 1;
+  min-height: 0;
 }
 
 .revision-list {

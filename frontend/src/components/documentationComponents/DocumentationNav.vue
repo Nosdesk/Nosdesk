@@ -10,6 +10,7 @@ import NavRowActions from './NavRowActions.vue'
 import EditCollectionModal from './EditCollectionModal.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useLongPress } from '@/composables/useLongPress'
+import { useDocumentPanelState } from '@/composables/useDocumentPanelState'
 import MoveDocumentModal from './MoveDocumentModal.vue'
 import PagePermissionsModal from './PagePermissionsModal.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -40,6 +41,7 @@ defineEmits<{
 const route = useRoute()
 const router = useRouter()
 const docNavStore = useDocumentationNavStore()
+const docPanel = useDocumentPanelState()
 
 // SSE for real-time updates
 const { addEventListener, removeEventListener } = useSSE()
@@ -241,22 +243,53 @@ const activeContextMenuItems = computed(() =>
     : pageContextMenuItems.value
 )
 
-const handleNavContextMenu = (page: Page, pos: { x: number, y: number }) => {
-  contextMenuType.value = 'page'
-  contextMenuPage.value = page
-  contextMenuCollection.value = null
+/**
+ * Single open-or-toggle entry point for every menu trigger
+ * (right-click, `…` button click, long-press). The behaviour:
+ *   - menu closed → open at the new anchor
+ *   - menu open on the same target → close (toggle)
+ *   - menu open on a different target → move to the new anchor
+ *
+ * Putting the policy in one place keeps every trigger in sync
+ * with platform conventions (Notion / Linear / Slack / iOS all
+ * toggle on second tap of the same trigger) without
+ * special-casing each call site.
+ */
+function openOrToggleMenu(
+  type: 'page' | 'collection',
+  target: Page | CollectionWithDetails,
+  pos: { x: number; y: number },
+) {
+  const sameAsActive =
+    showContextMenu.value &&
+    contextMenuType.value === type &&
+    (type === 'page'
+      ? contextMenuPage.value?.id === (target as Page).id
+      : contextMenuCollection.value?.id === (target as CollectionWithDetails).id)
+  if (sameAsActive) {
+    showContextMenu.value = false
+    return
+  }
+  contextMenuType.value = type
+  if (type === 'page') {
+    contextMenuPage.value = target as Page
+    contextMenuCollection.value = null
+  } else {
+    contextMenuCollection.value = target as CollectionWithDetails
+    contextMenuPage.value = null
+  }
   contextMenuPos.value = pos
   showContextMenu.value = true
+}
+
+const handleNavContextMenu = (page: Page, pos: { x: number; y: number }) => {
+  openOrToggleMenu('page', page, pos)
 }
 
 const handleCollectionContextMenu = (collection: CollectionWithDetails, event: MouseEvent) => {
   event.preventDefault()
   event.stopPropagation()
-  contextMenuType.value = 'collection'
-  contextMenuCollection.value = collection
-  contextMenuPage.value = null
-  contextMenuPos.value = { x: event.clientX, y: event.clientY }
-  showContextMenu.value = true
+  openOrToggleMenu('collection', collection, { x: event.clientX, y: event.clientY })
 }
 
 /** Click-handler equivalent of the right-click context menu.
@@ -266,13 +299,10 @@ const handleCollectionContextMenu = (collection: CollectionWithDetails, event: M
 const openCollectionMenu = (collection: CollectionWithDetails, event: MouseEvent) => {
   const target = event.currentTarget as HTMLElement | null
   const rect = target?.getBoundingClientRect()
-  contextMenuType.value = 'collection'
-  contextMenuCollection.value = collection
-  contextMenuPage.value = null
-  contextMenuPos.value = rect
+  const pos = rect
     ? { x: rect.left, y: rect.bottom + 4 }
     : { x: event.clientX, y: event.clientY }
-  showContextMenu.value = true
+  openOrToggleMenu('collection', collection, pos)
 }
 
 /** Touch UI long-press on a collection row opens the same
@@ -286,11 +316,7 @@ const pressedCollection = ref<CollectionWithDetails | null>(null)
 const collectionLongPress = useLongPress((event) => {
   const collection = pressedCollection.value
   if (!collection) return
-  contextMenuType.value = 'collection'
-  contextMenuCollection.value = collection
-  contextMenuPage.value = null
-  contextMenuPos.value = { x: event.clientX, y: event.clientY }
-  showContextMenu.value = true
+  openOrToggleMenu('collection', collection, { x: event.clientX, y: event.clientY })
   pressedCollection.value = null
 })
 
@@ -505,16 +531,20 @@ const handleContextMenuSelect = async (actionId: string) => {
       break
 
     case 'history':
-      // Open the page (if not already there) with a query flag
-      // the page view picks up to auto-open the revision panel.
-      router.push({ path: pageUrl, query: { panel: 'history' } })
-      break
-
     case 'insights':
-      router.push({ path: pageUrl, query: { panel: 'insights' } })
+      // Navigate to the page (no-op if already there) AND signal
+      // the page view to open the requested panel via shared
+      // module state. URL stays clean — panel state isn't part
+      // of the page identity, and using a query param made
+      // re-clicks of an already-open panel a router no-op.
+      if (route.path !== pageUrl) router.push(pageUrl)
+      docPanel.open(actionId)
       break
 
     case 'print':
+      // Print is a one-shot side effect, not panel state, so the
+      // query-param signal is fine here. The page view consumes
+      // and strips it.
       router.push({ path: pageUrl, query: { print: '1' } })
       break
 
@@ -1498,9 +1528,12 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
       </div>
     </div>
 
-    <!-- Context Menu -->
+    <!-- Context Menu. Always mounted, toggled via :open so the
+         enter/leave fade-scale transition Popover provides
+         actually plays. v-if would unmount the whole subtree
+         before the leave transition could run. -->
     <ContextMenu
-      v-if="showContextMenu"
+      :open="showContextMenu"
       :items="activeContextMenuItems"
       :x="contextMenuPos.x"
       :y="contextMenuPos.y"

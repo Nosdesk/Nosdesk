@@ -6,6 +6,7 @@ import { docUrl, slugify } from '@/utils/docUrl'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocumentation } from '@/composables/useDocumentation'
 import { useClipboard } from '@/composables/useClipboard'
+import { useDocumentPanelState } from '@/composables/useDocumentPanelState'
 import documentationService from '@/services/documentationService'
 import ticketService from '@/services/ticketService'
 import type { Page } from '@/services/documentationService'
@@ -19,6 +20,7 @@ import PagePermissionsModal from '@/components/documentationComponents/PagePermi
 import { docsEmitter } from '@/services/docsEmitter'
 import RevisionHistory from '@/components/editor/RevisionHistory.vue'
 import DocumentInsightsPanel from '@/components/documentationComponents/DocumentInsightsPanel.vue'
+import Icon from '@/components/common/Icon.vue'
 import apiClient from '@/services/apiConfig'
 import { useAuthStore } from '@/stores/auth'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
@@ -58,12 +60,14 @@ const titleElementRef = ref<HTMLElement | null>(null)
 // Debounced title save
 let titleUpdateTimeout: ReturnType<typeof setTimeout> | null = null
 
-// Revision history
-const showRevisionHistory = ref(false)
-// Insights panel: source timestamps, word/character/reading-time
-// stats, contributors. A read-only side panel that mirrors what
-// Outline shows under its "Insights" menu item.
-const showInsights = ref(false)
+// Revision-history and Insights panels are both derived from a
+// single source of truth: the shared `useDocumentPanelState`
+// composable. Computeds (not mirrored refs) so there's no
+// double-state-and-watch ceremony — `activePanel` is the only
+// thing anyone writes; everything else falls out reactively.
+const docPanel = useDocumentPanelState()
+const showRevisionHistory = computed(() => docPanel.activePanel.value === 'history')
+const showInsights = computed(() => docPanel.activePanel.value === 'insights')
 const editorRef = ref<InstanceType<typeof CollaborativeEditor> | null>(null)
 
 // Plain-text snapshot for the Insights panel. Re-pulled when the
@@ -191,9 +195,16 @@ const saveTitleChanges = async () => {
   }
 }
 
-// Revision history handlers
+// Toolbar toggles. Both go through the shared panel store so
+// the sidebar context-menu items and the in-page toolbar stay
+// in sync — closing here updates activePanel, so a subsequent
+// click from either surface transitions cleanly.
 const toggleRevisionHistory = () => {
-  showRevisionHistory.value = !showRevisionHistory.value
+  showRevisionHistory.value ? docPanel.close() : docPanel.open('history')
+}
+
+const toggleInsights = () => {
+  showInsights.value ? docPanel.close() : docPanel.open('insights')
 }
 
 const handleSelectRevision = async (revisionNumber: number | null) => {
@@ -217,10 +228,17 @@ const handleSelectRevision = async (revisionNumber: number | null) => {
 }
 
 const handleCloseRevisionHistory = () => {
-  showRevisionHistory.value = false
+  // Clear the shared state so the next "Revision history" click
+  // from the sidebar transitions activePanel from null → 'history'
+  // (which fires the watcher) instead of going same → same.
+  docPanel.close()
   if (editorRef.value?.isViewingRevision) {
     editorRef.value.exitRevisionView()
   }
+}
+
+const handleCloseInsights = () => {
+  docPanel.close()
 }
 
 const handleRevisionRestored = () => {
@@ -512,29 +530,21 @@ const handleSSEUpdate = (data: { document_id?: number; field?: string; value?: s
 // Lifecycle
 let cleanupSSE: (() => void) | null = null
 
-// React to deep-link panel/print query params from the sidebar
-// context menu. The menu emits navigation with `?panel=history`
-// / `?panel=insights` / `?print=1`; we consume those here so the
-// sidebar doesn't need direct DOM access into the page view.
-function applyPanelQuery() {
-  const panel = route.query.panel as string | undefined
-  showRevisionHistory.value = panel === 'history'
-  showInsights.value = panel === 'insights'
+// Print is a one-shot side effect, not panel state, so it stays
+// as a query param. Consume + strip so a refresh doesn't re-fire.
+function consumePrintQuery() {
   if (route.query.print === '1') {
-    // Defer to next tick so the editor has a chance to render
-    // the latest content before the print dialog snapshots it.
     setTimeout(() => window.print(), 50)
-    // Strip the param so a refresh doesn't re-trigger.
     router.replace({ path: route.path, query: { ...route.query, print: undefined } })
   }
 }
 
-watch(() => route.query, () => applyPanelQuery())
+watch(() => route.query.print, consumePrintQuery)
 
 onMounted(() => {
   cleanupSSE = setupSSE(handleSSEUpdate)
   fetchContent()
-  applyPanelQuery()
+  consumePrintQuery()
 
   // Register save handlers for SiteHeader title/icon edits
   titleManager.onDocumentTitleSave(async (title: string) => {
@@ -665,6 +675,8 @@ watch(documentObj, (newDocument) => {
           @permissions="showPermissionsModal = true"
           @subscribe="handleSubscribe"
           @unsubscribe="handleUnsubscribe"
+          @insights="docPanel.open('insights')"
+          @history="docPanel.open('history')"
         />
       </div>
     </div>
@@ -791,9 +803,13 @@ watch(documentObj, (newDocument) => {
           </div>
         </div>
 
-        <!-- Revision History Sidebar -->
+        <!-- Revision history surface. Same responsive treatment
+             as the Insights panel: side panel at md+, bottom
+             sheet on phone. Mounted whenever there's a current
+             page so toggling open doesn't refetch revisions. -->
         <RevisionHistory
-          v-if="showRevisionHistory && currentPageId"
+          v-if="currentPageId"
+          :open="showRevisionHistory"
           type="documentation"
           :document-id="Number(currentPageId)"
           class="flex-shrink-0"
@@ -802,15 +818,20 @@ watch(documentObj, (newDocument) => {
           @restored="handleRevisionRestored"
         />
 
-        <!-- Insights side panel -->
+        <!-- Insights surface. Side panel at md+, bottom sheet on
+             phone — `<ResponsivePanel>` inside picks the layout
+             from the viewport. We mount it whenever there's a
+             current page so toggling open/close doesn't unmount
+             the contributors fetch state. -->
         <DocumentInsightsPanel
-          v-if="showInsights && currentPageId"
+          v-if="currentPageId"
+          :open="showInsights"
           :page-id="Number(currentPageId)"
           :created-at="document?.created_at ?? null"
           :updated-at="document?.updated_at ?? null"
           :text="insightsText"
           class="flex-shrink-0"
-          @close="showInsights = false"
+          @close="handleCloseInsights"
         />
       </div>
 

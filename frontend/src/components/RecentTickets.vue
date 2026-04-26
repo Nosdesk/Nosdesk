@@ -230,9 +230,10 @@ onMounted(async () => {
       <p class="text-xs text-tertiary">No recent tickets</p>
     </div>
 
-    <!-- Context Menu -->
+    <!-- Context Menu. Always mounted; `:open` lets Popover's
+         enter/leave fade-scale transition play. -->
     <ContextMenu
-      v-if="showContextMenu"
+      :open="showContextMenu"
       :items="ticketContextMenuItems"
       :x="contextMenuPos.x"
       :y="contextMenuPos.y"
