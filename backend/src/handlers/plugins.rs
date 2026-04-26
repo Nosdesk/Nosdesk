@@ -33,6 +33,27 @@ pub struct PaginationQuery {
 // Helper Functions
 // =============================================================================
 
+/// Web sideload (admin uploads a signed zip via the browser) is
+/// off by default. The CLI path stays available regardless: an
+/// operator on the host can always install local-tier plugins
+/// through `nosdesk-cli`, which is the supported escape hatch.
+/// Admins on the web UI shouldn't be able to upload arbitrary
+/// signed bundles unless the operator has explicitly opted in,
+/// because a compromised admin account would otherwise inherit
+/// "install any plugin a registered publisher has signed" as a
+/// capability.
+///
+/// Set `NOSDESK_ALLOW_WEB_SIDELOAD=1` (or `true`) to opt in.
+pub fn web_sideload_enabled() -> bool {
+    matches!(
+        std::env::var("NOSDESK_ALLOW_WEB_SIDELOAD")
+            .ok()
+            .as_deref()
+            .map(str::trim),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES"),
+    )
+}
+
 /// Get a plugin by UUID or return a 404/500 error response
 fn get_plugin_or_error(
     conn: &mut DbConnection,
@@ -492,6 +513,10 @@ pub async fn get_plugin_storage(
         Err(e) => return e,
     };
 
+    if !plugin.is_active() {
+        return HttpResponse::Forbidden().json("Plugin is disabled");
+    }
+
     match plugin_repo::get_plugin_storage_entry(&mut conn, plugin.id, &key) {
         Ok(entry) => HttpResponse::Ok().json(PluginStorageResponse::from(entry)),
         Err(DieselError::NotFound) => HttpResponse::Ok().json(serde_json::json!({
@@ -528,6 +553,10 @@ pub async fn set_plugin_storage(
         Err(e) => return e,
     };
 
+    if !plugin.is_active() {
+        return HttpResponse::Forbidden().json("Plugin is disabled");
+    }
+
     match plugin_repo::set_plugin_storage(
         &mut conn,
         plugin.id,
@@ -563,6 +592,10 @@ pub async fn delete_plugin_storage(
         Ok(p) => p,
         Err(e) => return e,
     };
+
+    if !plugin.is_active() {
+        return HttpResponse::Forbidden().json("Plugin is disabled");
+    }
 
     match plugin_repo::delete_plugin_storage_entry(&mut conn, plugin.id, &key) {
         Ok(_) => HttpResponse::NoContent().finish(),
@@ -799,9 +832,17 @@ pub async fn install_plugin_from_zip(
     pool: web::Data<Pool>,
     mut payload: Multipart,
 ) -> impl Responder {
-    // Check admin permission
     if let Err(e) = require_admin(&req) {
         return e;
+    }
+    if !web_sideload_enabled() {
+        warn!(
+            "Web sideload attempt while disabled; set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable"
+        );
+        return HttpResponse::Forbidden().json(
+            "Web sideload is disabled on this instance. Use the CLI \
+             (`nosdesk-cli plugin install`) or set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable.",
+        );
     }
 
     let claims = match req.extensions().get::<Claims>().cloned() {
@@ -943,10 +984,12 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
         | install::InstallError::InvalidManifestSchema(_) => {
             HttpResponse::BadRequest().json(err.to_string())
         }
-        install::InstallError::ReinstallSignerMismatch { .. } => {
+        install::InstallError::ReinstallSignerMismatch { .. }
+        | install::InstallError::RefusedQuarantined => {
             // Conflict, not BadRequest: the request is structurally
-            // fine, but it conflicts with the existing row's
-            // ownership claim. Admin needs to hard-uninstall first.
+            // fine, but it conflicts with the existing row's state
+            // (quarantined, or signer ownership claim). Admin must
+            // resolve the conflict via lifecycle action first.
             HttpResponse::Conflict().json(err.to_string())
         }
         install::InstallError::CollectionSchemaSync(_) => {
@@ -965,12 +1008,36 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
 }
 
 // =============================================================================
+// Config
+// =============================================================================
+
+/// Surface the operator-controlled admin-UI flags so the FE can
+/// render the right surface without trial-and-erroring against
+/// each gated endpoint. Admin-only because the flags hint at the
+/// instance's threat-model posture.
+pub async fn get_admin_config(req: HttpRequest) -> impl Responder {
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+    HttpResponse::Ok().json(serde_json::json!({
+        "web_sideload_enabled": web_sideload_enabled(),
+        "registry_enabled": registry::configured_url().is_some(),
+    }))
+}
+
+// =============================================================================
 // Registry handlers
 // =============================================================================
 
-/// Serve the cached registry snapshot to the admin UI. Returns 503
-/// if the background sync has never completed successfully this
-/// process (no snapshot to show).
+/// Serve the registry state to the admin UI as a tagged status:
+///   - `available`  - snapshot ready, included
+///   - `disabled`   - operator opted out (NOSDESK_REGISTRY_URL empty)
+///   - `failed`     - sync attempted and errored, reason included
+///   - `pending`    - boot warm-up, sync not yet completed
+///
+/// Always returns 200 so the FE doesn't have to special-case the
+/// "no data yet" path as an HTTP error. The status string carries
+/// the operator intent.
 pub async fn get_registry(
     req: HttpRequest,
     cache: web::Data<registry::SharedCache>,
@@ -978,16 +1045,76 @@ pub async fn get_registry(
     if let Err(e) = require_admin(&req) {
         return e;
     }
+    if registry::configured_url().is_none() {
+        return HttpResponse::Ok().json(serde_json::json!({ "status": "disabled" }));
+    }
     let guard = cache.read().await;
-    match &*guard {
-        Some(snapshot) => HttpResponse::Ok().json(serde_json::json!({
+    if let Some(snapshot) = &guard.snapshot {
+        return HttpResponse::Ok().json(serde_json::json!({
+            "status": "available",
+            "snapshot": {
+                "fetched_at": snapshot.fetched_at,
+                "publishers": snapshot.publishers,
+                "index": snapshot.index,
+            },
+        }));
+    }
+    if let Some(reason) = &guard.last_error {
+        return HttpResponse::Ok().json(serde_json::json!({
+            "status": "failed",
+            "reason": reason,
+        }));
+    }
+    HttpResponse::Ok().json(serde_json::json!({ "status": "pending" }))
+}
+
+/// Force an immediate registry sync and return the resulting state.
+/// Backs the admin "Retry" button so it actually retries the
+/// upstream fetch instead of just re-reading the cached error from
+/// the previous attempt. Same response shape as `get_registry`.
+pub async fn refresh_registry(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    cache: web::Data<registry::SharedCache>,
+) -> impl Responder {
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+    let base_url = match registry::configured_url() {
+        Some(u) => u,
+        None => return HttpResponse::Ok().json(serde_json::json!({ "status": "disabled" })),
+    };
+    let http = match registry::build_http_client() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("HTTP client build failed: {}", e);
+            return HttpResponse::InternalServerError().json("HTTP client unavailable");
+        }
+    };
+    if let Err(e) = registry::sync_once(&http, &base_url, pool.get_ref(), cache.get_ref()).await {
+        let msg = e.to_string();
+        warn!(error = %msg, "Manual registry refresh failed");
+        cache.write().await.last_error = Some(msg.clone());
+        return HttpResponse::Ok().json(serde_json::json!({
+            "status": "failed",
+            "reason": msg,
+        }));
+    }
+    // sync_once writes snapshot=Some on success unconditionally, so
+    // a successful refresh always has a snapshot to render.
+    let guard = cache.read().await;
+    let snapshot = guard
+        .snapshot
+        .as_ref()
+        .expect("sync_once Ok but cache snapshot is None");
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "available",
+        "snapshot": {
             "fetched_at": snapshot.fetched_at,
             "publishers": snapshot.publishers,
             "index": snapshot.index,
-        })),
-        None => HttpResponse::ServiceUnavailable()
-            .json("Registry snapshot not available yet; background sync has not completed"),
-    }
+        },
+    }))
 }
 
 #[derive(Deserialize)]
@@ -1020,7 +1147,7 @@ pub async fn install_from_registry(
     // downloaded zip's signature envelope + manifest before commit.
     let (download_url, expected_sha256, claimed_publisher_pubkey, claimed_tier) = {
         let guard = cache.read().await;
-        let snapshot = match &*guard {
+        let snapshot = match guard.snapshot.as_ref() {
             Some(s) => s,
             None => {
                 return HttpResponse::ServiceUnavailable().json(
@@ -1048,7 +1175,7 @@ pub async fn install_from_registry(
             version.download_url.clone(),
             version.sha256.clone(),
             entry.publisher_pubkey.clone(),
-            entry.tier.clone(),
+            entry.tier,
         )
     };
 
@@ -1119,7 +1246,7 @@ pub async fn install_from_registry(
             return HttpResponse::BadRequest().json(format!("publisher not trusted: {e}"));
         }
     };
-    if tier.trust_level() != claimed_tier {
+    if tier.trust_level() != claimed_tier.as_str() {
         warn!(
             plugin = %body.plugin_name,
             registry_tier = %claimed_tier,

@@ -1,16 +1,25 @@
 /**
  * Plugin Component Loader
  *
- * Loads plugin bundles (ES modules) from the backend, verifies their
- * SHA-256 against the hash the server recorded at sign/install time,
- * and creates async Vue components that render plugin UI in slots.
+ * Loads plugin bundles (ES modules) from the same-origin endpoint
+ * `/api/plugins/<uuid>/bundle` and creates async Vue components that
+ * render plugin UI in slots.
  *
- * The integrity check is the browser's independent safety net: even
- * if the backend is compromised and serves different bytes than what
- * was signed, the hash mismatch keeps the module from executing.
- * Fetched bytes are handed to `import()` via a blob URL so there's
- * exactly one path from network to execution, and the hash check
- * gates it.
+ * The bundle URL is parameterised with the plugin's recorded hash
+ * (`?h=<hash>`) so the browser's module cache keys a new hash to a
+ * fresh fetch by construction. We do not blob-indirect: under CSP
+ * `script-src 'self'`, blob: URLs are not permitted, and the
+ * security middleware (see `backend/src/middleware/security_headers.rs`)
+ * pins the policy to same-origin script loading.
+ *
+ * Integrity is a server-side guarantee. The backend verifies the
+ * Ed25519 signature of the entire archive at install (signing.rs),
+ * pins the bundle's SHA-256 to the plugins row, and refuses to
+ * provision an updated bundle whose bytes don't reverify against
+ * the recorded signature. A client-side recheck would only catch a
+ * "backend is compromised" scenario — and in that scenario the same
+ * compromise can rewrite index.html to import arbitrary code from
+ * anywhere `'self'` allows, so the recheck adds no real defense.
  */
 
 import { defineAsyncComponent, type Component } from 'vue';
@@ -65,50 +74,21 @@ function isRecentFailure(uuid: string): boolean {
 // =============================================================================
 
 /**
- * Fetch a plugin bundle, verify its SHA-256 against the hash the
- * backend recorded at sign/install time, and dynamic-import the
- * verified bytes.
- *
- * The integrity check defends against a scenario where the backend
- * serves bytes that don't match what it previously signed — disk
- * corruption, an attacker swapping the staged bundle, or the
- * compiled JS drifting from the signed archive. A mismatch throws
- * and the module is never evaluated.
+ * Dynamic-import the plugin bundle directly from its same-origin
+ * URL. The recorded hash is appended as `?h=<hash>` so a hash
+ * change is a fresh URL is a fresh module-cache entry by
+ * construction; no manual cache busting required.
  */
 async function loadPluginBundle(
   pluginUuid: string,
   expectedHash: string
 ): Promise<PluginModule> {
-  const url = `/api/plugins/${pluginUuid}/bundle`;
+  const url = `/api/plugins/${pluginUuid}/bundle?h=${expectedHash}`;
 
   logger.debug(`Loading plugin bundle: ${pluginUuid}`, { url });
 
   try {
-    const response = await fetch(url, { credentials: 'same-origin' });
-    if (!response.ok) {
-      throw new Error(`Plugin bundle HTTP ${response.status}`);
-    }
-    const bytes = await response.arrayBuffer();
-
-    const actualHash = await sha256Hex(bytes);
-    if (actualHash !== expectedHash) {
-      throw new Error(
-        `Bundle integrity check failed: expected ${expectedHash}, got ${actualHash}`
-      );
-    }
-
-    // Hand the already-verified bytes to dynamic import via a blob
-    // URL. This is the only path that loads plugin code — nothing
-    // else calls `import()` on plugin URLs — so every execution
-    // flows through the hash check above.
-    const blob = new Blob([bytes], { type: 'application/javascript' });
-    const blobUrl = URL.createObjectURL(blob);
-    let imported: { default?: unknown };
-    try {
-      imported = await import(/* @vite-ignore */ blobUrl);
-    } finally {
-      URL.revokeObjectURL(blobUrl);
-    }
+    const imported: { default?: unknown } = await import(/* @vite-ignore */ url);
 
     if (!imported.default) {
       throw new Error('Plugin bundle must have a default export');
@@ -124,13 +104,6 @@ async function loadPluginBundle(
     markFailed(pluginUuid);
     throw error;
   }
-}
-
-async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 /**

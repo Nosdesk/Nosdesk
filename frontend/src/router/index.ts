@@ -475,7 +475,7 @@ const router = createRouter({
         {
           path: 'plugins',
           name: 'admin-plugins',
-          component: () => import('../views/PluginsView.vue'),
+          component: () => import('../views/admin/plugins/PluginListView.vue'),
           meta: { title: 'Plugins' }
         },
         {
@@ -483,6 +483,18 @@ const router = createRouter({
           name: 'admin-plugin-registry',
           component: () => import('../views/PluginRegistryView.vue'),
           meta: { title: 'Plugin Registry' }
+        },
+        {
+          path: 'plugins/install',
+          name: 'admin-plugin-sideload',
+          component: () => import('../views/admin/plugins/PluginSideloadView.vue'),
+          meta: { title: 'Sideload Plugin' }
+        },
+        {
+          path: 'plugins/:uuid',
+          name: 'admin-plugin-detail',
+          component: () => import('../views/admin/plugins/PluginDetailView.vue'),
+          meta: { title: 'Plugin Detail' }
         },
         {
           path: 'auth-providers',

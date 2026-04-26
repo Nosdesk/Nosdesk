@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::{
     NewPlugin, NewPluginActivity, NewPluginData, Plugin, PluginActivity, PluginBundleUpdate,
-    PluginData, PluginDataUpdate, PluginUpdate,
+    PluginData, PluginUpdate,
 };
 use crate::schema::{plugin_activity, plugin_data, plugins};
 
@@ -155,7 +155,19 @@ pub fn get_plugin_data_entry(
         .first::<PluginData>(conn)
 }
 
-/// Set a plugin data entry (upsert)
+/// Set a plugin data entry (upsert).
+///
+/// Uses Postgres `ON CONFLICT (plugin_id, data_type, key) DO UPDATE`
+/// so two concurrent writers can't both see a NotFound and race to
+/// INSERT — one would lose with a unique-constraint violation
+/// surfaced as a 500. The unique index on (plugin_id, data_type,
+/// key) is defined in the consolidate_plugin_data migration.
+///
+/// `is_secret` is set on insert and intentionally NOT changed on
+/// update: a setting's secret-ness is a manifest property and must
+/// not be flipped by a runtime caller. If a plugin's manifest later
+/// reclassifies a key, that flows through reinstall, not through a
+/// data write.
 pub fn set_plugin_data(
     conn: &mut DbConnection,
     plugin_id: i32,
@@ -164,37 +176,23 @@ pub fn set_plugin_data(
     value: Option<serde_json::Value>,
     is_secret: bool,
 ) -> Result<PluginData, diesel::result::Error> {
-    // Try to update existing
-    let existing = plugin_data::table
-        .filter(plugin_data::plugin_id.eq(plugin_id))
-        .filter(plugin_data::data_type.eq(data_type))
-        .filter(plugin_data::key.eq(&key))
-        .first::<PluginData>(conn);
-
-    match existing {
-        Ok(entry) => {
-            let update = PluginDataUpdate {
-                value: Some(value),
-            };
-            diesel::update(plugin_data::table.filter(plugin_data::id.eq(entry.id)))
-                .set(&update)
-                .get_result(conn)
-        }
-        Err(diesel::result::Error::NotFound) => {
-            // Insert new
-            let new_entry = NewPluginData {
-                plugin_id,
-                data_type: data_type.to_string(),
-                key,
-                value,
-                is_secret,
-            };
-            diesel::insert_into(plugin_data::table)
-                .values(&new_entry)
-                .get_result(conn)
-        }
-        Err(e) => Err(e),
-    }
+    let new_entry = NewPluginData {
+        plugin_id,
+        data_type: data_type.to_string(),
+        key,
+        value,
+        is_secret,
+    };
+    diesel::insert_into(plugin_data::table)
+        .values(&new_entry)
+        .on_conflict((
+            plugin_data::plugin_id,
+            plugin_data::data_type,
+            plugin_data::key,
+        ))
+        .do_update()
+        .set(plugin_data::value.eq(diesel::upsert::excluded(plugin_data::value)))
+        .get_result(conn)
 }
 
 /// Delete a plugin data entry

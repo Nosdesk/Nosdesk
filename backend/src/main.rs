@@ -1127,7 +1127,18 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/webhooks/{uuid}/test", web::post().to(handlers::webhooks::test_webhook))
 
                     // ===== PLUGIN MANAGEMENT (Admin) =====
+                    // Literal paths MUST be registered before the
+                    // `{uuid}` paths: actix matches in registration
+                    // order and a `web::Path<Uuid>` extractor on the
+                    // generic route would 400 trying to parse
+                    // "registry" or "install" as a UUID, never
+                    // falling through to the literal handlers.
                     .route("/admin/plugins", web::get().to(handlers::plugins::list_plugins))
+                    .route("/admin/plugins/config", web::get().to(handlers::plugins::get_admin_config))
+                    .route("/admin/plugins/install", web::post().to(handlers::plugins::install_plugin_from_zip))
+                    .route("/admin/plugins/registry", web::get().to(handlers::plugins::get_registry))
+                    .route("/admin/plugins/registry/refresh", web::post().to(handlers::plugins::refresh_registry))
+                    .route("/admin/plugins/registry/install", web::post().to(handlers::plugins::install_from_registry))
                     .route("/admin/plugins/{uuid}", web::get().to(handlers::plugins::get_plugin))
                     .route("/admin/plugins/{uuid}", web::put().to(handlers::plugins::update_plugin))
                     .route("/admin/plugins/{uuid}", web::delete().to(handlers::plugins::uninstall_plugin))
@@ -1135,9 +1146,6 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/plugins/{uuid}/settings", web::post().to(handlers::plugins::set_plugin_setting))
                     .route("/admin/plugins/{uuid}/settings/{key}", web::delete().to(handlers::plugins::delete_plugin_setting))
                     .route("/admin/plugins/{uuid}/activity", web::get().to(handlers::plugins::get_plugin_activity))
-                    .route("/admin/plugins/install", web::post().to(handlers::plugins::install_plugin_from_zip))
-                    .route("/admin/plugins/registry", web::get().to(handlers::plugins::get_registry))
-                    .route("/admin/plugins/registry/install", web::post().to(handlers::plugins::install_from_registry))
 
                     // ===== PLUGIN API (For plugins to use) =====
                     .route("/plugins/enabled", web::get().to(handlers::plugins::list_enabled_plugins))

@@ -12,7 +12,7 @@ import type {
   CollectionSchemaInfo,
   CollectionRow,
   CollectionListResponse,
-  RegistrySnapshot,
+  RegistryState,
   InstallFromRegistryRequest,
 } from '@/types/plugin';
 
@@ -99,12 +99,36 @@ const pluginService = {
   },
 
   /**
-   * Fetch the cached registry snapshot (publishers + plugin catalog).
-   * Returns 503 when the instance hasn't completed a successful
-   * registry sync yet — the caller should surface a retry prompt.
+   * Fetch the registry state. Always returns 200; the response
+   * `status` discriminates between snapshot-available, sync-
+   * disabled (operator config), sync-pending (boot warm-up), and
+   * sync-failed (with reason). The caller branches on `status`
+   * to render distinct empty states instead of treating absence
+   * as an error.
    */
-  async getRegistry(): Promise<RegistrySnapshot> {
+  async getRegistry(): Promise<RegistryState> {
     const response = await apiClient.get('/admin/plugins/registry');
+    return response.data;
+  },
+
+  /**
+   * Operator-controlled admin-UI flags. Lets the FE render the
+   * right surface (e.g. hide the sideload UI when the operator has
+   * not enabled it) without trial-and-erroring against gated
+   * endpoints.
+   */
+  async getAdminConfig(): Promise<{ web_sideload_enabled: boolean; registry_enabled: boolean }> {
+    const response = await apiClient.get('/admin/plugins/config');
+    return response.data;
+  },
+
+  /**
+   * Force an immediate registry sync. Backs the admin "Retry" button
+   * so it actually retries the upstream fetch instead of returning
+   * the cached error. Same response shape as `getRegistry`.
+   */
+  async refreshRegistry(): Promise<RegistryState> {
+    const response = await apiClient.post('/admin/plugins/registry/refresh');
     return response.data;
   },
 

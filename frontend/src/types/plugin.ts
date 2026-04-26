@@ -198,6 +198,23 @@ export interface RegistrySnapshot {
   };
 }
 
+/**
+ * Tagged response shape from `GET /admin/plugins/registry`. The
+ * backend always returns 200; the `status` field carries operator
+ * intent so the UI can render distinct states for "snapshot
+ * ready", "operator opted out", "still syncing", and "sync errored".
+ *
+ *   - `available`: snapshot is included
+ *   - `disabled` : NOSDESK_REGISTRY_URL is empty (operator config)
+ *   - `pending`  : boot warm-up; sync hasn't completed this process
+ *   - `failed`   : sync attempted and errored, reason included
+ */
+export type RegistryState =
+  | { status: 'available'; snapshot: RegistrySnapshot }
+  | { status: 'disabled' }
+  | { status: 'pending' }
+  | { status: 'failed'; reason: string };
+
 export interface InstallFromRegistryRequest {
   plugin_name: string;
   version?: string;

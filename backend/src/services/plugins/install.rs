@@ -124,6 +124,14 @@ pub enum InstallError {
     /// against a half-migrated schema, so plugin reads/writes
     /// blew up at runtime. Now hard-fails the install.
     CollectionSchemaSync(String),
+    /// Refused to update a row whose state is `Quarantined`.
+    /// Quarantine is an explicit "do not touch" marker; reinstall
+    /// is the wrong tool to clear it. Operators must restore the
+    /// plugin via the lifecycle action so the activity log records
+    /// who decided the trust failure was resolved, and so the
+    /// system doesn't silently overwrite the trust info that
+    /// triggered the quarantine in the first place.
+    RefusedQuarantined,
     Db(diesel::result::Error),
 }
 
@@ -156,6 +164,10 @@ impl std::fmt::Display for InstallError {
                 Ok(())
             }
             Self::CollectionSchemaSync(m) => write!(f, "collection schema sync failed: {m}"),
+            Self::RefusedQuarantined => write!(
+                f,
+                "plugin is quarantined; restore it via the lifecycle action before reinstalling"
+            ),
             Self::ReinstallSignerMismatch {
                 existing_fingerprint,
                 attempted_fingerprint,
@@ -421,6 +433,10 @@ fn update_row(
     // doesn't match the one captured at the original install,
     // which is the architectural fix for the cross-publisher
     // data-inheritance bypass.
+    if existing.state == crate::models::PluginState::Quarantined {
+        return Err(InstallError::RefusedQuarantined);
+    }
+
     if existing.state == crate::models::PluginState::Uninstalled {
         use crate::services::plugins::lifecycle::{apply, ActionError, PluginAction};
         let action = PluginAction::Reinstall {

@@ -43,13 +43,15 @@ services:
       # the CREATE DATABASE + GRANT, and `backend/src/test_helpers.rs`
       # for the hard-fail when this is unset.
       - TEST_DATABASE_URL=postgres://${POSTGRES_USER:-nosdesk}:${POSTGRES_PASSWORD:-nosdesk_password}@postgres:5432/helpdesk_test
-      # Plugin registry root pubkey. Passed to `cargo build` inside
-      # the container so `option_env!("NOSDESK_ROOT_PUBKEY")` in
-      # signing.rs picks it up at compile time. Host shell or
-      # docker.env can override; empty means dev-mode local tier
-      # only, no registry trust.
-      - NOSDESK_ROOT_PUBKEY=${NOSDESK_ROOT_PUBKEY:-}
-      - NOSDESK_REGISTRY_URL=${NOSDESK_REGISTRY_URL:-}
+      # NOSDESK_ROOT_PUBKEY is loaded from docker.env via env_file. Do
+      # not redeclare it here, since environment: would override the
+      # docker.env value with whatever the host shell has (typically
+      # empty) and break option_env! at compile time inside bacon.
+      # Default the dev backend to the production registry so the
+      # admin /plugins/registry view shows real data without
+      # extra config. Override to a fork's registry by setting
+      # the env var; pass an empty string to disable sync.
+      - NOSDESK_REGISTRY_URL=${NOSDESK_REGISTRY_URL:-https://nosdesk.com/registry}
     healthcheck:
       start_period: 120s # Longer for dev due to compilation time
 

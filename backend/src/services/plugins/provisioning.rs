@@ -19,7 +19,21 @@ use crate::db::DbConnection;
 use crate::services::plugins::{install, signing, trust};
 
 /// Directory scanned for signed plugin zips on startup.
-const PLUGINS_DIR: &str = "/app/plugins";
+/// Default plugins directory. The container image's compose mount
+/// lands at `/app/plugins`. Local-host development without
+/// containers can point at any other directory via
+/// `NOSDESK_PLUGINS_DIR`.
+const DEFAULT_PLUGINS_DIR: &str = "/app/plugins";
+
+/// Resolve the configured plugins directory. Reads
+/// `NOSDESK_PLUGINS_DIR` and falls back to the container default.
+fn plugins_dir() -> std::path::PathBuf {
+    std::env::var("NOSDESK_PLUGINS_DIR")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(DEFAULT_PLUGINS_DIR))
+}
 
 /// Env var that bypasses signature verification. Debug builds only.
 const DEV_MODE_ENV: &str = "NOSDESK_DEV_MODE";
@@ -41,15 +55,30 @@ pub enum ProvisionResult {
 }
 
 /// Postgres advisory-lock key for the provisioning sweep.
-/// Arbitrary stable i64; only meaningful as a unique identifier.
-const PROVISION_LOCK_KEY: i64 = 0x4e6f73_5052_5658; // "NosPRVX"
+/// Stable i64 with no semantic meaning beyond being unique across
+/// every other advisory lock the app uses. Hex spelling decodes to
+/// the ASCII bytes "NosPRVX" so a `pg_locks` query is recognisable.
+const PROVISION_LOCK_KEY: i64 = 0x4e6f73_5052_5658;
 
-/// Scan `PLUGINS_DIR` and provision every `*.zip` file in it.
+/// How many times to retry acquiring the lock before giving up.
+/// Tuned to ride out a graceful shutdown of the previous process
+/// (typically a few seconds) without delaying boot indefinitely
+/// when the lock is genuinely contended.
+const LOCK_ACQUIRE_ATTEMPTS: u32 = 5;
+const LOCK_ACQUIRE_BACKOFF: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Scan the plugins directory and provision every `*.zip` file in it.
 /// Two backend processes coming up at the same time (rolling
 /// restart, debug + release running side by side) would otherwise
 /// race on the same zip files; a session-scoped advisory lock
-/// serialises the sweep. If the lock is already held, this call
-/// returns early without scanning.
+/// serialises the sweep.
+///
+/// On contention we retry a bounded number of times rather than
+/// skipping immediately. The skip path was the original behaviour
+/// but it interacts poorly with rolling restarts: if the new
+/// process boots while the old is mid-shutdown, the new one would
+/// skip and never re-attempt, leaving any newly-dropped zip
+/// unprovisioned until the next process restart.
 pub fn provision_plugins(conn: &mut DbConnection) -> Vec<ProvisionResult> {
     use diesel::sql_query;
     use diesel::sql_types::BigInt;
@@ -62,18 +91,36 @@ pub fn provision_plugins(conn: &mut DbConnection) -> Vec<ProvisionResult> {
         pg_try_advisory_lock: bool,
     }
 
-    let acquired: bool = match sql_query("SELECT pg_try_advisory_lock($1)")
-        .bind::<BigInt, _>(PROVISION_LOCK_KEY)
-        .get_result::<LockResult>(conn)
-    {
-        Ok(r) => r.pg_try_advisory_lock,
-        Err(e) => {
-            error!("Failed to acquire provisioning advisory lock: {e}");
-            return vec![];
+    let mut acquired = false;
+    for attempt in 1..=LOCK_ACQUIRE_ATTEMPTS {
+        let outcome = sql_query("SELECT pg_try_advisory_lock($1)")
+            .bind::<BigInt, _>(PROVISION_LOCK_KEY)
+            .get_result::<LockResult>(conn);
+        match outcome {
+            Ok(r) if r.pg_try_advisory_lock => {
+                acquired = true;
+                break;
+            }
+            Ok(_) => {
+                if attempt < LOCK_ACQUIRE_ATTEMPTS {
+                    info!(
+                        attempt,
+                        "Provisioning lock contended; retrying after {:?}", LOCK_ACQUIRE_BACKOFF
+                    );
+                    std::thread::sleep(LOCK_ACQUIRE_BACKOFF);
+                }
+            }
+            Err(e) => {
+                error!("Failed to acquire provisioning advisory lock: {e}");
+                return vec![];
+            }
         }
-    };
+    }
     if !acquired {
-        info!("Another process holds the provisioning lock; skipping this sweep");
+        warn!(
+            "Provisioning lock still held after {} attempts; skipping this sweep",
+            LOCK_ACQUIRE_ATTEMPTS
+        );
         return vec![];
     }
 
@@ -92,13 +139,16 @@ pub fn provision_plugins(conn: &mut DbConnection) -> Vec<ProvisionResult> {
 }
 
 fn provision_plugins_locked(conn: &mut DbConnection) -> Vec<ProvisionResult> {
-    let plugins_path = Path::new(PLUGINS_DIR);
+    let plugins_path = plugins_dir();
     if !plugins_path.is_dir() {
-        info!("Plugins directory does not exist, skipping provisioning");
+        info!(
+            path = %plugins_path.display(),
+            "Plugins directory does not exist, skipping provisioning"
+        );
         return vec![];
     }
 
-    let entries = match fs::read_dir(plugins_path) {
+    let entries = match fs::read_dir(&plugins_path) {
         Ok(e) => e,
         Err(e) => {
             error!("Failed to read plugins directory: {}", e);

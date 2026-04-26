@@ -11,10 +11,8 @@
 //! plugins signed with this key are accepted by the CLI install path
 //! on this instance only.
 
-use anyhow::{anyhow, Context, Result};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use ring::signature::{Ed25519KeyPair, KeyPair};
 use tracing::{info, warn};
 
 use crate::db::DbConnection;
@@ -22,6 +20,30 @@ use crate::models::NewLocalSigningKey;
 use crate::repository::plugin_publishers;
 use crate::services::plugins::signing;
 use crate::utils::encryption;
+
+/// Failure modes for local signing key bootstrap. Typed (rather
+/// than `anyhow::Error`) so callers can distinguish cause without
+/// pattern-matching on Display strings.
+#[derive(Debug)]
+pub enum LocalKeyError {
+    DbLoad(diesel::result::Error),
+    DbInsert(diesel::result::Error),
+    Generate(String),
+    Encrypt(String),
+}
+
+impl std::fmt::Display for LocalKeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DbLoad(e) => write!(f, "load local signing key: {e}"),
+            Self::DbInsert(e) => write!(f, "insert local signing key: {e}"),
+            Self::Generate(m) => write!(f, "generate local signing keypair: {m}"),
+            Self::Encrypt(m) => write!(f, "encrypt local signing key at rest: {m}"),
+        }
+    }
+}
+
+impl std::error::Error for LocalKeyError {}
 
 /// AAD context bound into every ciphertext stored in
 /// `plugin_local_signing_key.encrypted_sk`. Versioned so a future
@@ -33,9 +55,9 @@ const AAD_CONTEXT: &[u8] = b"nosdesk.plugin.local_sk.v1";
 /// Return the existing local key's fingerprint + base64 pubkey, or
 /// generate a fresh keypair, persist it encrypted, and return the
 /// newly-created values. Idempotent: safe to call on every boot.
-pub fn ensure_local_signing_key(conn: &mut DbConnection) -> Result<LocalKeyInfo> {
+pub fn ensure_local_signing_key(conn: &mut DbConnection) -> Result<LocalKeyInfo, LocalKeyError> {
     if let Some(row) = plugin_publishers::get_local_signing_key(conn)
-        .map_err(|e| anyhow!("load local signing key: {e}"))?
+        .map_err(LocalKeyError::DbLoad)?
     {
         info!(
             fingerprint = %row.fingerprint,
@@ -48,13 +70,13 @@ pub fn ensure_local_signing_key(conn: &mut DbConnection) -> Result<LocalKeyInfo>
         });
     }
 
-    let (pkcs8, pubkey) = signing::generate_keypair()
-        .map_err(|e| anyhow!("generate local signing keypair: {e}"))?;
+    let (pkcs8, pubkey) =
+        signing::generate_keypair().map_err(|e| LocalKeyError::Generate(e.to_string()))?;
     let pubkey_b64 = BASE64.encode(&pubkey);
     let fingerprint = signing::fingerprint(&pubkey);
 
     let encrypted = encryption::encrypt_bytes_with_aad(&pkcs8, AAD_CONTEXT)
-        .context("encrypt local signing key at rest")?;
+        .map_err(|e| LocalKeyError::Encrypt(e.to_string()))?;
 
     plugin_publishers::insert_local_signing_key(
         conn,
@@ -65,7 +87,7 @@ pub fn ensure_local_signing_key(conn: &mut DbConnection) -> Result<LocalKeyInfo>
             fingerprint: fingerprint.clone(),
         },
     )
-    .map_err(|e| anyhow!("insert local signing key: {e}"))?;
+    .map_err(LocalKeyError::DbInsert)?;
 
     warn!(
         fingerprint = %fingerprint,
@@ -77,37 +99,6 @@ pub fn ensure_local_signing_key(conn: &mut DbConnection) -> Result<LocalKeyInfo>
         fingerprint,
         created: true,
     })
-}
-
-/// Load and decrypt the local signing keypair for use by the CLI
-/// install path. Returns `None` if the key hasn't been bootstrapped
-/// yet (which shouldn't happen in normal operation since startup
-/// calls `ensure_local_signing_key`).
-pub fn load_local_keypair(conn: &mut DbConnection) -> Result<Option<Ed25519KeyPair>> {
-    let row = match plugin_publishers::get_local_signing_key(conn)
-        .map_err(|e| anyhow!("load local signing key: {e}"))?
-    {
-        Some(r) => r,
-        None => return Ok(None),
-    };
-
-    let pkcs8 = encryption::decrypt_bytes_with_aad(&row.encrypted_sk, AAD_CONTEXT)
-        .context("decrypt local signing key")?;
-
-    let keypair = Ed25519KeyPair::from_pkcs8(&pkcs8)
-        .map_err(|e| anyhow!("parse local signing key pkcs8: {e:?}"))?;
-
-    // Sanity-check the decrypted key matches the stored pubkey so a
-    // corrupted or swapped ciphertext doesn't silently produce a key
-    // that signs under a different pubkey than the UI advertises.
-    let derived_pubkey = BASE64.encode(keypair.public_key().as_ref());
-    if derived_pubkey != row.pubkey {
-        return Err(anyhow!(
-            "local signing key pubkey mismatch: stored row's pubkey does not match decrypted keypair"
-        ));
-    }
-
-    Ok(Some(keypair))
 }
 
 #[derive(Debug, Clone)]

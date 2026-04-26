@@ -80,14 +80,67 @@ pub struct PublishersSnapshot {
     pub publishers: Vec<PublisherEntry>,
 }
 
+/// Tier of a publisher entry in `publishers.json`. The `official`
+/// tier has no publisher row (it's the Nosdesk root key), so this
+/// enum is intentionally narrower than `IndexPluginTier`. Modelled
+/// as an enum rather than a string so a typo or unknown value in
+/// the wire payload fails parse with a clear serde error, instead
+/// of slipping through to a runtime warn-and-skip.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PublisherTier {
+    Verified,
+    Community,
+}
+
+impl PublisherTier {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Community => "community",
+        }
+    }
+}
+
+impl std::fmt::Display for PublisherTier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Tier of a plugin entry in `index.json`. Wider than
+/// `PublisherTier` because plugins can be `official` (signed by the
+/// root key with no publisher row).
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum IndexPluginTier {
+    Official,
+    Verified,
+    Community,
+}
+
+impl IndexPluginTier {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Official => "official",
+            Self::Verified => "verified",
+            Self::Community => "community",
+        }
+    }
+}
+
+impl std::fmt::Display for IndexPluginTier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PublisherEntry {
     pub pubkey: String,
     pub display_name: String,
-    /// `verified` or `community`. `official` is reserved for the
-    /// Nosdesk root key and has no publisher entry.
-    pub tier: String,
+    pub tier: PublisherTier,
     pub website: Option<String>,
     pub added_at: String,
     pub revoked_at: Option<String>,
@@ -106,7 +159,7 @@ pub struct IndexSnapshot {
 pub struct PluginIndexEntry {
     pub name: String,
     pub display_name: String,
-    pub tier: String,
+    pub tier: IndexPluginTier,
     pub publisher_pubkey: String,
     pub description: Option<String>,
     pub homepage: Option<String>,
@@ -143,12 +196,22 @@ pub struct RegistryCache {
     pub fetched_at: DateTime<Utc>,
 }
 
-/// Shared handle to the last-known-good registry snapshot. `None`
-/// means we haven't successfully synced yet this process lifetime.
-pub type SharedCache = Arc<RwLock<Option<RegistryCache>>>;
+/// Sync state. `snapshot.is_none() && last_error.is_none()` is
+/// the boot warm-up window; the handler distinguishes that from
+/// "tried and failed" so the UI can render different empty
+/// states. `disabled` is derived at request time from
+/// `configured_url()`, not stored here.
+#[derive(Debug, Default)]
+pub struct RegistryState {
+    pub snapshot: Option<RegistryCache>,
+    pub last_error: Option<String>,
+}
+
+/// Shared handle to the in-memory sync state.
+pub type SharedCache = Arc<RwLock<RegistryState>>;
 
 pub fn new_cache() -> SharedCache {
-    Arc::new(RwLock::new(None))
+    Arc::new(RwLock::new(RegistryState::default()))
 }
 
 impl RegistryCache {
@@ -306,11 +369,15 @@ pub async fn sync_once(
     }
 
     let fetched_at = Utc::now();
-    *cache.write().await = Some(RegistryCache {
-        publishers: publishers.clone(),
-        index: index.clone(),
-        fetched_at,
-    });
+    {
+        let mut state = cache.write().await;
+        state.snapshot = Some(RegistryCache {
+            publishers: publishers.clone(),
+            index: index.clone(),
+            fetched_at,
+        });
+        state.last_error = None;
+    }
 
     info!(
         publishers_version = publishers.version,
@@ -340,12 +407,18 @@ pub fn spawn_sync_loop(pool: Pool, base_url: String, cache: SharedCache) {
             match sync_once(&http, &base_url, &pool, &cache).await {
                 Ok(()) => {}
                 Err(e) => {
-                    warn!(error = %e, "Registry sync failed; will retry next cycle");
+                    let msg = e.to_string();
+                    warn!(error = %msg, "Registry sync failed; will retry next cycle");
+                    // Surface the failure on the in-memory state so
+                    // the admin /plugins/registry view can render a
+                    // "failed" state with the reason instead of an
+                    // indistinguishable empty state.
+                    cache.write().await.last_error = Some(msg.clone());
                     if let Ok(mut conn) = pool.get() {
                         let _ = plugin_publishers::update_registry_state(
                             &mut conn,
                             PluginRegistryStateUpdate {
-                                last_fetch_error: Some(Some(e.to_string())),
+                                last_fetch_error: Some(Some(msg)),
                                 ..Default::default()
                             },
                         );
@@ -439,9 +512,19 @@ async fn fetch_signed<T: for<'de> Deserialize<'de>>(
     let doc_url = format!("{}/{}", base_url.trim_end_matches('/'), name);
     let sig_url = format!("{doc_url}.sig");
 
+    // Content-Type allowlists are advisory: the signature check
+    // gates execution regardless. The check only exists so a CDN
+    // misconfig (HTML error page on the JSON path, etc.) surfaces
+    // a clear "wrong content type" error instead of a confusing
+    // serde or base64 parse failure further down.
     let (doc_bytes, sig_bytes) = tokio::join!(
-        fetch_bytes(http, &doc_url, MAX_JSON_SIZE),
-        fetch_bytes(http, &sig_url, MAX_SIG_SIZE),
+        fetch_bytes(http, &doc_url, MAX_JSON_SIZE, &["application/json"]),
+        fetch_bytes(
+            http,
+            &sig_url,
+            MAX_SIG_SIZE,
+            &["application/pgp-signature", "application/octet-stream", "text/plain"],
+        ),
     );
     let doc_bytes = doc_bytes?;
     let sig_bytes = sig_bytes?;
@@ -474,6 +557,7 @@ async fn fetch_bytes(
     http: &reqwest::Client,
     url: &str,
     cap: usize,
+    accept_content_types: &[&str],
 ) -> Result<Vec<u8>, RegistryError> {
     debug!(url, "Registry fetch");
     let resp = http
@@ -486,6 +570,22 @@ async fn fetch_bytes(
             "{url}: HTTP {}",
             resp.status()
         )));
+    }
+    // Defensive Content-Type check. The signature still gates
+    // execution, but rejecting an obviously-wrong type here keeps
+    // the error message specific (operator can fix the CDN config)
+    // instead of conflating with a malformed-payload failure.
+    if let Some(ct) = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+    {
+        let primary = ct.split(';').next().unwrap_or("").trim();
+        if !accept_content_types.iter().any(|allowed| primary.eq_ignore_ascii_case(allowed)) {
+            return Err(RegistryError::Fetch(format!(
+                "{url}: unexpected Content-Type {primary:?} (expected one of {accept_content_types:?})"
+            )));
+        }
     }
     if let Some(len) = resp.content_length() {
         if len as usize > cap {
@@ -523,16 +623,11 @@ fn reconcile(
     // Upsert publishers the registry knows about. The index is
     // cached in memory; there's no persistent plugin-catalog table
     // on the instance side.
+    // Tier validity is enforced by the `PublisherTier` enum at
+    // parse time (see fetch_and_verify), so any entry that reaches
+    // here is structurally valid. No runtime tier filter required.
     let now = chrono::Utc::now().naive_utc();
     for entry in &publishers.publishers {
-        if !matches!(entry.tier.as_str(), "verified" | "community") {
-            warn!(
-                pubkey = %entry.pubkey,
-                tier = %entry.tier,
-                "Skipping publisher with unknown tier"
-            );
-            continue;
-        }
         let revoked_at = match &entry.revoked_at {
             Some(s) => Some(
                 DateTime::parse_from_rfc3339(s)
@@ -544,7 +639,7 @@ fn reconcile(
         let record = NewTrustedPublisher {
             pubkey: entry.pubkey.clone(),
             display_name: entry.display_name.clone(),
-            tier: entry.tier.clone(),
+            tier: entry.tier.as_str().to_string(),
             website: entry.website.clone(),
             revoked_at,
         };
