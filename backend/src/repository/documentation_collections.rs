@@ -68,6 +68,54 @@ pub fn delete_collection(conn: &mut DbConnection, collection_id: i32) -> QueryRe
         .execute(conn)
 }
 
+/// Soft-delete every page that lives in this collection. Called
+/// before `delete_collection` so the page rows survive (preserving
+/// authorship + revision history) but vanish from every tree
+/// traversal. Pages can later be permanently deleted from the
+/// trash view, or restored into a different collection if the
+/// admin changes their mind. With `UNIQUE(page_id)` on the
+/// junction, "every page in this collection" is unambiguous: each
+/// page belongs to exactly one collection.
+pub fn soft_delete_pages_in_collection(
+    conn: &mut DbConnection,
+    collection_id: i32,
+) -> QueryResult<usize> {
+    let now = chrono::Utc::now().naive_utc();
+    diesel::update(
+        documentation_pages::table.filter(
+            documentation_pages::id.eq_any(
+                documentation_collection_pages::table
+                    .filter(documentation_collection_pages::collection_id.eq(collection_id))
+                    .select(documentation_collection_pages::page_id),
+            ),
+        ),
+    )
+    .set((
+        documentation_pages::status.eq(DocumentationStatus::Deleted),
+        documentation_pages::archived_at.eq(now),
+        documentation_pages::updated_at.eq(now),
+    ))
+    .execute(conn)
+}
+
+/// Update the Yjs binary state for a collection's rich
+/// description. Called from the collaboration handler when the
+/// `collection-${id}` editor saves.
+pub fn update_collection_description_yjs(
+    conn: &mut DbConnection,
+    collection_id: i32,
+    yjs_document: Vec<u8>,
+) -> QueryResult<usize> {
+    let now = chrono::Utc::now().naive_utc();
+    diesel::update(documentation_collections::table.find(collection_id))
+        .set(DocumentationCollectionDescriptionYjsUpdate {
+            description_yjs: Some(yjs_document),
+            description_state_vector: None,
+            updated_at: Some(now),
+        })
+        .execute(conn)
+}
+
 // ============================================================================
 // Collection-Page Operations
 // ============================================================================
@@ -80,6 +128,85 @@ pub fn add_page_to_collection(
         .values(&new_entry)
         .on_conflict_do_nothing()
         .get_result(conn)
+}
+
+/// Add a page to a collection AND null its parent_id so it lands
+/// at the collection's root. The pre-redesign `add_page_to_collection`
+/// only wrote the junction row; pages whose parent_id pointed at
+/// some unrelated page in another collection then "floated" at the
+/// root of the new collection's tree builder, which surfaced as
+/// the bug where managed-add-to-collection placed pages in the
+/// right collection but in the wrong visual position. With
+/// `UNIQUE(page_id)`, this also implicitly *moves* the page out
+/// of any previous collection (the unique-violation forces the
+/// caller to pre-detach if they want to preserve the old link;
+/// in practice we treat add as move).
+pub fn add_page_to_collection_at_root(
+    conn: &mut DbConnection,
+    new_entry: NewDocumentationCollectionPage,
+) -> QueryResult<DocumentationCollectionPage> {
+    let page_id = new_entry.page_id;
+    conn.transaction::<_, Error, _>(|tx| {
+        // Detach any existing junction row for this page; UNIQUE
+        // would otherwise reject the insert.
+        diesel::delete(
+            documentation_collection_pages::table
+                .filter(documentation_collection_pages::page_id.eq(page_id)),
+        )
+        .execute(tx)?;
+        // Null parent_id so the page anchors at the new
+        // collection's root rather than dangling under a parent
+        // that's no longer in this collection.
+        diesel::update(documentation_pages::table.find(page_id))
+            .set(documentation_pages::parent_id.eq::<Option<i32>>(None))
+            .execute(tx)?;
+        diesel::insert_into(documentation_collection_pages::table)
+            .values(&new_entry)
+            .get_result(tx)
+    })
+}
+
+/// Ensure a child page belongs to the same collection as its
+/// new parent. Called from `move_page_to_parent` so re-parenting
+/// across collection boundaries automatically pulls the child
+/// (and, by recursion at the handler level, its descendants)
+/// into the new collection. With UNIQUE(page_id), the child is
+/// detached from its previous collection in the same transaction.
+pub fn cascade_collection_membership(
+    conn: &mut DbConnection,
+    parent_page_id: i32,
+    child_page_id: i32,
+    created_by: Option<Uuid>,
+) -> QueryResult<()> {
+    let parent_collection: Option<i32> = documentation_collection_pages::table
+        .filter(documentation_collection_pages::page_id.eq(parent_page_id))
+        .select(documentation_collection_pages::collection_id)
+        .first(conn)
+        .optional()?;
+    let Some(parent_collection_id) = parent_collection else {
+        return Ok(());
+    };
+    let child_collection: Option<i32> = documentation_collection_pages::table
+        .filter(documentation_collection_pages::page_id.eq(child_page_id))
+        .select(documentation_collection_pages::collection_id)
+        .first(conn)
+        .optional()?;
+    if child_collection == Some(parent_collection_id) {
+        return Ok(());
+    }
+    diesel::delete(
+        documentation_collection_pages::table
+            .filter(documentation_collection_pages::page_id.eq(child_page_id)),
+    )
+    .execute(conn)?;
+    diesel::insert_into(documentation_collection_pages::table)
+        .values(NewDocumentationCollectionPage {
+            collection_id: parent_collection_id,
+            page_id: child_page_id,
+            created_by,
+        })
+        .execute(conn)?;
+    Ok(())
 }
 
 pub fn remove_page_from_collection(

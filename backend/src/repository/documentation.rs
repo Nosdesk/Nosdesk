@@ -218,6 +218,20 @@ pub fn move_page_to_parent(
             ))
             .get_result::<DocumentationPage>(conn)?;
 
+        // Re-parenting under a page in a different collection
+        // pulls this page (and only this page; descendants are
+        // moved by the recursive walker if needed) into the
+        // parent's collection. Same-collection moves and moves to
+        // root (`new_parent_id == None`) are no-ops.
+        if let Some(parent_id) = new_parent_id {
+            crate::repository::documentation_collections::cascade_collection_membership(
+                conn,
+                parent_id,
+                page_id,
+                None,
+            )?;
+        }
+
         Ok(updated_page)
     })
 }

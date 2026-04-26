@@ -34,10 +34,11 @@ const showVisibilityModal = ref(false)
 const pageOverrides = ref<PageOverrideInfo[]>([])
 const overridesExpanded = ref(false)
 
-const docId = computed(() => {
-  if (!collection.value?.root_page_id) return null
-  return `doc-${collection.value.root_page_id}`
-})
+// Editor binds to the collection's own Yjs room, not a sentinel
+// "main page". The backend resolves `collection-${id}` to the
+// `documentation_collections.description_yjs` column via the
+// existing collaboration WebSocket handler.
+const docId = computed(() => collection.value?.description_doc_id ?? null)
 
 const overridePageIds = computed(() => {
   return new Set(pageOverrides.value.map(o => o.page_id))

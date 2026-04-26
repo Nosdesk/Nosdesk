@@ -362,7 +362,10 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         display_order -> Int4,
-        root_page_id -> Nullable<Int4>,
+        description_yjs -> Nullable<Bytea>,
+        description_state_vector -> Nullable<Bytea>,
+        description_text -> Nullable<Text>,
+        hide_titles_from_non_members -> Bool,
     }
 }
 
@@ -1067,7 +1070,6 @@ diesel::joinable!(documentation_collection_pages -> documentation_pages (page_id
 diesel::joinable!(documentation_collection_pages -> users (created_by));
 diesel::joinable!(documentation_collection_visibility -> documentation_collections (collection_id));
 diesel::joinable!(documentation_collection_visibility -> groups (group_id));
-diesel::joinable!(documentation_collections -> documentation_pages (root_page_id));
 diesel::joinable!(documentation_collections -> users (created_by));
 diesel::joinable!(documentation_page_visibility -> documentation_pages (page_id));
 diesel::joinable!(documentation_page_visibility -> groups (group_id));

@@ -6,14 +6,28 @@ export interface Collection {
   uuid: string;
   name: string;
   slug: string;
+  /** Short tagline shown above the rich description editor. */
   description: string | null;
+  /** Plain-text projection of the rich description for search. */
+  description_text: string | null;
+  /**
+   * Yjs collaboration room ID for the collection's rich description.
+   * Frontend binds the editor to this room; the backend resolves
+   * it to documentation_collections.description_yjs.
+   */
+  description_doc_id: string;
+  /**
+   * When true, cross-collection wikilinks render as "Restricted
+   * page" for viewers without read access (instead of leaking the
+   * page title). Opt-in per collection for sensitive content.
+   */
+  hide_titles_from_non_members: boolean;
   icon: string | null;
   color: string | null;
   is_system: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
-  root_page_id: number | null;
 }
 
 export interface VisibleUser {

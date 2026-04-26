@@ -11,75 +11,10 @@ use crate::handlers::helpers;
 use crate::handlers::sse::SseState;
 use crate::models::{
     NewDocumentationCollection, DocumentationCollectionUpdate, NewDocumentationCollectionPage,
-    NewDocumentationPage, DocumentationStatus, DocumentationCollection,
 };
 use crate::repository;
-use crate::utils;
 use crate::utils::rbac::{require_auth, require_technician_or_admin, require_admin};
 use crate::utils::sse::SseBroadcaster;
-
-// ============================================================================
-// Root Page Helper
-// ============================================================================
-
-/// Create or find a root page for a collection and link it
-fn create_root_page_for_collection(
-    conn: &mut crate::db::DbConnection,
-    collection: &DocumentationCollection,
-    user_uuid: Uuid,
-) -> Result<i32, Error> {
-    let root_slug = utils::slug::generate_unique_slug(&collection.name, conn);
-
-    // Check if root page already exists (e.g. from a previous partial creation)
-    let page = match repository::documentation::get_documentation_page_by_slug(&root_slug, conn) {
-        Ok(existing) => existing,
-        Err(Error::NotFound) => {
-            let new_page = NewDocumentationPage {
-                uuid: Uuid::now_v7(),
-                title: collection.name.clone(),
-                slug: root_slug,
-                icon: collection.icon.clone(),
-                cover_image: None,
-                status: DocumentationStatus::Published,
-                created_by: user_uuid,
-                last_edited_by: user_uuid,
-                parent_id: None,
-                ticket_id: None,
-                display_order: None,
-                is_public: false,
-                is_template: false,
-                yjs_state_vector: None,
-                yjs_document: None,
-                yjs_client_id: None,
-                has_unsaved_changes: false,
-            };
-            repository::documentation::create_documentation_page(new_page, conn)?
-        }
-        Err(e) => return Err(e),
-    };
-
-    // Update collection to set root_page_id
-    let update = DocumentationCollectionUpdate {
-        name: None,
-        slug: None,
-        description: None,
-        icon: None,
-        color: None,
-        updated_at: Some(Utc::now().naive_utc()),
-        root_page_id: Some(Some(page.id)),
-    };
-    repository::documentation_collections::update_collection(conn, collection.id, update)?;
-
-    // Add root page to the collection's page list (on_conflict_do_nothing handles duplicates)
-    let entry = NewDocumentationCollectionPage {
-        collection_id: collection.id,
-        page_id: page.id,
-        created_by: Some(user_uuid),
-    };
-    let _ = repository::documentation_collections::add_page_to_collection(conn, entry);
-
-    Ok(page.id)
-}
 
 // ============================================================================
 // Collection Endpoints
@@ -116,16 +51,18 @@ pub async fn get_collections(
     }
 }
 
-/// Get a single collection by ID with its page list
+/// Get a single collection by ID with its page list. The
+/// collection owns its rich description directly via
+/// `description_yjs`; the FE binds the editor to the
+/// `collection-${id}` Yjs room rather than to a sentinel page.
 pub async fn get_collection(
     req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<i32>,
 ) -> impl Responder {
-    let claims = match require_auth(&req) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if let Err(e) = require_auth(&req) {
+        return e;
+    }
 
     let collection_id = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
@@ -133,73 +70,24 @@ pub async fn get_collection(
         Err(e) => return e,
     };
 
-    let mut collection = match repository::documentation_collections::get_collection(&mut conn, collection_id) {
+    let collection = match repository::documentation_collections::get_collection(&mut conn, collection_id) {
         Ok(c) => c,
         Err(Error::NotFound) => return HttpResponse::NotFound().json("Collection not found"),
         Err(_) => return HttpResponse::InternalServerError().json("Failed to get collection"),
     };
 
-    // Lazy-create root page if missing
-    if collection.root_page_id.is_none() {
-        let user_uuid = Uuid::parse_str(&claims.sub).unwrap_or_default();
-        match create_root_page_for_collection(&mut conn, &collection, user_uuid) {
-            Ok(page_id) => {
-                collection.root_page_id = Some(page_id);
-            }
-            Err(e) => {
-                error!(error = ?e, "Failed to create root page for collection {}", collection_id);
-            }
-        }
-    }
-
-    let pages = repository::documentation_collections::get_pages_in_collection(&mut conn, collection_id)
-        .unwrap_or_default();
-
-    // Filter out the root page from the pages list
-    let root_page_id = collection.root_page_id;
-    let filtered_pages: Vec<_> = pages.into_iter()
-        .filter(|p| Some(p.id) != root_page_id)
-        .collect();
-
-    let visible_groups = repository::documentation_collections::get_visible_groups_for_collection(&mut conn, collection_id)
-        .unwrap_or_default();
-
-    let visible_users = repository::documentation_collections::get_visible_users_for_collection(&mut conn, collection_id)
-        .unwrap_or_default();
-
-    let is_public = visible_groups.is_empty() && visible_users.is_empty();
-
-    HttpResponse::Ok().json(json!({
-        "id": collection.id,
-        "uuid": collection.uuid,
-        "name": collection.name,
-        "slug": collection.slug,
-        "description": collection.description,
-        "icon": collection.icon,
-        "color": collection.color,
-        "is_system": collection.is_system,
-        "created_by": collection.created_by,
-        "created_at": collection.created_at,
-        "updated_at": collection.updated_at,
-        "root_page_id": collection.root_page_id,
-        "pages": filtered_pages,
-        "visible_to_groups": visible_groups,
-        "visible_to_users": visible_users,
-        "is_public": is_public,
-        "page_count": filtered_pages.len(),
-    }))
+    HttpResponse::Ok().json(collection_response(&mut conn, collection))
 }
 
-/// Get a single collection by slug
+/// Get a single collection by slug.
 pub async fn get_collection_by_slug(
     req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<String>,
 ) -> impl Responder {
-    let claims = match require_auth(&req) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if let Err(e) = require_auth(&req) {
+        return e;
+    }
 
     let slug = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
@@ -207,61 +95,52 @@ pub async fn get_collection_by_slug(
         Err(e) => return e,
     };
 
-    let mut collection = match repository::documentation_collections::get_collection_by_slug(&mut conn, &slug) {
+    let collection = match repository::documentation_collections::get_collection_by_slug(&mut conn, &slug) {
         Ok(c) => c,
         Err(Error::NotFound) => return HttpResponse::NotFound().json("Collection not found"),
         Err(_) => return HttpResponse::InternalServerError().json("Failed to get collection"),
     };
 
-    // Lazy-create root page if missing
-    if collection.root_page_id.is_none() {
-        let user_uuid = Uuid::parse_str(&claims.sub).unwrap_or_default();
-        match create_root_page_for_collection(&mut conn, &collection, user_uuid) {
-            Ok(page_id) => {
-                collection.root_page_id = Some(page_id);
-            }
-            Err(e) => {
-                error!(error = ?e, "Failed to create root page for collection {}", collection.id);
-            }
-        }
-    }
+    HttpResponse::Ok().json(collection_response(&mut conn, collection))
+}
 
-    let pages = repository::documentation_collections::get_pages_in_collection(&mut conn, collection.id)
+/// Build the JSON shape the FE expects. Pulls pages, visibility,
+/// and computes `is_public`. Hides the binary Yjs columns from
+/// the wire — the FE binds to the `collection-${id}` collab room
+/// to read them through the existing snapshot endpoint.
+fn collection_response(
+    conn: &mut crate::db::DbConnection,
+    collection: crate::models::DocumentationCollection,
+) -> serde_json::Value {
+    let pages = repository::documentation_collections::get_pages_in_collection(conn, collection.id)
         .unwrap_or_default();
-
-    // Filter out the root page from the pages list
-    let root_page_id = collection.root_page_id;
-    let filtered_pages: Vec<_> = pages.into_iter()
-        .filter(|p| Some(p.id) != root_page_id)
-        .collect();
-
-    let visible_groups = repository::documentation_collections::get_visible_groups_for_collection(&mut conn, collection.id)
+    let visible_groups = repository::documentation_collections::get_visible_groups_for_collection(conn, collection.id)
         .unwrap_or_default();
-
-    let visible_users = repository::documentation_collections::get_visible_users_for_collection(&mut conn, collection.id)
+    let visible_users = repository::documentation_collections::get_visible_users_for_collection(conn, collection.id)
         .unwrap_or_default();
-
     let is_public = visible_groups.is_empty() && visible_users.is_empty();
 
-    HttpResponse::Ok().json(json!({
+    json!({
         "id": collection.id,
         "uuid": collection.uuid,
         "name": collection.name,
         "slug": collection.slug,
         "description": collection.description,
+        "description_text": collection.description_text,
+        "description_doc_id": format!("collection-{}", collection.id),
+        "hide_titles_from_non_members": collection.hide_titles_from_non_members,
         "icon": collection.icon,
         "color": collection.color,
         "is_system": collection.is_system,
         "created_by": collection.created_by,
         "created_at": collection.created_at,
         "updated_at": collection.updated_at,
-        "root_page_id": collection.root_page_id,
-        "pages": filtered_pages,
+        "page_count": pages.len(),
+        "pages": pages,
         "visible_to_groups": visible_groups,
         "visible_to_users": visible_users,
         "is_public": is_public,
-        "page_count": filtered_pages.len(),
-    }))
+    })
 }
 
 /// Get pages that don't belong to any collection
@@ -333,12 +212,10 @@ pub async fn create_collection(
         color: body.color.clone(),
         is_system: false,
         created_by,
-        root_page_id: None,
     };
 
     match repository::documentation_collections::create_collection(&mut conn, new_collection) {
-        Ok(mut collection) => {
-            // Set visibility if specified
+        Ok(collection) => {
             if let Some(ref group_ids) = body.visible_to_group_ids {
                 if !group_ids.is_empty() {
                     if let Err(e) = repository::documentation_collections::set_collection_visibility(
@@ -353,19 +230,7 @@ pub async fn create_collection(
                 }
             }
 
-            // Auto-create root page
-            if let Some(user_uuid) = created_by {
-                match create_root_page_for_collection(&mut conn, &collection, user_uuid) {
-                    Ok(page_id) => {
-                        collection.root_page_id = Some(page_id);
-                    }
-                    Err(e) => {
-                        error!(error = ?e, "Failed to create root page for collection {}", collection.id);
-                    }
-                }
-            }
-
-            HttpResponse::Created().json(collection)
+            HttpResponse::Created().json(collection_response(&mut conn, collection))
         }
         Err(e) => {
             error!(error = ?e, "Failed to create collection");
@@ -419,7 +284,7 @@ pub async fn update_collection(
         icon: body.icon.clone(),
         color: body.color.clone(),
         updated_at: Some(Utc::now().naive_utc()),
-        root_page_id: None,
+        ..Default::default()
     };
 
     match repository::documentation_collections::update_collection(&mut conn, collection_id, update) {
@@ -476,9 +341,26 @@ pub async fn delete_collection(
         Err(_) => return HttpResponse::InternalServerError().json("Failed to get collection"),
     }
 
+    // Soft-delete the collection's pages first so they remain
+    // restorable from the trash, then drop the collection row
+    // itself. The junction rows cascade via FK on collection
+    // delete; the soft-delete pass turns the pages into trash
+    // entries rather than orphaned/visible rows.
+    let soft_deleted = match repository::documentation_collections::soft_delete_pages_in_collection(&mut conn, collection_id) {
+        Ok(n) => n,
+        Err(e) => {
+            error!(error = ?e, "Failed to soft-delete pages in collection");
+            return HttpResponse::InternalServerError().json("Failed to delete collection");
+        }
+    };
+
     match repository::documentation_collections::delete_collection(&mut conn, collection_id) {
         Ok(0) => HttpResponse::NotFound().json("Collection not found"),
-        Ok(_) => HttpResponse::Ok().json(json!({"success": true, "message": "Collection deleted"})),
+        Ok(_) => HttpResponse::Ok().json(json!({
+            "success": true,
+            "message": "Collection deleted",
+            "pages_trashed": soft_deleted,
+        })),
         Err(e) => {
             error!(error = ?e, "Failed to delete collection");
             HttpResponse::InternalServerError().json("Failed to delete collection")
@@ -521,7 +403,11 @@ pub async fn add_page_to_collection(
         created_by,
     };
 
-    match repository::documentation_collections::add_page_to_collection(&mut conn, new_entry) {
+    // Use the at-root variant: detaches any previous collection
+    // membership AND nulls parent_id so the page anchors at the
+    // new collection's root instead of dangling under a parent
+    // that's now in a different collection.
+    match repository::documentation_collections::add_page_to_collection_at_root(&mut conn, new_entry) {
         Ok(entry) => HttpResponse::Created().json(entry),
         Err(e) => {
             error!(error = ?e, "Failed to add page to collection");

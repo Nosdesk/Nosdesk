@@ -945,22 +945,29 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
           <!-- Indent spacing -->
           <span class="flex-shrink-0" style="width: 8px"></span>
 
-          <!-- Icon / Expand Toggle (arrow replaces icon on hover) -->
+          <!-- Icon / Expand Toggle. The chevron only appears when
+               the collection has pages, since an empty collection
+               with a dropdown affordance falsely implies content
+               sits behind it. The icon stays as a static glyph in
+               that case. -->
           <span
             class="flex-shrink-0 w-5 flex items-center justify-center"
-            @click.stop="toggleCollectionExpanded(collection.id)"
+            @click.stop="(collection.page_count ?? 0) > 0 ? toggleCollectionExpanded(collection.id) : null"
           >
-            <svg
-              class="w-2.5 h-2.5 transition-transform duration-200 hidden group-hover:block text-tertiary"
-              :class="{ 'rotate-90': collectionExpanded[collection.id] }"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2.5"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-            <span class="text-sm leading-none group-hover:hidden">{{ collection.icon || '📁' }}</span>
+            <template v-if="(collection.page_count ?? 0) > 0">
+              <svg
+                class="w-2.5 h-2.5 transition-transform duration-200 hidden group-hover:block text-tertiary"
+                :class="{ 'rotate-90': collectionExpanded[collection.id] }"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2.5"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+              <span class="text-sm leading-none group-hover:hidden">{{ collection.icon || '📁' }}</span>
+            </template>
+            <span v-else class="text-sm leading-none">{{ collection.icon || '📁' }}</span>
           </span>
 
           <!-- Collection Name (inline rename or static) -->
@@ -976,12 +983,24 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
           />
           <span v-else class="flex-1 truncate min-w-0 ml-1">{{ collection.name }}</span>
 
-          <!-- Page Count -->
-          <span v-if="renamingCollectionId !== collection.id" class="flex-shrink-0 text-[10px] text-tertiary ml-1">{{ collection.page_count }}</span>
+          <!-- Page Count. Suppressed at zero so an empty
+               collection doesn't carry a "0" badge. -->
+          <span
+            v-if="renamingCollectionId !== collection.id && (collection.page_count ?? 0) > 0"
+            class="flex-shrink-0 text-[10px] text-tertiary ml-1"
+          >
+            {{ collection.page_count }}
+          </span>
         </div>
 
-        <!-- Collection Pages (collapsible with smooth transition) -->
-        <div class="collapse-section" :class="{ 'is-expanded': collectionExpanded[collection.id] }">
+        <!-- Collection Pages (collapsible with smooth transition).
+             Empty collections are gated above; we only mount the
+             collapse section when there's something to reveal. -->
+        <div
+          v-if="(collection.page_count ?? 0) > 0"
+          class="collapse-section"
+          :class="{ 'is-expanded': collectionExpanded[collection.id] }"
+        >
           <div class="collapse-content">
             <template v-if="collectionExpanded[collection.id] || collectionLoaded[collection.id]">
               <!-- Loading state for this collection (first load only, sized to page_count) -->
@@ -1012,11 +1031,6 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
                   @context-menu="handleNavContextMenu"
                 />
               </ul>
-
-              <!-- Empty collection -->
-              <div v-else-if="collectionLoaded[collection.id]" class="py-1 pl-8 text-[11px] text-tertiary italic">
-                No pages
-              </div>
             </template>
           </div>
         </div>

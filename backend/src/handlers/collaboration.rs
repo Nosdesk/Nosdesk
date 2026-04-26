@@ -107,25 +107,31 @@ const MIN_SAVE_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_PENDING_DURATION: Duration = Duration::from_secs(120);
 // How long to wait before doing final save on empty room
 const EMPTY_ROOM_FINAL_SAVE_DELAY: Duration = Duration::from_secs(2);
-// Document type enum to distinguish between tickets and documentation
+// Document type enum: distinguishes ticket articles, doc pages,
+// and collection descriptions. The collection variant binds to
+// the new `documentation_collections.description_yjs` column —
+// collections own their overview content directly instead of
+// pointing at a sentinel "main page".
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum DocumentType {
     Ticket(i32),
     Documentation(i32),
+    Collection(i32),
 }
 
 impl DocumentType {
-    // Parse doc_id format: "ticket-123" or "doc-456"
+    /// Parse doc_id format: "ticket-N", "doc-N", or "collection-N".
     fn from_doc_id(doc_id: &str) -> Option<Self> {
         if let Some(id_str) = doc_id.strip_prefix("ticket-") {
             id_str.parse::<i32>().ok().map(DocumentType::Ticket)
         } else if let Some(id_str) = doc_id.strip_prefix("doc-") {
             id_str.parse::<i32>().ok().map(DocumentType::Documentation)
+        } else if let Some(id_str) = doc_id.strip_prefix("collection-") {
+            id_str.parse::<i32>().ok().map(DocumentType::Collection)
         } else {
             None
         }
     }
-
 }
 
 // Simple handler to get article content by ticket ID or documentation page ID
@@ -207,6 +213,28 @@ pub async fn get_article_content(
                     HttpResponse::Ok().json(json!({
                         "content": "",
                         "doc_id": doc_id
+                    }))
+                }
+            }
+        },
+        DocumentType::Collection(collection_id) => {
+            match repository::documentation_collections::get_collection(&mut conn, collection_id) {
+                Ok(c) => {
+                    let content_base64 = c
+                        .description_yjs
+                        .as_ref()
+                        .map(|d| general_purpose::STANDARD.encode(d))
+                        .unwrap_or_default();
+                    HttpResponse::Ok().json(json!({
+                        "content": content_base64,
+                        "collection_id": collection_id
+                    }))
+                }
+                Err(e) => {
+                    debug!(collection_id, error = %e, "No collection found");
+                    HttpResponse::Ok().json(json!({
+                        "content": "",
+                        "collection_id": collection_id
                     }))
                 }
             }
@@ -616,6 +644,35 @@ impl YjsAppState {
                                             debug!(doc_page_id, error = ?e, "No existing documentation page in PostgreSQL");
                                         }
                                     }
+                                },
+                                DocumentType::Collection(collection_id) => {
+                                    // Load Yjs snapshot from documentation_collections.description_yjs.
+                                    match repository::documentation_collections::get_collection(&mut conn, collection_id) {
+                                        Ok(c) => {
+                                            if let Some(yjs_doc) = c.description_yjs {
+                                                if !yjs_doc.is_empty() {
+                                                    debug!(collection_id, bytes = yjs_doc.len(), "Loading collection description from PostgreSQL");
+                                                    if let Ok(update) = Update::decode_v1(&yjs_doc) {
+                                                        let apply_result = {
+                                                            let mut txn = awareness.doc_mut().transact_mut();
+                                                            txn.apply_update(update)
+                                                        };
+                                                        if let Err(e) = apply_result {
+                                                            error!(collection_id, error = ?e, "Error applying collection description state");
+                                                        } else {
+                                                            loaded_from_postgres = true;
+                                                            self.redis_cache.set_document(doc_id, &yjs_doc).await;
+                                                        }
+                                                    } else {
+                                                        error!(collection_id, "Failed to decode Yjs update for collection");
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            debug!(collection_id, error = ?e, "No collection in PostgreSQL");
+                                        }
+                                    }
                                 }
                             }
                         },
@@ -973,6 +1030,24 @@ impl YjsAppState {
                         Err(e) => error!(doc_page_id, error = ?e, "Database connection error when saving documentation"),
                     }
                 });
+            },
+            DocumentType::Collection(collection_id) => {
+                // Save collection description Yjs state
+                actix::spawn(async move {
+                    match pool.get() {
+                        Ok(mut conn) => {
+                            match repository::documentation_collections::update_collection_description_yjs(
+                                &mut conn,
+                                collection_id,
+                                content,
+                            ) {
+                                Ok(_) => debug!(collection_id, "Saved Yjs state for collection description"),
+                                Err(e) => error!(collection_id, error = ?e, "Failed to save Yjs state for collection description"),
+                            }
+                        }
+                        Err(e) => error!(collection_id, error = ?e, "Database connection error when saving collection"),
+                    }
+                });
             }
         }
     }
@@ -1098,6 +1173,15 @@ impl YjsAppState {
                         Err(e) => error!(doc_page_id, error = ?e, "Database connection error during snapshot"),
                     }
                 });
+            },
+            DocumentType::Collection(collection_id) => {
+                // Collections don't have a per-revision history
+                // table yet — the live save in `save_document_internal`
+                // already lands the latest state. Skip the snapshot
+                // pass without warning. If revision history is added
+                // later, mirror the documentation pattern above.
+                let _ = (collection_id, contributor_vec, state_vector_bytes, full_update_bytes);
+                debug!(collection_id, "Collection description snapshot skipped (no revision history)");
             }
         }
     }

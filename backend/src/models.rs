@@ -2610,6 +2610,7 @@ pub struct DocumentationCollection {
     pub uuid: Uuid,
     pub name: String,
     pub slug: String,
+    /// Short tagline shown above the rich description editor.
     pub description: Option<String>,
     pub icon: Option<String>,
     pub color: Option<String>,
@@ -2618,7 +2619,18 @@ pub struct DocumentationCollection {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub display_order: i32,
-    pub root_page_id: Option<i32>,
+    /// Yjs binary state for the collection's rich description.
+    /// Replaces the old root_page_id pattern: the collection owns
+    /// its overview content directly instead of pointing at a
+    /// special "main page".
+    pub description_yjs: Option<Vec<u8>>,
+    pub description_state_vector: Option<Vec<u8>>,
+    /// Plain-text projection of `description_yjs` for search.
+    pub description_text: Option<String>,
+    /// When true, cross-collection wikilinks render as
+    /// "Restricted page" for viewers without read access, instead
+    /// of leaking the page title.
+    pub hide_titles_from_non_members: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -2632,10 +2644,9 @@ pub struct NewDocumentationCollection {
     pub color: Option<String>,
     pub is_system: bool,
     pub created_by: Option<Uuid>,
-    pub root_page_id: Option<i32>,
 }
 
-#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::documentation_collections)]
 pub struct DocumentationCollectionUpdate {
     pub name: Option<String>,
@@ -2644,7 +2655,20 @@ pub struct DocumentationCollectionUpdate {
     pub icon: Option<String>,
     pub color: Option<String>,
     pub updated_at: Option<NaiveDateTime>,
-    pub root_page_id: Option<Option<i32>>,
+    pub hide_titles_from_non_members: Option<bool>,
+    pub description_text: Option<Option<String>>,
+}
+
+/// Yjs blob update issued by the collaboration handler when a
+/// collection's description editor saves. Kept separate from
+/// `DocumentationCollectionUpdate` so the metadata-edit surface
+/// can't accidentally clobber the binary Yjs state.
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::documentation_collections)]
+pub struct DocumentationCollectionDescriptionYjsUpdate {
+    pub description_yjs: Option<Vec<u8>>,
+    pub description_state_vector: Option<Vec<u8>>,
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 // Collection with visibility and page count
