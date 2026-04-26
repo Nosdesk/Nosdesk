@@ -133,6 +133,13 @@ pub struct CreateDocumentationPageRequest {
     pub yjs_document: Option<Vec<u8>>,
     pub yjs_client_id: Option<i64>,
     pub has_unsaved_changes: Option<bool>,
+    /// Target collection for the new page. When omitted, the
+    /// page is auto-assigned to its parent's collection (if
+    /// `parent_id` is set), otherwise it lands as uncollected.
+    /// Both branches preserve the page's `parent_id` — the
+    /// "add existing page to collection" flow is the only path
+    /// that resets parent_id to root.
+    pub collection_id: Option<i32>,
 }
 
 /// Resolve the Yjs document for a page: try the page's own yjs_document first,
@@ -430,6 +437,35 @@ pub async fn create_documentation_page(
 
     match repository::create_documentation_page(new_page, &mut conn) {
         Ok(created_page) => {
+            // Resolve target collection: explicit body field wins,
+            // otherwise inherit from the parent page's collection.
+            // Either way, write the junction row directly without
+            // touching parent_id (which the create flow already set
+            // correctly).
+            let target_collection_id: Option<i32> = match request.collection_id {
+                Some(id) => Some(id),
+                None => match request.parent_id {
+                    Some(pid) => repository::documentation_collections::get_collections_for_page(
+                        &mut conn, pid,
+                    )
+                    .ok()
+                    .and_then(|cs| cs.first().map(|c| c.id)),
+                    None => None,
+                },
+            };
+            if let Some(cid) = target_collection_id {
+                let entry = crate::models::NewDocumentationCollectionPage {
+                    collection_id: cid,
+                    page_id: created_page.id,
+                    created_by: Some(user_uuid),
+                };
+                if let Err(e) = repository::documentation_collections::add_page_to_collection(
+                    &mut conn, entry,
+                ) {
+                    error!(error = ?e, page_id = created_page.id, collection_id = cid, "Failed to assign page to collection");
+                }
+            }
+
             // Index the new documentation page in search
             indexing_tasks::spawn_index_documentation(search_service.get_ref().clone(), created_page.clone());
 

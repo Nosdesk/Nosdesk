@@ -127,6 +127,7 @@ export const updateCollection = async (id: number, data: {
   description?: string;
   icon?: string;
   color?: string;
+  hide_titles_from_non_members?: boolean;
 }): Promise<Collection | null> => {
   try {
     const response = await apiClient.put(`/documentation/collections/${id}`, data);

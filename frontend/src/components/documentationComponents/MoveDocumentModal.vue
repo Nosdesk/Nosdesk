@@ -130,13 +130,16 @@ onMounted(async () => {
         </button>
       </div>
 
-      <!-- Search -->
+      <!-- Search. py-2 keeps the field tall enough that iOS's
+           virtual keyboard doesn't cover the input after focus —
+           the smaller py-1.5 left it under the threshold the OS
+           uses for auto-scroll-into-view. -->
       <div class="p-3 border-b border-default">
         <input
           v-model="searchQuery"
           type="text"
           placeholder="Search pages..."
-          class="w-full px-3 py-1.5 text-sm bg-surface-alt border border-default rounded-md text-primary placeholder-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
+          class="w-full px-3 py-2 text-sm bg-surface-alt border border-default rounded-md text-primary placeholder-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
         />
       </div>
 

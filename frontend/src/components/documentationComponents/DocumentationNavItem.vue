@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { RouterLink, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import type { Page } from '@/services/documentationService'
 import { computed, ref } from 'vue'
+import NavRowActions from './NavRowActions.vue'
+import Icon from '@/components/common/Icon.vue'
 
 const props = defineProps<{
   page: Page;
@@ -11,6 +13,10 @@ const props = defineProps<{
   isDragging?: boolean;
   isDropTarget?: boolean;
   draggedPageId?: string | number | null;
+  /** Page ID currently mid-create from this row's "+" affordance.
+   * Bubbles down so the spinner state stays consistent across
+   * recursion. */
+  creatingChildOfId?: string | number | null;
 }>()
 
 const emit = defineEmits<{
@@ -21,6 +27,7 @@ const emit = defineEmits<{
   (e: 'dragOver', id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below', level: number): void;
   (e: 'drop', id: string | number, event: DragEvent, position: 'above' | 'inside' | 'below'): void;
   (e: 'contextMenu', page: Page, position: { x: number, y: number }): void;
+  (e: 'addChild', page: Page): void;
 }>()
 
 const route = useRoute()
@@ -77,6 +84,21 @@ const handleContextMenu = (event: MouseEvent) => {
   event.preventDefault()
   event.stopPropagation()
   emit('contextMenu', props.page, { x: event.clientX, y: event.clientY })
+}
+
+// Click-handler equivalent of right-click. Anchors the menu to
+// the bottom-left of the trigger button so it grows out of the
+// affordance instead of appearing at the cursor.
+const handleMore = (event: MouseEvent) => {
+  const target = event.currentTarget as HTMLElement | null
+  const rect = target?.getBoundingClientRect()
+  emit(
+    'contextMenu',
+    props.page,
+    rect
+      ? { x: rect.left, y: rect.bottom + 4 }
+      : { x: event.clientX, y: event.clientY },
+  )
 }
 
 // Handle toggle expansion
@@ -171,23 +193,18 @@ const handleDrop = (event: DragEvent) => {
       <!-- Indent spacing - matches the width of parent indent guides -->
       <span class="flex-shrink-0" :style="{ width: `${8 + currentLevel * 12}px` }"></span>
 
-      <!-- Icon / Expand Toggle (arrow replaces icon on hover) -->
+      <!-- Icon / Expand Toggle (chevron replaces icon on hover) -->
       <span
         class="flex-shrink-0 w-5 flex items-center justify-center"
         @click="hasChildren ? handleToggleExpand($event) : undefined"
       >
-        <!-- Expand arrow (visible on row hover when has children) -->
-        <svg
+        <Icon
           v-if="hasChildren"
-          class="w-2.5 h-2.5 transition-transform duration-200 hidden group-hover:block text-tertiary"
+          name="chevronRight"
+          size="xs"
+          class="hidden group-hover:block text-tertiary transition-transform duration-200"
           :class="{ 'rotate-90': isExpanded }"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          stroke-width="2.5"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
+        />
         <!-- Page icon (hidden on row hover when has children) -->
         <span v-if="page.icon && !isIconSvg(page.icon)" class="text-sm leading-none" :class="{ 'group-hover:hidden': hasChildren }">{{ page.icon }}</span>
         <span v-else-if="page.icon && isIconSvg(page.icon)" v-safe-html.svg="page.icon" class="w-3.5 h-3.5" :class="{ 'group-hover:hidden': hasChildren }"></span>
@@ -198,17 +215,16 @@ const handleDrop = (event: DragEvent) => {
       <span class="flex-1 truncate min-w-0 ml-1">{{ page.title }}</span>
       <span v-if="page.status === 'draft'" class="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 flex-shrink-0 ml-1">Draft</span>
 
-      <!-- Drag Handle (visible on hover) -->
-      <span class="flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity text-tertiary ml-1">
-        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
-          <circle cx="5" cy="4" r="1.5"/>
-          <circle cx="11" cy="4" r="1.5"/>
-          <circle cx="5" cy="8" r="1.5"/>
-          <circle cx="11" cy="8" r="1.5"/>
-          <circle cx="5" cy="12" r="1.5"/>
-          <circle cx="11" cy="12" r="1.5"/>
-        </svg>
-      </span>
+      <!-- Hover affordances: same primitive collections use, so
+           the row vocabulary stays consistent. The decorative
+           drag handle is dropped — the row is already draggable
+           via the whole `draggable="true"` surface. -->
+      <NavRowActions
+        :label="page.title"
+        :creating="String(creatingChildOfId) === String(page.id)"
+        @more="handleMore"
+        @add="emit('addChild', page)"
+      />
     </div>
 
     <!-- Children Container -->
@@ -224,6 +240,7 @@ const handleDrop = (event: DragEvent) => {
         :is-child="true"
         :level="currentLevel + 1"
         :dragged-page-id="draggedPageId"
+        :creating-child-of-id="creatingChildOfId"
         :is-dragging="$attrs['is-dragging'] === String(child.id)"
         :is-drop-target="$attrs['is-drop-target'] === String(child.id)"
         @toggle-expand="(id) => emit('toggleExpand', id)"
@@ -233,6 +250,7 @@ const handleDrop = (event: DragEvent) => {
         @drag-over="(id, event, position, level) => emit('dragOver', id, event, position, level)"
         @drop="(id, event, position) => emit('drop', id, event, position)"
         @context-menu="(page, pos) => emit('contextMenu', page, pos)"
+        @add-child="(page) => emit('addChild', page)"
       />
     </ul>
   </li>

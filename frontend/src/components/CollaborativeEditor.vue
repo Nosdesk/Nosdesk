@@ -2034,12 +2034,31 @@ const handleRevisionRestored = (revisionNumber: number) => {
     // The backend broadcast will update all clients automatically
 };
 
+/**
+ * Plain-text projection of the current ProseMirror document.
+ * Used by the Insights panel to compute word/character/reading-
+ * time stats without touching the editor's DOM. Returns the
+ * document's `textContent` (block boundaries become single
+ * spaces), which is good enough for stats — not a fidelity
+ * export.
+ */
+function getTextContent(): string {
+    if (!editorView) return ''
+    return editorView.state.doc.textBetween(
+        0,
+        editorView.state.doc.content.size,
+        '\n',
+        ' ',
+    )
+}
+
 // Expose methods and state for parent components
 defineExpose({
     viewSnapshot,
     exitRevisionView,
     isViewingRevision,
-    currentRevisionNumber
+    currentRevisionNumber,
+    getTextContent,
 });
 </script>
 

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, reactive, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import documentationService, { getStarredPages } from '@/services/documentationService'
+import documentationService, { getStarredPages, createArticle } from '@/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { useAuthStore } from '@/stores/auth'
 import type { Page } from '@/services/documentationService'
 import DocumentationNavItem from './DocumentationNavItem.vue'
+import NavRowActions from './NavRowActions.vue'
+import EditCollectionModal from './EditCollectionModal.vue'
+import Icon from '@/components/common/Icon.vue'
 import MoveDocumentModal from './MoveDocumentModal.vue'
 import PagePermissionsModal from './PagePermissionsModal.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -109,6 +112,16 @@ async function doDeleteCollection() {
   }
 }
 
+/** Patch the in-memory collection list with the saved values
+ * from the Edit modal so the sidebar reflects the change without
+ * a full sidebar reload. */
+function handleCollectionEdited(updated: CollectionWithDetails) {
+  const idx = collections.value.findIndex((c) => c.id === updated.id)
+  if (idx >= 0) {
+    collections.value[idx] = { ...collections.value[idx], ...updated }
+  }
+}
+
 // Modals triggered from context menu
 const showMoveModal = ref(false)
 const moveModalPageId = ref<string | number>('')
@@ -117,17 +130,31 @@ const showPermissionsModal = ref(false)
 const permissionsModalPageId = ref(0)
 
 // SVG icon paths (stroke-based, viewBox 0 0 24 24)
+// Icon paths come from the central `common/icons.ts` registry so
+// the same action carries the same glyph everywhere in the app.
+// The `MenuItem.icon` field still wants a raw SVG path string for
+// backward compatibility, so we map registry names to their `d`
+// strings here. Action items where an icon doesn't aid recognition
+// (Open in new tab, Move, Copy as plain text, etc.) are
+// intentionally label-only — per Tonsky's "if everything has an
+// icon, nothing stands out".
+import { ICON_REGISTRY } from '@/components/common/icons'
 const icons = {
-  openTab: 'M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25',
-  link: 'M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244',
-  star: 'M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z',
-  duplicate: 'M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75',
-  move: 'M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776',
-  permissions: 'M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z',
-  exportMd: 'M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3',
-  archive: 'M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z',
-  trash: 'M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0',
-  rename: 'M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z',
+  link: ICON_REGISTRY.link.d,
+  search: ICON_REGISTRY.search.d,
+  star: ICON_REGISTRY.star.d,
+  duplicate: ICON_REGISTRY.duplicate.d,
+  permissions: ICON_REGISTRY.permissions.d,
+  archive: ICON_REGISTRY.archive.d,
+  trash: ICON_REGISTRY.trash.d,
+  rename: ICON_REGISTRY.rename.d,
+  add: ICON_REGISTRY.add.d,
+  bell: ICON_REGISTRY.bell.d,
+  history: ICON_REGISTRY.history.d,
+  insights: ICON_REGISTRY.insights.d,
+  copyMd: ICON_REGISTRY.copyMd.d,
+  download: ICON_REGISTRY.download.d,
+  print: ICON_REGISTRY.print.d,
 }
 
 // Build page context menu items dynamically (star state depends on current page)
@@ -136,13 +163,33 @@ const pageContextMenuItems = computed((): MenuItem[] => {
   const isStarred = page ? starredPages.value.some(sp => sp.page_id === Number(page.id)) : false
   const isArchived = page?.status === 'archived'
 
+  // Icons appear only where they meaningfully aid scanning:
+  //   - Star / Subscribe: status toggles, the icon doubles as a
+  //     visual indicator of the toggle state in nearby UI
+  //   - Add child: the universal `+`
+  //   - Copy link / Copy as Markdown: paired actions where the
+  //     icon distinguishes the destination format at a glance
+  //   - Insights / History: feature actions that have established
+  //     glyph metaphors (chart, clock-rewind)
+  //   - Archive / Restore (paired): same icon, label flips
+  //   - Trash: destructive — universal recognition
+  //
+  // Other items are label-only by intent: a row of identical
+  // generic icons would have nothing to scan against.
   const items: MenuItem[] = [
-    { id: 'open-new-tab', label: 'Open in new tab', icon: icons.openTab },
+    { id: 'open-new-tab', label: 'Open in new tab' },
     { id: 'copy-link', label: 'Copy link', icon: icons.link },
-    { id: isStarred ? 'unstar' : 'star', label: isStarred ? 'Remove star' : 'Star', icon: icons.star, divider: true },
-    { id: 'duplicate', label: 'Duplicate', icon: icons.duplicate },
-    { id: 'move', label: 'Move to...', icon: icons.move },
-    { id: 'export-md', label: 'Export Markdown', icon: icons.exportMd },
+    { id: 'copy-md', label: 'Copy as Markdown', icon: icons.copyMd },
+    { id: 'copy-text', label: 'Copy as plain text', divider: true },
+    { id: 'add-child', label: 'Add child page', icon: icons.add },
+    { id: isStarred ? 'unstar' : 'star', label: isStarred ? 'Remove star' : 'Star', icon: icons.star },
+    { id: 'subscribe', label: 'Subscribe', icon: icons.bell },
+    { id: 'duplicate', label: 'Duplicate' },
+    { id: 'move', label: 'Move to...', divider: true },
+    { id: 'history', label: 'Revision history', icon: icons.history },
+    { id: 'insights', label: 'Insights', icon: icons.insights },
+    { id: 'export-md', label: 'Download Markdown', icon: icons.download },
+    { id: 'print', label: 'Print' },
   ]
 
   if (authStore.isAdmin) {
@@ -160,14 +207,25 @@ const pageContextMenuItems = computed((): MenuItem[] => {
   return items
 })
 
-// Collection context menu items
+// Collection context menu items. Same iconography rule applies:
+// reserve glyphs for actions where the visual aids recognition.
+// Sort modes render as an inline radio group (heading + three
+// items, check on the active one) instead of a cycle: the
+// available options are visible at a glance and one click sets
+// the mode, no nested submenu.
 const collectionContextMenuItems = computed((): MenuItem[] => {
   const collection = contextMenuCollection.value
+  const active = currentSortMode(collection?.id)
   const items: MenuItem[] = [
-    { id: 'col-rename', label: 'Rename', icon: icons.rename },
+    { id: 'col-edit', label: 'Edit collection', icon: icons.rename },
+    { id: 'col-search', label: 'Search in this collection', icon: icons.search },
+    { id: 'col-sort-heading', label: 'Sort by', heading: true, divider: true },
+    { id: 'col-sort-manual', label: SORT_LABELS.manual, checked: active === 'manual' },
+    { id: 'col-sort-alpha', label: SORT_LABELS.alpha, checked: active === 'alpha' },
+    { id: 'col-sort-recent', label: SORT_LABELS.recent, checked: active === 'recent' },
   ]
   if (authStore.isAdmin) {
-    items.push({ id: 'col-permissions', label: 'Permissions', icon: icons.permissions })
+    items.push({ id: 'col-permissions', label: 'Permissions', icon: icons.permissions, divider: true })
   }
   if (authStore.isAdmin && collection && !collection.is_system) {
     items.push({ id: 'col-delete', label: 'Delete', icon: icons.trash, danger: true, divider: true })
@@ -200,10 +258,36 @@ const handleCollectionContextMenu = (collection: CollectionWithDetails, event: M
   showContextMenu.value = true
 }
 
-// Inline rename state for collections
+/** Click-handler equivalent of the right-click context menu.
+ * Anchors the menu to the bottom-left corner of the trigger
+ * button so it visually grows out of the affordance instead of
+ * appearing at the cursor. */
+const openCollectionMenu = (collection: CollectionWithDetails, event: MouseEvent) => {
+  const target = event.currentTarget as HTMLElement | null
+  const rect = target?.getBoundingClientRect()
+  contextMenuType.value = 'collection'
+  contextMenuCollection.value = collection
+  contextMenuPage.value = null
+  contextMenuPos.value = rect
+    ? { x: rect.left, y: rect.bottom + 4 }
+    : { x: event.clientX, y: event.clientY }
+  showContextMenu.value = true
+}
+
+// Inline rename state for collections (legacy — preserved while
+// the new "Edit collection" modal rolls out, both surfaces still
+// commit through `updateCollection`).
 const renamingCollectionId = ref<number | null>(null)
 const renameInput = ref('')
 const renameInputRef = ref<HTMLInputElement | null>(null)
+
+// Edit-collection modal target. Null = closed; a collection row
+// = the modal is mounted bound to that collection's fields.
+const editingCollection = ref<CollectionWithDetails | null>(null)
+
+// Template ref for the sidebar search input so the "Search in
+// this collection" menu item can focus it after activating scope.
+const sidebarSearchInputRef = ref<HTMLInputElement | null>(null)
 
 const startCollectionRename = async (collection: CollectionWithDetails) => {
   renamingCollectionId.value = collection.id
@@ -238,14 +322,34 @@ const handleContextMenuSelect = async (actionId: string) => {
     if (!collection) return
 
     switch (actionId) {
-      case 'col-rename':
-        startCollectionRename(collection)
+      case 'col-edit':
+        editingCollection.value = collection
+        break
+      case 'col-search':
+        searchScopeCollectionId.value = collection.id
+        sidebarSearch.value = ''
+        await nextTick()
+        sidebarSearchInputRef.value?.focus()
+        break
+      case 'col-sort-manual':
+        setSortMode(collection.id, 'manual')
+        break
+      case 'col-sort-alpha':
+        setSortMode(collection.id, 'alpha')
+        break
+      case 'col-sort-recent':
+        setSortMode(collection.id, 'recent')
         break
       case 'col-permissions':
         router.push({ path: `/documentation/collections/${collection.slug}`, query: { permissions: 'true' } })
         break
       case 'col-delete':
         pendingDeleteCollection.value = collection
+        break
+      // Legacy id kept for backwards compatibility while the menu
+      // transitions to the richer Edit modal.
+      case 'col-rename':
+        startCollectionRename(collection)
         break
     }
     return
@@ -319,6 +423,10 @@ const handleContextMenuSelect = async (actionId: string) => {
       showMoveModal.value = true
       break
 
+    case 'add-child':
+      await createChildOfPage(page as unknown as NavPage)
+      break
+
     case 'permissions':
       permissionsModalPageId.value = Number(page.id)
       showPermissionsModal.value = true
@@ -339,6 +447,50 @@ const handleContextMenuSelect = async (actionId: string) => {
       } catch (error) {
         console.error('Failed to export page:', error)
       }
+      break
+
+    case 'copy-md':
+      try {
+        const blob = await documentationService.exportPageMarkdown(page.id)
+        if (!blob) return
+        const md = await blob.text()
+        await copy(md)
+      } catch (error) {
+        console.error('Failed to copy markdown:', error)
+      }
+      break
+
+    case 'copy-text':
+      try {
+        const blob = await documentationService.exportPageMarkdown(page.id)
+        if (!blob) return
+        const md = await blob.text()
+        await copy(stripMarkdown(md))
+      } catch (error) {
+        console.error('Failed to copy text:', error)
+      }
+      break
+
+    case 'subscribe':
+      try {
+        await documentationService.subscribeToPage(Number(page.id))
+      } catch (error) {
+        console.error('Failed to subscribe:', error)
+      }
+      break
+
+    case 'history':
+      // Open the page (if not already there) with a query flag
+      // the page view picks up to auto-open the revision panel.
+      router.push({ path: pageUrl, query: { panel: 'history' } })
+      break
+
+    case 'insights':
+      router.push({ path: pageUrl, query: { panel: 'insights' } })
+      break
+
+    case 'print':
+      router.push({ path: pageUrl, query: { print: '1' } })
       break
 
     case 'archive':
@@ -382,8 +534,251 @@ const handlePageMoved = () => {
   docNavStore.refreshPages()
 }
 
+/** Cheap markdown-to-text strip for the "Copy as plain text"
+ * action. Drops fenced code blocks, link/image syntax, headings,
+ * emphasis markers, list bullets, and frontmatter. Not a full
+ * commonmark parser — good enough for clipboard use where the
+ * user just wants the words. */
+function stripMarkdown(md: string): string {
+  return md
+    .replace(/^---[\s\S]*?---\n/, '') // YAML frontmatter
+    .replace(/```[\s\S]*?```/g, '') // fenced code
+    .replace(/`([^`]+)`/g, '$1') // inline code
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // images
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links
+    .replace(/^#{1,6}\s+/gm, '') // headings
+    .replace(/^\s*[-*+]\s+/gm, '') // bullets
+    .replace(/^\s*\d+\.\s+/gm, '') // numbered lists
+    .replace(/^\s*>\s?/gm, '') // blockquotes
+    .replace(/(\*\*|__)(.*?)\1/g, '$2') // bold
+    .replace(/(\*|_)(.*?)\1/g, '$2') // italic
+    .replace(/^---+$/gm, '') // hr
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+// Sidebar-local search. Filters the rendered tree by title;
+// matches are case-insensitive and substring. The store still
+// holds the full set so clearing the input restores everything
+// without a refetch. `searchScopeCollectionId` lets the user
+// scope the search to a single collection ("Search in this
+// collection" menu item); null means search every collection.
+const sidebarSearch = ref('')
+const sidebarSearchNorm = computed(() => sidebarSearch.value.trim().toLowerCase())
+const searchScopeCollectionId = ref<number | null>(null)
+
+const searchScopeLabel = computed(() => {
+  if (searchScopeCollectionId.value === null) return ''
+  const c = collections.value.find((x) => x.id === searchScopeCollectionId.value)
+  return c?.name ?? ''
+})
+
+function clearSearchScope() {
+  searchScopeCollectionId.value = null
+}
+
+function pageMatchesSearch(page: { title?: string | null }): boolean {
+  if (!sidebarSearchNorm.value) return true
+  return (page.title ?? '').toLowerCase().includes(sidebarSearchNorm.value)
+}
+
+function collectionMatchesSearch(collection: { id: number; name: string }, pages: Page[] | undefined): boolean {
+  // When a scope is active, only the scoped collection is ever
+  // visible. Other collections collapse out of the rendered tree
+  // entirely.
+  if (searchScopeCollectionId.value !== null && collection.id !== searchScopeCollectionId.value) {
+    return false
+  }
+  if (!sidebarSearchNorm.value) return true
+  if (collection.name.toLowerCase().includes(sidebarSearchNorm.value)) return true
+  return (pages ?? []).some(pageMatchesSearch)
+}
+
+// Per-collection sort mode, persisted in localStorage so a
+// reload restores the user's preference. Manual = honour the
+// drag-set display_order; alpha = title ascending; recent =
+// updated_at descending.
+type SortMode = 'manual' | 'alpha' | 'recent'
+const SORT_LABELS: Record<SortMode, string> = {
+  manual: 'Manual',
+  alpha: 'Alphabetical',
+  recent: 'Recently updated',
+}
+const SORT_ORDER: SortMode[] = ['manual', 'alpha', 'recent']
+const SORT_STORAGE_KEY = 'docs.collectionSort.v1'
+
+function loadSortPrefs(): Record<number, SortMode> {
+  try {
+    const raw = localStorage.getItem(SORT_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, SortMode>
+    const out: Record<number, SortMode> = {}
+    for (const [k, v] of Object.entries(parsed)) {
+      const id = Number(k)
+      if (!Number.isNaN(id) && SORT_ORDER.includes(v)) out[id] = v
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+const collectionSort = reactive<Record<number, SortMode>>(loadSortPrefs())
+
+function persistSortPrefs() {
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(collectionSort))
+  } catch {
+    // Storage quota / private mode — silent best-effort.
+  }
+}
+
+function currentSortMode(collectionId: number | undefined): SortMode {
+  if (collectionId === undefined) return 'manual'
+  return collectionSort[collectionId] ?? 'manual'
+}
+
+function setSortMode(collectionId: number, mode: SortMode) {
+  if (mode === 'manual') {
+    // Manual is the default; remove the override entirely so a
+    // fresh collection without a saved preference reads as
+    // "manual" without polluting localStorage with explicit
+    // entries.
+    delete collectionSort[collectionId]
+  } else {
+    collectionSort[collectionId] = mode
+  }
+  persistSortPrefs()
+}
+
+// Inline page creation. Creates a draft page in the target
+// collection and routes the user to it so the title input is
+// focused for immediate edit. Parent inheritance: when called
+// from a page row, the new page becomes a child; when called
+// from a collection header, the new page lands at the
+// collection's root.
+const creatingInCollection = ref<number | null>(null)
+const creatingUnderPage = ref<number | string | null>(null)
+
+async function createInCollection(collectionId: number) {
+  if (creatingInCollection.value !== null) return
+  creatingInCollection.value = collectionId
+  try {
+    const created = await createArticle({
+      title: 'Untitled',
+      icon: '📄',
+      status: 'draft',
+      parent_id: null,
+      ...({ collection_id: collectionId } as Partial<Page>),
+    })
+    if (created) {
+      collectionExpanded[collectionId] = true
+      await loadCollectionPages(collectionId)
+      router.push(docUrl({ slug: created.slug ?? '', id: created.id as number }))
+    }
+  } finally {
+    creatingInCollection.value = null
+  }
+}
+
+async function createChildOfPage(parentPage: NavPage) {
+  const parentId = Number(parentPage.id)
+  if (Number.isNaN(parentId) || creatingUnderPage.value !== null) return
+  creatingUnderPage.value = parentPage.id
+  try {
+    const created = await createArticle({
+      title: 'Untitled',
+      icon: '📄',
+      status: 'draft',
+      parent_id: parentId,
+    })
+    if (created) {
+      // Reload the owning collection so the new page appears in
+      // the tree immediately. The backend's create-cascade has
+      // already inserted the junction row for us.
+      const collectionId = pageToCollectionMap.value[String(parentPage.id)]
+      if (collectionId) {
+        collectionExpanded[collectionId] = true
+        await loadCollectionPages(collectionId)
+      }
+      router.push(docUrl({ slug: created.slug ?? '', id: created.id as number }))
+    }
+  } finally {
+    creatingUnderPage.value = null
+  }
+}
+
 // Collections data
 const collections = ref<CollectionWithDetails[]>([])
+
+/** When the search input is non-empty, hide collections whose name
+ * doesn't match AND whose loaded pages contain no match. Pages
+ * inside a matching collection are filtered separately by
+ * `visiblePagesIn` so a search hit reveals just the matching subtree. */
+const visibleCollections = computed(() => {
+  if (!sidebarSearchNorm.value) return collections.value
+  return collections.value.filter((c) =>
+    collectionMatchesSearch(c, collectionPages[c.id]),
+  )
+})
+
+// During search, force-expand every collection that has a match
+// so the user can see the matched subtree without manually
+// clicking each folder open. Restoring state when the search
+// clears is intentionally not done — the user's manual
+// expansion choices are preserved.
+watch(sidebarSearchNorm, async (q) => {
+  if (!q) return
+  for (const c of collections.value) {
+    if (collectionMatchesSearch(c, collectionPages[c.id])) {
+      collectionExpanded[c.id] = true
+      // Eagerly load pages for collections we haven't opened
+      // yet so the filter sees them.
+      if (!collectionLoaded[c.id]) {
+        await loadCollectionPages(c.id)
+      }
+    }
+  }
+})
+
+function sortPages(nodes: Page[], mode: SortMode): Page[] {
+  if (mode === 'manual') return nodes
+  const sorted = [...nodes]
+  if (mode === 'alpha') {
+    sorted.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''))
+  } else if (mode === 'recent') {
+    sorted.sort((a, b) => {
+      const aDate = (a as Page & { updated_at?: string }).updated_at ?? ''
+      const bDate = (b as Page & { updated_at?: string }).updated_at ?? ''
+      return bDate.localeCompare(aDate)
+    })
+  }
+  // Recurse into children with the same mode so subtrees stay
+  // consistent with their parent's order.
+  return sorted.map((n) => ({
+    ...n,
+    children: sortPages(((n as Page & { children?: Page[] }).children) ?? [], mode),
+  }))
+}
+
+function visiblePagesIn(collectionId: number): Page[] {
+  const all = collectionPages[collectionId] ?? []
+  const sorted = sortPages(all, currentSortMode(collectionId))
+  if (!sidebarSearchNorm.value) return sorted
+  // Recursively prune the tree, keeping a node if it matches OR
+  // any descendant matches. Keeps parents on screen so the
+  // matched leaf has context.
+  const prune = (nodes: Page[]): Page[] =>
+    nodes
+      .map((n) => {
+        const kids = prune(((n as Page & { children?: Page[] }).children) ?? [])
+        const selfMatches = pageMatchesSearch(n)
+        if (!selfMatches && kids.length === 0) return null
+        return { ...n, children: kids } as Page
+      })
+      .filter((n): n is Page => n !== null)
+  return prune(sorted)
+}
 // Per-collection expanded state (stored in localStorage)
 const collectionExpanded = reactive<Record<number, boolean>>({})
 // Per-collection loaded page trees (lazy loaded)
@@ -850,6 +1245,44 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
 
 <template>
   <nav ref="navRef" class="documentation-nav" :class="{ 'is-dragging': isDragging }">
+    <!-- Sidebar-local search. Filters by title within the
+         already-loaded sidebar tree. Empty string = show all,
+         the standard sidebar layout returns. -->
+    <div class="sticky top-0 z-10 bg-surface px-2 pt-2 pb-1 flex flex-col gap-1.5">
+      <div class="relative">
+        <Icon
+          name="search"
+          size="xs"
+          class="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-tertiary"
+        />
+        <input
+          ref="sidebarSearchInputRef"
+          v-model="sidebarSearch"
+          type="search"
+          :placeholder="searchScopeCollectionId !== null ? `Search in ${searchScopeLabel}` : 'Search docs'"
+          aria-label="Search documentation sidebar"
+          class="w-full rounded-md border border-default bg-surface-alt py-1 pr-2 pl-7 text-xs text-primary placeholder:text-tertiary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
+        />
+      </div>
+      <!-- Active search-scope chip. Click to clear and search
+           across every collection again. Only renders when scope
+           is engaged so the resting sidebar stays uncluttered. -->
+      <div
+        v-if="searchScopeCollectionId !== null"
+        class="flex items-center justify-between rounded bg-accent/10 px-2 py-1 text-[10px] text-accent"
+      >
+        <span class="truncate">Scoped to: {{ searchScopeLabel }}</span>
+        <button
+          type="button"
+          @click="clearSearchScope"
+          aria-label="Clear search scope"
+          class="ml-1 flex-shrink-0 rounded p-0.5 hover:bg-accent/20"
+        >
+          <Icon name="close" size="xs" />
+        </button>
+      </div>
+    </div>
+
     <!-- Single Global Drop Indicator -->
     <div
       v-if="dropIndicatorY !== null && isDragging"
@@ -880,16 +1313,12 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
       >
         <span class="flex-shrink-0" style="width: 8px"></span>
         <span class="flex-shrink-0 w-5 flex items-center justify-center">
-          <svg
-            class="w-2.5 h-2.5 transition-transform duration-200 text-tertiary"
+          <Icon
+            name="chevronRight"
+            size="xs"
+            class="text-tertiary transition-transform duration-200"
             :class="{ 'rotate-90': isStarredExpanded }"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2.5"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
+          />
         </span>
         <svg class="w-3.5 h-3.5 flex-shrink-0 ml-0.5 text-amber-500" fill="currentColor" viewBox="0 0 24 24">
           <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
@@ -928,7 +1357,7 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
     <!-- Collection Folders -->
     <div v-if="!initialLoading" class="py-1">
       <!-- Each collection as an expandable folder -->
-      <div v-for="collection in collections" :key="collection.id" class="collection-folder">
+      <div v-for="collection in visibleCollections" :key="collection.id" class="collection-folder">
         <!-- Collection Header — same interaction pattern as DocumentationNavItem -->
         <div
           class="group relative flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150"
@@ -955,16 +1384,12 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
             @click.stop="(collection.page_count ?? 0) > 0 ? toggleCollectionExpanded(collection.id) : null"
           >
             <template v-if="(collection.page_count ?? 0) > 0">
-              <svg
-                class="w-2.5 h-2.5 transition-transform duration-200 hidden group-hover:block text-tertiary"
+              <Icon
+                name="chevronRight"
+                size="xs"
+                class="hidden group-hover:block text-tertiary transition-transform duration-200"
                 :class="{ 'rotate-90': collectionExpanded[collection.id] }"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="2.5"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
+              />
               <span class="text-sm leading-none group-hover:hidden">{{ collection.icon || '📁' }}</span>
             </template>
             <span v-else class="text-sm leading-none">{{ collection.icon || '📁' }}</span>
@@ -983,14 +1408,13 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
           />
           <span v-else class="flex-1 truncate min-w-0 ml-1">{{ collection.name }}</span>
 
-          <!-- Page Count. Suppressed at zero so an empty
-               collection doesn't carry a "0" badge. -->
-          <span
-            v-if="renamingCollectionId !== collection.id && (collection.page_count ?? 0) > 0"
-            class="flex-shrink-0 text-[10px] text-tertiary ml-1"
-          >
-            {{ collection.page_count }}
-          </span>
+          <NavRowActions
+            v-if="renamingCollectionId !== collection.id"
+            :label="collection.name"
+            :creating="creatingInCollection === collection.id"
+            @more="(e) => openCollectionMenu(collection, e)"
+            @add="createInCollection(collection.id)"
+          />
         </div>
 
         <!-- Collection Pages (collapsible with smooth transition).
@@ -1012,14 +1436,15 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
                 </div>
               </div>
 
-              <!-- Pages tree -->
-              <ul v-else-if="collectionPages[collection.id] && collectionPages[collection.id].length > 0" class="flex flex-col">
+              <!-- Pages tree (filtered by sidebar search) -->
+              <ul v-else-if="visiblePagesIn(collection.id).length > 0" class="flex flex-col">
                 <DocumentationNavItem
-                  v-for="page in collectionPages[collection.id]"
+                  v-for="page in visiblePagesIn(collection.id)"
                   :key="page.id"
                   :page="page"
                   :level="1"
                   :dragged-page-id="draggedPageId"
+                  :creating-child-of-id="creatingUnderPage"
                   :is-dragging="String(draggedPageId) === String(page.id)"
                   :is-drop-target="String(dropTargetId) === String(page.id) && dropPosition === 'inside'"
                   @toggle-expand="handleToggleExpand"
@@ -1029,6 +1454,7 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
                   @drag-over="(id, event, position, level) => handlePageDragOver(id, event, position, level)"
                   @drop="handlePageDrop"
                   @context-menu="handleNavContextMenu"
+                  @add-child="(p) => createChildOfPage(p as unknown as NavPage)"
                 />
               </ul>
             </template>
@@ -1078,16 +1504,35 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
     :show="pendingDeleteCollection !== null"
     variant="danger"
     :title="pendingDeleteCollection ? `Delete ${pendingDeleteCollection.name}?` : 'Delete collection?'"
-    message="Pages in this collection will not be deleted."
+    message="Pages in this collection will be moved to the trash. You can restore them from there."
     confirm-label="Delete"
     @confirm="doDeleteCollection"
     @close="pendingDeleteCollection = null"
+  />
+
+  <EditCollectionModal
+    :collection="editingCollection"
+    @close="editingCollection = null"
+    @saved="handleCollectionEdited"
   />
 </template>
 
 <style scoped>
 .documentation-nav {
   position: relative;
+  /* Lets the parent layout decide the sidebar height; the
+     internal column then scrolls when the collection list is
+     taller than the viewport. Without this, long page lists
+     push off the bottom of short viewports (laptop with browser
+     chrome, tablet landscape) with no scroll affordance. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  /* Fade the search input into view when scrolled past — cheap
+     polish; sticky positioning keeps the search reachable
+     regardless of scroll position. */
 }
 
 .documentation-nav.is-dragging {

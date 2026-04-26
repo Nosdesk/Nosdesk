@@ -18,6 +18,7 @@ import CollectionManager from '@/components/documentationComponents/CollectionMa
 import PagePermissionsModal from '@/components/documentationComponents/PagePermissionsModal.vue'
 import { docsEmitter } from '@/services/docsEmitter'
 import RevisionHistory from '@/components/editor/RevisionHistory.vue'
+import DocumentInsightsPanel from '@/components/documentationComponents/DocumentInsightsPanel.vue'
 import apiClient from '@/services/apiConfig'
 import { useAuthStore } from '@/stores/auth'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
@@ -59,7 +60,25 @@ let titleUpdateTimeout: ReturnType<typeof setTimeout> | null = null
 
 // Revision history
 const showRevisionHistory = ref(false)
+// Insights panel: source timestamps, word/character/reading-time
+// stats, contributors. A read-only side panel that mirrors what
+// Outline shows under its "Insights" menu item.
+const showInsights = ref(false)
 const editorRef = ref<InstanceType<typeof CollaborativeEditor> | null>(null)
+
+// Plain-text snapshot for the Insights panel. Re-pulled when the
+// panel opens so stats reflect the editor's current content;
+// kept as a ref rather than a computed because we don't want to
+// reactively re-run on every keystroke.
+const insightsText = ref('')
+
+function refreshInsightsText() {
+  insightsText.value = editorRef.value?.getTextContent?.() ?? ''
+}
+
+watch(showInsights, (open) => {
+  if (open) refreshInsightsText()
+})
 
 // Ticket note mode
 const isTicketNote = ref(false)
@@ -493,9 +512,29 @@ const handleSSEUpdate = (data: { document_id?: number; field?: string; value?: s
 // Lifecycle
 let cleanupSSE: (() => void) | null = null
 
+// React to deep-link panel/print query params from the sidebar
+// context menu. The menu emits navigation with `?panel=history`
+// / `?panel=insights` / `?print=1`; we consume those here so the
+// sidebar doesn't need direct DOM access into the page view.
+function applyPanelQuery() {
+  const panel = route.query.panel as string | undefined
+  showRevisionHistory.value = panel === 'history'
+  showInsights.value = panel === 'insights'
+  if (route.query.print === '1') {
+    // Defer to next tick so the editor has a chance to render
+    // the latest content before the print dialog snapshots it.
+    setTimeout(() => window.print(), 50)
+    // Strip the param so a refresh doesn't re-trigger.
+    router.replace({ path: route.path, query: { ...route.query, print: undefined } })
+  }
+}
+
+watch(() => route.query, () => applyPanelQuery())
+
 onMounted(() => {
   cleanupSSE = setupSSE(handleSSEUpdate)
   fetchContent()
+  applyPanelQuery()
 
   // Register save handlers for SiteHeader title/icon edits
   titleManager.onDocumentTitleSave(async (title: string) => {
@@ -761,6 +800,17 @@ watch(documentObj, (newDocument) => {
           @close="handleCloseRevisionHistory"
           @select-revision="handleSelectRevision"
           @restored="handleRevisionRestored"
+        />
+
+        <!-- Insights side panel -->
+        <DocumentInsightsPanel
+          v-if="showInsights && currentPageId"
+          :page-id="Number(currentPageId)"
+          :created-at="document?.created_at ?? null"
+          :updated-at="document?.updated_at ?? null"
+          :text="insightsText"
+          class="flex-shrink-0"
+          @close="showInsights = false"
         />
       </div>
 

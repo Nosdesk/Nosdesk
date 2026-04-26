@@ -246,6 +246,7 @@ pub struct UpdateCollectionRequest {
     pub description: Option<String>,
     pub icon: Option<String>,
     pub color: Option<String>,
+    pub hide_titles_from_non_members: Option<bool>,
 }
 
 /// Update a collection (technician+, blocks system collection rename)
@@ -284,6 +285,7 @@ pub async fn update_collection(
         icon: body.icon.clone(),
         color: body.color.clone(),
         updated_at: Some(Utc::now().naive_utc()),
+        hide_titles_from_non_members: body.hide_titles_from_non_members,
         ..Default::default()
     };
 

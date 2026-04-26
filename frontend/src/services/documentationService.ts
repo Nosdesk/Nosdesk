@@ -505,8 +505,15 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
       statusValue = 'draft';
     }
 
-    // Prepare the payload matching NewDocumentationPage backend struct
-    // NOTE: Backend generates UUID, slug, and sets created_by/last_edited_by from auth context
+    // Prepare the payload matching CreateDocumentationPageRequest.
+    // Backend generates UUID, slug, and sets created_by /
+    // last_edited_by from auth context. `collection_id` (when
+    // provided) tells the backend to insert the new page into
+    // that collection's junction table directly; when omitted,
+    // the backend cascades from `parent_id` (so creating a
+    // child of an existing page inherits the parent's collection
+    // automatically).
+    const collectionId = (article as Partial<Page> & { collection_id?: number }).collection_id;
     const payload = {
       title: article.title || 'Untitled',
       icon: article.icon || '📄',
@@ -520,7 +527,8 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
       yjs_state_vector: null,
       yjs_document: null,
       yjs_client_id: null,
-      has_unsaved_changes: false
+      has_unsaved_changes: false,
+      ...(collectionId !== undefined ? { collection_id: collectionId } : {}),
     };
 
     // Print payload as a formatted string for debugging
