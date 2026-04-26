@@ -53,6 +53,18 @@ interface Props {
    * consumer pick the surface chrome (border, shadow, padding)
    * without baking it into the primitive. */
   popoverClass?: string
+  /** Move keyboard focus to the popover root on open. Right
+   * default for context menus and dialogs (focus trap-style:
+   * arrows/escape are handled inside the popover). Wrong for
+   * dropdowns where focus should stay on the trigger so the
+   * trigger's keydown handler keeps owning arrow navigation —
+   * pass `false` in that case. */
+  autoFocus?: boolean
+  /** Disable the default fade-scale enter/leave transition. The
+   * primitive includes a tasteful default so consumers don't
+   * each reinvent one; this escape hatch is for cases where the
+   * caller wants no animation (tests, motion-reduced overrides). */
+  noTransition?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -61,6 +73,8 @@ const props = withDefaults(defineProps<Props>(), {
   matchAnchorWidth: false,
   offset: 4,
   role: 'menu',
+  autoFocus: true,
+  noTransition: false,
 })
 
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -79,9 +93,19 @@ const { popoverRef, x, y, width, update } = usePopover({
 // -----------------------------------------------------------------
 function onMousedownOutside(event: MouseEvent) {
   if (!popoverRef.value) return
-  if (!popoverRef.value.contains(event.target as Node)) {
-    emit('close')
+  const target = event.target as Node
+  if (popoverRef.value.contains(target)) return
+  // Don't dismiss when the click landed on the anchor element
+  // itself. Without this, a trigger button would close-then-
+  // reopen on every click (mousedown closes the popover, then
+  // the click event re-fires the trigger's toggle handler), and
+  // the toggle would never feel like a toggle.
+  const a = props.anchor
+  if (a.type === 'element') {
+    const el = a.element()
+    if (el && el.contains(target)) return
   }
+  emit('close')
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -132,10 +156,18 @@ watch(
       attachListeners()
       await nextTick()
       update()
-      popoverRef.value?.focus()
+      if (props.autoFocus) {
+        popoverRef.value?.focus()
+      }
     } else {
       detachListeners()
-      previouslyFocused.value?.focus?.()
+      if (props.autoFocus) {
+        // Only return focus if we took it. Dropdowns leave focus
+        // on the trigger throughout, so the explicit return would
+        // be a no-op (or worse, blur-then-refocus a control the
+        // user is actively typing into).
+        previouslyFocused.value?.focus?.()
+      }
       previouslyFocused.value = null
     }
   },
@@ -147,21 +179,53 @@ onBeforeUnmount(detachListeners)
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="open"
-      ref="popoverRef"
-      :role="role"
-      :aria-label="ariaLabel"
-      :tabindex="-1"
-      class="fixed z-[100] outline-none"
-      :class="popoverClass"
-      :style="{
-        left: `${x}px`,
-        top: `${y}px`,
-        width: width !== null ? `${width}px` : undefined,
-      }"
+    <Transition
+      :name="noTransition ? '' : 'popover-fade-scale'"
+      :duration="noTransition ? 0 : undefined"
     >
-      <slot />
-    </div>
+      <div
+        v-if="open"
+        ref="popoverRef"
+        :role="role"
+        :aria-label="ariaLabel"
+        :tabindex="-1"
+        class="fixed z-[100] outline-none"
+        :class="popoverClass"
+        :style="{
+          left: `${x}px`,
+          top: `${y}px`,
+          width: width !== null ? `${width}px` : undefined,
+        }"
+      >
+        <slot />
+      </div>
+    </Transition>
   </Teleport>
 </template>
+
+<style>
+/* Global rather than scoped: the Transition class names need to
+   apply to the popover root which is teleported out of the
+   component's scoped-style context. The transform-origin uses
+   the top-left corner so the popover appears to grow out of its
+   anchor point — feels right for both dropdowns (anchored to
+   the trigger's top-left) and click-anchored menus (anchored
+   to the click point). */
+.popover-fade-scale-enter-active {
+  transition:
+    opacity 100ms ease-out,
+    transform 100ms ease-out;
+  transform-origin: top left;
+}
+.popover-fade-scale-leave-active {
+  transition:
+    opacity 75ms ease-in,
+    transform 75ms ease-in;
+  transform-origin: top left;
+}
+.popover-fade-scale-enter-from,
+.popover-fade-scale-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}
+</style>

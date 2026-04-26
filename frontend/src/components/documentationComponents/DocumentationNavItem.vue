@@ -5,6 +5,7 @@ import type { Page } from '@/services/documentationService'
 import { computed, ref } from 'vue'
 import NavRowActions from './NavRowActions.vue'
 import Icon from '@/components/common/Icon.vue'
+import { useLongPress } from '@/composables/useLongPress'
 
 const props = defineProps<{
   page: Page;
@@ -101,6 +102,13 @@ const handleMore = (event: MouseEvent) => {
   )
 }
 
+// Touch UI long-press: opens the same context menu desktop users
+// reach via right-click or the hover affordance. Anchors the menu
+// to the press location so the user's finger doesn't cover it.
+const longPress = useLongPress((event) => {
+  emit('contextMenu', props.page, { x: event.clientX, y: event.clientY })
+})
+
 // Handle toggle expansion
 const handleToggleExpand = (event: Event) => {
   event.stopPropagation()
@@ -180,6 +188,7 @@ const handleDrop = (event: DragEvent) => {
           : 'text-secondary hover:text-primary hover:bg-surface-hover',
         isDragging && 'opacity-40 scale-[0.98]',
         (dragPosition === 'inside' || isDropTarget) && 'bg-accent/10 ring-1 ring-accent/30',
+        longPress.pressing.value && 'bg-surface-hover',
       ]"
       draggable="true"
       @click.stop="handlePageClick"
@@ -189,6 +198,7 @@ const handleDrop = (event: DragEvent) => {
       @dragover="handleDragOver"
       @dragleave="handleDragLeave"
       @drop="handleDrop"
+      v-on="longPress.listeners"
     >
       <!-- Indent spacing - matches the width of parent indent guides -->
       <span class="flex-shrink-0" :style="{ width: `${8 + currentLevel * 12}px` }"></span>

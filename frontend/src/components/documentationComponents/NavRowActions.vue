@@ -40,7 +40,7 @@ const onAdd = (event: MouseEvent) => {
 
 <template>
   <div
-    class="row-actions ml-1 flex flex-shrink-0 items-center gap-0.5 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
+    class="row-actions ml-1 flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
   >
     <button
       type="button"
@@ -65,16 +65,15 @@ const onAdd = (event: MouseEvent) => {
 </template>
 
 <style scoped>
-/* Hover-revealed by default (`opacity: 0` → `:hover { 1 }`); on
-   touch devices there's no hover, so the affordances would
-   otherwise be invisible. The `(hover: none)` query keeps them
-   visible at all times for finger-driven UIs. */
-.row-actions {
-  opacity: 0;
-}
-@media (hover: none) {
+/* Touch devices reach the same actions via the row's long-press
+   handler (see useLongPress in DocumentationNavItem / the
+   collection row). Hiding the buttons there entirely is the
+   right call: the row's resting state stays clean, and there's
+   no platform mismatch where buttons appear that don't belong
+   to a hover-driven UI. */
+@media (hover: none) and (pointer: coarse) {
   .row-actions {
-    opacity: 1;
+    display: none;
   }
 }
 </style>

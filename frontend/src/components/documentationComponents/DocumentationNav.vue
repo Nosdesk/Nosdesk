@@ -9,6 +9,7 @@ import DocumentationNavItem from './DocumentationNavItem.vue'
 import NavRowActions from './NavRowActions.vue'
 import EditCollectionModal from './EditCollectionModal.vue'
 import Icon from '@/components/common/Icon.vue'
+import { useLongPress } from '@/composables/useLongPress'
 import MoveDocumentModal from './MoveDocumentModal.vue'
 import PagePermissionsModal from './PagePermissionsModal.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -272,6 +273,30 @@ const openCollectionMenu = (collection: CollectionWithDetails, event: MouseEvent
     ? { x: rect.left, y: rect.bottom + 4 }
     : { x: event.clientX, y: event.clientY }
   showContextMenu.value = true
+}
+
+/** Touch UI long-press on a collection row opens the same
+ * context menu desktop users reach via right-click. One
+ * composable instance is shared across all rows; we capture
+ * which row is being pressed via a ref set on pointerdown. The
+ * single-instance pattern keeps the composable's cleanup scope
+ * stable (per-iteration `useLongPress` calls inside the v-for
+ * would orphan their `onScopeDispose` hooks). */
+const pressedCollection = ref<CollectionWithDetails | null>(null)
+const collectionLongPress = useLongPress((event) => {
+  const collection = pressedCollection.value
+  if (!collection) return
+  contextMenuType.value = 'collection'
+  contextMenuCollection.value = collection
+  contextMenuPage.value = null
+  contextMenuPos.value = { x: event.clientX, y: event.clientY }
+  showContextMenu.value = true
+  pressedCollection.value = null
+})
+
+function onCollectionPointerdown(collection: CollectionWithDetails, event: PointerEvent) {
+  pressedCollection.value = collection
+  collectionLongPress.listeners.pointerdown(event)
 }
 
 // Inline rename state for collections (legacy — preserved while
@@ -1370,6 +1395,11 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
           ]"
           @click.stop="handleCollectionClick(collection)"
           @contextmenu.prevent="handleCollectionContextMenu(collection, $event)"
+          @pointerdown="onCollectionPointerdown(collection, $event)"
+          @pointerup="collectionLongPress.listeners.pointerup"
+          @pointermove="collectionLongPress.listeners.pointermove"
+          @pointercancel="collectionLongPress.listeners.pointercancel"
+          @pointerleave="collectionLongPress.listeners.pointerleave"
         >
           <!-- Indent spacing -->
           <span class="flex-shrink-0" style="width: 8px"></span>
