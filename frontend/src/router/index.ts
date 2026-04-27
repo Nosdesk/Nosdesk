@@ -15,6 +15,7 @@ import ProfileSettingsView from '@/views/ProfileSettingsView.vue'
 import PDFViewerView from '@/views/PDFViewerView.vue'
 import authService from '@/services/authService'
 import { useInboxLoader } from '@/loaders/inboxLoader'
+import { useTicketsListLoader } from '@/loaders/ticketsListLoader'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -152,7 +153,10 @@ const router = createRouter({
         title: 'Tickets',
         createButtonText: 'Create Ticket',
         createButtonIcon: 'ticket',
-        createButtonAction: 'handleCreateTicket'
+        createButtonAction: 'handleCreateTicket',
+        // Data Loader: pre-fetches the first page during
+        // navigation so the view mounts with data ready.
+        loaders: [useTicketsListLoader],
       }
     },
     {

@@ -1,7 +1,13 @@
 // views/TicketsListView.vue
 <script setup lang="ts">
-import { ref, computed, watch, onActivated } from "vue";
+import { ref, computed, watch, onActivated, onDeactivated, onMounted, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryCache,
+} from "@pinia/colada";
+import { useSSE } from "@/services/sseService";
 import ticketService from "@/services/ticketService";
 import PageScroll from "@/components/common/PageScroll.vue";
 import EmptyState from "@/components/common/EmptyState.vue";
@@ -17,11 +23,12 @@ import Modal from "@/components/Modal.vue";
 import UserSelectionModal from "@/components/UserSelectionModal.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
-import { useListManagement } from "@/composables/useListManagement";
-import { useListSSE } from "@/composables/useListSSE";
+import { useListControls } from "@/composables/useListControls";
+import { useMobileSearch } from "@/composables/useMobileSearch";
 import { useStaggeredList } from "@/composables/useStaggeredList";
 import { useMobileDetection } from "@/composables/useMobileDetection";
 import { useInfiniteScroll } from "@/composables/useInfiniteScroll";
+import { useTicketsListLoader } from "@/loaders/ticketsListLoader";
 import { useThemeStore } from "@/stores/theme";
 import { useAuthStore } from "@/stores/auth";
 import { parseDate } from "@/utils/dateUtils";
@@ -29,6 +36,17 @@ import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
 import { categoryService } from "@/services/categoryService";
 import type { TicketCategory } from "@/types/category";
 import type { Ticket } from "@/services/ticketService";
+
+// Hierarchical query keys, exported pattern (mirrors notifications
+// store) so SSE invalidation and any future cross-cutting consumer
+// reach the same strings without typo drift.
+const TICKETS_KEYS = {
+  root: ['tickets'] as const,
+  list: (variant: 'infinite' | 'paginated', cacheKey: string, page?: number) =>
+    page === undefined
+      ? ([...TICKETS_KEYS.root, 'list', variant, cacheKey] as const)
+      : ([...TICKETS_KEYS.root, 'list', variant, cacheKey, page] as const),
+}
 
 defineOptions({ name: 'TicketsListView' })
 
@@ -83,9 +101,30 @@ const bulkActions: BulkAction[] = [
 const showStatusModal = ref(false);
 const showPriorityModal = ref(false);
 const showAssignModal = ref(false);
-const bulkActionLoading = ref(false);
 
-// Handle bulk action selection
+// Bulk action mutation. One mutation handles all four bulk
+// actions; the action discriminator + optional value live on the
+// vars. Pinia Colada tracks pending state per-instance and
+// contributes to the global progress bar automatically.
+const bulkActionMutation = useMutation({
+  mutation: (vars: {
+    action: 'delete' | 'set-status' | 'set-priority' | 'assign'
+    ids: number[]
+    value?: string
+  }) => ticketService.bulkAction(vars),
+  onSettled: () => {
+    // Server-authoritative for bulk operations: re-fetch instead
+    // of trying to optimistically reconcile a multi-row change
+    // across infinite + paginated cache entries.
+    queryCache.invalidateQueries({ key: TICKETS_KEYS.root })
+  },
+  onError: (err) => {
+    console.error('Bulk action failed:', err)
+    alert('Failed to perform bulk action. Please try again.')
+  },
+})
+const bulkActionLoading = computed(() => bulkActionMutation.asyncStatus.value === 'loading')
+
 const handleBulkAction = async (actionId: string) => {
   if (actionId === 'set-status') {
     showStatusModal.value = true;
@@ -98,45 +137,27 @@ const handleBulkAction = async (actionId: string) => {
   }
 };
 
-// Execute bulk action
 const executeBulkAction = async (
   action: 'delete' | 'set-status' | 'set-priority' | 'assign',
   value?: string
 ) => {
-  const ids = listManager.selectedItems.value.map(id => parseInt(id));
+  const ids = controls.selectedItems.value.map(id => parseInt(id));
   if (ids.length === 0) return;
-
-  bulkActionLoading.value = true;
-  try {
-    await ticketService.bulkAction({ action, ids, value });
-
-    // Refresh the list and clear selection
-    await listManager.refresh();
-    listManager.clearSelection();
-
-    // Close any open modals
-    showStatusModal.value = false;
-    showPriorityModal.value = false;
-    showAssignModal.value = false;
-  } catch (error) {
-    console.error('Bulk action failed:', error);
-    alert('Failed to perform bulk action. Please try again.');
-  } finally {
-    bulkActionLoading.value = false;
-  }
+  await bulkActionMutation.mutateAsync({ action, ids, value })
+  controls.clearSelection();
+  showStatusModal.value = false;
+  showPriorityModal.value = false;
+  showAssignModal.value = false;
 };
 
-// Handle bulk status change
 const handleBulkStatusChange = (status: string) => {
   executeBulkAction('set-status', status);
 };
 
-// Handle bulk priority change
 const handleBulkPriorityChange = (priority: string) => {
   executeBulkAction('set-priority', priority);
 };
 
-// Handle bulk assign
 const handleBulkAssign = (userId: string) => {
   executeBulkAction('assign', userId);
   showAssignModal.value = false;
@@ -212,51 +233,155 @@ const handleCreateTicket = async () => {
 // Page size change handler that persists preference to localStorage
 const handlePageSizeChange = (newSize: number) => {
   localStorage.setItem(PAGESIZE_STORAGE_KEY, String(newSize));
-  listManager.handlePageSizeChange(newSize);
+  controls.handlePageSizeChange(newSize);
 };
 
-// List management composable
-const listManager = useListManagement<Ticket>({
+// UI-state composable. Owns filters, sort, search, selection,
+// pagination state. No data side effects: the data layer below
+// reads from `controls.requestParams` via a reactive query key
+// and Pinia Colada handles refetch automatically when filters
+// or sort change.
+const controls = useListControls<Ticket>({
   itemIdField: 'id',
   defaultSortField: initialSortField,
   defaultSortDirection: initialSortDirection,
-  fetchFunction: async (params) => {
-    const requestKey = `paginated-tickets-page-${params.page}`;
-    return await ticketService.getPaginatedTickets({
-      page: params.page,
-      pageSize: params.pageSize,
-      sortField: params.sortField,
-      sortDirection: params.sortDirection,
-      search: params.search,
-      status: params.status,
-      priority: params.priority,
-      category: params.category,
-      assignee: params.assignee,
-      requester: params.requester,
-      createdAfter: params.createdAfter,
-      createdBefore: params.createdBefore,
-      createdOn: params.createdOn,
-      modifiedAfter: params.modifiedAfter,
-      modifiedBefore: params.modifiedBefore,
-      modifiedOn: params.modifiedOn,
-      closedAfter: params.closedAfter,
-      closedBefore: params.closedBefore,
-      closedOn: params.closedOn
-    }, requestKey);
-  },
-  routeBuilder: (ticket) => `/tickets/${ticket.id}`,
-  mobileSearch: {
-    placeholder: 'Search tickets...',
-    createIcon: 'ticket',
-    onCreate: handleCreateTicket
-  }
-});
+  initialSearch: initialSearchQuery,
+  initialFilters,
+  initialPage,
+  initialPageSize,
+})
 
-// Set initial values
-listManager.searchQuery.value = initialSearchQuery;
-listManager.filters.value = initialFilters;
-listManager.currentPage.value = initialPage;
-listManager.pageSize.value = initialPageSize;
+// Subscribe to the route Data Loader. The loader has already
+// pre-fetched the first page during navigation and primed the
+// matching infinite-query cache entry, so the queries below
+// resolve from cache without firing fresh requests on mount.
+useTicketsListLoader()
+
+// Pinia Colada query layer.
+//
+// Tickets supports two pagination modes: infinite scroll
+// (pageSize = 0, append loaded pages) and paged (pageSize = 25,
+// 50, 100, jump to page N). We use one `useInfiniteQuery` for
+// each mode, keyed differently, with `enabled` toggling on the
+// active mode. The inactive mode's cache is harmless idle data.
+const queryCache = useQueryCache()
+
+const infiniteList = useInfiniteQuery(() => ({
+  // Page is NOT in the key for infinite mode (pages append into
+  // one cache entry per filter set). Filter / sort / search ARE.
+  key: TICKETS_KEYS.list('infinite', controls.cacheKeyPart.value),
+  initialPageParam: 1,
+  query: ({ pageParam }) =>
+    ticketService.getPaginatedTickets(
+      { ...controls.requestParams.value, page: pageParam },
+      `tickets-infinite-page-${pageParam}`,
+    ),
+  getNextPageParam: (lastPage, allPages) =>
+    allPages.length < lastPage.totalPages ? allPages.length + 1 : null,
+  enabled: () => controls.isInfiniteMode.value,
+}))
+
+const paginatedList = useInfiniteQuery(() => ({
+  // Page IS in the key here: each page is a discrete cache entry
+  // so jumping from page 5 to page 1 doesn't re-fetch page 5.
+  key: TICKETS_KEYS.list('paginated', controls.cacheKeyPart.value, controls.currentPage.value),
+  initialPageParam: controls.currentPage.value,
+  query: ({ pageParam }) =>
+    ticketService.getPaginatedTickets(
+      { ...controls.requestParams.value, page: pageParam },
+      `tickets-paginated-page-${pageParam}`,
+    ),
+  // Paginated mode never appends; "load more" is disabled by
+  // `getNextPageParam` returning null.
+  getNextPageParam: () => null,
+  enabled: () => !controls.isInfiniteMode.value,
+}))
+
+const items = computed<Ticket[]>(() => {
+  const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
+  return source.data.value?.pages.flatMap(p => p.data) ?? []
+})
+
+const totalItems = computed(() => {
+  const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
+  return source.data.value?.pages[0]?.total ?? 0
+})
+
+const totalPages = computed(() => {
+  const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
+  return source.data.value?.pages[0]?.totalPages ?? 1
+})
+
+const hasMore = computed(() =>
+  controls.isInfiniteMode.value ? infiniteList.hasNextPage.value : false,
+)
+
+const activeAsyncStatus = computed(() =>
+  controls.isInfiniteMode.value
+    ? infiniteList.asyncStatus.value
+    : paginatedList.asyncStatus.value,
+)
+
+const activeError = computed(() =>
+  controls.isInfiniteMode.value ? infiniteList.error.value : paginatedList.error.value,
+)
+
+const isFetching = computed(() => activeAsyncStatus.value === 'loading')
+const isFirstLoad = computed(() => isFetching.value && items.value.length === 0)
+const isLoadingMore = computed(() => isFetching.value && items.value.length > 0)
+const isBackgroundRefresh = computed(() => isFetching.value && items.value.length > 0)
+
+// SSE-driven cache invalidation. Keep it dumb: any ticket
+// updated/created/deleted invalidates all tickets list queries
+// (across both modes and all loaded pages). Pinia Colada will
+// refetch only the active query. This is simpler than
+// surgically mutating per-page cache entries; revisit if perf
+// shows it's an issue.
+const sse = useSSE()
+function invalidateTicketsList() {
+  queryCache.invalidateQueries({ key: TICKETS_KEYS.root })
+}
+
+const sseHandlers: Array<{ type: string; handler: (data: unknown) => void }> = [
+  { type: 'ticket-updated', handler: invalidateTicketsList },
+  { type: 'ticket-created', handler: invalidateTicketsList },
+  { type: 'ticket-deleted', handler: invalidateTicketsList },
+]
+
+onMounted(() => {
+  if (!sse.isConnected.value) sse.connect()
+  for (const { type, handler } of sseHandlers) {
+    sse.addEventListener(type as never, handler)
+  }
+})
+onUnmounted(() => {
+  for (const { type, handler } of sseHandlers) {
+    sse.removeEventListener(type as never, handler)
+  }
+})
+
+const navigateToTicket = (ticket: Ticket) => {
+  router.push(`/tickets/${ticket.id}`)
+}
+
+// Selection / retry handlers that need access to `items`. The
+// composable's selection helpers take items as an argument so
+// they stay data-agnostic.
+const handleToggleSelection = (event: Event, itemId: string) =>
+  controls.toggleSelection(event, itemId, items.value)
+const handleToggleAll = (event: Event) =>
+  controls.toggleAllItems(event, items.value)
+const handleSelectAll = () => controls.selectAll(items.value)
+const handleRetry = () => {
+  if (controls.isInfiniteMode.value) infiniteList.refetch()
+  else paginatedList.refetch()
+}
+const errorMessage = computed(() => {
+  if (!activeError.value) return null
+  return activeError.value instanceof Error
+    ? activeError.value.message
+    : 'Failed to load tickets. Please try again.'
+})
 
 // Helper to parse URL query into filters
 const parseUrlFilters = (query: typeof route.query): Record<string, string | string[]> => {
@@ -281,24 +406,19 @@ const parseUrlFilters = (query: typeof route.query): Record<string, string | str
   return filters;
 };
 
-// Watch for route query changes (e.g., clicking dashboard stats)
+// Watch for route query changes (e.g., clicking dashboard stats).
+// Pinia Colada handles refetch automatically via the reactive
+// query key once `controls.filters.value` / `controls.searchQuery.value`
+// update.
 watch(() => route.query, (newQuery) => {
   const newFilters = parseUrlFilters(newQuery);
   const newSearch = (newQuery.search && typeof newQuery.search === 'string') ? newQuery.search : '';
 
-  const filtersChanged = JSON.stringify(newFilters) !== JSON.stringify(listManager.filters.value);
-  const searchChanged = newSearch !== listManager.searchQuery.value;
+  const filtersChanged = JSON.stringify(newFilters) !== JSON.stringify(controls.filters.value);
+  const searchChanged = newSearch !== controls.searchQuery.value;
 
-  // Update state and refresh if anything changed
-  if (filtersChanged) {
-    listManager.filters.value = newFilters;
-  }
-  if (searchChanged) {
-    listManager.searchQuery.value = newSearch;
-  }
-  if (filtersChanged || searchChanged) {
-    listManager.refresh();
-  }
+  if (filtersChanged) controls.filters.value = newFilters;
+  if (searchChanged) controls.searchQuery.value = newSearch;
 }, { deep: true });
 
 // Re-apply URL filters when component is activated from KeepAlive cache
@@ -306,70 +426,60 @@ onActivated(() => {
   const currentFilters = parseUrlFilters(route.query);
   const currentSearch = (route.query.search && typeof route.query.search === 'string') ? route.query.search : '';
 
-  const filtersChanged = JSON.stringify(currentFilters) !== JSON.stringify(listManager.filters.value);
-  const searchChanged = currentSearch !== listManager.searchQuery.value;
+  const filtersChanged = JSON.stringify(currentFilters) !== JSON.stringify(controls.filters.value);
+  const searchChanged = currentSearch !== controls.searchQuery.value;
 
-  if (filtersChanged) {
-    listManager.filters.value = currentFilters;
-  }
-  if (searchChanged) {
-    listManager.searchQuery.value = currentSearch;
-  }
-  if (filtersChanged || searchChanged) {
-    listManager.refresh();
-  }
+  if (filtersChanged) controls.filters.value = currentFilters;
+  if (searchChanged) controls.searchQuery.value = currentSearch;
 });
 
-// SSE integration for real-time updates
-useListSSE<Ticket>({
-  hasItem: listManager.hasItem,
-  updateItemField: listManager.updateItemField,
-  removeItem: listManager.removeItem,
-  prependItem: listManager.prependItem,
-  eventTypes: { updated: 'ticket-updated', created: 'ticket-created', deleted: 'ticket-deleted' },
-  getEventItemId: (data) => (data.data || data).ticket_id,
-  itemKey: 'ticket',
-  onItemUpdated: (data) => {
-    const { ticket_id, field, value } = data.data || data;
-    // Handle user fields that include nested user_info
-    if ((field === 'assignee' || field === 'requester') && value?.user_info) {
-      listManager.updateItemField(ticket_id, field, value.uuid || value);
-      listManager.updateItemField(ticket_id, `${field}_user` as keyof Ticket, value.user_info);
-    } else {
-      listManager.updateItemField(ticket_id, field, value);
-    }
-  }
-});
+// Mobile search bar registration (was inlined in useListManagement
+// before, now wired explicitly so the migration doesn't lose it).
+const mobileSearch = useMobileSearch()
+function setupMobileSearch() {
+  mobileSearch.registerMobileSearch({
+    searchQuery: controls.searchQuery.value,
+    placeholder: 'Search tickets...',
+    showCreateButton: true,
+    createIcon: 'ticket',
+    onSearchUpdate: controls.handleSearchUpdate,
+    onCreate: handleCreateTicket,
+  })
+}
+onMounted(setupMobileSearch)
+onActivated(setupMobileSearch)
+onDeactivated(mobileSearch.deregisterMobileSearch)
+onUnmounted(mobileSearch.deregisterMobileSearch)
+watch(controls.searchQuery.value, mobileSearch.updateSearchQuery)
 
 // Infinite scroll - PageScroll's single scroll container backs
 // both desktop and mobile views.
 useInfiniteScroll({
   containerRef: scrollContainerRef,
-  enabled: listManager.isInfiniteMode,
-  hasMore: listManager.hasMore,
-  isLoading: listManager.loadingMore,
-  onLoadMore: listManager.loadMore
+  enabled: controls.isInfiniteMode.value,
+  hasMore,
+  isLoading: computed(() => isLoadingMore.value),
+  onLoadMore: () => infiniteList.loadNextPage(),
 });
 
 // Update URL when state changes (without triggering navigation)
 watch(
   [
-    () => listManager.searchQuery.value,
-    () => listManager.filters.value,
-    () => listManager.currentPage.value,
-    () => listManager.pageSize.value,
-    () => listManager.sortField.value,
-    () => listManager.sortDirection.value
+    () => controls.searchQuery.value,
+    () => controls.filters.value,
+    () => controls.currentPage.value,
+    () => controls.pageSize.value,
+    () => controls.sortField.value,
+    () => controls.sortDirection.value
   ],
   () => {
     const query: Record<string, string> = {};
 
-    if (listManager.searchQuery.value) {
-      query.search = listManager.searchQuery.value;
+    if (controls.searchQuery.value) {
+      query.search = controls.searchQuery.value;
     }
 
-    // Add filters
-    Object.entries(listManager.filters.value).forEach(([key, value]) => {
+    Object.entries(controls.filters.value).forEach(([key, value]) => {
       if (Array.isArray(value)) {
         if (value.length > 0) {
           query[key] = value.join(',');
@@ -379,20 +489,17 @@ watch(
       }
     });
 
-    // Add pagination (only if not default)
-    if (listManager.currentPage.value > 1) {
-      query.page = listManager.currentPage.value.toString();
+    if (controls.currentPage.value > 1) {
+      query.page = controls.currentPage.value.toString();
     }
-    if (listManager.pageSize.value !== 25) {
-      query.pageSize = listManager.pageSize.value.toString();
+    if (controls.pageSize.value !== 25) {
+      query.pageSize = controls.pageSize.value.toString();
     }
-
-    // Add sorting (only if not default)
-    if (listManager.sortField.value !== 'id') {
-      query.sortField = listManager.sortField.value;
+    if (controls.sortField.value !== 'id') {
+      query.sortField = controls.sortField.value;
     }
-    if (listManager.sortDirection.value !== 'desc') {
-      query.sortDirection = listManager.sortDirection.value;
+    if (controls.sortDirection.value !== 'desc') {
+      query.sortDirection = controls.sortDirection.value;
     }
 
     const queryString = new URLSearchParams(query).toString();
@@ -415,13 +522,12 @@ const columns = [
 
 // Filter options
 const filterOptions = computed(() => {
-  // Build category options from loaded categories
   const categoryOptions = categories.value.map(cat => ({
     value: String(cat.id),
     label: cat.name
   }));
 
-  return listManager.buildFilterOptions({
+  return controls.buildFilterOptions({
     status: {
       options: STATUS_OPTIONS,
       width: 'w-[130px]',
@@ -457,16 +563,16 @@ defineExpose({
 <template>
   <PageScroll
     ref="pageScrollRef"
-    content-class=""
-    :is-empty="!!listManager.error.value || (listManager.items.value.length === 0 && !listManager.loading.value)"
+    content-class="flex h-full flex-col"
+    :is-empty="!!errorMessage || (items.length === 0 && !isFirstLoad)"
   >
     <template #chrome>
       <!-- Search and filter bar -->
       <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
         <div class="p-2 flex items-center gap-2 flex-wrap">
           <DebouncedSearchInput
-            :model-value="listManager.searchQuery.value"
-            @update:model-value="listManager.handleSearchUpdate"
+            :model-value="controls.searchQuery.value"
+            @update:model-value="controls.handleSearchUpdate"
             placeholder="Search tickets..."
             class="hidden sm:block"
           />
@@ -483,32 +589,32 @@ defineExpose({
                 :multiple="filter.multiple"
                 :placeholder="filter.placeholder"
                 size="sm"
-                @update:model-value="value => listManager.handleFilterUpdate(filter.name, value)"
+                @update:model-value="value => controls.handleFilterUpdate(filter.name, value)"
               />
             </div>
 
             <button
-              @click="listManager.resetFilters"
+              @click="controls.resetFilters"
               class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
             >
               Reset
             </button>
           </template>
 
-          <div v-if="!listManager.isInfiniteMode.value" class="text-xs text-tertiary ml-auto">
-            {{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}
+          <div v-if="!controls.isInfiniteMode.value" class="text-xs text-tertiary ml-auto">
+            {{ totalItems }} result{{ totalItems !== 1 ? "s" : "" }}
           </div>
         </div>
       </div>
 
       <BulkActionsBar
-        :selected-count="listManager.selectedItems.value.length"
-        :total-count="listManager.totalItems.value"
+        :selected-count="controls.selectedItems.value.length"
+        :total-count="totalItems"
         :actions="bulkActions"
         item-label="ticket"
         @action="handleBulkAction"
-        @clear-selection="listManager.clearSelection"
-        @select-all="listManager.selectAll"
+        @clear-selection="controls.clearSelection"
+        @select-all="handleSelectAll"
       />
     </template>
 
@@ -518,33 +624,36 @@ defineExpose({
          that PageScroll guarantees. -->
     <template #empty>
       <ErrorBanner
-        v-if="listManager.error.value"
-        :message="listManager.error.value"
+        v-if="errorMessage"
+        :message="errorMessage"
         :show-retry="true"
-        @retry="listManager.fetchItems"
+        @retry="handleRetry"
       />
       <EmptyState
         v-else
         icon="ticket"
-        :title="listManager.searchQuery.value ? 'No tickets match your search' : 'No tickets found'"
-        :description="listManager.searchQuery.value ? 'Try adjusting your search or filters' : 'Create your first ticket to get started'"
+        :title="controls.searchQuery.value ? 'No tickets match your search' : 'No tickets found'"
+        :description="controls.searchQuery.value ? 'Try adjusting your search or filters' : 'Create your first ticket to get started'"
       />
     </template>
 
     <!-- Desktop / mobile views share the same scroll container
-         (PageScroll owns it) and toggle via v-show. -->
-    <div v-show="!isMobile">
+         (PageScroll owns it) and toggle via v-show. The flex
+         column wrapper gives DataTable's `h-full` something to
+         anchor against (without a height chain DataTable would
+         render at 0px and look empty). -->
+    <div v-show="!isMobile" class="flex h-full flex-col">
       <DataTable
               :columns="columns"
-              :data="listManager.items.value"
-              :selected-items="listManager.selectedItems.value"
-              :sort-field="listManager.sortField.value"
-              :sort-direction="listManager.sortDirection.value"
-              :loading="listManager.isBackgroundRefresh.value"
-              @update:sort="listManager.handleSortUpdate"
-              @toggle-selection="listManager.toggleSelection"
-              @toggle-all="listManager.toggleAllItems"
-              @row-click="listManager.navigateToItem"
+              :data="items"
+              :selected-items="controls.selectedItems.value"
+              :sort-field="controls.sortField.value"
+              :sort-direction="controls.sortDirection.value"
+              :loading="isBackgroundRefresh"
+              @update:sort="controls.handleSortUpdate"
+              @toggle-selection="handleToggleSelection"
+              @toggle-all="handleToggleAll"
+              @row-click="navigateToTicket"
             >
               <template #cell-id="{ value }">
                 <IdCell :id="value" />
@@ -586,23 +695,23 @@ defineExpose({
             </DataTable>
 
             <!-- Loading indicator for infinite scroll -->
-            <div v-if="listManager.loadingMore.value" class="py-4 flex justify-center bg-app">
+            <div v-if="isLoadingMore" class="py-4 flex justify-center bg-app">
               <div class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-accent"></div>
             </div>
     </div>
 
-    <div v-show="isMobile">
+    <div v-show="isMobile" class="flex h-full flex-col">
       <TransitionGroup
         name="list-stagger"
         tag="div"
         class="flex flex-col"
       >
               <div
-                v-for="(ticket, index) in listManager.items.value"
+                v-for="(ticket, index) in items"
                 :key="ticket.id"
                 :style="getStyle(index)"
                 v-memo="[ticket.id, ticket.title, ticket.status, ticket.priority, ticket.created, ticket.requester, ticket.assignee, themeStore.effectiveColorBlindMode]"
-                @click="listManager.navigateToItem(ticket)"
+                @click="navigateToTicket(ticket)"
                 :class="[
                   'flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer',
                   index > 0 ? 'border-t border-default' : ''
@@ -696,7 +805,7 @@ defineExpose({
       </TransitionGroup>
 
       <!-- Loading indicator for infinite scroll -->
-      <div v-if="listManager.loadingMore.value" class="py-4 flex justify-center bg-app">
+      <div v-if="isLoadingMore" class="py-4 flex justify-center bg-app">
         <div class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-accent"></div>
       </div>
     </div>
@@ -706,14 +815,14 @@ defineExpose({
          it stays anchored below the scroll region. -->
     <template #footer>
       <PaginationControls
-        v-if="!isMobile || !listManager.isInfiniteMode.value"
-        :current-page="listManager.currentPage.value"
-        :total-pages="listManager.totalPages.value"
-        :total-items="listManager.totalItems.value"
-        :page-size="listManager.pageSize.value"
-        :page-size-options="listManager.pageSizeOptions"
-        :is-infinite-mode="listManager.isInfiniteMode.value"
-        @update:current-page="listManager.handlePageChange"
+        v-if="!isMobile || !controls.isInfiniteMode.value"
+        :current-page="controls.currentPage.value"
+        :total-pages="totalPages"
+        :total-items="totalItems"
+        :page-size="controls.pageSize.value"
+        :page-size-options="controls.pageSizeOptions"
+        :is-infinite-mode="controls.isInfiniteMode.value"
+        @update:current-page="controls.handlePageChange"
         @update:page-size="handlePageSizeChange"
         @go-to-item="handleGoToItem"
       />
@@ -729,7 +838,7 @@ defineExpose({
       >
         <div class="flex flex-col gap-2 p-4">
           <p class="text-sm text-secondary mb-2">
-            Update status for {{ listManager.selectedItems.value.length }} ticket{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
+            Update status for {{ controls.selectedItems.value.length }} ticket{{ controls.selectedItems.value.length !== 1 ? 's' : '' }}
           </p>
           <button
             v-for="status in STATUS_OPTIONS"
@@ -752,7 +861,7 @@ defineExpose({
       >
         <div class="flex flex-col gap-2 p-4">
           <p class="text-sm text-secondary mb-2">
-            Update priority for {{ listManager.selectedItems.value.length }} ticket{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
+            Update priority for {{ controls.selectedItems.value.length }} ticket{{ controls.selectedItems.value.length !== 1 ? 's' : '' }}
           </p>
           <button
             v-for="priority in PRIORITY_OPTIONS"
