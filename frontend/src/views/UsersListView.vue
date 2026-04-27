@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { useInfiniteQuery, useMutation, useQueryCache } from "@pinia/colada";
+import { useSSE } from "@/services/sseService";
 import PageScroll from "@/components/common/PageScroll.vue";
 import EmptyState from "@/components/common/EmptyState.vue";
 import ErrorBanner from "@/components/common/ErrorBanner.vue";
@@ -13,67 +15,164 @@ import Modal from "@/components/Modal.vue";
 import { StatusBadgeCell, UserInfoCell, DateCell } from "@/components/common/cells";
 import UserAvatar from "@/components/UserAvatar.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
-import { useListManagement } from "@/composables/useListManagement";
-import { useListSSE } from "@/composables/useListSSE";
+import { useListControls } from "@/composables/useListControls";
+import { useMobileSearch } from "@/composables/useMobileSearch";
 import { useStaggeredList } from "@/composables/useStaggeredList";
 import { useMobileDetection } from "@/composables/useMobileDetection";
+import { useInfiniteScroll } from "@/composables/useInfiniteScroll";
 import { useDataStore } from "@/stores/dataStore";
 import userService from "@/services/userService";
 import type { User } from "@/types/user";
+
+const USERS_KEYS = {
+  root: ['users'] as const,
+  list: (variant: 'infinite' | 'paginated', cacheKey: string, page?: number) =>
+    page === undefined
+      ? ([...USERS_KEYS.root, 'list', variant, cacheKey] as const)
+      : ([...USERS_KEYS.root, 'list', variant, cacheKey, page] as const),
+}
 
 defineOptions({ name: 'UsersListView' })
 
 const router = useRouter();
 const dataStore = useDataStore();
+const queryCache = useQueryCache();
 
-// Mobile detection
 const { isMobile } = useMobileDetection();
 
-// Default page size: 0 (infinite scroll / view all)
-const defaultPageSize = 0;
+const pageScrollRef = ref<InstanceType<typeof PageScroll> | null>(null);
+const scrollContainerRef = computed<HTMLElement | null>(
+  () => pageScrollRef.value?.scrollContainerRef ?? null,
+);
 
-// Navigate to user creation (used by both header button and mobile search bar)
 const navigateToCreateUser = () => {
   router.push('/users/new');
 };
 
-// Use the composable for all common functionality
-const listManager = useListManagement<User>({
-  defaultPageSize,
+const navigateToUser = (user: User) => {
+  router.push(`/users/${user.uuid}`);
+};
+
+// UI-state composable. Pure local state, no data side effects.
+const controls = useListControls<User>({
   itemIdField: 'uuid',
   defaultSortField: 'name',
   defaultSortDirection: 'asc',
-  fetchFunction: async (params) => {
-    return await dataStore.getPaginatedUsers({
-      page: params.page,
-      pageSize: params.pageSize,
-      sortField: params.sortField,
-      sortDirection: params.sortDirection,
-      search: params.search,
-      role: params.role !== 'all' ? params.role : undefined
-    });
-  },
-  routeBuilder: (user) => `/users/${user.uuid}`,
-  mobileSearch: {
-    placeholder: 'Search users...',
-    createIcon: 'user',
-    onCreate: navigateToCreateUser
-  }
-});
+  defaultPageSize: 0,
+})
 
-// SSE integration for real-time updates
-useListSSE<User>({
-  hasItem: listManager.hasItem,
-  updateItemField: listManager.updateItemField,
-  removeItem: listManager.removeItem,
-  prependItem: listManager.prependItem,
-  eventTypes: { updated: 'user-updated', created: 'user-created', deleted: 'user-deleted' },
-  getEventItemId: (data) => (data.data || data).user_uuid,
-  itemKey: 'user'
-});
+// Pinia Colada query layer. Dual-mode (infinite + paged), one
+// query is enabled at a time based on `controls.isInfiniteMode`.
+const infiniteList = useInfiniteQuery(() => ({
+  key: USERS_KEYS.list('infinite', controls.cacheKeyPart.value),
+  initialPageParam: 1,
+  query: ({ pageParam }) => dataStore.getPaginatedUsers({
+    ...controls.requestParams.value,
+    page: pageParam,
+  }),
+  getNextPageParam: (lastPage, allPages) =>
+    allPages.length < lastPage.totalPages ? allPages.length + 1 : null,
+  enabled: () => controls.isInfiniteMode.value,
+}))
+
+const paginatedList = useInfiniteQuery(() => ({
+  key: USERS_KEYS.list('paginated', controls.cacheKeyPart.value, controls.currentPage.value),
+  initialPageParam: controls.currentPage.value,
+  query: ({ pageParam }) => dataStore.getPaginatedUsers({
+    ...controls.requestParams.value,
+    page: pageParam,
+  }),
+  getNextPageParam: () => null,
+  enabled: () => !controls.isInfiniteMode.value,
+}))
+
+const items = computed<User[]>(() => {
+  const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
+  return source.data.value?.pages.flatMap(p => p.data) ?? []
+})
+
+const totalItems = computed(() => {
+  const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
+  return source.data.value?.pages[0]?.total ?? 0
+})
+
+const totalPages = computed(() => {
+  const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
+  return source.data.value?.pages[0]?.totalPages ?? 1
+})
+
+const hasMore = computed(() =>
+  controls.isInfiniteMode.value ? infiniteList.hasNextPage.value : false,
+)
+
+const activeAsyncStatus = computed(() =>
+  controls.isInfiniteMode.value
+    ? infiniteList.asyncStatus.value
+    : paginatedList.asyncStatus.value,
+)
+
+const activeError = computed(() =>
+  controls.isInfiniteMode.value ? infiniteList.error.value : paginatedList.error.value,
+)
+
+const isFetching = computed(() => activeAsyncStatus.value === 'loading')
+const isFirstLoad = computed(() => isFetching.value && items.value.length === 0)
+const isLoadingMore = computed(() => isFetching.value && items.value.length > 0)
+const isBackgroundRefresh = computed(() => isFetching.value && items.value.length > 0)
+
+// SSE-driven cache invalidation. Same dumb-and-correct pattern
+// as the tickets view: any user updated/created/deleted
+// invalidates the users root key, Pinia Colada refetches just
+// the active query.
+const sse = useSSE()
+function invalidateUsersList() {
+  queryCache.invalidateQueries({ key: USERS_KEYS.root })
+}
+
+const sseHandlers: Array<{ type: string; handler: (data: unknown) => void }> = [
+  { type: 'user-updated', handler: invalidateUsersList },
+  { type: 'user-created', handler: invalidateUsersList },
+  { type: 'user-deleted', handler: invalidateUsersList },
+]
+
+onMounted(() => {
+  if (!sse.isConnected.value) sse.connect()
+  for (const { type, handler } of sseHandlers) {
+    sse.addEventListener(type as never, handler)
+  }
+})
+onUnmounted(() => {
+  for (const { type, handler } of sseHandlers) {
+    sse.removeEventListener(type as never, handler)
+  }
+})
+
+// Mobile search bar wiring (was inlined in useListManagement).
+const mobileSearch = useMobileSearch()
+function setupMobileSearch() {
+  mobileSearch.registerMobileSearch({
+    searchQuery: controls.searchQuery.value,
+    placeholder: 'Search users...',
+    showCreateButton: true,
+    createIcon: 'user',
+    onSearchUpdate: controls.handleSearchUpdate,
+    onCreate: navigateToCreateUser,
+  })
+}
+onMounted(setupMobileSearch)
+onUnmounted(mobileSearch.deregisterMobileSearch)
+watch(controls.searchQuery, mobileSearch.updateSearchQuery)
+
+// Infinite scroll uses PageScroll's single scroll container.
+useInfiniteScroll({
+  containerRef: scrollContainerRef,
+  enabled: controls.isInfiniteMode,
+  hasMore,
+  isLoading: computed(() => isLoadingMore.value),
+  onLoadMore: () => infiniteList.loadNextPage(),
+})
 
 // Define table columns with responsive behavior
-// Backend sortable fields: name, role (created_at not supported)
 const columns = [
   { field: 'user', label: 'User', width: '1fr', sortable: true, sortKey: 'name', responsive: 'always' as const },
   { field: 'role', label: 'Role', width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
@@ -83,7 +182,7 @@ const columns = [
 ];
 
 // Build filter options - role is the only available filter from the API
-const filterOptions = listManager.buildFilterOptions({
+const filterOptions = computed(() => controls.buildFilterOptions({
   role: {
     options: [
       { value: 'admin', label: 'Admin' },
@@ -93,7 +192,7 @@ const filterOptions = listManager.buildFilterOptions({
     width: 'w-[140px]',
     allLabel: 'All Roles'
   }
-});
+}));
 
 // Custom grid template for responsive layout (includes checkbox column with auto width)
 const gridClass = "grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(100px,auto)_minmax(80px,auto)_minmax(80px,auto)] lg:grid-cols-[auto_1fr_minmax(100px,auto)_minmax(80px,auto)_minmax(80px,auto)_minmax(140px,auto)]";
@@ -114,11 +213,21 @@ const bulkActions: BulkAction[] = [
   { id: 'delete', label: 'Delete', icon: 'delete', variant: 'danger', confirm: true }
 ];
 
-// Bulk action modal states
 const showRoleModal = ref(false);
-const bulkActionLoading = ref(false);
 
-// Handle bulk action selection
+const bulkActionMutation = useMutation({
+  mutation: (vars: { action: 'delete' | 'set-role'; ids: string[]; value?: string }) =>
+    userService.bulkAction(vars),
+  onSettled: () => {
+    queryCache.invalidateQueries({ key: USERS_KEYS.root })
+  },
+  onError: (err) => {
+    console.error('Bulk action failed:', err)
+    alert('Failed to perform bulk action. Please try again.')
+  },
+})
+const bulkActionLoading = computed(() => bulkActionMutation.asyncStatus.value === 'loading')
+
 const handleBulkAction = async (actionId: string) => {
   if (actionId === 'set-role') {
     showRoleModal.value = true;
@@ -127,42 +236,35 @@ const handleBulkAction = async (actionId: string) => {
   }
 };
 
-// Execute bulk action
 const executeBulkAction = async (action: 'delete' | 'set-role', value?: string) => {
-  const ids = listManager.selectedItems.value;
+  const ids = controls.selectedItems.value;
   if (ids.length === 0) return;
-
-  bulkActionLoading.value = true;
-  try {
-    await userService.bulkAction({ action, ids, value });
-    await listManager.refresh();
-    listManager.clearSelection();
-    showRoleModal.value = false;
-  } catch (error) {
-    console.error('Bulk action failed:', error);
-    alert('Failed to perform bulk action. Please try again.');
-  } finally {
-    bulkActionLoading.value = false;
-  }
+  await bulkActionMutation.mutateAsync({ action, ids, value })
+  controls.clearSelection();
+  showRoleModal.value = false;
 };
 
-// Handle bulk role change
 const handleBulkRoleChange = (role: string) => {
   executeBulkAction('set-role', role);
 };
 
-// Track if currently loading more (to prevent duplicate requests)
-const isLoadingMore = ref(false);
-
-const handleLoadMore = async () => {
-  if (isLoadingMore.value) return;
-  isLoadingMore.value = true;
-  try {
-    await listManager.loadMore();
-  } finally {
-    isLoadingMore.value = false;
-  }
-};
+// Handlers that need access to `items` (selection helpers
+// stay data-agnostic in the composable).
+const handleToggleSelection = (event: Event, itemId: string) =>
+  controls.toggleSelection(event, itemId, items.value)
+const handleToggleAll = (event: Event) =>
+  controls.toggleAllItems(event, items.value)
+const handleSelectAll = () => controls.selectAll(items.value)
+const handleRetry = () => {
+  if (controls.isInfiniteMode.value) infiniteList.refetch()
+  else paginatedList.refetch()
+}
+const errorMessage = computed(() => {
+  if (!activeError.value) return null
+  return activeError.value instanceof Error
+    ? activeError.value.message
+    : 'Failed to load users. Please try again.'
+})
 
 // Expose method for parent (App.vue) to call from header button
 defineExpose({
@@ -172,16 +274,17 @@ defineExpose({
 
 <template>
   <PageScroll
-    content-class=""
-    :is-empty="!!listManager.error.value || (listManager.items.value.length === 0 && !listManager.loading.value)"
+    ref="pageScrollRef"
+    content-class="flex h-full flex-col"
+    :is-empty="!!errorMessage || (items.length === 0 && !isFirstLoad)"
   >
     <template #chrome>
       <!-- Search and filter bar -->
       <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
         <div class="p-2 flex items-center gap-2 flex-wrap">
           <DebouncedSearchInput
-            :model-value="listManager.searchQuery.value"
-            @update:model-value="listManager.handleSearchUpdate"
+            :model-value="controls.searchQuery.value"
+            @update:model-value="controls.handleSearchUpdate"
             placeholder="Search users..."
             class="hidden sm:block"
           />
@@ -198,12 +301,12 @@ defineExpose({
                 :multiple="filter.multiple"
                 :placeholder="filter.placeholder"
                 size="sm"
-                @update:model-value="value => listManager.handleFilterUpdate(filter.name, value)"
+                @update:model-value="value => controls.handleFilterUpdate(filter.name, value)"
               />
             </div>
 
             <button
-              @click="listManager.resetFilters"
+              @click="controls.resetFilters"
               class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
             >
               Reset
@@ -211,52 +314,52 @@ defineExpose({
           </template>
 
           <div class="text-xs text-secondary flex items-center gap-4 ml-auto">
-            <span>{{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}</span>
+            <span>{{ totalItems }} result{{ totalItems !== 1 ? "s" : "" }}</span>
           </div>
         </div>
       </div>
 
       <BulkActionsBar
-        :selected-count="listManager.selectedItems.value.length"
-        :total-count="listManager.totalItems.value"
+        :selected-count="controls.selectedItems.value.length"
+        :total-count="totalItems"
         :actions="bulkActions"
         item-label="user"
         @action="handleBulkAction"
-        @clear-selection="listManager.clearSelection"
-        @select-all="listManager.selectAll"
+        @clear-selection="controls.clearSelection"
+        @select-all="handleSelectAll"
       />
     </template>
 
     <template #empty>
       <ErrorBanner
-        v-if="listManager.error.value"
-        :message="listManager.error.value"
+        v-if="errorMessage"
+        :message="errorMessage"
         :show-retry="true"
-        @retry="listManager.fetchItems"
+        @retry="handleRetry"
       />
       <EmptyState
         v-else
         icon="users"
-        :title="listManager.searchQuery.value ? 'No users match your search' : 'No users found'"
-        :description="listManager.searchQuery.value ? 'Try adjusting your search criteria' : 'Invite users to get started'"
-        :action-label="!listManager.searchQuery.value ? 'Invite User' : undefined"
+        :title="controls.searchQuery.value ? 'No users match your search' : 'No users found'"
+        :description="controls.searchQuery.value ? 'Try adjusting your search criteria' : 'Invite users to get started'"
+        :action-label="!controls.searchQuery.value ? 'Invite User' : undefined"
         @action="navigateToCreateUser"
       />
     </template>
 
-    <div v-show="!isMobile">
+    <div v-show="!isMobile" class="flex h-full flex-col">
       <DataTable
               :columns="columns"
-              :data="listManager.items.value"
-              :selected-items="listManager.selectedItems.value"
+              :data="items"
+              :selected-items="controls.selectedItems.value"
               :item-id-field="'uuid'"
-              :sort-field="listManager.sortField.value"
-              :sort-direction="listManager.sortDirection.value"
+              :sort-field="controls.sortField.value"
+              :sort-direction="controls.sortDirection.value"
               :grid-class="gridClass"
-              @update:sort="listManager.handleSortUpdate"
-              @toggle-selection="listManager.toggleSelection"
-              @toggle-all="listManager.toggleAllItems"
-              @row-click="listManager.navigateToItem"
+              @update:sort="controls.handleSortUpdate"
+              @toggle-selection="handleToggleSelection"
+              @toggle-all="handleToggleAll"
+              @row-click="navigateToUser"
             >
             <!-- Custom cell templates -->
             <template #cell-user="{ item }">
@@ -287,17 +390,17 @@ defineExpose({
       </DataTable>
     </div>
 
-    <div v-show="isMobile">
+    <div v-show="isMobile" class="flex h-full flex-col">
       <TransitionGroup
         name="list-stagger"
         tag="div"
         class="flex flex-col"
       >
             <div
-              v-for="(user, index) in listManager.items.value"
+              v-for="(user, index) in items"
               :key="user.uuid"
               :style="getStyle(index)"
-              @click="listManager.navigateToItem(user)"
+              @click="navigateToUser(user)"
               :class="[
                 'flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer',
                 index > 0 ? 'border-t border-default' : ''
@@ -348,13 +451,13 @@ defineExpose({
     <template #footer>
       <PaginationControls
         v-if="!isMobile"
-        :current-page="listManager.currentPage.value"
-        :total-pages="listManager.totalPages.value"
-        :page-size="listManager.pageSize.value"
-        :page-size-options="listManager.pageSizeOptions"
+        :current-page="controls.currentPage.value"
+        :total-pages="totalPages"
+        :page-size="controls.pageSize.value"
+        :page-size-options="controls.pageSizeOptions"
         :show-import="true"
-        @update:current-page="listManager.handlePageChange"
-        @update:page-size="listManager.handlePageSizeChange"
+        @update:current-page="controls.handlePageChange"
+        @update:page-size="controls.handlePageSizeChange"
         @import="() => {}"
       />
 
@@ -366,7 +469,7 @@ defineExpose({
       >
         <div class="flex flex-col gap-2 p-4">
           <p class="text-sm text-secondary mb-2">
-            Update role for {{ listManager.selectedItems.value.length }} user{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
+            Update role for {{ controls.selectedItems.value.length }} user{{ controls.selectedItems.value.length !== 1 ? 's' : '' }}
           </p>
           <button
             v-for="role in ROLE_OPTIONS"

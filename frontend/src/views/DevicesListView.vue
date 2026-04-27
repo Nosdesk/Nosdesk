@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useInfiniteQuery, useMutation, useQueryCache } from '@pinia/colada'
+import { useSSE } from '@/services/sseService'
 import PageScroll from '@/components/common/PageScroll.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
@@ -12,113 +14,185 @@ import type { BulkAction } from '@/components/common/BulkActionsBar.vue'
 
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
-import { useListManagement } from '@/composables/useListManagement'
-import { useListSSE } from '@/composables/useListSSE'
+import { useListControls } from '@/composables/useListControls'
+import { useMobileSearch } from '@/composables/useMobileSearch'
 import { useStaggeredList } from '@/composables/useStaggeredList'
 import { useMobileDetection } from '@/composables/useMobileDetection'
+import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useDataStore } from '@/stores/dataStore'
 import { getPaginatedDevices, bulkAction } from '@/services/deviceService'
 import type { Device } from '@/types/device'
+
+const DEVICES_KEYS = {
+  root: ['devices'] as const,
+  list: (variant: 'infinite' | 'paginated', cacheKey: string, page?: number) =>
+    page === undefined
+      ? ([...DEVICES_KEYS.root, 'list', variant, cacheKey] as const)
+      : ([...DEVICES_KEYS.root, 'list', variant, cacheKey, page] as const),
+}
 
 defineOptions({ name: 'DevicesListView' })
 
 const router = useRouter()
 const dataStore = useDataStore()
+const queryCache = useQueryCache()
 
-// Mobile detection
 const { isMobile } = useMobileDetection()
 
-// Default page size: 0 (infinite scroll / view all)
-const defaultPageSize = 0
+const pageScrollRef = ref<InstanceType<typeof PageScroll> | null>(null)
+const scrollContainerRef = computed<HTMLElement | null>(
+  () => pageScrollRef.value?.scrollContainerRef ?? null,
+)
 
-// Navigate to create device (used by both header button and mobile search bar)
 const navigateToCreateDevice = () => {
-  router.push('/devices/new');
-};
+  router.push('/devices/new')
+}
 
-// Use the composable for all common functionality
-const listManager = useListManagement<Device>({
-  defaultPageSize,
-  itemIdField: 'id',
-  defaultSortField: 'name',
-  defaultSortDirection: 'asc',
-  fetchFunction: async (params) => {
-    // Use unique request key per page to prevent cancellation during infinite scroll
-    const requestKey = `paginated-devices-page-${params.page}`;
-    const response = await getPaginatedDevices({
-      page: params.page,
-      pageSize: params.pageSize,
-      sortField: params.sortField,
-      sortDirection: params.sortDirection,
-      search: params.search,
-      type: params.type,
-      warranty: params.warranty
-    }, requestKey);
+const navigateToDevice = (device: Device) => {
+  router.push(`/devices/${device.id}`)
+}
 
-    // Pre-warm user cache for efficient avatar loading
-    preWarmUserCache(response.data);
-
-    return response;
-  },
-  routeBuilder: (device) => `/devices/${device.id}`,
-  mobileSearch: {
-    placeholder: 'Search devices...',
-    createIcon: 'device',
-    onCreate: navigateToCreateDevice
-  }
-});
-
-// SSE integration for real-time updates
-useListSSE<Device>({
-  hasItem: listManager.hasItem,
-  updateItemField: listManager.updateItemField,
-  removeItem: listManager.removeItem,
-  prependItem: listManager.prependItem,
-  eventTypes: { updated: 'device-updated', created: 'device-created', deleted: 'device-deleted' },
-  getEventItemId: (data) => {
-    const d = (data as Record<string, unknown>).data || data;
-    return (d as Record<string, unknown>).device_id as number | undefined
-      ?? ((d as Record<string, unknown>).device as Record<string, unknown> | undefined)?.id as number | undefined;
-  },
-  itemKey: 'device',
-});
-
-// Pre-warm user cache with all primary users from devices
+// Pre-warm user cache with all primary users from devices.
+// Side effect of fetching device pages: needed for avatar
+// rendering without N requests per device row.
 const preWarmUserCache = async (devices: Device[]) => {
   try {
-    // Extract unique user UUIDs from devices
     const userUuids = [...new Set(
       devices
         .map(device => device.primary_user?.uuid)
-        .filter((uuid): uuid is string => uuid !== undefined && uuid.length === 36) // Valid UUIDs only
-    )];
-    
-    if (userUuids.length === 0) return;
-    
-    console.log(`🚀 Pre-warming user cache for ${userUuids.length} device users`);
-    
-    // Check which users are already cached to avoid unnecessary requests
-    const uncachedUuids = userUuids.filter(uuid => {
-      const cachedName = dataStore.getUserName(uuid);
-      return !cachedName; // If no cached name, user is not cached
-    });
-    
-    if (uncachedUuids.length === 0) {
-      console.log('✅ All device users already cached, skipping pre-warm');
-      return;
-    }
-    
-    console.log(`📡 Loading ${uncachedUuids.length} uncached users (${userUuids.length - uncachedUuids.length} already cached)`);
-    
-    // Use our batching system to efficiently load only uncached users
-    await dataStore.getUsersByUuids(uncachedUuids);
-    
-    console.log('✅ Device user cache pre-warming completed');
+        .filter((uuid): uuid is string => uuid !== undefined && uuid.length === 36)
+    )]
+    if (userUuids.length === 0) return
+    const uncachedUuids = userUuids.filter(uuid => !dataStore.getUserName(uuid))
+    if (uncachedUuids.length === 0) return
+    await dataStore.getUsersByUuids(uncachedUuids)
   } catch (error) {
-    console.warn('Failed to pre-warm user cache:', error);
-    // Don't throw - this is an optimization, not critical
+    console.warn('Failed to pre-warm user cache:', error)
   }
-};
+}
+
+// UI-state composable.
+const controls = useListControls<Device>({
+  itemIdField: 'id',
+  defaultSortField: 'name',
+  defaultSortDirection: 'asc',
+  defaultPageSize: 0,
+})
+
+// Pinia Colada query layer (dual-mode infinite + paged).
+const infiniteList = useInfiniteQuery(() => ({
+  key: DEVICES_KEYS.list('infinite', controls.cacheKeyPart.value),
+  initialPageParam: 1,
+  query: async ({ pageParam }) => {
+    const response = await getPaginatedDevices(
+      { ...controls.requestParams.value, page: pageParam },
+      `devices-infinite-page-${pageParam}`,
+    )
+    preWarmUserCache(response.data)
+    return response
+  },
+  getNextPageParam: (lastPage, allPages) =>
+    allPages.length < lastPage.totalPages ? allPages.length + 1 : null,
+  enabled: () => controls.isInfiniteMode.value,
+}))
+
+const paginatedList = useInfiniteQuery(() => ({
+  key: DEVICES_KEYS.list('paginated', controls.cacheKeyPart.value, controls.currentPage.value),
+  initialPageParam: controls.currentPage.value,
+  query: async ({ pageParam }) => {
+    const response = await getPaginatedDevices(
+      { ...controls.requestParams.value, page: pageParam },
+      `devices-paginated-page-${pageParam}`,
+    )
+    preWarmUserCache(response.data)
+    return response
+  },
+  getNextPageParam: () => null,
+  enabled: () => !controls.isInfiniteMode.value,
+}))
+
+const items = computed<Device[]>(() => {
+  const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
+  return source.data.value?.pages.flatMap(p => p.data) ?? []
+})
+
+const totalItems = computed(() => {
+  const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
+  return source.data.value?.pages[0]?.total ?? 0
+})
+
+const totalPages = computed(() => {
+  const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
+  return source.data.value?.pages[0]?.totalPages ?? 1
+})
+
+const hasMore = computed(() =>
+  controls.isInfiniteMode.value ? infiniteList.hasNextPage.value : false,
+)
+
+const activeAsyncStatus = computed(() =>
+  controls.isInfiniteMode.value
+    ? infiniteList.asyncStatus.value
+    : paginatedList.asyncStatus.value,
+)
+
+const activeError = computed(() =>
+  controls.isInfiniteMode.value ? infiniteList.error.value : paginatedList.error.value,
+)
+
+const isFetching = computed(() => activeAsyncStatus.value === 'loading')
+const isFirstLoad = computed(() => isFetching.value && items.value.length === 0)
+const isLoadingMore = computed(() => isFetching.value && items.value.length > 0)
+const isBackgroundRefresh = computed(() => isFetching.value && items.value.length > 0)
+
+// SSE-driven cache invalidation.
+const sse = useSSE()
+function invalidateDevicesList() {
+  queryCache.invalidateQueries({ key: DEVICES_KEYS.root })
+}
+
+const sseHandlers: Array<{ type: string; handler: (data: unknown) => void }> = [
+  { type: 'device-updated', handler: invalidateDevicesList },
+  { type: 'device-created', handler: invalidateDevicesList },
+  { type: 'device-deleted', handler: invalidateDevicesList },
+]
+
+onMounted(() => {
+  if (!sse.isConnected.value) sse.connect()
+  for (const { type, handler } of sseHandlers) {
+    sse.addEventListener(type as never, handler)
+  }
+})
+onUnmounted(() => {
+  for (const { type, handler } of sseHandlers) {
+    sse.removeEventListener(type as never, handler)
+  }
+})
+
+// Mobile search bar wiring.
+const mobileSearch = useMobileSearch()
+function setupMobileSearch() {
+  mobileSearch.registerMobileSearch({
+    searchQuery: controls.searchQuery.value,
+    placeholder: 'Search devices...',
+    showCreateButton: true,
+    createIcon: 'device',
+    onSearchUpdate: controls.handleSearchUpdate,
+    onCreate: navigateToCreateDevice,
+  })
+}
+onMounted(setupMobileSearch)
+onUnmounted(mobileSearch.deregisterMobileSearch)
+watch(controls.searchQuery, mobileSearch.updateSearchQuery)
+
+// Infinite scroll uses PageScroll's single scroll container.
+useInfiniteScroll({
+  containerRef: scrollContainerRef,
+  enabled: controls.isInfiniteMode,
+  hasMore,
+  isLoading: computed(() => isLoadingMore.value),
+  onLoadMore: () => infiniteList.loadNextPage(),
+})
 
 // Define table columns with responsive behavior
 // Available sortable fields: id, name, hostname, serial_number, model, warranty_status, manufacturer, created_at, updated_at, last_sync_time
@@ -132,7 +206,7 @@ const columns = [
 ];
 
 // Build filter options - warranty is the reliable filter from the API
-const filterOptions = listManager.buildFilterOptions({
+const filterOptions = computed(() => controls.buildFilterOptions({
   warranty: {
     options: [
       { value: 'active', label: 'Active' },
@@ -143,7 +217,7 @@ const filterOptions = listManager.buildFilterOptions({
     width: 'w-[140px]',
     allLabel: 'All Warranties'
   }
-});
+}));
 
 // Custom grid template for responsive layout (includes checkbox column with auto width)
 const gridClass = "grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(140px,auto)_minmax(100px,auto)] lg:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(120px,auto)_minmax(120px,auto)_minmax(140px,auto)_minmax(100px,auto)]";
@@ -156,46 +230,47 @@ const bulkActions: BulkAction[] = [
   { id: 'delete', label: 'Delete', icon: 'delete', variant: 'danger', confirm: true }
 ];
 
-// Bulk action loading state
-const bulkActionLoading = ref(false);
+const bulkActionMutation = useMutation({
+  mutation: (vars: { action: 'delete'; ids: number[] }) => bulkAction(vars),
+  onSettled: () => {
+    queryCache.invalidateQueries({ key: DEVICES_KEYS.root })
+  },
+  onError: (err) => {
+    console.error('Bulk action failed:', err)
+    alert('Failed to perform bulk action. Please try again.')
+  },
+})
+const bulkActionLoading = computed(() => bulkActionMutation.asyncStatus.value === 'loading')
 
-// Handle bulk action selection
 const handleBulkAction = async (actionId: string) => {
   if (actionId === 'delete') {
-    await executeBulkAction('delete');
+    await executeBulkAction('delete')
   }
-};
+}
 
-// Execute bulk action
 const executeBulkAction = async (action: 'delete') => {
-  const ids = listManager.selectedItems.value.map(id => parseInt(id));
-  if (ids.length === 0) return;
+  const ids = controls.selectedItems.value.map(id => parseInt(id))
+  if (ids.length === 0) return
+  await bulkActionMutation.mutateAsync({ action, ids })
+  controls.clearSelection()
+}
 
-  bulkActionLoading.value = true;
-  try {
-    await bulkAction({ action, ids });
-    await listManager.refresh();
-    listManager.clearSelection();
-  } catch (error) {
-    console.error('Bulk action failed:', error);
-    alert('Failed to perform bulk action. Please try again.');
-  } finally {
-    bulkActionLoading.value = false;
-  }
-};
-
-// Track if currently loading more (to prevent duplicate requests)
-const isLoadingMore = ref(false);
-
-const handleLoadMore = async () => {
-  if (isLoadingMore.value) return;
-  isLoadingMore.value = true;
-  try {
-    await listManager.loadMore();
-  } finally {
-    isLoadingMore.value = false;
-  }
-};
+// Selection / retry handlers that need access to `items`.
+const handleToggleSelection = (event: Event, itemId: string) =>
+  controls.toggleSelection(event, itemId, items.value)
+const handleToggleAll = (event: Event) =>
+  controls.toggleAllItems(event, items.value)
+const handleSelectAll = () => controls.selectAll(items.value)
+const handleRetry = () => {
+  if (controls.isInfiniteMode.value) infiniteList.refetch()
+  else paginatedList.refetch()
+}
+const errorMessage = computed(() => {
+  if (!activeError.value) return null
+  return activeError.value instanceof Error
+    ? activeError.value.message
+    : 'Failed to load devices. Please try again.'
+})
 
 // Expose method for parent (App.vue) to call from header button
 defineExpose({
@@ -205,16 +280,17 @@ defineExpose({
 
 <template>
   <PageScroll
-    content-class=""
-    :is-empty="!!listManager.error.value || (listManager.items.value.length === 0 && !listManager.loading.value)"
+    ref="pageScrollRef"
+    content-class="flex h-full flex-col"
+    :is-empty="!!errorMessage || (items.length === 0 && !isFirstLoad)"
   >
     <template #chrome>
       <!-- Search and filter bar -->
       <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
         <div class="p-2 flex items-center gap-2 flex-wrap">
           <DebouncedSearchInput
-            :model-value="listManager.searchQuery.value"
-            @update:model-value="listManager.handleSearchUpdate"
+            :model-value="controls.searchQuery.value"
+            @update:model-value="controls.handleSearchUpdate"
             placeholder="Search devices..."
             class="hidden sm:block"
           />
@@ -231,12 +307,12 @@ defineExpose({
                 :multiple="filter.multiple"
                 :placeholder="filter.placeholder"
                 size="sm"
-                @update:model-value="value => listManager.handleFilterUpdate(filter.name, value)"
+                @update:model-value="value => controls.handleFilterUpdate(filter.name, value)"
               />
             </div>
 
             <button
-              @click="listManager.resetFilters"
+              @click="controls.resetFilters"
               class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
             >
               Reset
@@ -244,51 +320,51 @@ defineExpose({
           </template>
 
           <div class="text-xs text-secondary ml-auto">
-            {{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}
+            {{ totalItems }} result{{ totalItems !== 1 ? "s" : "" }}
           </div>
         </div>
       </div>
 
       <BulkActionsBar
-        :selected-count="listManager.selectedItems.value.length"
-        :total-count="listManager.totalItems.value"
+        :selected-count="controls.selectedItems.value.length"
+        :total-count="totalItems"
         :actions="bulkActions"
         item-label="device"
         @action="handleBulkAction"
-        @clear-selection="listManager.clearSelection"
-        @select-all="listManager.selectAll"
+        @clear-selection="controls.clearSelection"
+        @select-all="handleSelectAll"
       />
     </template>
 
     <template #empty>
       <ErrorBanner
-        v-if="listManager.error.value"
-        :message="listManager.error.value"
+        v-if="errorMessage"
+        :message="errorMessage"
         :show-retry="true"
-        @retry="listManager.fetchItems"
+        @retry="handleRetry"
       />
       <EmptyState
         v-else
         icon="device"
-        :title="listManager.searchQuery.value ? 'No devices match your search' : 'No devices found'"
-        :description="listManager.searchQuery.value ? 'Try adjusting your search or filters' : 'Add your first device to get started'"
-        :action-label="!listManager.searchQuery.value ? 'Add Device' : undefined"
+        :title="controls.searchQuery.value ? 'No devices match your search' : 'No devices found'"
+        :description="controls.searchQuery.value ? 'Try adjusting your search or filters' : 'Add your first device to get started'"
+        :action-label="!controls.searchQuery.value ? 'Add Device' : undefined"
         @action="navigateToCreateDevice"
       />
     </template>
 
-    <div v-show="!isMobile">
+    <div v-show="!isMobile" class="flex h-full flex-col">
       <DataTable
               :columns="columns"
-              :data="listManager.items.value"
-              :selected-items="listManager.selectedItems.value"
-              :sort-field="listManager.sortField.value"
-              :sort-direction="listManager.sortDirection.value"
+              :data="items"
+              :selected-items="controls.selectedItems.value"
+              :sort-field="controls.sortField.value"
+              :sort-direction="controls.sortDirection.value"
               :grid-class="gridClass"
-              @update:sort="listManager.handleSortUpdate"
-              @toggle-selection="listManager.toggleSelection"
-              @toggle-all="listManager.toggleAllItems"
-              @row-click="listManager.navigateToItem"
+              @update:sort="controls.handleSortUpdate"
+              @toggle-selection="handleToggleSelection"
+              @toggle-all="handleToggleAll"
+              @row-click="navigateToDevice"
             >
             <!-- Custom cell templates -->
             <template #cell-name="{ item }">
@@ -339,17 +415,17 @@ defineExpose({
       </DataTable>
     </div>
 
-    <div v-show="isMobile">
+    <div v-show="isMobile" class="flex h-full flex-col">
       <TransitionGroup
         name="list-stagger"
         tag="div"
         class="flex flex-col"
       >
             <div
-              v-for="(device, index) in listManager.items.value"
+              v-for="(device, index) in items"
               :key="device.id"
               :style="getStyle(index)"
-              @click="listManager.navigateToItem(device)"
+              @click="navigateToDevice(device)"
               :class="[
                 'flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer',
                 index > 0 ? 'border-t border-default' : ''
@@ -416,13 +492,13 @@ defineExpose({
     <template #footer>
       <PaginationControls
         v-if="!isMobile"
-        :current-page="listManager.currentPage.value"
-        :total-pages="listManager.totalPages.value"
-        :page-size="listManager.pageSize.value"
-        :page-size-options="listManager.pageSizeOptions"
+        :current-page="controls.currentPage.value"
+        :total-pages="totalPages"
+        :page-size="controls.pageSize.value"
+        :page-size-options="controls.pageSizeOptions"
         :show-import="true"
-        @update:current-page="listManager.handlePageChange"
-        @update:page-size="listManager.handlePageSizeChange"
+        @update:current-page="controls.handlePageChange"
+        @update:page-size="controls.handlePageSizeChange"
         @import="() => {}"
       />
     </template>
