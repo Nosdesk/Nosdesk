@@ -1,350 +1,442 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
-import { useRouter } from 'vue-router';
-import { useSSE } from '@/services/sseService';
-import { useAuthStore } from '@/stores/auth';
-import {
-  getNotifications,
-  getUnreadCount,
-  markNotificationsRead,
-  markAllNotificationsRead,
-  deleteNotifications,
-  type Notification,
-} from '@/services/notificationService';
-import type { NotificationReceivedEventData } from '@/types/sse';
-import { unwrapEventData } from '@/types/sse';
-import UserAvatar from './UserAvatar.vue';
+/**
+ * Header notification preview. Renders the bell trigger + badge
+ * and a `<ResponsiveMenu>` panel underneath (popover at md+,
+ * bottom sheet on touch). The full feed lives at `/inbox`; this
+ * surface is the at-a-glance preview.
+ *
+ *   1. Filter tabs — All / Unread / Mentions. Pure derived state
+ *      over the loaded page; switching tabs is instant. Matches
+ *      Linear / Notion / GitHub conventions.
+ *   2. Date grouping — Today / Yesterday / Earlier. Lossless
+ *      time orientation without timestamping every row.
+ *   3. Per-item actions — mark-as-read (unread only) + dismiss.
+ *      Visible at low opacity on touch (no hover state) and
+ *      brighten on hover at desktop sizes.
+ *
+ * Data comes from `useNotificationsStore` so the inbox view and
+ * this preview always agree on what's read, what's unread, and
+ * the badge count. SSE is wired up by the store via
+ * `ensureSubscribed`; multiple consumers can call it safely.
+ */
+import { computed, onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useRouter } from 'vue-router'
+import type { Notification } from '@/services/notificationService'
+import { useNotificationsStore } from '@/stores/notifications'
+import { formatInboxTime, parseDate } from '@/utils/dateUtils'
+import ResponsiveMenu from './common/ResponsiveMenu.vue'
+import Icon from './common/Icon.vue'
+import type { IconName } from './common/icons'
+import type { PopoverAnchor } from '@/composables/usePopover'
 
-const router = useRouter();
-const authStore = useAuthStore();
-const { addEventListener, removeEventListener, connect, isConnected } = useSSE();
+type Filter = 'all' | 'unread' | 'mentions'
 
-// State
-const isOpen = ref(false);
-const notifications = ref<Notification[]>([]);
-const unreadCount = ref(0);
-const isLoading = ref(false);
-const dropdownRef = ref<HTMLElement | null>(null);
-const buttonRef = ref<HTMLElement | null>(null);
+const router = useRouter()
+const store = useNotificationsStore()
+const {
+  items,
+  unreadCount,
+  isFirstLoad,
+  hasMore,
+  isLoadingMore,
+  lastAnnouncement,
+} = storeToRefs(store)
 
-// Format relative time
-const formatRelativeTime = (dateString: string): string => {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
+const buttonRef = ref<HTMLButtonElement | null>(null)
+const isOpen = ref(false)
+const filter = ref<Filter>('all')
 
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
-};
+const anchor = computed<PopoverAnchor>(() => ({
+  type: 'element',
+  element: () => buttonRef.value,
+}))
 
-// Fetch notifications
-const fetchNotifications = async () => {
-  try {
-    isLoading.value = true;
-    const [notifs, count] = await Promise.all([
-      getNotifications({ limit: 10 }),
-      getUnreadCount(),
-    ]);
-    notifications.value = notifs;
-    unreadCount.value = count;
-  } catch (error) {
-    console.error('Failed to fetch notifications:', error);
-  } finally {
-    isLoading.value = false;
+const hasUnread = computed(() => unreadCount.value > 0)
+const displayCount = computed(() => (unreadCount.value > 99 ? '99+' : String(unreadCount.value)))
+
+const TABS: ReadonlyArray<{ value: Filter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'unread', label: 'Unread' },
+  { value: 'mentions', label: 'Mentions' },
+]
+
+const TYPE_ICON: Record<string, IconName> = {
+  ticket_assigned: 'userPlus',
+  ticket_status_changed: 'refresh',
+  ticket_created_requester: 'add',
+  comment_added: 'comment',
+  mentioned: 'at',
+  doc_page_updated: 'documentEdit',
+}
+const iconForType = (type: string): IconName => TYPE_ICON[type] ?? 'bell'
+
+const filteredNotifications = computed(() => {
+  switch (filter.value) {
+    case 'unread':
+      return items.value.filter((n) => !n.is_read)
+    case 'mentions':
+      return items.value.filter((n) => n.notification_type === 'mentioned')
+    default:
+      return items.value
   }
-};
+})
 
-// Handle new notification from SSE
-const handleNewNotification = (rawData: unknown) => {
-  try {
-    const data = unwrapEventData(rawData as NotificationReceivedEventData);
+interface NotificationGroup {
+  label: string
+  items: Notification[]
+}
 
-    // Only handle notifications for current user
-    if (!authStore.user?.uuid || authStore.user.uuid !== data.recipient_uuid) {
-      return;
-    }
-
-    // Increment unread count
-    unreadCount.value++;
-
-    // If dropdown is open, refresh the list
-    if (isOpen.value) {
-      fetchNotifications();
-    }
-  } catch (error) {
-    console.error('Error handling notification event:', error);
+const groupedNotifications = computed<NotificationGroup[]>(() => {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startOfYesterday = startOfToday - 86_400_000
+  const today: Notification[] = []
+  const yesterday: Notification[] = []
+  const earlier: Notification[] = []
+  for (const n of filteredNotifications.value) {
+    // parseDate handles backend NaiveDateTime correctly (UTC).
+    const t = parseDate(n.created_at)?.getTime() ?? 0
+    if (t >= startOfToday) today.push(n)
+    else if (t >= startOfYesterday) yesterday.push(n)
+    else earlier.push(n)
   }
-};
+  return [
+    { label: 'Today', items: today },
+    { label: 'Yesterday', items: yesterday },
+    { label: 'Earlier', items: earlier },
+  ].filter((g) => g.items.length > 0)
+})
 
-// Toggle dropdown
-const toggleDropdown = () => {
-  isOpen.value = !isOpen.value;
+// Empty-state copy mirrors the inbox view so the surfaces feel
+// like one product. Compact wording — the popover is narrow and
+// readers shouldn't have to scan past two lines.
+const emptyContent = computed(() => {
+  switch (filter.value) {
+    case 'unread':
+      return {
+        title: "You're all caught up",
+        subtitle: 'New notifications will appear here.',
+      }
+    case 'mentions':
+      return {
+        title: 'No mentions yet',
+        subtitle: "@mentions in comments will show up here.",
+      }
+    case 'all':
+    default:
+      return {
+        title: 'No notifications yet',
+        subtitle: 'Updates from your tickets, mentions, and docs will land here.',
+      }
+  }
+})
+
+function toggleOpen() {
   if (isOpen.value) {
-    fetchNotifications();
+    isOpen.value = false
+    return
   }
-};
+  isOpen.value = true
+  store.fetchPage(true)
+}
 
-// Close dropdown
-const closeDropdown = () => {
-  isOpen.value = false;
-};
+function close() {
+  isOpen.value = false
+}
 
-// Handle click outside
-const handleClickOutside = (event: MouseEvent) => {
-  if (
-    dropdownRef.value &&
-    buttonRef.value &&
-    !dropdownRef.value.contains(event.target as Node) &&
-    !buttonRef.value.contains(event.target as Node)
-  ) {
-    closeDropdown();
-  }
-};
-
-// Navigate to notification entity
-const navigateToNotification = async (notification: Notification) => {
-  // Mark as read
-  if (!notification.is_read) {
-    try {
-      await markNotificationsRead([notification.id]);
-      notification.is_read = true;
-      unreadCount.value = Math.max(0, unreadCount.value - 1);
-    } catch (error) {
-      console.error('Failed to mark notification as read:', error);
-    }
-  }
-
-  closeDropdown();
-
-  // Navigate to the entity based on type
+async function navigateToNotification(notification: Notification) {
+  if (!notification.is_read) await store.markRead([notification.id])
+  close()
   if (notification.entity_type === 'documentation_page') {
-    const slug = notification.metadata?.slug;
-    const pageId = notification.metadata?.page_id ?? notification.entity_id;
-    router.push(`/documentation/${slug || pageId}`);
+    const slug = notification.metadata?.slug as string | undefined
+    const pageId = (notification.metadata?.page_id as number | undefined) ?? notification.entity_id
+    router.push(`/documentation/${slug || pageId}`)
   } else if (notification.entity_type === 'ticket' || notification.entity_type === 'comment') {
-    const ticketId = notification.metadata?.ticket_id ?? notification.entity_id;
-    router.push(`/tickets/${ticketId}`);
+    const ticketId = (notification.metadata?.ticket_id as number | undefined) ?? notification.entity_id
+    router.push(`/tickets/${ticketId}`)
   }
-};
+}
 
-// Mark all as read
-const handleMarkAllRead = async () => {
-  try {
-    await markAllNotificationsRead();
-    notifications.value.forEach(n => n.is_read = true);
-    unreadCount.value = 0;
-  } catch (error) {
-    console.error('Failed to mark all as read:', error);
+function handleMarkRead(event: Event, notification: Notification) {
+  event.stopPropagation()
+  if (!notification.is_read) store.markRead([notification.id])
+}
+
+function handleClearNotification(event: Event, notification: Notification) {
+  event.stopPropagation()
+  store.deleteItems([notification.id])
+}
+
+function handleViewInbox() {
+  close()
+  router.push('/inbox')
+}
+
+// Mark-all-read scoped to the active filter. The bell shows
+// the same three tabs as the inbox; a user on "Mentions" who
+// hits "Mark all as read" expects only mentions to clear, not
+// every notification they have. The All tab keeps the global
+// shortcut (one round trip) since it covers everything anyway.
+function handleMarkAllReadScoped() {
+  if (filter.value === 'all') {
+    store.markAllRead()
+    return
   }
-};
+  const ids = filteredNotifications.value
+    .filter((n) => !n.is_read)
+    .map((n) => n.id)
+  store.markRead(ids)
+}
 
-// Clear/delete a notification
-const handleClearNotification = async (event: Event, notification: Notification) => {
-  event.stopPropagation();
-  try {
-    await deleteNotifications([notification.id]);
-    // Remove from list
-    notifications.value = notifications.value.filter(n => n.id !== notification.id);
-    // Decrement unread count if it was unread
-    if (!notification.is_read) {
-      unreadCount.value = Math.max(0, unreadCount.value - 1);
-    }
-  } catch (error) {
-    console.error('Failed to clear notification:', error);
-  }
-};
+const visibleHasUnread = computed(() =>
+  filteredNotifications.value.some((n) => !n.is_read),
+)
 
-// Lifecycle
 onMounted(() => {
-  fetchNotifications();
-  // Ensure SSE connection is established for real-time notifications
-  if (!isConnected.value) {
-    connect();
-  }
-  addEventListener('notification-received', handleNewNotification);
-  document.addEventListener('click', handleClickOutside);
-});
-
-onUnmounted(() => {
-  removeEventListener('notification-received', handleNewNotification);
-  document.removeEventListener('click', handleClickOutside);
-});
-
-// Computed
-const hasUnread = computed(() => unreadCount.value > 0);
-const displayCount = computed(() => unreadCount.value > 99 ? '99+' : String(unreadCount.value));
+  store.ensureSubscribed()
+  store.fetchPage(true)
+})
 </script>
 
 <template>
-  <div class="relative">
-    <!-- Bell Button -->
+  <div>
+    <!-- Polite live region for screen readers. Bell is always
+         mounted on every authed page so this is the right host
+         for the announcement. Visually hidden, never focused. -->
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      class="sr-only"
+    >
+      {{ lastAnnouncement }}
+    </div>
+
     <button
       ref="buttonRef"
-      @click="toggleDropdown"
-      class="relative p-2 text-secondary hover:text-primary hover:bg-surface-alt rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-accent"
+      type="button"
+      @click="toggleOpen"
+      class="relative rounded-lg p-2 text-secondary transition-colors hover:bg-surface-hover hover:text-primary focus:outline-none focus:ring-2 focus:ring-accent"
       aria-label="Notifications"
       :aria-expanded="isOpen"
     >
-      <!-- Bell Icon -->
-      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-      </svg>
-
-      <!-- Unread Badge -->
+      <Icon name="bell" size="md" />
       <span
         v-if="hasUnread"
-        class="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-xs font-bold text-white bg-status-error rounded-full"
+        class="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-status-error px-1 text-xs font-bold text-white"
+        :aria-label="`${unreadCount} unread`"
       >
         {{ displayCount }}
       </span>
     </button>
 
-    <!-- Dropdown Panel -->
-    <Teleport to="body">
-      <Transition
-        enter-active-class="transition ease-out duration-100"
-        enter-from-class="transform opacity-0 scale-95"
-        enter-to-class="transform opacity-100 scale-100"
-        leave-active-class="transition ease-in duration-75"
-        leave-from-class="transform opacity-100 scale-100"
-        leave-to-class="transform opacity-0 scale-95"
-      >
-        <div
-          v-if="isOpen"
-          ref="dropdownRef"
-          class="fixed z-overlay w-80 sm:w-96 bg-surface border border-default rounded-xl shadow-xl overflow-hidden"
-          :style="{
-            top: buttonRef ? `${buttonRef.getBoundingClientRect().bottom + 8}px` : '60px',
-            right: '16px',
-          }"
+    <ResponsiveMenu
+      :open="isOpen"
+      :anchor="anchor"
+      placement="bottom-end"
+      :offset="8"
+      react-to-scroll="reposition"
+      :auto-focus="false"
+      role="dialog"
+      aria-label="Notifications"
+      popover-class="flex w-[380px] max-h-[520px] flex-col overflow-hidden rounded-xl border border-default bg-surface shadow-xl"
+      @close="close"
+    >
+      <!-- Header. "Open inbox" is given primary placement
+           (right-aligned button next to the title) so users
+           don't have to scan to a footer link to reach the
+           full-page surface. -->
+      <header class="flex flex-shrink-0 items-center justify-between gap-2 border-b border-default px-4 py-3">
+        <h3 class="text-sm font-semibold text-primary">Notifications</h3>
+        <button
+          type="button"
+          @click="handleViewInbox"
+          class="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-secondary transition-colors hover:bg-surface-hover hover:text-primary"
         >
-          <!-- Header -->
-          <div class="flex items-center justify-between px-4 py-3 border-b border-default bg-surface-alt">
-            <h3 class="font-semibold text-primary">Notifications</h3>
-            <button
-              v-if="hasUnread"
-              @click="handleMarkAllRead"
-              class="text-xs text-accent hover:text-accent-hover font-medium"
-            >
-              Mark all as read
-            </button>
-          </div>
+          Open inbox
+          <Icon name="openExternal" size="xs" />
+        </button>
+      </header>
 
-          <!-- Notification List -->
-          <div class="max-h-[400px] overflow-y-auto">
-            <!-- Loading State -->
-            <div v-if="isLoading" class="flex items-center justify-center py-8">
-              <div class="animate-spin rounded-full h-6 w-6 border-2 border-accent border-t-transparent"></div>
+      <div
+        role="tablist"
+        aria-label="Filter notifications"
+        class="flex flex-shrink-0 items-center gap-1 border-b border-default px-2"
+      >
+        <button
+          v-for="tab in TABS"
+          :key="tab.value"
+          type="button"
+          role="tab"
+          :aria-selected="filter === tab.value"
+          @click="filter = tab.value"
+          class="relative flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors"
+          :class="
+            filter === tab.value
+              ? 'text-primary'
+              : 'text-tertiary hover:text-secondary'
+          "
+        >
+          {{ tab.label }}
+          <span
+            v-if="tab.value === 'unread' && hasUnread"
+            class="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-accent"
+          >
+            {{ displayCount }}
+          </span>
+          <span
+            v-if="filter === tab.value"
+            class="absolute inset-x-2 bottom-0 h-0.5 rounded-t bg-accent"
+            aria-hidden="true"
+          />
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto">
+        <div v-if="isFirstLoad" class="space-y-px p-2" aria-hidden="true">
+          <div
+            v-for="i in 4"
+            :key="i"
+            class="flex animate-pulse items-start gap-3 rounded-md p-2"
+          >
+            <div class="h-8 w-8 flex-shrink-0 rounded-full bg-surface-alt"></div>
+            <div class="flex-1 space-y-2 py-1">
+              <div class="h-3 w-3/4 rounded bg-surface-alt"></div>
+              <div class="h-3 w-1/2 rounded bg-surface-alt"></div>
             </div>
-
-            <!-- Empty State -->
-            <div v-else-if="notifications.length === 0" class="flex flex-col items-center justify-center py-8 text-tertiary">
-              <svg class="w-12 h-12 mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-              <p class="text-sm">No notifications yet</p>
-            </div>
-
-            <!-- Notification Items -->
-            <div v-else>
-              <button
-                v-for="notification in notifications"
-                :key="notification.id"
-                @click="navigateToNotification(notification)"
-                class="group w-full px-4 py-3 flex items-start gap-3 hover:bg-surface-alt transition-colors text-left border-b border-default last:border-b-0"
-                :class="{ 'bg-accent/5': !notification.is_read }"
-              >
-                <!-- Icon -->
-                <div
-                  class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
-                  :class="notification.is_read ? 'bg-surface-alt text-tertiary' : 'bg-accent/10 text-accent'"
-                >
-                  <!-- Ticket Assigned -->
-                  <svg v-if="notification.notification_type === 'ticket_assigned'" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                  </svg>
-                  <!-- Status Changed -->
-                  <svg v-else-if="notification.notification_type === 'ticket_status_changed'" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  <!-- Comment Added -->
-                  <svg v-else-if="notification.notification_type === 'comment_added'" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                  </svg>
-                  <!-- Mentioned -->
-                  <svg v-else-if="notification.notification_type === 'mentioned'" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
-                  </svg>
-                  <!-- Doc Page Updated -->
-                  <svg v-else-if="notification.notification_type === 'doc_page_updated'" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <!-- Default Bell -->
-                  <svg v-else class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                  </svg>
-                </div>
-
-                <!-- Content -->
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-primary truncate">
-                    {{ notification.title }}
-                  </p>
-                  <p v-if="notification.body" class="text-xs text-secondary line-clamp-2 mt-0.5">
-                    {{ notification.body }}
-                  </p>
-                  <p class="text-xs text-tertiary mt-1">
-                    {{ formatRelativeTime(notification.created_at) }}
-                  </p>
-                </div>
-
-                <!-- Clear button and unread indicator -->
-                <div class="flex-shrink-0 flex items-center gap-1">
-                  <button
-                    @click="handleClearNotification($event, notification)"
-                    class="p-1 text-tertiary hover:text-primary hover:bg-surface-alt rounded transition-colors opacity-0 group-hover:opacity-100"
-                    title="Clear notification"
-                  >
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                  <div
-                    v-if="!notification.is_read"
-                    class="w-2 h-2 rounded-full bg-accent"
-                  ></div>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <!-- Footer -->
-          <div class="px-4 py-2 border-t border-default bg-surface-alt">
-            <router-link
-              to="/profile/settings/notifications"
-              @click="closeDropdown"
-              class="text-xs text-accent hover:text-accent-hover font-medium"
-            >
-              Notification settings
-            </router-link>
           </div>
         </div>
-      </Transition>
-    </Teleport>
+
+        <div
+          v-else-if="filteredNotifications.length === 0"
+          class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center"
+        >
+          <div
+            class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-alt text-tertiary"
+            aria-hidden="true"
+          >
+            <Icon name="bell" size="md" />
+          </div>
+          <div class="max-w-[14rem] space-y-0.5">
+            <p class="text-sm font-medium text-primary">{{ emptyContent.title }}</p>
+            <p class="text-xs text-tertiary">{{ emptyContent.subtitle }}</p>
+          </div>
+        </div>
+
+        <template v-else>
+          <section
+            v-for="group in groupedNotifications"
+            :key="group.label"
+            class="border-b border-default last:border-b-0"
+          >
+            <h4
+              class="sticky top-0 z-10 bg-surface/95 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-tertiary backdrop-blur"
+            >
+              {{ group.label }}
+            </h4>
+            <button
+              v-for="notification in group.items"
+              :key="notification.id"
+              type="button"
+              @click="navigateToNotification(notification)"
+              class="group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover"
+              :class="{ 'bg-accent/5': !notification.is_read }"
+            >
+              <div
+                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full"
+                :class="
+                  notification.is_read
+                    ? 'bg-surface-alt text-tertiary'
+                    : 'bg-accent/10 text-accent'
+                "
+              >
+                <Icon :name="iconForType(notification.notification_type)" size="sm" />
+              </div>
+
+              <div class="min-w-0 flex-1">
+                <p class="line-clamp-1 text-sm font-medium text-primary">
+                  {{ notification.title }}
+                </p>
+                <p
+                  v-if="notification.body"
+                  class="mt-0.5 line-clamp-2 text-xs text-secondary"
+                >
+                  {{ notification.body }}
+                </p>
+                <p class="mt-1 text-xs text-tertiary">
+                  {{ formatInboxTime(notification.created_at) }}
+                </p>
+              </div>
+
+              <div class="flex flex-shrink-0 flex-col items-end gap-1.5">
+                <span
+                  v-if="!notification.is_read"
+                  class="h-2 w-2 rounded-full bg-accent"
+                  aria-hidden="true"
+                />
+                <div
+                  class="flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100"
+                >
+                  <button
+                    v-if="!notification.is_read"
+                    type="button"
+                    @click="handleMarkRead($event, notification)"
+                    class="rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary"
+                    :aria-label="`Mark as read: ${notification.title}`"
+                  >
+                    <Icon name="check" size="xs" />
+                  </button>
+                  <button
+                    type="button"
+                    @click="handleClearNotification($event, notification)"
+                    class="rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary"
+                    :aria-label="`Dismiss: ${notification.title}`"
+                  >
+                    <Icon name="close" size="xs" />
+                  </button>
+                </div>
+              </div>
+            </button>
+          </section>
+
+          <div
+            v-if="hasMore"
+            class="flex items-center justify-center border-t border-default p-3"
+          >
+            <button
+              type="button"
+              @click="store.fetchPage(false)"
+              :disabled="isLoadingMore"
+              class="text-xs font-medium text-accent hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {{ isLoadingMore ? 'Loading...' : 'Load more' }}
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <!-- Footer. Header now carries the primary "Open inbox"
+           affordance, so the footer is left for "Mark all read"
+           (filter-scoped) and the settings escape hatch. -->
+      <footer class="flex flex-shrink-0 items-center justify-between gap-2 border-t border-default px-4 py-2">
+        <button
+          v-if="visibleHasUnread"
+          type="button"
+          @click="handleMarkAllReadScoped"
+          class="text-xs font-medium text-accent hover:text-accent-hover"
+        >
+          {{ filter === 'mentions' ? 'Mark mentions as read' : 'Mark all as read' }}
+        </button>
+        <span v-else />
+        <router-link
+          to="/profile/settings/notifications"
+          @click="close"
+          class="text-xs font-medium text-tertiary hover:text-primary"
+        >
+          Settings
+        </router-link>
+      </footer>
+    </ResponsiveMenu>
   </div>
 </template>
-
-<style scoped>
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-</style>

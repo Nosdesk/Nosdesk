@@ -197,6 +197,55 @@ export function formatCompactRelativeTime(
 }
 
 /**
+ * Inbox / notification timestamp. Tiered formatter that mirrors
+ * the convention every modern inbox uses (Gmail, Slack, Linear,
+ * iOS Mail):
+ *
+ *   < 1 min       Just now
+ *   < 60 min      5m ago
+ *   today         3:42 PM
+ *   yesterday     Yesterday at 3:42 PM
+ *   < 7 days      Mon at 3:42 PM
+ *   this year     Mar 12
+ *   older         Mar 12, 2024
+ *
+ * The shift from "Xh ago" to a clock time once you cross into
+ * "today" gives the user a real time-of-day anchor — saying
+ * "11h ago" forces the reader to do mental math, "3:42 PM" doesn't.
+ */
+export function formatInboxTime(
+  dateString: string | Date | null | undefined,
+): string {
+  const date = parseDate(dateString)
+  if (!date) return ''
+
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60_000)
+
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startOfYesterday = startOfToday - 86_400_000
+  const startOfWeek = startOfToday - 6 * 86_400_000
+
+  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  const ts = date.getTime()
+
+  if (ts >= startOfToday) return time
+  if (ts >= startOfYesterday) return `Yesterday at ${time}`
+  if (ts >= startOfWeek) {
+    const day = date.toLocaleDateString(undefined, { weekday: 'short' })
+    return `${day} at ${time}`
+  }
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  }
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/**
  * Smart date formatter - shows relative for recent, absolute for old
  */
 export function formatSmartDate(

@@ -126,6 +126,15 @@ const router = createRouter({
       }
     },
     {
+      path: '/inbox',
+      name: 'inbox',
+      component: () => import('@/views/NotificationInboxView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Inbox'
+      }
+    },
+    {
       path: '/tickets',
       name: 'tickets',
       component: TicketsListView,
