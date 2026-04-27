@@ -30,6 +30,7 @@ pub fn get_projects_with_ticket_count(conn: &mut DbConnection) -> Result<Vec<Pro
             created_at: project.created_at,
             updated_at: project.updated_at,
             ticket_count: count,
+            tickets: None,
         });
     }
     
@@ -56,6 +57,7 @@ pub fn get_project_with_ticket_count(conn: &mut DbConnection, project_id: i32) -
         created_at: project.created_at,
         updated_at: project.updated_at,
         ticket_count: count,
+        tickets: None,
     })
 }
 

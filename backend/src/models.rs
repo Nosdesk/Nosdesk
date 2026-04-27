@@ -982,6 +982,12 @@ pub struct ProjectWithTicketCount {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub ticket_count: i64,
+    /// Optional embedded ticket list, populated only when the
+    /// `GET /projects/{id}?embed=tickets` flag is set. Skipped from
+    /// JSON when absent so the legacy unbundled response shape is
+    /// unchanged for existing callers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tickets: Option<Vec<TicketListItem>>,
 }
 
 // LinkedTicket model

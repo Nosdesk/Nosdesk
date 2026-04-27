@@ -61,8 +61,14 @@ const loadProject = async () => {
   try {
     isLoading.value = true
     error.value = null
-    project.value = await projectService.getProject(projectId.value)
-    await fetchExistingTicketIds()
+    // One bundled fetch returns the project plus its tickets, so we
+    // can seed `existingTicketIdSet` from the same response instead
+    // of issuing a second `getProjectTickets` call.
+    const bundle = await projectService.getProject(projectId.value, { embed: ['tickets'] })
+    project.value = bundle
+    existingTicketIdSet.value = new Set(
+      (bundle.tickets ?? []).map((t) => t.id),
+    )
   } catch (err) {
     console.error('Failed to fetch project details:', err)
     error.value = 'Failed to load project details. Please try again later.'
@@ -78,6 +84,8 @@ onMounted(loadProject)
 // refetch here when the id changes.
 watch(projectId, loadProject)
 
+// Re-seed the existing-tickets set after a mutation (add/remove ticket)
+// without paying for a fresh project fetch.
 const fetchExistingTicketIds = async () => {
   if (!projectId.value) return
   try {

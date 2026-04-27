@@ -1,5 +1,6 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
+use serde::Deserialize;
 use tracing::debug;
 
 use crate::db::Pool;
@@ -8,6 +9,14 @@ use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{NewProject, ProjectUpdate};
 use crate::repository;
 use crate::utils::rbac::{require_admin, require_technician_or_admin};
+
+#[derive(Deserialize)]
+pub struct GetProjectQuery {
+    /// Comma-separated sub-resource keys to embed in the response.
+    /// Currently only `tickets` is recognised, more can join as
+    /// they're identified. Omit for the legacy lean response.
+    pub embed: Option<String>,
+}
 
 /// Extract the SSE client ID from the request header (for echo suppression).
 fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
@@ -32,26 +41,39 @@ pub async fn get_all_projects(
     }
 }
 
-// Get a single project by ID with ticket count
+// Get a single project by ID with ticket count, optionally with the
+// full ticket list embedded (`?embed=tickets`).
 pub async fn get_project(
     pool: web::Data<Pool>,
     path: web::Path<i32>,
+    query: web::Query<GetProjectQuery>,
 ) -> impl Responder {
     let project_id = path.into_inner();
+    let want_tickets = query
+        .embed
+        .as_deref()
+        .map(|s| s.split(',').map(str::trim).any(|t| t == "tickets"))
+        .unwrap_or(false);
+
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
 
-    match repository::get_project_with_ticket_count(&mut conn, project_id) {
-        Ok(project) => HttpResponse::Ok().json(project),
-        Err(e) => {
-            match e {
-                Error::NotFound => HttpResponse::NotFound().json("Project not found"),
-                _ => HttpResponse::InternalServerError().json("Failed to get project"),
-            }
+    let mut project = match repository::get_project_with_ticket_count(&mut conn, project_id) {
+        Ok(p) => p,
+        Err(Error::NotFound) => return HttpResponse::NotFound().json("Project not found"),
+        Err(_) => return HttpResponse::InternalServerError().json("Failed to get project"),
+    };
+
+    if want_tickets {
+        match repository::get_project_tickets(&mut conn, project_id) {
+            Ok(tickets) => project.tickets = Some(tickets),
+            Err(_) => return HttpResponse::InternalServerError().json("Failed to embed project tickets"),
         }
     }
+
+    HttpResponse::Ok().json(project)
 }
 
 // Create a new project (technician or admin only)

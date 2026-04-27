@@ -11,6 +11,26 @@ interface ProjectResponse {
   created_at: string;
   updated_at: string;
   ticket_count: number;
+  /** Present only when the request asked for `?embed=tickets`.
+   *  Shape matches the backend `TicketListItem` (Ticket fields
+   *  flattened, plus `requester_user` / `assignee_user`). */
+  tickets?: Array<{ id: number } & Record<string, unknown>>;
+}
+
+/** Sub-resources the project endpoint can embed. Currently just
+ *  `tickets`, kept open for future additions. */
+export type ProjectEmbed = 'tickets'
+
+export interface GetProjectOptions {
+  /** Sub-resources to embed in the response (uses `?embed=`). */
+  embed?: readonly ProjectEmbed[]
+}
+
+/** Project plus the optional embedded ticket list. The embedded
+ *  shape is intentionally loose, the existing ProjectTicketList
+ *  components type their own copies. */
+export interface ProjectWithEmbeds extends Project {
+  tickets?: Array<{ id: number } & Record<string, unknown>>
 }
 
 interface NewProjectRequest {
@@ -49,11 +69,17 @@ export const projectService = {
     }
   },
 
-  // Get a single project by ID
-  async getProject(id: number): Promise<Project> {
+  // Get a single project by ID. Pass `embed: ['tickets']` to bundle
+  // the project's tickets into the same response, the page can then
+  // skip the follow-up `getProjectTickets` call.
+  async getProject(id: number, options: GetProjectOptions = {}): Promise<ProjectWithEmbeds> {
     try {
-      const response = await apiClient.get<ProjectResponse>(`/projects/${id}`);
-      return mapProjectResponse(response.data);
+      const params = options.embed?.length
+        ? { embed: options.embed.join(',') }
+        : undefined;
+      const response = await apiClient.get<ProjectResponse>(`/projects/${id}`, { params });
+      const project = mapProjectResponse(response.data);
+      return { ...project, tickets: response.data.tickets };
     } catch (error) {
       logger.error(`Error fetching project ${id}:`, error);
       throw error;
