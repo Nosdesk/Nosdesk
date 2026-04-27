@@ -9,12 +9,17 @@ import { channelsService, type Channel, type ImapRuntimeState } from '@/services
 import { formatRelativeTime } from '@/utils/dateUtils'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 
-const { data, isLoading, error } = useQuery({
+// `isPending` is the first-fetch signal; `isLoading` flips on every
+// in-flight request including background refetches. The shell wants
+// the first-only signal for its skeleton so cached content stays
+// visible across remounts, see DashboardWidgetShell.
+const { data, isPending, isLoading, error } = useQuery({
   key: ['channels', 'list'],
   query: () => channelsService.list(),
 })
 
 const channels = computed<Channel[]>(() => data.value ?? [])
+const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
   error.value ? 'Failed to load channels' : null,
 )
@@ -30,7 +35,8 @@ function lastError(c: Channel): string | null {
     title="Channel Health"
     action-label="Manage"
     action-to="/admin/channels/email"
-    :loading="isLoading"
+    :loading="isPending"
+    :refreshing="isRefreshing"
     :error="errorMessage"
     :empty="channels.length === 0"
     empty-title="No channels configured"

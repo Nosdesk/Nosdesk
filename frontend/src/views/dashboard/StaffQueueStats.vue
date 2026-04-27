@@ -140,7 +140,12 @@ function savePicker(newIds: string[]) {
 </script>
 
 <template>
-  <DashboardWidgetShell title="Queue" :loading="stats.isLoading.value" :error="errorMessage">
+  <DashboardWidgetShell
+    title="Queue"
+    :loading="stats.isLoading.value"
+    :refreshing="stats.isRefreshing.value"
+    :error="errorMessage"
+  >
     <!-- Gear in the header opens the metric picker. Lives here (not
          tied to dashboard edit mode) because picking metrics is a
          quick, in-context action, not a layout change. -->

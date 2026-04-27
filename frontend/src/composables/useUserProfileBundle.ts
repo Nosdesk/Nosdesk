@@ -42,9 +42,19 @@ export function useUserProfileBundle(options: UseUserProfileBundleOptions) {
     enabled: () => !!uuid.value,
   })
 
+  // `isLoading` reflects the *initial* fetch (no cached bundle yet).
+  // `isRefreshing` covers background refetches that fire on remount
+  // while cached data is already being served, splitting the two so
+  // callers can keep content visible during the refresh instead of
+  // blanking out to a skeleton.
   return {
     bundle: computed<UserProfileBundle | undefined>(() => query.data.value),
-    isLoading: computed(() => query.asyncStatus.value === 'loading'),
+    isLoading: computed(
+      () => query.status.value === 'pending' && query.data.value === undefined,
+    ),
+    isRefreshing: computed(
+      () => query.asyncStatus.value === 'loading' && query.data.value !== undefined,
+    ),
     isError: computed(() => query.status.value === 'error'),
     error: computed(() => query.error.value),
     refetch: () => query.refetch(),

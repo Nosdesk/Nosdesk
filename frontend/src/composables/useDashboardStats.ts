@@ -19,7 +19,15 @@ import { getStats, type StatsBundle } from '@/services/dashboardService'
 
 export interface DashboardStatsHandle {
   bundle: ComputedRef<StatsBundle | undefined>
+  /** True only on the *initial* load (no cached bundle yet). Once
+   *  Pinia Colada has data, remounts/refetches keep this `false` so
+   *  widgets don't blank out while background refetches run, see
+   *  `isRefreshing` for the background-refresh signal. */
   isLoading: ComputedRef<boolean>
+  /** True while a background refetch runs over already-rendered
+   *  data. Drives the shell's shimmer bar without swapping the body
+   *  to a skeleton. */
+  isRefreshing: ComputedRef<boolean>
   isError: ComputedRef<boolean>
 }
 
@@ -55,9 +63,21 @@ export function useDashboardStats(): DashboardStatsHandle {
     enabled: () => !!userUuid.value && include.value.length > 0,
   })
 
+  // `status === 'pending'` means no data has ever resolved into the
+  // cache for this key. `asyncStatus === 'loading'` flips on every
+  // request including background refetches, so on remount the cached
+  // bundle is served immediately *and* a refetch fires, which would
+  // make a naive `isLoading = asyncStatus === 'loading'` blank the
+  // widget body for the duration of that refetch. Splitting the two
+  // signals keeps cached content visible across remounts.
   return {
     bundle: computed(() => query.data.value),
-    isLoading: computed(() => query.asyncStatus.value === 'loading'),
+    isLoading: computed(
+      () => query.status.value === 'pending' && query.data.value === undefined,
+    ),
+    isRefreshing: computed(
+      () => query.asyncStatus.value === 'loading' && query.data.value !== undefined,
+    ),
     isError: computed(() => query.status.value === 'error'),
   }
 }

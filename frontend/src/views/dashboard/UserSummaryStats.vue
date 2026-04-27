@@ -36,7 +36,12 @@ const errorMessage = computed(() => (stats.isError.value ? 'Failed to load summa
 </script>
 
 <template>
-  <DashboardWidgetShell title="Summary" :loading="stats.isLoading.value" :error="errorMessage">
+  <DashboardWidgetShell
+    title="Summary"
+    :loading="stats.isLoading.value"
+    :refreshing="stats.isRefreshing.value"
+    :error="errorMessage"
+  >
     <template #skeleton><KpiRailSkeleton :count="4" /></template>
     <KpiRail :kpis="kpis" />
   </DashboardWidgetShell>

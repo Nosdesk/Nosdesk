@@ -11,12 +11,17 @@ import {
 } from '@/services/documentationService'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 
-const { data, isLoading, error } = useQuery({
+// `isPending` is the first-fetch signal, `isLoading` flips on every
+// in-flight request. The shell wants the first-only signal so the
+// widget body doesn't blank to a skeleton when a background refetch
+// runs over already-rendered cache, see DashboardWidgetShell.
+const { data, isPending, isLoading, error } = useQuery({
   key: ['documentation', 'starred'],
   query: async () => (await getStarredPages()).slice(0, 6),
 })
 
 const pages = computed<StarredPageInfo[]>(() => data.value ?? [])
+const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
   error.value ? 'Failed to load starred docs' : null,
 )
@@ -26,7 +31,8 @@ const errorMessage = computed(() =>
   <DashboardWidgetShell
     title="Starred Docs"
     action-to="/documentation"
-    :loading="isLoading"
+    :loading="isPending"
+    :refreshing="isRefreshing"
     :error="errorMessage"
     :empty="!errorMessage && pages.length === 0"
     empty-title="No starred pages"

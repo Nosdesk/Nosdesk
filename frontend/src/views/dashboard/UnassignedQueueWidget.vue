@@ -11,7 +11,12 @@ import ticketService, { type Ticket } from '@/services/ticketService'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import TicketRow from '@/components/TicketRow.vue'
 
-const { data, isLoading, error } = useQuery({
+// Pinia Colada exposes both `isPending` (initial fetch only) and
+// `isLoading` (every in-flight request). The widget shell wants the
+// initial-only signal so cached content stays visible across remounts
+// while a background refetch runs, see DashboardWidgetShell's
+// `loading` vs `refreshing` props.
+const { data, isPending, isLoading, error } = useQuery({
   key: ['tickets', 'unassigned-queue'],
   query: async () => {
     const res = await ticketService.getPaginatedTickets(
@@ -30,6 +35,7 @@ const { data, isLoading, error } = useQuery({
 })
 
 const tickets = computed<Ticket[]>(() => data.value ?? [])
+const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
   error.value ? 'Failed to load queue' : null,
 )
@@ -39,7 +45,8 @@ const errorMessage = computed(() =>
   <DashboardWidgetShell
     title="Unassigned Queue"
     action-to="/tickets?assignee=unassigned&status=open"
-    :loading="isLoading"
+    :loading="isPending"
+    :refreshing="isRefreshing"
     :error="errorMessage"
     :empty="!errorMessage && tickets.length === 0"
     empty-title="Inbox zero"

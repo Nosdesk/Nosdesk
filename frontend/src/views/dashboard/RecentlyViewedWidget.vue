@@ -17,12 +17,17 @@ import { getRecentTickets, type RecentTicket } from '@/services/ticketService'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import TicketRow from '@/components/TicketRow.vue'
 
-const { data, isLoading, error } = useQuery({
+// `isPending` = first-ever fetch, `isLoading` = any in-flight
+// request. The shell wants the first-only signal for `loading` so
+// dashboard remounts don't blank cached content while a background
+// refetch runs, see DashboardWidgetShell.
+const { data, isPending, isLoading, error } = useQuery({
   key: ['tickets', 'recent'],
   query: () => getRecentTickets(),
 })
 
 const tickets = computed<RecentTicket[]>(() => (data.value ?? []).slice(0, 5))
+const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
   error.value ? 'Failed to load recently viewed' : null,
 )
@@ -32,7 +37,8 @@ const errorMessage = computed(() =>
   <DashboardWidgetShell
     title="Recently Viewed"
     action-to="/tickets"
-    :loading="isLoading"
+    :loading="isPending"
+    :refreshing="isRefreshing"
     :error="errorMessage"
     :empty="!errorMessage && tickets.length === 0"
     empty-title="Nothing here yet"

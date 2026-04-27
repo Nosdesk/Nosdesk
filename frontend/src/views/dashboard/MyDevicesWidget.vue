@@ -14,7 +14,12 @@ const auth = useAuthStore()
 // Reactive key includes the user uuid so a session swap (login as
 // a different user) yields a fresh cache entry rather than serving
 // the previous user's devices.
-const { data, isLoading, error } = useQuery({
+// `isPending` is true only on the initial fetch (no cached data yet).
+// `isLoading` is true on every in-flight request, so we use it for
+// the background-refresh shimmer rather than the body-blanking
+// skeleton, otherwise the widget would flash on every dashboard
+// remount when Pinia Colada serves cached data while refetching.
+const { data, isPending, isLoading, error } = useQuery({
   key: () => ['devices', 'by-user', auth.user?.uuid ?? ''],
   query: async () => {
     const uuid = auth.user?.uuid
@@ -25,6 +30,7 @@ const { data, isLoading, error } = useQuery({
 })
 
 const devices = computed<Device[]>(() => data.value ?? [])
+const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
   error.value ? 'Failed to load devices' : null,
 )
@@ -34,7 +40,8 @@ const errorMessage = computed(() =>
   <DashboardWidgetShell
     title="My Devices"
     action-to="/devices"
-    :loading="isLoading"
+    :loading="isPending"
+    :refreshing="isRefreshing"
     :error="errorMessage"
     :empty="!errorMessage && devices.length === 0"
     empty-title="No devices assigned"

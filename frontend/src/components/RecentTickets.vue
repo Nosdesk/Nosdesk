@@ -77,10 +77,9 @@ const toDraggableTicket = (ticket: RecentTicket): DraggableTicket => ({
   status: ticket.status,
 })
 
-// Only show loading skeleton on initial load (no data yet)
-const showLoading = computed(() =>
-  recentTicketsStore.isLoading && recentTicketsStore.recentTickets.length === 0
-)
+// `isLoading` from the store is already the first-fetch-only signal,
+// so binding it directly skips the skeleton on background refetches.
+const showLoading = computed(() => recentTicketsStore.isLoading)
 
 // Custom drag start - track the dragged index
 const handleDragStart = (ticket: RecentTicket, index: number, event: DragEvent) => {

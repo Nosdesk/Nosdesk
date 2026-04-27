@@ -60,7 +60,18 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
     return list
   })
 
-  const isLoading = computed(() => query.asyncStatus.value === 'loading')
+  // `isLoading` is the *first-fetch* signal (no cached data yet), so
+  // consumers can render a skeleton on initial load without flashing
+  // it on every dashboard remount, when Pinia Colada serves cached
+  // data and fires a background refetch in parallel. `isRefreshing`
+  // covers that background-refetch case for callers that want to
+  // surface it (e.g. a top-of-card shimmer).
+  const isLoading = computed(
+    () => query.status.value === 'pending' && query.data.value === undefined,
+  )
+  const isRefreshing = computed(
+    () => query.asyncStatus.value === 'loading' && query.data.value !== undefined,
+  )
   const error = computed(() => (query.error.value ? 'Failed to fetch recent tickets' : null))
 
   function fetchRecentTickets() {
@@ -117,6 +128,7 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   return {
     recentTickets,
     isLoading,
+    isRefreshing,
     error,
     fetchRecentTickets,
     recordTicketView,
