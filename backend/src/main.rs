@@ -756,6 +756,28 @@ async fn main() -> std::io::Result<()> {
     }
     let scheduler_status_data = web::Data::new(scheduler_status);
 
+    // Pre-create the static-asset directories so `Files::new` can
+    // canonicalize them at startup. Without this, if the backend
+    // boots before the frontend build has populated `./public/assets`
+    // (a common race in `compose up` where backend and frontend-watch
+    // start in parallel), Actix's `Files` service fails its initial
+    // canonicalize and silently falls through to the default_handler
+    // for every request, even after the directory later appears.
+    // The "Asset still missing after reload" dev fallback then takes
+    // over and reload-loops the browser indefinitely.
+    //
+    // Idempotent: `create_dir_all` is a no-op when the directory
+    // already exists. Safe in production where the build pipeline
+    // populates these directories long before the binary starts.
+    for static_dir in ["./public/assets", "./public/pdfjs"] {
+        if let Err(e) = std::fs::create_dir_all(static_dir) {
+            error!(path = %static_dir, error = %e, "Failed to ensure static directory exists");
+            return Err(std::io::Error::other(format!(
+                "Failed to ensure static directory {static_dir}: {e}"
+            )));
+        }
+    }
+
     let server_result = HttpServer::new(move || {
         // Configure CORS with specific allowed origins
         let mut cors = Cors::default()
