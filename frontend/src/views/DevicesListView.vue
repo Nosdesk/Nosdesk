@@ -21,15 +21,8 @@ import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useDataStore } from '@/stores/dataStore'
 import { getPaginatedDevices, bulkAction } from '@/services/deviceService'
+import { devicesKeys } from '@/queries/devices'
 import type { Device } from '@/types/device'
-
-const DEVICES_KEYS = {
-  root: ['devices'] as const,
-  list: (variant: 'infinite' | 'paginated', cacheKey: string, page?: number) =>
-    page === undefined
-      ? ([...DEVICES_KEYS.root, 'list', variant, cacheKey] as const)
-      : ([...DEVICES_KEYS.root, 'list', variant, cacheKey, page] as const),
-}
 
 defineOptions({ name: 'DevicesListView' })
 
@@ -81,7 +74,7 @@ const controls = useListControls<Device>({
 
 // Pinia Colada query layer (dual-mode infinite + paged).
 const infiniteList = useInfiniteQuery(() => ({
-  key: DEVICES_KEYS.list('infinite', controls.cacheKeyPart.value),
+  key: devicesKeys.list('infinite', controls.cacheKeyPart.value),
   initialPageParam: 1,
   query: async ({ pageParam }) => {
     const response = await getPaginatedDevices(
@@ -97,7 +90,7 @@ const infiniteList = useInfiniteQuery(() => ({
 }))
 
 const paginatedList = useInfiniteQuery(() => ({
-  key: DEVICES_KEYS.list('paginated', controls.cacheKeyPart.value, controls.currentPage.value),
+  key: devicesKeys.list('paginated', controls.cacheKeyPart.value, controls.currentPage.value),
   initialPageParam: controls.currentPage.value,
   query: async ({ pageParam }) => {
     const response = await getPaginatedDevices(
@@ -148,7 +141,7 @@ const isBackgroundRefresh = computed(() => isFetching.value && items.value.lengt
 // SSE-driven cache invalidation.
 const sse = useSSE()
 function invalidateDevicesList() {
-  queryCache.invalidateQueries({ key: DEVICES_KEYS.root })
+  queryCache.invalidateQueries({ key: devicesKeys.root })
 }
 
 const sseHandlers: Array<{ type: string; handler: (data: unknown) => void }> = [
@@ -233,7 +226,7 @@ const bulkActions: BulkAction[] = [
 const bulkActionMutation = useMutation({
   mutation: (vars: { action: 'delete'; ids: number[] }) => bulkAction(vars),
   onSettled: () => {
-    queryCache.invalidateQueries({ key: DEVICES_KEYS.root })
+    queryCache.invalidateQueries({ key: devicesKeys.root })
   },
   onError: (err) => {
     console.error('Bulk action failed:', err)

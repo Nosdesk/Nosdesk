@@ -12,6 +12,7 @@
  * composable. The data half lives in Pinia Colada now.
  */
 import { computed, ref, type Ref } from 'vue'
+import { serializeListCacheKey, type ListRequestParams } from '@/queries/listSerialization'
 
 export type FilterValue = string | string[]
 export type Filters = Record<string, FilterValue>
@@ -193,7 +194,7 @@ export function useListControls<T extends Record<string, unknown>>(
     pageSize.value === 0 ? infinitePageSize : pageSize.value,
   )
 
-  const requestParams = computed(() => {
+  const requestParams = computed<ListRequestParams>(() => {
     const normalisedFilters: Record<string, string> = {}
     for (const [k, v] of Object.entries(filters.value)) {
       if (Array.isArray(v)) {
@@ -213,13 +214,11 @@ export function useListControls<T extends Record<string, unknown>>(
   })
 
   /** Stable serialisation of `requestParams` for use as a Pinia
-   *  Colada reactive query key. Excludes `page` because for
-   *  infinite queries the page lives in `pageParam`, not the
-   *  key. Paginated consumers can include page themselves. */
-  const cacheKeyPart = computed(() => {
-    const { page: _page, ...rest } = requestParams.value
-    return JSON.stringify(rest)
-  })
+   *  Colada reactive query key. Delegates to `serializeListCacheKey`
+   *  so loaders (which build the same key from `to.query` outside
+   *  the Vue tree) can call into the same function and stay in
+   *  sync. */
+  const cacheKeyPart = computed(() => serializeListCacheKey(requestParams.value))
 
   return {
     // Filter / search / sort state

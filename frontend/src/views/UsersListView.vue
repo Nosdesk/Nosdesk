@@ -22,15 +22,8 @@ import { useMobileDetection } from "@/composables/useMobileDetection";
 import { useInfiniteScroll } from "@/composables/useInfiniteScroll";
 import { useDataStore } from "@/stores/dataStore";
 import userService from "@/services/userService";
+import { usersKeys } from "@/queries/users";
 import type { User } from "@/types/user";
-
-const USERS_KEYS = {
-  root: ['users'] as const,
-  list: (variant: 'infinite' | 'paginated', cacheKey: string, page?: number) =>
-    page === undefined
-      ? ([...USERS_KEYS.root, 'list', variant, cacheKey] as const)
-      : ([...USERS_KEYS.root, 'list', variant, cacheKey, page] as const),
-}
 
 defineOptions({ name: 'UsersListView' })
 
@@ -64,7 +57,7 @@ const controls = useListControls<User>({
 // Pinia Colada query layer. Dual-mode (infinite + paged), one
 // query is enabled at a time based on `controls.isInfiniteMode`.
 const infiniteList = useInfiniteQuery(() => ({
-  key: USERS_KEYS.list('infinite', controls.cacheKeyPart.value),
+  key: usersKeys.list('infinite', controls.cacheKeyPart.value),
   initialPageParam: 1,
   query: ({ pageParam }) => dataStore.getPaginatedUsers({
     ...controls.requestParams.value,
@@ -76,7 +69,7 @@ const infiniteList = useInfiniteQuery(() => ({
 }))
 
 const paginatedList = useInfiniteQuery(() => ({
-  key: USERS_KEYS.list('paginated', controls.cacheKeyPart.value, controls.currentPage.value),
+  key: usersKeys.list('paginated', controls.cacheKeyPart.value, controls.currentPage.value),
   initialPageParam: controls.currentPage.value,
   query: ({ pageParam }) => dataStore.getPaginatedUsers({
     ...controls.requestParams.value,
@@ -126,7 +119,7 @@ const isBackgroundRefresh = computed(() => isFetching.value && items.value.lengt
 // the active query.
 const sse = useSSE()
 function invalidateUsersList() {
-  queryCache.invalidateQueries({ key: USERS_KEYS.root })
+  queryCache.invalidateQueries({ key: usersKeys.root })
 }
 
 const sseHandlers: Array<{ type: string; handler: (data: unknown) => void }> = [
@@ -219,7 +212,7 @@ const bulkActionMutation = useMutation({
   mutation: (vars: { action: 'delete' | 'set-role'; ids: string[]; value?: string }) =>
     userService.bulkAction(vars),
   onSettled: () => {
-    queryCache.invalidateQueries({ key: USERS_KEYS.root })
+    queryCache.invalidateQueries({ key: usersKeys.root })
   },
   onError: (err) => {
     console.error('Bulk action failed:', err)

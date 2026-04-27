@@ -35,18 +35,8 @@ import { parseDate } from "@/utils/dateUtils";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
 import { categoryService } from "@/services/categoryService";
 import type { TicketCategory } from "@/types/category";
+import { ticketsKeys } from "@/queries/tickets";
 import type { Ticket } from "@/services/ticketService";
-
-// Hierarchical query keys, exported pattern (mirrors notifications
-// store) so SSE invalidation and any future cross-cutting consumer
-// reach the same strings without typo drift.
-const TICKETS_KEYS = {
-  root: ['tickets'] as const,
-  list: (variant: 'infinite' | 'paginated', cacheKey: string, page?: number) =>
-    page === undefined
-      ? ([...TICKETS_KEYS.root, 'list', variant, cacheKey] as const)
-      : ([...TICKETS_KEYS.root, 'list', variant, cacheKey, page] as const),
-}
 
 defineOptions({ name: 'TicketsListView' })
 
@@ -116,7 +106,7 @@ const bulkActionMutation = useMutation({
     // Server-authoritative for bulk operations: re-fetch instead
     // of trying to optimistically reconcile a multi-row change
     // across infinite + paginated cache entries.
-    queryCache.invalidateQueries({ key: TICKETS_KEYS.root })
+    queryCache.invalidateQueries({ key: ticketsKeys.root })
   },
   onError: (err) => {
     console.error('Bulk action failed:', err)
@@ -269,7 +259,7 @@ const queryCache = useQueryCache()
 const infiniteList = useInfiniteQuery(() => ({
   // Page is NOT in the key for infinite mode (pages append into
   // one cache entry per filter set). Filter / sort / search ARE.
-  key: TICKETS_KEYS.list('infinite', controls.cacheKeyPart.value),
+  key: ticketsKeys.list('infinite', controls.cacheKeyPart.value),
   initialPageParam: 1,
   query: ({ pageParam }) =>
     ticketService.getPaginatedTickets(
@@ -284,7 +274,7 @@ const infiniteList = useInfiniteQuery(() => ({
 const paginatedList = useInfiniteQuery(() => ({
   // Page IS in the key here: each page is a discrete cache entry
   // so jumping from page 5 to page 1 doesn't re-fetch page 5.
-  key: TICKETS_KEYS.list('paginated', controls.cacheKeyPart.value, controls.currentPage.value),
+  key: ticketsKeys.list('paginated', controls.cacheKeyPart.value, controls.currentPage.value),
   initialPageParam: controls.currentPage.value,
   query: ({ pageParam }) =>
     ticketService.getPaginatedTickets(
@@ -339,7 +329,7 @@ const isBackgroundRefresh = computed(() => isFetching.value && items.value.lengt
 // shows it's an issue.
 const sse = useSSE()
 function invalidateTicketsList() {
-  queryCache.invalidateQueries({ key: TICKETS_KEYS.root })
+  queryCache.invalidateQueries({ key: ticketsKeys.root })
 }
 
 const sseHandlers: Array<{ type: string; handler: (data: unknown) => void }> = [
