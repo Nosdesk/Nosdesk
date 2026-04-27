@@ -1,19 +1,24 @@
 <!--
-Starred documentation pages — a compact reference panel. Icon +
+Starred documentation pages, a compact reference panel. Icon +
 title only, 6 rows max.
 -->
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useQuery } from '@pinia/colada'
 import {
   getStarredPages,
   type StarredPageInfo,
 } from '@/services/documentationService'
-import { useAsyncResource } from '@/composables/useAsyncResource'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 
-const { data: pages, loading, error } = useAsyncResource<StarredPageInfo[]>(
-  async () => (await getStarredPages()).slice(0, 6),
-  [],
-  'Failed to load starred docs',
+const { data, isLoading, error } = useQuery({
+  key: ['documentation', 'starred'],
+  query: async () => (await getStarredPages()).slice(0, 6),
+})
+
+const pages = computed<StarredPageInfo[]>(() => data.value ?? [])
+const errorMessage = computed(() =>
+  error.value ? 'Failed to load starred docs' : null,
 )
 </script>
 
@@ -21,9 +26,9 @@ const { data: pages, loading, error } = useAsyncResource<StarredPageInfo[]>(
   <DashboardWidgetShell
     title="Starred Docs"
     action-to="/documentation"
-    :loading="loading"
-    :error="error"
-    :empty="!error && pages.length === 0"
+    :loading="isLoading"
+    :error="errorMessage"
+    :empty="!errorMessage && pages.length === 0"
     empty-title="No starred pages"
     empty-description="Star a doc to keep it handy."
     min-body-height="200px"

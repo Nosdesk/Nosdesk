@@ -2,22 +2,31 @@
 Devices whose primary user is the current user.
 -->
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useQuery } from '@pinia/colada'
 import { useAuthStore } from '@/stores/auth'
 import { getDevicesByUser } from '@/services/deviceService'
 import type { Device } from '@/types'
-import { useAsyncResource } from '@/composables/useAsyncResource'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 
 const auth = useAuthStore()
 
-const { data: devices, loading, error } = useAsyncResource<Device[]>(
-  async () => {
+// Reactive key includes the user uuid so a session swap (login as
+// a different user) yields a fresh cache entry rather than serving
+// the previous user's devices.
+const { data, isLoading, error } = useQuery({
+  key: () => ['devices', 'by-user', auth.user?.uuid ?? ''],
+  query: async () => {
     const uuid = auth.user?.uuid
-    if (!uuid) return []
+    if (!uuid) return [] as Device[]
     return (await getDevicesByUser(uuid)).slice(0, 5)
   },
-  [],
-  'Failed to load devices',
+  enabled: () => !!auth.user?.uuid,
+})
+
+const devices = computed<Device[]>(() => data.value ?? [])
+const errorMessage = computed(() =>
+  error.value ? 'Failed to load devices' : null,
 )
 </script>
 
@@ -25,9 +34,9 @@ const { data: devices, loading, error } = useAsyncResource<Device[]>(
   <DashboardWidgetShell
     title="My Devices"
     action-to="/devices"
-    :loading="loading"
-    :error="error"
-    :empty="!error && devices.length === 0"
+    :loading="isLoading"
+    :error="errorMessage"
+    :empty="!errorMessage && devices.length === 0"
     empty-title="No devices assigned"
     empty-description="Devices linked to your account will show here."
     min-body-height="200px"

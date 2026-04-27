@@ -1,104 +1,117 @@
+/**
+ * Recent-tickets store. Backed by Pinia Colada (`useQuery`) so
+ * the sidebar (`<RecentTickets>`) and the dashboard widget
+ * (`<RecentlyViewedWidget>`) share one cache entry, keyed by
+ * `['tickets', 'recent']`. Both consumers see the same data and
+ * a mutation here flows through to both surfaces immediately.
+ *
+ * Local UI overrides (removed-ids suppression, drag-reorder)
+ * stay in store-local refs because they're per-session
+ * client-only, not server-authoritative state.
+ */
 import { defineStore } from 'pinia'
-import { logger } from '@/utils/logger';
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useQuery, useQueryCache } from '@pinia/colada'
 import ticketService from '@/services/ticketService'
 import type { RecentTicket } from '@/types/ticket'
+import { logger } from '@/utils/logger'
+
+export const RECENT_TICKETS_KEY = ['tickets', 'recent'] as const
 
 export const useRecentTicketsStore = defineStore('recentTickets', () => {
-  const recentTickets = ref<RecentTicket[]>([])
-  const isLoading = ref(false)
-  const error = ref<string | null>(null)
-  // Track recently-removed ticket IDs so recordTicketView won't immediately re-add them
+  const queryCache = useQueryCache()
+
+  // Recently-removed ids stay suppressed until the next refetch
+  // so a quick `recordTicketView` after `removeTicket` doesn't
+  // immediately re-add the just-dismissed entry.
   const removedTicketIds = ref<Set<number>>(new Set())
 
-  // Fetch recent tickets from the server
-  const fetchRecentTickets = async () => {
-    isLoading.value = true
-    error.value = null
+  // Local drag-to-reorder override. Server returns most-recent
+  // first; if the user drags rows we honour that local order
+  // until the next refetch, when the server order resumes.
+  const orderOverride = ref<number[] | null>(null)
 
-    try {
-      const tickets = await ticketService.getRecentTickets()
-      // Filter out any tickets the user has explicitly removed during this session
-      recentTickets.value = removedTicketIds.value.size > 0
-        ? tickets.filter(t => !removedTicketIds.value.has(t.id))
-        : tickets
+  const query = useQuery({
+    key: RECENT_TICKETS_KEY,
+    query: () => ticketService.getRecentTickets(),
+  })
 
-      if (import.meta.env.DEV) {
-        logger.debug(`Fetched ${tickets.length} recent tickets from server`)
+  const baseTickets = computed<RecentTicket[]>(() => query.data.value ?? [])
+
+  const recentTickets = computed<RecentTicket[]>(() => {
+    let list = removedTicketIds.value.size > 0
+      ? baseTickets.value.filter((t) => !removedTicketIds.value.has(t.id))
+      : baseTickets.value
+    if (orderOverride.value) {
+      const order = orderOverride.value
+      const byId = new Map(list.map((t) => [t.id, t]))
+      const ordered: RecentTicket[] = []
+      for (const id of order) {
+        const item = byId.get(id)
+        if (item) {
+          ordered.push(item)
+          byId.delete(id)
+        }
       }
-    } catch (err) {
-      error.value = 'Failed to fetch recent tickets'
-      logger.error('Error fetching recent tickets:', err)
-    } finally {
-      isLoading.value = false
+      // Append any tickets that arrived after the reorder.
+      for (const item of byId.values()) ordered.push(item)
+      list = ordered
     }
+    return list
+  })
+
+  const isLoading = computed(() => query.asyncStatus.value === 'loading')
+  const error = computed(() => (query.error.value ? 'Failed to fetch recent tickets' : null))
+
+  function fetchRecentTickets() {
+    return query.refresh()
   }
 
-  // Record that a ticket was viewed (automatically updates server)
-  const recordTicketView = async (ticketId: number) => {
-    // Skip if this ticket was recently removed from the list by the user
+  async function recordTicketView(ticketId: number) {
     if (removedTicketIds.value.has(ticketId)) return
-
     try {
       await ticketService.recordTicketView(ticketId)
-
-      // Refresh the recent tickets list to reflect the new view
-      await fetchRecentTickets()
-
-      if (import.meta.env.DEV) {
-        logger.debug(`Recorded view for ticket #${ticketId}`)
-      }
+      // Invalidate so Colada refetches and the new entry slots
+      // in at the top with correct ordering.
+      queryCache.invalidateQueries({ key: RECENT_TICKETS_KEY })
     } catch (err) {
       logger.error(`Error recording view for ticket #${ticketId}:`, err)
     }
   }
 
-  // Update ticket data in the local cache (after changes)
-  const updateTicketData = (ticketId: number, updatedData: Partial<RecentTicket>) => {
-    const ticketIndex = recentTickets.value.findIndex(t => t.id === ticketId)
-
-    if (ticketIndex !== -1) {
-      // Object.assign mutates in-place, preserving object reference and Vue reactivity
-      Object.assign(recentTickets.value[ticketIndex], updatedData)
-
-      if (import.meta.env.DEV) {
-        logger.debug(`Updated ticket #${ticketId} in recent tickets cache`)
-      }
-    }
+  function updateTicketData(ticketId: number, updatedData: Partial<RecentTicket>) {
+    queryCache.setQueryData<RecentTicket[]>(RECENT_TICKETS_KEY, (old) => {
+      if (!old) return old as never
+      return old.map((t) => (t.id === ticketId ? { ...t, ...updatedData } : t))
+    })
   }
 
-  // Remove a ticket from the recent list
-  const removeTicket = async (ticketId: number) => {
-    // Mark as removed so concurrent/future recordTicketView calls won't re-add it
+  async function removeTicket(ticketId: number) {
     removedTicketIds.value.add(ticketId)
-    // Optimistic removal from local list
-    recentTickets.value = recentTickets.value.filter(t => t.id !== ticketId)
+    // Optimistic remove from cache so both consumers update.
+    queryCache.setQueryData<RecentTicket[]>(RECENT_TICKETS_KEY, (old) =>
+      (old ?? []).filter((t) => t.id !== ticketId),
+    )
     try {
       await ticketService.removeRecentTicket(ticketId)
-      // Server confirmed deletion — clear suppression so future views work normally
       removedTicketIds.value.delete(ticketId)
     } catch (err) {
       logger.error(`Error removing ticket #${ticketId} from recent:`, err)
-      // Server delete failed — undo the suppression and re-fetch to restore correct state
       removedTicketIds.value.delete(ticketId)
-      await fetchRecentTickets()
+      // Server rejected the delete; refetch to restore truth.
+      queryCache.invalidateQueries({ key: RECENT_TICKETS_KEY })
     }
   }
 
-  // Reorder tickets in the list (local only - persists until next fetch)
-  const reorderTickets = (fromIndex: number, toIndex: number) => {
+  function reorderTickets(fromIndex: number, toIndex: number) {
     if (fromIndex === toIndex) return
-    if (fromIndex < 0 || fromIndex >= recentTickets.value.length) return
-    if (toIndex < 0 || toIndex >= recentTickets.value.length) return
-
-    const tickets = [...recentTickets.value]
-    const [moved] = tickets.splice(fromIndex, 1)
-    tickets.splice(toIndex, 0, moved)
-    recentTickets.value = tickets
-
-    if (import.meta.env.DEV) {
-      logger.debug(`Reordered ticket from index ${fromIndex} to ${toIndex}`)
-    }
+    const current = recentTickets.value
+    if (fromIndex < 0 || fromIndex >= current.length) return
+    if (toIndex < 0 || toIndex >= current.length) return
+    const next = [...current]
+    const [moved] = next.splice(fromIndex, 1)
+    next.splice(toIndex, 0, moved)
+    orderOverride.value = next.map((t) => t.id)
   }
 
   return {
@@ -109,6 +122,6 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
     recordTicketView,
     updateTicketData,
     removeTicket,
-    reorderTickets
+    reorderTickets,
   }
 })

@@ -1,17 +1,22 @@
 <!--
-Admin-only glance at inbound email channel status — enabled state,
+Admin-only glance at inbound email channel status: enabled state,
 last polled, any provider-reported error.
 -->
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useQuery } from '@pinia/colada'
 import { channelsService, type Channel, type ImapRuntimeState } from '@/services/channelsService'
 import { formatRelativeTime } from '@/utils/dateUtils'
-import { useAsyncResource } from '@/composables/useAsyncResource'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 
-const { data: channels, loading, error } = useAsyncResource<Channel[]>(
-  () => channelsService.list(),
-  [],
-  'Failed to load channels',
+const { data, isLoading, error } = useQuery({
+  key: ['channels', 'list'],
+  query: () => channelsService.list(),
+})
+
+const channels = computed<Channel[]>(() => data.value ?? [])
+const errorMessage = computed(() =>
+  error.value ? 'Failed to load channels' : null,
 )
 
 function lastError(c: Channel): string | null {
@@ -25,8 +30,8 @@ function lastError(c: Channel): string | null {
     title="Channel Health"
     action-label="Manage"
     action-to="/admin/channels/email"
-    :loading="loading"
-    :error="error"
+    :loading="isLoading"
+    :error="errorMessage"
     :empty="channels.length === 0"
     empty-title="No channels configured"
     empty-description="Add an email channel to ingest tickets."
