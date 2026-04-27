@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import BaseListView from '@/components/common/BaseListView.vue'
+import PageScroll from '@/components/common/PageScroll.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
@@ -185,7 +187,6 @@ const executeBulkAction = async (action: 'delete') => {
 // Track if currently loading more (to prevent duplicate requests)
 const isLoadingMore = ref(false);
 
-// Handle load more from BaseListView's scroll event
 const handleLoadMore = async () => {
   if (isLoadingMore.value) return;
   isLoadingMore.value = true;
@@ -203,81 +204,81 @@ defineExpose({
 </script>
 
 <template>
-  <div class="flex flex-col h-full overflow-hidden">
-    <!-- Search and filter bar -->
-    <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
-      <div class="p-2 flex items-center gap-2 flex-wrap">
-        <!-- Search input - hidden on mobile (shown in MobileSearchBar) -->
-        <DebouncedSearchInput
-          :model-value="listManager.searchQuery.value"
-          @update:model-value="listManager.handleSearchUpdate"
-          placeholder="Search devices..."
-          class="hidden sm:block"
-        />
+  <PageScroll
+    content-class=""
+    :is-empty="!!listManager.error.value || (listManager.items.value.length === 0 && !listManager.loading.value)"
+  >
+    <template #chrome>
+      <!-- Search and filter bar -->
+      <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
+        <div class="p-2 flex items-center gap-2 flex-wrap">
+          <DebouncedSearchInput
+            :model-value="listManager.searchQuery.value"
+            @update:model-value="listManager.handleSearchUpdate"
+            placeholder="Search devices..."
+            class="hidden sm:block"
+          />
 
-        <!-- Filters -->
-        <template v-if="filterOptions.length > 0">
-          <div
-            v-for="filter in filterOptions"
-            :key="filter.name"
-            :class="[filter.width || 'w-[120px]']"
-          >
-            <BaseDropdown
-              :model-value="filter.value"
-              :options="filter.options"
-              :multiple="filter.multiple"
-              :placeholder="filter.placeholder"
-              size="sm"
-              @update:model-value="value => listManager.handleFilterUpdate(filter.name, value)"
-            />
+          <template v-if="filterOptions.length > 0">
+            <div
+              v-for="filter in filterOptions"
+              :key="filter.name"
+              :class="[filter.width || 'w-[120px]']"
+            >
+              <BaseDropdown
+                :model-value="filter.value"
+                :options="filter.options"
+                :multiple="filter.multiple"
+                :placeholder="filter.placeholder"
+                size="sm"
+                @update:model-value="value => listManager.handleFilterUpdate(filter.name, value)"
+              />
+            </div>
+
+            <button
+              @click="listManager.resetFilters"
+              class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
+            >
+              Reset
+            </button>
+          </template>
+
+          <div class="text-xs text-secondary ml-auto">
+            {{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}
           </div>
-
-          <button
-            @click="listManager.resetFilters"
-            class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
-          >
-            Reset
-          </button>
-        </template>
-
-        <div class="text-xs text-secondary ml-auto">
-          {{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}
         </div>
       </div>
-    </div>
 
-    <!-- Bulk Actions Bar -->
-    <BulkActionsBar
-      :selected-count="listManager.selectedItems.value.length"
-      :total-count="listManager.totalItems.value"
-      :actions="bulkActions"
-      item-label="device"
-      @action="handleBulkAction"
-      @clear-selection="listManager.clearSelection"
-      @select-all="listManager.selectAll"
-    />
+      <BulkActionsBar
+        :selected-count="listManager.selectedItems.value.length"
+        :total-count="listManager.totalItems.value"
+        :actions="bulkActions"
+        item-label="device"
+        @action="handleBulkAction"
+        @clear-selection="listManager.clearSelection"
+        @select-all="listManager.selectAll"
+      />
+    </template>
 
-    <!-- Main content -->
-    <div class="flex-1 flex flex-col overflow-hidden">
-      <BaseListView
-        title="Devices"
-        :is-loading="listManager.loading.value"
-        :is-empty="listManager.items.value.length === 0 && !listManager.loading.value"
-        :error="listManager.error.value"
-        :is-mobile="isMobile"
-        empty-icon="device"
-        :empty-message="listManager.searchQuery.value ? 'No devices match your search' : 'No devices found'"
-        :empty-description="listManager.searchQuery.value ? 'Try adjusting your search or filters' : 'Add your first device to get started'"
-        :empty-action-label="!listManager.searchQuery.value ? 'Add Device' : undefined"
-        :is-loading-more="isLoadingMore"
+    <template #empty>
+      <ErrorBanner
+        v-if="listManager.error.value"
+        :message="listManager.error.value"
+        :show-retry="true"
         @retry="listManager.fetchItems"
-        @empty-action="navigateToCreateDevice"
-        @load-more="handleLoadMore"
-      >
-        <!-- Desktop Table View -->
-        <template #default>
-          <div class="flex-1 overflow-y-auto">
-            <DataTable
+      />
+      <EmptyState
+        v-else
+        icon="device"
+        :title="listManager.searchQuery.value ? 'No devices match your search' : 'No devices found'"
+        :description="listManager.searchQuery.value ? 'Try adjusting your search or filters' : 'Add your first device to get started'"
+        :action-label="!listManager.searchQuery.value ? 'Add Device' : undefined"
+        @action="navigateToCreateDevice"
+      />
+    </template>
+
+    <div v-show="!isMobile">
+      <DataTable
               :columns="columns"
               :data="listManager.items.value"
               :selected-items="listManager.selectedItems.value"
@@ -335,18 +336,15 @@ defineExpose({
             <template #cell-warranty_status="{ value }">
               <StatusBadgeCell type="warranty" :value="value" />
             </template>
-            </DataTable>
-          </div>
-        </template>
+      </DataTable>
+    </div>
 
-        <!-- Mobile/Tablet Card View -->
-        <template #mobile-view>
-          <div class="flex-1 overflow-y-auto">
-            <TransitionGroup
-              name="list-stagger"
-              tag="div"
-              class="flex flex-col"
-            >
+    <div v-show="isMobile">
+      <TransitionGroup
+        name="list-stagger"
+        tag="div"
+        class="flex flex-col"
+      >
             <div
               v-for="(device, index) in listManager.items.value"
               :key="device.id"
@@ -411,27 +409,24 @@ defineExpose({
               <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
               </svg>
-            </div>
-            </TransitionGroup>
-          </div>
-        </template>
-      </BaseListView>
+      </div>
+      </TransitionGroup>
     </div>
 
-    <!-- Pagination Controls (hidden on mobile when using infinite scroll) -->
-    <PaginationControls
-      v-if="!isMobile"
-      :current-page="listManager.currentPage.value"
-      :total-pages="listManager.totalPages.value"
-      :page-size="listManager.pageSize.value"
-      :page-size-options="listManager.pageSizeOptions"
-      :show-import="true"
-      @update:current-page="listManager.handlePageChange"
-      @update:page-size="listManager.handlePageSizeChange"
-      @import="() => {}"
-    />
-
-  </div>
+    <template #footer>
+      <PaginationControls
+        v-if="!isMobile"
+        :current-page="listManager.currentPage.value"
+        :total-pages="listManager.totalPages.value"
+        :page-size="listManager.pageSize.value"
+        :page-size-options="listManager.pageSizeOptions"
+        :show-import="true"
+        @update:current-page="listManager.handlePageChange"
+        @update:page-size="listManager.handlePageSizeChange"
+        @import="() => {}"
+      />
+    </template>
+  </PageScroll>
 </template>
 
 <style scoped>

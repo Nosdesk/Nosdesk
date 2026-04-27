@@ -22,53 +22,69 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import type { Notification } from '@/services/notificationService'
-import { useNotificationsStore } from '@/stores/notifications'
+import { useDeleteManyMutation, useNotificationsStore } from '@/stores/notifications'
+import {
+  applyNotificationFilter,
+  iconForNotificationType,
+  NOTIFICATION_FILTER_TABS,
+  useNotificationFeed,
+  type NotificationFilter,
+} from '@/composables/useNotificationFeed'
 import { formatInboxTime, parseDate } from '@/utils/dateUtils'
 import Icon from '@/components/common/Icon.vue'
-import type { IconName } from '@/components/common/icons'
-
-type Filter = 'all' | 'unread' | 'mentions'
+import PageScroll from '@/components/common/PageScroll.vue'
+import AsyncBoundary from '@/components/common/AsyncBoundary.vue'
+import { useInboxLoader } from '@/loaders/inboxLoader'
 
 const router = useRouter()
 const store = useNotificationsStore()
-const { items, unreadCount, isFirstLoad, hasMore, isLoadingMore } = storeToRefs(store)
 
-const filter = ref<Filter>('all')
+// Subscribe to the route Data Loader. The loader has already
+// run during navigation and primed the Pinia Colada caches
+// with the first page + unread count, so the queries below
+// resolve from cache without firing fresh requests on mount.
+useInboxLoader()
+
+// Shared notification wiring (queries, mutations, derived state,
+// presentation helpers). The bell consumes the same composable;
+// inbox-specific concerns (bulk select, four-bucket grouping,
+// long-form empty copy) stay below.
+const feed = useNotificationFeed()
+const {
+  list,
+  items,
+  unreadCount,
+  hasMore,
+  fetchOp,
+  isLoadingMore,
+  markRead,
+  markManyRead,
+  dismiss,
+} = feed
+
+// Bulk-delete is inbox-only (no equivalent in the bell), so it
+// lives here rather than in the shared feed.
+const deleteMany = useDeleteManyMutation()
+
+const filter = ref<NotificationFilter>('all')
 const selectedIds = ref<Set<number>>(new Set())
 const sentinelRef = ref<HTMLElement | null>(null)
-const scrollContainerRef = ref<HTMLElement | null>(null)
+// PageScroll exposes its inner scroll container via defineExpose;
+// we pull it through to anchor the IntersectionObserver root
+// (the page itself doesn't scroll, the list region does).
+const pageScrollRef = ref<InstanceType<typeof PageScroll> | null>(null)
+const scrollContainerRef = computed<HTMLElement | null>(
+  () => pageScrollRef.value?.scrollContainerRef ?? null,
+)
 // Anchor for shift-click range selection. Tracks the most
 // recent checkbox the user toggled so the next shift-click
 // can fill in the range between them, the way every modern
 // inbox / file picker handles bulk selection.
 const lastClickedId = ref<number | null>(null)
 
-const TABS: ReadonlyArray<{ value: Filter; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'unread', label: 'Unread' },
-  { value: 'mentions', label: 'Mentions' },
-]
-
-const TYPE_ICON: Record<string, IconName> = {
-  ticket_assigned: 'userPlus',
-  ticket_status_changed: 'refresh',
-  ticket_created_requester: 'add',
-  comment_added: 'comment',
-  mentioned: 'at',
-  doc_page_updated: 'documentEdit',
-}
-const iconForType = (type: string): IconName => TYPE_ICON[type] ?? 'bell'
-
-const filteredNotifications = computed(() => {
-  switch (filter.value) {
-    case 'unread':
-      return items.value.filter((n) => !n.is_read)
-    case 'mentions':
-      return items.value.filter((n) => n.notification_type === 'mentioned')
-    default:
-      return items.value
-  }
-})
+const filteredNotifications = computed(() =>
+  applyNotificationFilter(filter.value, items.value),
+)
 
 interface NotificationGroup {
   label: string
@@ -200,7 +216,7 @@ function toggleSelectAll() {
 }
 
 async function navigateToNotification(notification: Notification) {
-  if (!notification.is_read) await store.markRead([notification.id])
+  if (!notification.is_read) markRead.mutate(notification.id)
   if (notification.entity_type === 'documentation_page') {
     const slug = notification.metadata?.slug as string | undefined
     const pageId = (notification.metadata?.page_id as number | undefined) ?? notification.entity_id
@@ -213,7 +229,7 @@ async function navigateToNotification(notification: Notification) {
 
 function handleMarkRead(event: Event, notification: Notification) {
   event.stopPropagation()
-  if (!notification.is_read) store.markRead([notification.id])
+  if (!notification.is_read) markRead.mutate(notification.id)
 }
 
 function handleClearNotification(event: Event, notification: Notification) {
@@ -229,7 +245,7 @@ function handleClearNotification(event: Event, notification: Notification) {
     (rowEl?.nextElementSibling as HTMLElement | null) ??
     (rowEl?.previousElementSibling as HTMLElement | null)
   selectedIds.value.delete(notification.id)
-  store.deleteItems([notification.id])
+  dismiss.mutate(notification.id)
   nextTick(() => {
     if (!target) return
     const focusable = target.querySelector(
@@ -239,33 +255,22 @@ function handleClearNotification(event: Event, notification: Notification) {
   })
 }
 
-async function handleBulkMarkRead() {
+function handleBulkMarkRead() {
   const ids = Array.from(selectedIds.value)
-  await store.markRead(ids)
-  // Selection cleared so the user has fresh state — they almost
-  // never want to immediately re-act on the same set.
+  if (ids.length === 0) return
+  markManyRead.mutate(ids)
   clearSelection()
 }
 
-async function handleBulkDelete() {
+function handleBulkDelete() {
   const ids = Array.from(selectedIds.value)
-  await store.deleteItems(ids)
+  if (ids.length === 0) return
+  deleteMany.mutate(ids)
   clearSelection()
 }
 
-// Mark-all-read scoped to the active filter. The All tab uses
-// the global server endpoint (single round-trip); other tabs
-// pass the visible unread ids so users on "Mentions" don't
-// accidentally clear unrelated notifications.
 function handleMarkAllReadScoped() {
-  if (filter.value === 'all') {
-    store.markAllRead()
-    return
-  }
-  const ids = filteredNotifications.value
-    .filter((n) => !n.is_read)
-    .map((n) => n.id)
-  store.markRead(ids)
+  feed.markAllReadScoped(filter.value, filteredNotifications.value)
 }
 
 // IntersectionObserver-driven infinite scroll. Sentinel sits a
@@ -280,7 +285,7 @@ function attachObserver() {
     (entries) => {
       for (const entry of entries) {
         if (entry.isIntersecting && hasMore.value && !isLoadingMore.value) {
-          store.fetchPage(false)
+          list.loadNextPage()
         }
       }
     },
@@ -309,8 +314,9 @@ watch(filter, () => {
 })
 
 onMounted(() => {
+  // SSE wiring (idempotent). Pinia Colada handles the initial
+  // list/unread fetches automatically when the queries mount.
   store.ensureSubscribed()
-  store.fetchPage(true)
 })
 
 onBeforeUnmount(() => {
@@ -319,7 +325,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden bg-app">
+  <PageScroll
+    ref="pageScrollRef"
+    :is-empty="!isFirstLoad && filteredNotifications.length === 0"
+  >
+    <template #chrome>
     <!-- Page chrome: title + tabs sit above the scroll region
          so they're always visible. Matches the toolbar pattern
          used by TicketsListView / UsersListView / ProjectsView,
@@ -353,7 +363,7 @@ onBeforeUnmount(() => {
           class="-mx-2 flex items-center gap-1 overflow-x-auto"
         >
           <button
-            v-for="tab in TABS"
+            v-for="tab in NOTIFICATION_FILTER_TABS"
             :key="tab.value"
             type="button"
             role="tab"
@@ -436,20 +446,13 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </Transition>
+    </template>
 
-    <!-- Scrollable content. Internal scroll container so the
-         toolbar / bulk bar above never scroll away. The empty
-         state and the list use different layout containers:
-         the list sits in a max-width readable column, the
-         empty state spans the full scroll width so it centres
-         against the actual content area (not the column). -->
-    <div ref="scrollContainerRef" class="flex-1 overflow-y-auto">
-      <!-- Empty state: full-width sibling, centred against the
-           scroll container itself rather than the column. -->
-      <div
-        v-if="!isFirstLoad && filteredNotifications.length === 0"
-        class="flex h-full flex-col items-center justify-center gap-4 px-6 py-12 text-center"
-      >
+    <!-- Empty state slot. PageScroll's `#empty` wrapper handles
+         full-scroll-width centring; we just supply the inner
+         content (icon, title, subtitle). -->
+    <template #empty>
+      <div class="flex flex-col items-center gap-4 text-center">
         <div
           class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-alt text-tertiary"
           aria-hidden="true"
@@ -463,10 +466,10 @@ onBeforeUnmount(() => {
           <p class="text-sm text-tertiary">{{ emptyContent.subtitle }}</p>
         </div>
       </div>
+    </template>
 
-      <!-- List view: width-constrained column for readable rows. -->
-      <div v-else class="mx-auto w-full max-w-5xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
-        <div class="overflow-hidden rounded-lg border border-default bg-surface">
+    <!-- Default slot: width-constrained list column. -->
+    <div class="overflow-hidden rounded-lg border border-default bg-surface">
           <!-- Select-all + count chrome. Hidden during first
                load (no items yet to select). -->
           <div
@@ -487,21 +490,39 @@ onBeforeUnmount(() => {
             </span>
           </div>
 
-          <div v-if="isFirstLoad" class="space-y-px p-2" aria-hidden="true">
-            <div
-              v-for="i in 6"
-              :key="i"
-              class="flex animate-pulse items-start gap-3 rounded-md p-3"
-            >
-              <div class="h-8 w-8 flex-shrink-0 rounded-full bg-surface-alt"></div>
-              <div class="flex-1 space-y-2 py-1">
-                <div class="h-3 w-3/4 rounded bg-surface-alt"></div>
-                <div class="h-3 w-1/2 rounded bg-surface-alt"></div>
+          <!-- AsyncBoundary owns the first-load state machine.
+               The pending slot only renders if the fetch takes
+               >300ms AND we have no data — fast loads complete
+               invisibly, refetches show through to existing
+               data. Global progress bar carries the indicator
+               for everything else. -->
+          <AsyncBoundary
+            :op="fetchOp"
+            :has-data="filteredNotifications.length > 0"
+            :pending-delay="300"
+          >
+            <template #pending>
+              <!-- Skeleton kept here as the structured placeholder
+                   for slow first loads. With the 300ms gate and
+                   `prefers-reduced-motion` support on
+                   `animate-pulse`, the previous "skeleton flash"
+                   pathology is gone. -->
+              <div class="space-y-px p-2" aria-hidden="true">
+                <div
+                  v-for="i in 6"
+                  :key="i"
+                  class="flex animate-pulse items-start gap-3 rounded-md p-3 motion-reduce:animate-none"
+                >
+                  <div class="h-8 w-8 flex-shrink-0 rounded-full bg-surface-alt"></div>
+                  <div class="flex-1 space-y-2 py-1">
+                    <div class="h-3 w-3/4 rounded bg-surface-alt"></div>
+                    <div class="h-3 w-1/2 rounded bg-surface-alt"></div>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            </template>
 
-          <template v-else>
+            <template #default>
             <section
               v-for="group in groupedNotifications"
               :key="group.label"
@@ -539,7 +560,7 @@ onBeforeUnmount(() => {
                       : 'bg-accent/10 text-accent'
                   "
                 >
-                  <Icon :name="iconForType(notification.notification_type)" size="sm" />
+                  <Icon :name="iconForNotificationType(notification.notification_type)" size="sm" />
                 </div>
 
                 <div class="min-w-0 flex-1">
@@ -587,21 +608,21 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </section>
-          </template>
+            </template>
+          </AsyncBoundary>
         </div>
 
-        <!-- Sentinel + status row sit outside the card so the
-             "End of feed" / loading text reads as a separator
-             rather than a list item. -->
-        <div
-          ref="sentinelRef"
-          class="flex items-center justify-center py-4 text-xs text-tertiary"
-          aria-hidden="true"
-        >
-          <span v-if="isLoadingMore">Loading more...</span>
-          <span v-else-if="!hasMore && items.length > 0">End of feed</span>
-        </div>
-      </div>
+    <!-- Sentinel + status row sit outside the card so the
+         "End of feed" / loading text reads as a separator
+         rather than a list item. Still inside PageScroll's
+         default slot so it sits in the readable column. -->
+    <div
+      ref="sentinelRef"
+      class="flex items-center justify-center py-4 text-xs text-tertiary"
+      aria-hidden="true"
+    >
+      <span v-if="isLoadingMore">Loading more...</span>
+      <span v-else-if="!hasMore && items.length > 0">End of feed</span>
     </div>
-  </div>
+  </PageScroll>
 </template>

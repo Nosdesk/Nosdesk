@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useRouter } from "vue-router";
-import BaseListView from "@/components/common/BaseListView.vue";
+import PageScroll from "@/components/common/PageScroll.vue";
+import EmptyState from "@/components/common/EmptyState.vue";
+import ErrorBanner from "@/components/common/ErrorBanner.vue";
 import DataTable from "@/components/common/DataTable.vue";
 import DebouncedSearchInput from "@/components/common/DebouncedSearchInput.vue";
 import PaginationControls from "@/components/common/PaginationControls.vue";
@@ -152,7 +154,6 @@ const handleBulkRoleChange = (role: string) => {
 // Track if currently loading more (to prevent duplicate requests)
 const isLoadingMore = ref(false);
 
-// Handle load more from BaseListView's scroll event
 const handleLoadMore = async () => {
   if (isLoadingMore.value) return;
   isLoadingMore.value = true;
@@ -170,82 +171,81 @@ defineExpose({
 </script>
 
 <template>
-  <div class="flex flex-col h-full overflow-hidden">
-    <!-- Search and filter bar -->
-    <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
-      <div class="p-2 flex items-center gap-2 flex-wrap">
-        <!-- Search input - hidden on mobile (shown in MobileSearchBar) -->
-        <DebouncedSearchInput
-          :model-value="listManager.searchQuery.value"
-          @update:model-value="listManager.handleSearchUpdate"
-          placeholder="Search users..."
-          class="hidden sm:block"
-        />
+  <PageScroll
+    content-class=""
+    :is-empty="!!listManager.error.value || (listManager.items.value.length === 0 && !listManager.loading.value)"
+  >
+    <template #chrome>
+      <!-- Search and filter bar -->
+      <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
+        <div class="p-2 flex items-center gap-2 flex-wrap">
+          <DebouncedSearchInput
+            :model-value="listManager.searchQuery.value"
+            @update:model-value="listManager.handleSearchUpdate"
+            placeholder="Search users..."
+            class="hidden sm:block"
+          />
 
-        <!-- Filters -->
-        <template v-if="filterOptions.length > 0">
-          <div
-            v-for="filter in filterOptions"
-            :key="filter.name"
-            :class="[filter.width || 'w-[120px]']"
-          >
-            <BaseDropdown
-              :model-value="filter.value"
-              :options="filter.options"
-              :multiple="filter.multiple"
-              :placeholder="filter.placeholder"
-              size="sm"
-              @update:model-value="value => listManager.handleFilterUpdate(filter.name, value)"
-            />
+          <template v-if="filterOptions.length > 0">
+            <div
+              v-for="filter in filterOptions"
+              :key="filter.name"
+              :class="[filter.width || 'w-[120px]']"
+            >
+              <BaseDropdown
+                :model-value="filter.value"
+                :options="filter.options"
+                :multiple="filter.multiple"
+                :placeholder="filter.placeholder"
+                size="sm"
+                @update:model-value="value => listManager.handleFilterUpdate(filter.name, value)"
+              />
+            </div>
+
+            <button
+              @click="listManager.resetFilters"
+              class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
+            >
+              Reset
+            </button>
+          </template>
+
+          <div class="text-xs text-secondary flex items-center gap-4 ml-auto">
+            <span>{{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}</span>
           </div>
-
-          <button
-            @click="listManager.resetFilters"
-            class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
-          >
-            Reset
-          </button>
-        </template>
-
-        <!-- Results count -->
-        <div class="text-xs text-secondary flex items-center gap-4 ml-auto">
-          <span>{{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}</span>
         </div>
       </div>
-    </div>
 
-    <!-- Bulk Actions Bar -->
-    <BulkActionsBar
-      :selected-count="listManager.selectedItems.value.length"
-      :total-count="listManager.totalItems.value"
-      :actions="bulkActions"
-      item-label="user"
-      @action="handleBulkAction"
-      @clear-selection="listManager.clearSelection"
-      @select-all="listManager.selectAll"
-    />
+      <BulkActionsBar
+        :selected-count="listManager.selectedItems.value.length"
+        :total-count="listManager.totalItems.value"
+        :actions="bulkActions"
+        item-label="user"
+        @action="handleBulkAction"
+        @clear-selection="listManager.clearSelection"
+        @select-all="listManager.selectAll"
+      />
+    </template>
 
-    <!-- Main content -->
-    <div class="flex-1 flex flex-col overflow-hidden">
-      <BaseListView
-        title="Users"
-        :is-loading="listManager.loading.value"
-        :is-empty="listManager.items.value.length === 0 && !listManager.loading.value"
-        :error="listManager.error.value"
-        :is-mobile="isMobile"
-        empty-icon="users"
-        :empty-message="listManager.searchQuery.value ? 'No users match your search' : 'No users found'"
-        :empty-description="listManager.searchQuery.value ? 'Try adjusting your search criteria' : 'Invite users to get started'"
-        :empty-action-label="!listManager.searchQuery.value ? 'Invite User' : undefined"
-        :is-loading-more="isLoadingMore"
+    <template #empty>
+      <ErrorBanner
+        v-if="listManager.error.value"
+        :message="listManager.error.value"
+        :show-retry="true"
         @retry="listManager.fetchItems"
-        @empty-action="navigateToCreateUser"
-        @load-more="handleLoadMore"
-      >
-        <!-- Desktop Table View -->
-        <template #default>
-          <div class="flex-1 overflow-y-auto">
-            <DataTable
+      />
+      <EmptyState
+        v-else
+        icon="users"
+        :title="listManager.searchQuery.value ? 'No users match your search' : 'No users found'"
+        :description="listManager.searchQuery.value ? 'Try adjusting your search criteria' : 'Invite users to get started'"
+        :action-label="!listManager.searchQuery.value ? 'Invite User' : undefined"
+        @action="navigateToCreateUser"
+      />
+    </template>
+
+    <div v-show="!isMobile">
+      <DataTable
               :columns="columns"
               :data="listManager.items.value"
               :selected-items="listManager.selectedItems.value"
@@ -284,18 +284,15 @@ defineExpose({
             <template #cell-created_at="{ value }">
               <DateCell :value="value" format="clean-relative" />
             </template>
-            </DataTable>
-          </div>
-        </template>
+      </DataTable>
+    </div>
 
-        <!-- Mobile/Tablet Card View -->
-        <template #mobile-view>
-          <div class="flex-1 overflow-y-auto">
-            <TransitionGroup
-              name="list-stagger"
-              tag="div"
-              class="flex flex-col"
-            >
+    <div v-show="isMobile">
+      <TransitionGroup
+        name="list-stagger"
+        tag="div"
+        class="flex flex-col"
+      >
             <div
               v-for="(user, index) in listManager.items.value"
               :key="user.uuid"
@@ -344,50 +341,47 @@ defineExpose({
               <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
               </svg>
-            </div>
-            </TransitionGroup>
-          </div>
-        </template>
-      </BaseListView>
+      </div>
+      </TransitionGroup>
     </div>
 
-    <!-- Pagination Controls (hidden on mobile when using infinite scroll) -->
-    <PaginationControls
-      v-if="!isMobile"
-      :current-page="listManager.currentPage.value"
-      :total-pages="listManager.totalPages.value"
-      :page-size="listManager.pageSize.value"
-      :page-size-options="listManager.pageSizeOptions"
-      :show-import="true"
-      @update:current-page="listManager.handlePageChange"
-      @update:page-size="listManager.handlePageSizeChange"
-      @import="() => {}"
-    />
+    <template #footer>
+      <PaginationControls
+        v-if="!isMobile"
+        :current-page="listManager.currentPage.value"
+        :total-pages="listManager.totalPages.value"
+        :page-size="listManager.pageSize.value"
+        :page-size-options="listManager.pageSizeOptions"
+        :show-import="true"
+        @update:current-page="listManager.handlePageChange"
+        @update:page-size="listManager.handlePageSizeChange"
+        @import="() => {}"
+      />
 
-    <!-- Bulk Role Modal -->
-    <Modal
-      :show="showRoleModal"
-      title="Set Role"
-      size="sm"
-      @close="showRoleModal = false"
-    >
-      <div class="flex flex-col gap-2 p-4">
-        <p class="text-sm text-secondary mb-2">
-          Update role for {{ listManager.selectedItems.value.length }} user{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
-        </p>
-        <button
-          v-for="role in ROLE_OPTIONS"
-          :key="role.value"
-          @click="handleBulkRoleChange(role.value)"
-          :disabled="bulkActionLoading"
-          class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-surface-hover transition-colors text-left"
-        >
-          <StatusBadgeCell type="role" :value="role.value" />
-          <span class="text-primary">{{ role.label }}</span>
-        </button>
-      </div>
-    </Modal>
-  </div>
+      <Modal
+        :show="showRoleModal"
+        title="Set Role"
+        size="sm"
+        @close="showRoleModal = false"
+      >
+        <div class="flex flex-col gap-2 p-4">
+          <p class="text-sm text-secondary mb-2">
+            Update role for {{ listManager.selectedItems.value.length }} user{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
+          </p>
+          <button
+            v-for="role in ROLE_OPTIONS"
+            :key="role.value"
+            @click="handleBulkRoleChange(role.value)"
+            :disabled="bulkActionLoading"
+            class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-surface-hover transition-colors text-left"
+          >
+            <StatusBadgeCell type="role" :value="role.value" />
+            <span class="text-primary">{{ role.label }}</span>
+          </button>
+        </div>
+      </Modal>
+    </template>
+  </PageScroll>
 </template>
 
 <style scoped>

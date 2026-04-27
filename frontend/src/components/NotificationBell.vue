@@ -24,28 +24,43 @@ import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import type { Notification } from '@/services/notificationService'
 import { useNotificationsStore } from '@/stores/notifications'
+import {
+  applyNotificationFilter,
+  iconForNotificationType,
+  NOTIFICATION_FILTER_TABS,
+  useNotificationFeed,
+  type NotificationFilter,
+} from '@/composables/useNotificationFeed'
 import { formatInboxTime, parseDate } from '@/utils/dateUtils'
 import ResponsiveMenu from './common/ResponsiveMenu.vue'
 import Icon from './common/Icon.vue'
-import type { IconName } from './common/icons'
+import AsyncBoundary from './common/AsyncBoundary.vue'
 import type { PopoverAnchor } from '@/composables/usePopover'
-
-type Filter = 'all' | 'unread' | 'mentions'
 
 const router = useRouter()
 const store = useNotificationsStore()
+const { lastAnnouncement } = storeToRefs(store)
+
+// Shared notification wiring (queries, mutations, derived state,
+// presentation helpers). The bell and the inbox both consume
+// this composable; surface-specific concerns (layout, empty-state
+// copy, date-grouping granularity) stay in each view.
+const feed = useNotificationFeed()
 const {
+  list,
+  unread,
   items,
   unreadCount,
-  isFirstLoad,
   hasMore,
+  fetchOp,
   isLoadingMore,
-  lastAnnouncement,
-} = storeToRefs(store)
+  markRead,
+  dismiss,
+} = feed
 
 const buttonRef = ref<HTMLButtonElement | null>(null)
 const isOpen = ref(false)
-const filter = ref<Filter>('all')
+const filter = ref<NotificationFilter>('all')
 
 const anchor = computed<PopoverAnchor>(() => ({
   type: 'element',
@@ -55,32 +70,9 @@ const anchor = computed<PopoverAnchor>(() => ({
 const hasUnread = computed(() => unreadCount.value > 0)
 const displayCount = computed(() => (unreadCount.value > 99 ? '99+' : String(unreadCount.value)))
 
-const TABS: ReadonlyArray<{ value: Filter; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'unread', label: 'Unread' },
-  { value: 'mentions', label: 'Mentions' },
-]
-
-const TYPE_ICON: Record<string, IconName> = {
-  ticket_assigned: 'userPlus',
-  ticket_status_changed: 'refresh',
-  ticket_created_requester: 'add',
-  comment_added: 'comment',
-  mentioned: 'at',
-  doc_page_updated: 'documentEdit',
-}
-const iconForType = (type: string): IconName => TYPE_ICON[type] ?? 'bell'
-
-const filteredNotifications = computed(() => {
-  switch (filter.value) {
-    case 'unread':
-      return items.value.filter((n) => !n.is_read)
-    case 'mentions':
-      return items.value.filter((n) => n.notification_type === 'mentioned')
-    default:
-      return items.value
-  }
-})
+const filteredNotifications = computed(() =>
+  applyNotificationFilter(filter.value, items.value),
+)
 
 interface NotificationGroup {
   label: string
@@ -138,7 +130,11 @@ function toggleOpen() {
     return
   }
   isOpen.value = true
-  store.fetchPage(true)
+  // Refresh on open to surface any quietly-arrived items the
+  // SSE handler may have invalidated. Colada serves cached data
+  // immediately and refetches in the background.
+  list.refresh()
+  unread.refresh()
 }
 
 function close() {
@@ -146,7 +142,7 @@ function close() {
 }
 
 async function navigateToNotification(notification: Notification) {
-  if (!notification.is_read) await store.markRead([notification.id])
+  if (!notification.is_read) markRead.mutate(notification.id)
   close()
   if (notification.entity_type === 'documentation_page') {
     const slug = notification.metadata?.slug as string | undefined
@@ -160,12 +156,12 @@ async function navigateToNotification(notification: Notification) {
 
 function handleMarkRead(event: Event, notification: Notification) {
   event.stopPropagation()
-  if (!notification.is_read) store.markRead([notification.id])
+  if (!notification.is_read) markRead.mutate(notification.id)
 }
 
 function handleClearNotification(event: Event, notification: Notification) {
   event.stopPropagation()
-  store.deleteItems([notification.id])
+  dismiss.mutate(notification.id)
 }
 
 function handleViewInbox() {
@@ -173,20 +169,8 @@ function handleViewInbox() {
   router.push('/inbox')
 }
 
-// Mark-all-read scoped to the active filter. The bell shows
-// the same three tabs as the inbox; a user on "Mentions" who
-// hits "Mark all as read" expects only mentions to clear, not
-// every notification they have. The All tab keeps the global
-// shortcut (one round trip) since it covers everything anyway.
 function handleMarkAllReadScoped() {
-  if (filter.value === 'all') {
-    store.markAllRead()
-    return
-  }
-  const ids = filteredNotifications.value
-    .filter((n) => !n.is_read)
-    .map((n) => n.id)
-  store.markRead(ids)
+  feed.markAllReadScoped(filter.value, filteredNotifications.value)
 }
 
 const visibleHasUnread = computed(() =>
@@ -195,7 +179,6 @@ const visibleHasUnread = computed(() =>
 
 onMounted(() => {
   store.ensureSubscribed()
-  store.fetchPage(true)
 })
 </script>
 
@@ -251,6 +234,7 @@ onMounted(() => {
         <h3 class="text-sm font-semibold text-primary">Notifications</h3>
         <button
           type="button"
+          v-prefetch="'/inbox'"
           @click="handleViewInbox"
           class="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-secondary transition-colors hover:bg-surface-hover hover:text-primary"
         >
@@ -265,7 +249,7 @@ onMounted(() => {
         class="flex flex-shrink-0 items-center gap-1 border-b border-default px-2"
       >
         <button
-          v-for="tab in TABS"
+          v-for="tab in NOTIFICATION_FILTER_TABS"
           :key="tab.value"
           type="button"
           role="tab"
@@ -294,22 +278,12 @@ onMounted(() => {
       </div>
 
       <div class="flex-1 overflow-y-auto">
-        <div v-if="isFirstLoad" class="space-y-px p-2" aria-hidden="true">
-          <div
-            v-for="i in 4"
-            :key="i"
-            class="flex animate-pulse items-start gap-3 rounded-md p-2"
-          >
-            <div class="h-8 w-8 flex-shrink-0 rounded-full bg-surface-alt"></div>
-            <div class="flex-1 space-y-2 py-1">
-              <div class="h-3 w-3/4 rounded bg-surface-alt"></div>
-              <div class="h-3 w-1/2 rounded bg-surface-alt"></div>
-            </div>
-          </div>
-        </div>
-
+        <!-- Empty state when there's truly nothing AND we're
+             not actively loading. Lifted out of AsyncBoundary
+             since "no items after a successful fetch" is a
+             data-shape concern, not a lifecycle one. -->
         <div
-          v-else-if="filteredNotifications.length === 0"
+          v-if="!fetchOp.isPending && filteredNotifications.length === 0"
           class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center"
         >
           <div
@@ -324,7 +298,29 @@ onMounted(() => {
           </div>
         </div>
 
-        <template v-else>
+        <AsyncBoundary
+          v-else
+          :op="fetchOp"
+          :has-data="filteredNotifications.length > 0"
+          :pending-delay="300"
+        >
+          <template #pending>
+            <div class="space-y-px p-2" aria-hidden="true">
+              <div
+                v-for="i in 4"
+                :key="i"
+                class="flex animate-pulse items-start gap-3 rounded-md p-2 motion-reduce:animate-none"
+              >
+                <div class="h-8 w-8 flex-shrink-0 rounded-full bg-surface-alt"></div>
+                <div class="flex-1 space-y-2 py-1">
+                  <div class="h-3 w-3/4 rounded bg-surface-alt"></div>
+                  <div class="h-3 w-1/2 rounded bg-surface-alt"></div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <template #default>
           <section
             v-for="group in groupedNotifications"
             :key="group.label"
@@ -351,7 +347,7 @@ onMounted(() => {
                     : 'bg-accent/10 text-accent'
                 "
               >
-                <Icon :name="iconForType(notification.notification_type)" size="sm" />
+                <Icon :name="iconForNotificationType(notification.notification_type)" size="sm" />
               </div>
 
               <div class="min-w-0 flex-1">
@@ -406,14 +402,15 @@ onMounted(() => {
           >
             <button
               type="button"
-              @click="store.fetchPage(false)"
+              @click="list.loadNextPage()"
               :disabled="isLoadingMore"
               class="text-xs font-medium text-accent hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {{ isLoadingMore ? 'Loading...' : 'Load more' }}
             </button>
           </div>
-        </template>
+          </template>
+        </AsyncBoundary>
       </div>
 
       <!-- Footer. Header now carries the primary "Open inbox"

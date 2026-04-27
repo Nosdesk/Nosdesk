@@ -14,6 +14,7 @@ import DocumentView from '@/views/DocumentView.vue'
 import ProfileSettingsView from '@/views/ProfileSettingsView.vue'
 import PDFViewerView from '@/views/PDFViewerView.vue'
 import authService from '@/services/authService'
+import { useInboxLoader } from '@/loaders/inboxLoader'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -131,7 +132,15 @@ const router = createRouter({
       component: () => import('@/views/NotificationInboxView.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Inbox'
+        title: 'Inbox',
+        // Data Loader. Runs DURING navigation, before the
+        // component code is evaluated. Primes Pinia Colada's
+        // notification list + unread count caches so the view
+        // mounts with data already present (render-as-you-fetch).
+        // The loader is eagerly imported so the
+        // `DataLoaderPlugin` finds it when the route record is
+        // matched; the cost is small (a few imports).
+        loaders: [useInboxLoader],
       }
     },
     {

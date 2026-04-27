@@ -3,7 +3,9 @@
 import { ref, computed, watch, onActivated } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ticketService from "@/services/ticketService";
-import BaseListView from "@/components/common/BaseListView.vue";
+import PageScroll from "@/components/common/PageScroll.vue";
+import EmptyState from "@/components/common/EmptyState.vue";
+import ErrorBanner from "@/components/common/ErrorBanner.vue";
 import DataTable from "@/components/common/DataTable.vue";
 import DebouncedSearchInput from "@/components/common/DebouncedSearchInput.vue";
 import PaginationControls from "@/components/common/PaginationControls.vue";
@@ -37,9 +39,14 @@ const router = useRouter();
 // Shared mobile detection (lg breakpoint = 1024px)
 const { isMobile } = useMobileDetection('lg');
 
-// Refs for scroll containers
-const desktopScrollContainer = ref<HTMLElement | null>(null);
-const mobileScrollContainer = ref<HTMLElement | null>(null);
+// PageScroll owns the scroll container; we read its exposed
+// ref to feed `useInfiniteScroll`. One scroll surface for both
+// the desktop table and the mobile cards now — they share the
+// same scroll region instead of each having their own.
+const pageScrollRef = ref<InstanceType<typeof PageScroll> | null>(null);
+const scrollContainerRef = computed<HTMLElement | null>(
+  () => pageScrollRef.value?.scrollContainerRef ?? null,
+);
 
 // Compact date/time format for mobile
 const formatCompactDateTime = (dateString: string): string => {
@@ -334,14 +341,10 @@ useListSSE<Ticket>({
   }
 });
 
-// Determine which scroll container to use based on viewport
-const activeScrollContainer = computed(() =>
-  isMobile.value ? mobileScrollContainer.value : desktopScrollContainer.value
-);
-
-// Infinite scroll - uses the active container
+// Infinite scroll - PageScroll's single scroll container backs
+// both desktop and mobile views.
 useInfiniteScroll({
-  containerRef: computed(() => activeScrollContainer.value),
+  containerRef: scrollContainerRef,
   enabled: listManager.isInfiniteMode,
   hasMore: listManager.hasMore,
   isLoading: listManager.loadingMore,
@@ -452,81 +455,86 @@ defineExpose({
 </script>
 
 <template>
-  <div class="flex flex-col h-full overflow-hidden">
-    <!-- Search and filter bar -->
-    <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
-      <div class="p-2 flex items-center gap-2 flex-wrap">
-        <!-- Search input - hidden on mobile (shown in MobileSearchBar) -->
-        <DebouncedSearchInput
-          :model-value="listManager.searchQuery.value"
-          @update:model-value="listManager.handleSearchUpdate"
-          placeholder="Search tickets..."
-          class="hidden sm:block"
-        />
+  <PageScroll
+    ref="pageScrollRef"
+    content-class=""
+    :is-empty="!!listManager.error.value || (listManager.items.value.length === 0 && !listManager.loading.value)"
+  >
+    <template #chrome>
+      <!-- Search and filter bar -->
+      <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
+        <div class="p-2 flex items-center gap-2 flex-wrap">
+          <DebouncedSearchInput
+            :model-value="listManager.searchQuery.value"
+            @update:model-value="listManager.handleSearchUpdate"
+            placeholder="Search tickets..."
+            class="hidden sm:block"
+          />
 
-        <!-- Filters -->
-        <template v-if="filterOptions.length > 0">
-          <div
-            v-for="filter in filterOptions"
-            :key="filter.name"
-            :class="[filter.width || 'w-[120px]']"
-          >
-            <BaseDropdown
-              :model-value="filter.value"
-              :options="filter.options"
-              :multiple="filter.multiple"
-              :placeholder="filter.placeholder"
-              size="sm"
-              @update:model-value="value => listManager.handleFilterUpdate(filter.name, value)"
-            />
+          <template v-if="filterOptions.length > 0">
+            <div
+              v-for="filter in filterOptions"
+              :key="filter.name"
+              :class="[filter.width || 'w-[120px]']"
+            >
+              <BaseDropdown
+                :model-value="filter.value"
+                :options="filter.options"
+                :multiple="filter.multiple"
+                :placeholder="filter.placeholder"
+                size="sm"
+                @update:model-value="value => listManager.handleFilterUpdate(filter.name, value)"
+              />
+            </div>
+
+            <button
+              @click="listManager.resetFilters"
+              class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
+            >
+              Reset
+            </button>
+          </template>
+
+          <div v-if="!listManager.isInfiniteMode.value" class="text-xs text-tertiary ml-auto">
+            {{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}
           </div>
-
-          <button
-            @click="listManager.resetFilters"
-            class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
-          >
-            Reset
-          </button>
-        </template>
-
-        <div v-if="!listManager.isInfiniteMode.value" class="text-xs text-tertiary ml-auto">
-          {{ listManager.totalItems.value }} result{{ listManager.totalItems.value !== 1 ? "s" : "" }}
         </div>
       </div>
-    </div>
 
-    <!-- Bulk Actions Bar -->
-    <BulkActionsBar
-      :selected-count="listManager.selectedItems.value.length"
-      :total-count="listManager.totalItems.value"
-      :actions="bulkActions"
-      item-label="ticket"
-      @action="handleBulkAction"
-      @clear-selection="listManager.clearSelection"
-      @select-all="listManager.selectAll"
-    />
+      <BulkActionsBar
+        :selected-count="listManager.selectedItems.value.length"
+        :total-count="listManager.totalItems.value"
+        :actions="bulkActions"
+        item-label="ticket"
+        @action="handleBulkAction"
+        @clear-selection="listManager.clearSelection"
+        @select-all="listManager.selectAll"
+      />
+    </template>
 
-    <!-- Main content -->
-    <div class="flex-1 flex flex-col overflow-hidden">
-      <BaseListView
-        title="Tickets"
-        :is-loading="listManager.loading.value"
-        :is-empty="listManager.items.value.length === 0 && !listManager.loading.value"
-        :error="listManager.error.value"
-        :is-mobile="isMobile"
-        :is-loading-more="listManager.loadingMore.value"
-        empty-icon="ticket"
-        :empty-message="listManager.searchQuery.value ? 'No tickets match your search' : 'No tickets found'"
-        :empty-description="listManager.searchQuery.value ? 'Try adjusting your search or filters' : 'Create your first ticket to get started'"
+    <!-- Empty / error state. Errors take priority over empty;
+         keeping both behind the same slot mirrors what
+         BaseListView did, just with the layout positioning
+         that PageScroll guarantees. -->
+    <template #empty>
+      <ErrorBanner
+        v-if="listManager.error.value"
+        :message="listManager.error.value"
+        :show-retry="true"
         @retry="listManager.fetchItems"
-      >
-        <!-- Desktop Table View -->
-        <template #default>
-          <div
-            ref="desktopScrollContainer"
-            class="flex-1 overflow-y-auto"
-          >
-            <DataTable
+      />
+      <EmptyState
+        v-else
+        icon="ticket"
+        :title="listManager.searchQuery.value ? 'No tickets match your search' : 'No tickets found'"
+        :description="listManager.searchQuery.value ? 'Try adjusting your search or filters' : 'Create your first ticket to get started'"
+      />
+    </template>
+
+    <!-- Desktop / mobile views share the same scroll container
+         (PageScroll owns it) and toggle via v-show. -->
+    <div v-show="!isMobile">
+      <DataTable
               :columns="columns"
               :data="listManager.items.value"
               :selected-items="listManager.selectedItems.value"
@@ -581,20 +589,14 @@ defineExpose({
             <div v-if="listManager.loadingMore.value" class="py-4 flex justify-center bg-app">
               <div class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-accent"></div>
             </div>
-          </div>
-        </template>
+    </div>
 
-        <!-- Mobile Card View -->
-        <template #mobile-view>
-          <div
-            ref="mobileScrollContainer"
-            class="flex-1 overflow-y-auto"
-          >
-            <TransitionGroup
-              name="list-stagger"
-              tag="div"
-              class="flex flex-col"
-            >
+    <div v-show="isMobile">
+      <TransitionGroup
+        name="list-stagger"
+        tag="div"
+        class="flex flex-col"
+      >
               <div
                 v-for="(ticket, index) in listManager.items.value"
                 :key="ticket.id"
@@ -691,87 +693,88 @@ defineExpose({
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                 </svg>
               </div>
-            </TransitionGroup>
+      </TransitionGroup>
 
-            <!-- Loading indicator for infinite scroll -->
-            <div v-if="listManager.loadingMore.value" class="py-4 flex justify-center bg-app">
-              <div class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-accent"></div>
-            </div>
-          </div>
-        </template>
-      </BaseListView>
+      <!-- Loading indicator for infinite scroll -->
+      <div v-if="listManager.loadingMore.value" class="py-4 flex justify-center bg-app">
+        <div class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-accent"></div>
+      </div>
     </div>
 
-    <!-- Pagination Controls (visible on desktop, or mobile in pagination mode) -->
-    <PaginationControls
-      v-if="!isMobile || !listManager.isInfiniteMode.value"
-      :current-page="listManager.currentPage.value"
-      :total-pages="listManager.totalPages.value"
-      :total-items="listManager.totalItems.value"
-      :page-size="listManager.pageSize.value"
-      :page-size-options="listManager.pageSizeOptions"
-      :is-infinite-mode="listManager.isInfiniteMode.value"
-      @update:current-page="listManager.handlePageChange"
-      @update:page-size="handlePageSizeChange"
-      @go-to-item="handleGoToItem"
-    />
+    <!-- Pagination Controls (visible on desktop, or mobile in
+         pagination mode). Lives in PageScroll's footer slot so
+         it stays anchored below the scroll region. -->
+    <template #footer>
+      <PaginationControls
+        v-if="!isMobile || !listManager.isInfiniteMode.value"
+        :current-page="listManager.currentPage.value"
+        :total-pages="listManager.totalPages.value"
+        :total-items="listManager.totalItems.value"
+        :page-size="listManager.pageSize.value"
+        :page-size-options="listManager.pageSizeOptions"
+        :is-infinite-mode="listManager.isInfiniteMode.value"
+        @update:current-page="listManager.handlePageChange"
+        @update:page-size="handlePageSizeChange"
+        @go-to-item="handleGoToItem"
+      />
 
-    <!-- Bulk Status Modal -->
-    <Modal
-      :show="showStatusModal"
-      title="Set Status"
-      size="sm"
-      @close="showStatusModal = false"
-    >
-      <div class="flex flex-col gap-2 p-4">
-        <p class="text-sm text-secondary mb-2">
-          Update status for {{ listManager.selectedItems.value.length }} ticket{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
-        </p>
-        <button
-          v-for="status in STATUS_OPTIONS"
-          :key="status.value"
-          @click="handleBulkStatusChange(status.value)"
-          :disabled="bulkActionLoading"
-          class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-surface-hover transition-colors text-left"
-        >
-          <StatusBadge type="status" :value="status.value" />
-          <span class="text-primary">{{ status.label }}</span>
-        </button>
-      </div>
-    </Modal>
+      <!-- Modals teleport to body — they sit in the footer slot
+           so PageScroll remains the single root for clean
+           attribute fallthrough from the parent <RouterView>. -->
+      <Modal
+        :show="showStatusModal"
+        title="Set Status"
+        size="sm"
+        @close="showStatusModal = false"
+      >
+        <div class="flex flex-col gap-2 p-4">
+          <p class="text-sm text-secondary mb-2">
+            Update status for {{ listManager.selectedItems.value.length }} ticket{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
+          </p>
+          <button
+            v-for="status in STATUS_OPTIONS"
+            :key="status.value"
+            @click="handleBulkStatusChange(status.value)"
+            :disabled="bulkActionLoading"
+            class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-surface-hover transition-colors text-left"
+          >
+            <StatusBadge type="status" :value="status.value" />
+            <span class="text-primary">{{ status.label }}</span>
+          </button>
+        </div>
+      </Modal>
 
-    <!-- Bulk Priority Modal -->
-    <Modal
-      :show="showPriorityModal"
-      title="Set Priority"
-      size="sm"
-      @close="showPriorityModal = false"
-    >
-      <div class="flex flex-col gap-2 p-4">
-        <p class="text-sm text-secondary mb-2">
-          Update priority for {{ listManager.selectedItems.value.length }} ticket{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
-        </p>
-        <button
-          v-for="priority in PRIORITY_OPTIONS"
-          :key="priority.value"
-          @click="handleBulkPriorityChange(priority.value)"
-          :disabled="bulkActionLoading"
-          class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-surface-hover transition-colors text-left"
-        >
-          <StatusBadge type="priority" :value="priority.value" />
-          <span class="text-primary">{{ priority.label }}</span>
-        </button>
-      </div>
-    </Modal>
+      <Modal
+        :show="showPriorityModal"
+        title="Set Priority"
+        size="sm"
+        @close="showPriorityModal = false"
+      >
+        <div class="flex flex-col gap-2 p-4">
+          <p class="text-sm text-secondary mb-2">
+            Update priority for {{ listManager.selectedItems.value.length }} ticket{{ listManager.selectedItems.value.length !== 1 ? 's' : '' }}
+          </p>
+          <button
+            v-for="priority in PRIORITY_OPTIONS"
+            :key="priority.value"
+            @click="handleBulkPriorityChange(priority.value)"
+            :disabled="bulkActionLoading"
+            class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-surface-hover transition-colors text-left"
+          >
+            <StatusBadge type="priority" :value="priority.value" />
+            <span class="text-primary">{{ priority.label }}</span>
+          </button>
+        </div>
+      </Modal>
 
-    <!-- Bulk Assign Modal -->
-    <UserSelectionModal
-      :show="showAssignModal"
-      title="Assign Tickets"
-      @close="showAssignModal = false"
-      @select="handleBulkAssign"
-    />
-  </div>
+      <UserSelectionModal
+        :show="showAssignModal"
+        title="Assign Tickets"
+        @close="showAssignModal = false"
+        @select="handleBulkAssign"
+      />
+    </template>
+  </PageScroll>
 </template>
 
 <style scoped>

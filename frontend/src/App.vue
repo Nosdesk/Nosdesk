@@ -6,6 +6,7 @@ import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
 import MobileSearchBar from './components/MobileSearchBar.vue'
 import ToastContainer from './components/common/ToastContainer.vue'
+import RouteProgress from './components/common/RouteProgress.vue'
 import { GlobalSearchModal } from './components/GlobalSearch'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useMobileSearch } from '@/composables/useMobileSearch'
@@ -228,6 +229,12 @@ onMounted(async () => {
       </main>
     </div>
   </div>
+
+  <!-- Global async-activity progress bar. Subscribes to the
+       operations registry; renders a thin top-of-viewport bar
+       whenever any tracked op or mutation is in flight. One
+       indicator for the whole app. -->
+  <RouteProgress class="print:hidden" />
 
   <!-- Global Toast Container (hidden on print) -->
   <ToastContainer class="print:hidden" />
