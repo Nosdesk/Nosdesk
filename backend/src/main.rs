@@ -1193,6 +1193,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/{uuid}/emails/{email_id}", web::put().to(handlers::update_user_email))
                     .route("/users/{uuid}/emails/{email_id}", web::delete().to(handlers::delete_user_email))
                     .route("/users/{uuid}/with-emails", web::get().to(handlers::get_user_with_emails))
+                    .route("/users/{uuid}/profile", web::get().to(handlers::users::get_user_profile_bundle))
                     .route("/users/{uuid}/auth-identities", web::get().to(handlers::get_user_auth_identities_by_uuid))
                     .route("/users/{uuid}/auth-identities/{id}", web::delete().to(handlers::delete_user_auth_identity_by_uuid))
                     .route("/users/{uuid}/resend-invitation", web::post().to(handlers::resend_invitation))

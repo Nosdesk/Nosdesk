@@ -11,8 +11,6 @@ import UserAssignedTickets from "@/components/UserAssignedTickets.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import { RouterLink } from "vue-router";
 import userService from "@/services/userService";
-import { getDevicesByUser } from "@/services/deviceService";
-import { groupService } from "@/services/groupService";
 import { useColorFilter } from "@/composables/useColorFilter";
 import type { User } from "@/services/userService";
 import type { Device } from "@/types/device";
@@ -163,13 +161,14 @@ const fetchUserData = async () => {
             return;
         }
 
-        // Fetch the user from the API
-        const user = await userService.getUserByUuid(userUuid);
-
-        if (!user) {
-            error.value = "User not found";
-            return;
-        }
+        // One bundled fetch covers user + devices + groups (and counts /
+        // emails when we wire those badges into this view). Replaces the
+        // three sequential round-trips this page used to do.
+        const bundle = await userService.getUserProfileBundle(userUuid, [
+            'devices',
+            'groups',
+        ]);
+        const user = bundle.user;
 
         // Create the user profile with the fetched data
         userProfile.value = {
@@ -197,29 +196,11 @@ const fetchUserData = async () => {
         canEdit.value = userIsOwnProfile || isAdmin;
         canEditRole.value = isAdmin; // Only admins can change roles
 
-        // Name editing is now handled by UserProfileCard
-        // No need to focus on name field since it's in the card component
+        devices.value = bundle.devices ?? [];
+        groups.value = bundle.groups ?? [];
 
-        // Tickets are now loaded by UserAssignedTickets component
-
-        // Load devices from the API
-        try {
-            devices.value = await getDevicesByUser(userUuid);
-        } catch (deviceError) {
-            console.error("Error loading devices for user:", deviceError);
-            // Don't fail the whole page if devices can't be loaded
-            devices.value = [];
-        }
-
-        // Load groups for the user (self or admin)
-        try {
-            groups.value = await groupService.getUserGroups(userUuid);
-        } catch (groupError) {
-            console.error("Error loading groups for user:", groupError);
-            groups.value = [];
-        }
-
-        // User emails are now loaded by the UserEmailsCard component
+        // User emails are loaded by the UserEmailsCard component, ticket
+        // lists by UserAssignedTickets.
     } catch (e) {
         error.value = "Failed to load user profile";
         console.error("Error loading user profile:", e);

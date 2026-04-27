@@ -4,6 +4,8 @@ import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
 import type { PaginationParams, PaginatedResponse } from '@/types/pagination';
 import type { User, UserSecurityInfo } from '@/types/user';
+import type { Device } from '@/types/device';
+import type { Group } from '@/types/group';
 
 // Re-export for backwards compatibility
 export type { User };
@@ -27,6 +29,26 @@ export interface UserEmail {
   source?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Sub-resource keys the `/users/{uuid}/profile` endpoint
+ *  understands. Keep in sync with `ProfileGroup` in
+ *  `backend/src/repository/user_profile.rs`. */
+export type ProfileBundleGroup = 'devices' | 'groups' | 'emails' | 'counts'
+
+export interface UserProfileCounts {
+  assignedTickets: number
+  requestedTickets: number
+}
+
+/** Sparse bundle: `user` is always present, every other field is
+ *  only included when the corresponding key was in `?include=`. */
+export interface UserProfileBundle {
+  user: User
+  devices?: Device[]
+  groups?: Group[]
+  emails?: UserEmail[]
+  counts?: UserProfileCounts
 }
 
 // Request cancellation manager instance
@@ -101,6 +123,22 @@ const userService = {
       logger.error('Failed to fetch user by UUID', { error, uuid });
       return null;
     }
+  },
+
+  // Bundled profile read for the user profile page. Pass the
+  // sub-resource keys you actually render, the backend computes and
+  // serialises only those (sparse fieldsets). Throws on network /
+  // 4xx / 5xx so the caller can surface the failure, the legacy
+  // single-fetch helpers above swallow errors for backwards-compat.
+  async getUserProfileBundle(
+    uuid: string,
+    include: ProfileBundleGroup[],
+  ): Promise<UserProfileBundle> {
+    const response = await apiClient.get<UserProfileBundle>(
+      `/users/${uuid}/profile`,
+      { params: { include: include.join(',') } },
+    );
+    return response.data;
   },
 
   // Get user email addresses

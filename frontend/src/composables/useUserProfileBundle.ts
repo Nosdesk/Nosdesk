@@ -1,0 +1,52 @@
+/**
+ * User profile bundle query.
+ *
+ * Wraps `/api/users/{uuid}/profile` (sparse fieldsets) in a Pinia
+ * Colada query so the user profile page renders user, devices,
+ * groups, emails, and ticket badge counts from one cache entry
+ * instead of fanning out to four request handlers.
+ *
+ * The cache key includes the requested groups so two callers that
+ * ask for different slices share nothing, the canonical caller
+ * is `UserProfileView.vue` which always asks for the full set.
+ */
+import { computed, type MaybeRefOrGetter, toValue } from 'vue'
+import { useQuery } from '@pinia/colada'
+import userService, {
+  type ProfileBundleGroup,
+  type UserProfileBundle,
+} from '@/services/userService'
+
+export interface UseUserProfileBundleOptions {
+  /** User UUID to fetch. Reactive, query refires on change. */
+  uuid: MaybeRefOrGetter<string | null | undefined>
+  /** Sub-resources to include. Defaults to every group. */
+  include?: readonly ProfileBundleGroup[]
+}
+
+const ALL_GROUPS: readonly ProfileBundleGroup[] = [
+  'devices',
+  'groups',
+  'emails',
+  'counts',
+]
+
+export function useUserProfileBundle(options: UseUserProfileBundleOptions) {
+  const include = (options.include ?? ALL_GROUPS).slice().sort()
+
+  const uuid = computed(() => toValue(options.uuid) ?? '')
+
+  const query = useQuery({
+    key: () => ['user', uuid.value, 'profile', include.join(',')],
+    query: () => userService.getUserProfileBundle(uuid.value, include as ProfileBundleGroup[]),
+    enabled: () => !!uuid.value,
+  })
+
+  return {
+    bundle: computed<UserProfileBundle | undefined>(() => query.data.value),
+    isLoading: computed(() => query.asyncStatus.value === 'loading'),
+    isError: computed(() => query.status.value === 'error'),
+    error: computed(() => query.error.value),
+    refetch: () => query.refetch(),
+  }
+}

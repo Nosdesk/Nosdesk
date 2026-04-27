@@ -2503,6 +2503,90 @@ pub async fn get_user_with_emails(
     HttpResponse::Ok().json(user_with_emails)
 }
 
+#[derive(Deserialize)]
+pub struct ProfileQuery {
+    /// Comma-separated sub-resource keys to include (`devices,
+    /// groups, emails, counts`). Omit to get every group; pass an
+    /// empty value to get just `user`.
+    pub include: Option<String>,
+}
+
+/// Bundled profile read for the user profile page. One request,
+/// one cache entry, only the requested sub-resources serialised.
+/// Self or admin only.
+pub async fn get_user_profile_bundle(
+    pool: web::Data<crate::db::Pool>,
+    path: web::Path<String>,
+    query: web::Query<ProfileQuery>,
+    auth: crate::extractors::AuthContext,
+) -> impl Responder {
+    let uuid_str = path.into_inner();
+    let user_uuid_parsed = match utils::parse_uuid(&uuid_str) {
+        Ok(uuid) => uuid,
+        Err(_) => return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid UUID format",
+        })),
+    };
+
+    if user_uuid_parsed != auth.user_uuid && !auth.is_admin() {
+        return HttpResponse::Forbidden().json(json!({
+            "status": "error",
+            "message": "Not authorized to view this profile",
+        }));
+    }
+
+    let groups = match parse_profile_include(query.include.as_deref()) {
+        Ok(g) => g,
+        Err(resp) => return resp,
+    };
+
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    match crate::repository::user_profile::compute(&mut conn, &user_uuid_parsed, &groups) {
+        Ok(Some(bundle)) => HttpResponse::Ok().json(bundle),
+        Ok(None) => HttpResponse::NotFound().json(json!({
+            "status": "error",
+            "message": "User not found",
+        })),
+        Err(e) => {
+            error!(user_uuid = %user_uuid_parsed, error = ?e, "Failed to compute profile bundle");
+            HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to load profile",
+            }))
+        }
+    }
+}
+
+/// Returns 400 with the offending key when an unknown group is
+/// requested, so a registry typo on the frontend fails loud
+/// instead of silently dropping data.
+fn parse_profile_include(raw: Option<&str>) -> Result<HashSet<crate::repository::user_profile::ProfileGroup>, HttpResponse> {
+    use crate::repository::user_profile::ProfileGroup;
+    let Some(raw) = raw else { return Ok(ProfileGroup::all()) };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let mut out = HashSet::new();
+    for token in trimmed.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        match ProfileGroup::parse(token) {
+            Some(g) => { out.insert(g); }
+            None => {
+                return Err(HttpResponse::BadRequest().json(json!({
+                    "status": "error",
+                    "message": format!("Unknown include key '{}'. Valid: {:?}", token, ProfileGroup::all_keys()),
+                })));
+            }
+        }
+    }
+    Ok(out)
+}
+
 // Bulk user operations request
 #[derive(Debug, Deserialize)]
 pub struct BulkUserActionRequest {
