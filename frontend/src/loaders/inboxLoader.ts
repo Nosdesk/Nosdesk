@@ -23,7 +23,7 @@
  * See `~/Documents/notes/technology/web development/loading-states-architecture.md`
  * for the architectural rationale.
  */
-import { defineColadaLoader } from 'unplugin-vue-router/data-loaders/pinia-colada'
+import { defineColadaLoader } from 'vue-router/experimental/pinia-colada'
 import { setInfiniteQueryData, useQueryCache } from '@pinia/colada'
 import {
   getNotifications,

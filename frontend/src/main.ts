@@ -8,7 +8,7 @@ interceptConsole()
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { PiniaColada } from '@pinia/colada'
-import { DataLoaderPlugin } from 'unplugin-vue-router/data-loaders'
+import { DataLoaderPlugin } from 'vue-router/experimental'
 
 import App from './App.vue'
 import router from './router'
