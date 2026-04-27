@@ -7,6 +7,7 @@ import DocumentationCardSkeleton from '@/components/documentationComponents/Docu
 import CollectionBrowser from '@/components/documentationComponents/CollectionBrowser.vue'
 import { getArchivedPages, getTrashedPages } from '@/services/documentationService'
 import { getUncollectedPages } from '@/services/collectionService'
+import { usePageCreateAction } from '@/composables/usePageCreateAction'
 
 defineOptions({ name: 'DocumentationIndexView' })
 
@@ -63,10 +64,9 @@ onActivated(() => {
   loadTrashCount()
 })
 
-// Expose for parent components (SiteHeader create button)
-defineExpose({
-  createNewPage: handleCreatePage
-})
+// SiteHeader's "Create" button looks up its handler via the
+// usePageActionsStore registry.
+usePageCreateAction(handleCreatePage)
 </script>
 
 <template>

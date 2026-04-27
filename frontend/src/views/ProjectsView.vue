@@ -14,6 +14,7 @@ import { unwrapEventData, type ProjectEventData } from '@/types/sse'
 import { formatRelativeTime, formatCompactRelativeTime } from '@/utils/dateUtils'
 import { useStaggeredList } from '@/composables/useStaggeredList'
 import { useMobileSearch } from '@/composables/useMobileSearch'
+import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 
@@ -207,9 +208,7 @@ const openCreateModal = () => {
 }
 
 // Expose the method so parent components can trigger it
-defineExpose({
-  openCreateModal
-})
+usePageCreateAction(openCreateModal)
 
 // Mobile search bar integration
 const { registerMobileSearch, deregisterMobileSearch, updateSearchQuery } = useMobileSearch()

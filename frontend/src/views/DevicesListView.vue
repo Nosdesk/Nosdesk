@@ -22,6 +22,7 @@ import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useDataStore } from '@/stores/dataStore'
 import { getPaginatedDevices, bulkAction } from '@/services/deviceService'
 import { devicesKeys } from '@/queries/devices'
+import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import type { Device } from '@/types/device'
 
 defineOptions({ name: 'DevicesListView' })
@@ -266,9 +267,7 @@ const errorMessage = computed(() => {
 })
 
 // Expose method for parent (App.vue) to call from header button
-defineExpose({
-  navigateToCreateDevice
-});
+usePageCreateAction(navigateToCreateDevice);
 </script>
 
 <template>

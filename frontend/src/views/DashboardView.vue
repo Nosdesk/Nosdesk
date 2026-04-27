@@ -9,6 +9,7 @@ import {
   useDashboardStats,
 } from '@/composables/useDashboardStats'
 import ticketService from '@/services/ticketService'
+import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import DashboardGrid from './dashboard/DashboardGrid.vue'
 import DashboardEditBar from './dashboard/DashboardEditBar.vue'
 
@@ -39,8 +40,9 @@ function enterEditMode() {
   dashboardLayout.editMode = true
 }
 
-// Exposed to SiteHeader's "Create Ticket" button via the currentViewComponent
-// ref wired up in App.vue.
+// SiteHeader's "Create Ticket" button looks up its handler via the
+// usePageActionsStore registry; usePageCreateAction wires the
+// register/unregister lifecycle hooks.
 async function handleCreateTicket() {
   try {
     const newTicket = await ticketService.createEmptyTicket()
@@ -50,7 +52,7 @@ async function handleCreateTicket() {
   }
 }
 
-defineExpose({ handleCreateTicket })
+usePageCreateAction(handleCreateTicket)
 </script>
 
 <template>

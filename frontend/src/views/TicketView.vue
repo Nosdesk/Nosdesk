@@ -38,6 +38,7 @@ import DeleteButton from "@/components/common/DeleteButton.vue";
 import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
 import PluginSlot from "@/plugins/components/PluginSlot.vue";
 import { getActionRegistrations } from "@/plugins/loader";
+import { usePageCreateAction } from "@/composables/usePageCreateAction";
 
 
 const route = useRoute();
@@ -372,9 +373,7 @@ const handleCreateTicket = async () => {
 };
 
 // Expose methods for parent component access (SiteHeader create button)
-defineExpose({
-    handleCreateTicket,
-});
+usePageCreateAction(handleCreateTicket);
 </script>
 
 <template>

@@ -20,6 +20,7 @@ import authService from '@/services/authService'
 import { useBrandingStore } from '@/stores/branding'
 import { loadPlugins, initializeEventDispatcher } from '@/plugins'
 import { useAuthStore } from '@/stores/auth'
+import { usePageActionsStore } from '@/stores/pageActions'
 
 // Initialize branding store and load config
 const brandingStore = useBrandingStore()
@@ -88,9 +89,6 @@ const currentPageUrl = computed(() => {
 // Security: Check if system requires initial setup on app initialization
 const initializationChecked = ref(false);
 
-// Ref to access the current route view component
-const currentViewComponent = ref<any>(null);
-
 // Computed properties for create button from route meta
 const createButtonText = computed(() => {
   return route.meta.createButtonText || 'Create Ticket';
@@ -101,17 +99,17 @@ const createButtonIcon = computed(() => route.meta.createButtonIcon ?? 'plus');
 // Title icon from route meta (e.g., 'pdf' for PDF viewer)
 const titleIcon = computed(() => route.meta.titleIcon as string | undefined);
 
-// Only show create button if the route has a createButtonAction defined
-const showCreateButton = computed(() => {
-  return !!route.meta.createButtonAction;
-});
+// Visibility stays driven by route meta so first paint shows the
+// right label before the view's onMounted has fired. The handler
+// itself is registered by the view via `usePageCreateAction(...)`,
+// which writes to `pageActions.createAction`. This replaces the
+// old `defineExpose({ handleCreate }) + currentViewComponent.value
+// ?.[methodName]?.()` indirection.
+const showCreateButton = computed(() => !!route.meta.createButtonText);
 
-// Handle create button click - calls the view component's exposed method
+const pageActions = usePageActionsStore();
 const handleCreateClick = () => {
-  const actionName = route.meta.createButtonAction;
-  if (actionName && currentViewComponent.value?.[actionName]) {
-    currentViewComponent.value[actionName]();
-  }
+  void pageActions.invokeCreate();
 };
 
 // Initialize plugins after authentication
@@ -222,7 +220,7 @@ onMounted(async () => {
         >
           <Transition name="page" mode="out-in">
             <KeepAlive :include="['TicketsListView', 'UsersListView', 'DevicesListView', 'ProjectsView', 'DocumentationIndexView']">
-              <component :is="Component" ref="currentViewComponent" class="h-full overflow-auto" />
+              <component :is="Component" class="h-full overflow-auto" />
             </KeepAlive>
           </Transition>
         </RouterView>

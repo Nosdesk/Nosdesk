@@ -25,7 +25,6 @@ declare module 'vue-router' {
     adminRequired?: boolean;
     createButtonText?: string;
     createButtonIcon?: 'plus' | 'ticket' | 'user' | 'device' | 'project' | 'document';
-    createButtonAction?: string;
     preloadedDocument?: unknown;
   }
 }
@@ -124,7 +123,6 @@ const router = createRouter({
         title: 'Dashboard',
         createButtonText: 'Create Ticket',
         createButtonIcon: 'ticket',
-        createButtonAction: 'handleCreateTicket'
       }
     },
     {
@@ -153,7 +151,6 @@ const router = createRouter({
         title: 'Tickets',
         createButtonText: 'Create Ticket',
         createButtonIcon: 'ticket',
-        createButtonAction: 'handleCreateTicket',
         // Data Loader: pre-fetches the first page during
         // navigation so the view mounts with data ready.
         loaders: [useTicketsListLoader],
@@ -169,7 +166,6 @@ const router = createRouter({
         title: 'View Ticket',
         createButtonText: 'Create Ticket',
         createButtonIcon: 'ticket',
-        createButtonAction: 'handleCreateTicket'
       },
       beforeEnter: (to) => {
         to.meta.key = to.params.id
@@ -226,7 +222,6 @@ const router = createRouter({
         title: 'Projects',
         createButtonText: 'Create Project',
         createButtonIcon: 'project',
-        createButtonAction: 'openCreateModal'
       }
     },
     {
@@ -239,7 +234,6 @@ const router = createRouter({
         title: 'Project Details',
         createButtonText: 'Add Ticket',
         createButtonIcon: 'ticket',
-        createButtonAction: 'openAddTicketModal'
       },
       beforeEnter: (to) => {
         to.meta.key = to.params.id
@@ -265,7 +259,6 @@ const router = createRouter({
         title: 'Users',
         createButtonText: 'Create User',
         createButtonIcon: 'user',
-        createButtonAction: 'navigateToCreateUser'
       }
     },
     {
@@ -277,7 +270,6 @@ const router = createRouter({
         title: 'Devices',
         createButtonText: 'Create Device',
         createButtonIcon: 'device',
-        createButtonAction: 'navigateToCreateDevice'
       }
     },
     {
@@ -308,7 +300,6 @@ const router = createRouter({
         title: 'Documentation',
         createButtonText: 'Create Document',
         createButtonIcon: 'document',
-        createButtonAction: 'createNewPage'
       }
     },
     {

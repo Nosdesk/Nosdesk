@@ -14,6 +14,7 @@ import ProjectTicketList from '@/components/projectComponents/ProjectTicketList.
 import BackButton from '@/components/common/BackButton.vue'
 import GanttPlanner from '@/components/projectComponents/GanttPlanner.vue'
 import InlineEdit from '@/components/common/InlineEdit.vue'
+import { usePageCreateAction } from '@/composables/usePageCreateAction'
 
 const route = useRoute()
 const router = useRouter()
@@ -238,10 +239,9 @@ const openAddTicketModal = () => {
   showAddTicketModal.value = true
 }
 
-// Expose methods for parent component access (SiteHeader create button)
-defineExpose({
-  openAddTicketModal
-})
+// SiteHeader's "Add Ticket" button looks up its handler via the
+// usePageActionsStore registry.
+usePageCreateAction(openAddTicketModal)
 </script>
 
 <template>

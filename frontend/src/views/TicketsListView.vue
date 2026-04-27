@@ -36,6 +36,7 @@ import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
 import { categoryService } from "@/services/categoryService";
 import type { TicketCategory } from "@/types/category";
 import { ticketsKeys } from "@/queries/tickets";
+import { usePageCreateAction } from "@/composables/usePageCreateAction";
 import type { Ticket } from "@/services/ticketService";
 
 defineOptions({ name: 'TicketsListView' })
@@ -545,9 +546,7 @@ const filterOptions = computed(() => {
 const { getStyle } = useStaggeredList();
 
 // Expose methods for parent component access (SiteHeader create button)
-defineExpose({
-  handleCreateTicket
-});
+usePageCreateAction(handleCreateTicket);
 </script>
 
 <template>

@@ -23,6 +23,7 @@ import { useInfiniteScroll } from "@/composables/useInfiniteScroll";
 import { useDataStore } from "@/stores/dataStore";
 import userService from "@/services/userService";
 import { usersKeys } from "@/queries/users";
+import { usePageCreateAction } from "@/composables/usePageCreateAction";
 import type { User } from "@/types/user";
 
 defineOptions({ name: 'UsersListView' })
@@ -260,9 +261,7 @@ const errorMessage = computed(() => {
 })
 
 // Expose method for parent (App.vue) to call from header button
-defineExpose({
-  navigateToCreateUser
-});
+usePageCreateAction(navigateToCreateUser);
 </script>
 
 <template>
