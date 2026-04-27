@@ -15,7 +15,7 @@
  */
 import { computed, ref } from 'vue'
 import Icon from '@/components/common/Icon.vue'
-import Popover from '@/components/common/Popover.vue'
+import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
 import { ICON_REGISTRY } from '@/components/common/icons'
 
@@ -190,9 +190,10 @@ function handleSelect(id: string) {
       <Icon name="more" size="md" />
     </button>
 
-    <Popover
+    <ResponsiveMenu
       :open="isOpen"
       :anchor="anchor"
+      title="Page actions"
       placement="bottom-end"
       react-to-scroll="reposition"
       role="menu"
@@ -201,6 +202,6 @@ function handleSelect(id: string) {
       @close="closeMenu"
     >
       <MenuList :items="menuItems" @select="handleSelect" />
-    </Popover>
+    </ResponsiveMenu>
   </div>
 </template>

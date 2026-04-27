@@ -8,7 +8,7 @@
  * rendering, multi-select wiring, keyboard navigation.
  */
 import { computed, nextTick, ref, watch } from 'vue'
-import Popover from './Popover.vue'
+import ResponsiveMenu from './ResponsiveMenu.vue'
 
 export interface DropdownOption {
   value: string
@@ -266,9 +266,19 @@ watch(highlightedIndex, async (index) => {
       </svg>
     </button>
 
-    <Popover
+    <!--
+      ResponsiveMenu picks the layout from viewport width: at md+
+      it renders as the previous Popover (anchored, fade-scale,
+      click-outside dismiss). On phone it renders as a bottom
+      sheet — the touch-native pattern. Same slot content; no
+      consumer of BaseDropdown needs to opt in. The trigger
+      button label is mirrored into the sheet's title so the
+      user knows what they're choosing on mobile.
+    -->
+    <ResponsiveMenu
       :open="isOpen"
       :anchor="anchor"
+      :title="placeholder"
       placement="bottom-start"
       react-to-scroll="reposition"
       match-anchor-width
@@ -363,6 +373,6 @@ watch(highlightedIndex, async (index) => {
           </div>
         </button>
       </div>
-    </Popover>
+    </ResponsiveMenu>
   </div>
 </template>

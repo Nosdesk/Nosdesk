@@ -7,13 +7,12 @@ export default {
   ],
   theme: {
     extend: {
-      zIndex: {
-        'header':   '100',   // Site header bar
-        'backdrop':  '200',   // Modal/bottom-sheet backdrop overlays
-        'overlay':  '300',   // Modals, global search, toasts, notifications, tooltips
-        'effect':   '400',   // Visual theme effects (CRT, snowfall)
-        'cursor':   '500',   // Cursor effects (scanlines)
-      },
+      // NOTE: Tailwind 4 ignores this entire `theme.extend` block —
+      // configuration moved to CSS-side `@theme` directives in
+      // `src/assets/main.css`. The z-index scale lives there as
+      // `--z-*` custom properties, with hand-written utilities
+      // (`.z-header`, `.z-overlay`, etc.) in `@layer utilities`
+      // because Tailwind 4 has no `@theme` namespace for z-index.
     },
   },
   plugins: [

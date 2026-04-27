@@ -7,21 +7,16 @@
  * panel layout — inline next to its sibling so the document
  * area shrinks and the panel sits flush.
  *
- * The two layouts are intentionally NOT animated as one
- * morphing thing across the breakpoint: cross-breakpoint
- * resizes are rare (orientation change, window resize), and
- * morphing a 320px right-side panel into a 75vh bottom sheet
- * always looks worse than just dismissing and reopening. So we
- * just close on resize-across-breakpoint.
- *
- * Slot contract:
- *   - default slot: panel body
- *   - The component owns the chrome (header bar, drag handle,
- *     close button, backdrop) so consumers don't reinvent them.
+ * Drag math, breakpoint reactivity, and dismiss-on-cross are
+ * delegated to `useResponsiveSheet` so this component stays
+ * focused on the panel chrome (header, close button, backdrop,
+ * the side-panel layout). The same composable backs
+ * `<ResponsiveMenu>` for popover-vs-bottom-sheet menus.
  */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, toRef } from 'vue'
 import Icon from './Icon.vue'
 import { useScrollLock } from '@/composables/useScrollLock'
+import { useResponsiveSheet } from '@/composables/useResponsiveSheet'
 
 interface Props {
   open: boolean
@@ -42,82 +37,10 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-// -----------------------------------------------------------------
-// Layout selector. matchMedia drives a reactive boolean so the
-// template renders the right shape even if the viewport changes
-// while the panel is open.
-// -----------------------------------------------------------------
-const isMobile = ref(false)
-let mql: MediaQueryList | null = null
-
-function syncBreakpoint(e: MediaQueryListEvent | MediaQueryList) {
-  // `min-width: 768px` (Tailwind's `md`). At-or-above is desktop;
-  // below is bottom-sheet territory.
-  isMobile.value = !e.matches
-}
-
-onMounted(() => {
-  if (typeof window === 'undefined') return
-  mql = window.matchMedia('(min-width: 768px)')
-  syncBreakpoint(mql)
-  mql.addEventListener('change', syncBreakpoint)
+const { isMobile, dragOffset, isDragging, handleListeners } = useResponsiveSheet({
+  open: toRef(props, 'open'),
+  onDismiss: () => emit('close'),
 })
-
-onUnmounted(() => {
-  mql?.removeEventListener('change', syncBreakpoint)
-  mql = null
-})
-
-// If the breakpoint flips while the panel is open, dismiss
-// rather than morph. Cleaner UX than a 320px → 75vh slide.
-watch(isMobile, (_now, prev) => {
-  if (props.open && prev !== undefined) emit('close')
-})
-
-// -----------------------------------------------------------------
-// Bottom-sheet drag math. Drag the handle (NOT the content) to
-// avoid hijacking scroll. Sheet only translates downward — the
-// `Math.max(0, …)` clamp prevents up-drag, which would feel
-// like a half-baked expand gesture. Past `DISMISS_THRESHOLD_PX`
-// of travel on release we close; otherwise spring back.
-// -----------------------------------------------------------------
-const DISMISS_THRESHOLD_PX = 100
-const dragOffset = ref(0)
-const isDragging = ref(false)
-let dragStartY = 0
-
-function onHandlePointerdown(event: PointerEvent) {
-  if (event.button !== 0) return
-  isDragging.value = true
-  dragStartY = event.clientY
-  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-}
-
-function onHandlePointermove(event: PointerEvent) {
-  if (!isDragging.value) return
-  dragOffset.value = Math.max(0, event.clientY - dragStartY)
-}
-
-function onHandlePointerup() {
-  if (!isDragging.value) return
-  isDragging.value = false
-  if (dragOffset.value > DISMISS_THRESHOLD_PX) {
-    emit('close')
-  }
-  // Whether dismissed or not, reset the drag state. On dismiss
-  // the panel unmounts via the parent's `open` flip, so the
-  // visible "snap back" only happens on cancelled drags.
-  dragOffset.value = 0
-}
-
-// Reset offset whenever the panel opens, so a previous drag
-// never leaks into a fresh open.
-watch(
-  () => props.open,
-  (open) => {
-    if (open) dragOffset.value = 0
-  },
-)
 
 // Lock body scroll while the bottom sheet is open. Prevents the
 // underlying document from scrolling under the user's finger
@@ -166,7 +89,7 @@ const ariaLabel = computed(() => props.ariaLabel ?? props.title)
     <Transition name="sheet-backdrop">
       <div
         v-if="open && isMobile"
-        class="fixed inset-0 z-[90] bg-black/40"
+        class="fixed inset-0 z-backdrop bg-black/40"
         aria-hidden="true"
         @click="emit('close')"
       />
@@ -174,22 +97,17 @@ const ariaLabel = computed(() => props.ariaLabel ?? props.title)
     <Transition name="sheet">
       <div
         v-if="open && isMobile"
-        class="fixed inset-x-0 bottom-0 z-[91] flex h-[75vh] flex-col rounded-t-xl border-t border-default bg-surface shadow-2xl"
+        class="fixed inset-x-0 bottom-0 z-overlay flex h-[75vh] flex-col rounded-t-xl border-t border-default bg-surface shadow-2xl"
         :class="{ 'transition-transform': !isDragging }"
         :style="{ transform: `translateY(${dragOffset}px)` }"
         role="dialog"
         :aria-label="ariaLabel"
       >
         <!-- Drag handle. Big touch target, but visually a small
-             pill so the chrome stays restrained. The full header
-             area is the drag target so the user has more thumb
-             room than the pill itself. -->
+             pill so the chrome stays restrained. -->
         <div
           class="flex flex-shrink-0 cursor-grab items-center justify-center pt-2 pb-1 select-none active:cursor-grabbing"
-          @pointerdown="onHandlePointerdown"
-          @pointermove="onHandlePointermove"
-          @pointerup="onHandlePointerup"
-          @pointercancel="onHandlePointerup"
+          v-on="handleListeners"
         >
           <div class="h-1 w-10 rounded-full bg-border"></div>
         </div>

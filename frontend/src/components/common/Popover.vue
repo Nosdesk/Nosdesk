@@ -189,7 +189,7 @@ onBeforeUnmount(detachListeners)
         :role="role"
         :aria-label="ariaLabel"
         :tabindex="-1"
-        class="fixed z-[100] outline-none"
+        class="fixed z-overlay outline-none"
         :class="popoverClass"
         :style="{
           left: `${x}px`,
