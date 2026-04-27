@@ -3,6 +3,7 @@ pub mod article_content;
 pub mod assignment_rules;
 pub mod canned_responses;
 pub mod categories;
+pub mod dashboard_stats;
 pub mod channels;
 pub mod comments;
 pub mod devices;

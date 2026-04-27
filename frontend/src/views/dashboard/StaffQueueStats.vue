@@ -6,16 +6,17 @@ persisted in `dashboard_layout.widgets[...].config.metrics` and falls
 back to a sensible default for unconfigured users.
 
 The metric catalog lives in this file because it is Queue-specific
-(shape of `Ticket` it operates over, labels, tones). Adding a new
-metric is a one-entry append — the picker reflects it automatically.
+(labels, tones, which slice of `QueueStats` to read). Adding a new
+metric is a one-entry append, the picker reflects it automatically.
 
-Fetch + SSE plumbing is shared via `useTicketStats`; layout and
-skeleton are shared via `KpiRail` / `KpiRailSkeleton`.
+Counts come from the dashboard coordinator (one shared
+`/api/dashboard/stats?include=queue` request across all stat widgets),
+injected via `useInjectedDashboardStats()`.
 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { Ticket } from '@/services/ticketService'
-import { useTicketStats } from '@/composables/useTicketStats'
+import { useInjectedDashboardStats } from '@/composables/useDashboardStats'
+import type { QueueStats } from '@/services/dashboardService'
 import { useWidgetConfigState } from '@/composables/useWidgetConfigState'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import KpiRail, { type Kpi } from './KpiRail.vue'
@@ -31,10 +32,10 @@ interface QueueMetric {
   description: string
   tone: string
   to: string
-  compute: (tickets: Ticket[]) => number
+  pick: (q: QueueStats) => number
 }
 
-// Catalog — order here is the canonical display order the picker uses
+// Catalog, order here is the canonical display order the picker uses
 // when rendering options. A user's selection is stored as an array of
 // ids and always rendered in catalog order (see `kpis` below), so
 // adding a new metric is a backward-compatible append.
@@ -45,7 +46,7 @@ const CATALOG: QueueMetric[] = [
     description: 'Open, no assignee',
     tone: 'text-status-error',
     to: '/tickets?assignee=unassigned&status=open',
-    compute: (t) => t.filter((x) => !x.assignee && x.status === 'open').length,
+    pick: (q) => q.unassigned,
   },
   {
     id: 'all',
@@ -53,7 +54,7 @@ const CATALOG: QueueMetric[] = [
     description: 'Every status',
     tone: 'text-primary',
     to: '/tickets',
-    compute: (t) => t.length,
+    pick: (q) => q.total,
   },
   {
     id: 'open',
@@ -61,7 +62,7 @@ const CATALOG: QueueMetric[] = [
     description: 'Status: open',
     tone: 'text-status-open',
     to: '/tickets?status=open',
-    compute: (t) => t.filter((x) => x.status === 'open').length,
+    pick: (q) => q.open,
   },
   {
     id: 'in-progress',
@@ -69,19 +70,15 @@ const CATALOG: QueueMetric[] = [
     description: 'Currently being worked',
     tone: 'text-status-in-progress',
     to: '/tickets?status=in-progress',
-    compute: (t) => t.filter((x) => x.status === 'in-progress').length,
+    pick: (q) => q.inProgress,
   },
   {
     id: 'high-priority',
     label: 'High Priority',
-    description: 'High or critical, still open',
+    description: 'High priority, still open',
     tone: 'text-priority-high',
     to: '/tickets?priority=high&status=open',
-    compute: (t) =>
-      t.filter((x) => {
-        const p = x.priority as string
-        return (p === 'high' || p === 'critical') && x.status !== 'closed'
-      }).length,
+    pick: (q) => q.highPriority,
   },
   {
     id: 'closed-today',
@@ -89,30 +86,30 @@ const CATALOG: QueueMetric[] = [
     description: 'Closed in the last 24h',
     tone: 'text-status-closed',
     to: '/tickets?status=closed',
-    compute: (t) => {
-      const dayAgo = Date.now() - 24 * 60 * 60 * 1000
-      return t.filter(
-        (x) => x.status === 'closed' && new Date(x.modified).getTime() > dayAgo,
-      ).length
-    },
+    pick: (q) => q.closedToday,
   },
 ]
 
 const DEFAULT_METRIC_IDS: string[] = ['unassigned', 'all']
 
-// Raw ticket set; metrics are derived from it so picker toggles
-// update the rail instantly without refetching.
-const { data: tickets, loading, error } = useTicketStats<Ticket[]>(
-  (all) => all,
-  [],
-  'Failed to load queue metrics',
-)
+const EMPTY_QUEUE: QueueStats = {
+  total: 0,
+  unassigned: 0,
+  open: 0,
+  inProgress: 0,
+  highPriority: 0,
+  closedToday: 0,
+}
+
+const stats = useInjectedDashboardStats()
+const queue = computed<QueueStats>(() => stats.bundle.value?.queue ?? EMPTY_QUEUE)
+const errorMessage = computed(() => (stats.isError.value ? 'Failed to load queue metrics' : null))
 
 const config = useWidgetConfigState(WIDGET_ID, {
   metrics: DEFAULT_METRIC_IDS,
 })
 
-// Validate the persisted array on read — `useWidgetConfigState` keeps
+// Validate the persisted array on read, `useWidgetConfigState` keeps
 // hydrated values verbatim, so defensive type narrowing happens here.
 const selectedMetricIds = computed<string[]>(() => {
   const raw = Array.isArray(config.metrics) ? config.metrics : []
@@ -130,7 +127,7 @@ const kpis = computed<Kpi[]>(() =>
       description: m.description,
       tone: m.tone,
       to: m.to,
-      value: m.compute(tickets.value),
+      value: m.pick(queue.value),
     })),
 )
 
@@ -143,10 +140,10 @@ function savePicker(newIds: string[]) {
 </script>
 
 <template>
-  <DashboardWidgetShell title="Queue" :loading="loading" :error="error">
+  <DashboardWidgetShell title="Queue" :loading="stats.isLoading.value" :error="errorMessage">
     <!-- Gear in the header opens the metric picker. Lives here (not
          tied to dashboard edit mode) because picking metrics is a
-         quick, in-context action — not a layout change. -->
+         quick, in-context action, not a layout change. -->
     <template #headerActions>
       <button
         type="button"

@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, provide, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardGreeting } from '@/composables/useDashboardGreeting'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
+import {
+  DASHBOARD_STATS_KEY,
+  useDashboardStats,
+} from '@/composables/useDashboardStats'
 import ticketService from '@/services/ticketService'
 import DashboardGrid from './dashboard/DashboardGrid.vue'
 import DashboardEditBar from './dashboard/DashboardEditBar.vue'
@@ -11,6 +15,12 @@ import DashboardEditBar from './dashboard/DashboardEditBar.vue'
 const router = useRouter()
 const authStore = useAuthStore()
 const dashboardLayout = useDashboardLayoutStore()
+
+// Single shared stats query for all stat-bearing widgets. The
+// coordinator collects `dataNeeds` from active widgets and fires
+// one /api/dashboard/stats request that serves them all. Widgets
+// inject the handle via `useInjectedDashboardStats()`.
+provide(DASHBOARD_STATS_KEY, useDashboardStats())
 
 // First name only; the greeting template substitutes `{0}`.
 const username = computed(() => {

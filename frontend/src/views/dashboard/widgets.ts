@@ -61,7 +61,20 @@ export interface WidgetDef {
    * compact by design" rather than "this card isn't filling."
    */
   naturalHeight?: boolean
+  /**
+   * Optional list of dashboard-stats groups this widget consumes
+   * (e.g., `['queue']`, `['yours']`, `['summary']`). The dashboard
+   * coordinator collects the union across active widgets and
+   * fires one `/api/dashboard/stats?include=...` request that
+   * serves them all. Widgets that don't read shared stats omit
+   * this field.
+   */
+  dataNeeds?: readonly DashboardStatsGroup[]
 }
+
+/** Stat group keys the backend recognises in `?include=...`. Keep in
+ *  sync with `StatsGroup` in `backend/src/repository/dashboard_stats.rs`. */
+export type DashboardStatsGroup = 'queue' | 'yours' | 'summary'
 
 export const WIDGET_REGISTRY: WidgetDef[] = [
   {
@@ -81,6 +94,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     span: 1,
     roles: ['technician', 'admin'],
     naturalHeight: true,
+    dataNeeds: ['yours'],
   },
   {
     id: 'stats-queue',
@@ -90,6 +104,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     span: 1,
     roles: ['technician', 'admin'],
     naturalHeight: true,
+    dataNeeds: ['queue'],
   },
   {
     id: 'unassigned-queue',
@@ -162,6 +177,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     span: 1,
     roles: ['user'],
     naturalHeight: true,
+    dataNeeds: ['summary'],
   },
 ]
 

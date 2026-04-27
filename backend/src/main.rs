@@ -964,6 +964,14 @@ async fn main() -> std::io::Result<()> {
                     // Periodic-task scheduler status (read-only).
                     .route("/admin/scheduler/status", web::get().to(handlers::scheduler::get_status))
 
+                    // Consolidated dashboard stats. The frontend's
+                    // widget registry derives an `include` set
+                    // from the user's active widgets and passes
+                    // it here so we only compute what's about to
+                    // be displayed. Replaces three independent
+                    // full-list ticket fetches per dashboard load.
+                    .route("/dashboard/stats", web::get().to(handlers::dashboard::get_stats))
+
                     // Canned responses — reads open to any authenticated
                     // user (composer picker); writes admin-only.
                     .route("/canned-responses", web::get().to(handlers::canned_responses::list_canned))
