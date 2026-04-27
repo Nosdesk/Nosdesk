@@ -10,6 +10,14 @@ import { ref, computed } from 'vue';
 
 export type ToastType = 'info' | 'success' | 'warning' | 'error' | 'notification';
 
+export interface ToastAction {
+  /** Button label (e.g. "Undo"). */
+  label: string;
+  /** Invoked when the user clicks the action button. The toast is
+   *  dismissed automatically after the click. */
+  handler: () => void | Promise<void>;
+}
+
 export interface Toast {
   id: string;
   type: ToastType;
@@ -17,6 +25,9 @@ export interface Toast {
   message?: string;
   duration: number;       // Auto-dismiss after ms (0 = persistent)
   dismissible: boolean;
+  /** Optional inline action (e.g. "Undo"). Renders as a button on
+   *  the toast; clicking runs `handler` and dismisses the toast. */
+  action?: ToastAction;
   // For notification toasts
   notification?: {
     entityType: string;
@@ -31,6 +42,10 @@ export interface Toast {
 const MAX_TOASTS = 5;
 const DEFAULT_DURATION = 5000;
 const NOTIFICATION_DURATION = 8000;
+// Toasts that carry an inline action (e.g. Undo) stay around longer
+// so users have time to react. Per Nielsen Norman / Material guidance
+// 8-10s is the sweet spot for actionable confirmations.
+const UNDO_DURATION = 8000;
 
 export const useToastStore = defineStore('toast', () => {
   const toasts = ref<Toast[]>([]);
@@ -99,13 +114,14 @@ export const useToastStore = defineStore('toast', () => {
     });
   }
 
-  function success(title: string, message?: string): string {
+  function success(title: string, message?: string, action?: ToastAction): string {
     return addToast({
       type: 'success',
       title,
       message,
-      duration: DEFAULT_DURATION,
+      duration: action ? UNDO_DURATION : DEFAULT_DURATION,
       dismissible: true,
+      action,
     });
   }
 

@@ -19,6 +19,11 @@ Usage:
     <div class="flex flex-col gap-5">
       <p class="text-sm text-secondary whitespace-pre-line">{{ message }}</p>
 
+      <!-- Optional extra body content rendered between the message
+           and the action buttons. Used by BulkConfirmDialog for the
+           typed-confirmation input affordance. -->
+      <slot name="body" />
+
       <div class="flex justify-end gap-2">
         <button
           type="button"
@@ -29,15 +34,18 @@ Usage:
         </button>
         <button
           type="button"
+          :disabled="confirmDisabled"
           :class="[
             'px-4 py-2 text-sm rounded-lg text-white transition-colors',
-            variant === 'danger'
-              ? 'bg-status-error hover:opacity-90'
-              : variant === 'warning'
-                ? 'bg-status-warning hover:opacity-90'
-                : 'bg-accent hover:opacity-90',
+            confirmDisabled
+              ? 'bg-surface-alt text-tertiary cursor-not-allowed'
+              : variant === 'danger'
+                ? 'bg-status-error hover:opacity-90'
+                : variant === 'warning'
+                  ? 'bg-status-warning hover:opacity-90'
+                  : 'bg-accent hover:opacity-90',
           ]"
-          @click="emit('confirm')"
+          @click="confirmDisabled ? undefined : emit('confirm')"
         >
           {{ confirmLabel }}
         </button>
@@ -57,11 +65,17 @@ withDefaults(
     confirmLabel?: string;
     cancelLabel?: string;
     variant?: 'danger' | 'warning' | 'info';
+    /** When true, the Confirm button is rendered but disabled (greyed
+     *  out, no click handler). Use for typed-confirmation patterns
+     *  where confirm should only be reachable once a precondition
+     *  is met. */
+    confirmDisabled?: boolean;
   }>(),
   {
     confirmLabel: 'Confirm',
     cancelLabel: 'Cancel',
     variant: 'info',
+    confirmDisabled: false,
   },
 );
 

@@ -54,6 +54,19 @@ const dismissToast = (toast: Toast, event: Event) => {
   event.stopPropagation();
   toastStore.removeToast(toast.id);
 };
+
+// Inline action handler (e.g. Undo). Run the handler then dismiss
+// the toast; stopPropagation prevents the parent card click from
+// firing for notification toasts.
+const invokeAction = async (toast: Toast, event: Event) => {
+  event.stopPropagation();
+  if (!toast.action) return;
+  try {
+    await toast.action.handler();
+  } finally {
+    toastStore.removeToast(toast.id);
+  }
+};
 </script>
 
 <template>
@@ -200,6 +213,18 @@ const dismissToast = (toast: Toast, event: Event) => {
                 >
                   Click to view
                 </p>
+              </div>
+
+              <!-- Inline action button (e.g. Undo). Sits between the
+                   message and the dismiss × so it reads as part of
+                   the toast, not chrome. -->
+              <div v-if="toast.action" class="flex-shrink-0">
+                <button
+                  @click="invokeAction(toast, $event)"
+                  class="inline-flex items-center px-2.5 py-1.5 text-xs font-semibold text-accent rounded-md hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
+                >
+                  {{ toast.action.label }}
+                </button>
               </div>
 
               <!-- Close button -->
