@@ -91,6 +91,17 @@ const ROLE_FILTER: Record<UserPickerType, string | undefined> = {
   requester: undefined,
 }
 
+/** Roles the assignee picker considers eligible. Backend already
+ *  filters via the `roles` param, but we also enforce client-side so a
+ *  stale role on a cached user, an API regression, or a recents entry
+ *  predating tighter validation can't surface a non-staff option. */
+const ASSIGNEE_ELIGIBLE_ROLES = new Set(['admin', 'technician'])
+
+function isEligibleForType(type: UserPickerType, role: string | undefined): boolean {
+  if (type === 'requester') return true
+  return !!role && ASSIGNEE_ELIGIBLE_ROLES.has(role)
+}
+
 const PAGE_SIZE = 50
 const DEBOUNCE_MS = 200
 
@@ -196,13 +207,17 @@ export function useUserPicker(opts: Options): Result {
     const recents = recentStore.topFor(opts.type, opts.selectedUuid.value || null)
     return recents
       .filter((r) => !exclude.has(r.uuid))
-      .map<PickerUser>((r) => {
+      .map<PickerUser | null>((r) => {
         // Resolve the recent uuid against either the eligible set or
         // the cached user store so we have an avatar / email to render.
         const fromEligible = eligible.value.find((u) => u.uuid === r.uuid)
         if (fromEligible) return fromEligible
         const cached = dataStore.getCachedUserByUuid(r.uuid)
         if (cached) {
+          // Drop ineligible cached users — a recents entry from before
+          // tighter role enforcement could otherwise surface a regular
+          // user as an assignee option.
+          if (!isEligibleForType(opts.type, cached.role)) return null
           return {
             uuid: cached.uuid,
             name: cached.name,
@@ -212,10 +227,13 @@ export function useUserPicker(opts: Options): Result {
             avatar_url: cached.avatar_url,
           }
         }
-        // Fallback: render with just the cached name from the recents
-        // entry. Avatar will fall back to the default initials glyph.
+        // Unknown role: for assignee, refuse to render the row rather
+        // than risk surfacing a non-staff user. For requester (open
+        // set) it's safe to render the stub.
+        if (opts.type === 'assignee') return null
         return { uuid: r.uuid, name: r.name, email: '' }
       })
+      .filter((r): r is PickerUser => r !== null)
   })
 
   // Main results: with an empty query, the eligible set minus rows
@@ -254,14 +272,16 @@ export function useUserPicker(opts: Options): Result {
       sortDirection: 'asc',
       role: ROLE_FILTER[opts.type],
     })
-    return response.data.map<PickerUser>((u) => ({
-      uuid: u.uuid,
-      name: u.name,
-      email: u.email,
-      role: u.role,
-      avatar_thumb: u.avatar_thumb,
-      avatar_url: u.avatar_url,
-    }))
+    return response.data
+      .filter((u) => isEligibleForType(opts.type, u.role))
+      .map<PickerUser>((u) => ({
+        uuid: u.uuid,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        avatar_thumb: u.avatar_thumb,
+        avatar_url: u.avatar_url,
+      }))
   }
 
   async function loadEligible(): Promise<void> {

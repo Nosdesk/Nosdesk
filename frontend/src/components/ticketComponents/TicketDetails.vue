@@ -311,23 +311,17 @@ watchEffect(async () => {
               <div class="flex items-center justify-between">
                 <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Assignee</h3>
                 <div class="print:hidden flex items-center gap-1">
-                  <!-- One-click self-assign / unassign for staff. The
-                       picker also surfaces "You" inside its dropdown,
-                       this button is the zero-open shortcut for the
-                       common "I'll take it" case. -->
+                  <!-- One-click self-assign for staff. The X button
+                       to the right already covers "unassign", so this
+                       only renders the "I'll take it" case. -->
                   <button
-                    v-if="canSelfAssign"
+                    v-if="canSelfAssign && !isAssignedToMe"
                     @click="toggleSelfAssign"
                     type="button"
-                    class="text-[11px] font-medium px-2 h-6 rounded transition-colors"
-                    :class="
-                      isAssignedToMe
-                        ? 'text-tertiary hover:text-secondary hover:bg-surface-hover'
-                        : 'text-accent hover:bg-accent-muted'
-                    "
-                    :title="isAssignedToMe ? 'Unassign yourself from this ticket' : 'Assign this ticket to yourself'"
+                    class="text-[11px] font-medium px-2 h-6 rounded text-accent hover:bg-accent-muted transition-colors"
+                    title="Assign this ticket to yourself"
                   >
-                    {{ isAssignedToMe ? 'Unassign me' : 'Assign to me' }}
+                    Assign to me
                   </button>
                   <button
                     v-if="selectedAssignee"
