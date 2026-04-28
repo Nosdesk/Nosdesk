@@ -1,26 +1,36 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { useDebouncedRef } from '@/composables/useDebouncedRef';
 import { searchService } from '@/services/searchService';
 import type { SearchResult, SearchResponse, GroupedSearchResults } from '@/types/search';
 import { groupResultsByType, emptyGroupedResults, ENTITY_DISPLAY_ORDER, ENTITY_TYPE_CONFIG } from '@/types/search';
 
-// Debounce helper
-function debounce<T extends (...args: unknown[]) => unknown>(
-  fn: T,
-  delay: number
-): (...args: Parameters<T>) => void {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  return (...args: Parameters<T>) => {
-    if (timeoutId) clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => fn(...args), delay);
-  };
-}
+/** Mutually exclusive states for the search surface. */
+export type SearchState = 'prompt' | 'searching' | 'results' | 'empty' | 'error';
 
 // ============================================
 // SHARED STATE (singleton pattern)
 // ============================================
 const isOpen = ref(false);
 const query = ref('');
+// `query` updates synchronously so the input feels snappy as the
+// user types; `debouncedQuery` is what actually fires searches.
+//
+// 150ms sits inside Algolia's "preferred" 200ms-or-faster zone
+// (above 300ms degrades the typed-as-you-search feel), tight
+// enough that progressive narrowing is visible during natural
+// pauses while still cutting roughly 80% of API calls vs firing
+// per keystroke.
+//
+// The `leading` predicate skips the delay at either edge of the
+// empty/non-empty boundary: typing the first character from a
+// fresh modal fires the search instantly (no first-keystroke
+// dead zone) and clearing the input flushes immediately back to
+// the prompt state. Mid-query edits — the bulk of typing — still
+// debounce normally so we don't thrash the index on every char.
+const debouncedQuery = useDebouncedRef(query, 150, {
+  leading: (prev, next) => !prev.trim() || !next.trim(),
+});
 const results = ref<SearchResult[]>([]);
 const groupedResults = ref<GroupedSearchResults>(emptyGroupedResults());
 const isLoading = ref(false);
@@ -89,11 +99,9 @@ export function useGlobalSearch() {
     }
   };
 
-  const debouncedSearch = debounce(performSearch, 200);
-
-  watch(query, (newQuery) => {
+  watch(debouncedQuery, (newQuery) => {
     if (newQuery.trim()) {
-      debouncedSearch(newQuery);
+      performSearch(newQuery);
     } else {
       resetResults();
     }
@@ -189,13 +197,30 @@ export function useGlobalSearch() {
     // Listener persists for app lifetime (shared state)
   });
 
+  // Single derived state for the search surface. Five mutually
+  // exclusive values; consumers branch on the name instead of
+  // juggling several flags. Order matters: `results` wins over
+  // `searching` so a fresh search refresh keeps the previous
+  // hits on screen (stale-while-revalidate), only blanking the
+  // body when there's nothing to show. That's how Raycast feels
+  // snappy without using transitions — the surface never goes
+  // empty when it doesn't have to.
+  const searchState = computed<SearchState>(() => {
+    if (error.value) return 'error';
+    if (!query.value.trim()) return 'prompt';
+    if (flatResults.value.length > 0) return 'results';
+    if (isLoading.value || query.value.trim() !== debouncedQuery.value.trim()) {
+      return 'searching';
+    }
+    return 'empty';
+  });
+
   return {
     isOpen,
     query,
-    results,
     groupedResults,
     flatResults,
-    isLoading,
+    searchState,
     error,
     selectedIndex,
     searchTookMs,

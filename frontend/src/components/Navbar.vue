@@ -191,7 +191,7 @@ const isRouteActive = (path: string, exact = false) => {
 
             <!-- Search Button - above nav links -->
             <button
-                @click="openSearch"
+                @click="() => openSearch()"
                 class="w-full mb-1.5 rounded-md transition-colors duration-200 flex items-center bg-surface-alt border border-default text-secondary hover:bg-surface-hover hover:text-primary hover:border-subtle"
                 :class="[
                     isCollapsed
@@ -388,7 +388,7 @@ const isRouteActive = (path: string, exact = false) => {
 
             <!-- Search button (right side) -->
             <button
-                @click="openSearch"
+                @click="() => openSearch()"
                 class="flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px] text-secondary"
                 aria-label="Search"
                 title="Search"
