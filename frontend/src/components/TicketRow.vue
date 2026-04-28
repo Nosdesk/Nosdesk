@@ -14,7 +14,21 @@ import { computed } from 'vue'
 import { formatCompactRelativeTime } from '@/utils/dateUtils'
 import UserAvatar from './UserAvatar.vue'
 import TicketStatusIcon from './TicketStatusIcon.vue'
+import { useCollabSessionStore } from '@/stores/collabSession'
 import type { UserInfo } from '@/types/user'
+
+const collab = useCollabSessionStore()
+
+/**
+ * Hover-prefetch the ticket's collaborative session: opens the
+ * websocket and IndexedDB load before the click. The session
+ * disconnects on its own after the grace window if the user
+ * hovers but doesn't navigate. No-op if the session is already
+ * active or warm.
+ */
+function prewarmTicket() {
+  collab.warm(`ticket-${props.id}`)
+}
 
 const props = defineProps<{
   id: number
@@ -71,6 +85,8 @@ const ariaLabel = computed(() => {
     :to="to"
     :aria-label="ariaLabel"
     class="relative group block hover:bg-surface-hover transition-colors"
+    @mouseenter="prewarmTicket"
+    @focus="prewarmTicket"
   >
     <!-- Priority rail — ambient color at the left edge. Always
          rendered so row anatomy is constant across widgets; when

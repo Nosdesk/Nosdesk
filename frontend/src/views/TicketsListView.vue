@@ -24,6 +24,7 @@ import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { useTicketsListLoader } from '@/loaders/ticketsListLoader'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
+import { useCollabSessionStore } from '@/stores/collabSession'
 import { parseDate } from '@/utils/dateUtils'
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from '@/constants/ticketOptions'
 import { categoryService } from '@/services/categoryService'
@@ -38,6 +39,7 @@ const router = useRouter()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const queryCache = useQueryCache()
+const collab = useCollabSessionStore()
 
 // Tighter mobile breakpoint than the default — desktop columns
 // for tickets need >=lg to fit comfortably.
@@ -78,6 +80,17 @@ const savedPageSize = (() => {
 
 const navigateToTicket = (ticket: Ticket) => {
   void router.push(`/tickets/${ticket.id}`)
+}
+
+/**
+ * Hover-prefetch the ticket's collaborative session: opens the
+ * websocket and IndexedDB load before the click. The session
+ * disconnects on its own after the grace window if the user
+ * hovers but doesn't navigate. No-op if the session is already
+ * active or warm.
+ */
+const prewarmTicket = (ticket: Ticket) => {
+  collab.warm(`ticket-${ticket.id}`)
 }
 
 const handleGoToItem = (itemId: number) => {
@@ -294,6 +307,7 @@ async function executeBulk(
           @toggle-selection="dt.onToggleSelection"
           @toggle-all="dt.onToggleAll"
           @row-click="navigateToTicket"
+          @row-mouseenter="prewarmTicket"
         >
           <template #cell-id="{ value }">
             <IdCell :id="value" />
@@ -334,6 +348,7 @@ async function executeBulk(
           class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer border-t border-default first:border-t-0"
           v-memo="[item.id, item.title, item.status, item.priority, item.created, item.requester, item.assignee, themeStore.effectiveColorBlindMode]"
           @click="navigateToTicket(item)"
+          @mouseenter="prewarmTicket(item)"
         >
           <div
             v-if="themeStore.effectiveColorBlindMode"

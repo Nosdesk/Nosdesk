@@ -15,6 +15,7 @@ import { useCrtEffect } from '@/composables/useCrtEffect'
 import { useSnowfall } from '@/composables/useSnowfall'
 import { useFavicon } from '@/composables/useFavicon'
 import { useNotificationSSE } from '@/composables/useNotificationSSE'
+import { useTicketDeletionCleanup } from '@/composables/useTicketDeletionCleanup'
 import { setMentionNavigationHandler } from '@/plugins/prosemirror-mention-view'
 import authService from '@/services/authService'
 import { useBrandingStore } from '@/stores/branding'
@@ -69,6 +70,10 @@ useSnowfall();         // Christmas: Ambient falling snow
 
 // Real-time notification handling
 useNotificationSSE();
+// App-level SSE listener that wipes local artefacts (collab IDB
+// cache, comment draft, pending attachments) for any ticket the
+// server announces as deleted, see useTicketDeletionCleanup.
+useTicketDeletionCleanup();
 
 // Computed property to determine if on a documentation page
 const isDocumentationPage = computed(() => {

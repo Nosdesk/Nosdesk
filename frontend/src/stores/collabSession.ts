@@ -29,12 +29,13 @@
  */
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
-import { IndexeddbPersistence } from 'y-indexeddb'
+import { IndexeddbPersistence, clearDocument as clearIdbDocument } from 'y-indexeddb'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import { logger } from '@/utils/logger'
 import { SafePermanentUserData } from '@/utils/safePermanentUserData'
+import { getCollabWsUrl } from '@/utils/collabWsUrl'
 
 /**
  * How long after refcount hits 0 we keep the websocket open
@@ -52,6 +53,26 @@ const GRACE_MS = 30_000
  * memory pressure shows up in long sessions.
  */
 const MAX_SESSIONS = 8
+
+/**
+ * Cap on the number of distinct docs we keep in IndexedDB across
+ * sessions, refreshes, and tabs. Crossing this triggers a prune
+ * pass that calls `y-indexeddb`'s `clearDocument()` on the
+ * least-recently-touched docs until under the cap.
+ *
+ * 50 is a generous default for IT-helpdesk usage (a power user
+ * touching that many tickets in a session is unusual). Storing
+ * a typical ticket's Yjs updates is a few KB, so 50 docs is
+ * well under any browser's quota.
+ */
+const MAX_IDB_DOCS = 50
+
+/**
+ * localStorage key for the "last touched" timestamp per docId.
+ * Persistent across reloads so the prune is meaningful across
+ * sessions, not just within one tab's lifetime.
+ */
+const IDB_TOUCH_KEY = 'nosdesk:collab-idb-touched'
 
 /**
  * Feature flag: set `localStorage['nosdesk:disable-idb-collab'] = '1'`
@@ -98,6 +119,71 @@ interface SessionEntry {
  * semantics.
  */
 const sessions = new Map<string, SessionEntry>()
+
+// ---- IndexedDB LRU bookkeeping ---------------------------------
+// Tracks when each docId was last accessed so we can prune the
+// oldest stores when their count exceeds MAX_IDB_DOCS. Survives
+// reloads (localStorage) so a long-running browser doesn't
+// accumulate hundreds of dead docs on disk.
+
+function loadTouchMap(): Map<string, number> {
+  if (typeof localStorage === 'undefined') return new Map()
+  try {
+    const raw = localStorage.getItem(IDB_TOUCH_KEY)
+    if (!raw) return new Map()
+    const parsed = JSON.parse(raw) as Record<string, number>
+    return new Map(Object.entries(parsed))
+  } catch {
+    return new Map()
+  }
+}
+
+function persistTouchMap(map: Map<string, number>): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(IDB_TOUCH_KEY, JSON.stringify(Object.fromEntries(map)))
+  } catch {
+    // Quota / sandboxed origins; tracking degrades to per-tab.
+  }
+}
+
+function touchDoc(docId: string): void {
+  const map = loadTouchMap()
+  map.set(docId, Date.now())
+  persistTouchMap(map)
+}
+
+function untouchDoc(docId: string): void {
+  const map = loadTouchMap()
+  if (!map.delete(docId)) return
+  persistTouchMap(map)
+}
+
+/**
+ * If we've accumulated more IDB docs than the cap, fire-and-forget
+ * `clearDocument()` for the oldest entries until we're back under.
+ * Active sessions are excluded so an open editor never has its
+ * cache yanked from under it.
+ */
+function pruneIdbStores(): void {
+  const map = loadTouchMap()
+  if (map.size <= MAX_IDB_DOCS) return
+  const entries = [...map.entries()]
+    .filter(([docId]) => !sessions.has(docId))
+    .sort((a, b) => a[1] - b[1])
+  const toRemove = map.size - MAX_IDB_DOCS
+  for (let i = 0; i < toRemove && i < entries.length; i++) {
+    const [docId] = entries[i]
+    map.delete(docId)
+    clearIdbDocument(docId).catch((err) => {
+      logger.warn('Collab session: clearIdbDocument during prune failed', {
+        docId,
+        err,
+      })
+    })
+  }
+  persistTouchMap(map)
+}
 
 /**
  * On `beforeunload`, broadcast `setLocalState(null)` for every
@@ -300,6 +386,10 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     }
     sessions.set(docId, entry)
     enforceLruCap()
+    if (idb) {
+      touchDoc(docId)
+      pruneIdbStores()
+    }
     refreshSnapshot()
     return { ydoc, provider, permanentUserData, isNew: true }
   }
@@ -315,10 +405,65 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     refreshSnapshot()
   }
 
-  /** Forced eviction. For tests, debug menus, and the
-   *  "ticket deleted" SSE handler in Phase 5. */
+  /** Forced eviction. For tests and debug menus. The collab
+   *  session is destroyed but the on-disk IDB cache is left in
+   *  place; use `purgeData()` to wipe both. */
   function destroy(docId: string): void {
     evict(docId)
+  }
+
+  /**
+   * Pre-load a doc without taking a refcount on it. Intended
+   * for hover-prefetch on RouterLink (`@mouseenter="warm(docId)"`)
+   * so by the time the user clicks, the WebSocket handshake and
+   * IndexedDB load are already in flight or done. If they don't
+   * click within the grace window the session disconnects on its
+   * own.
+   *
+   * No-op if a session for this docId already exists (warm or
+   * cold) since the data is already in flight or cached. Options
+   * default to the derived collab WS URL + the same provider
+   * params the editor uses, so callers (like a `<RouterLink>`'s
+   * `@mouseenter`) don't need to know connection details.
+   */
+  function warm(docId: string, options?: CollabSessionAcquireOptions): void {
+    if (sessions.has(docId)) return
+    const opts: CollabSessionAcquireOptions = options ?? {
+      baseWsUrl: getCollabWsUrl(),
+      providerParams: { resyncInterval: 20000, disableBc: true },
+    }
+    // Same path as `acquire` but we drop the refcount immediately
+    // and start the grace timer, so the session disconnects on
+    // its own if the user never actually navigates here.
+    acquire(docId, opts)
+    release(docId)
+  }
+
+  /**
+   * Forced eviction + IndexedDB wipe + LRU bookkeeping cleanup.
+   * For the SSE "ticket deleted" handler: when the server
+   * deletes a ticket the local cached doc is stale data the user
+   * shouldn't see again, even after a refresh. `clearData()` on
+   * an active session if there is one, otherwise `clearDocument`
+   * by name.
+   */
+  async function purgeData(docId: string): Promise<void> {
+    const entry = sessions.get(docId)
+    if (entry?.idb) {
+      try {
+        await entry.idb.clearData()
+      } catch (err) {
+        logger.warn('Collab session: idb.clearData() failed', { docId, err })
+      }
+    } else {
+      try {
+        await clearIdbDocument(docId)
+      } catch (err) {
+        logger.warn('Collab session: clearIdbDocument failed', { docId, err })
+      }
+    }
+    if (entry) evict(docId)
+    untouchDoc(docId)
   }
 
   /** Test helper: wipe all sessions. Used by integration
@@ -332,6 +477,8 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     acquire,
     release,
     destroy,
+    warm,
+    purgeData,
     destroyAll,
   }
 })
