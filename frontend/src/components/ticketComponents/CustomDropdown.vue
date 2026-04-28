@@ -54,6 +54,8 @@ const sheetTitle = computed(() => {
       return 'Select priority'
     case 'category':
       return 'Select category'
+    default:
+      return 'Select option'
   }
 })
 

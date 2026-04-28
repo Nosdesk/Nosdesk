@@ -32,20 +32,13 @@ const viewsDir = join(__dirname, '..', 'src', 'views')
 const projectRoot = join(__dirname, '..')
 
 /**
- * Pre-existing multi-root views. Each has the same latent bug
- * we just discovered in DevicesListView (Transition deadlock on
- * nav-away), but they haven't been hit yet because users rarely
- * navigate away from them mid-session. Wrap each in a single
- * root element and remove from this list. Reported as warnings
- * so the linter doesn't gate the rest of the codebase on them.
+ * Allowlist for pre-existing multi-root views, drained as the
+ * fixes land. Empty means every view in `src/views/` currently
+ * has a single root, which is the steady-state we want.
  *
  * Paths are relative to the project root.
  */
-const KNOWN_LEGACY_MULTI_ROOT_VIEWS = new Set([
-  'src/views/CategoriesManagementView.vue',
-  'src/views/ErrorView.vue',
-  'src/views/GroupsManagementView.vue',
-])
+const KNOWN_LEGACY_MULTI_ROOT_VIEWS = new Set([])
 
 /**
  * Top-level `src/views/*.vue` only. Subdirectories (e.g.

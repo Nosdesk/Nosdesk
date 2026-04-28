@@ -691,7 +691,7 @@ const showHelperText = computed(() => {
             class="flex-1 overflow-y-auto overscroll-contain min-h-0"
           >
             <button
-              v-for="(user, index) in displayedResults"
+              v-for="user in displayedResults"
               :key="user.id"
               @click="selectUser(user)"
               class="w-full px-3 py-2.5 text-left flex items-center gap-3 active:bg-surface-alt transition-colors border-b border-subtle last:border-b-0"

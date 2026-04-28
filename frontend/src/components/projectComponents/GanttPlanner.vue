@@ -193,7 +193,7 @@ const formatHeaderDate = (date: Date) => {
 // Generate time units for the header based on timeScale
 const timeUnits = computed(() => {
   const units = []
-  let current = new Date(startDate.value)
+  const current = new Date(startDate.value)
   
   while (current <= endDate.value) {
     units.push(new Date(current))

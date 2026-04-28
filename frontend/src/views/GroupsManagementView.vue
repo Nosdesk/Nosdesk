@@ -226,6 +226,10 @@ onMounted(() => {
 </script>
 
 <template>
+  <!-- Single root so App.vue's <Transition mode="out-in"> can attach
+       leave/enter classes. Modals stay inside the wrapper; they
+       teleport themselves at render time. -->
+  <div class="h-full">
   <SplitPanelLayout :panelOpen="!!selectedGroupUuid">
     <template #list="{ isMobile }">
       <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full" :class="selectedGroupUuid && !isMobile ? '' : 'max-w-8xl'">
@@ -490,4 +494,5 @@ onMounted(() => {
       </div>
     </div>
   </Modal>
+  </div>
 </template>

@@ -131,7 +131,7 @@ export const getAncestorChain = (
   }
 
   const ancestors: CollectionPage[] = []
-  let currentId = String(pageId)
+  const currentId = String(pageId)
   const current = pageMap.get(currentId)
   if (!current) return ancestors
 

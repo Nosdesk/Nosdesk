@@ -915,6 +915,11 @@ const debugMeta = computed(() => ({
 </script>
 
 <template>
+  <!-- Single root so App.vue's <Transition mode="out-in"> can attach
+       leave/enter classes. Plain div with h-full is the cheapest
+       wrapper; the inner error panel and the fixed-positioned
+       debug overlay both render unaffected. -->
+  <div class="h-full">
   <div
     class="error-page-container min-h-screen w-full flex items-center justify-center bg-app p-4 select-none"
   >
@@ -1306,6 +1311,7 @@ const debugMeta = computed(() => ({
         />
       </div>
     </div>
+  </div>
   </div>
 </template>
 

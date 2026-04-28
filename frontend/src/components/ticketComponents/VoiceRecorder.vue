@@ -100,7 +100,7 @@ const drawWaveform = () => {
 
   // Number of sample points for the flowing wave
   const numPoints = 64;
-  let smoothedValues = new Array(numPoints).fill(0);
+  const smoothedValues = new Array(numPoints).fill(0);
 
   // Get theme colors from CSS variables
   const accentColor = getCSSVar('--color-accent') || '#2C80FF';
