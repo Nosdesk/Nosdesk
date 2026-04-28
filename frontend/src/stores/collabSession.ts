@@ -29,6 +29,7 @@
  */
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
+import { IndexeddbPersistence } from 'y-indexeddb'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
@@ -52,6 +53,24 @@ const GRACE_MS = 30_000
  */
 const MAX_SESSIONS = 8
 
+/**
+ * Feature flag: set `localStorage['nosdesk:disable-idb-collab'] = '1'`
+ * to disable local persistence at runtime. Useful when the browser's
+ * IndexedDB is sandboxed (private windows on some browsers), throws
+ * QuotaExceededError, or for reproducing fresh-fetch debugging.
+ *
+ * Construction failures are also caught at acquire time so a single
+ * broken doc doesn't break the rest of the app.
+ */
+function isLocalPersistenceEnabled(): boolean {
+  if (typeof localStorage === 'undefined') return false
+  try {
+    return localStorage.getItem('nosdesk:disable-idb-collab') !== '1'
+  } catch {
+    return false
+  }
+}
+
 interface SessionEntry {
   docId: string
   ydoc: Y.Doc
@@ -61,6 +80,11 @@ interface SessionEntry {
    *  Living once per `Y.Doc` lifetime here is the only safe shape;
    *  consumers must not new it up themselves. */
   permanentUserData: SafePermanentUserData
+  /** IndexedDB persistence layer. `null` when disabled by feature
+   *  flag or when construction failed (private window, quota,
+   *  sandboxed origin). The provider alone still works without it,
+   *  the only loss is the cold-load instant-render UX. */
+  idb: IndexeddbPersistence | null
   refCount: number
   /** Wallclock ms of the most recent release (refCount → 0). */
   lastReleasedAt: number | null
@@ -74,6 +98,29 @@ interface SessionEntry {
  * semantics.
  */
 const sessions = new Map<string, SessionEntry>()
+
+/**
+ * On `beforeunload`, broadcast `setLocalState(null)` for every
+ * active session so the y-websocket server immediately removes
+ * our awareness entries instead of waiting for the ping-cycle
+ * GC (~60s). Without this, the *next* tab the same user opens
+ * sees a ghost copy of themselves in the viewers list.
+ *
+ * The call only succeeds if the WS is still open; on hard kill
+ * the server falls back to its ping-cycle cleanup. Best-effort
+ * either way.
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    for (const entry of sessions.values()) {
+      try {
+        entry.provider.awareness.setLocalState(null)
+      } catch {
+        // Awareness may already be torn down; nothing to do.
+      }
+    }
+  })
+}
 
 export interface CollabSessionAcquireOptions {
   /** WebSocket URL prefix the WebsocketProvider should connect
@@ -89,9 +136,8 @@ export interface AcquireResult {
   permanentUserData: SafePermanentUserData
   /** True on the first `acquire` for this `docId`, false on
    *  subsequent re-acquires. The caller uses this to decide
-   *  whether to apply one-time setup (`ydoc.gc = false`, the
-   *  initial `setUserMapping` for the local clientID) vs
-   *  leaving the existing session intact. */
+   *  whether to apply one-time setup (`setUserMapping` for the
+   *  local clientID) vs leaving the existing session intact. */
   isNew: boolean
 }
 
@@ -142,7 +188,19 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     if (!entry) return
     cancelGrace(entry)
     // Per y-websocket#142, both must be destroyed to free
-    // awareness listeners and avoid memory leaks.
+    // awareness listeners and avoid memory leaks. IndexedDB
+    // persistence layer is destroyed first so it stops listening
+    // for ydoc updates before the doc tombstones; `destroy()`
+    // here releases the IDB connection but PRESERVES the
+    // on-disk data, the `clearData()` wipe is reserved for
+    // explicit "ticket deleted" cleanup in Phase 5.
+    if (entry.idb) {
+      try {
+        entry.idb.destroy()
+      } catch (err) {
+        logger.warn('Collab session: idb.destroy() threw', { docId, err })
+      }
+    }
     try {
       entry.provider.destroy()
     } catch (err) {
@@ -206,6 +264,23 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
     // by the GC routine; setting it before any merges is the
     // safe path per yjs README "DocOpts").
     ydoc.gc = false
+
+    // IndexedDB persistence: best-effort. Construction can throw
+    // (private windows, sandboxed origins, quota exceeded). When
+    // it does, the session degrades to provider-only and the
+    // editor cold-starts from the websocket like before.
+    let idb: IndexeddbPersistence | null = null
+    if (isLocalPersistenceEnabled()) {
+      try {
+        idb = new IndexeddbPersistence(docId, ydoc)
+      } catch (err) {
+        logger.warn('Collab session: IndexeddbPersistence construction failed, continuing without local cache', {
+          docId,
+          err,
+        })
+      }
+    }
+
     const provider = new WebsocketProvider(
       options.baseWsUrl,
       docId,
@@ -218,6 +293,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       ydoc,
       provider,
       permanentUserData,
+      idb,
       refCount: 1,
       lastReleasedAt: null,
       graceTimer: null,

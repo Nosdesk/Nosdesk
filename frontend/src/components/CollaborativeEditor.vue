@@ -683,8 +683,19 @@ const initEditor = async () => {
             );
         }
 
-        // 5. Create the editor view BEFORE sync completes
-        // The ySyncPlugin must be attached to receive and process sync messages
+        // 5. Mount the editor view immediately. y-prosemirror's
+        //    ySyncPlugin observes the bound XmlFragment, so any
+        //    updates that arrive AFTER mount (from IDB cache load
+        //    or the websocket sync step) re-derive the PM doc on
+        //    the fly. CRDT semantics make the order safe.
+        //
+        //    On a cold first paint this can briefly show empty
+        //    content before the cache populates (~5-30ms warm,
+        //    ~100ms cold per y-indexeddb timing). We accept the
+        //    flash in exchange for deterministic mount ordering;
+        //    the previous Promise.race gate added a window where
+        //    the ws/ydoc lifecycle could observe a half-set-up
+        //    editor.
         if (!editorElement.value) {
             throw new Error("Editor element became null during initialization");
         }
@@ -1191,31 +1202,41 @@ const getUserDisplayName = () => {
     return authStore.user.name;
 };
 
-// Simple function to update connected users UI
+// Build the active-viewers list from the awareness map.
+//
+// Two filtering rules, both required:
+//   1. Drop entries with our own user UUID. y-websocket
+//      reference server keeps awareness state for up to ~60s
+//      after a socket dies (next ping cycle), so the prior
+//      session of the same physical user lingers under a
+//      DIFFERENT clientID and gets pushed to the new client
+//      on connect. Filtering by `clientID` alone misses it
+//      and the user sees themselves in the viewers list.
+//      `outdatedTimeout` (30s) eventually GCs it but the gap
+//      is user-visible.
+//   2. Dedup remaining entries by user UUID. Same user
+//      across multiple legitimate sessions (two open tabs)
+//      should appear once, with the last-updated entry winning
+//      (the awareness `lastUpdated` meta is the canonical
+//      tiebreaker, but for simplicity we just take the most
+//      recent occurrence in iteration order).
 const updateConnectedUsers = () => {
     if (!provider) return;
 
     try {
         const states = provider.awareness.getStates();
-        const users: { id: string; user: AwarenessUser }[] = [];
+        const currentUserUuid = authStore.user?.uuid;
+        const seen = new Set<string>();
+        if (currentUserUuid) seen.add(currentUserUuid);
 
-        // Convert Map to array and exclude the current user
+        const users: { id: string; user: AwarenessUser }[] = [];
         states.forEach((state, clientId) => {
-            if (
-                state &&
-                state.user &&
-                provider &&
-                clientId !== provider.awareness.clientID
-            ) {
-                const awarenessUser = state.user as AwarenessUser;
-                // Only include users with valid user data
-                if (awarenessUser.name && typeof awarenessUser.name === "string") {
-                    users.push({
-                        id: String(clientId),
-                        user: awarenessUser,
-                    });
-                }
-            }
+            const awarenessUser = state?.user as AwarenessUser | undefined;
+            if (!awarenessUser?.name || typeof awarenessUser.name !== 'string') return;
+            const uid = awarenessUser.uuid;
+            if (uid && seen.has(uid)) return;
+            if (uid) seen.add(uid);
+            users.push({ id: String(clientId), user: awarenessUser });
         });
 
         connectedUsers.value = users;
