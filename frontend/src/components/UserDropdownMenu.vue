@@ -48,10 +48,10 @@ const anchor = computed(() => ({
 
 const items = computed<MenuItem[]>(() => {
   const out: MenuItem[] = [
-    { id: 'settings', label: 'Settings', icon: ICON_REGISTRY.permissions.d },
+    { id: 'settings', label: 'Account', icon: ICON_REGISTRY.account.d },
   ]
   if (authStore.user?.role === 'admin') {
-    out.push({ id: 'admin', label: 'Administration', icon: ICON_REGISTRY.permissions.d })
+    out.push({ id: 'admin', label: 'Administration', icon: ICON_REGISTRY.admin.d })
   }
   out.push({ id: 'logout', label: 'Sign out', danger: true, divider: true })
   return out
