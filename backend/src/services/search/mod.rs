@@ -19,6 +19,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
+use tantivy::tokenizer::{LowerCaser, NgramTokenizer, TextAnalyzer};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
 use tracing::{debug, info, warn};
 
@@ -26,7 +27,33 @@ use crate::db::{DbConnection, Pool};
 use crate::models;
 
 pub use types::{EntityType, IndexDocument, SearchQuery, SearchResponse};
-use schema::SearchSchema;
+use schema::{SearchSchema, PREFIX_NGRAM_MAX, PREFIX_NGRAM_MIN, PREFIX_NGRAM_TOKENIZER};
+
+/// Build the analyzer used for fields that need partial-prefix
+/// matching (title, metadata). `prefix_only` keeps storage cost
+/// proportional to the prefix span — every word generates one token
+/// per prefix length — rather than the full inner-ngram explosion
+/// that scales by O(n²) word length. The lowercaser runs after so
+/// queries match regardless of input casing.
+fn build_prefix_ngram_analyzer() -> TextAnalyzer {
+    TextAnalyzer::builder(
+        NgramTokenizer::prefix_only(PREFIX_NGRAM_MIN, PREFIX_NGRAM_MAX)
+            .expect("PREFIX_NGRAM_MIN/MAX produce a valid range at compile time"),
+    )
+    .filter(LowerCaser)
+    .build()
+}
+
+/// Register the prefix-ngram analyzer on the given index under the
+/// well-known schema name. Must be called whenever the index is
+/// opened or created — Tantivy's tokenizer registry is per-`Index`
+/// and not persisted, so a fresh process needs to re-register before
+/// any indexing or querying touches the prefix-ngram fields.
+fn register_tokenizers(index: &Index) {
+    index
+        .tokenizers()
+        .register(PREFIX_NGRAM_TOKENIZER, build_prefix_ngram_analyzer());
+}
 
 /// Memory budget for the index writer (50MB)
 const INDEX_WRITER_MEMORY_BYTES: usize = 50_000_000;
@@ -75,6 +102,12 @@ impl SearchService {
             let idx = Index::create_in_dir(index_path, sch.schema.clone())?;
             (idx, sch)
         };
+
+        // Tokenizer registration is per-`Index` and not persisted to
+        // disk, so we register on every open *and* every create. Must
+        // happen before the writer is built so the first indexing
+        // call can already resolve the prefix-ngram name.
+        register_tokenizers(&index);
 
         let reader = index
             .reader_builder()
