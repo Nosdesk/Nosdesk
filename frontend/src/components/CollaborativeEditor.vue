@@ -924,6 +924,23 @@ const initEditor = async () => {
         };
         provider.on("status", statusHandler);
 
+        // Seed local status from the provider's current state. The
+        // session store reuses a single WebsocketProvider across
+        // editor remounts, so on a re-acquire the provider is often
+        // already connected. y-websocket only emits `status` on
+        // transitions, not steady state, so without this the new
+        // editor would sit in `connecting` until the 10s timeout
+        // fired and flipped it to `disconnected` — a hang the user
+        // sees as "tries to connect and fails" after navigating
+        // back to a ticket.
+        if (provider.wsconnected) {
+            connectionStatus.value = 'connected';
+            hasBeenConnected.value = true;
+            isConnected.value = true;
+        } else if (provider.wsconnecting) {
+            connectionStatus.value = 'connecting';
+        }
+
         // Add error event handler for more detailed error information
         // Store handler reference for proper cleanup
         connectionErrorHandler = (error: Event) => {
