@@ -3,6 +3,19 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::{User, UserEmail, UserRole};
 
+/// Observer fired after a user record is successfully committed to the
+/// database. Implementors react to user creation (e.g. the search
+/// service maintains its index, audit logs append a row). The
+/// repository helpers invoke this *after* the surrounding transaction
+/// commits, so a rolled-back insert never fires the hook.
+///
+/// Defined here in the repository layer so the helpers don't have to
+/// import any service module — the search service implements the
+/// trait on its own type.
+pub trait UserCreatedObserver: Send + Sync {
+    fn user_created(&self, user: &User, primary_email: &str);
+}
+
 /// Get a user's primary email address
 /// This is now the canonical way to get a user's email since users table no longer has email field
 pub fn get_primary_email(user_uuid: &Uuid, conn: &mut DbConnection) -> Option<String> {
@@ -39,8 +52,9 @@ pub fn create_user_with_email(
     email_verified: bool,
     email_source: Option<String>,
     conn: &mut DbConnection,
+    observer: Option<&dyn UserCreatedObserver>,
 ) -> Result<(User, UserEmail), diesel::result::Error> {
-    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+    let result = conn.transaction::<_, diesel::result::Error, _>(|conn| {
         // Create user first
         let user: User = diesel::insert_into(crate::schema::users::table)
             .values(&new_user)
@@ -56,12 +70,21 @@ pub fn create_user_with_email(
             source: email_source,
         };
 
-        let user_email = diesel::insert_into(crate::schema::user_emails::table)
+        let user_email: UserEmail = diesel::insert_into(crate::schema::user_emails::table)
             .values(&new_email)
             .get_result(conn)?;
 
         Ok((user, user_email))
-    })
+    })?;
+
+    // Fire the observer after the transaction commits so a rolled-
+    // back insert never invokes downstream side effects. Optional
+    // handle preserves the pure-DB unit tests in this module.
+    if let Some(observer) = observer {
+        observer.user_created(&result.0, &result.1.email);
+    }
+
+    Ok(result)
 }
 
 /// Source tag written to `user_emails.source` when an account is created by
@@ -102,6 +125,7 @@ pub fn find_or_create_guest_user(
     email: &str,
     name: &str,
     conn: &mut DbConnection,
+    observer: Option<&dyn UserCreatedObserver>,
 ) -> Result<GuestUserResult, diesel::result::Error> {
     use diesel::result::{DatabaseErrorKind, Error as DieselError};
 
@@ -111,7 +135,11 @@ pub fn find_or_create_guest_user(
             return Ok(existing);
         }
 
-        // 2. Create a fresh guest account.
+        // 2. Create a fresh guest account. `create_user_with_email`
+        //    fires the observer for us, so reusing it here means the
+        //    inbound-email auto-provisioning path (channels pipeline)
+        //    notifies the search index without find_or_create_guest_user
+        //    needing its own observer call.
         let new_user = crate::models::NewUser {
             uuid: Uuid::now_v7(),
             name: name.trim().to_string(),
@@ -136,6 +164,7 @@ pub fn find_or_create_guest_user(
             false,
             Some(GUEST_EMAIL_SOURCE.to_string()),
             conn,
+            observer,
         ) {
             Ok((user, _)) => Ok(GuestUserResult::Created(user)),
             // Race: a concurrent request created the row between our lookup
@@ -378,7 +407,7 @@ mod tests {
         };
 
         let (user, email_record) = create_user_with_email(
-            new_user, "atomic@test.com".into(), true, None, &mut conn,
+            new_user, "atomic@test.com".into(), true, None, &mut conn, None,
         ).unwrap();
 
         assert_eq!(user.name, "Atomic");
@@ -431,7 +460,7 @@ mod tests {
     #[test]
     fn find_or_create_guest_user_creates_when_email_is_new() {
         let mut conn = setup_test_connection();
-        let result = find_or_create_guest_user("fresh@example.com", "Fresh User", &mut conn)
+        let result = find_or_create_guest_user("fresh@example.com", "Fresh User", &mut conn, None)
             .expect("should succeed");
 
         match result {
@@ -459,7 +488,7 @@ mod tests {
             Some(GUEST_EMAIL_SOURCE),
         );
 
-        let result = find_or_create_guest_user("returning@example.com", "Anyone", &mut conn)
+        let result = find_or_create_guest_user("returning@example.com", "Anyone", &mut conn, None)
             .expect("should succeed");
 
         match result {
@@ -480,7 +509,7 @@ mod tests {
             Some(GUEST_EMAIL_SOURCE),
         );
 
-        let result = find_or_create_guest_user("verified@example.com", "Attacker", &mut conn)
+        let result = find_or_create_guest_user("verified@example.com", "Attacker", &mut conn, None)
             .expect("should succeed");
 
         assert!(matches!(result, GuestUserResult::EmailClaimed));
@@ -500,7 +529,7 @@ mod tests {
             Some(GUEST_EMAIL_SOURCE),
         );
 
-        let result = find_or_create_guest_user("admin@example.com", "Attacker", &mut conn)
+        let result = find_or_create_guest_user("admin@example.com", "Attacker", &mut conn, None)
             .expect("should succeed");
 
         assert!(matches!(result, GuestUserResult::EmailClaimed));
@@ -521,7 +550,7 @@ mod tests {
             Some("admin_invitation"),
         );
 
-        let result = find_or_create_guest_user("invited@example.com", "Someone", &mut conn)
+        let result = find_or_create_guest_user("invited@example.com", "Someone", &mut conn, None)
             .expect("should succeed");
 
         assert!(matches!(result, GuestUserResult::EmailClaimed));
@@ -531,14 +560,14 @@ mod tests {
     fn find_or_create_guest_user_is_case_insensitive_on_lookup() {
         let mut conn = setup_test_connection();
         // First call creates.
-        let r1 = find_or_create_guest_user("Alice@Example.com", "Alice", &mut conn).unwrap();
+        let r1 = find_or_create_guest_user("Alice@Example.com", "Alice", &mut conn, None).unwrap();
         let created_uuid = match r1 {
             GuestUserResult::Created(u) => u.uuid,
             _ => panic!("expected Created"),
         };
 
         // Second call with different casing hits the same account.
-        let r2 = find_or_create_guest_user("ALICE@example.COM", "Alice Again", &mut conn).unwrap();
+        let r2 = find_or_create_guest_user("ALICE@example.COM", "Alice Again", &mut conn, None).unwrap();
         match r2 {
             GuestUserResult::Existing(u) => assert_eq!(u.uuid, created_uuid),
             _ => panic!("expected Existing on repeat submission"),

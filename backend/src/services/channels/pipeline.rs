@@ -203,7 +203,7 @@ pub async fn process_event(
         // branch when the envelope sender is a verified tech;
         // otherwise falls into the normal guest-user path. See
         // `resolve_identity` for the full decision tree.
-        let (sender, forwarded_by_uuid) = match resolve_identity(channel, &msg, &sender_email, conn)? {
+        let (sender, forwarded_by_uuid) = match resolve_identity(channel, &msg, &sender_email, conn, ctx)? {
             Resolved::Identified { user, forwarded_by } => (user, forwarded_by),
             // Skip paths write nothing; the transaction commits as a
             // no-op and the outer code turns `Ingest::Skip` into the
@@ -385,8 +385,13 @@ fn resolve_identity(
     msg: &InboundMessage,
     sender_email: &str,
     conn: &mut DbConnection,
+    ctx: &PipelineContext,
 ) -> Result<Resolved, PipelineError> {
     use crate::repository::user_helpers::find_verified_user_by_email;
+    let observer = ctx
+        .search
+        .as_ref()
+        .map(|s| s as &dyn crate::repository::user_helpers::UserCreatedObserver);
 
     let verified_sender = find_verified_user_by_email(sender_email, conn)?;
     if let Some(tech) = verified_sender {
@@ -407,7 +412,7 @@ fn resolve_identity(
             "tech forward detected; attributing ticket to original sender"
         );
         let display = fwd.display_name.clone().unwrap_or_else(|| fwd.email.clone());
-        match find_or_create_guest_user(&fwd.email, &display, conn)? {
+        match find_or_create_guest_user(&fwd.email, &display, conn, observer)? {
             GuestUserResult::Created(u) | GuestUserResult::Existing(u) => Ok(Resolved::Identified {
                 user: u,
                 forwarded_by: Some(tech.uuid),
@@ -430,7 +435,7 @@ fn resolve_identity(
         // covers it, but the branch exists as a safety net against
         // races between this call and
         // `find_or_create_guest_user`'s own check.
-        match find_or_create_guest_user(sender_email, &msg.from.display_name, conn)? {
+        match find_or_create_guest_user(sender_email, &msg.from.display_name, conn, observer)? {
             GuestUserResult::Created(u) | GuestUserResult::Existing(u) => Ok(Resolved::Identified {
                 user: u,
                 forwarded_by: None,
@@ -1008,7 +1013,7 @@ mod tests {
             signature: None,
             dashboard_layout: None,
         };
-        create_user_with_email(admin, "claimed@example.com".into(), true, None, &mut conn)
+        create_user_with_email(admin, "claimed@example.com".into(), true, None, &mut conn, None)
             .expect("seed admin");
 
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
@@ -1055,7 +1060,7 @@ mod tests {
             dashboard_layout: None,
         };
         let (tech, _) =
-            create_user_with_email(tech_user, "tech@yourco.com".into(), true, None, &mut conn)
+            create_user_with_email(tech_user, "tech@yourco.com".into(), true, None, &mut conn, None)
                 .expect("seed tech");
 
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
@@ -1135,7 +1140,7 @@ My printer is literally on fire.
             signature: None,
             dashboard_layout: None,
         };
-        create_user_with_email(tech, "admin2@yourco.com".into(), true, None, &mut conn)
+        create_user_with_email(tech, "admin2@yourco.com".into(), true, None, &mut conn, None)
             .expect("seed admin");
 
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");

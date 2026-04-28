@@ -621,7 +621,7 @@ pub async fn create_user(
         .build_with_email();
 
     // Email starts as unverified - will be verified when user accepts invitation or verifies email
-    match repository::user_helpers::create_user_with_email(new_user, email.clone(), false, Some("manual".to_string()), &mut conn) {
+    match repository::user_helpers::create_user_with_email(new_user, email.clone(), false, Some("manual".to_string()), &mut conn, Some(search_service.get_ref())) {
         Ok((user, _email_entry)) => {
             use bcrypt::hash;
             use crate::models::NewUserAuthIdentity;
@@ -705,12 +705,9 @@ pub async fn create_user(
                     let user_uuid_str = user.uuid.to_string();
                     let response = repository::user_helpers::get_user_with_primary_email(user.clone(), &mut conn);
 
-                    // Index the new user in search
-                    indexing_tasks::spawn_index_user(
-                        search_service.get_ref().clone(),
-                        user,
-                        Some(email.clone()),
-                    );
+                    // Search index update is fired by the
+                    // UserCreatedObserver inside create_user_with_email
+                    // above, so no manual spawn is needed here.
 
                     // Broadcast user creation via SSE
                     crate::utils::sse::SseBroadcaster::broadcast_user_created(

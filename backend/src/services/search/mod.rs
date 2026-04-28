@@ -281,3 +281,18 @@ impl SearchService {
 // Make SearchService thread-safe
 unsafe impl Send for SearchService {}
 unsafe impl Sync for SearchService {}
+
+/// Bridge the repository's `UserCreatedObserver` hook to the search
+/// index. Implemented on `Arc<SearchService>` so a single shared
+/// service handle satisfies the observer trait without an extra
+/// wrapper struct — the repository helpers accept `Option<&dyn
+/// UserCreatedObserver>` and callers pass `Some(search_service.as_ref())`.
+impl crate::repository::user_helpers::UserCreatedObserver for Arc<SearchService> {
+    fn user_created(&self, user: &models::User, primary_email: &str) {
+        indexing_tasks::spawn_index_user(
+            Arc::clone(self),
+            user.clone(),
+            Some(primary_email.to_string()),
+        );
+    }
+}

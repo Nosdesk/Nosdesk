@@ -361,7 +361,7 @@ pub async fn submit_guest_ticket(
     // Find or provision the requester user. If the email is already attached
     // to a real account we refuse the submission rather than silently
     // attaching the ticket to someone else's identity.
-    let (user, is_new_guest) = match user_helpers::find_or_create_guest_user(email, name, &mut conn) {
+    let (user, is_new_guest) = match user_helpers::find_or_create_guest_user(email, name, &mut conn, Some(search_service.get_ref())) {
         Ok(GuestUserResult::Created(u)) => (u, true),
         Ok(GuestUserResult::Existing(u)) => (u, false),
         Ok(GuestUserResult::EmailClaimed) => {

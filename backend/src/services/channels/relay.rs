@@ -145,6 +145,7 @@ mod tests {
             false,
             Some("guest_submission".into()),
             conn,
+            None,
         )
         .unwrap();
         let channel = TestFixtures::create_channel(conn, "email_imap");

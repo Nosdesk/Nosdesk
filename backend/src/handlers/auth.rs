@@ -605,6 +605,7 @@ pub async fn logout(
 
 pub async fn register(
     db_pool: web::Data<crate::db::Pool>,
+    search_service: web::Data<std::sync::Arc<crate::services::search::SearchService>>,
     user_data: web::Json<UserRegistration>,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
@@ -720,7 +721,7 @@ pub async fn register(
         .build_with_email();
 
     // Save user to database with email (atomically creates both user and email entry)
-    match repository::user_helpers::create_user_with_email(new_user, email, true, Some("manual".to_string()), &mut conn) {
+    match repository::user_helpers::create_user_with_email(new_user, email, true, Some("manual".to_string()), &mut conn, Some(search_service.get_ref())) {
         Ok((created_user, _email_entry)) => {
             // Create local auth identity with password hash
             use diesel::prelude::*;
@@ -1024,6 +1025,7 @@ pub async fn check_setup_status(
 
 pub async fn setup_initial_admin(
     db_pool: web::Data<crate::db::Pool>,
+    search_service: web::Data<std::sync::Arc<crate::services::search::SearchService>>,
     admin_data: web::Json<crate::models::AdminSetupRequest>,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
@@ -1109,7 +1111,7 @@ pub async fn setup_initial_admin(
         normalized_email.clone()
     ).build_with_email();
 
-    match repository::user_helpers::create_user_with_email(new_user, email, true, Some("manual".to_string()), &mut conn) {
+    match repository::user_helpers::create_user_with_email(new_user, email, true, Some("manual".to_string()), &mut conn, Some(search_service.get_ref())) {
         Ok((created_user, _email_entry)) => {
             // Create local auth identity with password hash
             use diesel::prelude::*;
