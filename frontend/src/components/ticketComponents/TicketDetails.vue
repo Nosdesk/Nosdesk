@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue';
 import QRCode from 'qrcode';
-import UserAutocomplete from "@/components/ticketComponents/UserSelection.vue";
+import UserPicker from "@/components/ticketComponents/UserPicker.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
 import ContentEditable from "@/components/ticketComponents/ContentEditable.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
@@ -9,10 +9,25 @@ import Icon from "@/components/common/Icon.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
+import { useAuthStore } from "@/stores/auth";
 
-// Refs for user autocomplete components
-const requesterRef = ref<InstanceType<typeof UserAutocomplete> | null>(null);
-const assigneeRef = ref<InstanceType<typeof UserAutocomplete> | null>(null);
+// Refs for user picker components
+const requesterRef = ref<InstanceType<typeof UserPicker> | null>(null);
+const assigneeRef = ref<InstanceType<typeof UserPicker> | null>(null);
+
+// Auth context for the "Assign to me" / "Unassign me" affordance.
+// The button only renders when the signed-in account is eligible to
+// receive ticket assignments (admin / technician).
+const authStore = useAuthStore();
+const canSelfAssign = computed(() => authStore.isTechnician);
+const isAssignedToMe = computed(
+  () => !!authStore.user && selectedAssignee.value === authStore.user.uuid,
+);
+function toggleSelfAssign() {
+  const me = authStore.user;
+  if (!me) return;
+  emit('update:assignee', isAssignedToMe.value ? '' : me.uuid);
+}
 
 // QR code for print
 const qrCodeDataUrl = ref<string | null>(null);
@@ -278,12 +293,12 @@ watchEffect(async () => {
                 </div>
               </div>
               <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
-                <UserAutocomplete
+                <UserPicker
                   ref="requesterRef"
                   :modelValue="selectedRequester"
                   @update:modelValue="emit('update:requester', $event)"
                   :currentUser="ticket.requester_user"
-                  placeholder="Search or select requester..."
+                  placeholder="Find a user..."
                   type="requester"
                   :hideInlineClear="true"
                   class="w-full"
@@ -295,7 +310,25 @@ watchEffect(async () => {
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
                 <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Assignee</h3>
-                <div class="print:hidden flex items-center gap-0.5">
+                <div class="print:hidden flex items-center gap-1">
+                  <!-- One-click self-assign / unassign for staff. The
+                       picker also surfaces "You" inside its dropdown,
+                       this button is the zero-open shortcut for the
+                       common "I'll take it" case. -->
+                  <button
+                    v-if="canSelfAssign"
+                    @click="toggleSelfAssign"
+                    type="button"
+                    class="text-[11px] font-medium px-2 h-6 rounded transition-colors"
+                    :class="
+                      isAssignedToMe
+                        ? 'text-tertiary hover:text-secondary hover:bg-surface-hover'
+                        : 'text-accent hover:bg-accent-muted'
+                    "
+                    :title="isAssignedToMe ? 'Unassign yourself from this ticket' : 'Assign this ticket to yourself'"
+                  >
+                    {{ isAssignedToMe ? 'Unassign me' : 'Assign to me' }}
+                  </button>
                   <button
                     v-if="selectedAssignee"
                     @click="emit('update:assignee', '')"
@@ -316,12 +349,12 @@ watchEffect(async () => {
                 </div>
               </div>
               <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
-                <UserAutocomplete
+                <UserPicker
                   ref="assigneeRef"
                   :modelValue="selectedAssignee"
                   @update:modelValue="emit('update:assignee', $event)"
                   :currentUser="ticket.assignee_user"
-                  placeholder="Search or select assignee..."
+                  placeholder="Assign to..."
                   type="assignee"
                   :hideInlineClear="true"
                   class="w-full"

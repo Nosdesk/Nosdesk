@@ -2,8 +2,7 @@ import { defineStore } from 'pinia'
 import { logger } from '@/utils/logger';
 import { ref, computed } from 'vue'
 import userService from '@/services/userService'
-import type { User, PaginatedResponse } from '@/services/userService'
-import type { PaginationParams } from '@/types/pagination'
+import type { User, PaginatedResponse, UserPaginationParams } from '@/services/userService'
 
 // Cache configuration
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
@@ -23,7 +22,7 @@ interface PaginatedCacheEntry {
   timestamp: number
   loading: boolean
   error: string | null
-  params: PaginationParams
+  params: UserPaginationParams
 }
 
 // Active user requests to prevent duplicate network calls
@@ -46,7 +45,7 @@ export const useDataStore = defineStore('data', () => {
   const globalLoading = ref(false)
   
   // Helper function to create cache key
-  const createCacheKey = (params: PaginationParams): string => {
+  const createCacheKey = (params: UserPaginationParams): string => {
     return JSON.stringify({
       page: params.page,
       pageSize: params.pageSize,
@@ -73,7 +72,7 @@ export const useDataStore = defineStore('data', () => {
   }
   
   // Get paginated users with smart caching
-  const getPaginatedUsers = async (params: PaginationParams, forceRefresh = false): Promise<PaginatedResponse<User>> => {
+  const getPaginatedUsers = async (params: UserPaginationParams, forceRefresh = false): Promise<PaginatedResponse<User>> => {
     const cacheKey = createCacheKey(params)
     const cached = usersCache.value.get(cacheKey)
     
@@ -113,7 +112,7 @@ export const useDataStore = defineStore('data', () => {
   }
   
   // Fetch from API and update cache
-  const fetchPaginatedUsersFromAPI = async (params: PaginationParams, cacheKey: string): Promise<PaginatedResponse<User>> => {
+  const fetchPaginatedUsersFromAPI = async (params: UserPaginationParams, cacheKey: string): Promise<PaginatedResponse<User>> => {
     // Update loading state
     const existingCache = usersCache.value.get(cacheKey)
     usersCache.value.set(cacheKey, {
@@ -168,7 +167,7 @@ export const useDataStore = defineStore('data', () => {
   }
   
   // Background refresh without blocking UI
-  const refreshPaginatedUsersInBackground = async (params: PaginationParams, cacheKey: string) => {
+  const refreshPaginatedUsersInBackground = async (params: UserPaginationParams, cacheKey: string) => {
     // Check if background refresh is already in progress for this cache key
     const backgroundKey = `background-paginated-${cacheKey}`
     if (activeBackgroundRefreshes.has(backgroundKey)) {

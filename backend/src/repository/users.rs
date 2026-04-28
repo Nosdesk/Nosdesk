@@ -54,18 +54,28 @@ pub fn get_paginated_users(
         _ => None,
     };
 
-    // Parse role filter once
-    let parsed_role: Option<UserRole> = role.as_deref()
-        .filter(|r| *r != "all")
-        .and_then(|r| crate::utils::parse_role(r).ok());
+    // Parse role filter — accepts a single role ("admin") or a
+    // comma-separated set ("admin,technician") so the assignee
+    // picker can hit the eligible-staff set in one request instead
+    // of one request per role. "all" stays the no-filter sentinel.
+    let parsed_roles: Vec<UserRole> = match role.as_deref() {
+        None => Vec::new(),
+        Some("all") => Vec::new(),
+        Some(s) => s
+            .split(',')
+            .map(|piece| piece.trim())
+            .filter(|piece| !piece.is_empty())
+            .filter_map(|piece| crate::utils::parse_role(piece).ok())
+            .collect(),
+    };
 
     // Count query with filters
     let mut count_query = users::table.into_boxed();
     if let Some(ref uuids) = search_uuids {
         count_query = count_query.filter(users::uuid.eq_any(uuids.clone()));
     }
-    if let Some(ref user_role) = parsed_role {
-        count_query = count_query.filter(users::role.eq(user_role));
+    if !parsed_roles.is_empty() {
+        count_query = count_query.filter(users::role.eq_any(parsed_roles.clone()));
     }
     let total: i64 = count_query.count().get_result(conn)?;
 
@@ -74,8 +84,8 @@ pub fn get_paginated_users(
     if let Some(ref uuids) = search_uuids {
         query = query.filter(users::uuid.eq_any(uuids.clone()));
     }
-    if let Some(ref user_role) = parsed_role {
-        query = query.filter(users::role.eq(user_role));
+    if !parsed_roles.is_empty() {
+        query = query.filter(users::role.eq_any(parsed_roles.clone()));
     }
     query = match (sort_field.as_deref(), sort_direction.as_deref()) {
         (Some("name"), Some("asc")) => query.order(users::name.asc()),
