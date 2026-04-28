@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /// <reference types="node" />
-import { computed, onMounted, onUnmounted, watch, ref, reactive } from "vue";
+import { computed, onMounted, onUnmounted, watch, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
@@ -11,6 +11,7 @@ import type { Ticket } from "@/types/ticket";
 
 // Composables
 import { useTicketData } from "@/composables/useTicketData";
+import { useTicketUiStore } from "@/stores/ticketUi";
 import { useTicketSSE } from "@/composables/useTicketSSE";
 import { useTicketDevices } from "@/composables/useTicketDevices";
 import { useTicketRelationships } from "@/composables/useTicketRelationships";
@@ -130,8 +131,17 @@ const showDropAffordance = computed(() => {
            dragState.value.ticket?.id !== ticket.value?.id;
 });
 
-// Unified "+ Add" menu state
-const pluginActionActivatedMap = reactive(new Map<string, number>());
+// Unified "+ Add" menu state — plugin activation counters live in
+// `useTicketUiStore` keyed by ticket id so they survive component
+// unmount (Phase 4 will drop KeepAlive on TicketView; the store is
+// the new home for this state). Falls back to an empty map for
+// pre-route or transitional states.
+const ticketUi = useTicketUiStore();
+const pluginActionActivatedMap = computed(() =>
+    ticketId.value !== undefined
+        ? ticketUi.getPluginActivations(ticketId.value)
+        : new Map<string, number>()
+);
 
 const sidebarAddItems = computed<SidebarAddMenuItem[]>(() => {
     const items: SidebarAddMenuItem[] = [
@@ -160,11 +170,9 @@ const handleSidebarAddAction = (itemId: string) => {
         showLinkedTicketModal.value = true;
     } else if (itemId === 'project') {
         showProjectModal.value = true;
-    } else if (itemId.startsWith('plugin:')) {
-        // Increment activation counter for the plugin component
+    } else if (itemId.startsWith('plugin:') && ticketId.value !== undefined) {
         const key = itemId.replace('plugin:', '');
-        const current = pluginActionActivatedMap.get(key) || 0;
-        pluginActionActivatedMap.set(key, current + 1);
+        ticketUi.activatePluginAction(ticketId.value, key);
     }
 };
 
@@ -664,6 +672,7 @@ usePageCreateAction(handleCreateTicket);
                             :class="{ 'print:hidden': !hasCommentsWithContent }"
                         >
                             <CommentsAndAttachments
+                                :ticket-id="ticketId"
                                 :comments="comments"
                                 :current-user="
                                     authStore.user?.uuid || 'Unknown User'

@@ -11,6 +11,8 @@ import CommentContent from "@/components/ticketComponents/CommentContent.vue";
 import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePicker.vue";
 import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
+import { useTicketDraftsStore } from "@/stores/ticketDrafts";
+import { useTicketUiStore } from "@/stores/ticketUi";
 
 interface UserInfo {
     uuid: string;
@@ -48,6 +50,13 @@ interface CommentWithAttachments {
 const props = defineProps<{
     comments: CommentWithAttachments[];
     currentUser: string;
+    /** Ticket id, required for the comment composer's draft to
+     *  persist across navigation and refresh (via
+     *  `useTicketDraftsStore`). When undefined the composer falls
+     *  back to local refs and drafts evaporate on unmount, used
+     *  by the rare callers that mount this composer outside a
+     *  ticket context. */
+    ticketId?: number;
     recentlyAddedCommentIds?: Set<number>;
     /** Optional template context for the canned-response picker —
         `{{ticket_id}}`, `{{customer_name}}` etc. substitute at
@@ -61,16 +70,68 @@ const props = defineProps<{
     };
 }>();
 
-const newCommentContent = ref<string>("");
-const newAttachments = ref<File[]>([]); // Store File objects initially
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const showRecordingInterface = ref(false);
 const isDraggingFile = ref(false);
 const conversionMessage = ref<string | null>(null);
+
+// Composer state lives in Pinia stores keyed by ticket id so it
+// survives nav-away/back and (for the text draft) survives refresh.
+// Local fallback refs cover the no-ticket case and keep TypeScript
+// happy when `ticketId` is undefined.
+const draftsStore = useTicketDraftsStore();
+const uiStore = useTicketUiStore();
+
+const localContent = ref<string>("");
+const localAttachments = ref<File[]>([]);
+const localIsInternal = ref<boolean>(false);
+
+const newCommentContent = computed<string>({
+    get: () =>
+        props.ticketId !== undefined
+            ? draftsStore.getDraft(props.ticketId).content
+            : localContent.value,
+    set: (value) => {
+        if (props.ticketId !== undefined) {
+            const current = draftsStore.getDraft(props.ticketId);
+            draftsStore.setDraft(props.ticketId, { ...current, content: value });
+        } else {
+            localContent.value = value;
+        }
+    },
+});
+
 // Internal notes are tech-to-tech: hidden from requesters and not
 // relayed back through the originating channel. Defaults off so the
 // common path (public reply) stays the single-click case.
-const isInternal = ref<boolean>(false);
+const isInternal = computed<boolean>({
+    get: () =>
+        props.ticketId !== undefined
+            ? draftsStore.getDraft(props.ticketId).isInternal
+            : localIsInternal.value,
+    set: (value) => {
+        if (props.ticketId !== undefined) {
+            const current = draftsStore.getDraft(props.ticketId);
+            draftsStore.setDraft(props.ticketId, { ...current, isInternal: value });
+        } else {
+            localIsInternal.value = value;
+        }
+    },
+});
+
+const newAttachments = computed<File[]>({
+    get: () =>
+        props.ticketId !== undefined
+            ? uiStore.getAttachments(props.ticketId)
+            : localAttachments.value,
+    set: (value) => {
+        if (props.ticketId !== undefined) {
+            uiStore.setAttachments(props.ticketId, value);
+        } else {
+            localAttachments.value = value;
+        }
+    },
+});
 
 const emit = defineEmits<{
     (
@@ -177,7 +238,11 @@ const handleFileUpload = async (event: Event) => {
         // Audio files go directly to attachments (no special processing needed)
         const audioFiles = files.filter((file) => file.type.startsWith("audio/"));
 
-        newAttachments.value.push(...processedFiles, ...audioFiles);
+        // Reassign rather than mutate-in-place: `newAttachments`
+        // is now a writable computed backed by `useTicketUiStore`,
+        // and a `.push()` would skip the setter that writes to
+        // the store.
+        newAttachments.value = [...newAttachments.value, ...processedFiles, ...audioFiles];
     }
     // Reset input so the same file can be selected again
     if (input) input.value = '';
@@ -209,7 +274,7 @@ const handleRecordingComplete = (recording: {
         console.log('[CommentsAndAttachments] Attached transcription to file');
     }
 
-    newAttachments.value.push(audioFile);
+    newAttachments.value = [...newAttachments.value, audioFile];
     console.log('[CommentsAndAttachments] File _transcription:', (audioFile as any)._transcription);
     showRecordingInterface.value = false;
 };
@@ -298,7 +363,7 @@ const handleDrop = async (event: DragEvent) => {
     // Audio files go directly to attachments
     const audioFiles = files.filter((file) => file.type.startsWith("audio/"));
 
-    newAttachments.value.push(...processedFiles, ...audioFiles);
+    newAttachments.value = [...newAttachments.value, ...processedFiles, ...audioFiles];
 };
 </script>
 
@@ -411,7 +476,7 @@ const handleDrop = async (event: DragEvent) => {
                                 "
                                 :is-new="true"
                                 :show-delete="true"
-                                @delete="newAttachments.splice(index, 1)"
+                                @delete="newAttachments = newAttachments.filter((_, i) => i !== index)"
                                 @submit="addComment"
                             />
                         </div>
