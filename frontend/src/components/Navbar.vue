@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RouterLink, useRoute, useRouter } from "vue-router";
+import { RouterLink, useRoute } from "vue-router";
 import DocumentationNav from "@/components/documentationComponents/DocumentationNav.vue";
 import RecentTickets from "@/components/RecentTickets.vue";
 import CollapsibleSection from "@/components/common/CollapsibleSection.vue";
@@ -31,8 +31,6 @@ const logoUrl = computed(() => {
 });
 
 const route = useRoute();
-const router = useRouter();
-const searchTerm = ref("");
 
 // Use centralized navbar state composable
 const {
@@ -107,25 +105,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
     cleanupNavbarState();
 });
-
-// Computed property to check if on a documentation page
-const isDocumentationPage = computed(() => {
-    return route.path.startsWith("/documentation");
-});
-
-// Handle documentation search
-const handleDocSearch = (query: string) => {
-    if (isDocumentationPage.value) {
-        // If already on documentation page, update the search query
-        searchTerm.value = query;
-    } else {
-        // If not on documentation page, navigate to documentation with search query
-        router.push({
-            path: "/documentation",
-            query: { search: query },
-        });
-    }
-};
 
 // Navigation links data - colors removed, will use theme accent
 const navLinks = [
@@ -332,7 +311,7 @@ const isRouteActive = (path: string, exact = false) => {
                     class="docs-section flex-1 min-h-0 transition-all duration-200 -mt-px"
                     @toggle="toggleDocs"
                 >
-                    <DocumentationNav @search="handleDocSearch" />
+                    <DocumentationNav />
                 </CollapsibleSection>
             </div>
         </div>

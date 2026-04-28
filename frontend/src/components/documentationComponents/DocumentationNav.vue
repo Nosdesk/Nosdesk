@@ -34,10 +34,6 @@ interface DocumentationUpdateEvent {
   updated_by?: string;
 }
 
-defineEmits<{
-  'search': [query: string];
-}>();
-
 const route = useRoute()
 const router = useRouter()
 const docNavStore = useDocumentationNavStore()
@@ -221,7 +217,6 @@ const collectionContextMenuItems = computed((): MenuItem[] => {
   const active = currentSortMode(collection?.id)
   const items: MenuItem[] = [
     { id: 'col-edit', label: 'Edit collection', icon: icons.rename },
-    { id: 'col-search', label: 'Search in this collection', icon: icons.search },
     { id: 'col-sort-heading', label: 'Sort by', heading: true, divider: true },
     { id: 'col-sort-manual', label: SORT_LABELS.manual, checked: active === 'manual' },
     { id: 'col-sort-alpha', label: SORT_LABELS.alpha, checked: active === 'alpha' },
@@ -336,10 +331,6 @@ const renameInputRef = ref<HTMLInputElement | null>(null)
 // = the modal is mounted bound to that collection's fields.
 const editingCollection = ref<CollectionWithDetails | null>(null)
 
-// Template ref for the sidebar search input so the "Search in
-// this collection" menu item can focus it after activating scope.
-const sidebarSearchInputRef = ref<HTMLInputElement | null>(null)
-
 const startCollectionRename = async (collection: CollectionWithDetails) => {
   renamingCollectionId.value = collection.id
   renameInput.value = collection.name
@@ -375,12 +366,6 @@ const handleContextMenuSelect = async (actionId: string) => {
     switch (actionId) {
       case 'col-edit':
         editingCollection.value = collection
-        break
-      case 'col-search':
-        searchScopeCollectionId.value = collection.id
-        sidebarSearch.value = ''
-        await nextTick()
-        sidebarSearchInputRef.value?.focus()
         break
       case 'col-sort-manual':
         setSortMode(collection.id, 'manual')
@@ -612,43 +597,6 @@ function stripMarkdown(md: string): string {
     .trim()
 }
 
-// Sidebar-local search. Filters the rendered tree by title;
-// matches are case-insensitive and substring. The store still
-// holds the full set so clearing the input restores everything
-// without a refetch. `searchScopeCollectionId` lets the user
-// scope the search to a single collection ("Search in this
-// collection" menu item); null means search every collection.
-const sidebarSearch = ref('')
-const sidebarSearchNorm = computed(() => sidebarSearch.value.trim().toLowerCase())
-const searchScopeCollectionId = ref<number | null>(null)
-
-const searchScopeLabel = computed(() => {
-  if (searchScopeCollectionId.value === null) return ''
-  const c = collections.value.find((x) => x.id === searchScopeCollectionId.value)
-  return c?.name ?? ''
-})
-
-function clearSearchScope() {
-  searchScopeCollectionId.value = null
-}
-
-function pageMatchesSearch(page: { title?: string | null }): boolean {
-  if (!sidebarSearchNorm.value) return true
-  return (page.title ?? '').toLowerCase().includes(sidebarSearchNorm.value)
-}
-
-function collectionMatchesSearch(collection: { id: number; name: string }, pages: Page[] | undefined): boolean {
-  // When a scope is active, only the scoped collection is ever
-  // visible. Other collections collapse out of the rendered tree
-  // entirely.
-  if (searchScopeCollectionId.value !== null && collection.id !== searchScopeCollectionId.value) {
-    return false
-  }
-  if (!sidebarSearchNorm.value) return true
-  if (collection.name.toLowerCase().includes(sidebarSearchNorm.value)) return true
-  return (pages ?? []).some(pageMatchesSearch)
-}
-
 // Per-collection sort mode, persisted in localStorage so a
 // reload restores the user's preference. Manual = honour the
 // drag-set display_order; alpha = title ascending; recent =
@@ -766,36 +714,6 @@ async function createChildOfPage(parentPage: NavPage) {
 // Collections data
 const collections = ref<CollectionWithDetails[]>([])
 
-/** When the search input is non-empty, hide collections whose name
- * doesn't match AND whose loaded pages contain no match. Pages
- * inside a matching collection are filtered separately by
- * `visiblePagesIn` so a search hit reveals just the matching subtree. */
-const visibleCollections = computed(() => {
-  if (!sidebarSearchNorm.value) return collections.value
-  return collections.value.filter((c) =>
-    collectionMatchesSearch(c, collectionPages[c.id]),
-  )
-})
-
-// During search, force-expand every collection that has a match
-// so the user can see the matched subtree without manually
-// clicking each folder open. Restoring state when the search
-// clears is intentionally not done — the user's manual
-// expansion choices are preserved.
-watch(sidebarSearchNorm, async (q) => {
-  if (!q) return
-  for (const c of collections.value) {
-    if (collectionMatchesSearch(c, collectionPages[c.id])) {
-      collectionExpanded[c.id] = true
-      // Eagerly load pages for collections we haven't opened
-      // yet so the filter sees them.
-      if (!collectionLoaded[c.id]) {
-        await loadCollectionPages(c.id)
-      }
-    }
-  }
-})
-
 function sortPages(nodes: Page[], mode: SortMode): Page[] {
   if (mode === 'manual') return nodes
   const sorted = [...nodes]
@@ -818,21 +736,7 @@ function sortPages(nodes: Page[], mode: SortMode): Page[] {
 
 function visiblePagesIn(collectionId: number): Page[] {
   const all = collectionPages[collectionId] ?? []
-  const sorted = sortPages(all, currentSortMode(collectionId))
-  if (!sidebarSearchNorm.value) return sorted
-  // Recursively prune the tree, keeping a node if it matches OR
-  // any descendant matches. Keeps parents on screen so the
-  // matched leaf has context.
-  const prune = (nodes: Page[]): Page[] =>
-    nodes
-      .map((n) => {
-        const kids = prune(((n as Page & { children?: Page[] }).children) ?? [])
-        const selfMatches = pageMatchesSearch(n)
-        if (!selfMatches && kids.length === 0) return null
-        return { ...n, children: kids } as Page
-      })
-      .filter((n): n is Page => n !== null)
-  return prune(sorted)
+  return sortPages(all, currentSortMode(collectionId))
 }
 // Per-collection expanded state (stored in localStorage)
 const collectionExpanded = reactive<Record<number, boolean>>({})
@@ -1300,43 +1204,6 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
 
 <template>
   <nav ref="navRef" class="documentation-nav" :class="{ 'is-dragging': isDragging }">
-    <!-- Sidebar-local search. Filters by title within the
-         already-loaded sidebar tree. Empty string = show all,
-         the standard sidebar layout returns. -->
-    <div class="sticky top-0 z-10 bg-surface px-2 pt-2 pb-1 flex flex-col gap-1.5">
-      <div class="relative">
-        <Icon
-          name="search"
-          size="xs"
-          class="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-tertiary"
-        />
-        <input
-          ref="sidebarSearchInputRef"
-          v-model="sidebarSearch"
-          type="search"
-          :placeholder="searchScopeCollectionId !== null ? `Search in ${searchScopeLabel}` : 'Search docs'"
-          aria-label="Search documentation sidebar"
-          class="w-full rounded-md border border-default bg-surface-alt py-1 pr-2 pl-7 text-xs text-primary placeholder:text-tertiary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
-        />
-      </div>
-      <!-- Active search-scope chip. Click to clear and search
-           across every collection again. Only renders when scope
-           is engaged so the resting sidebar stays uncluttered. -->
-      <div
-        v-if="searchScopeCollectionId !== null"
-        class="flex items-center justify-between rounded bg-accent/10 px-2 py-1 text-[10px] text-accent"
-      >
-        <span class="truncate">Scoped to: {{ searchScopeLabel }}</span>
-        <button
-          type="button"
-          @click="clearSearchScope"
-          aria-label="Clear search scope"
-          class="ml-1 flex-shrink-0 rounded p-0.5 hover:bg-accent/20"
-        >
-          <Icon name="close" size="xs" />
-        </button>
-      </div>
-    </div>
 
     <!-- Single Global Drop Indicator -->
     <div
@@ -1412,7 +1279,7 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
     <!-- Collection Folders -->
     <div v-if="!initialLoading" class="py-1">
       <!-- Each collection as an expandable folder -->
-      <div v-for="collection in visibleCollections" :key="collection.id" class="collection-folder">
+      <div v-for="collection in collections" :key="collection.id" class="collection-folder">
         <!-- Collection Header — same interaction pattern as DocumentationNavItem -->
         <div
           class="group relative flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150"
