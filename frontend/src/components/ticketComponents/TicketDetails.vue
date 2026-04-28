@@ -311,11 +311,13 @@ watchEffect(async () => {
               <div class="flex items-center justify-between">
                 <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Assignee</h3>
                 <div class="print:hidden flex items-center gap-1">
-                  <!-- One-click self-assign for staff. The X button
-                       to the right already covers "unassign", so this
-                       only renders the "I'll take it" case. -->
+                  <!-- One-click self-assign for staff. Only surfaced
+                       on unassigned tickets — taking an unassigned
+                       ticket is the daily-driver case, while reassign-
+                       from-someone-else is a deliberate action that
+                       should go through the picker. -->
                   <button
-                    v-if="canSelfAssign && !isAssignedToMe"
+                    v-if="canSelfAssign && !selectedAssignee"
                     @click="toggleSelfAssign"
                     type="button"
                     class="text-[11px] font-medium px-2 h-6 rounded text-accent hover:bg-accent-muted transition-colors"
