@@ -219,7 +219,25 @@ onMounted(async () => {
           @update:title="titleManager.setCustomTitle"
         >
           <Transition name="page" mode="out-in">
-            <KeepAlive :include="['TicketsListView', 'UsersListView', 'DevicesListView', 'ProjectsView', 'DocumentationIndexView']">
+            <!--
+              KeepAlive is reserved for views with genuine local
+              state that cache-driven re-mount can't restore. List
+              views (Tickets/Users/Devices/Projects/Docs) URL-sync
+              their filters and let Pinia Colada serve cached data
+              instantly on remount, so caching the component itself
+              would only inherit KeepAlive's documented bugs:
+                * vuejs/core#5386, kept-alive watchers fire on
+                  sibling navigation, racing the in-flight nav.
+                * vuejs/core#5323, activated fires while being
+                  deactivated, breaking lifecycle gates.
+                * vuejs/core#12786, duplicate watchers under nested
+                  RouterView.
+              TicketView stays cached because its collaborative
+              editor (Yjs awareness, WebSocket session, draft
+              comment buffer) is heavy local state that can't live
+              in URL or query cache.
+            -->
+            <KeepAlive :include="['TicketView']">
               <component :is="Component" class="h-full overflow-auto" />
             </KeepAlive>
           </Transition>

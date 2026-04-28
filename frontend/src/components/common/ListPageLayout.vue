@@ -38,6 +38,20 @@ import { useStaggeredList } from '@/composables/useStaggeredList'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import type { BulkSelection } from '@/composables/useBulkSelection'
 
+/**
+ * Public shape exposed via `defineExpose`. Consumers type their
+ * `useTemplateRef('layout')` against this rather than against
+ * `InstanceType<typeof ListPageLayout>`, which TypeScript can't
+ * resolve for generic components (they're not class-like).
+ *
+ * Note: `defineExpose` auto-unwraps refs at the consumer boundary,
+ * so the exposed `scrollContainerRef` is typed as the unwrapped
+ * `HTMLElement | null`, not the underlying `ComputedRef`.
+ */
+export interface ListPageLayoutExpose {
+  scrollContainerRef: HTMLElement | null
+}
+
 const props = withDefaults(
   defineProps<{
     /** Reactive items list from `useListPage().items`. */
@@ -84,6 +98,20 @@ const emit = defineEmits<{
   'retry': []
   'select-all-matching': []
   'clear-selection': []
+}>()
+
+// Declare slot signatures so consumer templates infer `item: T`
+// (and other slot props) without `(item as Device)` casts. Vue
+// can't deduce slot prop types from `<slot :item="item" />` tags
+// alone, the contract has to be declared explicitly.
+defineSlots<{
+  filters(): unknown
+  'search-meta'(): unknown
+  'empty-state'(): unknown
+  desktop(props: { items: readonly T[]; isBackgroundRefresh: boolean }): unknown
+  'mobile-row'(props: { item: T; index: number }): unknown
+  'bulk-actions'(props: { selectedCount: number; isAllMatching: boolean }): unknown
+  footer(): unknown
 }>()
 
 const { isMobile } = useMobileDetection()

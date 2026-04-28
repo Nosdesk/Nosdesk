@@ -10,7 +10,8 @@
     "build:production": "vite build",
     "preview": "vite preview",
     "build-only": "vite build",
-    "type-check": "vue-tsc --build"
+    "type-check": "vue-tsc --build",
+    "lint:views": "node scripts/check-view-roots.mjs"
   },
   "dependencies": {
     "@date-fns/tz": "^1.4.1",

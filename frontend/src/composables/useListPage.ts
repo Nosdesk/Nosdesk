@@ -23,16 +23,15 @@
  */
 import {
   computed,
-  onActivated,
+  nextTick,
   onBeforeUnmount,
-  onDeactivated,
   onMounted,
   onUnmounted,
   watch,
   type ComputedRef,
   type Ref,
 } from 'vue'
-import { useRoute, useRouter, type LocationQuery } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import { useInfiniteQuery, useQueryCache } from '@pinia/colada'
 
 import type { useListControls } from '@/composables/useListControls'
@@ -40,6 +39,13 @@ import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useMobileSearch, type CreateButtonIcon } from '@/composables/useMobileSearch'
 import { useSSE } from '@/services/sseService'
 import type { ListKeys } from '@/queries/listKeys'
+
+/**
+ * Per-tab scroll-position cache, keyed by route fullPath. Lost on
+ * page refresh (semantics intentionally match the legacy
+ * KeepAlive behaviour), preserved across in-tab navigation.
+ */
+const listPageScrollPositions = new Map<string, number>()
 
 /** Shape every list endpoint must return. */
 export interface ListPage<T> {
@@ -108,6 +114,7 @@ export function useListPage<T, R extends string>(
   const { controls, keys, fetchPage, scrollContainerRef } = options
   const requestIdPrefix = options.requestIdPrefix ?? keys.root[0]
   const queryCache = useQueryCache()
+  const route = useRoute()
 
   // ---- Dual-mode queries -----------------------------------------
   // Both queries are always wired but only one is `enabled` at a
@@ -221,9 +228,10 @@ export function useListPage<T, R extends string>(
         onCreate: cfg.onCreate,
       })
 
+    // List views unmount on nav-away (no KeepAlive), so plain
+    // mount/unmount handles register/deregister cleanly without
+    // the activate/deactivate boilerplate.
     onMounted(register)
-    onActivated(register)
-    onDeactivated(mobileSearch.deregisterMobileSearch)
     onUnmounted(mobileSearch.deregisterMobileSearch)
     watch(controls.searchQuery, mobileSearch.updateSearchQuery)
   }
@@ -235,6 +243,35 @@ export function useListPage<T, R extends string>(
     hasMore,
     isLoading: computed(() => isLoadingMore.value),
     onLoadMore: () => infiniteList.loadNextPage(),
+  })
+
+  // ---- Scroll restoration ----------------------------------------
+  // Vue Router's built-in `scrollBehavior` only restores window
+  // scroll, but our list views scroll inside a PageScroll
+  // overflow:auto container. Stash the container's scrollTop on
+  // route leave and restore after the next render with cached
+  // data, so back-nav lands the user where they were.
+  //
+  // Module-scoped Map keyed by route fullPath. Survives view
+  // unmount but is per-tab, lost on page refresh — matching the
+  // semantics of the legacy KeepAlive scroll behaviour.
+  onBeforeRouteLeave((to, from) => {
+    const top = scrollContainerRef.value?.scrollTop
+    if (typeof top === 'number') {
+      listPageScrollPositions.set(from.fullPath, top)
+    }
+  })
+
+  onMounted(async () => {
+    const saved = listPageScrollPositions.get(route.fullPath)
+    if (saved === undefined) return
+    // Wait for the cached items (if any) to render before
+    // restoring; otherwise the scroll target hasn't been laid
+    // out yet and the assignment is silently clamped to 0.
+    await nextTick()
+    if (scrollContainerRef.value) {
+      scrollContainerRef.value.scrollTop = saved
+    }
   })
 
   // ---- URL synchronisation ---------------------------------------
@@ -350,15 +387,14 @@ function setupUrlSync(
     if (newPage !== controls.currentPage.value) controls.currentPage.value = newPage
   }
 
-  // Initial sync from URL → controls (fires before the query, so the
-  // first request matches the URL).
+  // First mount: pull URL state into controls before the query
+  // fires. After that, a normal route.query watcher handles
+  // in-route URL changes (e.g. dashboard tile click adding
+  // `?status=open` while we're already on `/tickets`). The
+  // KeepAlive race that previously required `onBeforeRouteUpdate`
+  // + path gating is gone now that list views unmount on nav-away,
+  // there's no cached sibling to mirror the wrong URL into.
   applyFromUrl()
-
-  // Re-apply after `<KeepAlive>` reactivation: the URL may have
-  // changed while this view was cached.
-  onActivated(applyFromUrl)
-
-  // URL changes (browser back/forward, dashboard tile click) → controls.
   watch(() => route.query, applyFromUrl, { deep: true })
 
   // Controls → URL. We push for discrete state (filters/sort/page)

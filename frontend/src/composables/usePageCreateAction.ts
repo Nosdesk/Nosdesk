@@ -1,13 +1,19 @@
 /**
  * Lifecycle-correct registration helper for the global Create
- * button's per-view handler. Wraps `usePageActionsStore` so
- * every view doesn't have to repeat the four lifecycle hooks.
+ * button's per-view handler.
  *
- * Handles both ordinary mount/unmount and `<KeepAlive>` activate
- * /deactivate, so cached views correctly re-register their
- * handler on re-entry without leaking the previous one.
+ * Plain `onMounted`/`onUnmounted` is enough now that list views
+ * are no longer KeepAlive-cached (see the comment in
+ * `App.vue`'s KeepAlive block). The cached-view branch with
+ * `onActivated`/`onDeactivated` was load-bearing only because
+ * KeepAlive doesn't unmount; with views unmounting on nav-away
+ * the registration follows the natural component lifecycle.
+ *
+ * `TicketView` is still KeepAlive-cached but doesn't register a
+ * page-action that conflicts with sibling views, so this
+ * simplification doesn't regress it.
  */
-import { onActivated, onDeactivated, onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 
 import { usePageActionsStore, type CreateAction } from '@/stores/pageActions'
 
@@ -15,11 +21,7 @@ export function usePageCreateAction(
   action: CreateAction | (() => void | Promise<void>),
 ): void {
   const store = usePageActionsStore()
-  const register = () => store.setCreateAction(action)
-  const unregister = () => store.clearCreateAction()
 
-  onMounted(register)
-  onActivated(register)
-  onDeactivated(unregister)
-  onUnmounted(unregister)
+  onMounted(() => store.setCreateAction(action))
+  onUnmounted(() => store.clearCreateAction())
 }

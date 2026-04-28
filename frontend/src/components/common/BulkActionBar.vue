@@ -74,59 +74,65 @@ const countCopy = computed(() => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition
-      enter-active-class="transition-all duration-200 ease-out"
-      enter-from-class="opacity-0 translate-y-3"
-      enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition-all duration-150 ease-in"
-      leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-0 translate-y-3"
+  <!--
+    No Teleport: the inner div uses `position: fixed` which already
+    escapes its scroll/overflow ancestors (none of which create a
+    containing block via transform/filter/perspective). Teleport
+    inside a KeepAlive-cached parent has documented interaction
+    edge cases with route Transitions; keeping the bar inline
+    avoids that whole class of bugs at zero positioning cost.
+  -->
+  <Transition
+    enter-active-class="transition-all duration-200 ease-out"
+    enter-from-class="opacity-0 translate-y-3"
+    enter-to-class="opacity-100 translate-y-0"
+    leave-active-class="transition-all duration-150 ease-in"
+    leave-from-class="opacity-100 translate-y-0"
+    leave-to-class="opacity-0 translate-y-3"
+  >
+    <div
+      v-if="selectedCount > 0"
+      class="fixed bottom-6 inset-x-0 z-overlay flex justify-center px-4 pointer-events-none"
+      role="region"
+      aria-label="Bulk actions"
     >
       <div
-        v-if="selectedCount > 0"
-        class="fixed bottom-6 inset-x-0 z-overlay flex justify-center px-4 pointer-events-none"
-        role="region"
-        aria-label="Bulk actions"
+        class="pointer-events-auto inline-flex items-stretch gap-2 px-2 py-1.5 rounded-full bg-surface border border-default shadow-lg"
       >
-        <div
-          class="pointer-events-auto inline-flex items-stretch gap-2 px-2 py-1.5 rounded-full bg-surface border border-default shadow-lg"
-        >
-          <!-- Count pill + scope toggles -->
-          <div class="flex items-center gap-3 pl-2 pr-3 border-r border-default">
-            <div
-              class="flex items-center justify-center min-w-6 h-6 px-2 bg-accent text-white text-xs font-bold rounded-full"
-            >
-              {{ selectedCount }}
-            </div>
-            <div class="flex items-center gap-2 text-xs">
-              <span class="text-secondary whitespace-nowrap">{{ countCopy }}</span>
-              <button
-                v-if="showSelectAllMatching"
-                type="button"
-                @click="emit('select-all-matching')"
-                class="text-accent hover:underline whitespace-nowrap"
-              >
-                Select all {{ totalCount }}
-              </button>
-              <button
-                type="button"
-                @click="emit('clear')"
-                class="text-tertiary hover:text-secondary whitespace-nowrap"
-              >
-                Clear
-              </button>
-            </div>
+        <!-- Count pill + scope toggles -->
+        <div class="flex items-center gap-3 pl-2 pr-3 border-r border-default">
+          <div
+            class="flex items-center justify-center min-w-6 h-6 px-2 bg-accent text-white text-xs font-bold rounded-full"
+          >
+            {{ selectedCount }}
           </div>
-
-          <!-- Consumer-owned action buttons. Recommended: 2-3 inline
-               buttons + an overflow menu if you have more, per the Q5
-               research findings. -->
-          <div class="flex items-center gap-1 pr-1">
-            <slot name="actions" :selected-count="selectedCount" :is-all-matching="isAllMatchingSelected" />
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-secondary whitespace-nowrap">{{ countCopy }}</span>
+            <button
+              v-if="showSelectAllMatching"
+              type="button"
+              @click="emit('select-all-matching')"
+              class="text-accent hover:underline whitespace-nowrap"
+            >
+              Select all {{ totalCount }}
+            </button>
+            <button
+              type="button"
+              @click="emit('clear')"
+              class="text-tertiary hover:text-secondary whitespace-nowrap"
+            >
+              Clear
+            </button>
           </div>
         </div>
+
+        <!-- Consumer-owned action buttons. Recommended: 2-3 inline
+             buttons + an overflow menu if you have more, per the Q5
+             research findings. -->
+        <div class="flex items-center gap-1 pr-1">
+          <slot name="actions" :selected-count="selectedCount" :is-all-matching="isAllMatchingSelected" />
+        </div>
       </div>
-    </Transition>
-  </Teleport>
+    </div>
+  </Transition>
 </template>
