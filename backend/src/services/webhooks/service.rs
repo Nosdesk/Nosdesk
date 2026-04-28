@@ -39,7 +39,7 @@ impl WebhookService {
         // Start event listener
         let listener_pool = pool.clone();
         let listener_tx = delivery_tx.clone();
-        let receiver = sse_state.sender.subscribe();
+        let receiver = sse_state.subscribe_global();
 
         tokio::spawn(async move {
             Self::event_listener(listener_pool, receiver, listener_tx).await;

@@ -1,9 +1,11 @@
 use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
-use futures::{Stream, StreamExt};
+use dashmap::DashMap;
+use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -150,6 +152,36 @@ pub enum SseEvent {
     },
 }
 
+fn event_type_str(event: &SseEvent) -> &'static str {
+    match event {
+        SseEvent::TicketUpdated { .. } => "ticket-updated",
+        SseEvent::TicketCreated { .. } => "ticket-created",
+        SseEvent::TicketDeleted { .. } => "ticket-deleted",
+        SseEvent::CommentAdded { .. } => "comment-added",
+        SseEvent::CommentDeleted { .. } => "comment-deleted",
+        SseEvent::AttachmentAdded { .. } => "attachment-added",
+        SseEvent::AttachmentDeleted { .. } => "attachment-deleted",
+        SseEvent::DeviceLinked { .. } => "device-linked",
+        SseEvent::DeviceUnlinked { .. } => "device-unlinked",
+        SseEvent::DeviceCreated { .. } => "device-created",
+        SseEvent::DeviceUpdated { .. } => "device-updated",
+        SseEvent::DeviceDeleted { .. } => "device-deleted",
+        SseEvent::ProjectAssigned { .. } => "project-assigned",
+        SseEvent::ProjectUnassigned { .. } => "project-unassigned",
+        SseEvent::TicketLinked { .. } => "ticket-linked",
+        SseEvent::TicketUnlinked { .. } => "ticket-unlinked",
+        SseEvent::DocumentationCreated { .. } => "documentation-created",
+        SseEvent::DocumentationUpdated { .. } => "documentation-updated",
+        SseEvent::CollectionUpdated { .. } => "collection-updated",
+        SseEvent::ViewerCountChanged { .. } => "viewer-count-changed",
+        SseEvent::UserUpdated { .. } => "user-updated",
+        SseEvent::UserCreated { .. } => "user-created",
+        SseEvent::UserDeleted { .. } => "user-deleted",
+        SseEvent::Heartbeat { .. } => "heartbeat",
+        SseEvent::NotificationReceived { .. } => "notification-received",
+    }
+}
+
 // Client connection info
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -159,21 +191,84 @@ pub struct ClientInfo {
     pub last_ping: Instant,
 }
 
-/// Envelope that carries an SSE event through the broadcast channel,
-/// optionally tagged with the source client ID for echo suppression.
-#[derive(Debug, Clone)]
-pub struct BroadcastMessage {
+/// Routing key for SSE delivery. Each event lives on exactly one topic;
+/// clients subscribe to the topics they care about and only ever see
+/// events published there. Phase A keeps the topology small: `Global`
+/// carries every cross-resource event, and `User(uuid)` carries
+/// targeted notifications. Per-resource topics (Ticket, Project, etc.)
+/// arrive in a later phase for finer fan-out.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum TopicKey {
+    Global,
+    User(String),
+}
+
+/// One delivery on the wire. `id` is a process-monotonic sequence so
+/// reconnecting clients can ask for "anything after id N" via the
+/// standard EventSource `Last-Event-ID` header. `source_client_id` is
+/// optional echo-suppression metadata: the publishing connection
+/// ignores envelopes it tagged itself.
+#[derive(Clone, Debug)]
+pub struct Envelope {
+    pub id: u64,
     pub event: SseEvent,
     pub source_client_id: Option<String>,
 }
 
-// Global event broadcaster
-type EventSender = broadcast::Sender<BroadcastMessage>;
-type EventReceiver = broadcast::Receiver<BroadcastMessage>;
+/// Back-compat alias. `BroadcastMessage` was the prior name for the
+/// wire envelope, before per-topic routing landed. Kept so existing
+/// imports compile until callers move over.
+pub type BroadcastMessage = Envelope;
 
-// Global state for managing SSE connections
+/// Per-topic state: a broadcast sender for live tailing plus a small
+/// ring of recent envelopes so a reconnecting client can replay events
+/// it missed during the network gap. Ring is bounded — if a client is
+/// gone for longer than the ring covers, the server drops the gap and
+/// the frontend is expected to refetch.
+struct TopicChannel {
+    sender: broadcast::Sender<Envelope>,
+    ring: Mutex<VecDeque<Envelope>>,
+}
+
+// Live broadcast tolerance per topic. Mirrors the prior 1000-event
+// global buffer so a single slow client doesn't get disconnected
+// during a normal burst. The replay ring is smaller and tracked
+// separately — its only job is to cover short reconnect gaps.
+const TOPIC_BUFFER: usize = 1024;
+const TOPIC_RING: usize = 256;
+
+impl TopicChannel {
+    fn new() -> Self {
+        let (sender, _) = broadcast::channel(TOPIC_BUFFER);
+        Self {
+            sender,
+            ring: Mutex::new(VecDeque::with_capacity(TOPIC_RING)),
+        }
+    }
+
+    fn record(&self, env: &Envelope) {
+        let mut ring = self.ring.lock().unwrap();
+        if ring.len() == TOPIC_RING {
+            ring.pop_front();
+        }
+        ring.push_back(env.clone());
+    }
+
+    fn replay_after(&self, last_event_id: u64) -> Vec<Envelope> {
+        let ring = self.ring.lock().unwrap();
+        ring.iter()
+            .filter(|e| e.id > last_event_id)
+            .cloned()
+            .collect()
+    }
+}
+
+/// Topic-routed event bus. Replaces the prior single global broadcast
+/// channel. Topics are created lazily on first publish or first
+/// subscribe, so the map only holds keys we actually need.
 pub struct SseState {
-    pub sender: EventSender,
+    topics: DashMap<TopicKey, Arc<TopicChannel>>,
+    seq: AtomicU64,
     pub clients: Arc<Mutex<HashMap<String, ClientInfo>>>,
 }
 
@@ -185,12 +280,31 @@ impl Default for SseState {
 
 impl SseState {
     pub fn new() -> Self {
-        // Optimized buffer: 1000 events is sufficient for most use cases
-        // Larger buffers use more memory and can cause lag detection issues
-        let (sender, _) = broadcast::channel(1000);
         Self {
-            sender,
+            topics: DashMap::new(),
+            seq: AtomicU64::new(0),
             clients: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    fn topic(&self, key: TopicKey) -> Arc<TopicChannel> {
+        self.topics
+            .entry(key)
+            .or_insert_with(|| Arc::new(TopicChannel::new()))
+            .clone()
+    }
+
+    /// Pick the topic that owns this event. Notifications are
+    /// per-recipient and must never appear on a wire other users read,
+    /// so they live on a `User` topic. Everything else fans out on
+    /// `Global` for now; future phases can split this into per-resource
+    /// topics for finer-grained delivery.
+    fn topic_for(event: &SseEvent) -> TopicKey {
+        match event {
+            SseEvent::NotificationReceived { recipient_uuid, .. } => {
+                TopicKey::User(recipient_uuid.clone())
+            }
+            _ => TopicKey::Global,
         }
     }
 
@@ -198,24 +312,34 @@ impl SseState {
         self.broadcast_event_from(event, None).await;
     }
 
-    /// Broadcast an event tagged with the source client ID.
-    /// Clients whose connection matches `source_client_id` will filter the echo.
+    /// Publish an event to its routing topic, tagged with the source
+    /// client ID for echo suppression. Returns immediately — delivery
+    /// is fire-and-forget through the topic's broadcast sender.
     pub async fn broadcast_event_from(&self, event: SseEvent, source_client_id: Option<String>) {
-        let msg = BroadcastMessage { event: event.clone(), source_client_id };
-        // Fast, non-blocking broadcast - just send once
-        match self.sender.send(msg) {
+        let key = Self::topic_for(&event);
+        let id = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
+        let env = Envelope {
+            id,
+            event,
+            source_client_id,
+        };
+        let topic = self.topic(key);
+        topic.record(&env);
+        match topic.sender.send(env) {
             Ok(receiver_count) => {
                 #[cfg(debug_assertions)]
                 tracing::debug!("SSE: Event sent to {} receivers", receiver_count);
             }
             Err(_) => {
                 #[cfg(debug_assertions)]
-                tracing::warn!("SSE: Event dropped - no active receivers: {:?}", event);
+                tracing::debug!("SSE: Event recorded with no live receivers");
             }
         }
     }
 
-    /// Broadcast a notification to a specific user via SSE
+    /// Broadcast a notification targeted at a specific user. Routed
+    /// via `User(recipient_uuid)` so other users' connections never
+    /// receive the payload.
     pub async fn broadcast_notification(
         &self,
         recipient_uuid: String,
@@ -263,27 +387,82 @@ impl SseState {
     pub fn get_client_count(&self) -> usize {
         self.clients.lock().unwrap().len()
     }
+
+    /// Subscribe to the Global topic. Used by integrations like the
+    /// webhook listener that need to observe every cross-resource
+    /// event without seeing per-user notifications. Returns a live
+    /// broadcast receiver scoped to that one topic.
+    pub fn subscribe_global(&self) -> broadcast::Receiver<Envelope> {
+        self.topic(TopicKey::Global).sender.subscribe()
+    }
+
+    /// Subscribe to a set of topics. Returns one live receiver per
+    /// topic plus the replay batch (events newer than `last_event_id`
+    /// across all subscribed topics, sorted by id). The caller is
+    /// expected to drain the replay batch before tailing the live
+    /// receivers.
+    fn subscribe(
+        &self,
+        topics: &[TopicKey],
+        last_event_id: Option<u64>,
+    ) -> (Vec<broadcast::Receiver<Envelope>>, Vec<Envelope>) {
+        let mut receivers = Vec::with_capacity(topics.len());
+        let mut replay: Vec<Envelope> = Vec::new();
+        for key in topics {
+            let topic = self.topic(key.clone());
+            receivers.push(topic.sender.subscribe());
+            if let Some(last_id) = last_event_id {
+                replay.extend(topic.replay_after(last_id));
+            }
+        }
+        replay.sort_by_key(|e| e.id);
+        (receivers, replay)
+    }
 }
 
-// SSE stream implementation
+/// Streaming body for an SSE connection. Drains `replay_queue` first
+/// (events the client missed during a reconnect gap), then merges the
+/// per-topic broadcast receivers into a single stream and interleaves
+/// heartbeat ticks. Disconnects cleanly when any topic stream ends or
+/// reports lag — the frontend reconnects with `Last-Event-ID` and the
+/// server fills the gap from each topic's ring.
 pub struct SseStream {
-    event_stream: BroadcastStream<BroadcastMessage>,
+    event_streams: futures::stream::SelectAll<BroadcastStream<Envelope>>,
+    replay_queue: VecDeque<Envelope>,
+    /// Highest envelope id covered by the replay queue. Live events
+    /// with `id <= replay_max_id` are dropped to avoid double-delivery
+    /// when an event lands between subscribing to the topic and
+    /// snapshotting the ring (the broadcast receiver and the ring both
+    /// observe it, otherwise the client sees the same envelope twice).
+    replay_max_id: u64,
     heartbeat_interval: tokio::time::Interval,
     client_id: String,
     state: web::Data<SseState>,
 }
 
 impl SseStream {
-    pub fn new(receiver: EventReceiver, client_id: String, state: web::Data<SseState>) -> Self {
-        // 15 second heartbeat for better connection detection
+    pub fn new(
+        receivers: Vec<broadcast::Receiver<Envelope>>,
+        replay: Vec<Envelope>,
+        client_id: String,
+        state: web::Data<SseState>,
+    ) -> Self {
+        // 15-second heartbeat. EventSource auto-reconnects when the
+        // read side dies, so this is mostly a NAT/proxy keepalive
+        // rather than a liveness probe.
         let mut heartbeat_interval = interval(Duration::from_secs(15));
         heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-        // Wrap the receiver in BroadcastStream for proper waker registration
-        let event_stream = BroadcastStream::new(receiver);
+        let event_streams = futures::stream::select_all(
+            receivers.into_iter().map(BroadcastStream::new),
+        );
+
+        let replay_max_id = replay.iter().map(|e| e.id).max().unwrap_or(0);
 
         Self {
-            event_stream,
+            event_streams,
+            replay_queue: replay.into(),
+            replay_max_id,
             heartbeat_interval,
             client_id,
             state,
@@ -291,90 +470,78 @@ impl SseStream {
     }
 }
 
+fn frame_envelope(env: &Envelope) -> String {
+    let event_type = event_type_str(&env.event);
+    let event_data = if env.source_client_id.is_some() {
+        let mut value = serde_json::to_value(&env.event).unwrap_or_default();
+        if let serde_json::Value::Object(ref mut map) = value {
+            map.insert(
+                "source_client_id".to_string(),
+                serde_json::Value::String(env.source_client_id.clone().unwrap_or_default()),
+            );
+        }
+        serde_json::to_string(&value).unwrap_or_default()
+    } else {
+        serde_json::to_string(&env.event).unwrap_or_default()
+    };
+    format!(
+        "id: {}\nevent: {}\ndata: {}\n\n",
+        env.id, event_type, event_data
+    )
+}
+
 impl Stream for SseStream {
     type Item = Result<actix_web::web::Bytes, actix_web::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
+
+        // Drain any replayed envelopes (events that arrived during the
+        // client's reconnect gap) before pulling from the live streams.
+        if let Some(env) = this.replay_queue.pop_front() {
+            return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(frame_envelope(&env)))));
+        }
+
         let client_id = this.client_id.clone();
 
-        // Poll the BroadcastStream - this properly maintains waker registration across polls
-        match Pin::new(&mut this.event_stream).poll_next(cx) {
-            Poll::Ready(Some(Ok(msg))) => {
-                let event = &msg.event;
-
-                // Got event - determine event type and serialize
-                let event_type = match event {
-                    SseEvent::TicketUpdated { .. } => "ticket-updated",
-                    SseEvent::TicketCreated { .. } => "ticket-created",
-                    SseEvent::TicketDeleted { .. } => "ticket-deleted",
-                    SseEvent::CommentAdded { .. } => "comment-added",
-                    SseEvent::CommentDeleted { .. } => "comment-deleted",
-                    SseEvent::AttachmentAdded { .. } => "attachment-added",
-                    SseEvent::AttachmentDeleted { .. } => "attachment-deleted",
-                    SseEvent::DeviceLinked { .. } => "device-linked",
-                    SseEvent::DeviceUnlinked { .. } => "device-unlinked",
-                    SseEvent::DeviceCreated { .. } => "device-created",
-                    SseEvent::DeviceUpdated { .. } => "device-updated",
-                    SseEvent::DeviceDeleted { .. } => "device-deleted",
-                    SseEvent::ProjectAssigned { .. } => "project-assigned",
-                    SseEvent::ProjectUnassigned { .. } => "project-unassigned",
-                    SseEvent::TicketLinked { .. } => "ticket-linked",
-                    SseEvent::TicketUnlinked { .. } => "ticket-unlinked",
-                    SseEvent::DocumentationCreated { .. } => "documentation-created",
-                    SseEvent::DocumentationUpdated { .. } => "documentation-updated",
-                    SseEvent::CollectionUpdated { .. } => "collection-updated",
-                    SseEvent::ViewerCountChanged { .. } => "viewer-count-changed",
-                    SseEvent::UserUpdated { .. } => "user-updated",
-                    SseEvent::UserCreated { .. } => "user-created",
-                    SseEvent::UserDeleted { .. } => "user-deleted",
-                    SseEvent::Heartbeat { .. } => "heartbeat",
-                    SseEvent::NotificationReceived { .. } => "notification-received",
-                };
-
-                // Serialize event data with optional source_client_id envelope
-                let event_data = if msg.source_client_id.is_some() {
-                    // Include source_client_id alongside the serde-tagged event fields
-                    let mut value = serde_json::to_value(event).unwrap_or_default();
-                    if let serde_json::Value::Object(ref mut map) = value {
-                        map.insert(
-                            "source_client_id".to_string(),
-                            serde_json::Value::String(msg.source_client_id.unwrap_or_default()),
-                        );
+        // Drain live envelopes one at a time, skipping any whose id
+        // already appeared in the replay queue. The loop exits as soon
+        // as we either return an envelope or hit Pending.
+        loop {
+            match Pin::new(&mut this.event_streams).poll_next(cx) {
+                Poll::Ready(Some(Ok(env))) => {
+                    if env.id <= this.replay_max_id {
+                        continue;
                     }
-                    serde_json::to_string(&value).unwrap_or_default()
-                } else {
-                    serde_json::to_string(event).unwrap_or_default()
-                };
-                let sse_data = format!("event: {event_type}\ndata: {event_data}\n\n");
-
-                return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(sse_data))));
-            }
-            Poll::Ready(Some(Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(count)))) => {
-                // Client is lagging - close connection so they can reconnect with fresh buffer
-                tracing::warn!("SSE: Client {} lagged by {} events, closing connection", client_id, count);
-                return Poll::Ready(None);
-            }
-            Poll::Ready(None) => {
-                // Stream ended (channel closed)
-                tracing::info!("SSE: Channel closed for client {}", client_id);
-                return Poll::Ready(None);
-            }
-            Poll::Pending => {
-                // No event yet - check heartbeat before returning Pending
+                    return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(frame_envelope(
+                        &env,
+                    )))));
+                }
+                Poll::Ready(Some(Err(
+                    tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(count),
+                ))) => {
+                    tracing::warn!(
+                        "SSE: Client {} lagged by {} events, closing connection",
+                        client_id,
+                        count
+                    );
+                    return Poll::Ready(None);
+                }
+                Poll::Ready(None) => {
+                    tracing::info!("SSE: Channel closed for client {}", client_id);
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => break,
             }
         }
 
-        // Check for heartbeat
         if this.heartbeat_interval.poll_tick(cx).is_ready() {
+            // Heartbeat is a sentinel — no `id:` so it doesn't advance
+            // the client's Last-Event-ID cursor.
             let sse_data = "event: heartbeat\ndata: {}\n\n";
             return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(sse_data))));
         }
 
-        // Both event stream and heartbeat are Pending
-        // BroadcastStream properly maintains waker registration, waking when either:
-        // 1. A new event is broadcast (stream waker fires immediately)
-        // 2. Heartbeat interval elapses (interval waker fires)
         Poll::Pending
     }
 }
@@ -385,9 +552,20 @@ impl Drop for SseStream {
     }
 }
 
+/// Parse the `Last-Event-ID` header into a u64 sequence. Browsers
+/// re-send whatever the server last emitted on `id:`; if the value
+/// fails to parse (alien client, manual curl) we treat it as a fresh
+/// connection.
+fn last_event_id_from_request(req: &HttpRequest) -> Option<u64> {
+    req.headers()
+        .get("Last-Event-ID")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+}
+
 // SSE endpoint for ticket updates
 pub async fn sse_events_stream(
-    _req: HttpRequest,
+    req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     state: web::Data<SseState>,
     query: web::Query<SseEventsQuery>,
@@ -421,11 +599,27 @@ pub async fn sse_events_stream(
         }
     };
 
+    // Phase A subscription set: every authenticated client gets the
+    // global topic plus its own personal topic. Phase B will let the
+    // client narrow this with `?topics=...`.
+    let topics = vec![TopicKey::Global, TopicKey::User(user_info.sub.clone())];
+
+    let last_event_id = last_event_id_from_request(&req);
+    let (receivers, replay) = state.subscribe(&topics, last_event_id);
+
+    if let Some(last_id) = last_event_id {
+        tracing::debug!(
+            "SSE: Reconnect for user {} replaying {} events after id {}",
+            user_info.sub,
+            replay.len(),
+            last_id
+        );
+    }
+
     // Generate client ID and create stream
     let client_id = Uuid::now_v7().to_string();
     state.add_client(client_id.clone(), user_info.sub.clone());
-    let receiver = state.sender.subscribe();
-    let stream = SseStream::new(receiver, client_id.clone(), state.clone());
+    let stream = SseStream::new(receivers, replay, client_id.clone(), state.clone());
 
     // Build initial "connected" event so the client knows its own ID
     let connected_data = json!({ "client_id": client_id }).to_string();
