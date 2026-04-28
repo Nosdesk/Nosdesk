@@ -1,10 +1,15 @@
 //! Search query execution
 
 use tantivy::collector::TopDocs;
-use tantivy::query::{BooleanQuery, BoostQuery, Occur, Query, TermQuery};
+use tantivy::query::{BooleanQuery, BoostQuery, Occur, Query, RegexQuery, TermQuery};
 use tantivy::schema::IndexRecordOption;
 use tantivy::{IndexReader, TantivyDocument};
 use tracing::{debug, warn};
+
+/// Minimum query-term length below which we skip prefix expansion
+/// — single-character queries would otherwise match nearly every
+/// term in the index and dominate scoring with noise.
+const MIN_PREFIX_QUERY_LEN: usize = 2;
 
 use super::schema::SearchSchema;
 use super::types::{EntityType, SearchResult, SearchResponse};
@@ -111,19 +116,62 @@ fn build_search_query(
     Box::new(BooleanQuery::new(subqueries))
 }
 
-/// Build a term query for a specific field
-/// Splits the query string into words and creates a boolean OR query
+/// Build a query for a single field. Each whitespace-separated word
+/// in the user query becomes a Should branch combining:
+///   * an exact `TermQuery` (full-token match — wins on tf-idf when
+///     the query happens to be the complete word, e.g. typing
+///     "https" matches the indexed "https" token directly), and
+///   * a `RegexQuery` anchored at the start of the term (matches any
+///     indexed token starting with the typed prefix, e.g. "seb" →
+///     "sebastian"). Tantivy's RegexQuery iterates the field's term
+///     dictionary efficiently, so this is the lightweight stand-in
+///     for "edge ngram at index time" without the index-size blowup
+///     of indexing every prefix.
+///
+/// Words shorter than `MIN_PREFIX_QUERY_LEN` skip the prefix branch
+/// to avoid matching nearly every term in the index.
 fn build_field_query(field: tantivy::schema::Field, query_str: &str) -> BooleanQuery {
-    let terms: Vec<(Occur, Box<dyn Query>)> = query_str
-        .split_whitespace()
-        .map(|term| {
-            let tantivy_term = tantivy::Term::from_field_text(field, &term.to_lowercase());
-            let q: Box<dyn Query> = Box::new(TermQuery::new(tantivy_term, IndexRecordOption::WithFreqsAndPositions));
-            (Occur::Should, q)
-        })
-        .collect();
+    let mut clauses: Vec<(Occur, Box<dyn Query>)> = Vec::new();
 
-    BooleanQuery::new(terms)
+    for raw_term in query_str.split_whitespace() {
+        let term = raw_term.to_lowercase();
+        if term.is_empty() {
+            continue;
+        }
+
+        let tantivy_term = tantivy::Term::from_field_text(field, &term);
+        let exact: Box<dyn Query> = Box::new(TermQuery::new(
+            tantivy_term,
+            IndexRecordOption::WithFreqsAndPositions,
+        ));
+        clauses.push((Occur::Should, exact));
+
+        if term.chars().count() >= MIN_PREFIX_QUERY_LEN {
+            let pattern = format!("{}.*", regex_escape(&term));
+            if let Ok(regex_query) = RegexQuery::from_pattern(&pattern, field) {
+                clauses.push((Occur::Should, Box::new(regex_query)));
+            }
+        }
+    }
+
+    BooleanQuery::new(clauses)
+}
+
+/// Escape regex metacharacters that may appear in user input so the
+/// constructed pattern matches the literal characters (we add `.*`
+/// ourselves to anchor a prefix match).
+fn regex_escape(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for c in input.chars() {
+        match c {
+            '\\' | '^' | '$' | '.' | '|' | '?' | '*' | '+' | '(' | ')' | '[' | ']' | '{' | '}' => {
+                out.push('\\');
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// Convert a Tantivy document to a SearchResult

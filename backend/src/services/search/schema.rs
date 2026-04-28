@@ -1,7 +1,7 @@
 //! Tantivy index schema definition
 
 use tantivy::schema::{
-    Field, FieldType, Schema, SchemaBuilder, STORED, STRING, TextFieldIndexing, TextOptions,
+    Field, Schema, SchemaBuilder, STORED, STRING, TextFieldIndexing, TextOptions,
     IndexRecordOption, NumericOptions,
 };
 use tantivy::Index;
@@ -19,24 +19,6 @@ pub mod fields {
     pub const UPDATED_AT: &str = "updated_at";
 }
 
-/// Name of the prefix-ngram tokenizer registered on the index by
-/// `SearchService::new`. Stored in the schema next to the affected
-/// fields; used by `is_compatible_with_index` to detect old indexes
-/// built with the default tokenizer so they get rebuilt instead of
-/// silently producing exact-match-only results.
-pub const PREFIX_NGRAM_TOKENIZER: &str = "prefix_ngram";
-
-/// Min/max prefix length the prefix-ngram tokenizer indexes for each
-/// word. Min=2 follows the search-as-you-type convention (single-
-/// character queries aren't meaningful enough to warrant the index
-/// blowup); max=15 covers typical names, hostnames, and short titles
-/// without exploding storage on long words. Tokens longer than max
-/// don't get indexed at all on prefix-ngram fields, so the same field
-/// is not used for body content — long-text matching stays on the
-/// default tokenizer.
-pub const PREFIX_NGRAM_MIN: usize = 2;
-pub const PREFIX_NGRAM_MAX: usize = 15;
-
 /// Container for all schema fields
 #[derive(Clone)]
 pub struct SearchSchema {
@@ -53,7 +35,14 @@ pub struct SearchSchema {
 }
 
 impl SearchSchema {
-    /// Create a new search schema with all fields configured
+    /// Create a new search schema with all fields configured.
+    ///
+    /// All searchable text fields use Tantivy's `default` tokenizer
+    /// (whitespace split, lowercase, no stemming). Partial-prefix
+    /// matching ("seb" → "Sebastian", "https" → "HTTPS") is handled
+    /// at *query* time via `PrefixQuery` in `searcher.rs` rather than
+    /// at index time, which keeps the index small and lets a single
+    /// indexed term satisfy both exact and prefix queries.
     pub fn new() -> Self {
         let mut builder = SchemaBuilder::new();
 
@@ -70,42 +59,21 @@ impl SearchSchema {
         let entity_id = builder.add_i64_field(fields::ENTITY_ID, numeric_options.clone());
         let updated_at = builder.add_i64_field(fields::UPDATED_AT, numeric_options);
 
-        // TEXT fields - tokenized for full-text search
-        // Title field: prefix-ngram tokenizer so partial typing
-        // ("seb") matches indexed words ("Sebastian"). The same
-        // tokenizer is used at query time, so the user query is
-        // also broken into prefix tokens before lookup.
+        let text_indexing = TextFieldIndexing::default()
+            .set_tokenizer("default")
+            .set_index_option(IndexRecordOption::WithFreqsAndPositions);
+
         let title_options = TextOptions::default()
-            .set_indexing_options(
-                TextFieldIndexing::default()
-                    .set_tokenizer(PREFIX_NGRAM_TOKENIZER)
-                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
-            )
+            .set_indexing_options(text_indexing.clone())
             .set_stored();
         let title = builder.add_text_field(fields::TITLE, title_options);
 
-        // Content field - main body text. Default tokenizer (whole
-        // tokens, lowercased): partial-prefix matching here would
-        // multiply the index size dramatically without much UX
-        // benefit, since users typically search content bodies with
-        // full keywords.
         let content_options = TextOptions::default()
-            .set_indexing_options(
-                TextFieldIndexing::default()
-                    .set_tokenizer("default")
-                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
-            );
+            .set_indexing_options(text_indexing.clone());
         let content = builder.add_text_field(fields::CONTENT, content_options);
 
-        // Metadata field: emails, hostnames, serial numbers, role
-        // tags. Prefix-ngram so typing "alice" matches an indexed
-        // "alice@example.com" by the local-part prefix.
         let metadata_options = TextOptions::default()
-            .set_indexing_options(
-                TextFieldIndexing::default()
-                    .set_tokenizer(PREFIX_NGRAM_TOKENIZER)
-                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
-            );
+            .set_indexing_options(text_indexing);
         let metadata = builder.add_text_field(fields::METADATA, metadata_options);
 
         let schema = builder.build();
@@ -154,12 +122,13 @@ impl SearchSchema {
     }
 
     /// Check if an index has the expected schema fields *and* the
-    /// expected tokenizer wiring. Tantivy stores the tokenizer name
-    /// per field in the index meta, so an old index built with the
-    /// default tokenizer on a field we now expect prefix-ngram on
-    /// must be rebuilt — otherwise the runtime would silently keep
-    /// the old behaviour and partial-prefix queries wouldn't match.
+    /// expected tokenizer wiring. An index built before we settled on
+    /// the default tokenizer (briefly tried prefix_ngram which
+    /// incorrectly tokenized the whole title as one input) gets
+    /// rebuilt automatically on next startup.
     pub fn is_compatible_with_index(index: &Index) -> bool {
+        use tantivy::schema::FieldType;
+
         let schema = index.schema();
         let all_fields_present = Self::FIELD_NAMES
             .iter()
@@ -180,8 +149,9 @@ impl SearchSchema {
             }
         };
 
-        uses_tokenizer(fields::TITLE, PREFIX_NGRAM_TOKENIZER)
-            && uses_tokenizer(fields::METADATA, PREFIX_NGRAM_TOKENIZER)
+        uses_tokenizer(fields::TITLE, "default")
+            && uses_tokenizer(fields::METADATA, "default")
+            && uses_tokenizer(fields::CONTENT, "default")
     }
 }
 
