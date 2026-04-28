@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getPages } from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
 

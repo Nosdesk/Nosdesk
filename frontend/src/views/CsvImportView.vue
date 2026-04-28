@@ -1,12 +1,9 @@
 <script setup lang="ts">
-import { formatDate, formatDateTime } from '@/utils/dateUtils';
-import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { formatDateTime } from '@/utils/dateUtils';
+import { ref } from 'vue';
 import axios from 'axios';
 import BackButton from '@/components/common/BackButton.vue';
 import Modal from '@/components/Modal.vue';
-
-const router = useRouter();
 
 // State variables
 const isLoading = ref(false);

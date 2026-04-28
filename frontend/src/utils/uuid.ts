@@ -7,7 +7,7 @@ export function uuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     try {
       return crypto.randomUUID();
-    } catch (e) {
+    } catch {
       // Fall through to next method if it fails (e.g., in non-secure context)
       console.warn('crypto.randomUUID failed, using fallback');
     }
@@ -21,7 +21,7 @@ export function uuid(): string {
         const v = c === 'x' ? r : (r & 0x3) | 0x8;
         return v.toString(16);
       });
-    } catch (e) {
+    } catch {
       // Fall through to Math.random if crypto fails
       console.warn('crypto.getRandomValues failed, using Math.random fallback');
     }

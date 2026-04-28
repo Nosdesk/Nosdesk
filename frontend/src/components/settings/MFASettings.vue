@@ -182,7 +182,7 @@ onMounted(async () => {
 });
 
 // MFA action methods using composable
-const toggleMFA = async (newValue: boolean) => {
+const toggleMFA = async (_newValue: boolean) => {
     if (mfa.mfaEnabled.value) {
         await disableMFA();
     } else {
@@ -321,10 +321,6 @@ const resetMFASetup = () => {
     verificationCode.value = "";
     showSecret.value = false;
     secretCopied.value = false;
-};
-
-const cancelMFASetup = () => {
-    resetMFASetup();
 };
 
 const completeSetup = () => {
@@ -591,25 +587,6 @@ Generated on: ${new Date().toISOString()}`;
     } catch (err) {
         logger.error("Failed to download backup codes:", err);
         emit("error", "Failed to download backup codes");
-    }
-};
-
-// Handle paste events for verification codes - auto-submit on 6-digit code
-const handleVerificationPaste = (event: ClipboardEvent) => {
-    event.preventDefault();
-    const pastedText = event.clipboardData?.getData("text") || "";
-    const cleanValue = pastedText.replace(/[^0-9]/g, "");
-
-    if (cleanValue.length >= 6) {
-        // Take first 6 characters for standard TOTP codes
-        verificationCode.value = cleanValue.slice(0, 6);
-        // Auto-submit on exactly 6-digit code
-        if (cleanValue.length === 6) {
-            // Small delay to let the UI update
-            setTimeout(() => {
-                verifyMFA();
-            }, 100);
-        }
     }
 };
 

@@ -17,7 +17,7 @@ interface Props {
   showStatus?: boolean;
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   showFullTitle: false,
   showEditButton: true,
   showStatus: true

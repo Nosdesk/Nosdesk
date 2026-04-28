@@ -93,9 +93,9 @@ export function createLinkTooltipPlugin(callbacks: {
         return oldState;
       },
     },
-    view(editorView: EditorView) {
+    view(_editorView: EditorView) {
       return {
-        update(view: EditorView, prevState: EditorState) {
+        update(view: EditorView, _prevState: EditorState) {
           // Get plugin state
           const pluginState = linkTooltipPluginKey.getState(view.state);
 

@@ -139,7 +139,7 @@ class EmbeddedDocumentView implements NodeView {
   private uuid: string
   private title: string
 
-  constructor(node: ProseMirrorNode, view: EditorView, getPos: () => number | undefined) {
+  constructor(node: ProseMirrorNode, _view: EditorView, _getPos: () => number | undefined) {
     this.uuid = node.attrs.documentUuid
     this.title = node.attrs.documentTitle || 'Untitled'
 

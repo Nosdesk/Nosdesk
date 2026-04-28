@@ -1,5 +1,4 @@
 import apiClient from './apiConfig';
-import { logger } from '@/utils/logger';
 
 // Type definitions for version history
 export interface ArticleRevision {

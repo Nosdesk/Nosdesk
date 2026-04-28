@@ -286,7 +286,7 @@ export const getAllArticles = async (): Promise<Article[]> => {
     
     // Convert backend pages to frontend Articles (without content)
     return response.data.map((page: BackendDocumentationPage) => {
-      const { content, ...metadata } = convertToArticle(page);
+      const { content: _content, ...metadata } = convertToArticle(page);
       return metadata;
     });
   } catch (error) {
@@ -465,7 +465,7 @@ export const saveArticle = async (article: Page): Promise<Page | null> => {
     logger.debug('Saving article with payload:', JSON.stringify(payload));
     
     // Update the article
-    const response = await apiClient.put(`/documentation/pages/${numericId}`, payload);
+    await apiClient.put(`/documentation/pages/${numericId}`, payload);
     
     // Fetch the updated article
     const updatedArticleResponse = await apiClient.get(`/documentation/pages/${numericId}`);

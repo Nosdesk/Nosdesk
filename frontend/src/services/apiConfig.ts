@@ -54,7 +54,7 @@ async function refreshAccessToken(): Promise<boolean> {
       withCredentials: true,
     });
     return response.status === 200;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -228,7 +228,7 @@ apiClient.interceptors.response.use(
             redirectToLogin();
           }
         }
-      } catch (refreshError) {
+      } catch {
         onRefreshComplete(false);
         isRefreshing = false;
       }

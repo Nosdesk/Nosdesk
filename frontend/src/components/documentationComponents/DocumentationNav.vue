@@ -19,8 +19,8 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import { storeToRefs } from 'pinia'
 import { useSSE } from '@/services/sseService'
 import { getCollections, getCollection, updateCollection, deleteCollection } from '@/services/collectionService'
-import type { CollectionWithDetails, CollectionPage } from '@/services/collectionService'
-import { buildTreeFromFlat, sortByOrder, findInTree } from '@/utils/treeUtils'
+import type { CollectionWithDetails } from '@/services/collectionService'
+import { buildTreeFromFlat, findInTree } from '@/utils/treeUtils'
 import { docUrl } from '@/utils/docUrl'
 import { useClipboard } from '@/composables/useClipboard'
 import { docsEmitter } from '@/services/docsEmitter'
@@ -75,7 +75,7 @@ const handleCollectionUpdate = (event: any) => {
 };
 
 // Use store's reactive loading state
-const { isLoading, starredPages, isStarredExpanded } = storeToRefs(docNavStore)
+const { starredPages, isStarredExpanded } = storeToRefs(docNavStore)
 
 // Drag and Drop state
 const draggedPageId = ref<string | number | null>(null);
@@ -1050,7 +1050,7 @@ watch(() => route.path, (newPath) => {
 // Track which collection a drag operation is within
 const dragCollectionId = ref<number | null>(null);
 
-const handlePageDragStart = (id: string | number, event: DragEvent) => {
+const handlePageDragStart = (id: string | number, _event: DragEvent) => {
   draggedPageId.value = id;
   isDragging.value = true;
   // Remember which collection this page belongs to
@@ -1077,7 +1077,7 @@ const getAllChildrenIds = (page: Page): string[] => {
   return ids;
 };
 
-const wouldCreateCircularReference = (draggedId: string | number, targetId: string | number, position: 'above' | 'inside' | 'below'): boolean => {
+const wouldCreateCircularReference = (draggedId: string | number, targetId: string | number, _position: 'above' | 'inside' | 'below'): boolean => {
   if (String(draggedId) === String(targetId)) return true;
 
   const draggedPage = findPageGlobal(draggedId);

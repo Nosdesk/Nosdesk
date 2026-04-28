@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
 import axios from 'axios';
 
 import EnvConfigNotice from '@/components/admin/EnvConfigNotice.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
-import { AdminIcons, isBrandIcon } from '@/components/admin/AdminIcons';
+import { AdminIcons } from '@/components/admin/AdminIcons';
 
 // Define types for our data structures
 interface Provider {
@@ -25,8 +24,6 @@ interface ConfigValidation {
   redirect_uri?: string;
   error?: string;
 }
-
-const router = useRouter();
 
 // State for providers
 const isLoading = ref(false);
@@ -116,20 +113,6 @@ const getProviderIconBgClass = (providerType: string) => {
 // Check if provider uses brand icon
 const isProviderBrandIcon = (providerType: string) => {
   return ['google'].includes(providerType);
-};
-
-// Helper to get provider status description
-const getProviderDescription = (provider: Provider) => {
-  switch (provider.provider_type) {
-    case 'microsoft':
-      return 'Microsoft Entra ID (Azure AD) Single Sign-On';
-    case 'local':
-      return 'Email and password authentication';
-    case 'google':
-      return 'Google Workspace Single Sign-On';
-    default:
-      return 'External authentication provider';
-  }
 };
 
 // Helper to get configuration requirements

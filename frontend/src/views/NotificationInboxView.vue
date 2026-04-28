@@ -19,7 +19,6 @@
  * versa.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import type { Notification } from '@/services/notificationService'
 import { useDeleteManyMutation, useNotificationsStore } from '@/stores/notifications'

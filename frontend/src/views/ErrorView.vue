@@ -9,10 +9,6 @@ import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 // 'vertical' = vertical glitch, 'horizontal' = horizontal glitch, null = no glitch
 type SpikeDirection = "vertical" | "horizontal" | null;
 
-// Color channel identifiers
-type ColorChannel = "red" | "green" | "blue";
-const CHANNELS: ColorChannel[] = ["red", "green", "blue"];
-
 // Vue Router instances for accessing route parameters and navigation.
 const route = useRoute();
 const router = useRouter();
@@ -21,7 +17,6 @@ const router = useRouter();
 const themeStore = useThemeStore();
 const isDarkMode = computed(() => themeStore.isDarkMode);
 const isEpaperTheme = computed(() => themeStore.effectiveTheme?.meta?.id === 'epaper');
-const isRedHorizonTheme = computed(() => themeStore.effectiveTheme?.meta?.id === 'red-horizon');
 
 // Navigation functions.
 const goBack = () => router.back();
@@ -299,7 +294,6 @@ const animate = () => {
 
     // Scanline emanation strength based on distance from cursor
     const scanlineEmanation = parabolicDistortion;
-    const scanlineFrequencyModulation = 1.0 + radialDistance * 0.5; // Frequency increases away from cursor
 
     // --- Apply default values for all channels when effects are disabled ---
     if (!masterEffectEnabled) {
@@ -359,18 +353,6 @@ const animate = () => {
     const driftAmplitude = (globalEffectIntensity <= 0) ? 0 : 
       (effectiveDriftAmplitude + mouseDriftInfluence + centerAmplitudeBoost) * ambientFactor;
 
-    // Apply Master Modulators to Continuous Effects (Wobble Amplitude)
-    const baseMouseWobbleInfluence = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 :
-      (isMouseOverSvg.value && mouseHasMoved.value) ? effectiveMouseY * 2.5 * centerProximityFactor : 0;
-    const mouseWobbleInfluence = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 :
-      baseMouseWobbleInfluence * globalEffectIntensity;
-    
-    // Incorporate center proximity
-    const baseMouseDrivenWobbleAmplitude = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 :
-      1.5 + (centerProximityFactor * 1.0);
-    const mouseDrivenWobbleAmplitude = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 :
-      (baseMouseDrivenWobbleAmplitude * globalEffectIntensity + mouseWobbleInfluence) * ambientFactor;
-
     // --- Simplified warp centering with fewer parameters
     const defaultNumOctaves = "3";
     const glitchNumOctaves = "1";
@@ -428,10 +410,6 @@ const animate = () => {
     const minGlitchDuration = 50;
     const maxGlitchDuration = 100;
 
-    // Apply a more aggressive scaling to ensure small values have less impact
-    const effectiveGlobalIntensity = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 : 
-      Math.pow(globalEffectIntensity, 0.7);
-
     // Unified channel animation loop
     for (let i = 0; i < 3; i++) {
       // Get references to current channel's filter elements
@@ -474,13 +452,6 @@ const animate = () => {
         effectiveWobbleTime * phaseConfig.driftY +
         (i === 0 ? 0 : i === 1 ? 2 : 4) // Phase offset specific to channel
       ) * driftAmplitude * driftIntensityMultiplier;
-      
-      // Per-channel wobble scales
-      const baseWobbleScale = (globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 : distortionScale;
-      const wobbleScale = baseWobbleScale + ((globalEffectIntensity <= 0 || !masterEffectEnabled) ? 0 :
-        Math.sin(
-          effectiveWobbleTime + phaseConfig.wobblePhase // Use clean time without cursor modulation
-        ) * mouseDrivenWobbleAmplitude);
       
       // Final displacement values
       let finalDX = baseDriftX;
@@ -703,7 +674,7 @@ const animate = () => {
 // Click handler to trigger glitch and distortion effects
 // Creates a temporary intense visual disturbance centered on click position
 // The click effect decays gradually based on clickGlitchDecay parameter
-const handleSvgClick = (event: MouseEvent) => {
+const handleSvgClick = (_event: MouseEvent) => {
   // Only allow click effect if clickable (prevents rapid repeated clicks)
   if (!isClickable.value) return;
   
@@ -803,7 +774,6 @@ onUnmounted(() => {
 const adjustSvgSize = () => {
   // Get viewport dimensions
   const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
   
   // Get text length (number of characters in error code)
   const textLength = errorCode.value.length;

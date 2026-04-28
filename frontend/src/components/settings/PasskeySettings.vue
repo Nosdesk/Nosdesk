@@ -175,7 +175,7 @@ onMounted(async () => {
         transports: p.transports,
         backup_eligible: p.backup_eligible,
       }));
-    } catch (err) {
+    } catch {
       emit('error', 'Failed to load passkeys for this user');
     } finally {
       adminLoading.value = false;

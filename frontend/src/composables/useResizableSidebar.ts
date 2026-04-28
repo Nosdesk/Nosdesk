@@ -5,17 +5,11 @@ const MIN_SECTION_HEIGHT = 60;
 const MIN_OTHER_SECTION_HEIGHT = 60;
 const RESIZER_HEIGHT = 8;
 
-// Debug logging - set to false to disable logging
-const DEBUG = false;
-const logDebug = (...args: unknown[]) => {
-  if (DEBUG) console.log('[ResizableSidebar]', ...args);
-};
-
 export function useResizableSidebar(
   navbarRef: Ref<HTMLElement | null>,
   ticketsSectionRef: Ref<HTMLElement | null> | ComputedRef<HTMLElement | null>,
-  docsSectionRef: Ref<HTMLElement | null> | ComputedRef<HTMLElement | null>,
-  resizerRef: Ref<HTMLElement | null>
+  _docsSectionRef: Ref<HTMLElement | null> | ComputedRef<HTMLElement | null>,
+  _resizerRef: Ref<HTMLElement | null>
 ) {
   const ticketsHeight = ref(200);
   const isResizing = ref(false);

@@ -39,7 +39,7 @@ const flushLogs = async () => {
 
   try {
     await apiClient.post('/debug/frontend-logs', { logs: logsToSend });
-  } catch (e) {
+  } catch {
     // Don't log errors about logging - that could cause infinite loops
     // Just silently fail
   }

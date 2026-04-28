@@ -1,8 +1,6 @@
 <!-- FilePreview.vue -->
 <script setup lang="ts">
-import { computed, ref, shallowRef, onMounted, nextTick } from 'vue';
-import UserAvatar from "@/components/UserAvatar.vue";
-import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
+import { computed, ref, onMounted, nextTick } from 'vue';
 
 interface Props {
   src: string;

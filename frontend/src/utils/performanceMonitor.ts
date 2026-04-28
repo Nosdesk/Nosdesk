@@ -167,7 +167,7 @@ export const usePerformanceMonitor = () => {
 }
 
 // Export trackImagePerformance function for backward compatibility
-export const trackImagePerformance = (url: string, options: { cached?: boolean } = {}) => {
+export const trackImagePerformance = (url: string, _options: { cached?: boolean } = {}) => {
   const { trackImageLoad } = usePerformanceMonitor()
   const tracker = trackImageLoad(url)
   

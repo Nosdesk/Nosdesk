@@ -7,7 +7,7 @@
  *
  * Only active when the specified theme is applied (default: red-horizon).
  */
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { Z_INDEX } from '@/constants/zIndex'
 
 interface ScanlineOptions {

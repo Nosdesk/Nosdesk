@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 
 import AlertMessage from '@/components/common/AlertMessage.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import Modal from '@/components/Modal.vue'
-import UserAvatar from '@/components/UserAvatar.vue'
 import { assignmentRuleService } from '@/services/assignmentRuleService'
 import { groupService } from '@/services/groupService'
 import { categoryService } from '@/services/categoryService'
@@ -15,9 +14,7 @@ import type {
   AssignmentRuleWithDetails,
   CreateAssignmentRuleRequest,
   UpdateAssignmentRuleRequest,
-  AssignmentMethod,
-  methodDisplayNames,
-  methodDescriptions
+  AssignmentMethod
 } from '@/types/assignmentRule'
 import type { GroupWithMemberCount } from '@/types/group'
 import type { TicketCategory } from '@/types/ticket'

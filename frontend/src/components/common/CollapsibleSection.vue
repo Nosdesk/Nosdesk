@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-const props = defineProps<{
+defineProps<{
   title: string
   isCollapsed: boolean
   // Icon type: 'clock' for recent items, 'book' for documentation

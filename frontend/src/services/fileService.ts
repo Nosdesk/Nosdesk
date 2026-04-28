@@ -1,6 +1,5 @@
 // Service for handling authenticated file access
 import { logger } from '@/utils/logger';
-import apiConfig from './apiConfig'
 
 // Generate an authenticated URL for a file
 // Note: Authentication is handled via httpOnly cookies automatically by the browser

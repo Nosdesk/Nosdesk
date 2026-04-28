@@ -71,7 +71,7 @@ class TicketLinkView implements NodeView {
   private ticketId: number
   private href: string
 
-  constructor(node: ProseMirrorNode, view: EditorView, getPos: () => number | undefined) {
+  constructor(node: ProseMirrorNode, _view: EditorView, _getPos: () => number | undefined) {
     this.ticketId = parseInt(node.attrs.ticketId, 10)
     this.href = node.attrs.href
 
@@ -170,7 +170,7 @@ export function createTicketLinkPlugin(): Plugin {
         ticket_link: (node, view, getPos) => new TicketLinkView(node, view, getPos)
       },
       // Handle paste events to convert ticket URLs
-      handlePaste(view, event, slice) {
+      handlePaste(view, event, _slice) {
         const text = event.clipboardData?.getData('text/plain')
         if (!text) return false
 
@@ -181,7 +181,7 @@ export function createTicketLinkPlugin(): Plugin {
         const lines = text.trim().split('\n')
         if (lines.length > 1) return false
 
-        const { schema, tr, selection } = view.state
+        const { schema, tr } = view.state
         const ticketLinkType = schema.nodes.ticket_link
 
         if (!ticketLinkType) return false

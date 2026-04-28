@@ -40,7 +40,7 @@ export interface UseBulkSelectionOptions<T> {
   totalCount?: Ref<number> | ComputedRef<number>
 }
 
-export interface BulkSelection<T> {
+export interface BulkSelection<_T> {
   /** Selected item ids (Set semantics, but exposed as an array
    *  ref to keep template iteration simple). */
   selectedIds: ComputedRef<string[]>

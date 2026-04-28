@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
 import Modal from '@/components/Modal.vue';
 
 interface Props {
@@ -18,7 +17,6 @@ const emit = defineEmits<{
 }>();
 
 const showConfirmModal = ref(false);
-const router = useRouter();
 
 const openConfirmModal = () => {
   showConfirmModal.value = true;

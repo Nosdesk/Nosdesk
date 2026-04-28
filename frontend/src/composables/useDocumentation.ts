@@ -1,4 +1,4 @@
-import { ref, shallowRef, computed, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import documentationService from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
@@ -6,7 +6,6 @@ import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { docUrl } from '@/utils/docUrl'
 import { docsEmitter } from '@/services/docsEmitter'
 import { useSSE } from '@/services/sseService'
-import { useAuthStore } from '@/stores/auth'
 
 // SSE documentation event data shape
 interface DocumentationEventData {
@@ -23,7 +22,6 @@ interface DocumentationEventData {
 export function useDocumentation() {
   const router = useRouter()
   const documentationNavStore = useDocumentationNavStore()
-  const authStore = useAuthStore()
 
   // Use shallowRef for large page arrays - avoids deep reactivity overhead
   const pages = shallowRef<Page[]>([])

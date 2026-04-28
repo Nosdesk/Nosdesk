@@ -2,7 +2,6 @@
 import { ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { getCollectionsForPage, getCollection } from '@/services/collectionService'
-import type { CollectionPage } from '@/services/collectionService'
 import { getAncestorChain } from '@/utils/treeUtils'
 import { docUrl } from '@/utils/docUrl'
 
@@ -59,7 +58,7 @@ const buildBreadcrumbs = async () => {
     }
 
     breadcrumbs.value = items
-  } catch (error) {
+  } catch {
     breadcrumbs.value = [{ label: 'Documentation', to: '/documentation', icon: null }]
   } finally {
     loading.value = false

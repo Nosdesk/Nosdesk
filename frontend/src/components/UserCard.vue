@@ -18,7 +18,7 @@ interface UserData {
   avatar_thumb?: string | null
 }
 
-const props = withDefaults(defineProps<{
+withDefaults(defineProps<{
   user: UserData
   showRole?: boolean
   showEmail?: boolean

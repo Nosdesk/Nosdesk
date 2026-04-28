@@ -386,7 +386,7 @@ const regenerateSecret = async () => {
   errorMessage.value = '';
 
   try {
-    const result = await webhookService.updateWebhook(webhookToEdit.value.uuid, {
+    await webhookService.updateWebhook(webhookToEdit.value.uuid, {
       regenerate_secret: true,
     });
     // The updated webhook will have the new secret preview

@@ -92,7 +92,7 @@ const yDocToMarkdown = (yjsDocumentBytes: number[]): string => {
     let markdown = '';
 
     // Walk through the document and serialize each node
-    doc.forEach((node, offset, index) => {
+    doc.forEach((node, _offset, _index) => {
       markdown += serializeNode(node, serializer);
     });
 

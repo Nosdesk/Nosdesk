@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { formatDate, formatDateTime } from '@/utils/dateUtils';
+import { formatDate } from '@/utils/dateUtils';
 import { ref, onMounted, computed, onActivated } from "vue";
 import { useRouter } from "vue-router";
 import { getTickets } from "@/services/ticketService";
-import type { Ticket } from "@/services/ticketService";
 import HeatmapTooltip from "@/components/HeatmapTooltip.vue";
 import DashboardWidgetShell from "@/views/dashboard/DashboardWidgetShell.vue";
 

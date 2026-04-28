@@ -87,10 +87,7 @@ const avatarSize = computed(() => isCompact.value ? 'w-20 h-20' : 'w-28 h-28 sm:
 
 const avatarOffset = computed(() => isCompact.value ? '-top-10' : '-top-14 sm:-top-12');
 
-const contentPadding = computed(() => isCompact.value ? 'pt-12' : 'pt-16 sm:pt-20');
-
 // Editing states (name editing handled by InlineEdit component)
-const editingEmail = ref(false);
 const editingPronouns = ref(false);
 
 // Computed properties to check if fields have been modified
@@ -98,12 +95,6 @@ const nameModified = computed(
     () =>
         formData.value.name !== originalData.value.name &&
         formData.value.name.trim() !== "",
-);
-
-const emailModified = computed(
-    () =>
-        formData.value.email !== originalData.value.email &&
-        formData.value.email.trim() !== "",
 );
 
 const pronounsModified = computed(() => {
@@ -317,45 +308,6 @@ const updateName = async () => {
     }
 };
 
-const updateEmail = async () => {
-    if (!emailModified.value) return;
-
-    loading.value = true;
-
-    try {
-        const userUuid = displayUser.value?.uuid;
-        if (!userUuid) {
-            emit("error", "User not authenticated");
-            return;
-        }
-
-        const updatedUser = await userService.updateUser(userUuid, {
-            email: formData.value.email,
-        });
-
-        if (updatedUser) {
-            emit("success", "Email updated successfully");
-            originalData.value.email = formData.value.email;
-            editingEmail.value = false;
-
-            // Update auth store if this is the current user
-            if (authStore.user?.uuid === userUuid && authStore.user) {
-                authStore.user = {
-                    ...authStore.user,
-                    email: updatedUser.email,
-                };
-            }
-        } else {
-            emit("error", "Failed to update email");
-        }
-    } catch (err) {
-        emit("error", "Failed to update email");
-        console.error("Error updating email:", err);
-    } finally {
-        loading.value = false;
-    }
-};
-
 const updatePronouns = async () => {
     if (!formData.value.pronouns && !displayUser.value?.pronouns) return;
 
@@ -430,23 +382,6 @@ const updateSignature = async () => {
 const handleNameUpdate = (newName: string) => {
     if (newName !== originalData.value.name && newName.trim() !== "") {
         updateName();
-    }
-};
-
-// Cancel editing functions
-const cancelEdit = (field: "email" | "pronouns") => {
-    const originalUser = displayUser.value;
-    if (!originalUser) return;
-
-    switch (field) {
-        case "email":
-            formData.value.email = originalUser.email || "";
-            editingEmail.value = false;
-            break;
-        case "pronouns":
-            formData.value.pronouns = originalUser.pronouns || "";
-            editingPronouns.value = false;
-            break;
     }
 };
 

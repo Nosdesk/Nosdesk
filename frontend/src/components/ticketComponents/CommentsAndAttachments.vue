@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDate, formatDateTime } from '@/utils/dateUtils';
+import { formatDate } from '@/utils/dateUtils';
 import { computed, ref } from "vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
@@ -293,7 +293,6 @@ const deleteComment = (commentId: number) => {
 
 
 const formattedDate = (dateString: string): string => {
-    const date = new Date(dateString);
     return formatDate(dateString, "MMM d, yyyy");
 };
 

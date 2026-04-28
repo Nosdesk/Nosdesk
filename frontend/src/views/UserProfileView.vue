@@ -3,7 +3,6 @@ import { formatDate as formatDateUtil } from '@/utils/dateUtils';
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
-import UserAvatar from "@/components/UserAvatar.vue";
 import BackButton from "@/components/common/BackButton.vue";
 import UserProfileCard from "@/components/settings/UserProfileCard.vue";
 import UserEmailsCard from "@/components/settings/UserEmailsCard.vue";
@@ -229,7 +228,7 @@ const formatDate = (dateString: string) => {
         } else {
             return formatDateUtil(dateString, "MMM d, yyyy");
         }
-    } catch (e) {
+    } catch {
         return dateString;
     }
 };
@@ -324,19 +323,6 @@ const saveUser = async () => {
 };
 
 // Note: Name editing is now handled by UserProfileCard component
-
-const handleDeleteUser = async () => {
-    if (!userProfile.value) return;
-
-    try {
-        await userService.deleteUser(userProfile.value.uuid);
-        // Navigate back to users list after successful deletion
-        router.push("/users");
-    } catch (error) {
-        console.error("Error deleting user:", error);
-        // TODO: Show error notification to user
-    }
-};
 
 onMounted(() => {
     fetchUserData();

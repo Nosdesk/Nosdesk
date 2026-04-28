@@ -24,7 +24,7 @@ function loadCachedBranding(): BrandingConfig | null {
     if (cached) {
       return JSON.parse(cached)
     }
-  } catch (e) {
+  } catch {
     // Ignore parse errors
   }
   return null
@@ -36,7 +36,7 @@ function loadCachedBranding(): BrandingConfig | null {
 function saveBrandingCache(config: BrandingConfig): void {
   try {
     localStorage.setItem(BRANDING_CACHE_KEY, JSON.stringify(config))
-  } catch (e) {
+  } catch {
     // Ignore storage errors
   }
 }
@@ -177,7 +177,7 @@ export const useBrandingStore = defineStore('branding', () => {
     // Clear the cache
     try {
       localStorage.removeItem(BRANDING_CACHE_KEY)
-    } catch (e) {
+    } catch {
       // Ignore storage errors
     }
     // Favicon reset is handled automatically by useFavicon composable

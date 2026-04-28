@@ -7,7 +7,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { setDateConfig, getUserTimezone, type DateConfig } from '@/utils/dateUtils'
+import { setDateConfig, getUserTimezone } from '@/utils/dateUtils'
 
 export const useDateStore = defineStore('date', () => {
   // User's preferred timezone (stored in user preferences)

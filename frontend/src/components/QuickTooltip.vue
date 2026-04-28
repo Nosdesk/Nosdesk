@@ -3,16 +3,6 @@ import { ref, watch, nextTick, computed } from 'vue'
 import UserAvatar from './UserAvatar.vue'
 import { useDataStore } from '@/stores/dataStore'
 
-interface TicketDetails {
-  title: string
-  requester?: string
-  assignee?: string
-  requester_avatar?: string | null
-  assignee_avatar?: string | null
-  status?: string
-  created?: string
-}
-
 const props = defineProps<{
   text: string
   details?: {

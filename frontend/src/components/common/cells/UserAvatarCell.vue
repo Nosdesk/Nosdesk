@@ -10,7 +10,7 @@ interface Props {
   emptyText?: string
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   size: 'sm',
   showName: false,
   emptyText: 'Unassigned'

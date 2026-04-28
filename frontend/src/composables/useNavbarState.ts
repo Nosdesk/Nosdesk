@@ -1,4 +1,4 @@
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { BREAKPOINTS } from './useMobileDetection'
 
 // Storage keys

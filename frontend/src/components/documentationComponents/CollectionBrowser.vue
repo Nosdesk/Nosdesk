@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink } from 'vue-router'
 import { getCollections, createCollection, reorderCollections } from '@/services/collectionService'
 import type { CollectionWithDetails } from '@/services/collectionService'
 import { useAuthStore } from '@/stores/auth'
@@ -8,7 +8,6 @@ import DocumentIconSelector from '@/components/DocumentIconSelector.vue'
 import Skeleton from '@/components/common/Skeleton.vue'
 import SkeletonBar from '@/components/common/SkeletonBar.vue'
 
-const router = useRouter()
 const authStore = useAuthStore()
 const collections = ref<CollectionWithDetails[]>([])
 const loading = ref(true)

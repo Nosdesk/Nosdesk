@@ -7,7 +7,7 @@
  * - Live updates for relative times
  */
 
-import { computed, ref, watch, onUnmounted, type Ref } from 'vue'
+import { computed, ref, onUnmounted, type Ref } from 'vue'
 import {
   formatDate,
   formatRelativeTime,

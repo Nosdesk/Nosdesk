@@ -91,13 +91,12 @@ export function parseDate(dateString: string | Date | null | undefined): Date | 
 export function formatDate(
   dateString: string | Date | null | undefined,
   formatString?: string,
-  timezone?: string
+  _timezone?: string
 ): string {
   const date = parseDate(dateString)
   if (!date) return ''
 
   const fmt = formatString || globalConfig.formats.short
-  const tz = timezone || globalConfig.defaultTimezone
 
   try {
     return format(date, fmt)

@@ -37,8 +37,6 @@ const searchTerm = ref("");
 const {
     isCollapsed,
     isMobile,
-    isTablet,
-    isDesktop,
     isCompactNav,
     isDocsCollapsed,
     isTicketsCollapsed,

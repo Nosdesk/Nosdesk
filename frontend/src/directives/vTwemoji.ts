@@ -8,7 +8,7 @@
  * Usage:
  *   <div v-twemoji>Hello 👋 World 🌍</div>
  */
-import type { Directive, DirectiveBinding } from 'vue'
+import type { Directive } from 'vue'
 import { getEmojiUrl } from '@/composables/useTwemoji'
 
 interface TwemojiDirectiveOptions {

@@ -762,7 +762,7 @@ router.beforeEach(checkOnboarding);
 router.beforeEach(checkAuthentication);
 router.beforeEach(checkAdminAccess);
 
-router.onError((error) => {
+router.onError((_error) => {
   router.push({
     name: 'error',
     params: {

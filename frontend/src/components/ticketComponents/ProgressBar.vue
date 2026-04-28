@@ -24,12 +24,6 @@ const indicatorPosition = computed(() => {
   return isDragging.value ? draggedPosition.value : (props.currentTime / props.duration) * 100 || 0;
 });
 
-// Disable logging for production, only enable for debugging
-const log = (event: string, details?: any) => {
-  // Uncomment for debugging
-  // console.log(`[ProgressBar] ${event}`, details || '');
-};
-
 const updateSeek = (newPosition: number) => {
   if (!props.duration) return;
   

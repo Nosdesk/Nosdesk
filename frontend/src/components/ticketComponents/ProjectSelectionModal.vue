@@ -1,6 +1,5 @@
 <!-- ProjectSelectionModal.vue -->
 <script setup lang="ts">
-import { formatDate as formatDateUtil, formatDateTime } from '@/utils/dateUtils';
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import Modal from '@/components/Modal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -73,7 +72,7 @@ const fetchProjects = async () => {
 }
 
 // Debounced search function
-const performSearch = (query: string) => {
+const performSearch = (_query: string) => {
   if (searchTimeout) {
     clearTimeout(searchTimeout);
   }
@@ -118,27 +117,6 @@ const selectProject = (project: Project) => {
   emit('select-project', project)
 }
 
-// Format date for display
-const formatDate = (dateString: string): string => {
-  try {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) {
-      return 'Today';
-    } else if (diffDays === 1) {
-      return 'Yesterday';
-    } else if (diffDays < 7) {
-      return `${diffDays}d ago`;
-    } else {
-      return formatDateUtil(dateString, 'MMM d, yyyy');
-    }
-  } catch (e) {
-    return 'Unknown';
-  }
-};
 </script>
 
 <template>

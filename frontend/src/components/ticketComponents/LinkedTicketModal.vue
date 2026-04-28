@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, watchEffect } from 'vue'
+import { ref, watch, watchEffect } from 'vue'
 import type { TicketPriority } from '@/constants/ticketOptions'
 import StatusBadge from '@/components/StatusBadge.vue'
 import Modal from '@/components/Modal.vue'

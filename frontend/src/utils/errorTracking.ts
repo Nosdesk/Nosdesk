@@ -15,7 +15,7 @@ import type { App } from 'vue'
 // import * as Sentry from '@sentry/vue'
 // import router from '@/router'
 
-export function initErrorTracking(app: App) {
+export function initErrorTracking(_app: App) {
   if (!import.meta.env.PROD) {
     console.log('Error tracking disabled in development mode')
     return

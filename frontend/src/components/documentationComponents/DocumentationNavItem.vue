@@ -60,26 +60,6 @@ const isIconSvg = (icon: string | undefined): boolean => {
   return Boolean(icon && icon.startsWith('<svg'))
 }
 
-// Get all descendant IDs of a page recursively
-const getAllDescendantIds = (page: Page): string[] => {
-  const ids: string[] = []
-  if (page.children && page.children.length > 0) {
-    for (const child of page.children) {
-      ids.push(String(child.id))
-      ids.push(...getAllDescendantIds(child))
-    }
-  }
-  return ids
-}
-
-// Check if this item is a descendant of the dragged page (would create circular reference)
-const isDescendantOfDragged = computed(() => {
-  if (!props.draggedPageId) return false
-  // This check is done by the parent - we just check if the dragged page is an ancestor
-  // If draggedPageId matches this page's ID, it's being dragged
-  return String(props.draggedPageId) === String(props.page.id)
-})
-
 // Handle right-click context menu
 const handleContextMenu = (event: MouseEvent) => {
   event.preventDefault()

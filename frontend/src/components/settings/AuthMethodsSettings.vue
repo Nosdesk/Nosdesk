@@ -42,7 +42,6 @@ const isManagingOtherUser = computed(() => {
 
 // Computed properties
 const hasMicrosoftConnection = computed(() => authMethods.value.some(m => m.type === 'microsoft'));
-const microsoftMethod = computed(() => authMethods.value.find(m => m.type === 'microsoft'));
 
 // Emits for notifications
 const emit = defineEmits<{

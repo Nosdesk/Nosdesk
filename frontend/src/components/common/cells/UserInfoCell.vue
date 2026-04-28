@@ -10,7 +10,7 @@ interface Props {
   showAvatar?: boolean
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   avatarSize: 'sm',
   showAvatar: true
 })

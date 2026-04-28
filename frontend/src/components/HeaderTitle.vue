@@ -1,6 +1,6 @@
 <!-- HeaderTitle.vue -->
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch } from 'vue';
 import InlineEdit from '@/components/common/InlineEdit.vue';
 
 interface Props {

@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import AudioPlayer from "@/components/ticketComponents/AudioPlayer.vue";
 import VideoPlayer from "@/components/ticketComponents/VideoPlayer.vue";
 import FilePreview from "@/components/ticketComponents/FilePreview.vue";
 import Modal from "@/components/Modal.vue";
-import UserAvatar from "@/components/UserAvatar.vue";
 import { convertToAuthenticatedPath } from '@/services/fileService';
 
 const router = useRouter();
@@ -44,12 +43,6 @@ const authenticatedUrl = computed(() => {
 const showPreviewModal = ref(false);
 const previewImageSrc = ref('');
 const showPlaceholder = ref(false);
-
-const log = (event: string, details?: any) => {
-  if (import.meta.env.DEV) {
-    console.log(`[AttachmentPreview] ${event}`, details || '');
-  }
-};
 
 // Add a more detailed debug logging function
 const debugLog = (event: string, details?: any) => {
@@ -303,7 +296,6 @@ const getDisplayName = (filename: string): string => {
   return filename;
 };
 
-const pdfThumbnailCanvas = ref<HTMLCanvasElement | null>(null);
 const isPdfThumbnailLoading = ref<boolean>(false);
 const pdfThumbnailSrc = ref<string | null>(null); // Separate variable for PDF thumbnails
 

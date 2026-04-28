@@ -36,7 +36,6 @@ import DocumentPicker from "./editor/DocumentPicker.vue";
 import apiClient from "@/services/apiConfig";
 import {
     ySyncPlugin,
-    ySyncPluginKey,
     yCursorPlugin,
     yUndoPlugin,
     undo,
@@ -47,13 +46,8 @@ import { keymap } from "prosemirror-keymap";
 import {
     toggleMark,
     setBlockType,
-    chainCommands,
     exitCode,
-    createParagraphNear,
-    liftEmptyBlock,
-    splitBlock,
     baseKeymap,
-    newlineInCode,
 } from "prosemirror-commands";
 import {
     wrapInList,
@@ -268,11 +262,11 @@ const showMoreMenu = ref(false);
 // Dropdown position state (for viewport-aware positioning)
 import { useDropdownPosition } from '@/composables/useDropdownPosition';
 
-const { position: typeMenuPosition, updatePosition: updateTypeMenuPosition } =
+const { position: typeMenuPosition, updatePosition: _updateTypeMenuPosition } =
     useDropdownPosition(typeButtonRef, showTypeMenu, { preferredWidth: 160 });
-const { position: insertMenuPosition, updatePosition: updateInsertMenuPosition } =
+const { position: insertMenuPosition, updatePosition: _updateInsertMenuPosition } =
     useDropdownPosition(insertButtonRef, showInsertMenu, { preferredWidth: 180 });
-const { position: moreMenuPosition, updatePosition: updateMoreMenuPosition } =
+const { position: _moreMenuPosition, updatePosition: _updateMoreMenuPosition } =
     useDropdownPosition(moreButtonRef, showMoreMenu, { preferredWidth: 160 });
 
 // Link tooltip state
@@ -421,22 +415,6 @@ const log = {
     },
     warn: (message: string, ...args: unknown[]) =>
         console.warn(`[YJS-Editor] ${message}`, ...args),
-};
-
-// Helper function to get WebSocket state text
-const getWebSocketStateText = (readyState: number): string => {
-    switch (readyState) {
-        case WebSocket.CONNECTING:
-            return "CONNECTING";
-        case WebSocket.OPEN:
-            return "OPEN";
-        case WebSocket.CLOSING:
-            return "CLOSING";
-        case WebSocket.CLOSED:
-            return "CLOSED";
-        default:
-            return `UNKNOWN(${readyState})`;
-    }
 };
 
 // Helper function to get close code meaning
@@ -706,7 +684,7 @@ const initEditor = async () => {
                     }),
                     yCursorPlugin(provider.awareness, {
                         // Custom cursor builder that handles missing users gracefully
-                        cursorBuilder: (user: AwarenessUser | undefined, clientId: number): HTMLElement => {
+                        cursorBuilder: (user: AwarenessUser | undefined, _clientId: number): HTMLElement => {
                             const cursor = document.createElement('span');
                             cursor.classList.add('ProseMirror-yjs-cursor');
                             cursor.setAttribute('style', `border-color: ${user?.color || '#808080'}`);
@@ -1352,14 +1330,6 @@ const toggleInsertMenu = () => {
     }
 };
 
-const toggleMoreMenu = () => {
-    showMoreMenu.value = !showMoreMenu.value;
-    if (showMoreMenu.value) {
-        showTypeMenu.value = false;
-        showInsertMenu.value = false;
-    }
-};
-
 // Functions to handle toolbar actions
 const setHeading = (level: number) => {
     if (!editorView) return;
@@ -1472,7 +1442,7 @@ const handleLinkReposition = () => {
             x: (start.left + end.left) / 2,
             y: end.bottom + 8,
         };
-    } catch (e) {
+    } catch {
         // Position might be invalid if doc changed, just hide
         hideLinkTooltip()(editorView.state, editorView.dispatch);
     }
@@ -1601,7 +1571,7 @@ const cleanup = () => {
 };
 
 // Handle page unload to ensure clean disconnect
-const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+const handleBeforeUnload = (_event: BeforeUnloadEvent) => {
     if (provider && provider.wsconnected) {
         // Attempt to disconnect cleanly
         provider.disconnect();
@@ -1626,106 +1596,6 @@ watch(
         }
     },
 );
-
-// Add method to update editor state
-const updateState = (newState: EditorState) => {
-    if (editorView) {
-        editorView.updateState(newState);
-    }
-};
-
-// Helper function to log environment variables for debugging
-const logEnvironmentInfo = () => {
-    log.info("Environment info:");
-    log.info(
-        `- VITE_WS_SERVER_URL: ${import.meta.env.VITE_WS_SERVER_URL || "Not set"}`,
-    );
-    log.info(`- window.location.host: ${window.location.host}`);
-    log.info(`- window.location.protocol: ${window.location.protocol}`);
-    log.info(`- window.location.origin: ${window.location.origin}`);
-};
-
-// Add a function to inspect relative positions
-const debugRelativePositions = () => {
-    if (!editorView || !ydoc || !yXmlFragment || !provider) return;
-
-    try {
-        // Get current ProseMirror selection
-        const selection = editorView.state.selection;
-
-        // Log all current absolute positions
-        log.debug("Current selection (absolute positions):", {
-            anchor: selection.anchor,
-            head: selection.head,
-            from: selection.from,
-            to: selection.to,
-        });
-
-        // Create relative positions from current selection
-        const relAnchor = Y.createRelativePositionFromTypeIndex(
-            yXmlFragment,
-            selection.anchor,
-        );
-        const relHead = Y.createRelativePositionFromTypeIndex(
-            yXmlFragment,
-            selection.head,
-        );
-
-        // Log the relative positions as JSON for inspection
-        log.debug("Relative positions:", {
-            anchor: JSON.stringify(relAnchor),
-            head: JSON.stringify(relHead),
-        });
-
-        // Try to convert back to absolute positions
-        const absAnchor = Y.createAbsolutePositionFromRelativePosition(
-            relAnchor,
-            ydoc,
-        );
-        const absHead = Y.createAbsolutePositionFromRelativePosition(
-            relHead,
-            ydoc,
-        );
-
-        log.debug("Converted back to absolute positions:", {
-            anchor: absAnchor ? absAnchor.index : "conversion failed",
-            head: absHead ? absHead.index : "conversion failed",
-        });
-
-        // Check what's in the awareness states
-        const states = provider.awareness.getStates();
-        log.debug(`Awareness states (${states.size} clients):`);
-
-        states.forEach((state, clientId) => {
-            if (provider) {
-                const isLocal = clientId === provider.awareness.clientID;
-                if (state.cursor) {
-                    log.debug(
-                        `Client ${clientId}${isLocal ? " (local)" : ""}:`,
-                        {
-                            anchor: state.cursor.anchor,
-                            head: state.cursor.head,
-                            // If these positions are actually stored as relative positions in awareness,
-                            // inspect them directly
-                            anchorRelative:
-                                typeof state.cursor.anchorRelative === "object"
-                                    ? JSON.stringify(
-                                          state.cursor.anchorRelative,
-                                      )
-                                    : "not available",
-                            headRelative:
-                                typeof state.cursor.headRelative === "object"
-                                    ? JSON.stringify(state.cursor.headRelative)
-                                    : "not available",
-                        },
-                    );
-                }
-            }
-        });
-    } catch (error) {
-        log.error("Error in debugRelativePositions:", error);
-    }
-};
 
 // Diagnostic function to help troubleshoot disconnection issues
 const diagnoseConnectionIssue = () => {

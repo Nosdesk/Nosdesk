@@ -12,7 +12,7 @@ const warrantyOptions = [
   { value: 'Unknown', label: 'Unknown' }
 ];
 
-const props = defineProps<{
+defineProps<{
   show: boolean;
 }>();
 

@@ -17,7 +17,6 @@ import { useTicketDevices } from "@/composables/useTicketDevices";
 import { useTicketRelationships } from "@/composables/useTicketRelationships";
 import { useTicketComments } from "@/composables/useTicketComments";
 import { useTitleManager } from "@/composables/useTitleManager";
-import { useRecentTicketsStore } from "@/stores/recentTickets";
 import { useTicketDrag } from "@/composables/useTicketDrag";
 import { parseTicketUrl } from "@/components/editor/ticketLinkPlugin";
 
@@ -50,7 +49,6 @@ const titleManager = useTitleManager();
 // Ticket data management
 const {
     ticket,
-    loading,
     error,
     selectedStatus,
     selectedPriority,
@@ -66,7 +64,6 @@ const {
     updateCategory,
     updateRequester,
     updateAssignee,
-    updateTitle,
     deleteTicket,
 } = useTicketData();
 

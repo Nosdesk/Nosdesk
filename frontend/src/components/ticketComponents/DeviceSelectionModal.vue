@@ -1,14 +1,12 @@
 <!-- components/ticketComponents/DeviceSelectionModal.vue -->
 <script setup lang="ts">
 import { ref, watch, computed, nextTick } from 'vue';
-import { useRouter } from 'vue-router';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
-import { getPaginatedDevices, getDevicesByUser, getPaginatedDevicesExcluding } from '@/services/deviceService';
+import { getDevicesByUser, getPaginatedDevicesExcluding } from '@/services/deviceService';
 import type { Device } from '@/types/device';
 
-const router = useRouter();
 const props = defineProps<{
   show: boolean;
   currentTicketId?: number;
@@ -339,7 +337,7 @@ const formatLastUpdated = (dateString: string): string => {
       const days = Math.floor(diffMinutes / 1440);
       return `${days}d ago`;
     }
-  } catch (e) {
+  } catch {
     return 'unknown';
   }
 };

@@ -6,9 +6,8 @@ import ticketService from "@/services/ticketService";
 import { logger } from "@/utils/logger";
 import { formatDateTime, getCurrentUTCDateTime } from "@/utils/dateUtils";
 import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
-import type { UserInfo } from '@/types/user';
 import type { Ticket, Device } from '@/types/ticket';
-import type { CommentWithAttachments, Attachment } from '@/types/comment';
+import type { CommentWithAttachments } from '@/types/comment';
 
 // Local type extending the canonical Ticket type with UI-specific fields
 interface LocalTicket extends Ticket {

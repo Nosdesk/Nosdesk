@@ -5,7 +5,6 @@ import UserDropdownMenu from "./UserDropdownMenu.vue";
 import HeaderTitle from "./HeaderTitle.vue";
 import DocumentIconSelector from "./DocumentIconSelector.vue";
 import ItemIdentifier from "./ItemIdentifier.vue";
-import PageUrlDisplay from "./PageUrlDisplay.vue";
 import CreateActionIcon, { type CreateIconType } from "./common/CreateActionIcon.vue";
 import NotificationBell from "./NotificationBell.vue";
 import { useAuthStore } from '@/stores/auth';

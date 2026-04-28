@@ -20,7 +20,7 @@ interface Props {
   contentPadding?: string;
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   showHeader: true,
   size: 'md',
   noHover: false,

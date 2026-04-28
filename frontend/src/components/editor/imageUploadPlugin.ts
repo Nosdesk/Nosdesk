@@ -7,15 +7,14 @@
  * This prevents Yjs/WebSocket sync issues caused by large binary data in the document.
  */
 
-import { Plugin, PluginKey, EditorState, Transaction } from 'prosemirror-state';
+import { Plugin, PluginKey } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
-import { Schema, Slice, Fragment, Node } from 'prosemirror-model';
+import { Slice } from 'prosemirror-model';
 import {
   uploadEditorImage,
   dataURLToFile,
   isDataURL,
-  generateImageFilename,
-  type EditorImageUploadOptions
+  generateImageFilename
 } from '@/services/editorImageService';
 
 export const imageUploadPluginKey = new PluginKey('imageUpload');
@@ -30,29 +29,6 @@ interface ImageUploadPluginOptions {
   onUploadStart?: () => void;
   onUploadEnd?: () => void;
   onUploadError?: (error: Error) => void;
-}
-
-/**
- * Create a placeholder node while the image is uploading
- */
-function createPlaceholder(view: EditorView, id: string): HTMLElement {
-  const placeholder = document.createElement('div');
-  placeholder.className = 'image-upload-placeholder';
-  placeholder.setAttribute('data-upload-id', id);
-  placeholder.innerHTML = `
-    <div class="image-upload-spinner"></div>
-    <span>Uploading image...</span>
-  `;
-  return placeholder;
-}
-
-/**
- * Find the position of a placeholder in the document
- */
-function findPlaceholder(state: EditorState, id: string): number | null {
-  const decos = imageUploadPluginKey.getState(state);
-  // We don't use decorations for simplicity - just insert the image when ready
-  return null;
 }
 
 /**
@@ -276,7 +252,7 @@ export function createImageUploadPlugin(options: ImageUploadPluginOptions = {}):
         return false;
       },
 
-      handleDrop(view: EditorView, event: DragEvent, slice: Slice, moved: boolean): boolean {
+      handleDrop(view: EditorView, event: DragEvent, _slice: Slice, _moved: boolean): boolean {
         const { dataTransfer } = event;
         if (!dataTransfer) return false;
 

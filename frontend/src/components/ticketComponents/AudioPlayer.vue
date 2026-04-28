@@ -1,8 +1,6 @@
 <!-- AudioPlayer.vue -->
 <script setup lang="ts">
-import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
-import UserAvatar from "@/components/UserAvatar.vue";
 import { useAudioPlayer } from '@/composables/useAudioPlayer';
 
 const props = defineProps<{
@@ -10,12 +8,12 @@ const props = defineProps<{
   transcription?: string;
 }>();
 
-const emit = defineEmits<{
+defineEmits<{
   (e: 'delete'): void;
 }>();
 
 // Global audio player management - ensures only one plays at a time
-const { playerId, onPauseOthers, notifyPlayStarted } = useAudioPlayer();
+const { onPauseOthers, notifyPlayStarted } = useAudioPlayer();
 let cleanupPauseListener: (() => void) | null = null;
 
 const audioRef = ref<HTMLAudioElement | null>(null);
@@ -56,12 +54,6 @@ const formattedDuration = computed(() => {
   }
   return "0:00";
 });
-
-const formattedDate = (dateString?: string): string => {
-  if (!dateString) return "";
-  const date = new Date(dateString);
-  return formatDate(dateString, "MMM d, yyyy");
-};
 
 // Helper to get CSS variable value
 const getCSSVar = (name: string): string => {

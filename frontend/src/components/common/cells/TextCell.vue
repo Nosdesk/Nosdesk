@@ -5,7 +5,7 @@ interface Props {
   color?: 'primary' | 'secondary' | 'muted'
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   fontWeight: 'normal',
   color: 'primary'
 })

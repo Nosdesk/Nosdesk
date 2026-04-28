@@ -4,7 +4,7 @@ interface Props {
   type?: 'status' | 'priority' | 'warranty' | 'role'
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   type: 'status'
 })
 

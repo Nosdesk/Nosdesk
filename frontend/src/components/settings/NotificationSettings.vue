@@ -114,7 +114,7 @@ const togglePreference = async (typeCode: string, channelCode: string) => {
     }
 
     emit('success', `Preference updated`);
-  } catch (error) {
+  } catch {
     emit('error', 'Failed to update preference');
   } finally {
     isSaving.value = null;
@@ -177,7 +177,7 @@ onMounted(async () => {
     if ('Notification' in window) {
       browserPermission.value = Notification.permission;
     }
-  } catch (error) {
+  } catch {
     emit('error', 'Failed to load notification preferences');
   } finally {
     isLoading.value = false;

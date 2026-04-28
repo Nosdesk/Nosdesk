@@ -262,43 +262,6 @@ export const useDataStore = defineStore('data', () => {
     }
   }
   
-  // Fetch individual user from API
-  const fetchUserFromAPI = async (uuid: string): Promise<User | null> => {
-    // Update loading state
-    individualUsersCache.value.set(uuid, {
-      data: individualUsersCache.value.get(uuid)?.data || {} as User,
-      timestamp: individualUsersCache.value.get(uuid)?.timestamp || 0,
-      loading: true,
-      error: null
-    })
-    
-    try {
-      const user = await userService.getUserByUuid(uuid)
-      
-      if (user) {
-        // Update cache
-        individualUsersCache.value.set(uuid, {
-          data: user,
-          timestamp: Date.now(),
-          loading: false,
-          error: null
-        })
-      }
-      
-      return user
-    } catch (error) {
-      // Update cache with error
-      individualUsersCache.value.set(uuid, {
-        data: individualUsersCache.value.get(uuid)?.data || {} as User,
-        timestamp: individualUsersCache.value.get(uuid)?.timestamp || 0,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      })
-      
-      return null
-    }
-  }
-  
   // Background refresh for individual user
   const refreshUserInBackground = async (uuid: string) => {
     // Check if background refresh is already in progress for this user

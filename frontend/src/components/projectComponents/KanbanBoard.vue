@@ -161,7 +161,7 @@ useProjectSSE(projectIdRef, projectTicketIdSet, {
 })
 
 // Handle external ticket drop (from recent tickets sidebar)
-async function handleExternalTicketDrop(ticketId: number, targetColumnId: string) {
+async function handleExternalTicketDrop(ticketId: number, _targetColumnId: string) {
   // Check if ticket is already in project
   if (projectTicketIdSet.value.has(ticketId)) {
     console.log(`Ticket ${ticketId} is already in this project`)

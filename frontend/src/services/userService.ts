@@ -1,5 +1,4 @@
 import apiClient from './apiConfig';
-import { API_URL } from './apiConfig';
 import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
 import type { PaginationParams, PaginatedResponse } from '@/types/pagination';

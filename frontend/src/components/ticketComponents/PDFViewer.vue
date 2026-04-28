@@ -109,8 +109,6 @@ const updateCurrentPage = () => {
   if (!scrollContainer.value) return
 
   const container = scrollContainer.value
-  const scrollTop = container.scrollTop
-  const containerHeight = container.clientHeight
 
   // Find the page that's most visible
   let mostVisiblePage = 1

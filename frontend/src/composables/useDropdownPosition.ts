@@ -45,8 +45,6 @@ export function useDropdownPosition(
     // Calculate available space
     const spaceBelow = viewportHeight - rect.bottom - offset
     const spaceAbove = rect.top - offset
-    const spaceRight = viewportWidth - rect.left
-    const spaceLeft = rect.right
 
     // Estimate menu height (will be clamped anyway)
     const estimatedMenuHeight = 250

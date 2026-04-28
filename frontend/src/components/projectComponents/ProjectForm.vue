@@ -23,7 +23,7 @@ const formData = ref<Omit<Project, 'id' | 'ticket_count'> & { id?: number }>({
 // Initialize form data if editing
 watch(() => props.project, (newProject) => {
   if (newProject) {
-    const { ticket_count, ...rest } = newProject
+    const { ticket_count: _ticket_count, ...rest } = newProject
     formData.value = { ...rest }
   }
 }, { immediate: true })

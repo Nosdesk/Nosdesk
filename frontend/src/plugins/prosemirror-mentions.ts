@@ -136,7 +136,7 @@ function createMentionStatePlugin(options: MentionPluginOptions): Plugin {
       },
     },
 
-    view(editorView) {
+    view(_editorView) {
       return {
         update(view, prevState) {
           const prev = mentionPluginKey.getState(prevState);

@@ -29,7 +29,6 @@ const mfaSetupStore = useMfaSetupStore();
 const { handleMicrosoftLogin, handleMicrosoftLogout, error: microsoftError } = useMicrosoftAuth();
 const {
   isSupported: passkeySupported,
-  authenticating: passkeyAuthenticating,
   loginWithPasskey,
   error: passkeyError,
   checkSupport: checkPasskeySupport,
@@ -73,7 +72,7 @@ onMounted(async () => {
     microsoftAuthEnabled.value = setupStatus.microsoft_auth_enabled || false;
     oidcEnabled.value = setupStatus.oidc_enabled || false;
     oidcDisplayName.value = setupStatus.oidc_display_name || "SSO";
-  } catch (error) {
+  } catch {
     // Continue to show login page if check fails
   }
 

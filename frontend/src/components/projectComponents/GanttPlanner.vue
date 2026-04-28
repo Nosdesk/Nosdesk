@@ -1,12 +1,10 @@
 <!-- GanttPlanner.vue -->
 <script setup lang="ts">
-import { formatDate as formatDateUtil, formatDateTime } from '@/utils/dateUtils';
-import { ref, onMounted, computed, watch } from 'vue'
+import { formatDate as formatDateUtil } from '@/utils/dateUtils';
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { projectService } from '@/services/projectService'
 import ticketService from '@/services/ticketService'
 import UserAvatar from '@/components/UserAvatar.vue'
-import StatusBadge from '@/components/StatusBadge.vue'
 import type { Ticket } from '@/types/ticket'
 
 // Processed task structure for Gantt chart display
@@ -258,13 +256,11 @@ const getTaskBarStyle = (task: GanttTask) => {
   
   // Fine-tune position within the start unit
   const startUnit = timeUnits.value[startUnitIndex]
-  const startUnitEnd = new Date(startUnit.getTime() + millisecondsPerUnit)
   const offsetWithinUnit = Math.max(0, (task.start.getTime() - startUnit.getTime()) / millisecondsPerUnit)
   const adjustedStartPercent = startPercent + (offsetWithinUnit * (100 / totalUnits))
-  
+
   // Fine-tune width based on actual task duration within units
   const endUnit = timeUnits.value[endUnitIndex]
-  const endUnitEnd = new Date(endUnit.getTime() + millisecondsPerUnit)
   const endOffsetWithinUnit = Math.min(1, (task.end.getTime() - endUnit.getTime()) / millisecondsPerUnit)
   const adjustedWidthPercent = widthPercent + (endOffsetWithinUnit * (100 / totalUnits)) - (offsetWithinUnit * (100 / totalUnits))
   

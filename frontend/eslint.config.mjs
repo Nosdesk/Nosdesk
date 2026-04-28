@@ -24,6 +24,7 @@
 // invoked alongside ESLint via `npm run lint`.
 
 import pluginVue from 'eslint-plugin-vue'
+import unusedImports from 'eslint-plugin-unused-imports'
 import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript'
 
 export default defineConfigWithVueTs(
@@ -41,11 +42,22 @@ export default defineConfigWithVueTs(
   vueTsConfigs.recommended,
 
   {
+    plugins: {
+      // Auto-fixable companion to no-unused-vars: removes unused
+      // import declarations (the TS rule reports them but won't
+      // strip them). Kept on so future unused imports get cleaned
+      // up by `npm run lint:fix`.
+      'unused-imports': unusedImports,
+    },
     rules: {
       // View files use PascalCase filenames as their de-facto component
       // name. defineOptions({ name }) is added on a per-file basis when
       // the framework needs the name (KeepAlive matching, devtools).
       'vue/multi-word-component-names': 'off',
+
+      // Auto-strip unused imports. Pairs with no-unused-vars below
+      // (which keeps reporting unused locals/args/caught errors).
+      'unused-imports/no-unused-imports': 'error',
 
       // The codebase is heavy on intentional `any` at integration
       // boundaries (axios error shapes, pre-typed third-party code).
@@ -65,11 +77,8 @@ export default defineConfigWithVueTs(
 
       // Allow `_prefix` to mark intentionally unused params/destructures,
       // matching the convention already in use across the codebase.
-      // Set to 'warn' so the existing backlog of ~200 unused imports
-      // surfaces in the lint output without failing CI; we'll clean it
-      // up in a focused sweep, then promote to 'error'.
       '@typescript-eslint/no-unused-vars': [
-        'warn',
+        'error',
         {
           argsIgnorePattern: '^_',
           varsIgnorePattern: '^_',

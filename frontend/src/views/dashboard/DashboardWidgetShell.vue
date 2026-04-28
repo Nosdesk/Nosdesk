@@ -31,7 +31,7 @@ import {
 } from './widgetContext'
 import type { WidgetSpan } from './widgets'
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     /** Header title, always shown. */
     title: string

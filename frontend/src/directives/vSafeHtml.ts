@@ -16,8 +16,6 @@
 import type { Directive, DirectiveBinding } from 'vue';
 import { sanitise, sanitiseSvg, sanitiseMarkdown, stripHtml } from '@/composables/useSanitise';
 
-type SanitiseModifier = 'svg' | 'markdown' | 'strict';
-
 function getSanitisedContent(value: string, modifiers: DirectiveBinding['modifiers']): string {
   if (!value) return '';
 

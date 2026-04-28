@@ -137,11 +137,6 @@ const addTicketToProject = async (ticketId: number) => {
   }
 }
 
-const viewTicket = (ticketId: number, event: Event) => {
-  event.stopPropagation()
-  router.push(`/tickets/${ticketId}`)
-}
-
 const createAndAddTicket = async () => {
   try {
     const newTicket = await ticketService.createTicket({

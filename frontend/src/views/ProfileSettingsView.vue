@@ -178,7 +178,7 @@ const clearMessages = () => {
 };
 
 // Handle success messages (silently - no banner)
-const handleSuccess = (message: string) => {
+const handleSuccess = (_message: string) => {
   // Clear any existing errors
   error.value = null;
   // Success is communicated through UI state changes, not banners
@@ -239,23 +239,6 @@ const renderTabIcon = (iconName: string) => {
   return icons[iconName as keyof typeof icons] || '';
 };
 
-// Get role color class for styling
-const getRoleColorClass = (role: string) => {
-  const roleConfig = availableRoles.find(r => r.value === role);
-  if (roleConfig) {
-    switch (role) {
-      case 'admin':
-        return 'bg-status-error text-white';
-      case 'technician':
-        return 'bg-accent text-white';
-      case 'user':
-      default:
-        return 'bg-surface-hover text-secondary';
-    }
-  }
-  return 'bg-surface-hover text-secondary';
-};
-
 // Update user role function
 const updateUserRole = async (newRole: string) => {
   if (!targetUser.value || !isManagingOtherUser.value || !authStore.isAdmin) {
@@ -303,7 +286,7 @@ const checkUserSetupStatus = async () => {
       identity.provider_type === 'local'
     );
     userHasCompletedSetup.value = hasLocalIdentity;
-  } catch (e) {
+  } catch {
     // If unable to check, assume setup complete
     userHasCompletedSetup.value = true;
   }
@@ -322,7 +305,7 @@ const resendInvitation = async () => {
     } else {
       handleError(result.message);
     }
-  } catch (e) {
+  } catch {
     handleError('Failed to resend invitation email');
   } finally {
     resendingInvitation.value = false;

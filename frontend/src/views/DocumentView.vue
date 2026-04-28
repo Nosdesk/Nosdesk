@@ -20,7 +20,6 @@ import PagePermissionsModal from '@/components/documentationComponents/PagePermi
 import { docsEmitter } from '@/services/docsEmitter'
 import RevisionHistory from '@/components/editor/RevisionHistory.vue'
 import DocumentInsightsPanel from '@/components/documentationComponents/DocumentInsightsPanel.vue'
-import Icon from '@/components/common/Icon.vue'
 import apiClient from '@/services/apiConfig'
 import { useAuthStore } from '@/stores/auth'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
@@ -201,10 +200,6 @@ const saveTitleChanges = async () => {
 // click from either surface transitions cleanly.
 const toggleRevisionHistory = () => {
   showRevisionHistory.value ? docPanel.close() : docPanel.open('history')
-}
-
-const toggleInsights = () => {
-  showInsights.value ? docPanel.close() : docPanel.open('insights')
 }
 
 const handleSelectRevision = async (revisionNumber: number | null) => {

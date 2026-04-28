@@ -1,4 +1,4 @@
-import { ref, onMounted, onBeforeUnmount, watch, type Ref } from 'vue'
+import { onBeforeUnmount, watch, type Ref } from 'vue'
 
 interface UseInfiniteScrollOptions {
   /** Ref to the scrollable container element */
