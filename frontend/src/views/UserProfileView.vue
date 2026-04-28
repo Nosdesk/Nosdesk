@@ -10,6 +10,7 @@ import UserAssignedTickets from "@/components/UserAssignedTickets.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import Icon from "@/components/common/Icon.vue";
 import Spinner from "@/components/common/Spinner.vue";
+import SectionCard from "@/components/common/SectionCard.vue";
 import { RouterLink } from "vue-router";
 import userService from "@/services/userService";
 import { useColorFilter } from "@/composables/useColorFilter";
@@ -674,17 +675,9 @@ watch(
                         />
 
                         <!-- Devices Section -->
-                        <div
-                            class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
-                        >
-                            <div
-                                class="px-4 py-3 bg-surface-alt border-b border-default"
-                            >
-                                <h2 class="text-lg font-medium text-primary">
-                                    Devices
-                                </h2>
-                            </div>
-                            <div class="p-3">
+                        <SectionCard content-padding="p-3">
+                            <template #title>Devices</template>
+                            <div>
                                 <div
                                     v-if="devices.length === 0"
                                     class="text-secondary text-sm"
@@ -752,39 +745,31 @@ watch(
                                     </RouterLink>
                                 </div>
                             </div>
-                        </div>
+                        </SectionCard>
 
                         <!-- Groups Section -->
-                        <div
+                        <SectionCard
                             v-if="groups.length > 0"
-                            class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
+                            content-padding="p-3"
                         >
-                            <div
-                                class="px-4 py-3 bg-surface-alt border-b border-default"
-                            >
-                                <h2 class="text-lg font-medium text-primary">
-                                    Groups
-                                </h2>
+                            <template #title>Groups</template>
+                            <div class="flex flex-wrap gap-2">
+                                <button
+                                    v-for="group in groups"
+                                    :key="group.id"
+                                    @click="navigateToGroup(group)"
+                                    class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer hover:opacity-80 transition-opacity"
+                                    :style="{
+                                        backgroundColor: (group.color || '#6366f1') + '20',
+                                        color: group.color || '#6366f1',
+                                        ...colorFilterStyle
+                                    }"
+                                >
+                                    <Icon name="team" />
+                                    {{ group.name }}
+                                </button>
                             </div>
-                            <div class="p-3">
-                                <div class="flex flex-wrap gap-2">
-                                    <button
-                                        v-for="group in groups"
-                                        :key="group.id"
-                                        @click="navigateToGroup(group)"
-                                        class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer hover:opacity-80 transition-opacity"
-                                        :style="{
-                                            backgroundColor: (group.color || '#6366f1') + '20',
-                                            color: group.color || '#6366f1',
-                                            ...colorFilterStyle
-                                        }"
-                                    >
-                                        <Icon name="team" />
-                                        {{ group.name }}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
+                        </SectionCard>
                     </div>
 
                     <!-- Tickets Area -->

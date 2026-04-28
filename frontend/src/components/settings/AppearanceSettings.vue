@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { getTheme } from '@/themes'
 import type { ThemeMode } from '@/themes'
 import ThemeCard from '@/components/settings/ThemeCard.vue'
+import SectionCard from '@/components/common/SectionCard.vue'
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import userService from '@/services/userService'
@@ -145,47 +146,30 @@ const handleCompactViewToggle = () => {
 </script>
 
 <template>
-  <div
-    class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
-  >
-    <!-- Header -->
-    <div class="px-4 sm:px-6 py-4 bg-surface-alt border-b border-default">
-      <div class="flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <div
-            class="w-8 h-8 bg-accent-muted rounded-lg flex items-center justify-center flex-shrink-0 text-accent"
-          >
-            <!-- Custom palette/brush glyph; not a registry action icon (decorative section badge). -->
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"
-              />
-            </svg>
-          </div>
-          <div>
-            <h2 class="text-base sm:text-lg font-semibold text-primary">Appearance</h2>
-            <p class="text-xs text-secondary hidden sm:block">Customize how Nosdesk looks</p>
-          </div>
-        </div>
-        <div
-          v-if="isUpdating || themeStore.isSyncing"
-          class="flex items-center gap-2 text-accent"
-        >
-          <Spinner />
-        </div>
-      </div>
-    </div>
+  <SectionCard content-padding="p-4 sm:p-6">
+    <template #leading>
+      <!-- Custom palette/brush glyph; not a registry action icon (decorative section badge). -->
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="h-4 w-4 text-accent flex-shrink-0"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"
+        />
+      </svg>
+    </template>
+    <template #title>Appearance</template>
+    <template #headerActions>
+      <Spinner v-if="isUpdating || themeStore.isSyncing" class="text-accent" />
+    </template>
 
-    <div class="p-4 sm:p-6 flex flex-col gap-6">
+    <div class="flex flex-col gap-6">
       <!-- Theme Selection -->
       <div class="flex flex-col gap-4">
         <div class="flex items-center justify-between">
@@ -298,7 +282,7 @@ const handleCompactViewToggle = () => {
         />
       </div>
     </div>
-  </div>
+  </SectionCard>
 </template>
 
 <style scoped>

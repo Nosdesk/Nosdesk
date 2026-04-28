@@ -3,6 +3,7 @@ import { ref, watch } from 'vue';
 import userService from '@/services/userService';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Icon from '@/components/common/Icon.vue';
+import SectionCard from '@/components/common/SectionCard.vue';
 import Spinner from '@/components/common/Spinner.vue';
 
 // Props
@@ -121,24 +122,21 @@ watch(() => props.userUuid, () => {
 </script>
 
 <template>
-  <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
-    <!-- Header -->
-    <div class="px-4 py-3 bg-surface-alt border-b border-default flex items-center justify-between">
-      <h2 class="text-lg font-medium text-primary">Email Addresses</h2>
+  <SectionCard content-padding="p-4">
+    <template #title>Email Addresses</template>
+    <template #headerActions>
       <button
         v-if="canEdit && !showAddForm"
         @click="showAddForm = true"
-        class="px-3 py-1.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors text-sm flex items-center gap-2"
+        class="px-2 py-1 bg-accent text-white rounded-md hover:opacity-90 transition-colors text-xs flex items-center gap-1"
       >
         <Icon name="add" />
         Add Email
       </button>
-    </div>
+    </template>
 
-    <!-- Content -->
-    <div class="p-4">
-      <!-- Add Email Form -->
-      <div v-if="showAddForm && canEdit" class="mb-4 p-4 bg-surface-alt rounded-lg border border-subtle">
+    <!-- Add Email Form -->
+    <div v-if="showAddForm && canEdit" class="mb-4 p-4 bg-surface-alt rounded-lg border border-subtle">
         <h3 class="text-sm font-medium text-primary mb-3">Add New Email Address</h3>
         <div class="flex flex-col sm:flex-row gap-3">
           <input
@@ -242,7 +240,6 @@ watch(() => props.userUuid, () => {
           </div>
         </div>
       </div>
-    </div>
 
     <ConfirmModal
       :show="pendingDeleteEmail !== null"
@@ -253,5 +250,5 @@ watch(() => props.userUuid, () => {
       @confirm="doDeleteEmail"
       @close="pendingDeleteEmail = null"
     />
-  </div>
+  </SectionCard>
 </template>

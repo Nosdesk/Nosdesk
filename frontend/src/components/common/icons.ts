@@ -36,7 +36,7 @@
  * type is derived automatically.
  */
 
-interface IconDef {
+export interface IconDef {
   /** SVG path `d` attribute. May contain multiple subpaths. */
   d: string
   /** When true, render as `fill="currentColor"` instead of stroke. */

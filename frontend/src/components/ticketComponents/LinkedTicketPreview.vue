@@ -92,7 +92,7 @@ const formattedDate = (dateString: string) => formatDate(dateString, "MMM d, yyy
       >
         #{{ linkedTicket.id }}
       </span>
-      <h3 class="text-primary font-medium truncate text-md group-hover:text-accent transition-colors min-w-0 flex-1">
+      <h3 class="truncate group-hover:text-accent transition-colors min-w-0 flex-1">
         {{ linkedTicket.title }}
       </h3>
     </template>

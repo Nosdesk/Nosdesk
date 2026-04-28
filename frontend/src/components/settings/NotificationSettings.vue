@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import Icon from '@/components/common/Icon.vue';
+import SectionCard from '@/components/common/SectionCard.vue';
 import {
   getNotificationPreferences,
   updateNotificationPreference,
@@ -233,22 +234,15 @@ onMounted(async () => {
       </div>
 
       <!-- Quick Settings Card -->
-      <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
-        <div class="px-4 py-3 bg-surface-alt border-b border-default">
-          <div class="flex items-center gap-3">
-            <div class="w-8 h-8 bg-accent/15 rounded-lg flex items-center justify-center flex-shrink-0">
-              <span class="text-accent inline-flex">
-                <Icon name="settings" />
-              </span>
-            </div>
-            <div>
-              <h2 class="text-base sm:text-lg font-semibold text-primary">Quick Settings</h2>
-              <p class="text-xs text-secondary hidden sm:block">Enable or disable all notifications per channel</p>
-            </div>
-          </div>
-        </div>
+      <SectionCard content-padding="p-4">
+        <template #leading>
+          <span class="text-accent inline-flex">
+            <Icon name="settings" />
+          </span>
+        </template>
+        <template #title>Quick Settings</template>
 
-        <div class="p-4 flex flex-col gap-2">
+        <div class="flex flex-col gap-2">
           <div
             v-for="channel in NOTIFICATION_CHANNELS"
             :key="channel.code"
@@ -262,31 +256,20 @@ onMounted(async () => {
             />
           </div>
         </div>
-      </div>
+      </SectionCard>
 
       <!-- Category Cards -->
-      <div
+      <SectionCard
         v-for="(types, category) in groupedNotificationTypes"
         :key="category"
-        class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
+        content-padding="p-4"
       >
-        <div class="px-4 py-3 bg-surface-alt border-b border-default">
-          <div class="flex items-center gap-3">
-            <div class="w-8 h-8 bg-accent/15 rounded-lg flex items-center justify-center flex-shrink-0">
-              <svg class="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="categoryMeta[category]?.icon || ''"></svg>
-            </div>
-            <div>
-              <h2 class="text-base sm:text-lg font-semibold text-primary">
-                {{ categoryMeta[category]?.label || category }}
-              </h2>
-              <p class="text-xs text-secondary hidden sm:block">
-                {{ categoryMeta[category]?.description || '' }}
-              </p>
-            </div>
-          </div>
-        </div>
+        <template #leading>
+          <svg class="w-4 h-4 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="categoryMeta[category]?.icon || ''"></svg>
+        </template>
+        <template #title>{{ categoryMeta[category]?.label || category }}</template>
 
-        <div class="p-4">
+        <div>
           <!-- Desktop: table-like grid layout -->
           <div class="hidden sm:flex sm:flex-col sm:gap-3">
             <!-- Column headers -->
@@ -357,7 +340,7 @@ onMounted(async () => {
             </div>
           </div>
         </div>
-      </div>
+      </SectionCard>
 
       <!-- Info Footer -->
       <div class="bg-surface rounded-xl border border-default overflow-hidden">

@@ -13,7 +13,7 @@
  * SVG is still fine — the registry is for shared *action* icons.
  */
 import { computed } from 'vue'
-import { ICON_REGISTRY, type IconName } from './icons'
+import { ICON_REGISTRY, type IconName, type IconDef } from './icons'
 
 interface Props {
   name: IconName
@@ -42,7 +42,7 @@ const sizeClass = computed(() => {
   }
 })
 
-const def = computed(() => ICON_REGISTRY[props.name])
+const def = computed<IconDef>(() => ICON_REGISTRY[props.name])
 </script>
 
 <template>

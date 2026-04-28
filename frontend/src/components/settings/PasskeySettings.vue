@@ -6,6 +6,7 @@ import type { PasskeyInfo } from '@/services/passkeyService';
 import userService from '@/services/userService';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
+import SectionCard from '@/components/common/SectionCard.vue';
 
 const props = defineProps<{
   targetUserUuid?: string;
@@ -189,15 +190,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
-    <div class="px-4 py-3 bg-surface-alt border-b border-default">
-      <h2 class="text-lg font-medium text-primary">Passkeys</h2>
-      <p class="text-sm text-tertiary mt-1">
-        {{ isManagingOtherUser ? "Passkeys registered to this user's account" : "Sign in securely without a password using biometrics or security keys" }}
-      </p>
-    </div>
+  <SectionCard content-padding="p-4">
+    <template #title>Passkeys</template>
 
-    <div class="p-4">
+    <div>
       <!-- Admin viewing another user: read-only passkey list -->
       <template v-if="isManagingOtherUser">
         <div v-if="adminLoading" class="flex items-center justify-center py-8 text-accent">
@@ -340,7 +336,7 @@ onMounted(async () => {
         </div>
       </template>
     </div>
-  </div>
+  </SectionCard>
 
   <!-- Add Passkey Modal -->
   <Teleport to="body">

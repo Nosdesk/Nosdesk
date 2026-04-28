@@ -5,6 +5,7 @@ import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import OtpInput from "@/components/common/OtpInput.vue";
 import Icon from "@/components/common/Icon.vue";
 import Spinner from "@/components/common/Spinner.vue";
+import SectionCard from "@/components/common/SectionCard.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useMfaSetupStore } from "@/stores/mfaSetup";
 import { useMfa } from "@/composables/useMfa";
@@ -668,31 +669,18 @@ defineExpose({
 </style>
 
 <template>
-    <div
-        class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
-    >
-        <div class="px-4 py-3 bg-surface-alt border-b border-default">
-            <h2 class="text-lg font-medium text-primary">
-                {{
-                    isManagingOtherUser
-                        ? "Two-Factor Authentication"
-                        : isInSuccessState
-                            ? "Setup Complete!"
-                            : "Two-Factor Authentication"
-                }}
-            </h2>
-            <p class="text-sm text-tertiary mt-1">
-                {{
-                    isManagingOtherUser
-                        ? "Two-factor authentication status for this user"
-                        : isInSuccessState
-                            ? "Your account is now protected with 2FA"
-                            : "Add an extra layer of security to your account"
-                }}
-            </p>
-        </div>
+    <SectionCard content-padding="p-4">
+        <template #title>
+            {{
+                isManagingOtherUser
+                    ? "Two-Factor Authentication"
+                    : isInSuccessState
+                        ? "Setup Complete!"
+                        : "Two-Factor Authentication"
+            }}
+        </template>
 
-        <div class="p-4">
+        <div>
             <!-- Admin read-only view -->
             <div v-if="isManagingOtherUser" class="flex flex-col gap-3">
                 <div v-if="adminLoading" class="flex items-center justify-center py-4 text-accent">
@@ -1016,5 +1004,5 @@ defineExpose({
 
             </div>
         </div>
-    </div>
+    </SectionCard>
 </template>

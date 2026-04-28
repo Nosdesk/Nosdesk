@@ -75,7 +75,7 @@ const getStatusClass = (status: string) => {
     <template #header>
       <h3
         @click="emit('view')"
-        class="text-md font-medium text-primary truncate cursor-pointer hover:text-accent transition-colors"
+        class="truncate cursor-pointer hover:text-accent transition-colors"
       >
         {{ project.name }}
       </h3>

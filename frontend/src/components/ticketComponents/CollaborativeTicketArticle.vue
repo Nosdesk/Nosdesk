@@ -3,7 +3,9 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue';
-import RevisionHistory from '@/components/editor/RevisionHistory.vue';
+import RevisionList from '@/components/editor/RevisionList.vue';
+import SectionCard from '@/components/common/SectionCard.vue';
+import Icon from '@/components/common/Icon.vue';
 import apiClient from '@/services/apiConfig';
 import { docUrl } from '@/utils/docUrl';
 
@@ -87,15 +89,13 @@ const handleSelectRevision = async (revisionNumber: number | null) => {
   }
 };
 
-const handleCloseRevisionHistory = () => {
-  showRevisionHistory.value = false;
-  // Also exit revision view if currently viewing one
-  if (editorRef.value && editorRef.value.isViewingRevision) {
+const toggleRevisionHistory = () => {
+  // Closing: also exit any in-progress revision preview so the
+  // editor returns to the live document instead of stranding the
+  // user on a snapshot they can't close from anywhere else.
+  if (showRevisionHistory.value && editorRef.value?.isViewingRevision) {
     editorRef.value.exitRevisionView();
   }
-};
-
-const toggleRevisionHistory = () => {
   showRevisionHistory.value = !showRevisionHistory.value;
 };
 
@@ -120,73 +120,63 @@ const handleConvertToDocumentation = async () => {
 </script>
 
 <template>
-  <div class="bg-surface rounded-xl border border-default flex flex-col w-full h-auto hover:border-strong transition-colors overflow-hidden">
-    <!-- Header -->
-    <div class="px-4 py-3 bg-surface-alt border-b border-default flex justify-between items-center">
-      <h2 class="text-lg font-medium text-primary">Ticket Notes</h2>
-      <div class="flex items-center gap-2">
-        <!-- Revision History Toggle -->
-        <button
-          @click="toggleRevisionHistory"
-          class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-          :class="{ 'bg-surface-alt text-primary': showRevisionHistory }"
-          title="Revision history"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
-          </svg>
-        </button>
+  <SectionCard content-padding="">
+    <template #title>Ticket Notes</template>
+    <template #headerActions>
+      <button
+        @click="toggleRevisionHistory"
+        class="p-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
+        :class="{ 'bg-surface text-primary': showRevisionHistory }"
+        title="Revision history"
+      >
+        <Icon name="clock" />
+      </button>
+      <button
+        @click="handleConvertToDocumentation"
+        class="p-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
+        title="Convert to documentation page"
+      >
+        <Icon name="documentEdit" />
+      </button>
+      <button
+        @click="handleExpand"
+        class="p-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
+        title="Open full editor"
+      >
+        <Icon name="openExternal" />
+      </button>
+    </template>
 
-        <!-- Convert to Documentation -->
-        <button
-          @click="handleConvertToDocumentation"
-          class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-          title="Convert to documentation page"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z" />
-          </svg>
-        </button>
-
-        <!-- Open Full Editor -->
-        <button
-          @click="handleExpand"
-          class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-          title="Open full editor"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H6.414l2.293 2.293a1 1 0 11-1.414 1.414L5 6.414V8a1 1 0 01-2 0V4zm9 1a1 1 0 010-2h4a1 1 0 011 1v4a1 1 0 01-2 0V6.414l-2.293 2.293a1 1 0 11-1.414-1.414L13.586 5H12zm-9 7a1 1 0 012 0v1.586l2.293-2.293a1 1 0 111.414 1.414L6.414 15H8a1 1 0 010 2H4a1 1 0 01-1-1v-4zm13-1a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 010-2h1.586l-2.293-2.293a1 1 0 111.414-1.414L15 13.586V12a1 1 0 011-1z" clip-rule="evenodd" />
-          </svg>
-        </button>
-      </div>
-    </div>
-    
-    <!-- Content -->
+    <!-- Two-column body: editor stretches, revisions dock to the
+         right when open. RevisionList is rendered bare (no panel
+         chrome) so it shares the SectionCard's frame instead of
+         stacking a second card on top. The toggle in the header
+         opens / closes; no separate close affordance needed. -->
     <div class="flex-grow flex items-stretch w-full min-h-[300px]">
-      <!-- Editor Container - always rendered, syncs content via WebSocket -->
-      <div class="flex-grow flex w-full">
-        <CollaborativeEditor
-          ref="editorRef"
-          v-model="content"
-          :doc-id="`ticket-${ticketId}`"
-          :ticket-id="ticketId"
-          :is-binary-update="true"
-          :hide-revision-history="true"
-          @update:model-value="handleContentChange"
-          class="flex-grow w-full"
-        />
-      </div>
-
-      <!-- Revision History Sidebar -->
-      <RevisionHistory
-        v-if="showRevisionHistory"
+      <CollaborativeEditor
+        ref="editorRef"
+        v-model="content"
+        :doc-id="`ticket-${ticketId}`"
         :ticket-id="ticketId"
-        @close="handleCloseRevisionHistory"
-        @select-revision="handleSelectRevision"
-        @restored="() => console.log('Revision restored')"
+        :is-binary-update="true"
+        :hide-revision-history="true"
+        @update:model-value="handleContentChange"
+        class="flex-grow w-full"
       />
+
+      <aside
+        v-if="showRevisionHistory"
+        class="w-72 flex-shrink-0 flex flex-col border-l border-default bg-surface-alt/30"
+        aria-label="Revision history"
+      >
+        <RevisionList
+          :ticket-id="ticketId"
+          @select-revision="handleSelectRevision"
+          @restored="() => console.log('Revision restored')"
+        />
+      </aside>
     </div>
-  </div>
+  </SectionCard>
 </template>
 
 <style scoped>

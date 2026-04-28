@@ -1,69 +1,73 @@
 <script setup lang="ts">
 /**
- * SectionCard - A standardized card component with optional header
+ * SectionCard. The single canonical "card with a header" chrome.
+ * Mirrors the dashboard widget shell so every card-with-header in
+ * the app shares the same visual vocabulary: rounded surface, fixed
+ * compact header pill, configurable body padding.
  *
- * Provides consistent styling for cards throughout the application:
- * - Proper rounded corners with overflow-hidden
- * - Optional header with contrasting background
- * - Consistent border and hover states
- * - Flexible content area
+ * Header anatomy (px-3, h-9, bg-surface-alt with border-b):
+ *   [optional leading slot] [title] [headerActions slot] [actionTo link]
+ *
+ * For more elaborate state machines (loading skeleton, empty / error
+ * states, edit-mode affordances), see `DashboardWidgetShell.vue`,
+ * which is purpose-built for grid widgets and composes the same
+ * header look on top.
  */
 
 interface Props {
-  /** Show the header section */
-  showHeader?: boolean;
-  /** Card size variant */
-  size?: 'sm' | 'md' | 'lg';
-  /** Disable hover border effect */
-  noHover?: boolean;
-  /** Custom padding for content area */
-  contentPadding?: string;
+  /** Right-aligned action link in the header. Omit when the card
+   *  has no drill-down. */
+  actionTo?: string
+  /** Label for the action link. Defaults to "View all". */
+  actionLabel?: string
+  /** Tailwind padding class applied to the body. Defaults to `p-3`;
+   *  pass an empty string for flush-edge content (lists, tables). */
+  contentPadding?: string
 }
 
 withDefaults(defineProps<Props>(), {
-  showHeader: true,
-  size: 'md',
-  noHover: false,
-  contentPadding: 'p-3'
-});
-
-// Size-based padding for header
-const headerPadding = {
-  sm: 'px-3 py-2',
-  md: 'px-4 py-3',
-  lg: 'px-6 py-4'
-};
+  actionLabel: 'View all',
+  contentPadding: 'p-3',
+})
 </script>
 
 <template>
-  <div
-    class="bg-surface rounded-xl border border-default transition-colors overflow-hidden"
-    :class="{ 'hover:border-strong': !noHover }"
-  >
-    <!-- Header Section (optional) -->
-    <div
-      v-if="showHeader"
-      class="bg-surface-alt border-b border-default"
-      :class="headerPadding[size]"
+  <div class="bg-surface rounded-xl border border-default overflow-hidden flex flex-col">
+    <!-- Header. Fixed-height compact pill, mirrors the dashboard
+         widget shell so every card with a header reads as the same
+         visual primitive across the app. -->
+    <header
+      class="flex items-center gap-2 px-3 h-9 border-b border-default bg-surface-alt flex-shrink-0"
     >
-      <slot name="header">
-        <!-- Default header content if none provided -->
-        <h2 class="text-lg font-medium text-primary">
-          <slot name="title"></slot>
-        </h2>
-      </slot>
-    </div>
+      <!-- Optional leading content (icon, dot indicator). -->
+      <slot name="leading" />
 
-    <!-- Content Section -->
+      <h2 class="text-[13px] font-semibold text-primary truncate flex-1 tracking-tight">
+        <slot name="title" />
+      </h2>
+
+      <!-- Card-specific header controls (filter dropdowns, toggles). -->
+      <slot name="headerActions" />
+
+      <router-link
+        v-if="actionTo"
+        :to="actionTo"
+        class="text-[11px] font-medium text-accent hover:underline whitespace-nowrap"
+      >
+        {{ actionLabel }} →
+      </router-link>
+    </header>
+
     <div :class="contentPadding">
-      <slot></slot>
+      <slot />
     </div>
   </div>
 </template>
 
 <style scoped>
 @media print {
-  /* Compact header for print */
+  /* Strip card chrome for print — the heading carries the section
+   * label, the body becomes the printed content. */
   .bg-surface-alt {
     background: transparent !important;
     padding: 0 0 4pt 0 !important;
@@ -77,16 +81,10 @@ const headerPadding = {
     margin: 0 !important;
   }
 
-  /* Remove card styling for print */
   .bg-surface {
     background: transparent !important;
     border: none !important;
     border-radius: 0 !important;
-  }
-
-  /* Reduce content padding */
-  .p-3 {
-    padding: 0 !important;
   }
 }
 </style>

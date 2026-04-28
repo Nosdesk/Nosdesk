@@ -7,6 +7,7 @@ import Spinner from '@/components/common/Spinner.vue';
 import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
 import HorizontalScrollContainer from '@/components/common/HorizontalScrollContainer.vue';
+import SectionCard from '@/components/common/SectionCard.vue';
 import {
   UserProfileCard,
   AppearanceSettings,
@@ -459,32 +460,32 @@ const cancelDelete = () => {
       <div class="flex flex-col lg:flex-row gap-4 lg:gap-6">
         <!-- Desktop Sidebar Navigation -->
         <aside class="hidden lg:block lg:w-64 flex-shrink-0">
-          <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden sticky top-4">
-            <div class="px-4 py-3 bg-surface-alt border-b border-default">
-              <h2 class="text-lg font-medium text-primary">Settings</h2>
-            </div>
-            <nav class="p-2 flex flex-col gap-1">
-            <button
-              v-for="tab in settingsTabs"
-              :key="tab.id"
-              @click="activeTab = tab.id"
-              class="rounded-lg transition-colors duration-200 flex items-center gap-3 relative overflow-hidden px-3 py-2.5"
-              :class="[
-                activeTab === tab.id
-                    ? 'bg-accent/10 border border-accent text-accent font-medium'
-                    : 'text-secondary hover:bg-surface-hover hover:text-primary border border-transparent'
-              ]"
-            >
-              <!-- Active indicator bar -->
-              <div
-                v-if="activeTab === tab.id"
-                class="absolute left-0 top-0 bottom-0 w-1 bg-accent rounded-r"
-              ></div>
+          <div class="sticky top-4">
+            <SectionCard content-padding="p-2">
+              <template #title>Settings</template>
+              <nav class="flex flex-col gap-1">
+              <button
+                v-for="tab in settingsTabs"
+                :key="tab.id"
+                @click="activeTab = tab.id"
+                class="rounded-lg transition-colors duration-200 flex items-center gap-3 relative overflow-hidden px-3 py-2.5"
+                :class="[
+                  activeTab === tab.id
+                      ? 'bg-accent/10 border border-accent text-accent font-medium'
+                      : 'text-secondary hover:bg-surface-hover hover:text-primary border border-transparent'
+                ]"
+              >
+                <!-- Active indicator bar -->
+                <div
+                  v-if="activeTab === tab.id"
+                  class="absolute left-0 top-0 bottom-0 w-1 bg-accent rounded-r"
+                ></div>
 
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
-              <span class="text-sm whitespace-nowrap">{{ tab.label }}</span>
-            </button>
-          </nav>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
+                <span class="text-sm whitespace-nowrap">{{ tab.label }}</span>
+              </button>
+            </nav>
+            </SectionCard>
           </div>
         </aside>
 
@@ -524,29 +525,22 @@ const cancelDelete = () => {
             />
 
             <!-- Groups Card (admin mode only) -->
-            <div v-if="isAdminMode && authStore.isAdmin" class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
-              <div class="px-4 sm:px-6 py-4 bg-surface-alt border-b border-default">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 bg-accent/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Icon name="team" class="text-accent" />
-                    </div>
-                    <div>
-                      <h2 class="text-base sm:text-lg font-semibold text-primary">Groups</h2>
-                      <p class="text-xs text-secondary hidden sm:block">Group memberships</p>
-                    </div>
-                  </div>
-                  <router-link
-                    to="/admin/groups"
-                    class="px-3 py-1.5 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent transition-colors flex items-center gap-2 whitespace-nowrap text-sm font-medium"
-                  >
-                    <Icon name="settings" />
-                    Manage Groups
-                  </router-link>
-                </div>
-              </div>
+            <SectionCard v-if="isAdminMode && authStore.isAdmin" content-padding="p-4 sm:p-6">
+              <template #leading>
+                <span class="text-accent inline-flex"><Icon name="team" /></span>
+              </template>
+              <template #title>Groups</template>
+              <template #headerActions>
+                <router-link
+                  to="/admin/groups"
+                  class="text-[11px] font-medium text-accent hover:underline whitespace-nowrap inline-flex items-center gap-1"
+                >
+                  <Icon name="settings" size="xs" />
+                  Manage Groups
+                </router-link>
+              </template>
 
-              <div class="p-4 sm:p-6">
+              <div>
                 <!-- Loading state -->
                 <div v-if="loadingGroups" class="flex items-center gap-3 text-secondary">
                   <span class="text-accent inline-flex"><Spinner /></span>
@@ -576,25 +570,18 @@ const cancelDelete = () => {
                   </router-link>
                 </div>
               </div>
-            </div>
+            </SectionCard>
 
             <!-- Admin Role Management Card -->
-            <div v-if="isManagingOtherUser && authStore.isAdmin && targetUser" class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
-              <div class="px-4 sm:px-6 py-4 bg-surface-alt border-b border-default">
-                <div class="flex items-center gap-3">
-                  <div class="w-8 h-8 bg-status-warning/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-status-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h2 class="text-base sm:text-lg font-semibold text-primary">Role Management</h2>
-                    <p class="text-xs text-secondary hidden sm:block">Control user access permissions</p>
-                  </div>
-                </div>
-              </div>
+            <SectionCard v-if="isManagingOtherUser && authStore.isAdmin && targetUser" content-padding="p-4 sm:p-6">
+              <template #leading>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-status-warning flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+              </template>
+              <template #title>Role Management</template>
 
-              <div class="p-4 sm:p-6">
+              <div>
                 <div class="flex flex-col gap-5">
                   <!-- Role selection grid -->
                   <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -639,29 +626,22 @@ const cancelDelete = () => {
                   </div>
                 </div>
               </div>
-            </div>
+            </SectionCard>
 
             <!-- Account Setup Card (Admin only, for users who haven't completed setup) -->
-            <div
+            <SectionCard
               v-if="isManagingOtherUser && authStore.isAdmin && targetUser && !userHasCompletedSetup"
-              class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden"
+              content-padding="p-4 sm:p-6"
             >
-              <div class="px-4 sm:px-6 py-4 bg-surface-alt border-b border-default">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 bg-accent/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Icon name="email" class="text-accent" />
-                    </div>
-                    <div>
-                      <h2 class="text-base sm:text-lg font-semibold text-primary">Account Setup</h2>
-                      <p class="text-xs text-secondary hidden sm:block">User has not completed account setup</p>
-                    </div>
-                  </div>
-                  <span class="text-xs px-2.5 py-1 bg-status-warning/20 text-status-warning rounded-full font-medium">Pending</span>
-                </div>
-              </div>
+              <template #leading>
+                <span class="text-accent inline-flex"><Icon name="email" /></span>
+              </template>
+              <template #title>Account Setup</template>
+              <template #headerActions>
+                <span class="text-[11px] px-2 py-0.5 bg-status-warning/20 text-status-warning rounded-full font-medium">Pending</span>
+              </template>
 
-              <div class="p-4 sm:p-6">
+              <div>
                 <div class="flex flex-col gap-4">
                   <!-- Status banner -->
                   <div class="flex items-start gap-3 p-4 bg-status-warning/10 border border-status-warning/30 rounded-lg">
@@ -699,7 +679,7 @@ const cancelDelete = () => {
                   </p>
                 </div>
               </div>
-            </div>
+            </SectionCard>
           </div>
 
           <!-- Appearance Tab -->

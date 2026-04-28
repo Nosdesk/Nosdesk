@@ -1,189 +1,29 @@
-<template>
-  <ResponsivePanel
-    :open="open"
-    title="Revision History"
-    side-panel-class="w-80"
-    @close="$emit('close')"
-  >
-    <div class="revision-history-body">
-
-    <!-- Loading State -->
-    <div v-if="loading" class="flex items-center justify-center py-8 text-primary">
-      <Spinner size="lg" />
-    </div>
-
-    <!-- Error State -->
-    <div v-else-if="error" class="error-banner">
-      {{ error }}
-    </div>
-
-    <!-- Empty State -->
-    <div v-else-if="revisions.length === 0" class="flex flex-col items-center px-4 py-8 text-secondary">
-      <svg class="w-12 h-12 mb-3 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-      <p class="text-sm text-center">No revisions yet</p>
-      <p class="text-xs text-tertiary text-center mt-1">Revisions are created when you make changes</p>
-    </div>
-
-    <!-- Revisions List -->
-    <div v-else class="revision-list">
-      <!-- Current Version Badge -->
-      <div class="px-4 py-3 bg-surface-alt border-b border-default">
-        <div class="flex items-center gap-2 text-sm">
-          <div class="current-version-indicator"></div>
-          <span class="font-medium text-primary">Current Version</span>
-        </div>
-      </div>
-
-      <!-- Revision Items -->
-      <div
-        v-for="revision in revisions"
-        :key="revision.id"
-        @click="selectRevision(revision)"
-        :class="[
-          'revision-item',
-          {
-            'revision-item-selected': selectedRevision?.id === revision.id,
-          },
-        ]"
-      >
-        <!-- Revision Number & Date -->
-        <div class="flex items-center justify-between mb-2">
-          <div class="flex items-center gap-2">
-            <span class="text-xs font-mono text-tertiary">v{{ revision.revision_number }}</span>
-            <span class="text-xs text-tertiary">•</span>
-            <span class="text-xs text-secondary">{{ formatRelativeDate(revision.created_at) }}</span>
-          </div>
-          <span
-            v-if="selectedRevision?.id === revision.id"
-            class="text-primary flex-shrink-0 inline-flex"
-          >
-            <Icon name="check" />
-          </span>
-        </div>
-
-        <!-- Contributors -->
-        <div v-if="revision.contributed_by && revision.contributed_by.length > 0" class="flex items-center gap-1 mb-1">
-          <!-- Single contributor: show avatar (clickable) and name (not clickable) -->
-          <div v-if="revision.contributed_by.length === 1" class="flex items-center gap-1">
-            <span class="text-xs text-tertiary">By:</span>
-            <UserAvatar
-              :name="revision.contributed_by[0] || 'Unknown'"
-              :user-name="getUserName(revision.contributed_by[0] || '')"
-              :show-name="false"
-              size="xs"
-              :clickable="true"
-            />
-            <span class="text-xs text-secondary">{{ getUserName(revision.contributed_by[0] || '') || 'Unknown' }}</span>
-          </div>
-          <!-- Multiple contributors: show avatars only -->
-          <div v-else class="flex items-center gap-1">
-            <span class="text-xs text-tertiary">By:</span>
-            <div class="flex items-center gap-1">
-              <UserAvatar
-                v-for="(userId, index) in revision.contributed_by.slice(0, 3)"
-                :key="userId || index"
-                :name="userId || 'Unknown'"
-                :user-name="getUserName(userId || '')"
-                :show-name="false"
-                size="xs"
-                :clickable="true"
-              />
-              <span v-if="revision.contributed_by.length > 3" class="text-xs text-tertiary">
-                +{{ revision.contributed_by.length - 3 }}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Word Count -->
-        <div v-if="revision.word_count" class="text-xs text-tertiary">
-          {{ revision.word_count }} words
-        </div>
-
-        <!-- Restore Button -->
-        <button
-          v-if="selectedRevision?.id === revision.id"
-          @click.stop="confirmRestore(revision)"
-          :disabled="isRestoring"
-          class="mt-2 w-full px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
-        >
-          {{ isRestoring ? 'Restoring...' : 'Restore This Version' }}
-        </button>
-      </div>
-    </div>
-
-    <!-- Restore Confirmation Modal -->
-    <div
-      v-if="showRestoreConfirm"
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      @click.self="cancelRestore"
-    >
-      <div class="bg-surface rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-        <h3 class="text-lg font-semibold text-primary mb-2">Restore Revision?</h3>
-        <p class="text-sm text-secondary mb-4">
-          This will restore the ticket to revision {{ revisionToRestore }}. This action will replace the current content with the selected revision.
-        </p>
-        <p class="text-xs text-tertiary mb-6">
-          Note: A new revision will be created so you can always undo this change.
-        </p>
-        <div class="flex gap-3">
-          <button
-            @click="cancelRestore"
-            :disabled="isRestoring"
-            class="flex-1 px-4 py-2 text-sm font-medium text-primary bg-surface-alt hover:bg-surface-hover border border-default rounded-lg transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            @click="executeRestore"
-            :disabled="isRestoring"
-            class="flex-1 px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:opacity-50"
-          >
-            {{ isRestoring ? 'Restoring...' : 'Restore' }}
-          </button>
-        </div>
-      </div>
-    </div>
-    </div>
-  </ResponsivePanel>
-</template>
-
 <script setup lang="ts">
-import { formatDate, parseDate } from '@/utils/dateUtils';
-import { ref, onMounted, watch, computed } from 'vue'
-import { useVersionHistory } from '@/composables/useVersionHistory'
-import type { ArticleRevision } from '@/services/versionHistoryService'
-import UserAvatar from '@/components/UserAvatar.vue'
+/**
+ * Revision history side-sheet. Thin wrapper that puts a
+ * `<RevisionList>` inside a `<ResponsivePanel>` (side panel at
+ * md+, bottom sheet on mobile). Use this where the surrounding
+ * surface doesn't already provide its own card chrome — most
+ * notably the documentation reader at `DocumentView.vue`.
+ *
+ * For contexts that *do* own their chrome (e.g. the Ticket Notes
+ * card on TicketView), drop in `<RevisionList>` directly so the
+ * list shares the parent's frame instead of stacking a second
+ * panel on top.
+ */
+import RevisionList from './RevisionList.vue'
 import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
-import Spinner from '@/components/common/Spinner.vue'
-import Icon from '@/components/common/Icon.vue'
-import { useDataStore } from '@/stores/dataStore'
-import apiClient from '@/services/apiConfig'
-
-// Documentation revision format from API (uses created_by instead of contributed_by)
-interface DocumentationRevisionResponse {
-  id: number;
-  revision_number: number;
-  created_by?: string | null;
-  created_at: string;
-  word_count?: number | null;
-}
 
 interface Props {
-  /** Open state. Owned by the parent so the layout wrapper can
-   * decide whether to mount/unmount. Defaults to true to keep
-   * existing call sites working without a prop change. */
   open?: boolean
   ticketId?: number
   documentId?: number
   type?: 'ticket' | 'documentation'
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   open: true,
-  type: 'ticket'
+  type: 'ticket',
 })
 
 const emit = defineEmits<{
@@ -191,270 +31,21 @@ const emit = defineEmits<{
   (e: 'selectRevision', revisionNumber: number | null): void
   (e: 'restored', revisionNumber: number): void
 }>()
-
-const dataStore = useDataStore()
-
-// Determine effective ID based on type
-const effectiveId = computed(() => {
-  if (props.type === 'documentation') {
-    return props.documentId
-  }
-  return props.ticketId
-})
-
-// For tickets, use the composable
-const ticketHistory = props.type === 'ticket'
-  ? useVersionHistory(computed(() => props.ticketId || 0))
-  : null
-
-// For documentation, manage state locally
-const docRevisions = ref<ArticleRevision[]>([])
-const docLoading = ref(false)
-const docError = ref<string | null>(null)
-const docRestoring = ref(false)
-
-// Unified access to state
-const revisions = computed(() => {
-  if (props.type === 'documentation') {
-    return docRevisions.value
-  }
-  return ticketHistory?.revisions.value || []
-})
-
-const loading = computed(() => {
-  if (props.type === 'documentation') {
-    return docLoading.value
-  }
-  return ticketHistory?.isLoading.value || false
-})
-
-const isRestoring = computed(() => {
-  if (props.type === 'documentation') {
-    return docRestoring.value
-  }
-  return ticketHistory?.isRestoring.value || false
-})
-
-// Load documentation revisions
-async function loadDocumentationRevisions() {
-  if (!props.documentId) return
-
-  docLoading.value = true
-  docError.value = null
-
-  try {
-    const response = await apiClient.get<DocumentationRevisionResponse[]>(`/collaboration/docs/${props.documentId}/revisions`)
-    // Transform documentation revisions to match ticket revision format
-    // Documentation uses created_by (single), tickets use contributed_by (array)
-    docRevisions.value = response.data.map((rev) => ({
-      ...rev,
-      article_content_id: 0, // Not applicable for documentation
-      contributed_by: rev.created_by ? [rev.created_by] : []
-    }))
-  } catch (err) {
-    const error = err as Error;
-    docError.value = error.message || 'Failed to load revisions'
-    console.error('Failed to load documentation revisions:', err)
-  } finally {
-    docLoading.value = false
-  }
-}
-
-// Restore documentation revision
-async function restoreDocumentationRevision(revisionNumber: number): Promise<boolean> {
-  if (!props.documentId) return false
-
-  docRestoring.value = true
-
-  try {
-    await apiClient.post(`/collaboration/docs/${props.documentId}/revisions/${revisionNumber}/restore`)
-    await loadDocumentationRevisions()
-    return true
-  } catch (err) {
-    const error = err as Error;
-    docError.value = error.message || 'Failed to restore revision'
-    console.error('Failed to restore documentation revision:', err)
-    return false
-  } finally {
-    docRestoring.value = false
-  }
-}
-
-// Unified load function
-function loadRevisions() {
-  if (props.type === 'documentation') {
-    loadDocumentationRevisions()
-  } else {
-    ticketHistory?.loadRevisions()
-  }
-}
-
-// Unified restore function
-async function restoreToRevision(revisionNumber: number): Promise<boolean> {
-  if (props.type === 'documentation') {
-    return restoreDocumentationRevision(revisionNumber)
-  }
-  return ticketHistory?.restoreToRevision(revisionNumber) || false
-}
-
-// Pre-fetch user data when revisions load
-watch(revisions, async (newRevisions) => {
-  if (!newRevisions || newRevisions.length === 0) return
-
-  // Collect all unique user UUIDs
-  const userUuids = new Set<string>()
-  newRevisions.forEach(revision => {
-    if (revision.contributed_by && Array.isArray(revision.contributed_by)) {
-      revision.contributed_by.forEach(uuid => {
-        if (uuid) userUuids.add(uuid)
-      })
-    }
-  })
-
-  // Pre-fetch user data for all contributors
-  if (userUuids.size > 0) {
-    await Promise.all(
-      Array.from(userUuids).map(uuid => dataStore.getUserByUuid(uuid))
-    )
-  }
-}, { immediate: true })
-
-// Helper to get user name from UUID (from cache)
-const getUserName = (uuid: string): string | undefined => {
-  const user = dataStore.getCachedUserByUuid(uuid)
-  return user?.name
-}
-
-// State
-const selectedRevision = ref<ArticleRevision | null>(null)
-const showRestoreConfirm = ref(false)
-const revisionToRestore = ref<number | null>(null)
-
-// Computed error message
-const error = computed(() => {
-  if (props.type === 'documentation') {
-    return docError.value
-  }
-  if (ticketHistory?.error.value) return ticketHistory.error.value.message
-  if (ticketHistory?.restoreError.value) return ticketHistory.restoreError.value.message
-  return null
-})
-
-// Select a revision to preview
-async function selectRevision(revision: ArticleRevision) {
-  selectedRevision.value = revision
-  emit('selectRevision', revision.revision_number)
-}
-
-// Show restore confirmation dialog
-function confirmRestore(revision: ArticleRevision) {
-  revisionToRestore.value = revision.revision_number
-  showRestoreConfirm.value = true
-}
-
-// Cancel restore
-function cancelRestore() {
-  showRestoreConfirm.value = false
-  revisionToRestore.value = null
-}
-
-// Actually restore the revision
-async function executeRestore() {
-  if (revisionToRestore.value === null) return
-
-  const success = await restoreToRevision(revisionToRestore.value)
-
-  if (success) {
-    showRestoreConfirm.value = false
-    selectedRevision.value = null
-    // Don't emit selectRevision(null) here - not in revision view mode
-    // The restore itself will update the editor content via WebSocket
-    emit('restored', revisionToRestore.value)
-    revisionToRestore.value = null
-  }
-}
-
-// Format date for display
-function formatRelativeDate(dateString: string): string {
-  const date = parseDate(dateString)
-  if (!date) return ''
-
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 1) return 'Just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-
-  return formatDate(dateString, "MMM d, yyyy")
-}
-
-// Watch for ID changes
-watch(
-  () => effectiveId.value,
-  () => {
-    loadRevisions()
-    selectedRevision.value = null
-  }
-)
-
-// Initial fetch
-onMounted(() => {
-  loadRevisions()
-})
 </script>
 
-<style scoped>
-/* Width / chrome live in <ResponsivePanel> now; this is just
-   the body container that holds the revision list inside the
-   panel's content slot. */
-.revision-history-body {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-
-.revision-list {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.revision-item {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--color-default);
-  cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
-}
-
-.revision-item:hover {
-  background-color: var(--color-surface-hover);
-}
-
-.revision-item-selected {
-  background-color: var(--color-surface-alt);
-  border-left: 4px solid var(--color-primary);
-}
-
-/* Error banner styling using theme variables */
-.error-banner {
-  padding: 0.75rem 1rem;
-  font-size: 0.875rem;
-  color: var(--color-status-error);
-  background-color: color-mix(in srgb, var(--color-status-error) 10%, transparent);
-  border-radius: 0.5rem;
-  margin: 1rem;
-}
-
-/* Current version indicator dot */
-.current-version-indicator {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 9999px;
-  background-color: var(--color-status-success);
-}
-</style>
+<template>
+  <ResponsivePanel
+    :open="open"
+    title="Revision History"
+    side-panel-class="w-80"
+    @close="emit('close')"
+  >
+    <RevisionList
+      :ticket-id="ticketId"
+      :document-id="documentId"
+      :type="type"
+      @select-revision="(n) => emit('selectRevision', n)"
+      @restored="(n) => emit('restored', n)"
+    />
+  </ResponsivePanel>
+</template>

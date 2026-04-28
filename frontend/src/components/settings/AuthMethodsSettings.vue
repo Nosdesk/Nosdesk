@@ -6,6 +6,7 @@ import userService from '@/services/userService';
 import { formatDate } from '@/utils/dateUtils';
 import { logger } from '@/utils/logger';
 import Icon from '@/components/common/Icon.vue';
+import SectionCard from '@/components/common/SectionCard.vue';
 
 const props = defineProps<{
   targetUserUuid?: string;
@@ -217,15 +218,10 @@ const getAuthMethodIcon = (type: string) => {
 <template>
   <div class="flex flex-col gap-6">
     <!-- Authentication Methods -->
-    <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
-      <div class="px-4 py-3 bg-surface-alt border-b border-default">
-        <h2 class="text-lg font-medium text-primary">Authentication Methods</h2>
-        <p class="text-sm text-tertiary mt-1">
-          {{ isManagingOtherUser ? "Authentication methods for this user" : "Manage how you sign in to your account" }}
-        </p>
-      </div>
+    <SectionCard content-padding="p-4">
+      <template #title>Authentication Methods</template>
 
-      <div class="p-4 flex flex-col gap-3">
+      <div class="flex flex-col gap-3">
         <!-- Auth Methods -->
         <div class="flex flex-col gap-2">
             <div v-for="method in authMethods" :key="method.id" class="flex items-center justify-between p-3 bg-surface-alt rounded-lg">
@@ -289,25 +285,22 @@ const getAuthMethodIcon = (type: string) => {
           </div>
         </button>
       </div>
-    </div>
+    </SectionCard>
 
     <!-- Active Sessions (hidden for admin viewing another user) -->
-    <div v-if="!isManagingOtherUser" class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
-      <div class="px-4 py-3 bg-surface-alt border-b border-default flex items-center justify-between gap-4">
-        <div>
-          <h2 class="text-lg font-medium text-primary">Active Sessions</h2>
-          <p class="text-sm text-tertiary mt-1">Manage your active login sessions</p>
-        </div>
+    <SectionCard v-if="!isManagingOtherUser" content-padding="p-4">
+      <template #title>Active Sessions</template>
+      <template #headerActions>
         <button
           @click="revokeAllSessions"
           :disabled="loading || activeSessions.length <= 1"
-          class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50 flex-shrink-0"
+          class="text-[11px] font-medium text-status-error hover:opacity-80 disabled:opacity-50 whitespace-nowrap"
         >
           Revoke All Others
         </button>
-      </div>
+      </template>
 
-      <div class="p-4 flex flex-col gap-2">
+      <div class="flex flex-col gap-2">
             <div v-for="session in activeSessions" :key="session.id" class="flex items-center justify-between p-3 bg-surface-alt rounded-lg">
               <div class="flex items-center gap-3">
                 <div class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center">
@@ -335,6 +328,6 @@ const getAuthMethodIcon = (type: string) => {
               </button>
             </div>
       </div>
-    </div>
+    </SectionCard>
   </div>
 </template>

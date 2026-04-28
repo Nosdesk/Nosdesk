@@ -49,7 +49,7 @@ const warrantyStatusClass = computed(() => {
 
       <h3
         @click="emit('view', device.id)"
-        class="text-md font-medium text-primary truncate cursor-pointer hover:text-accent transition-colors"
+        class="truncate cursor-pointer hover:text-accent transition-colors"
         :title="device.name || 'View device'"
       >
         {{ device.name || 'Unnamed Device' }}

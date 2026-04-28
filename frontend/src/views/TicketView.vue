@@ -37,6 +37,7 @@ import type { SidebarAddMenuItem } from "@/components/ticketComponents/SidebarAd
 import BackButton from "@/components/common/BackButton.vue";
 import DeleteButton from "@/components/common/DeleteButton.vue";
 import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
+import SectionCard from "@/components/common/SectionCard.vue";
 import PluginSlot from "@/plugins/components/PluginSlot.vue";
 import { getActionRegistrations } from "@/plugins/loader";
 import { usePageCreateAction } from "@/composables/usePageCreateAction";
@@ -447,13 +448,10 @@ usePageCreateAction(handleCreateTicket);
                         <div class="ticket-details flex flex-col gap-3">
 
                         <!-- Skeleton: Details -->
-                        <div v-if="!ticket" class="bg-surface rounded-xl border border-default overflow-hidden">
-                            <!-- Header (matches SectionCard) -->
-                            <div class="bg-surface-alt border-b border-default px-4 py-3">
-                                <h2 class="text-lg font-medium text-primary">Ticket Details</h2>
-                            </div>
+                        <SectionCard v-if="!ticket" content-padding="p-3">
+                            <template #title>Ticket Details</template>
                             <!-- Content (matches TicketDetails inner layout) -->
-                            <div class="p-3 flex flex-col gap-3">
+                            <div class="flex flex-col gap-3">
                                 <!-- Title -->
                                 <div class="flex flex-col gap-1.5">
                                     <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Title</h3>
@@ -514,7 +512,7 @@ usePageCreateAction(handleCreateTicket);
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                        </SectionCard>
 
                         <TicketDetails
                             v-else
@@ -639,13 +637,10 @@ usePageCreateAction(handleCreateTicket);
                         <!-- Comments (inside left-column for tablet 2-col layout) -->
                         <!-- Skeleton: Comments (matches CommentsAndAttachments / SectionCard) -->
                         <div v-if="!ticket" class="ticket-comments rounded-xl print:hidden">
-                            <div class="bg-surface rounded-xl border border-default overflow-hidden">
-                                <!-- Header (matches SectionCard) -->
-                                <div class="bg-surface-alt border-b border-default px-4 py-3">
-                                    <h2 class="text-lg font-medium text-primary">Comments and Attachments</h2>
-                                </div>
+                            <SectionCard content-padding="p-3">
+                                <template #title>Comments and Attachments</template>
                                 <!-- Content -->
-                                <div class="p-3 flex flex-col gap-3">
+                                <div class="flex flex-col gap-3">
                                     <!-- Comment input (matches SimpleEditor min-height: 60px) -->
                                     <div class="bg-surface rounded-lg" style="min-height: 60px;">
                                         <div class="p-3">
@@ -659,7 +654,7 @@ usePageCreateAction(handleCreateTicket);
                                         <div class="h-10 w-11 bg-surface-alt border border-default rounded-md animate-pulse"></div>
                                     </div>
                                 </div>
-                            </div>
+                            </SectionCard>
                         </div>
                         <!-- Hidden on print if no comments exist -->
                         <div
@@ -686,18 +681,15 @@ usePageCreateAction(handleCreateTicket);
                     <!-- Article -->
                     <!-- Skeleton: Article (matches CollaborativeTicketArticle) -->
                     <div v-if="!ticket" class="ticket-article rounded-xl print:hidden">
-                        <div class="bg-surface rounded-xl border border-default flex flex-col w-full h-auto overflow-hidden">
-                            <!-- Header -->
-                            <div class="px-4 py-3 bg-surface-alt border-b border-default flex justify-between items-center">
-                                <h2 class="text-lg font-medium text-primary">Ticket Notes</h2>
-                                <div class="flex items-center gap-2">
-                                    <div class="w-8 h-8 rounded-md bg-surface-hover animate-pulse"></div>
-                                    <div class="w-8 h-8 rounded-md bg-surface-hover animate-pulse"></div>
-                                    <div class="w-8 h-8 rounded-md bg-surface-hover animate-pulse"></div>
-                                </div>
-                            </div>
+                        <SectionCard content-padding="p-4">
+                            <template #title>Ticket Notes</template>
+                            <template #headerActions>
+                                <div class="w-5 h-5 rounded bg-surface-hover animate-pulse"></div>
+                                <div class="w-5 h-5 rounded bg-surface-hover animate-pulse"></div>
+                                <div class="w-5 h-5 rounded bg-surface-hover animate-pulse"></div>
+                            </template>
                             <!-- Content area (matches min-h-[300px]) -->
-                            <div class="flex-grow min-h-[300px] p-4 flex flex-col gap-3">
+                            <div class="flex-grow min-h-[300px] flex flex-col gap-3">
                                 <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
                                 <div class="h-4 w-5/6 bg-surface-hover rounded animate-pulse"></div>
                                 <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
@@ -708,7 +700,7 @@ usePageCreateAction(handleCreateTicket);
                                 <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
                                 <div class="h-4 w-2/3 bg-surface-hover rounded animate-pulse"></div>
                             </div>
-                        </div>
+                        </SectionCard>
                     </div>
                     <div v-else class="ticket-article rounded-xl">
                         <CollaborativeTicketArticle

@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth';
 import authService from '@/services/authService';
 import userService from '@/services/userService';
 import Spinner from '@/components/common/Spinner.vue';
+import SectionCard from '@/components/common/SectionCard.vue';
 
 const props = defineProps<{
   targetUserUuid?: string;
@@ -103,15 +104,10 @@ const adminResetPassword = async () => {
 </script>
 
 <template>
-  <div class="bg-surface rounded-xl border border-default hover:border-strong transition-colors overflow-hidden">
-    <div class="px-4 py-3 bg-surface-alt border-b border-default">
-      <h2 class="text-lg font-medium text-primary">Password</h2>
-      <p class="text-sm text-tertiary mt-1">
-        {{ isManagingOtherUser ? "Reset this user's password" : "Update your account password" }}
-      </p>
-    </div>
+  <SectionCard content-padding="p-6">
+    <template #title>Password</template>
 
-    <div class="p-6">
+    <div>
       <!-- Admin: reset password form -->
       <form v-if="isManagingOtherUser" @submit.prevent="adminResetPassword" class="flex flex-col gap-4">
         <div class="flex flex-col gap-1.5">
@@ -238,5 +234,5 @@ const adminResetPassword = async () => {
         </div>
       </form>
     </div>
-  </div>
+  </SectionCard>
 </template>
