@@ -3,6 +3,8 @@ import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAutoLogin } from '@/composables/useAutoLogin';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
+import Icon from '@/components/common/Icon.vue';
+import Spinner from '@/components/common/Spinner.vue';
 import authService, {
   type AdminSetupRequest,
   type OnboardingRestoreUploadResponse,
@@ -320,9 +322,7 @@ onUnmounted(() => {
       <!-- Success Message -->
       <div v-if="successMessage" class="bg-status-success/20 border border-status-success/50 text-status-success px-4 py-3 rounded-lg text-sm">
         <div class="flex items-center gap-2">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-          </svg>
+          <Icon name="check" size="md" />
           {{ successMessage }}
         </div>
       </div>
@@ -330,9 +330,7 @@ onUnmounted(() => {
       <!-- Error Message -->
       <div v-if="errorMessage" class="bg-status-error/20 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm">
         <div class="flex items-center gap-2">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.996-.833-2.768 0L3.232 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
-          </svg>
+          <Icon name="warning" size="md" />
           {{ errorMessage }}
         </div>
       </div>
@@ -352,9 +350,7 @@ onUnmounted(() => {
             <h3 class="text-primary font-medium text-sm sm:text-base">Create New Installation</h3>
             <p class="text-xs sm:text-sm text-secondary truncate sm:whitespace-normal">Launch a fresh Nosdesk instance with a new administrator account</p>
           </div>
-          <svg class="flex-shrink-0 w-5 h-5 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
+          <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
 
         <button
@@ -370,9 +366,7 @@ onUnmounted(() => {
             <h3 class="text-primary font-medium text-sm sm:text-base">Restore from Backup</h3>
             <p class="text-xs sm:text-sm text-secondary truncate sm:whitespace-normal">Import data from a previous Nosdesk backup file</p>
           </div>
-          <svg class="flex-shrink-0 w-5 h-5 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
+          <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
       </div>
 
@@ -449,10 +443,7 @@ onUnmounted(() => {
               class="flex-1 flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <span v-if="isLoading" class="flex items-center gap-2">
-                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+                <Spinner class="-ml-1 mr-2 text-white" />
                 Creating Administrator...
               </span>
               <span v-else>Create Administrator Account</span>
@@ -463,10 +454,7 @@ onUnmounted(() => {
         <!-- Auto-login Progress -->
         <div v-else-if="isLoggingIn" class="flex flex-col items-center gap-6 text-center">
           <div class="flex items-center justify-center w-16 h-16 bg-accent/10 rounded-full">
-            <svg class="animate-spin w-8 h-8 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+            <Spinner size="lg" class="text-accent" />
           </div>
           <div class="flex flex-col gap-2">
             <h3 class="text-lg font-semibold text-primary">Setting up your account</h3>
@@ -477,9 +465,7 @@ onUnmounted(() => {
         <!-- Completion State -->
         <div v-else-if="isComplete" class="flex flex-col items-center gap-6 text-center">
           <div class="flex items-center justify-center w-16 h-16 bg-status-success/10 rounded-full">
-            <svg class="w-8 h-8 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-            </svg>
+            <Icon name="check" size="lg" class="text-status-success" />
           </div>
           <div class="flex flex-col gap-2">
             <h3 class="text-lg font-semibold text-primary">Welcome to Nosdesk!</h3>
@@ -533,9 +519,7 @@ onUnmounted(() => {
         <div v-else-if="restoreStep === 'password'" class="flex flex-col gap-4">
           <div class="bg-surface border border-default rounded-lg p-3 sm:p-4">
             <div class="flex flex-row items-start gap-3">
-              <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 0h12a2 2 0 002-2v-9a2 2 0 00-2-2H6a2 2 0 00-2 2v9a2 2 0 002 2zm10-12V6a4 4 0 00-8 0v3h8z"></path>
-              </svg>
+              <Icon name="lock" size="md" class="text-accent mt-0.5 flex-shrink-0" />
               <div class="flex-1 min-w-0">
                 <h4 class="font-medium text-primary mb-1 text-sm">Encrypted Backup</h4>
                 <p class="text-xs text-tertiary">
@@ -608,9 +592,7 @@ onUnmounted(() => {
               <h3 class="font-medium text-status-warning mb-2">Warnings</h3>
               <ul class="text-sm text-status-warning space-y-1">
                 <li v-for="warning in restoreUploadResponse.preview.warnings" :key="warning" class="flex items-start gap-2">
-                  <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.996-.833-2.768 0L3.232 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                  </svg>
+                  <Icon name="warning" class="mt-0.5 flex-shrink-0" />
                   {{ warning }}
                 </li>
               </ul>
@@ -638,10 +620,7 @@ onUnmounted(() => {
         <!-- Restoring Step -->
         <div v-else-if="restoreStep === 'restoring'" class="flex flex-col items-center gap-6 text-center">
           <div class="flex items-center justify-center w-16 h-16 bg-accent/10 rounded-full">
-            <svg class="animate-spin w-8 h-8 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+            <Spinner size="lg" class="text-accent" />
           </div>
           <div class="flex flex-col gap-2">
             <h3 class="text-lg font-semibold text-primary">Restoring your system</h3>
@@ -652,9 +631,7 @@ onUnmounted(() => {
         <!-- Restore Complete -->
         <div v-else-if="restoreStep === 'complete' && restoreResult" class="flex flex-col items-center gap-6 text-center">
           <div class="flex items-center justify-center w-16 h-16 bg-status-success/10 rounded-full">
-            <svg class="w-8 h-8 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-            </svg>
+            <Icon name="check" size="lg" class="text-status-success" />
           </div>
           <div class="flex flex-col gap-2">
             <h3 class="text-lg font-semibold text-primary">System Restored!</h3>

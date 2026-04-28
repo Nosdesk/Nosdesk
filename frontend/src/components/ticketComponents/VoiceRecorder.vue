@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { useSpeechRecognition } from '@/composables/useSpeechRecognition';
+import Icon from '@/components/common/Icon.vue';
 
 const emit = defineEmits<{
   (e: 'recordingComplete', value: { blob: Blob; duration: number; transcription?: string }): void;
@@ -478,9 +479,7 @@ onUnmounted(() => {
         @click="cancelRecording"
         class="btn-cancel"
       >
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-        </svg>
+        <Icon name="close" />
         Cancel
       </button>
       <button

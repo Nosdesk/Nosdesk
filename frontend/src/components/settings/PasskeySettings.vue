@@ -4,6 +4,8 @@ import { useAuthStore } from '@/stores/auth';
 import { usePasskeys } from '@/composables/usePasskeys';
 import type { PasskeyInfo } from '@/services/passkeyService';
 import userService from '@/services/userService';
+import Icon from '@/components/common/Icon.vue';
+import Spinner from '@/components/common/Spinner.vue';
 
 const props = defineProps<{
   targetUserUuid?: string;
@@ -198,8 +200,8 @@ onMounted(async () => {
     <div class="p-4">
       <!-- Admin viewing another user: read-only passkey list -->
       <template v-if="isManagingOtherUser">
-        <div v-if="adminLoading" class="flex items-center justify-center py-8">
-          <div class="animate-spin h-8 w-8 border-2 border-accent border-t-transparent rounded-full"></div>
+        <div v-if="adminLoading" class="flex items-center justify-center py-8 text-accent">
+          <Spinner size="lg" />
         </div>
 
         <div v-else-if="adminPasskeys.length === 0" class="py-2">
@@ -215,17 +217,13 @@ onMounted(async () => {
           >
             <div class="flex items-center gap-4">
               <div class="flex-shrink-0 w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                </svg>
+                <Icon name="key" size="md" class="text-accent" />
               </div>
               <div>
                 <div class="flex items-center gap-2">
                   <p class="font-medium text-primary">{{ passkey.name }}</p>
                   <span v-if="passkey.backup_eligible" class="inline-flex items-center gap-1 text-xs text-status-success">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                    </svg>
+                    <Icon name="check" size="xs" />
                     Synced
                   </span>
                 </div>
@@ -239,16 +237,14 @@ onMounted(async () => {
               class="p-2 text-tertiary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
               title="Delete passkey"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
+              <Icon name="trash" />
             </button>
           </div>
 
           <div class="flex items-start gap-3 text-secondary">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-tertiary flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            <span class="text-tertiary flex-shrink-0 mt-0.5 inline-flex">
+              <Icon name="info" size="md" />
+            </span>
             <p class="text-sm">Passkey registration requires the account owner's biometrics or security key.</p>
           </div>
         </div>
@@ -259,9 +255,9 @@ onMounted(async () => {
         <!-- Browser not supported warning -->
         <div v-if="!isSupported" class="bg-status-warning/10 border border-status-warning/20 rounded-lg p-4">
           <div class="flex items-start gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-status-warning flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+            <span class="text-status-warning flex-shrink-0 mt-0.5 inline-flex">
+              <Icon name="warning" size="md" />
+            </span>
             <div>
               <p class="text-status-warning font-medium">Browser Not Supported</p>
               <p class="text-sm text-tertiary mt-1">
@@ -272,8 +268,8 @@ onMounted(async () => {
         </div>
 
         <!-- Loading state -->
-        <div v-else-if="loading" class="flex items-center justify-center py-8">
-          <div class="animate-spin h-8 w-8 border-2 border-accent border-t-transparent rounded-full"></div>
+        <div v-else-if="loading" class="flex items-center justify-center py-8 text-accent">
+          <Spinner size="lg" />
         </div>
 
         <!-- No passkeys -->
@@ -299,17 +295,13 @@ onMounted(async () => {
           >
             <div class="flex items-center gap-4">
               <div class="flex-shrink-0 w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                </svg>
+                <Icon name="key" size="md" class="text-accent" />
               </div>
               <div>
                 <div class="flex items-center gap-2">
                   <p class="font-medium text-primary">{{ passkey.name }}</p>
                   <span v-if="passkey.backup_eligible" class="inline-flex items-center gap-1 text-xs text-status-success">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                    </svg>
+                    <Icon name="check" size="xs" />
                     Synced
                   </span>
                 </div>
@@ -324,18 +316,14 @@ onMounted(async () => {
                 class="p-2 text-tertiary hover:text-primary hover:bg-surface rounded-lg transition-colors"
                 title="Rename passkey"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
+                <Icon name="rename" />
               </button>
               <button
                 @click="openDeleteModal(passkey)"
                 class="p-2 text-tertiary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
                 title="Delete passkey"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
+                <Icon name="trash" />
               </button>
             </div>
           </div>
@@ -346,9 +334,7 @@ onMounted(async () => {
             @click="showAddModal = true"
             class="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-subtle hover:border-accent rounded-lg text-secondary hover:text-accent transition-colors"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
+            <Icon name="add" size="md" />
             <span class="font-medium">Add Another Passkey</span>
           </button>
         </div>
@@ -387,7 +373,7 @@ onMounted(async () => {
             :disabled="registering"
             class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 flex items-center gap-2"
           >
-            <span v-if="registering" class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+            <Spinner v-if="registering" />
             {{ registering ? 'Creating...' : 'Create Passkey' }}
           </button>
         </div>
@@ -491,7 +477,7 @@ onMounted(async () => {
             :disabled="adminDeleting"
             class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-status-error disabled:opacity-50 flex items-center gap-2"
           >
-            <span v-if="adminDeleting" class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+            <Spinner v-if="adminDeleting" />
             {{ adminDeleting ? 'Deleting...' : 'Delete Passkey' }}
           </button>
         </div>

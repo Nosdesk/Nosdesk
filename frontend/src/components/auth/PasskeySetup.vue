@@ -6,6 +6,8 @@ import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
 import { passkeySetupService } from '@/services/passkeyService';
 import { logger } from '@/utils/logger';
+import Icon from '@/components/common/Icon.vue';
+import Spinner from '@/components/common/Spinner.vue';
 
 // Props
 const props = defineProps<{
@@ -177,9 +179,9 @@ onMounted(() => {
       <!-- Browser not supported -->
       <div v-if="!isSupported" class="bg-status-warning/10 border border-status-warning/20 rounded-lg p-4">
         <div class="flex items-start gap-3">
-          <svg class="h-5 w-5 text-status-warning flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
+          <span class="text-status-warning flex-shrink-0 mt-0.5 inline-flex">
+            <Icon name="warning" size="md" />
+          </span>
           <div>
             <p class="text-status-warning font-medium">Passkeys Not Available</p>
             <p class="text-sm text-tertiary mt-1">
@@ -227,7 +229,7 @@ onMounted(() => {
           :disabled="isRegistering"
           class="w-full py-3 px-4 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
-          <span v-if="isRegistering" class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+          <Spinner v-if="isRegistering" />
           {{ isRegistering ? 'Creating Passkey...' : 'Create Passkey' }}
         </button>
       </div>
@@ -263,21 +265,17 @@ onMounted(() => {
             @click="copyBackupCodes"
             class="flex-1 py-2 px-3 border border-default rounded-lg text-sm font-medium text-secondary bg-surface hover:bg-surface-hover transition-colors flex items-center justify-center gap-1.5"
           >
-            <svg v-if="backupCodesCopied" class="w-4 h-4 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-            </svg>
-            <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
+            <span v-if="backupCodesCopied" class="text-status-success inline-flex">
+              <Icon name="check" />
+            </span>
+            <Icon v-else name="copy" />
             {{ backupCodesCopied ? 'Copied!' : 'Copy' }}
           </button>
           <button
             @click="downloadBackupCodes"
             class="flex-1 py-2 px-3 border border-default rounded-lg text-sm font-medium text-secondary bg-surface hover:bg-surface-hover transition-colors flex items-center justify-center gap-1.5"
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
+            <Icon name="download" />
             Download
           </button>
         </div>

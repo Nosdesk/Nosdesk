@@ -8,6 +8,8 @@ import InlineEdit from '@/components/common/InlineEdit.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
+import Icon from '@/components/common/Icon.vue';
+import Spinner from '@/components/common/Spinner.vue';
 import UserCard from '@/components/UserCard.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import DeviceGroups from '@/components/DeviceGroups.vue';
@@ -530,9 +532,7 @@ onMounted(fetchDeviceData);
 
               <div v-else class="flex flex-col items-center py-8 gap-4">
                 <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full">
-                  <svg class="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
+                  <Icon name="user" size="md" class="text-secondary" />
                 </div>
                 <p class="text-secondary text-sm">No user assigned to this device</p>
 
@@ -540,9 +540,7 @@ onMounted(fetchDeviceData);
                   @click="showUserSelectionModal = true"
                   class="px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                 >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                  </svg>
+                  <Icon name="add" />
                   Assign User
                 </button>
               </div>
@@ -569,9 +567,7 @@ onMounted(fetchDeviceData);
 
               <div v-else class="flex flex-col items-center py-8 gap-4">
                 <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full">
-                  <svg class="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
+                  <Icon name="user" size="md" class="text-secondary" />
                 </div>
                 <p class="text-secondary text-sm">No user assigned to this device</p>
 
@@ -580,9 +576,7 @@ onMounted(fetchDeviceData);
                   @click="showUserSelectionModal = true"
                   class="px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                 >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                  </svg>
+                  <Icon name="add" />
                   Assign User
                 </button>
               </div>
@@ -619,9 +613,7 @@ onMounted(fetchDeviceData);
 
                 <div class="pt-4 border-t border-default">
                   <div class="flex items-center gap-2 text-sm">
-                    <svg class="w-5 h-5 text-secondary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
+                    <Icon name="copyMd" size="md" class="text-secondary flex-shrink-0" />
                     <div>
                       <p class="font-medium text-primary">Manually Managed</p>
                       <p class="text-xs text-tertiary mt-0.5">This device was created and is managed manually in Nosdesk</p>
@@ -652,9 +644,7 @@ onMounted(fetchDeviceData);
                 <div v-if="device.last_sync_time" class="flex flex-col gap-2 pt-4 border-t border-default">
                   <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Intune Check-in</h4>
                   <div class="flex items-center gap-2">
-                    <svg class="w-4 h-4 text-accent flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
+                    <Icon name="refresh" class="text-accent flex-shrink-0" />
                     <p class="text-primary text-sm">{{ formatDateTime(device.last_sync_time) }}</p>
                   </div>
                 </div>
@@ -669,9 +659,7 @@ onMounted(fetchDeviceData);
                     >
                       <IntuneIcon size="16" class="text-white flex-shrink-0" />
                       <span>View in Intune</span>
-                      <svg class="w-3.5 h-3.5 flex-shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
+                      <Icon name="openExternal" class="flex-shrink-0 opacity-70" />
                     </button>
 
                     <button
@@ -681,9 +669,7 @@ onMounted(fetchDeviceData);
                     >
                       <EntraIcon size="16" class="flex-shrink-0" />
                       <span>View in Entra</span>
-                      <svg class="w-3.5 h-3.5 flex-shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
+                      <Icon name="openExternal" class="flex-shrink-0 opacity-70" />
                     </button>
                   </div>
 
@@ -712,13 +698,11 @@ onMounted(fetchDeviceData);
                       class="w-full flex items-center justify-between text-secondary hover:text-primary transition-colors text-sm"
                     >
                       <span class="font-medium">{{ showAdditionalDetails ? 'Hide' : 'Show' }} Technical Details</span>
-                      <svg
-                        class="w-4 h-4 transition-transform duration-200"
+                      <Icon
+                        name="chevronDown"
+                        class="transition-transform duration-200"
                         :class="{ 'rotate-180': showAdditionalDetails }"
-                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                      >
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                      </svg>
+                      />
                     </button>
 
                     <div v-show="showAdditionalDetails" class="mt-4 divide-y divide-default">
@@ -741,9 +725,7 @@ onMounted(fetchDeviceData);
                 <!-- No Management IDs fallback -->
                 <div v-if="!device.intune_device_id && !device.entra_device_id" class="text-center py-8">
                   <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full mb-4">
-                    <svg class="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                    <Icon name="checkCircle" size="md" class="text-secondary" />
                   </div>
                   <p class="text-secondary text-sm">This device is not managed by Microsoft Intune</p>
                 </div>
@@ -767,10 +749,7 @@ onMounted(fetchDeviceData);
               :disabled="isSaving || !editValues.hostname"
               class="px-6 py-2.5 bg-status-success text-white rounded-lg hover:bg-status-success/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
             >
-              <svg v-if="isSaving" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
+              <Spinner v-if="isSaving" />
               {{ isSaving ? 'Creating...' : 'Create Device' }}
             </button>
           </div>

@@ -30,6 +30,7 @@ import {
   type DashboardWidgetContext,
 } from './widgetContext'
 import type { WidgetSpan } from './widgets'
+import Icon from '@/components/common/Icon.vue'
 
 withDefaults(
   defineProps<{
@@ -215,9 +216,7 @@ function onHandlePointerDown(e: PointerEvent) {
           :title="`Hide ${title}`"
           @click="onHide"
         >
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <Icon name="close" />
         </button>
       </template>
     </header>

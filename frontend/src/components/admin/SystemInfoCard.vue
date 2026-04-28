@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import axios from 'axios'
+import Icon from '@/components/common/Icon.vue'
 
 interface SystemInfo {
   version: string
@@ -101,9 +102,9 @@ onUnmounted(() => {
         target="_blank"
         class="px-3 py-1.5 bg-surface hover:bg-surface-hover border border-status-success/50 text-primary rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
       >
-        <svg class="w-4 h-4 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-        </svg>
+        <span class="text-status-success inline-flex">
+          <Icon name="download" />
+        </span>
         Update to {{ updateInfo.latest_version }}
       </a>
     </div>

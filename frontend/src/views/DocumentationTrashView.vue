@@ -7,6 +7,7 @@ import { useSSEListeners } from '@/composables/useSSEListeners'
 import BackButton from '@/components/common/BackButton.vue'
 import DocumentationRowSkeleton from '@/components/documentationComponents/DocumentationRowSkeleton.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import Icon from '@/components/common/Icon.vue'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { formatDate } from '@/utils/dateUtils'
 
@@ -85,9 +86,9 @@ onMounted(() => {
         <!-- Header -->
         <div class="flex items-center justify-between gap-4 pb-4 border-b border-default">
           <div class="flex items-center gap-3">
-            <svg class="h-7 w-7 text-status-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
+            <span class="text-status-error inline-flex">
+              <Icon name="trash" size="lg" />
+            </span>
             <div>
               <h2 class="text-xl font-semibold text-primary">Trash</h2>
               <p class="text-sm text-tertiary mt-0.5">Deleted pages can be restored or permanently removed</p>
@@ -149,9 +150,7 @@ onMounted(() => {
                   ? 'bg-status-error text-white hover:bg-status-error/90'
                   : 'border border-default text-status-error hover:bg-status-error/10'"
               >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
+                <Icon name="trash" />
                 {{ String(confirmingDeleteId) === String(page.id) ? 'Confirm delete?' : 'Delete forever' }}
               </button>
             </div>

@@ -4,6 +4,7 @@ import { ref, onMounted, computed } from 'vue'
 import AlertMessage from '@/components/common/AlertMessage.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import Modal from '@/components/Modal.vue'
 import { assignmentRuleService } from '@/services/assignmentRuleService'
@@ -282,9 +283,7 @@ onMounted(() => {
           @click="openCreateModal"
           class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:opacity-90 font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
+          <Icon name="add" />
           New Rule
         </button>
       </div>
@@ -292,9 +291,7 @@ onMounted(() => {
       <!-- Info box -->
       <div class="bg-status-info/10 border border-status-info/30 rounded-lg p-4 text-sm text-status-info">
         <div class="flex items-start gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <Icon name="info" size="md" class="flex-shrink-0" />
           <p>Rules are evaluated in priority order (top to bottom). The first matching rule wins. Tickets with an existing assignee are not auto-assigned.</p>
         </div>
       </div>
@@ -325,9 +322,7 @@ onMounted(() => {
                 class="p-1 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                 title="Move up (higher priority)"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
-                </svg>
+                <Icon name="chevronUp" />
               </button>
               <span class="text-xs text-tertiary text-center w-full">{{ index + 1 }}</span>
               <button
@@ -336,9 +331,7 @@ onMounted(() => {
                 class="p-1 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                 title="Move down (lower priority)"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
+                <Icon name="chevronDown" />
               </button>
             </div>
 
@@ -361,15 +354,11 @@ onMounted(() => {
               </p>
               <div class="flex items-center gap-4 mt-1.5 text-xs text-tertiary">
                 <span class="flex items-center gap-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
+                  <Icon name="user" />
                   {{ getTargetDisplay(rule) }}
                 </span>
                 <span v-if="rule.category" class="flex items-center gap-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                  </svg>
+                  <Icon name="tag" />
                   {{ rule.category.name }}
                 </span>
                 <span class="flex items-center gap-1">
@@ -382,9 +371,7 @@ onMounted(() => {
                   <span v-else>No triggers</span>
                 </span>
                 <span v-if="rule.state" class="flex items-center gap-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
+                  <Icon name="insights" />
                   {{ rule.state.total_assignments }} assigned
                 </span>
               </div>
@@ -397,30 +384,22 @@ onMounted(() => {
                 class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
                 :title="rule.is_active ? 'Deactivate rule' : 'Activate rule'"
               >
-                <svg v-if="rule.is_active" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                </svg>
-                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <Icon v-if="rule.is_active" name="close" />
+                <Icon v-else name="checkCircle" />
               </button>
               <button
                 @click="openEditModal(rule)"
                 class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
                 title="Edit rule"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
+                <Icon name="rename" />
               </button>
               <button
                 @click="confirmDelete(rule)"
                 class="p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
                 title="Delete rule"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
+                <Icon name="trash" />
               </button>
             </div>
           </div>

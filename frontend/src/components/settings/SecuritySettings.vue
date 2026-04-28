@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import authService from '@/services/authService';
 import userService from '@/services/userService';
+import Spinner from '@/components/common/Spinner.vue';
 
 const props = defineProps<{
   targetUserUuid?: string;
@@ -152,11 +153,8 @@ const adminResetPassword = async () => {
             :disabled="!isAdminFormValid || loading"
             class="px-6 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
           >
-            <span v-if="loading" class="animate-spin h-4 w-4 mr-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 004 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
+            <span v-if="loading" class="mr-2 inline-flex">
+              <Spinner />
             </span>
             Reset Password
           </button>
@@ -232,11 +230,8 @@ const adminResetPassword = async () => {
             :disabled="!isFormValid || loading"
             class="px-6 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
           >
-            <span v-if="loading" class="animate-spin h-4 w-4 mr-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 004 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
+            <span v-if="loading" class="mr-2 inline-flex">
+              <Spinner />
             </span>
             Change Password
           </button>

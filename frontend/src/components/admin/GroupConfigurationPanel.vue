@@ -8,6 +8,8 @@ import Modal from '@/components/Modal.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import DeviceOsIcon from '@/components/common/DeviceOsIcon.vue';
+import Icon from '@/components/common/Icon.vue';
+import Spinner from '@/components/common/Spinner.vue';
 import { groupService } from '@/services/groupService';
 import { getPaginatedDevices } from '@/services/deviceService';
 import { useDataStore } from '@/stores/dataStore';
@@ -579,18 +581,14 @@ onMounted(() => {
             class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
             title="Delete group"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
+            <Icon name="trash" />
           </button>
           <button
             @click="emit('close')"
             class="p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
             title="Close panel"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <Icon name="close" size="md" />
           </button>
         </div>
       </div>
@@ -605,9 +603,9 @@ onMounted(() => {
         <template v-if="isExternallySyncedGroup">
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 bg-surface border border-default rounded-xl">
             <div class="flex items-center gap-3 min-w-0">
-              <svg class="w-5 h-5 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              <span class="text-tertiary flex-shrink-0 inline-flex">
+                <Icon name="refresh" size="md" />
+              </span>
               <div class="min-w-0">
                 <p class="text-sm font-medium text-primary truncate">Managed by {{ group.external_source === 'microsoft' ? 'Microsoft Entra ID' : group.external_source }}</p>
                 <p v-if="group.last_synced_at" class="text-xs text-tertiary">Last synced {{ new Date(group.last_synced_at).toLocaleDateString() }}</p>
@@ -741,10 +739,7 @@ onMounted(() => {
                     :disabled="saving || !hasGeneralChanges"
                     class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
-                    <svg v-if="saving" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
+                    <Spinner v-if="saving" />
                     Save Changes
                   </button>
                 </div>
@@ -761,9 +756,9 @@ onMounted(() => {
               </template>
               <div class="flex flex-col gap-4">
                 <div class="relative">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary inline-flex">
+                    <Icon name="search" />
+                  </span>
                   <input
                     v-model="userSearchQuery"
                     type="text"
@@ -860,10 +855,7 @@ onMounted(() => {
                     :disabled="savingMembers || !hasMemberChanges"
                     class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
-                    <svg v-if="savingMembers" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
+                    <Spinner v-if="savingMembers" />
                     Save Members
                   </button>
                 </div>
@@ -881,9 +873,9 @@ onMounted(() => {
             </template>
             <div class="flex flex-col gap-4">
               <div class="relative">
-                <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary inline-flex">
+                  <Icon name="search" />
+                </span>
                 <input
                   v-model="deviceSearchQuery"
                   type="text"
@@ -910,9 +902,7 @@ onMounted(() => {
                         class="px-1.5 py-0.5 text-xs bg-accent/10 text-accent rounded-full flex items-center gap-1"
                         title="Synced from Microsoft Intune"
                       >
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
+                        <Icon name="refresh" size="xs" />
                         Synced
                       </span>
                     </div>
@@ -931,10 +921,7 @@ onMounted(() => {
                   :disabled="savingDevices || !hasDeviceChanges"
                   class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
-                  <svg v-if="savingDevices" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
+                  <Spinner v-if="savingDevices" />
                   Save Devices
                 </button>
               </div>
@@ -952,9 +939,9 @@ onMounted(() => {
             <div class="flex flex-col gap-4">
               <p class="text-xs text-tertiary">Members of included groups are treated as members of this group for visibility, access, and assignment.</p>
               <div class="relative">
-                <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary inline-flex">
+                  <Icon name="search" />
+                </span>
                 <input
                   v-model="includeSearchQuery"
                   type="text"
@@ -985,9 +972,7 @@ onMounted(() => {
                         v-if="availableGroup.external_source"
                         class="px-1.5 py-0.5 text-xs bg-accent/10 text-accent rounded-full flex items-center gap-1"
                       >
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
+                        <Icon name="refresh" size="xs" />
                         Synced
                       </span>
                     </div>
@@ -1002,10 +987,7 @@ onMounted(() => {
                   :disabled="savingIncludes || !hasIncludeChanges"
                   class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
-                  <svg v-if="savingIncludes" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
+                  <Spinner v-if="savingIncludes" />
                   Save Included Groups
                 </button>
               </div>
@@ -1073,10 +1055,7 @@ onMounted(() => {
             :disabled="isDeleting"
             class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
           >
-            <svg v-if="isDeleting" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+            <Spinner v-if="isDeleting" />
             Delete Group
           </button>
         </div>

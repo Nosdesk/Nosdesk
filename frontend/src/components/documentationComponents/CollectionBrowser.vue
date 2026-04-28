@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import DocumentIconSelector from '@/components/DocumentIconSelector.vue'
 import Skeleton from '@/components/common/Skeleton.vue'
 import SkeletonBar from '@/components/common/SkeletonBar.vue'
+import Icon from '@/components/common/Icon.vue'
 
 const authStore = useAuthStore()
 const collections = ref<CollectionWithDetails[]>([])
@@ -122,9 +123,7 @@ onMounted(loadCollections)
         @click="showCreateForm = !showCreateForm"
         class="flex items-center gap-1 text-xs px-3 py-1.5 rounded-md bg-surface-alt hover:bg-surface-hover text-secondary hover:text-primary transition-colors flex-shrink-0"
       >
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-        </svg>
+        <Icon name="add" />
         New
       </button>
     </div>

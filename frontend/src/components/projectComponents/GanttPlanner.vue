@@ -5,6 +5,7 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ticketService from '@/services/ticketService'
 import UserAvatar from '@/components/UserAvatar.vue'
+import Icon from '@/components/common/Icon.vue'
 import type { Ticket } from '@/types/ticket'
 
 // Processed task structure for Gantt chart display
@@ -510,9 +511,7 @@ const hideTooltip = () => {
             @click="moveRangeLeft"
             class="p-1 bg-surface text-secondary rounded-md hover:bg-surface-hover transition-colors"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-            </svg>
+            <Icon name="chevronLeft" size="xs" />
           </button>
           
           <button
@@ -526,9 +525,7 @@ const hideTooltip = () => {
             @click="moveRangeRight"
             class="p-1 bg-surface text-secondary rounded-md hover:bg-surface-hover transition-colors"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-            </svg>
+            <Icon name="chevronRight" size="xs" />
           </button>
           
           <div class="h-4 border-r border-default mx-1"></div>

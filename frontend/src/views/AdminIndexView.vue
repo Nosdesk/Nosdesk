@@ -6,6 +6,7 @@ import {
   getAdminIconHtml,
   filterAdminNavGroups
 } from '@/components/admin/adminNavData';
+import Icon from '@/components/common/Icon.vue';
 
 const searchQuery = ref('');
 const filteredGroups = computed(() => filterAdminNavGroups(adminNavGroups, searchQuery.value));
@@ -21,9 +22,7 @@ const filteredGroups = computed(() => filterAdminNavGroups(adminNavGroups, searc
           to="/"
           class="md:hidden flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors mb-3"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
+          <Icon name="chevronLeft" />
           Back to Dashboard
         </RouterLink>
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -34,9 +33,9 @@ const filteredGroups = computed(() => filterAdminNavGroups(adminNavGroups, searc
           <!-- Tablet: inline search (hidden on phone where it's sticky-bottom, hidden on desktop where sidebar has it) -->
           <div class="hidden md:block lg:hidden w-64 flex-shrink-0">
             <div class="relative">
-              <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary inline-flex">
+                <Icon name="search" />
+              </span>
               <input
                 v-model="searchQuery"
                 type="text"
@@ -48,9 +47,7 @@ const filteredGroups = computed(() => filterAdminNavGroups(adminNavGroups, searc
                 @click="searchQuery = ''"
                 class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary hover:text-secondary"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <Icon name="close" />
               </button>
             </div>
           </div>
@@ -80,9 +77,9 @@ const filteredGroups = computed(() => filterAdminNavGroups(adminNavGroups, searc
                 <h3 class="text-sm font-medium text-primary">{{ item.title }}</h3>
                 <p class="text-xs text-secondary mt-0.5 line-clamp-1">{{ item.description }}</p>
               </div>
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-tertiary group-hover:text-secondary transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
+              <span class="text-tertiary group-hover:text-secondary transition-colors flex-shrink-0 inline-flex">
+                <Icon name="chevronRight" />
+              </span>
             </RouterLink>
           </div>
         </div>
@@ -98,9 +95,9 @@ const filteredGroups = computed(() => filterAdminNavGroups(adminNavGroups, searc
     <!-- Search — pinned to bottom on phone only; tablet has inline search, desktop has sidebar search -->
     <div class="sticky bottom-0 bg-app border-t border-default px-4 sm:px-6 py-3 md:hidden">
       <div class="relative max-w-4xl mx-auto">
-        <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary inline-flex">
+          <Icon name="search" />
+        </span>
         <input
           v-model="searchQuery"
           type="text"
@@ -112,9 +109,7 @@ const filteredGroups = computed(() => filterAdminNavGroups(adminNavGroups, searc
           @click="searchQuery = ''"
           class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary hover:text-secondary"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <Icon name="close" />
         </button>
       </div>
     </div>

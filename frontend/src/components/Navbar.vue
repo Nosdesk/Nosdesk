@@ -11,6 +11,7 @@ import { useNavbarState } from "@/composables/useNavbarState";
 import { useGlobalSearch } from "@/composables/useGlobalSearch";
 import { useBrandingStore } from "@/stores/branding";
 import { useThemeStore } from "@/stores/theme";
+import Icon from "@/components/common/Icon.vue";
 
 // Global search
 const { openSearch } = useGlobalSearch();
@@ -221,19 +222,7 @@ const isRouteActive = (path: string, exact = false) => {
                 :title="isCollapsed ? 'Search' : ''"
             >
                 <div class="flex items-center gap-2">
-                    <svg
-                        class="w-4 h-4"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                        />
-                    </svg>
+                    <Icon name="search" />
                     <span v-if="!isCollapsed" class="text-sm">Search</span>
                 </div>
                 <kbd
@@ -425,19 +414,7 @@ const isRouteActive = (path: string, exact = false) => {
                 aria-label="Search"
                 title="Search"
             >
-                <svg
-                    class="w-6 h-6"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                >
-                    <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                </svg>
+                <Icon name="search" size="lg" />
             </button>
         </div>
     </nav>

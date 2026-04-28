@@ -4,6 +4,7 @@ import { ref, onMounted, computed } from 'vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
+import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
 import apiTokenService from '@/services/apiTokenService';
 import userService from '@/services/userService';
@@ -191,9 +192,7 @@ onMounted(() => {
           @click="openCreateModal"
           class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
+          <Icon name="add" />
           <span class="hidden xs:inline">Create Token</span>
           <span class="xs:hidden">Create</span>
         </button>
@@ -221,9 +220,7 @@ onMounted(() => {
             <div class="p-3 sm:p-4 flex items-start gap-3 sm:gap-4">
               <!-- Key icon -->
               <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-5 sm:w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                </svg>
+                <Icon name="key" class="sm:h-5 sm:w-5 text-accent" />
               </div>
 
               <!-- Token info -->
@@ -253,9 +250,7 @@ onMounted(() => {
                   class="p-1.5 sm:p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md sm:rounded-lg transition-colors"
                   title="Revoke token"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                  </svg>
+                  <Icon name="close" />
                 </button>
               </div>
             </div>
@@ -273,9 +268,7 @@ onMounted(() => {
             <div class="p-3 sm:p-4 flex items-start gap-3 sm:gap-4">
               <!-- Key icon (strikethrough) -->
               <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-surface-alt flex items-center justify-center flex-shrink-0">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-5 sm:w-5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                </svg>
+                <Icon name="key" class="sm:h-5 sm:w-5 text-secondary" />
               </div>
 
               <!-- Token info -->
@@ -399,9 +392,7 @@ onMounted(() => {
     >
       <div class="flex flex-col gap-4">
         <div class="flex items-center gap-2 p-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-status-warning flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
+          <Icon name="warning" size="md" class="text-status-warning flex-shrink-0" />
           <p class="text-sm text-status-warning">Copy this token now - it won't be shown again!</p>
         </div>
 
@@ -414,12 +405,8 @@ onMounted(() => {
             class="absolute top-2 right-2 p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors"
             :title="copiedToken ? 'Copied!' : 'Copy to clipboard'"
           >
-            <svg v-if="!copiedToken" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-status-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
+            <Icon v-if="!copiedToken" name="copy" />
+            <Icon v-else name="check" class="text-status-success" />
           </button>
         </div>
 

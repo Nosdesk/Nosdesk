@@ -1,21 +1,7 @@
 <template>
   <div class="relative flex-grow min-w-[150px]">
-    <div class="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none">
-      <svg
-        class="w-3.5 h-3.5 text-tertiary"
-        aria-hidden="true"
-        xmlns="http://www.w3.org/2000/svg"
-        fill="none"
-        viewBox="0 0 20 20"
-      >
-        <path
-          stroke="currentColor"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z"
-        />
-      </svg>
+    <div class="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-tertiary">
+      <Icon name="search" />
     </div>
     <input
       ref="inputRef"
@@ -30,6 +16,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import Icon from '@/components/common/Icon.vue'
 
 interface Props {
   modelValue: string

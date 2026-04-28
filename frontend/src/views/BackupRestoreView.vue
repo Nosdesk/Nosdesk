@@ -68,10 +68,7 @@
               :disabled="isExporting || (includeSensitive && (!exportPassword || exportPassword !== exportPasswordConfirm))"
               class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              <svg v-if="isExporting" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
+              <Spinner v-if="isExporting" />
               {{ isExporting ? 'Creating Backup...' : 'Create Backup' }}
             </button>
           </div>
@@ -85,9 +82,7 @@
           <div class="flex flex-row items-center justify-between gap-3">
             <div class="flex flex-row items-center gap-3 min-w-0">
               <div class="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-accent/15 flex items-center justify-center text-accent">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                </svg>
+                <Icon name="archive" size="md" />
               </div>
               <span class="font-medium text-primary text-sm sm:text-base">Recent Backups</span>
             </div>
@@ -98,10 +93,7 @@
 
           <!-- Content -->
           <div v-if="isLoadingJobs" class="flex items-center justify-center py-8">
-            <svg class="animate-spin h-6 w-6 text-accent" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+            <Spinner size="lg" class="text-accent" />
           </div>
 
           <div v-else-if="exportJobs.length === 0" class="text-center py-8 text-secondary text-sm">
@@ -154,18 +146,14 @@
                     class="p-2 text-accent hover:bg-accent/10 rounded-lg transition-colors"
                     title="Download"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
+                    <Icon name="download" />
                   </button>
                   <button
                     @click="deleteJob(job.id)"
                     class="p-2 text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
                     title="Delete"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
+                    <Icon name="trash" />
                   </button>
                 </div>
               </div>
@@ -180,9 +168,7 @@
           <!-- Header row with icon -->
           <div class="flex flex-row items-start gap-3">
             <div class="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-accent/15 flex items-center justify-center text-accent">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+              <Icon name="copyMd" size="md" />
             </div>
             <div class="flex-1 min-w-0">
               <span class="font-medium text-primary text-sm sm:text-base block">Export Documentation to Markdown</span>
@@ -197,13 +183,8 @@
               :disabled="isExportingDocs"
               class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              <svg v-if="isExportingDocs" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
+              <Spinner v-if="isExportingDocs" />
+              <Icon v-else name="download" />
               {{ isExportingDocs ? (docsExportProgress ? `Exporting ${docsExportProgress.current}/${docsExportProgress.total}...` : 'Preparing...') : 'Export as Markdown' }}
             </button>
             <span v-if="docsExportProgress" class="text-xs sm:text-sm text-secondary">
@@ -219,9 +200,7 @@
           <!-- Header row with icon -->
           <div class="flex flex-row items-start gap-3">
             <div class="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-status-warning/20 flex items-center justify-center text-status-warning">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              <Icon name="refresh" size="md" />
             </div>
             <div class="flex-1 min-w-0">
               <span class="font-medium text-primary text-sm sm:text-base block">Restore from Backup</span>
@@ -320,10 +299,7 @@
                 :disabled="isRestoring || (restorePreview.has_encrypted_sensitive && !restorePassword)"
                 class="px-4 py-2 bg-status-warning text-white rounded-lg text-sm font-medium hover:bg-status-warning/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                <svg v-if="isRestoring" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+                <Spinner v-if="isRestoring" />
                 {{ isRestoring ? 'Restoring...' : 'Restore Files' }}
               </button>
               <button
@@ -356,6 +332,8 @@ import { ref, onMounted, computed } from 'vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import PasswordInput from '@/components/common/PasswordInput.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
+import Icon from '@/components/common/Icon.vue';
+import Spinner from '@/components/common/Spinner.vue';
 import backupService from '@/services/backupService';
 import { downloadDocumentationExport, type ExportProgress } from '@/services/markdownExportService';
 import type { BackupJob, RestorePreview } from '@/types/backup';

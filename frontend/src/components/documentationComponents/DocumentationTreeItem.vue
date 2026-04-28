@@ -5,6 +5,7 @@ import type { Page } from '@/services/documentationService'
 import { computed } from 'vue'
 import { formatDate } from '@/utils/dateUtils'
 import { docUrl } from '@/utils/docUrl'
+import Icon from '@/components/common/Icon.vue'
 
 const props = defineProps<{
   page: Page
@@ -61,16 +62,12 @@ const authorName = computed(() => {
         class="expand-btn"
         :aria-label="isExpanded ? 'Collapse' : 'Expand'"
       >
-        <svg
-          class="w-3.5 h-3.5 transition-transform duration-200"
+        <span
+          class="transition-transform duration-200 inline-flex"
           :class="{ 'rotate-90': isExpanded }"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          stroke-width="2.5"
         >
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
+          <Icon name="chevronRight" />
+        </span>
       </button>
       <span v-else class="expand-placeholder"></span>
 
@@ -104,15 +101,9 @@ const authorName = computed(() => {
         </span>
 
         <!-- Arrow indicator -->
-        <svg
-          class="w-4 h-4 text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
+        <span class="text-tertiary opacity-0 group-hover:opacity-100 transition-opacity inline-flex">
+          <Icon name="chevronRight" />
+        </span>
       </div>
     </RouterLink>
 

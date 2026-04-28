@@ -12,6 +12,7 @@
 import { computed, ref } from 'vue'
 import Popover from '@/components/common/Popover.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
+import Icon from '@/components/common/Icon.vue'
 
 export interface SidebarAddMenuItem {
   id: string
@@ -89,24 +90,14 @@ function handleSelect(id: string) {
       <div
         class="flex items-center justify-center gap-2 text-sm text-tertiary group-hover:text-accent transition-colors"
       >
-        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-          <path
-            d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-          />
-        </svg>
+        <Icon name="add" />
         <span>Add</span>
-        <svg
-          class="w-3.5 h-3.5 transition-transform"
+        <span
+          class="transition-transform inline-flex"
           :class="{ 'rotate-180': isOpen }"
-          viewBox="0 0 20 20"
-          fill="currentColor"
         >
-          <path
-            fill-rule="evenodd"
-            d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-            clip-rule="evenodd"
-          />
-        </svg>
+          <Icon name="chevronDown" />
+        </span>
       </div>
     </button>
 

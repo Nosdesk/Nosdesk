@@ -4,6 +4,7 @@ import { setCollectionVisibility } from '@/services/collectionService'
 import type { VisibleUser } from '@/services/collectionService'
 import AssignmentPicker from '@/components/common/AssignmentPicker.vue'
 import type { SelectedPrincipal } from '@/components/common/AssignmentPicker.vue'
+import Icon from '@/components/common/Icon.vue'
 
 const props = defineProps<{
   collectionId: number
@@ -93,9 +94,7 @@ onMounted(async () => {
           @click="emit('close')"
           class="text-tertiary hover:text-primary p-1 rounded-md hover:bg-surface-hover transition-colors"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <Icon name="close" />
         </button>
       </div>
 

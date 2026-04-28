@@ -12,6 +12,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useDataStore } from '@/stores/dataStore';
 import UserAvatar from '@/components/UserAvatar.vue';
+import Spinner from '@/components/common/Spinner.vue';
 
 const props = withDefaults(defineProps<{
   modelValue: string;
@@ -300,8 +301,8 @@ defineExpose({
         </div>
 
         <!-- Loading -->
-        <div v-if="isSearching" class="px-3 py-4 flex items-center justify-center">
-          <div class="animate-spin rounded-full h-4 w-4 border-2 border-accent border-t-transparent"></div>
+        <div v-if="isSearching" class="px-3 py-4 flex items-center justify-center text-accent">
+          <Spinner />
         </div>
 
         <!-- User list -->

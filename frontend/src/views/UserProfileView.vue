@@ -8,6 +8,8 @@ import UserProfileCard from "@/components/settings/UserProfileCard.vue";
 import UserEmailsCard from "@/components/settings/UserEmailsCard.vue";
 import UserAssignedTickets from "@/components/UserAssignedTickets.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
+import Icon from "@/components/common/Icon.vue";
+import Spinner from "@/components/common/Spinner.vue";
 import { RouterLink } from "vue-router";
 import userService from "@/services/userService";
 import { useColorFilter } from "@/composables/useColorFilter";
@@ -358,26 +360,7 @@ watch(
                         to="/profile/settings"
                         class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium flex items-center gap-1"
                     >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="h-4 w-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                            />
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                            />
-                        </svg>
+                        <Icon name="settings" />
                         Profile Settings
                     </RouterLink>
 
@@ -387,26 +370,7 @@ watch(
                         :to="`/users/${userProfile.uuid}/settings`"
                         class="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors text-sm font-medium flex items-center gap-2"
                     >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="h-4 w-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                            />
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                            />
-                        </svg>
+                        <Icon name="settings" />
                         User Settings
                     </RouterLink>
                 </div>
@@ -418,9 +382,7 @@ watch(
                     v-if="error"
                     class="bg-status-error/10 border border-status-error/30 rounded-xl p-4 flex items-start gap-3"
                 >
-                    <svg class="w-5 h-5 text-status-error flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                    <Icon name="warning" size="md" class="text-status-error flex-shrink-0 mt-0.5" />
                     <span class="text-status-error text-sm">{{ error }}</span>
                 </div>
 
@@ -432,9 +394,7 @@ watch(
                         <div class="px-6 py-4 bg-surface-alt border-b border-default">
                             <div class="flex items-center gap-3">
                                 <div class="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                                    </svg>
+                                    <Icon name="userPlus" size="md" class="text-accent" />
                                 </div>
                                 <div>
                                     <h1 class="text-lg font-semibold text-primary">Create New User</h1>
@@ -449,9 +409,7 @@ watch(
                                 <!-- Left Column: Basic Info -->
                                 <div class="flex flex-col gap-5">
                                     <h2 class="text-sm font-semibold text-primary flex items-center gap-2">
-                                        <svg class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                        </svg>
+                                        <Icon name="user" class="text-tertiary" />
                                         Basic Information
                                     </h2>
 
@@ -511,9 +469,7 @@ watch(
                                 <!-- Right Column: Account Setup -->
                                 <div class="flex flex-col gap-5">
                                     <h2 class="text-sm font-semibold text-primary flex items-center gap-2">
-                                        <svg class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                                        </svg>
+                                        <Icon name="key" class="text-tertiary" />
                                         Account Setup
                                     </h2>
 
@@ -522,9 +478,7 @@ watch(
                                         v-if="!smtpConfigured"
                                         class="flex items-start gap-3 p-4 bg-status-warning/10 border border-status-warning/20 rounded-lg"
                                     >
-                                        <svg class="w-5 h-5 text-status-warning flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                        </svg>
+                                        <Icon name="warning" size="md" class="text-status-warning flex-shrink-0 mt-0.5" />
                                         <div class="flex flex-col gap-1">
                                             <span class="text-sm font-medium text-status-warning">Email not configured</span>
                                             <span class="text-xs text-status-warning/80">You must set a password manually since email invitations are unavailable.</span>
@@ -549,9 +503,7 @@ watch(
                                                 class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
                                                 :class="sendInvitation ? 'bg-accent/20' : 'bg-surface-hover'"
                                             >
-                                                <svg class="w-5 h-5" :class="sendInvitation ? 'text-accent' : 'text-tertiary'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                                </svg>
+                                                <Icon name="email" size="md" :class="sendInvitation ? 'text-accent' : 'text-tertiary'" />
                                             </div>
                                             <div class="flex-1 min-w-0">
                                                 <span class="font-medium" :class="sendInvitation ? 'text-primary' : 'text-secondary'">Send invitation email</span>
@@ -572,9 +524,7 @@ watch(
                                                 class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
                                                 :class="!sendInvitation ? 'bg-accent/20' : 'bg-surface-hover'"
                                             >
-                                                <svg class="w-5 h-5" :class="!sendInvitation ? 'text-accent' : 'text-tertiary'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                                </svg>
+                                                <Icon name="lock" size="md" :class="!sendInvitation ? 'text-accent' : 'text-tertiary'" />
                                             </div>
                                             <div class="flex-1 min-w-0">
                                                 <span class="font-medium" :class="!sendInvitation ? 'text-primary' : 'text-secondary'">Set password manually</span>
@@ -612,13 +562,8 @@ watch(
                                                     class="absolute right-3 top-1/2 -translate-y-1/2 text-tertiary hover:text-primary transition-colors p-1"
                                                     tabindex="-1"
                                                 >
-                                                    <svg v-if="showPassword" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                    </svg>
-                                                    <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                                                    </svg>
+                                                    <Icon v-if="showPassword" name="eye" size="md" />
+                                                    <Icon v-else name="eyeOff" size="md" />
                                                 </button>
                                             </div>
                                             <!-- Password strength indicator -->
@@ -662,18 +607,11 @@ watch(
                                                 class="text-xs flex items-center gap-1.5"
                                                 :class="manualPassword === confirmPassword && manualPassword.length >= 8 ? 'text-status-success' : 'text-status-error'"
                                             >
-                                                <svg
+                                                <Icon
                                                     v-if="manualPassword === confirmPassword && manualPassword.length >= 8"
-                                                    class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                                                >
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                                                </svg>
-                                                <svg
-                                                    v-else
-                                                    class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                                                >
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                                </svg>
+                                                    name="check"
+                                                />
+                                                <Icon v-else name="close" />
                                                 {{ manualPassword === confirmPassword && manualPassword.length >= 8 ? 'Passwords match' : 'Passwords do not match' }}
                                             </p>
                                         </div>
@@ -705,18 +643,8 @@ watch(
                                     "
                                     class="px-5 py-2.5 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
-                                    <svg
-                                        v-if="isSaving"
-                                        class="w-4 h-4 animate-spin"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 004 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                                    </svg>
-                                    <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                    </svg>
+                                    <Spinner v-if="isSaving" />
+                                    <Icon v-else name="add" />
                                     {{ isSaving ? "Creating..." : "Create User" }}
                                 </button>
                             </div>
@@ -851,9 +779,7 @@ watch(
                                             ...colorFilterStyle
                                         }"
                                     >
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                        </svg>
+                                        <Icon name="team" />
                                         {{ group.name }}
                                     </button>
                                 </div>

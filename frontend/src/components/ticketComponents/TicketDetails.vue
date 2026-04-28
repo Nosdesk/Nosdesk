@@ -5,6 +5,7 @@ import UserAutocomplete from "@/components/ticketComponents/UserSelection.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
 import ContentEditable from "@/components/ticketComponents/ContentEditable.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
+import Icon from "@/components/common/Icon.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
@@ -236,10 +237,7 @@ watchEffect(async () => {
                 class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent"
                 :title="`Opened via ${ticket.submitted_via ?? 'channel'} — replies are relayed back through the thread`"
               >
-                <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
-                  <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
-                </svg>
+                <Icon name="email" size="xs" />
                 via {{ ticket.submitted_via === 'email_imap' ? 'email' : ticket.submitted_via ?? 'channel' }}
               </span>
             </div>
@@ -267,9 +265,7 @@ watchEffect(async () => {
                     type="button"
                     title="Clear requester"
                   >
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <Icon name="close" />
                   </button>
                   <button
                     @click="requesterRef?.focus()"
@@ -277,9 +273,7 @@ watchEffect(async () => {
                     type="button"
                     title="Add requester"
                   >
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                    </svg>
+                    <Icon name="add" />
                   </button>
                 </div>
               </div>
@@ -309,9 +303,7 @@ watchEffect(async () => {
                     type="button"
                     title="Clear assignee"
                   >
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <Icon name="close" />
                   </button>
                   <button
                     @click="assigneeRef?.focus()"
@@ -319,9 +311,7 @@ watchEffect(async () => {
                     type="button"
                     title="Add assignee"
                   >
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                    </svg>
+                    <Icon name="add" />
                   </button>
                 </div>
               </div>

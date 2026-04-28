@@ -6,6 +6,8 @@ import BackButton from "@/components/common/BackButton.vue";
 import Modal from "@/components/Modal.vue";
 import AlertMessage from "@/components/common/AlertMessage.vue";
 import Checkbox from "@/components/common/Checkbox.vue";
+import Icon from "@/components/common/Icon.vue";
+import Spinner from "@/components/common/Spinner.vue";
 import { AdminIcons } from "@/components/admin/AdminIcons";
 import type {
   ConfigValidation,
@@ -382,13 +384,8 @@ onMounted(async () => {
           :disabled="connectionStatus !== 'connected' || isLoading || isSyncing || (configValidation && !configValidation.valid)"
           class="self-start sm:self-auto px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
         >
-          <svg v-if="isSyncing" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
+          <Spinner v-if="isSyncing" />
+          <Icon v-else name="refresh" />
           {{ isSyncing ? 'Syncing...' : 'Sync Data' }}
         </button>
       </div>
@@ -493,9 +490,7 @@ onMounted(async () => {
                 v-if="configValidation?.issues && configValidation.issues.length > 0"
                 class="p-2 bg-status-error/10 border border-status-error/30 rounded-lg text-sm text-status-error flex items-start gap-2"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                </svg>
+                <Icon name="info" class="flex-shrink-0 mt-0.5" />
                 <div>
                   <span v-for="(issue, index) in configValidation.issues" :key="issue">
                     {{ issue }}<span v-if="index < configValidation.issues.length - 1">; </span>
@@ -527,10 +522,7 @@ onMounted(async () => {
             <!-- Header with step indicator and cancel -->
             <div class="flex items-center gap-3">
               <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
-                <svg class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+                <Spinner size="md" />
               </div>
 
               <div class="flex-1 min-w-0">
@@ -608,10 +600,7 @@ onMounted(async () => {
               @click="resumeSync(sync.session_id)"
             >
               <div class="flex-shrink-0 h-7 w-7 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
-                <svg class="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+                <Spinner />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2">
@@ -641,9 +630,7 @@ onMounted(async () => {
           <div class="p-4 flex flex-col gap-3">
             <div class="flex items-center gap-3">
               <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <Icon name="clock" size="md" />
               </div>
 
               <div class="flex-1 flex items-center gap-2 flex-wrap">
@@ -739,9 +726,7 @@ onMounted(async () => {
 
         <!-- Info notice -->
         <div class="p-3 bg-accent/10 border border-accent/30 rounded-lg text-sm text-accent flex items-start gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <Icon name="info" class="flex-shrink-0 mt-0.5" />
           <span>Synchronization will import the latest data from Microsoft services. This may take several minutes depending on the amount of data.</span>
         </div>
 
@@ -771,15 +756,9 @@ onMounted(async () => {
                   </p>
                 </div>
                 <div class="flex items-center">
-                  <svg v-if="result.status === 'completed'" class="w-4 h-4 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                  </svg>
-                  <svg v-else-if="result.status === 'completed_with_errors'" class="w-4 h-4 text-status-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.864-.833-2.634 0l-5.898 8.5c-.77.833.192 2.5 1.732 2.5z"></path>
-                  </svg>
-                  <svg v-else class="w-4 h-4 text-status-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                  </svg>
+                  <Icon v-if="result.status === 'completed'" name="check" class="text-status-success" />
+                  <Icon v-else-if="result.status === 'completed_with_errors'" name="warning" class="text-status-warning" />
+                  <Icon v-else name="close" class="text-status-error" />
                 </div>
               </div>
 
@@ -821,13 +800,8 @@ onMounted(async () => {
             :disabled="isLoading || isSyncing || selectedEntities.length === 0"
             class="w-full px-4 py-2.5 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            <svg v-if="isLoading || isSyncing" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
+            <Spinner v-if="isLoading || isSyncing" />
+            <Icon v-else name="refresh" />
             {{ isLoading ? 'Starting...' : isSyncing ? 'Syncing...' : 'Start Sync' }}
           </button>
         </div>

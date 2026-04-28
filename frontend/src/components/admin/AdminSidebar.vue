@@ -7,6 +7,7 @@ import {
   getAdminIconHtml,
   filterAdminNavGroups
 } from '@/components/admin/adminNavData';
+import Icon from '@/components/common/Icon.vue';
 
 const route = useRoute();
 const searchQuery = ref('');
@@ -24,9 +25,7 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
         to="/"
         class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-        </svg>
+        <Icon name="chevronLeft" />
         Back to Dashboard
       </RouterLink>
     </div>
@@ -39,9 +38,9 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
     <!-- Search -->
     <div class="px-3 pb-3">
       <div class="relative">
-        <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
+        <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary inline-flex">
+          <Icon name="search" />
+        </span>
         <input
           v-model="searchQuery"
           type="text"
@@ -53,9 +52,7 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
           @click="searchQuery = ''"
           class="absolute right-2 top-1/2 -translate-y-1/2 text-tertiary hover:text-secondary"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <Icon name="close" />
         </button>
       </div>
     </div>

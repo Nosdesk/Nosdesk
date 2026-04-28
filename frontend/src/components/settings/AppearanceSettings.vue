@@ -6,6 +6,7 @@ import { getTheme } from '@/themes'
 import type { ThemeMode } from '@/themes'
 import ThemeCard from '@/components/settings/ThemeCard.vue'
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue'
+import Spinner from '@/components/common/Spinner.vue'
 import userService from '@/services/userService'
 
 const themeStore = useThemeStore()
@@ -152,11 +153,12 @@ const handleCompactViewToggle = () => {
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <div
-            class="w-8 h-8 bg-accent-muted rounded-lg flex items-center justify-center flex-shrink-0"
+            class="w-8 h-8 bg-accent-muted rounded-lg flex items-center justify-center flex-shrink-0 text-accent"
           >
+            <!-- Custom palette/brush glyph; not a registry action icon (decorative section badge). -->
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4 text-accent"
+              class="h-4 w-4"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -178,9 +180,7 @@ const handleCompactViewToggle = () => {
           v-if="isUpdating || themeStore.isSyncing"
           class="flex items-center gap-2 text-accent"
         >
-          <div
-            class="animate-spin h-4 w-4 border-2 border-accent border-t-transparent rounded-full"
-          ></div>
+          <Spinner />
         </div>
       </div>
     </div>

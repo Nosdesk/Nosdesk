@@ -323,7 +323,7 @@ on('ticket-deleted', (data) => {
                         label="High priority only"
                         active-class="bg-priority-high/15 text-priority-high"
                     >
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
                         </svg>
                     </FilterToggle>
@@ -332,7 +332,7 @@ on('ticket-deleted', (data) => {
                         label="New activity only"
                         active-class="bg-accent/15 text-accent"
                     >
-                        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <circle cx="12" cy="12" r="4" />
                             <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.4" />
                         </svg>

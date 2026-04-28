@@ -5,6 +5,8 @@ import UserAvatar from '@/components/UserAvatar.vue';
 import { useDataStore } from '@/stores/dataStore';
 import { useMobileDetection } from '@/composables/useMobileDetection';
 import { useScrollLock } from '@/composables/useScrollLock';
+import Spinner from '@/components/common/Spinner.vue';
+import Icon from '@/components/common/Icon.vue';
 
 const router = useRouter();
 
@@ -533,7 +535,9 @@ const showHelperText = computed(() => {
       <!-- Action Buttons -->
       <div class="flex items-center gap-1.5 flex-shrink-0">
         <!-- Loading indicator -->
-        <div v-if="isSearching" class="w-4 h-4 border-2 border-tertiary border-t-transparent rounded-full animate-spin" />
+        <span v-if="isSearching" class="text-tertiary inline-flex">
+          <Spinner />
+        </span>
 
         <!-- Clear button - larger touch target on mobile (hidden if hideInlineClear is true) -->
         <button
@@ -543,9 +547,7 @@ const showHelperText = computed(() => {
           type="button"
           title="Clear selection"
         >
-          <svg class="w-4 h-4 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <Icon name="close" />
         </button>
       </div>
     </div>
@@ -604,14 +606,9 @@ const showHelperText = computed(() => {
                   </span>
                 </div>
               </div>
-              <svg
-                v-if="modelValue === user.id"
-                class="w-4 h-4 text-accent flex-shrink-0"
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-              </svg>
+              <span v-if="modelValue === user.id" class="text-accent flex-shrink-0 inline-flex">
+                <Icon name="check" />
+              </span>
             </button>
           </div>
 
@@ -632,8 +629,8 @@ const showHelperText = computed(() => {
           </div>
 
           <!-- Loading -->
-          <div v-else-if="isSearching" class="px-4 py-6 text-center">
-            <div class="w-6 h-6 mx-auto border-2 border-tertiary border-t-transparent rounded-full animate-spin" />
+          <div v-else-if="isSearching" class="px-4 py-6 text-center text-tertiary">
+            <Spinner size="lg" />
             <p class="text-sm text-tertiary mt-2">Searching...</p>
           </div>
         </div>
@@ -717,14 +714,9 @@ const showHelperText = computed(() => {
                   </span>
                 </div>
               </div>
-              <svg
-                v-if="modelValue === user.id"
-                class="w-4 h-4 text-accent flex-shrink-0"
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-              </svg>
+              <span v-if="modelValue === user.id" class="text-accent flex-shrink-0 inline-flex">
+                <Icon name="check" />
+              </span>
             </button>
           </div>
 
@@ -746,8 +738,8 @@ const showHelperText = computed(() => {
 
           <!-- Loading -->
           <div v-else-if="isSearching" class="flex-1 flex items-center justify-center px-3 py-6 min-h-0">
-            <div class="text-center">
-              <div class="w-5 h-5 mx-auto border-2 border-tertiary border-t-transparent rounded-full animate-spin" />
+            <div class="text-center text-tertiary">
+              <Spinner size="md" />
               <p class="text-xs text-tertiary mt-1.5">Searching...</p>
             </div>
           </div>
@@ -757,9 +749,9 @@ const showHelperText = computed(() => {
             <!-- Search bar -->
             <div class="px-3 pt-2 pb-1.5">
               <div class="flex items-center gap-2.5 bg-surface-alt rounded-lg px-3 py-2">
-                <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
+                <span class="text-tertiary flex-shrink-0 inline-flex">
+                  <Icon name="search" />
+                </span>
                 <input
                   ref="mobileSearchInput"
                   type="text"
@@ -772,7 +764,9 @@ const showHelperText = computed(() => {
                   autocapitalize="off"
                   enterkeyhint="search"
                 />
-                <div v-if="isSearching" class="w-4 h-4 border-2 border-tertiary border-t-transparent rounded-full animate-spin" />
+                <span v-if="isSearching" class="text-tertiary inline-flex">
+                  <Spinner />
+                </span>
               </div>
             </div>
 

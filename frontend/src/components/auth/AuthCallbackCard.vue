@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import LogoIcon from '@/components/icons/LogoIcon.vue'
+import Icon from '@/components/common/Icon.vue'
 import { useBrandingStore } from '@/stores/branding'
 import { useThemeStore } from '@/stores/theme'
 
@@ -78,18 +79,9 @@ const toggleTechnicalDetails = () => {
             'bg-accent/10 text-accent': errorInfo.icon === 'link'
           }"
         >
-          <!-- Link Icon -->
-          <svg v-if="errorInfo.icon === 'link'" class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-          <!-- Warning Icon -->
-          <svg v-else-if="errorInfo.icon === 'warning'" class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-          </svg>
-          <!-- Error Icon -->
-          <svg v-else class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-          </svg>
+          <Icon v-if="errorInfo.icon === 'link'" name="link" size="lg" />
+          <Icon v-else-if="errorInfo.icon === 'warning'" name="warning" size="lg" />
+          <Icon v-else name="info" size="lg" />
         </div>
 
         <!-- Error Content -->
@@ -120,16 +112,12 @@ const toggleTechnicalDetails = () => {
             @click="toggleTechnicalDetails"
             class="flex items-center gap-2 text-xs text-tertiary hover:text-secondary transition-colors"
           >
-            <svg
-              class="w-3.5 h-3.5 transition-transform duration-200"
+            <span
+              class="transition-transform duration-200 inline-flex"
               :class="{ 'rotate-90': showTechnicalDetails }"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2"
             >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
+              <Icon name="chevronRight" />
+            </span>
             Technical Details
           </button>
 
@@ -153,9 +141,7 @@ const toggleTechnicalDetails = () => {
       <!-- Success State (brief flash before redirect) -->
       <div v-else class="flex flex-col items-center justify-center gap-4">
         <div class="rounded-full p-3 bg-green-500/10 text-green-500">
-          <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <Icon name="checkCircle" size="lg" />
         </div>
         <h2 class="text-lg font-medium text-primary">Authentication successful</h2>
         <p class="text-sm text-tertiary">Redirecting...</p>

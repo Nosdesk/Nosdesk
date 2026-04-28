@@ -105,7 +105,7 @@ const menuItems = computed<MenuItem[]>(() => {
     items.push({
       id: 'permissions',
       label: 'Permissions',
-      icon: ICON_REGISTRY.permissions.d,
+      icon: ICON_REGISTRY.lock.d,
     })
   }
   items.push({ id: 'publish', label: isPublished.value ? 'Unpublish' : 'Publish' })

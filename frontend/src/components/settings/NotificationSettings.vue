@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
+import Icon from '@/components/common/Icon.vue';
 import {
   getNotificationPreferences,
   updateNotificationPreference,
@@ -207,14 +208,9 @@ onMounted(async () => {
         <div class="p-4">
           <div class="flex items-start gap-3">
             <div class="w-9 h-9 bg-accent/15 rounded-lg flex items-center justify-center flex-shrink-0">
-              <svg class="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-                />
-              </svg>
+              <span class="text-accent inline-flex">
+                <Icon name="bell" />
+              </span>
             </div>
             <div class="flex-1 min-w-0 flex flex-col gap-2">
               <div class="flex flex-col gap-1">
@@ -241,10 +237,9 @@ onMounted(async () => {
         <div class="px-4 py-3 bg-surface-alt border-b border-default">
           <div class="flex items-center gap-3">
             <div class="w-8 h-8 bg-accent/15 rounded-lg flex items-center justify-center flex-shrink-0">
-              <svg class="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
+              <span class="text-accent inline-flex">
+                <Icon name="settings" />
+              </span>
             </div>
             <div>
               <h2 class="text-base sm:text-lg font-semibold text-primary">Quick Settings</h2>
@@ -368,9 +363,9 @@ onMounted(async () => {
       <div class="bg-surface rounded-xl border border-default overflow-hidden">
         <div class="px-4 py-3">
           <div class="flex items-center gap-3">
-            <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            <span class="text-tertiary flex-shrink-0 inline-flex">
+              <Icon name="info" />
+            </span>
             <p class="text-xs text-secondary">
               Email notifications are rate limited to prevent inbox flooding. You'll receive at most
               one email per ticket every 5 minutes.

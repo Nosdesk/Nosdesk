@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { getCollections, setPageCollections } from '@/services/collectionService'
 import type { CollectionWithDetails } from '@/services/collectionService'
+import Icon from '@/components/common/Icon.vue'
 
 const props = defineProps<{
   pageId: number
@@ -61,9 +62,7 @@ onMounted(async () => {
           @click="emit('close')"
           class="text-tertiary hover:text-primary p-1 rounded-md hover:bg-surface-hover transition-colors"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <Icon name="close" />
         </button>
       </div>
 
@@ -94,15 +93,9 @@ onMounted(async () => {
                 ? 'bg-accent border-accent'
                 : 'border-subtle'"
             >
-              <svg
-                v-if="selectedIds.has(collection.id)"
-                class="w-3 h-3 text-white"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
-              </svg>
+              <span v-if="selectedIds.has(collection.id)" class="text-white inline-flex">
+                <Icon name="check" size="xs" />
+              </span>
             </div>
 
             <!-- Collection Info -->

@@ -9,6 +9,7 @@
 
 import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
 import { useRouter } from "vue-router";
+import Spinner from "@/components/common/Spinner.vue";
 import * as Y from "yjs";
 import { PermanentUserData } from "yjs";
 import { WebsocketProvider } from "y-websocket";
@@ -2384,8 +2385,8 @@ defineExpose({
                     </div>
 
                     <!-- Loading -->
-                    <div v-if="isMentionSearching" class="px-3 py-4 flex items-center justify-center">
-                        <div class="animate-spin rounded-full h-4 w-4 border-2 border-accent border-t-transparent"></div>
+                    <div v-if="isMentionSearching" class="px-3 py-4 flex items-center justify-center text-accent">
+                        <Spinner />
                     </div>
 
                     <!-- User list -->

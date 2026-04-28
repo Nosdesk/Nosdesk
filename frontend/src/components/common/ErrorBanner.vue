@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import Icon from '@/components/common/Icon.vue'
+
 defineProps<{
   message: string
   dismissible?: boolean
@@ -32,9 +34,7 @@ const emit = defineEmits<{
       class="flex-shrink-0 text-status-error hover:opacity-80 focus:outline-none"
       aria-label="Dismiss error"
     >
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-      </svg>
+      <Icon name="close" />
     </button>
   </div>
 </template>

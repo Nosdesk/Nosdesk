@@ -12,6 +12,8 @@ import ticketService from '@/services/ticketService'
 import type { Page } from '@/services/documentationService'
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue'
 import BackButton from '@/components/common/BackButton.vue'
+import Icon from '@/components/common/Icon.vue'
+import Spinner from '@/components/common/Spinner.vue'
 import DocumentActionsMenu from '@/components/documentationComponents/DocumentActionsMenu.vue'
 import MoveDocumentModal from '@/components/documentationComponents/MoveDocumentModal.vue'
 import DocumentationBreadcrumb from '@/components/documentationComponents/DocumentationBreadcrumb.vue'
@@ -602,10 +604,7 @@ watch(documentObj, (newDocument) => {
 
         <!-- Saving indicator -->
         <span v-if="isSaving" class="text-accent flex items-center gap-1 text-xs">
-          <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
+          <Spinner size="xs" />
           Saving...
         </span>
 
@@ -615,9 +614,7 @@ watch(documentObj, (newDocument) => {
           @click="handlePublishPage"
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
         >
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-          </svg>
+          <Icon name="check" />
           <span class="hidden sm:inline">Publish</span>
         </button>
 
@@ -641,12 +638,8 @@ watch(documentObj, (newDocument) => {
           class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
           :title="copiedLink ? 'Copied!' : 'Copy link'"
         >
-          <svg v-if="!copiedLink" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-          <svg v-else class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-          </svg>
+          <Icon v-if="!copiedLink" name="link" size="md" />
+          <Icon v-else name="check" size="md" class="text-emerald-500" />
         </button>
 
         <!-- Document actions menu -->
@@ -763,9 +756,7 @@ watch(documentObj, (newDocument) => {
                     class="px-3 py-1.5 text-xs rounded-md hover:bg-surface-hover transition-colors flex items-center gap-1.5 text-secondary hover:text-primary"
                     title="View linked ticket"
                   >
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
-                    </svg>
+                    <Icon name="ticket" />
                     <span>Ticket #{{ document.ticket_id }}</span>
                   </RouterLink>
 
@@ -776,9 +767,7 @@ watch(documentObj, (newDocument) => {
                     :class="{ 'bg-surface-alt text-primary': showRevisionHistory }"
                     title="Revision history"
                   >
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                    <Icon name="clock" />
                     <span>History</span>
                   </button>
                 </div>
@@ -874,9 +863,7 @@ watch(documentObj, (newDocument) => {
       v-if="showSuccessMessage"
       class="fixed bottom-4 right-4 bg-status-success text-white px-4 py-2 rounded-md shadow-lg flex items-center gap-2 animate-fadeIn"
     >
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-      </svg>
+      <Icon name="checkCircle" size="md" />
       {{ saveMessage }}
     </div>
   </div>

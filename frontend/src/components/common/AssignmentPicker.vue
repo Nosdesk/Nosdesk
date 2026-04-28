@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useDataStore } from '@/stores/dataStore'
 import { groupService } from '@/services/groupService'
+import Icon from '@/components/common/Icon.vue'
 
 export interface SelectedPrincipal {
   type: 'group' | 'user'
@@ -238,9 +239,7 @@ onMounted(async () => {
               @mousedown.prevent="selectGroup(group)"
               class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface-hover transition-colors"
             >
-              <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
+              <Icon name="team" class="text-tertiary flex-shrink-0" />
               <span class="text-sm text-primary truncate">{{ group.name }}</span>
             </button>
           </div>
@@ -282,9 +281,7 @@ onMounted(async () => {
         class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-full border border-default bg-surface-alt text-primary"
       >
         <!-- Group icon -->
-        <svg v-if="item.type === 'group'" class="w-3 h-3 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-        </svg>
+        <Icon v-if="item.type === 'group'" name="team" size="xs" class="text-tertiary flex-shrink-0" />
         <!-- User icon -->
         <svg v-else class="w-3 h-3 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -294,9 +291,7 @@ onMounted(async () => {
           @click="removeItem(item)"
           class="text-tertiary hover:text-primary transition-colors"
         >
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <Icon name="close" size="xs" />
         </button>
       </span>
     </div>

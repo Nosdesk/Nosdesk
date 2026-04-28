@@ -5,6 +5,7 @@
  * Provides the common section header + empty state pattern used for
  * Devices, Linked Tickets, Projects, and plugin panels in TicketView.
  */
+import Icon from '@/components/common/Icon.vue';
 
 interface Props {
   /** Section title */
@@ -41,9 +42,7 @@ defineEmits<{
         @click="$emit('add')"
         class="print:hidden flex items-center gap-1 text-xs font-medium text-tertiary hover:text-accent transition-colors"
       >
-        <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-          <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
-        </svg>
+        <Icon name="add" />
         {{ addLabel }}
       </button>
     </div>
@@ -58,9 +57,7 @@ defineEmits<{
       class="print:hidden group w-full py-3 px-4 rounded-xl border border-dashed border-default hover:border-accent/50 hover:bg-accent/5 transition-all duration-150 cursor-pointer"
     >
       <div class="flex items-center justify-center gap-2 text-sm text-tertiary group-hover:text-accent transition-colors">
-        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-          <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
-        </svg>
+        <Icon name="add" />
         <span>{{ addLabel }}</span>
       </div>
     </button>

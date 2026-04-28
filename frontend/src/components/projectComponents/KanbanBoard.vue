@@ -7,6 +7,7 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import AddTicketToProjectModal from './AddTicketToProjectModal.vue'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
+import Icon from '@/components/common/Icon.vue'
 import { useKanbanDragDrop, type KanbanColumn } from '@/composables/useKanbanDragDrop'
 import { useProjectSSE } from '@/composables/useProjectSSE'
 import { formatCompactRelativeTime } from '@/utils/dateUtils'
@@ -346,9 +347,7 @@ const handleAddTicket = (ticketId: number) => {
                      hover:text-accent transition-colors
                      flex items-center justify-center gap-1.5 flex-shrink-0"
             >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-              </svg>
+              <Icon name="add" />
               Add ticket
             </button>
           </div>

@@ -2,6 +2,8 @@
 import { ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import PDFViewer from '@/components/ticketComponents/PDFViewer.vue';
+import Icon from '@/components/common/Icon.vue';
+import Spinner from '@/components/common/Spinner.vue';
 import { useTitleManager } from '@/composables/useTitleManager';
 
 const route = useRoute();
@@ -94,9 +96,7 @@ watch(filename, (newFilename) => {
           @click="goBack"
           class="flex items-center gap-2 px-3 py-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
         >
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
+          <Icon name="chevronLeft" size="md" />
           <span class="text-sm font-medium">Back</span>
         </button>
 
@@ -119,10 +119,7 @@ watch(filename, (newFilename) => {
       <!-- Loading state -->
       <div v-if="isLoading" class="h-full flex items-center justify-center">
         <div class="flex flex-col items-center gap-3">
-          <svg class="animate-spin h-8 w-8 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
+          <Spinner size="lg" class="text-accent" />
           <span class="text-secondary">Loading PDF document...</span>
         </div>
       </div>
@@ -131,9 +128,7 @@ watch(filename, (newFilename) => {
       <div v-else-if="errorMessage" class="h-full flex items-center justify-center p-6">
         <div class="bg-status-error/30 text-status-error p-6 rounded-lg border border-status-error/70 shadow-lg max-w-md">
           <div class="flex items-start gap-4">
-            <svg class="w-8 h-8 text-status-error flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-            </svg>
+            <Icon name="warning" size="lg" class="text-status-error flex-shrink-0" />
             <div>
               <h3 class="text-lg font-semibold text-status-error mb-2">Error Loading PDF</h3>
               <p>{{ errorMessage }}</p>

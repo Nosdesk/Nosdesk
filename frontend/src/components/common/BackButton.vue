@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
+import Icon from '@/components/common/Icon.vue';
 
 const props = defineProps<{
   // Default fallback route if no previous route exists
@@ -61,15 +62,9 @@ const handleBack = () => {
     class="text-secondary hover:text-primary inline-flex items-center gap-1 group px-1 rounded"
     :class="compact ? 'h-6 text-xs' : 'h-8 text-sm'"
   >
-    <svg
-      class="group-hover:-translate-x-0.5 transition-transform"
-      :class="compact ? 'w-3 h-3' : 'w-3.5 h-3.5'"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-    </svg>
+    <span class="group-hover:-translate-x-0.5 transition-transform inline-flex">
+      <Icon name="chevronLeft" :size="compact ? 'xs' : 'sm'" />
+    </span>
     {{ label || 'Go back' }}
   </button>
 </template> 

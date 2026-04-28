@@ -13,6 +13,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { EditorView } from 'prosemirror-view';
 import { EditorState } from 'prosemirror-state';
 import { schema } from '@/components/editor/schema';
+import Spinner from '@/components/common/Spinner.vue';
 import { keymap } from 'prosemirror-keymap';
 import { baseKeymap } from 'prosemirror-commands';
 import { history, undo, redo } from 'prosemirror-history';
@@ -365,8 +366,8 @@ defineExpose({ focus, clear });
           </div>
 
           <!-- Loading -->
-          <div v-if="isSearching" class="px-3 py-4 flex items-center justify-center">
-            <div class="animate-spin rounded-full h-4 w-4 border-2 border-accent border-t-transparent"></div>
+          <div v-if="isSearching" class="px-3 py-4 flex items-center justify-center text-accent">
+            <Spinner />
           </div>
 
           <!-- User list -->

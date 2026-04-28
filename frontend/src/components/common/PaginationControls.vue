@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import BaseDropdown from './BaseDropdown.vue'
+import Icon from './Icon.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 
 const props = withDefaults(defineProps<{
@@ -175,9 +176,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
               : 'bg-surface-alt text-primary hover:bg-surface-hover'
           ]"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
+          <Icon name="chevronLeft" />
         </button>
         <button
           @click="changePage(currentPage + 1)"
@@ -189,9 +188,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
               : 'bg-surface-alt text-primary hover:bg-surface-hover'
           ]"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
+          <Icon name="chevronRight" />
         </button>
       </div>
     </div>
@@ -230,9 +227,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
                   : 'bg-surface-alt text-primary hover:bg-surface-hover'
               ]"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-              </svg>
+              <Icon name="chevronLeft" />
             </button>
 
             <div class="flex items-center gap-0.5">
@@ -263,9 +258,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
                   : 'bg-surface-alt text-primary hover:bg-surface-hover'
               ]"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-              </svg>
+              <Icon name="chevronRight" />
             </button>
           </div>
         </template>

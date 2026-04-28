@@ -38,9 +38,7 @@
             <h3 class="text-primary font-medium text-base sm:text-lg">Authenticator App</h3>
             <p class="text-sm text-secondary">Use an app like Google Authenticator, Authy, or 1Password to generate time-based codes</p>
           </div>
-          <svg class="flex-shrink-0 w-5 h-5 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
+          <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
 
         <button
@@ -56,17 +54,13 @@
             <h3 class="text-primary font-medium text-base sm:text-lg">Passkey</h3>
             <p class="text-sm text-secondary">Use biometrics like Face ID, Touch ID, or a hardware security key for passwordless login</p>
           </div>
-          <svg class="flex-shrink-0 w-5 h-5 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
+          <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
 
         <!-- Info Notice -->
         <div class="bg-surface border border-default rounded-lg p-3 sm:p-4 text-sm text-secondary">
           <div class="flex flex-row items-start gap-3">
-            <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-            </svg>
+            <Icon name="info" size="md" class="text-accent mt-0.5 flex-shrink-0" />
             <div class="flex-1 min-w-0">
               <h4 class="font-medium text-primary mb-1 text-sm">Which should I choose?</h4>
               <p class="text-xs text-tertiary">
@@ -102,9 +96,7 @@
         <div class="bg-surface rounded-xl border border-default p-6">
           <div class="flex flex-col items-center text-center gap-4">
             <div class="w-16 h-16 rounded-full bg-status-success/10 flex items-center justify-center">
-              <svg class="w-8 h-8 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
+              <Icon name="check" size="lg" class="text-status-success" />
             </div>
             <div>
               <h3 class="text-lg font-semibold text-primary mb-2">Authenticator App Set Up!</h3>
@@ -128,9 +120,7 @@
             <h3 class="text-primary font-medium">Add a Passkey</h3>
             <p class="text-sm text-secondary">Use Face ID, Touch ID, or a security key</p>
           </div>
-          <svg class="flex-shrink-0 w-5 h-5 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
+          <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
 
         <button
@@ -146,9 +136,7 @@
         <div class="bg-surface rounded-xl border border-default p-6">
           <div class="flex flex-col items-center text-center gap-4">
             <div class="w-16 h-16 rounded-full bg-status-success/10 flex items-center justify-center">
-              <svg class="w-8 h-8 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
+              <Icon name="check" size="lg" class="text-status-success" />
             </div>
             <div>
               <h3 class="text-lg font-semibold text-primary mb-2">Passkey Created!</h3>
@@ -172,9 +160,7 @@
             <h3 class="text-primary font-medium">Set Up Authenticator App</h3>
             <p class="text-sm text-secondary">Use as a backup if you lose access to your passkey</p>
           </div>
-          <svg class="flex-shrink-0 w-5 h-5 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
+          <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
 
         <button
@@ -211,9 +197,7 @@
           @click="goBackToLogin"
           class="flex items-center gap-2 px-4 py-2 text-sm text-tertiary hover:text-primary transition-colors"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-          </svg>
+          <Icon name="chevronLeft" />
           Back to Login
         </button>
         <button
@@ -221,9 +205,7 @@
           @click="handleBack"
           class="flex items-center gap-2 px-4 py-2 text-sm text-tertiary hover:text-primary transition-colors"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-          </svg>
+          <Icon name="chevronLeft" />
           {{ backButtonText }}
         </button>
         <div v-else></div>
@@ -241,6 +223,7 @@ import { useMfaSetupStore } from '@/stores/mfaSetup';
 import MFASettings from '@/components/settings/MFASettings.vue';
 import PasskeySetup from '@/components/auth/PasskeySetup.vue';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
+import Icon from '@/components/common/Icon.vue';
 
 const router = useRouter();
 const route = useRoute();

@@ -12,6 +12,8 @@ import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
 import authService from "@/services/authService";
 import apiClient from "@/services/apiConfig";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
+import Icon from "@/components/common/Icon.vue";
+import Spinner from "@/components/common/Spinner.vue";
 
 // Get branding and theme stores
 const brandingStore = useBrandingStore();
@@ -437,19 +439,7 @@ const handleOidcLogoutClick = async () => {
         class="bg-status-success/10 border border-status-success/50 text-status-success px-4 py-3 rounded-lg text-sm"
       >
         <div class="flex items-center gap-2">
-          <svg
-            class="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M5 13l4 4L19 7"
-            ></path>
-          </svg>
+          <Icon name="check" size="md" />
           {{ successMessage }}
         </div>
       </div>
@@ -460,19 +450,7 @@ const handleOidcLogoutClick = async () => {
         <div class="text-center">
           <div class="mb-4">
             <div class="inline-flex items-center justify-center w-12 h-12 bg-accent/10 rounded-full mb-4">
-              <svg
-                class="w-6 h-6 text-accent"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                ></path>
-              </svg>
+              <Icon name="lock" size="lg" class="text-accent" />
             </div>
             <h2 class="text-xl font-semibold text-primary mb-2">
               Two-Factor Authentication
@@ -488,19 +466,7 @@ const handleOidcLogoutClick = async () => {
           v-if="errorMessage"
           class="bg-status-error/10 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm flex items-center gap-2"
         >
-          <svg
-            class="w-4 h-4 text-status-error flex-shrink-0"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            ></path>
-          </svg>
+          <Icon name="warning" class="text-status-error flex-shrink-0" />
           {{ errorMessage }}
         </div>
 
@@ -565,26 +531,7 @@ const handleOidcLogoutClick = async () => {
               :disabled="isLoading || !mfaToken.trim()"
               class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
-              <svg
-                v-if="loadingAction === 'mfa'"
-                class="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  class="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  stroke-width="4"
-                ></circle>
-                <path
-                  class="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                ></path>
-              </svg>
+              <Spinner v-if="loadingAction === 'mfa'" class="-ml-1 mr-2 text-white" />
               <span v-if="loadingAction === 'mfa'">Verifying...</span>
               <span v-else>Verify & Sign In</span>
             </button>
@@ -642,15 +589,7 @@ const handleOidcLogoutClick = async () => {
                 :disabled="isLoading || !recoveryCode.trim()"
                 class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
-                <svg
-                  v-if="loadingAction === 'mfa'"
-                  class="animate-spin h-4 w-4 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+                <Spinner v-if="loadingAction === 'mfa'" class="text-white" />
                 <span v-if="loadingAction === 'mfa'">Verifying...</span>
                 <span v-else>Verify & Sign In</span>
               </button>
@@ -666,18 +605,8 @@ const handleOidcLogoutClick = async () => {
             :disabled="isLoading"
             class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <svg
-              v-if="loadingAction === 'passkey'"
-              class="animate-spin h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <svg v-else class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-            </svg>
+            <Spinner v-if="loadingAction === 'passkey'" />
+            <Icon v-else name="key" size="md" />
             <span v-if="loadingAction === 'passkey'">Verifying...</span>
             <span v-else>Verify with passkey</span>
           </button>
@@ -745,42 +674,8 @@ const handleOidcLogoutClick = async () => {
               class="absolute inset-y-0 right-0 mt-1 px-3 flex items-center text-tertiary hover:text-secondary transition-colors"
               :aria-label="showPassword ? 'Hide password' : 'Show password'"
             >
-              <!-- Eye icon (show) -->
-              <svg
-                v-if="!showPassword"
-                class="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                />
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                />
-              </svg>
-              <!-- Eye-off icon (hide) -->
-              <svg
-                v-else
-                class="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                />
-              </svg>
+              <Icon v-if="!showPassword" name="eye" />
+              <Icon v-else name="eyeOff" />
             </button>
           </div>
         </div>
@@ -812,25 +707,8 @@ const handleOidcLogoutClick = async () => {
           :disabled="isLoading"
           class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          <svg
-            v-if="loadingAction === 'passkey'"
-            class="animate-spin h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          <svg
-            v-else
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-          </svg>
+          <Spinner v-if="loadingAction === 'passkey'" />
+          <Icon v-else name="key" size="md" />
           <span v-if="loadingAction === 'passkey'">Authenticating...</span>
           <span v-else>Sign in with passkey</span>
         </button>
@@ -851,15 +729,7 @@ const handleOidcLogoutClick = async () => {
               :disabled="isLoading"
               class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <svg
-                v-if="loadingAction === 'microsoft'"
-                class="animate-spin h-4 w-4 mr-2"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
+              <Spinner v-if="loadingAction === 'microsoft'" class="mr-2" />
               <svg
                 v-else
                 xmlns="http://www.w3.org/2000/svg"
@@ -906,15 +776,7 @@ const handleOidcLogoutClick = async () => {
               :disabled="isLoading"
               class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <svg
-                v-if="loadingAction === 'oidc'"
-                class="animate-spin h-5 w-5 mr-2"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
+              <Spinner v-if="loadingAction === 'oidc'" size="md" class="mr-2" />
               <svg
                 v-else
                 xmlns="http://www.w3.org/2000/svg"

@@ -11,6 +11,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { useSSEListeners } from '@/composables/useSSEListeners'
 import BackButton from '@/components/common/BackButton.vue'
+import Icon from '@/components/common/Icon.vue'
+import Spinner from '@/components/common/Spinner.vue'
 import CollectionTreeList from '@/components/documentationComponents/CollectionTreeList.vue'
 import DocumentIconSelector from '@/components/DocumentIconSelector.vue'
 import CollectionVisibilityModal from '@/components/documentationComponents/CollectionVisibilityModal.vue'
@@ -214,9 +216,7 @@ on('documentation-updated', (data) => {
           @click="handleDelete"
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-default text-status-danger hover:bg-status-danger/10 transition-colors"
         >
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-          </svg>
+          <Icon name="trash" />
           <span class="hidden sm:inline">Delete</span>
         </button>
 
@@ -226,9 +226,7 @@ on('documentation-updated', (data) => {
           @click="showVisibilityModal = true"
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
         >
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
+          <Icon name="lock" />
           <span class="hidden sm:inline">Manage Access</span>
         </button>
 
@@ -239,13 +237,8 @@ on('documentation-updated', (data) => {
           :disabled="creating"
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <svg v-if="!creating" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-          </svg>
-          <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
+          <Icon v-if="!creating" name="add" />
+          <Spinner v-else />
           <span class="hidden sm:inline">New Page</span>
         </button>
       </div>
@@ -334,9 +327,7 @@ on('documentation-updated', (data) => {
         <!-- Overview Section -->
         <section v-if="docId">
           <div class="flex items-center gap-2 mb-3 pb-2 border-b border-default">
-            <svg class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+            <Icon name="copyMd" class="text-tertiary" />
             <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">Overview</h2>
           </div>
           <div class="collection-editor-wrapper">
@@ -359,18 +350,12 @@ on('documentation-updated', (data) => {
             @click="overridesExpanded = !overridesExpanded"
             class="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-status-warning hover:bg-status-warning/10 transition-colors"
           >
-            <svg
-              class="w-3.5 h-3.5 transition-transform"
+            <Icon
+              name="chevronRight"
+              class="transition-transform"
               :class="overridesExpanded ? 'rotate-90' : ''"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-            </svg>
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
+            />
+            <Icon name="lock" />
             <span>{{ pageOverrides.length }} page{{ pageOverrides.length !== 1 ? 's' : '' }} with custom permissions</span>
           </button>
 
@@ -405,9 +390,7 @@ on('documentation-updated', (data) => {
         <section>
           <div class="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-default">
             <div class="flex items-center gap-2">
-              <svg class="w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
+              <Icon name="archive" class="text-tertiary" />
               <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">Pages</h2>
             </div>
             <span class="text-xs text-tertiary tabular-nums">

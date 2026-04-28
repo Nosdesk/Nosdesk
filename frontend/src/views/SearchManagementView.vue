@@ -12,9 +12,7 @@
           <!-- Header row with icon -->
           <div class="flex items-center gap-3">
             <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/15 flex items-center justify-center text-accent">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
+              <Icon name="insights" size="md" />
             </div>
             <div class="flex-1">
               <span class="font-medium text-primary">Index Statistics</span>
@@ -24,13 +22,8 @@
               :disabled="isLoadingStats"
               class="px-3 py-1.5 bg-surface-alt text-secondary border border-default rounded-lg text-sm hover:bg-surface-hover font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
             >
-              <svg v-if="isLoadingStats" class="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              <Spinner v-if="isLoadingStats" />
+              <Icon v-else name="refresh" />
               Refresh
             </button>
           </div>
@@ -48,16 +41,11 @@
             <div class="bg-surface-alt rounded-lg p-3">
               <div class="flex items-center gap-2">
                 <div v-if="stats.is_rebuilding" class="flex items-center gap-1.5 text-status-warning">
-                  <svg class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
+                  <Spinner size="md" />
                   <span class="text-lg font-bold">Rebuilding</span>
                 </div>
                 <div v-else class="flex items-center gap-1.5 text-status-success">
-                  <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
+                  <Icon name="checkCircle" size="md" />
                   <span class="text-lg font-bold">Ready</span>
                 </div>
               </div>
@@ -71,10 +59,7 @@
 
           <!-- Loading state -->
           <div v-else-if="isLoadingStats" class="flex items-center justify-center py-8">
-            <svg class="animate-spin h-6 w-6 text-accent" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+            <Spinner size="lg" class="text-accent" />
           </div>
 
           <!-- Error state -->
@@ -90,9 +75,7 @@
           <!-- Header row with icon -->
           <div class="flex items-center gap-3">
             <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-status-warning/20 flex items-center justify-center text-status-warning">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              <Icon name="refresh" size="md" />
             </div>
             <div class="flex-1">
               <span class="font-medium text-primary">Rebuild Search Index</span>
@@ -102,13 +85,8 @@
               :disabled="isRebuilding"
               class="px-3 py-1.5 bg-status-warning/20 text-status-warning border border-status-warning/50 rounded-lg text-sm hover:bg-status-warning/30 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
             >
-              <svg v-if="isRebuilding" class="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              <Spinner v-if="isRebuilding" />
+              <Icon v-else name="refresh" />
               {{ isRebuilding ? 'Rebuilding...' : 'Rebuild Index' }}
             </button>
           </div>
@@ -122,12 +100,8 @@
         <!-- Rebuild Results -->
         <div v-if="rebuildResults" class="border-t border-default p-4 bg-surface-alt">
           <div class="flex items-center gap-2 mb-3">
-            <svg v-if="rebuildResults.success" class="w-4 h-4 text-status-success" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-            </svg>
-            <svg v-else class="w-4 h-4 text-status-error" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-            </svg>
+            <Icon v-if="rebuildResults.success" name="checkCircle" class="text-status-success" />
+            <Icon v-else name="warning" class="text-status-error" />
             <span class="text-sm font-medium" :class="rebuildResults.success ? 'text-status-success' : 'text-status-error'">
               {{ rebuildResults.success ? 'Index Rebuilt Successfully' : 'Rebuild Failed' }}
             </span>
@@ -170,6 +144,8 @@ import { useRouter } from 'vue-router'
 
 import { searchService } from '@/services/searchService'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import Icon from '@/components/common/Icon.vue'
+import Spinner from '@/components/common/Spinner.vue'
 import type { IndexStats, RebuildResponse } from '@/types/search'
 
 const authStore = useAuthStore()

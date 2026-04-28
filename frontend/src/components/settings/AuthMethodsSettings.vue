@@ -5,6 +5,7 @@ import authService from '@/services/authService';
 import userService from '@/services/userService';
 import { formatDate } from '@/utils/dateUtils';
 import { logger } from '@/utils/logger';
+import Icon from '@/components/common/Icon.vue';
 
 const props = defineProps<{
   targetUserUuid?: string;
@@ -231,9 +232,9 @@ const getAuthMethodIcon = (type: string) => {
               <div class="flex items-center gap-3">
                 <!-- Email Icon -->
                 <div v-if="getAuthMethodIcon(method.type) === 'local'" class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center flex-shrink-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
+                  <span class="text-accent inline-flex">
+                    <Icon name="email" size="md" />
+                  </span>
                 </div>
                 <!-- Microsoft Icon (4-square grid pattern) -->
                 <div v-else-if="getAuthMethodIcon(method.type) === 'microsoft'" class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center flex-shrink-0">

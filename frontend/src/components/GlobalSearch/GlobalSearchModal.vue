@@ -3,6 +3,7 @@ import { ref, watch, nextTick, computed } from 'vue';
 import { useGlobalSearch } from '@/composables/useGlobalSearch';
 import SearchResultGroup from './SearchResultGroup.vue';
 import { ENTITY_DISPLAY_ORDER, ENTITY_TYPE_CONFIG } from '@/types/search';
+import Icon from '@/components/common/Icon.vue';
 
 const {
   isOpen,
@@ -86,22 +87,14 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
           <div class="flex items-center gap-3 px-4 py-3.5 border-b border-default bg-surface">
             <!-- Search icon with subtle animation -->
             <div class="relative flex-shrink-0">
-              <svg
+              <span
                 :class="[
-                  'w-5 h-5 transition-colors duration-200',
+                  'inline-flex transition-colors duration-200',
                   isLoading ? 'text-accent' : 'text-tertiary'
                 ]"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="2"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
-              </svg>
+                <Icon name="search" size="md" />
+              </span>
               <!-- Loading ring -->
               <svg
                 v-if="isLoading"
@@ -132,9 +125,7 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
             >
               {{ FILTER_LABELS[activeTypes] || activeTypes }}
-              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <Icon name="close" size="xs" />
             </button>
 
             <!-- Input field -->

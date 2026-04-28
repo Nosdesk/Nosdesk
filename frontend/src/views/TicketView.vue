@@ -8,6 +8,7 @@ import ticketService from "@/services/ticketService";
 import { categoryService } from "@/services/categoryService";
 import type { TicketCategory } from "@/types/category";
 import type { Ticket } from "@/types/ticket";
+import Icon from "@/components/common/Icon.vue";
 
 // Composables
 import { useTicketData } from "@/composables/useTicketData";
@@ -579,9 +580,7 @@ usePageCreateAction(handleCreateTicket);
                                         @click="showLinkedTicketModal = true"
                                         class="print:hidden flex items-center gap-1 text-xs font-medium text-tertiary hover:text-accent transition-colors"
                                     >
-                                        <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                                            <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
-                                        </svg>
+                                        <Icon name="add" />
                                         Add
                                     </button>
                                 </div>

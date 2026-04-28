@@ -3,6 +3,8 @@ import { formatDateTime } from '@/utils/dateUtils';
 import { ref } from 'vue';
 import axios from 'axios';
 import BackButton from '@/components/common/BackButton.vue';
+import Icon from '@/components/common/Icon.vue';
+import Spinner from '@/components/common/Spinner.vue';
 import Modal from '@/components/Modal.vue';
 
 // State variables
@@ -181,9 +183,7 @@ const showTemplateDialog = () => {
           @click="showTemplateDialog"
           class="px-4 py-2 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors border border-subtle flex items-center gap-2"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
+          <Icon name="download" />
           Download Templates
         </button>
       </div>
@@ -245,9 +245,7 @@ const showTemplateDialog = () => {
         <div class="flex flex-col gap-4 text-sm text-secondary">
           <div class="bg-accent/10 border border-accent/30 rounded-md p-4">
             <h3 class="font-medium text-accent mb-2 flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+              <Icon name="info" size="md" class="mr-2" />
               CSV File Requirements
             </h3>
             <ul class="list-disc list-inside flex flex-col gap-1 ml-2">
@@ -261,9 +259,7 @@ const showTemplateDialog = () => {
           
           <div class="bg-status-warning/20 border border-status-warning/50 rounded-md p-4">
             <h3 class="font-medium text-status-warning mb-2 flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
+              <Icon name="warning" size="md" class="mr-2" />
               Important Notes
             </h3>
             <ul class="list-disc list-inside flex flex-col gap-1 ml-2">
@@ -302,9 +298,7 @@ const showTemplateDialog = () => {
                   @click="downloadTemplate(template.type)"
                   class="px-3 py-2 text-sm bg-accent text-white rounded-md hover:opacity-90 transition-colors flex items-center gap-2"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
+                  <Icon name="download" />
                   Download
                 </button>
               </div>
@@ -402,10 +396,7 @@ const showTemplateDialog = () => {
               !fileUploaded || isLoading ? 'bg-accent/50 cursor-not-allowed' : 'bg-accent hover:opacity-90'
             ]"
           >
-            <svg v-if="isLoading" class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+            <Spinner v-if="isLoading" class="text-white" />
             {{ isLoading ? 'Importing...' : 'Start Import' }}
           </button>
         </div>

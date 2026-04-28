@@ -9,6 +9,7 @@ import { ref } from 'vue'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import AddWidgetModal from './AddWidgetModal.vue'
+import Icon from '@/components/common/Icon.vue'
 
 const store = useDashboardLayoutStore()
 
@@ -40,9 +41,7 @@ function doReset() {
       class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
       @click="showAdd = true"
     >
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-      </svg>
+      <Icon name="add" />
       Add widget
     </button>
 

@@ -2,6 +2,8 @@
 import { ref, watch } from 'vue';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
+import Icon from '@/components/common/Icon.vue';
+import Spinner from '@/components/common/Spinner.vue';
 import { useDataStore } from '@/stores/dataStore';
 import type { UserInfo } from '@/types/user';
 
@@ -116,15 +118,13 @@ const clearUser = () => {
         @click="clearUser"
         class="w-full px-4 py-2.5 bg-surface-alt border border-default rounded-lg text-secondary hover:bg-surface-hover hover:border-strong transition-colors text-sm font-medium flex items-center justify-center gap-2"
       >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-        </svg>
+        <Icon name="close" />
         Unassign User
       </button>
 
       <!-- Loading State -->
-      <div v-if="loading" class="flex items-center justify-center py-8">
-        <div class="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
+      <div v-if="loading" class="flex items-center justify-center py-8 text-accent">
+        <Spinner size="lg" />
       </div>
 
       <!-- Error State -->

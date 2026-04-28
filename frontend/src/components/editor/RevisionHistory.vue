@@ -8,8 +8,8 @@
     <div class="revision-history-body">
 
     <!-- Loading State -->
-    <div v-if="loading" class="flex items-center justify-center py-8">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    <div v-if="loading" class="flex items-center justify-center py-8 text-primary">
+      <Spinner size="lg" />
     </div>
 
     <!-- Error State -->
@@ -55,18 +55,12 @@
             <span class="text-xs text-tertiary">•</span>
             <span class="text-xs text-secondary">{{ formatRelativeDate(revision.created_at) }}</span>
           </div>
-          <svg
+          <span
             v-if="selectedRevision?.id === revision.id"
-            class="w-4 h-4 text-primary flex-shrink-0"
-            fill="currentColor"
-            viewBox="0 0 20 20"
+            class="text-primary flex-shrink-0 inline-flex"
           >
-            <path
-              fill-rule="evenodd"
-              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-              clip-rule="evenodd"
-            />
-          </svg>
+            <Icon name="check" />
+          </span>
         </div>
 
         <!-- Contributors -->
@@ -163,6 +157,8 @@ import { useVersionHistory } from '@/composables/useVersionHistory'
 import type { ArticleRevision } from '@/services/versionHistoryService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
+import Spinner from '@/components/common/Spinner.vue'
+import Icon from '@/components/common/Icon.vue'
 import { useDataStore } from '@/stores/dataStore'
 import apiClient from '@/services/apiConfig'
 
