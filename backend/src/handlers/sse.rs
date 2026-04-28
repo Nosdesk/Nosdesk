@@ -599,10 +599,13 @@ pub async fn sse_events_stream(
         }
     };
 
-    // Phase A subscription set: every authenticated client gets the
-    // global topic plus its own personal topic. Phase B will let the
-    // client narrow this with `?topics=...`.
-    let topics = vec![TopicKey::Global, TopicKey::User(user_info.sub.clone())];
+    // Resolve subscription set. The client may declare interest via
+    // `?topics=user,global` (comma-separated). When absent, both
+    // topics are subscribed for back-compat. Unknown tokens are
+    // ignored. The `user` token is always rebound to the
+    // authenticated caller's uuid; we never let one client subscribe
+    // to another user's personal topic.
+    let topics = parse_topics(query.topics.as_deref(), &user_info.sub);
 
     let last_event_id = last_event_id_from_request(&req);
     let (receivers, replay) = state.subscribe(&topics, last_event_id);
@@ -643,6 +646,46 @@ pub async fn sse_events_stream(
 #[derive(Deserialize)]
 pub struct SseEventsQuery {
     sse_token: Option<String>,
+    /// Optional comma-separated list of topic tokens. Recognised
+    /// tokens: `user` (the caller's personal topic), `global` (the
+    /// shared cross-resource topic). When missing or empty, both
+    /// topics are subscribed, preserving back-compat with clients
+    /// that pre-date the topic model.
+    topics: Option<String>,
+}
+
+fn parse_topics(raw: Option<&str>, caller_uuid: &str) -> Vec<TopicKey> {
+    let trimmed = raw.map(str::trim).unwrap_or("");
+    if trimmed.is_empty() {
+        return vec![TopicKey::Global, TopicKey::User(caller_uuid.to_string())];
+    }
+    let mut out = Vec::new();
+    let mut seen_global = false;
+    let mut seen_user = false;
+    for token in trimmed.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+        match token {
+            "global" if !seen_global => {
+                out.push(TopicKey::Global);
+                seen_global = true;
+            }
+            "user" if !seen_user => {
+                out.push(TopicKey::User(caller_uuid.to_string()));
+                seen_user = true;
+            }
+            _ => {
+                // Unknown or duplicate token. Ignored rather than
+                // refused so a future client that knows about new
+                // topics can still connect to an old server.
+            }
+        }
+    }
+    if out.is_empty() {
+        // All tokens unknown. Fall back to the default rather than
+        // returning an empty subscription that would silently swallow
+        // every event.
+        return vec![TopicKey::Global, TopicKey::User(caller_uuid.to_string())];
+    }
+    out
 }
 
 // SSE status endpoint

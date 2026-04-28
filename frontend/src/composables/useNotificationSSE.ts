@@ -21,8 +21,11 @@ export function useNotificationSSE() {
     try {
       const data = unwrapEventData(rawData as NotificationReceivedEventData);
 
-      // Only show notifications for the current user
-      if (!authStore.user?.uuid || authStore.user.uuid !== data.recipient_uuid) {
+      // Backend routes notification events on the per-user topic, so
+      // a payload only reaches a client whose subscription includes
+      // its recipient. No client-side recipient_uuid filter is needed
+      // here, the server already guarantees isolation.
+      if (!authStore.user?.uuid) {
         return;
       }
 

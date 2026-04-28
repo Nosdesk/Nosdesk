@@ -318,8 +318,16 @@ class SSEService {
       // Get SSE token
       const sseToken = await this.getSseToken();
 
-      // Build URL
-      const params = new URLSearchParams({ sse_token: sseToken });
+      // Build URL. `topics` declares the subscription set the server
+      // should attach this connection to: the caller's personal
+      // topic for targeted notifications plus the shared global
+      // topic for cross-resource events. The server enforces that
+      // `user` resolves to the authenticated caller, so this can't
+      // be used to read another user's notifications.
+      const params = new URLSearchParams({
+        sse_token: sseToken,
+        topics: "user,global",
+      });
       if (ticketId) {
         params.append("ticket_id", ticketId.toString());
       }
