@@ -10,6 +10,20 @@ use crate::models::*;
 use crate::schema::*;
 use crate::utils::storage::Storage;
 
+/// Observer fired after `update_ticket_partial` commits a change.
+/// Implementor reindexes so title / status / priority / requester
+/// changes land in search regardless of which handler made them.
+pub trait TicketUpdatedObserver: Send + Sync {
+    fn ticket_updated(&self, ticket: &Ticket, article: Option<&ArticleContent>);
+}
+
+/// Observer fired after a ticket is deleted via
+/// `delete_ticket_with_cleanup`. Implementor removes the ticket
+/// from the search index.
+pub trait TicketDeletedObserver: Send + Sync {
+    fn ticket_deleted(&self, ticket_id: i32);
+}
+
 // ============= Helper Functions for Enum Parsing =============
 
 /// Parse a status string into a TicketStatus enum
@@ -87,19 +101,37 @@ pub fn update_ticket(conn: &mut DbConnection, ticket_id: i32, ticket: NewTicket)
 }
 
 // Add a new function for partial ticket updates
-pub fn update_ticket_partial(conn: &mut DbConnection, ticket_id: i32, ticket_update: crate::models::TicketUpdate) -> QueryResult<Ticket> {
+pub fn update_ticket_partial(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    ticket_update: crate::models::TicketUpdate,
+    observer: Option<&dyn TicketUpdatedObserver>,
+) -> QueryResult<Ticket> {
     debug!(ticket_id, update = ?ticket_update, "Updating ticket");
-    
-    diesel::update(tickets::table.find(ticket_id))
+
+    let result: Ticket = diesel::update(tickets::table.find(ticket_id))
         .set(&ticket_update)
-        .get_result(conn)
+        .get_result(conn)?;
+
+    if let Some(observer) = observer {
+        // Fetch any associated article content so the observer can
+        // reindex with the body text intact, not just the metadata.
+        let article = crate::repository::article_content::get_article_content_by_ticket_id(
+            conn, ticket_id,
+        )
+        .ok();
+        observer.ticket_updated(&result, article.as_ref());
+    }
+
+    Ok(result)
 }
 
 /// Comprehensive ticket deletion that cleans up all associated data and files
 pub async fn delete_ticket_with_cleanup(
-    conn: &mut DbConnection, 
+    conn: &mut DbConnection,
     ticket_id: i32,
-    storage: Arc<dyn Storage>
+    storage: Arc<dyn Storage>,
+    observer: Option<&dyn TicketDeletedObserver>,
 ) -> Result<usize, Error> {
     // Start a transaction to ensure all operations succeed or fail together
     conn.transaction(|conn| {
@@ -159,6 +191,14 @@ pub async fn delete_ticket_with_cleanup(
                 }
             }
         });
+        // Notify the search observer once the row is gone. Skipped on
+        // result == 0 (ticket didn't exist) so we don't drop a
+        // phantom delete into the index.
+        if result > 0 {
+            if let Some(observer) = observer {
+                observer.ticket_deleted(ticket_id);
+            }
+        }
         result
     })
 }
@@ -303,7 +343,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
                 is_internal: false,
             };
 
-            let comment = crate::repository::comments::create_comment(conn, new_comment)?;
+            let comment = crate::repository::comments::create_comment(conn, new_comment, None)?;
 
             // Create attachments for this comment
             for attachment_json in &comment_json.attachments {

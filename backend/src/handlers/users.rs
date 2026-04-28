@@ -925,12 +925,12 @@ pub async fn delete_user(
     }
 
     // Delete the user
-    match repository::delete_user(&target_user.uuid, &mut conn) {
+    match repository::delete_user(&target_user.uuid, &mut conn, Some(search_service.get_ref())) {
         Ok(count) if count > 0 => {
             info!("User deleted successfully: {} (uuid={})", target_user.name, target_user.uuid);
 
-            // Remove user from search index
-            indexing_tasks::spawn_delete_user(search_service.get_ref().clone(), user_uuid.clone());
+            // Search index removal is fired by the
+            // UserDeletedObserver inside `delete_user`.
 
             // Broadcast user deletion via SSE
             crate::utils::sse::SseBroadcaster::broadcast_user_deleted(
@@ -1237,6 +1237,7 @@ pub async fn upload_user_image(
     uuid: web::Path<String>,
     mut payload: Multipart,
     pool: web::Data<crate::db::Pool>,
+    search_service: web::Data<std::sync::Arc<crate::services::search::SearchService>>,
     type_query: web::Query<UserImageTypeQuery>,
 ) -> impl Responder {
     let user_uuid = uuid.into_inner();
@@ -1422,7 +1423,7 @@ pub async fn upload_user_image(
             dashboard_layout: None,
         };
         
-        match repository::update_user(&user.uuid, user_update, &mut conn) {
+        match repository::update_user(&user.uuid, user_update, &mut conn, Some(search_service.get_ref())) {
             Ok(updated_user) => {
                 return HttpResponse::Ok().json(json!({
                     "status": "success",
@@ -1864,7 +1865,7 @@ pub async fn update_user_by_uuid(
         dashboard_layout: user_data.dashboard_layout.clone(),
     };
 
-    match repository::update_user(&user.uuid, user_update, &mut conn) {
+    match repository::update_user(&user.uuid, user_update, &mut conn, Some(search_service.get_ref())) {
         Ok(updated_user) => {
             // Broadcast SSE events for changed fields
             let updated_by = claims.sub.clone();
@@ -2649,11 +2650,12 @@ pub async fn bulk_users(
                     Err(_) => continue,
                 };
 
-                match repository::users::delete_user(&uuid, &mut conn) {
+                match repository::users::delete_user(&uuid, &mut conn, Some(search_service.get_ref())) {
                     Ok(_) => {
                         deleted += 1;
-                        // Remove from search index
-                        indexing_tasks::spawn_delete_user(search_service.get_ref().clone(), id.clone());
+                        // Search index removal fires from the
+                        // UserDeletedObserver inside `delete_user`,
+                        // no manual spawn needed.
                         // Broadcast SSE event
                         crate::utils::sse::SseBroadcaster::broadcast_user_deleted(
                             &sse_state,
@@ -2709,7 +2711,7 @@ pub async fn bulk_users(
                     dashboard_layout: None,
                 };
 
-                if repository::update_user(&uuid, user_update, &mut conn).is_ok() {
+                if repository::update_user(&uuid, user_update, &mut conn, Some(search_service.get_ref())).is_ok() {
                     updated += 1;
                     // Broadcast SSE event
                     crate::utils::sse::SseBroadcaster::broadcast_user_updated(

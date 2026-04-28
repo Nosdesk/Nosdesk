@@ -506,11 +506,11 @@ pub async fn delete_device(
         Err(e) => return e,
     };
 
-    match repository::delete_device(&mut conn, device_id) {
+    match repository::delete_device(&mut conn, device_id, Some(search_service.get_ref())) {
         Ok(rows_affected) => {
             if rows_affected > 0 {
-                // Remove device from search index
-                indexing_tasks::spawn_delete_device(search_service.get_ref().clone(), device_id);
+                // Search index removal is fired by the
+                // DeviceDeletedObserver inside `delete_device`.
 
                 // Broadcast SSE event for device deletion (with echo suppression)
                 let source_client_id = extract_sse_client_id(&req);
@@ -739,11 +739,11 @@ pub async fn bulk_devices(
             let mut deleted = 0;
             let source_client_id = extract_sse_client_id(&req);
             for id in ids {
-                match repository::delete_device(&mut conn, *id) {
+                match repository::delete_device(&mut conn, *id, Some(search_service.get_ref())) {
                     Ok(rows) => {
                         deleted += rows;
-                        // Remove from search index
-                        indexing_tasks::spawn_delete_device(search_service.get_ref().clone(), *id);
+                        // Search index removal is fired by the
+                        // DeviceDeletedObserver inside `delete_device`.
 
                         // Broadcast SSE event for each deleted device
                         sse_state.broadcast_event_from(

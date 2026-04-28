@@ -260,7 +260,7 @@ pub async fn add_comment_to_ticket(
     };
 
     // Insert the comment
-    match crate::repository::comments::create_comment(&mut conn, new_comment) {
+    match crate::repository::comments::create_comment(&mut conn, new_comment, Some(search_service.get_ref())) {
         Ok(comment) => {
             debug!(comment_id = comment.id, "Created comment");
             
@@ -474,13 +474,8 @@ pub async fn add_comment_to_ticket(
                 );
             }
 
-            // Index the new comment in search
-            let ticket_title_for_search = ticket.as_ref().map(|t| t.title.clone()).unwrap_or_else(|| format!("Ticket #{}", ticket_id));
-            indexing_tasks::spawn_index_comment(
-                search_service.get_ref().clone(),
-                comment.clone(),
-                ticket_title_for_search,
-            );
+            // Search index update is fired by the CommentCreatedObserver
+            // inside `create_comment`, so no manual spawn needed.
 
             // Send notifications to ticket participants (requester, assignee, and @mentioned users)
             if let Some(ref ticket_info) = ticket {
@@ -600,11 +595,11 @@ pub async fn delete_comment(
         }
     };
     
-    match crate::repository::comments::delete_comment(&mut conn, comment_id) {
+    match crate::repository::comments::delete_comment(&mut conn, comment_id, Some(search_service.get_ref())) {
         Ok(deleted) => {
             if deleted > 0 {
-                // Remove comment from search index
-                indexing_tasks::spawn_delete_comment(search_service.get_ref().clone(), comment_id);
+                // Search index removal is fired by the
+                // CommentDeletedObserver inside `delete_comment`.
 
                 // Broadcast SSE event for the deleted comment
                 sse_state.broadcast_event_from(

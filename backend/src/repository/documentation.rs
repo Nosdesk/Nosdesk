@@ -20,6 +20,12 @@ pub trait DocumentationSavedObserver: Send + Sync {
     fn documentation_saved(&self, page: &DocumentationPage);
 }
 
+/// Observer fired after a documentation page is hard-deleted.
+/// Implementor removes the page from the search index.
+pub trait DocumentationDeletedObserver: Send + Sync {
+    fn documentation_deleted(&self, page_id: i32);
+}
+
 // Get all documentation pages (excludes archived and deleted)
 pub fn get_documentation_pages(conn: &mut DbConnection) -> Result<Vec<DocumentationPage>, Error> {
     documentation_pages::table
@@ -74,8 +80,18 @@ pub fn update_documentation_page(
 }
 
 // Delete a documentation page
-pub fn delete_documentation_page(id: i32, conn: &mut DbConnection) -> Result<usize, Error> {
-    diesel::delete(documentation_pages::table.find(id)).execute(conn)
+pub fn delete_documentation_page(
+    id: i32,
+    conn: &mut DbConnection,
+    observer: Option<&dyn DocumentationDeletedObserver>,
+) -> Result<usize, Error> {
+    let count = diesel::delete(documentation_pages::table.find(id)).execute(conn)?;
+    if count > 0 {
+        if let Some(observer) = observer {
+            observer.documentation_deleted(id);
+        }
+    }
+    Ok(count)
 }
 
 // Get top-level documentation pages (excludes archived and deleted)

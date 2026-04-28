@@ -2055,7 +2055,7 @@ async fn update_existing_microsoft_user_optimized(
 
     // Update user if there are changes
     if user_update.name.is_some() || false /* email removed */ || user_update.microsoft_uuid.is_some() {
-        user_repo::update_user(&user.uuid, user_update, conn)
+        user_repo::update_user(&user.uuid, user_update, conn, None)
             .map_err(|e| format!("Failed to update user: {e}"))?;
         debug!(user_name = %user.name, "Updated user information");
     }
@@ -2165,7 +2165,7 @@ async fn link_existing_user_to_microsoft_optimized(
     };
 
     // Always update to store the Microsoft UUID
-    user_repo::update_user(&existing_user.uuid, user_update, conn)
+    user_repo::update_user(&existing_user.uuid, user_update, conn, None)
         .map_err(|e| format!("Failed to update user with Microsoft UUID: {e}"))?;
 
     // Store all email addresses
@@ -3465,7 +3465,7 @@ async fn update_user_avatar_by_id(
             dashboard_layout: None,
         };
 
-        match user_repo::update_user(user_uuid, user_update, conn) {
+        match user_repo::update_user(user_uuid, user_update, conn, None) {
             Ok(updated_user) => {
                 debug!(user_uuid = %user_uuid, avatar_url = ?updated_user.avatar_url, avatar_thumb = ?updated_user.avatar_thumb, "Successfully updated avatar URLs");
             },
@@ -4249,7 +4249,7 @@ async fn update_existing_microsoft_user_no_photos(
     };
 
     if user_update.name.is_some() || false /* email removed */ || user_update.microsoft_uuid.is_some() {
-        user_repo::update_user(&user.uuid, user_update, conn)
+        user_repo::update_user(&user.uuid, user_update, conn, None)
             .map_err(|e| format!("Failed to update user: {e}"))?;
     }
 
@@ -4313,7 +4313,7 @@ async fn link_existing_user_to_microsoft_no_photos(
             dashboard_layout: None,
     };
 
-    user_repo::update_user(&existing_user.uuid, user_update, conn)
+    user_repo::update_user(&existing_user.uuid, user_update, conn, None)
         .map_err(|e| format!("Failed to update user with Microsoft UUID: {e}"))?;
 
     stats.identities_linked += 1;

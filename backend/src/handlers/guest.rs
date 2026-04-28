@@ -417,7 +417,7 @@ pub async fn submit_guest_ticket(
         channel_metadata: None,
         is_internal: false,
     };
-    let first_comment_id = match repository::comments::create_comment(&mut conn, new_comment) {
+    let first_comment_id = match repository::comments::create_comment(&mut conn, new_comment, Some(search_service.get_ref())) {
         Ok(c) => Some(c.id),
         Err(e) => {
             warn!(

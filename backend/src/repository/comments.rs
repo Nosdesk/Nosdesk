@@ -5,6 +5,20 @@ use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
 
+/// Observer fired after a comment is successfully created. The
+/// search service uses it to index the comment with its parent
+/// ticket title, so any handler that creates a comment populates
+/// the index automatically.
+pub trait CommentCreatedObserver: Send + Sync {
+    fn comment_created(&self, comment: &Comment, ticket_title: &str);
+}
+
+/// Observer fired after a comment is hard-deleted. Implementor
+/// removes the comment from the search index.
+pub trait CommentDeletedObserver: Send + Sync {
+    fn comment_deleted(&self, comment_id: i32);
+}
+
 // Comment operations
 pub fn get_comments_by_ticket_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<Comment>> {
     comments::table
@@ -28,19 +42,33 @@ pub fn get_public_comments_by_ticket_id(
         .load(conn)
 }
 
-pub fn create_comment(conn: &mut DbConnection, new_comment: NewComment) -> QueryResult<Comment> {
-    let result = diesel::insert_into(comments::table)
+pub fn create_comment(
+    conn: &mut DbConnection,
+    new_comment: NewComment,
+    observer: Option<&dyn CommentCreatedObserver>,
+) -> QueryResult<Comment> {
+    let comment: Comment = diesel::insert_into(comments::table)
         .values(&new_comment)
-        .get_result(conn);
+        .get_result(conn)?;
 
     // Update the parent ticket's updated_at timestamp
-    if result.is_ok() {
-        let _ = diesel::update(tickets::table.find(new_comment.ticket_id))
-            .set(tickets::updated_at.eq(diesel::dsl::now))
-            .execute(conn);
+    let _ = diesel::update(tickets::table.find(new_comment.ticket_id))
+        .set(tickets::updated_at.eq(diesel::dsl::now))
+        .execute(conn);
+
+    if let Some(observer) = observer {
+        // Look up the parent ticket title for the index doc; the
+        // search-side `index_document_from_comment` builds a "Comment
+        // on: <title>" search title from it. Best-effort.
+        let ticket_title = tickets::table
+            .find(new_comment.ticket_id)
+            .select(tickets::title)
+            .first::<String>(conn)
+            .unwrap_or_else(|_| String::from("Unknown Ticket"));
+        observer.comment_created(&comment, &ticket_title);
     }
 
-    result
+    Ok(comment)
 }
 
 // Attachment operations
@@ -82,12 +110,22 @@ pub fn get_comments_with_attachments_by_ticket_id(conn: &mut DbConnection, ticke
     Ok(comments_with_attachments)
 }
 
-pub fn delete_comment(conn: &mut DbConnection, comment_id: i32) -> QueryResult<usize> {
+pub fn delete_comment(
+    conn: &mut DbConnection,
+    comment_id: i32,
+    observer: Option<&dyn CommentDeletedObserver>,
+) -> QueryResult<usize> {
     // First delete all attachments associated with this comment
     diesel::delete(attachments::table.filter(attachments::comment_id.eq(comment_id))).execute(conn)?;
-    
+
     // Then delete the comment itself
-    diesel::delete(comments::table.find(comment_id)).execute(conn)
+    let count = diesel::delete(comments::table.find(comment_id)).execute(conn)?;
+    if count > 0 {
+        if let Some(observer) = observer {
+            observer.comment_deleted(comment_id);
+        }
+    }
+    Ok(count)
 }
 
 pub fn get_attachment_by_id(conn: &mut DbConnection, attachment_id: i32) -> QueryResult<Attachment> {

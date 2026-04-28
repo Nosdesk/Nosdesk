@@ -750,7 +750,7 @@ pub async fn register(
                 .execute(&mut conn) {
                 error!(error = ?e, "Error creating auth identity");
                 // Rollback by deleting the user
-                let _ = repository::users::delete_user(&created_user.uuid, &mut conn);
+                let _ = repository::users::delete_user(&created_user.uuid, &mut conn, Some(search_service.get_ref()));
                 return HttpResponse::InternalServerError().json(json!({
                     "status": "error",
                     "message": "Error creating user authentication"
@@ -1140,7 +1140,7 @@ pub async fn setup_initial_admin(
                 .execute(&mut conn) {
                 error!(error = ?e, "Error creating auth identity");
                 // Rollback by deleting the user
-                let _ = repository::users::delete_user(&created_user.uuid, &mut conn);
+                let _ = repository::users::delete_user(&created_user.uuid, &mut conn, Some(search_service.get_ref()));
                 return HttpResponse::InternalServerError().json(json!({
                     "status": "error",
                     "message": "Error creating user authentication"

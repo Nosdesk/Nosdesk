@@ -216,13 +216,13 @@ pub async fn process_event(
             Some(ticket_id) => {
                 let ticket = tickets_repo::get_ticket_by_id(conn, ticket_id)?;
                 let comment =
-                    insert_inbound_comment(conn, ticket.id, sender_uuid, &msg, forwarded_by_uuid)?;
+                    insert_inbound_comment(conn, ticket.id, sender_uuid, &msg, forwarded_by_uuid, ctx)?;
                 (ticket, comment, false)
             }
             None => {
                 let ticket = open_ticket_from_message(conn, channel, &msg, sender_uuid)?;
                 let comment =
-                    insert_inbound_comment(conn, ticket.id, sender_uuid, &msg, forwarded_by_uuid)?;
+                    insert_inbound_comment(conn, ticket.id, sender_uuid, &msg, forwarded_by_uuid, ctx)?;
                 (ticket, comment, true)
             }
         };
@@ -481,6 +481,7 @@ fn insert_inbound_comment(
     user_uuid: uuid::Uuid,
     msg: &InboundMessage,
     forwarded_by_user_uuid: Option<uuid::Uuid>,
+    ctx: &PipelineContext,
 ) -> Result<Comment, diesel::result::Error> {
     let mut metadata = json!({
         "provider": msg.from.provider,
@@ -503,7 +504,11 @@ fn insert_inbound_comment(
         is_internal: false,
     };
 
-    comments_repo::create_comment(conn, new_comment)
+    let observer = ctx
+        .search
+        .as_ref()
+        .map(|s| s as &dyn crate::repository::comments::CommentCreatedObserver);
+    comments_repo::create_comment(conn, new_comment, observer)
 }
 
 async fn persist_attachments(

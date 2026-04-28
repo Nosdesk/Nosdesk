@@ -357,3 +357,69 @@ impl crate::repository::documentation::DocumentationSavedObserver for Arc<Search
         indexing_tasks::spawn_index_documentation(Arc::clone(self), page.clone());
     }
 }
+
+// ---- Update / delete bridges ----
+
+impl crate::repository::users::UserUpdatedObserver for Arc<SearchService> {
+    fn user_updated(&self, user: &models::User, primary_email: Option<&str>) {
+        indexing_tasks::spawn_index_user(
+            Arc::clone(self),
+            user.clone(),
+            primary_email.map(|s| s.to_string()),
+        );
+    }
+}
+
+impl crate::repository::users::UserDeletedObserver for Arc<SearchService> {
+    fn user_deleted(&self, user_uuid: &uuid::Uuid) {
+        indexing_tasks::spawn_delete_user(Arc::clone(self), user_uuid.to_string());
+    }
+}
+
+impl crate::repository::tickets::TicketUpdatedObserver for Arc<SearchService> {
+    fn ticket_updated(
+        &self,
+        ticket: &models::Ticket,
+        article: Option<&models::ArticleContent>,
+    ) {
+        indexing_tasks::spawn_index_ticket(
+            Arc::clone(self),
+            ticket.clone(),
+            article.cloned(),
+        );
+    }
+}
+
+impl crate::repository::tickets::TicketDeletedObserver for Arc<SearchService> {
+    fn ticket_deleted(&self, ticket_id: i32) {
+        indexing_tasks::spawn_delete_ticket(Arc::clone(self), ticket_id);
+    }
+}
+
+impl crate::repository::comments::CommentCreatedObserver for Arc<SearchService> {
+    fn comment_created(&self, comment: &models::Comment, ticket_title: &str) {
+        indexing_tasks::spawn_index_comment(
+            Arc::clone(self),
+            comment.clone(),
+            ticket_title.to_string(),
+        );
+    }
+}
+
+impl crate::repository::comments::CommentDeletedObserver for Arc<SearchService> {
+    fn comment_deleted(&self, comment_id: i32) {
+        indexing_tasks::spawn_delete_comment(Arc::clone(self), comment_id);
+    }
+}
+
+impl crate::repository::devices::DeviceDeletedObserver for Arc<SearchService> {
+    fn device_deleted(&self, device_id: i32) {
+        indexing_tasks::spawn_delete_device(Arc::clone(self), device_id);
+    }
+}
+
+impl crate::repository::documentation::DocumentationDeletedObserver for Arc<SearchService> {
+    fn documentation_deleted(&self, page_id: i32) {
+        indexing_tasks::spawn_delete_documentation(Arc::clone(self), page_id);
+    }
+}

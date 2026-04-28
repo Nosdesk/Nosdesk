@@ -379,7 +379,7 @@ pub async fn create_ticket(
                             updated_at: Some(chrono::Utc::now().naive_utc()),
                             ..Default::default()
                         };
-                        if let Ok(updated) = repository::update_ticket_partial(&mut conn, ticket.id, assign_update) {
+                        if let Ok(updated) = repository::update_ticket_partial(&mut conn, ticket.id, assign_update, Some(search_service.get_ref())) {
                             ticket = updated;
                             info!(
                                 ticket_id = ticket.id,
@@ -504,7 +504,7 @@ pub async fn delete_ticket(
     };
 
     // Use the comprehensive deletion function that cleans up files
-    match repository::delete_ticket_with_cleanup(&mut conn, ticket_id, storage.as_ref().clone())
+    match repository::delete_ticket_with_cleanup(&mut conn, ticket_id, storage.as_ref().clone(), Some(search_service.get_ref()))
         .await
     {
         Ok(rows_affected) => {
@@ -693,7 +693,7 @@ pub async fn create_empty_ticket(
                     updated_at: Some(chrono::Utc::now().naive_utc()),
                     ..Default::default()
                 };
-                if let Ok(updated) = repository::update_ticket_partial(&mut conn, ticket.id, assign_update) {
+                if let Ok(updated) = repository::update_ticket_partial(&mut conn, ticket.id, assign_update, Some(search_service.get_ref())) {
                     ticket = updated;
                     info!(
                         ticket_id = ticket.id,
@@ -905,7 +905,7 @@ pub async fn update_ticket_partial(
     let category_changed = body.get("category_id").is_some();
 
     // Update the ticket
-    match repository::update_ticket_partial(&mut conn, ticket_id, ticket_update) {
+    match repository::update_ticket_partial(&mut conn, ticket_id, ticket_update, Some(search_service.get_ref())) {
         Ok(updated_ticket) => {
             // Run automatic assignment rules if category changed and no assignee
             if category_changed && updated_ticket.assignee_uuid.is_none() {
@@ -921,7 +921,7 @@ pub async fn update_ticket_partial(
                             updated_at: Some(chrono::Utc::now().naive_utc()),
                             ..Default::default()
                         };
-                        if repository::update_ticket_partial(&mut conn, ticket_id, assign_update).is_ok() {
+                        if repository::update_ticket_partial(&mut conn, ticket_id, assign_update, Some(search_service.get_ref())).is_ok() {
                             info!(
                                 ticket_id,
                                 assignee = %assigned_uuid,
@@ -1486,7 +1486,7 @@ pub async fn bulk_tickets(
 
             let mut deleted = 0;
             for id in ids {
-                match repository::delete_ticket_with_cleanup(&mut conn, *id, storage.as_ref().clone()).await {
+                match repository::delete_ticket_with_cleanup(&mut conn, *id, storage.as_ref().clone(), Some(search_service.get_ref())).await {
                     Ok(rows) => {
                         deleted += rows;
                         // Remove from search index
@@ -1547,7 +1547,7 @@ pub async fn bulk_tickets(
                     origin_channel_id: None,
                 };
 
-                if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
+                if repository::update_ticket_partial(&mut conn, *id, update, Some(search_service.get_ref())).is_ok() {
                     updated += 1;
                     // Send SSE update with source_client_id for echo suppression
                     sse_state.broadcast_event_from(
@@ -1600,7 +1600,7 @@ pub async fn bulk_tickets(
                     origin_channel_id: None,
                 };
 
-                if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
+                if repository::update_ticket_partial(&mut conn, *id, update, Some(search_service.get_ref())).is_ok() {
                     updated += 1;
                     sse_state.broadcast_event_from(
                         crate::handlers::sse::SseEvent::TicketUpdated {
@@ -1654,7 +1654,7 @@ pub async fn bulk_tickets(
                     origin_channel_id: None,
                 };
 
-                if repository::update_ticket_partial(&mut conn, *id, update).is_ok() {
+                if repository::update_ticket_partial(&mut conn, *id, update, Some(search_service.get_ref())).is_ok() {
                     updated += 1;
                     sse_state.broadcast_event_from(
                         crate::handlers::sse::SseEvent::TicketUpdated {
@@ -1814,7 +1814,7 @@ mod tests {
             origin_channel_id: None,
         };
 
-        let updated = repository::update_ticket_partial(&mut conn, ticket.id, update)
+        let updated = repository::update_ticket_partial(&mut conn, ticket.id, update, Some(search_service.get_ref()))
             .expect("Failed to update ticket");
 
         // Verify updates were applied

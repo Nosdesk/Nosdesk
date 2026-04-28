@@ -6,6 +6,21 @@ use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
 
+/// Observer fired after a user's row is updated. Mirrors
+/// `UserCreatedObserver` so the search service can keep its index
+/// in sync with name / email / role changes regardless of which
+/// handler made the edit.
+pub trait UserUpdatedObserver: Send + Sync {
+    fn user_updated(&self, user: &User, primary_email: Option<&str>);
+}
+
+/// Observer fired after a user is deleted. Implementor removes the
+/// user from the search index so the row doesn't haunt search
+/// results after removal.
+pub trait UserDeletedObserver: Send + Sync {
+    fn user_deleted(&self, user_uuid: &Uuid);
+}
+
 // User repository functions
 pub fn get_users(conn: &mut DbConnection) -> Result<Vec<User>, Error> {
     users::table
@@ -107,13 +122,27 @@ pub fn update_user(
     user_uuid: &Uuid,
     user: UserUpdate,
     conn: &mut DbConnection,
+    observer: Option<&dyn UserUpdatedObserver>,
 ) -> Result<User, Error> {
-    diesel::update(users::table.find(user_uuid))
+    let result: User = diesel::update(users::table.find(user_uuid))
         .set(user)
-        .get_result(conn)
+        .get_result(conn)?;
+
+    if let Some(observer) = observer {
+        // Fetch the primary email for the index doc; best-effort,
+        // don't fail the update if the lookup misses.
+        let primary_email = crate::repository::user_helpers::get_primary_email(user_uuid, conn);
+        observer.user_updated(&result, primary_email.as_deref());
+    }
+
+    Ok(result)
 }
 
-pub fn delete_user(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<usize, Error> {
+pub fn delete_user(
+    user_uuid: &Uuid,
+    conn: &mut DbConnection,
+    observer: Option<&dyn UserDeletedObserver>,
+) -> Result<usize, Error> {
     use crate::schema::{
         comments, devices, tickets, attachments, linked_tickets, project_tickets,
         ticket_devices, article_contents, sync_history, user_auth_identities, user_emails,
@@ -248,6 +277,12 @@ pub fn delete_user(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<usize, E
         let deleted_count = diesel::delete(users::table.find(user_uuid)).execute(conn)?;
 
         Ok(deleted_count)
+    }).inspect(|count| {
+        if *count > 0 {
+            if let Some(observer) = observer {
+                observer.user_deleted(user_uuid);
+            }
+        }
     })
 }
 

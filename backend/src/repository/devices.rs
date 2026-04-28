@@ -8,6 +8,13 @@ use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
 
+/// Observer fired after a device is deleted. Implementor removes
+/// the device from the search index so the row doesn't haunt
+/// search results after removal.
+pub trait DeviceDeletedObserver: Send + Sync {
+    fn device_deleted(&self, device_id: i32);
+}
+
 // Device operations
 pub fn get_all_devices(conn: &mut DbConnection) -> QueryResult<Vec<Device>> {
     devices::table
@@ -136,9 +143,18 @@ pub fn update_device(conn: &mut DbConnection, device_id: i32, device_update: Dev
         .get_result(conn)
 }
 
-pub fn delete_device(conn: &mut DbConnection, device_id: i32) -> QueryResult<usize> {
-    diesel::delete(devices::table.find(device_id))
-        .execute(conn)
+pub fn delete_device(
+    conn: &mut DbConnection,
+    device_id: i32,
+    observer: Option<&dyn DeviceDeletedObserver>,
+) -> QueryResult<usize> {
+    let count = diesel::delete(devices::table.find(device_id)).execute(conn)?;
+    if count > 0 {
+        if let Some(observer) = observer {
+            observer.device_deleted(device_id);
+        }
+    }
+    Ok(count)
 }
 
 pub fn get_devices_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<Vec<Device>> {
