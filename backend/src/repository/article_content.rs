@@ -5,6 +5,16 @@ use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
 
+/// Observer fired after a ticket's article content (the Yjs blob
+/// persisted from the collaborative editor) is successfully saved.
+/// Mirrors `UserCreatedObserver` in shape: defined at the repo layer
+/// so the helper doesn't import any service module, and implemented
+/// elsewhere by the search service to keep the search index in sync
+/// when the editor auto-saves.
+pub trait ArticleContentSavedObserver: Send + Sync {
+    fn article_content_saved(&self, ticket: &Ticket, article: &ArticleContent);
+}
+
 // Article content operations
 pub fn get_article_content_by_ticket_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<ArticleContent> {
     article_contents::table
@@ -76,13 +86,14 @@ pub fn update_article_yjs_state(
     conn: &mut DbConnection,
     ticket_id: i32,
     yjs_document: Vec<u8>,
+    observer: Option<&dyn ArticleContentSavedObserver>,
 ) -> QueryResult<ArticleContent> {
     // First check if article content exists for this ticket
     let existing = article_contents::table
         .filter(article_contents::ticket_id.eq(ticket_id))
         .first::<ArticleContent>(conn);
 
-    match existing {
+    let result: ArticleContent = match existing {
         Ok(article) => {
             // Update existing article content Yjs state
             diesel::update(article_contents::table.find(article.id))
@@ -90,7 +101,7 @@ pub fn update_article_yjs_state(
                     article_contents::yjs_document.eq(Some(yjs_document)),
                     article_contents::updated_at.eq(diesel::dsl::now),
                 ))
-                .get_result(conn)
+                .get_result(conn)?
         },
         Err(diesel::result::Error::NotFound) => {
             // Create new article content with Yjs state
@@ -100,10 +111,23 @@ pub fn update_article_yjs_state(
                 yjs_document: Some(yjs_document),
                 yjs_client_id: None,
             };
-            create_article_content(conn, new_content)
+            create_article_content(conn, new_content)?
         },
-        Err(e) => Err(e)
+        Err(e) => return Err(e),
+    };
+
+    // Notify the observer with both the parent ticket and the saved
+    // article so a search-side implementation can call
+    // `spawn_index_ticket(ticket, article)` without a follow-up
+    // round trip. The ticket fetch is best-effort: if it fails the
+    // observer is skipped rather than failing the save itself.
+    if let Some(observer) = observer {
+        if let Ok(ticket) = tickets::table.find(ticket_id).first::<Ticket>(conn) {
+            observer.article_content_saved(&ticket, &result);
+        }
     }
+
+    Ok(result)
 }
 
 // Update parent ticket's updated_at timestamp (call only when content actually changes)

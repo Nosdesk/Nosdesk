@@ -386,16 +386,28 @@ pub struct YjsAppState {
     pool: web::Data<crate::db::Pool>,
     redis_cache: Arc<RedisYjsCache>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
+    /// Search service handle so the periodic + on-disconnect Yjs
+    /// saves can fire the indexing observers and keep the search
+    /// index in sync with body edits typed into the collaborative
+    /// editor. Without this every Yjs save would leave the index
+    /// stale until a metadata change triggered a reindex.
+    search_service: Arc<crate::services::search::SearchService>,
 }
 
 impl YjsAppState {
-    pub fn new(pool: web::Data<crate::db::Pool>, redis_cache: Arc<RedisYjsCache>, sse_state: web::Data<crate::handlers::sse::SseState>) -> Self {
+    pub fn new(
+        pool: web::Data<crate::db::Pool>,
+        redis_cache: Arc<RedisYjsCache>,
+        sse_state: web::Data<crate::handlers::sse::SseState>,
+        search_service: Arc<crate::services::search::SearchService>,
+    ) -> Self {
         let state = YjsAppState {
             documents: Arc::new(RwLock::new(HashMap::new())),
             sessions: Arc::new(RwLock::new(HashMap::new())),
             pool,
             redis_cache,
             sse_state,
+            search_service,
         };
         // Start the periodic cleanup and save task
         let state_clone = state.clone();
@@ -997,6 +1009,7 @@ impl YjsAppState {
         let pool = self.pool.clone();
         let content = binary_content.clone(); // Already Vec<u8>
 
+        let search = self.search_service.clone();
         match doc_type {
             DocumentType::Ticket(ticket_id) => {
                 // Save ticket article content Yjs snapshot to PostgreSQL (snapshot-based persistence)
@@ -1005,7 +1018,12 @@ impl YjsAppState {
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
-                            match repository::update_article_yjs_state(&mut conn, ticket_id, content) {
+                            match repository::update_article_yjs_state(
+                                &mut conn,
+                                ticket_id,
+                                content,
+                                Some(&search),
+                            ) {
                                 Ok(_) => {
                                     debug!(ticket_id, "Successfully saved Yjs snapshot for ticket");
                                 },
@@ -1022,7 +1040,12 @@ impl YjsAppState {
                     match pool.get() {
                         Ok(mut conn) => {
                             // Update only the Yjs-related fields
-                            match repository::update_documentation_yjs_state(&mut conn, doc_page_id, content) {
+                            match repository::update_documentation_yjs_state(
+                                &mut conn,
+                                doc_page_id,
+                                content,
+                                Some(&search),
+                            ) {
                                 Ok(_) => debug!(doc_page_id, "Successfully saved Yjs state for documentation page"),
                                 Err(e) => error!(doc_page_id, error = ?e, "Failed to save Yjs state for documentation page"),
                             }

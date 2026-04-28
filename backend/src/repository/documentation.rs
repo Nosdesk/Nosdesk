@@ -10,6 +10,16 @@ use crate::models::{
 };
 use crate::schema::documentation_pages;
 
+/// Observer fired after a documentation page's Yjs blob is
+/// successfully saved by the collaborative editor. Mirrors
+/// `UserCreatedObserver` and `ArticleContentSavedObserver`: defined
+/// at the repo layer, implemented elsewhere by the search service
+/// so the index reflects body edits without each save site needing
+/// to wire up indexing manually.
+pub trait DocumentationSavedObserver: Send + Sync {
+    fn documentation_saved(&self, page: &DocumentationPage);
+}
+
 // Get all documentation pages (excludes archived and deleted)
 pub fn get_documentation_pages(conn: &mut DbConnection) -> Result<Vec<DocumentationPage>, Error> {
     documentation_pages::table
@@ -257,15 +267,22 @@ pub fn update_documentation_yjs_state(
     conn: &mut DbConnection,
     page_id: i32,
     yjs_document: Vec<u8>,
+    observer: Option<&dyn DocumentationSavedObserver>,
 ) -> Result<DocumentationPage, Error> {
     use crate::schema::documentation_pages::dsl;
 
-    diesel::update(dsl::documentation_pages.find(page_id))
+    let result: DocumentationPage = diesel::update(dsl::documentation_pages.find(page_id))
         .set((
             dsl::yjs_document.eq(Some(yjs_document)),
             dsl::updated_at.eq(diesel::dsl::now),
         ))
-        .get_result(conn)
+        .get_result(conn)?;
+
+    if let Some(observer) = observer {
+        observer.documentation_saved(&result);
+    }
+
+    Ok(result)
 }
 
 // Create a documentation revision snapshot

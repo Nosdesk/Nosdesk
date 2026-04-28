@@ -329,3 +329,31 @@ impl crate::repository::user_helpers::UserCreatedObserver for Arc<SearchService>
         );
     }
 }
+
+/// Re-index a ticket whenever the collaborative editor commits a new
+/// Yjs snapshot for its article content. Without this hook the index
+/// only saw ticket metadata changes (status, priority, title) and
+/// the body text typed into the editor was never searchable.
+impl crate::repository::article_content::ArticleContentSavedObserver for Arc<SearchService> {
+    fn article_content_saved(
+        &self,
+        ticket: &models::Ticket,
+        article: &models::ArticleContent,
+    ) {
+        indexing_tasks::spawn_index_ticket(
+            Arc::clone(self),
+            ticket.clone(),
+            Some(article.clone()),
+        );
+    }
+}
+
+/// Re-index a documentation page whenever its Yjs blob is saved by
+/// the collaborative editor. Pairs with the page-metadata reindex
+/// already wired into the documentation handlers so both title-level
+/// and body-level edits land in search.
+impl crate::repository::documentation::DocumentationSavedObserver for Arc<SearchService> {
+    fn documentation_saved(&self, page: &models::DocumentationPage) {
+        indexing_tasks::spawn_index_documentation(Arc::clone(self), page.clone());
+    }
+}
