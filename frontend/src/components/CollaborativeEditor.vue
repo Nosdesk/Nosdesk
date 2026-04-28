@@ -229,7 +229,7 @@ interface WebSocketCloseEvent {
 // Provider event handler references for proper cleanup
 let statusHandler: ((event: { status: string }) => void) | null = null;
 let connectionErrorHandler: ((error: Event) => void) | null = null;
-let connectionCloseHandler: ((event: WebSocketCloseEvent) => void) | null = null;
+let connectionCloseHandler: ((event: WebSocketCloseEvent | null) => void) | null = null;
 let syncedHandler: ((isSynced: boolean) => void) | null = null;
 let statusReconnectHandler: ((event: { status: string }) => void) | null = null;
 let awarenessChangeHandler: (() => void) | null = null;
@@ -962,7 +962,13 @@ const initEditor = async () => {
 
         // Monitor for authentication-related disconnections
         // Store handler reference for proper cleanup
-        connectionCloseHandler = (event: WebSocketCloseEvent) => {
+        connectionCloseHandler = (event: WebSocketCloseEvent | null) => {
+            // y-websocket emits 'connection-close' with a null event
+            // when disconnect() is called programmatically (e.g. tab
+            // backgrounded, unmount). Only the network-driven close
+            // path carries a real CloseEvent worth inspecting.
+            if (!event) return;
+
             log.warn("WebSocket connection closed:", {
                 code: event.code,
                 reason: event.reason,
