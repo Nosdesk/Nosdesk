@@ -12,6 +12,8 @@ import { useRouter } from "vue-router";
 import * as Y from "yjs";
 import { PermanentUserData } from "yjs";
 import { WebsocketProvider } from "y-websocket";
+import { useCollabSessionStore } from "@/stores/collabSession";
+import { SafePermanentUserData } from "@/utils/safePermanentUserData";
 import { EditorView } from "prosemirror-view";
 import { EditorState, Selection, type Command } from "prosemirror-state";
 import { schema } from "@/components/editor/schema";
@@ -392,42 +394,14 @@ let provider: WebsocketProvider | null = null;
 let yXmlFragment: Y.XmlFragment | null = null;
 let editorView: EditorView | null = null;
 let permanentUserData: SafePermanentUserData | null = null;
-
-// Create a wrapper around PermanentUserData that provides fallback for missing users
-class SafePermanentUserData {
-    private pud: Y.PermanentUserData;
-
-    constructor(doc: Y.Doc) {
-        this.pud = new Y.PermanentUserData(doc);
-    }
-
-    setUserMapping(doc: Y.Doc, clientId: number, userId: string) {
-        this.pud.setUserMapping(doc, clientId, userId);
-    }
-
-    getUserByClientId(clientId: number) {
-        const user = this.pud.getUserByClientId(clientId);
-        // If user not found, return a default anonymous user instead of null
-        if (user === null || user === undefined) {
-            return `User-${clientId}`;
-        }
-        return user;
-    }
-
-    getUserByDeletedId(id: { visibleUsers: Set<unknown>; visibleDs: unknown }) {
-        const user = this.pud.getUserByDeletedId(id);
-        // If user not found, return a default anonymous user instead of null
-        if (user === null || user === undefined) {
-            return 'Unknown User';
-        }
-        return user;
-    }
-
-    // Expose dss property that y-prosemirror uses
-    get dss() {
-        return this.pud.dss;
-    }
-}
+/**
+ * Diagnostic update listener attached per editor mount. Tracked
+ * here so we can `ydoc.off('update', ...)` on unmount, the listener
+ * is cumulative on the shared doc (yjs ObservableV2 semantics), and
+ * the underlying ydoc now outlives this component via the
+ * useCollabSessionStore refcount.
+ */
+let updateDiagnosticHandler: ((update: Uint8Array, origin: unknown) => void) | null = null;
 
 // Enhanced logging
 const log = {
@@ -603,53 +577,21 @@ const initEditor = async () => {
     try {
         log.info("Initializing collaborative editor with docId:", props.docId);
 
-        // 1. Create new Yjs document
-        ydoc = new Y.Doc();
-        ydoc.gc = false;  // Disable garbage collection to preserve all document history
-
-        // DIAGNOSTIC: Log ALL ydoc updates to trace where sync breaks
-        // This listener fires whenever the document changes locally OR remotely
-        ydoc.on('update', (update: Uint8Array, origin: unknown) => {
-            const originObj = origin as { constructor?: { name?: string } } | null;
-            const isLocal = origin === null || origin === ydoc.clientID || (originObj?.constructor?.name === 'WebsocketProvider' ? false : true);
-            log.info('🔄 YDOC UPDATE EVENT:', {
-                updateSize: update.length,
-                origin: originObj?.constructor?.name || String(origin) || 'null',
-                isLikelyLocal: isLocal,
-                yXmlFragmentLength: yXmlFragment?.length || 0,
-                clientId: ydoc.clientID,
-                timestamp: new Date().toISOString(),
-            });
-
-            // Log update bytes for debugging
-            if (update.length < 100) {
-                log.debug('   Update bytes:', Array.from(update).map(b => b.toString(16).padStart(2, '0')).join(' '));
-            }
-        });
-
-        // 1.5. Create SafePermanentUserData to track user contributions across snapshots
-        // This wrapper provides fallback values for missing users instead of returning null
-        permanentUserData = new SafePermanentUserData(ydoc);
-
-        // 2. Create the websocket provider
-        // Note: y-websocket automatically appends `/${docId}` to the provided URL
-        // Provide base URL without the document ID
-        // Derive WebSocket URL from API URL for consistency with REST API configuration
+        // Derive WebSocket URL from API URL for consistency with
+        // REST API configuration. Computed before acquire() so the
+        // session store can construct the provider on first use.
         const apiUrl = import.meta.env.VITE_API_URL || '/api';
         let baseWsUrl = import.meta.env.VITE_WS_SERVER_URL;
 
         if (!baseWsUrl) {
             if (apiUrl.startsWith('/')) {
-                // Relative path - use current origin with WebSocket protocol
                 const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 baseWsUrl = `${wsProtocol}//${window.location.host}${apiUrl}/collaboration/ws`;
             } else {
-                // Absolute URL - convert http(s) to ws(s)
                 baseWsUrl = apiUrl.replace(/^http/, 'ws') + '/collaboration/ws';
             }
         }
 
-        // Check authentication using auth store (httpOnly cookies)
         const authStore = useAuthStore();
         if (!authStore.isAuthenticated) {
             log.error("No authentication token found. Please log in.");
@@ -662,32 +604,66 @@ const initEditor = async () => {
             isAuthenticated: authStore.isAuthenticated,
         });
 
-        // Note: Authentication is handled via httpOnly cookies automatically
-        // No need to pass token - WebSocket upgrade request includes cookies
-
-        // Create WebsocketProvider with custom URL construction
-        // y-websocket will append /${docId} to the baseWsUrl, creating the correct backend route
-        provider = new WebsocketProvider(baseWsUrl, props.docId, ydoc, {
-            // Set resync interval to 20 seconds to prevent 30-second timeout disconnects
-            // y-websocket closes connection if no message received in 30s
-            // Periodic Yjs protocol messages keep the connection alive
-            resyncInterval: 20000, // 20 seconds
-            // Disable broadcast channel for now to reduce complexity
-            disableBc: true,
-        });
-
-        // 3. Set base awareness information for user identification
-        provider.awareness.setLocalState({
-            user: {
-                name: getUserDisplayName(),
-                color: getRandomColor(),
-                uuid: authStore.user?.uuid || undefined,
-                avatar: authStore.user?.avatar_thumb || authStore.user?.avatar_url || undefined,
+        // Acquire the shared Yjs session: the store either creates
+        // a new (Y.Doc, WebsocketProvider, PermanentUserData) trio
+        // for this docId or returns the existing one if a sibling
+        // mount or this same component just released it within the
+        // grace period. `isNew` gates the once-per-doc setup
+        // (gc / setUserMapping). All other setup (event listeners,
+        // awareness setLocalStateField, editor view) re-runs on
+        // every mount, the previous editor instance's listeners
+        // were torn off in `cleanup()`.
+        const collab = useCollabSessionStore();
+        const session = collab.acquire(props.docId, {
+            baseWsUrl,
+            providerParams: {
+                resyncInterval: 20000,
+                // Same-tab BC isn't needed in this SPA and removes
+                // a class of duplicate-message edge cases.
+                disableBc: true,
             },
         });
+        ydoc = session.ydoc;
+        provider = session.provider;
+        permanentUserData = session.permanentUserData;
 
-        // 3.5. Map the Yjs client ID to the user UUID for snapshot tracking
-        if (permanentUserData && authStore.user?.uuid) {
+        // Diagnostic update listener (per-mount, removed in cleanup
+        // so the cumulative ObservableV2 listener set doesn't leak
+        // across mounts on the shared doc).
+        updateDiagnosticHandler = (update: Uint8Array, origin: unknown) => {
+            const originObj = origin as { constructor?: { name?: string } } | null;
+            const isLocal = origin === null || origin === ydoc?.clientID ||
+                (originObj?.constructor?.name === 'WebsocketProvider' ? false : true);
+            log.info('🔄 YDOC UPDATE EVENT:', {
+                updateSize: update.length,
+                origin: originObj?.constructor?.name || String(origin) || 'null',
+                isLikelyLocal: isLocal,
+                yXmlFragmentLength: yXmlFragment?.length || 0,
+                clientId: ydoc?.clientID,
+                timestamp: new Date().toISOString(),
+            });
+            if (update.length < 100) {
+                log.debug('   Update bytes:', Array.from(update).map(b => b.toString(16).padStart(2, '0')).join(' '));
+            }
+        };
+        ydoc.on('update', updateDiagnosticHandler);
+
+        // Set the user awareness field. `setLocalStateField` is the
+        // merge variant; using `setLocalState({user:{...}})` would
+        // overwrite y-prosemirror's `cursor` field on re-acquired
+        // sessions (per y-protocols/awareness.js).
+        provider.awareness.setLocalStateField('user', {
+            name: getUserDisplayName(),
+            color: getRandomColor(),
+            uuid: authStore.user?.uuid || undefined,
+            avatar: authStore.user?.avatar_thumb || authStore.user?.avatar_url || undefined,
+        });
+
+        // Map the Yjs client ID to the user UUID once per doc
+        // lifetime. Y.PermanentUserData.setUserMapping appends to
+        // a YArray with no dedup, calling it on every mount would
+        // bloat the user map with duplicate entries.
+        if (session.isNew && authStore.user?.uuid) {
             permanentUserData.setUserMapping(ydoc, ydoc.clientID, authStore.user.uuid);
             log.info(`Mapped client ID ${ydoc.clientID} to user ${authStore.user.uuid}`);
         }
@@ -1519,17 +1495,18 @@ const cleanup = () => {
         connectionTimeout = null;
     }
 
-    // CRITICAL: Clean up in the correct order to prevent race conditions
-    // 1. First disconnect the provider to stop new messages
-    if (provider) {
-        try {
-            provider.disconnect();
-        } catch (e) {
-            log.error("Error disconnecting provider:", e);
-        }
-    }
+    // CRITICAL: cleanup order matters now that the doc + provider
+    // are owned by `useCollabSessionStore` and outlive the
+    // component. We tear off only the listeners THIS mount
+    // attached, then release the session refcount; the store
+    // disconnects after a grace period and destroys after LRU
+    // eviction. We never call `provider.destroy()`, `ydoc.destroy()`,
+    // or `awareness.destroy()` here, those would torpedo the
+    // shared session for siblings/future mounts.
 
-    // 2. Destroy the editor view BEFORE awareness to prevent cursor updates on null editor
+    // 1. Destroy the editor view first so y-prosemirror plugins
+    //    detach from the shared XmlFragment before we touch
+    //    awareness or strip listeners.
     if (editorView) {
         try {
             editorView.destroy();
@@ -1539,11 +1516,12 @@ const cleanup = () => {
         }
     }
 
-    // 3. Now safe to destroy provider and awareness
+    // 2. Detach this mount's provider listeners by reference.
+    //    `Y.ObservableV2.off` is a strict ref-equality removal;
+    //    skipping this would leak per-mount handlers across
+    //    re-acquires of the same docId.
     if (provider) {
         try {
-            // Remove all event listeners first to prevent callbacks during destruction
-            // Use stored handler references for proper removal
             if (statusHandler) {
                 provider.off("status", statusHandler);
                 statusHandler = null;
@@ -1564,35 +1542,39 @@ const cleanup = () => {
                 provider.off("synced", syncedHandler);
                 syncedHandler = null;
             }
-
-            // Remove awareness change handler
             if (provider.awareness && awarenessChangeHandler) {
                 provider.awareness.off("change", awarenessChangeHandler);
                 awarenessChangeHandler = null;
             }
-
-            // Destroy awareness (this will no longer trigger editor updates)
-            if (provider.awareness) {
-                provider.awareness.destroy();
-            }
-
-            // Destroy provider
-            provider.destroy();
-            provider = null;
         } catch (e) {
-            log.error("Error destroying provider:", e);
+            log.error("Error detaching provider listeners:", e);
         }
     }
 
-    // 4. Finally clean up Yjs document
-    if (ydoc) {
+    // 3. Detach the per-mount diagnostic update listener from
+    //    the shared ydoc.
+    if (ydoc && updateDiagnosticHandler) {
         try {
-            ydoc.destroy();
-            ydoc = null;
+            ydoc.off('update', updateDiagnosticHandler);
         } catch (e) {
-            log.error("Error destroying ydoc:", e);
+            log.error("Error detaching ydoc update listener:", e);
         }
+        updateDiagnosticHandler = null;
     }
+
+    // 4. Release our refcount on the session. The store will
+    //    disconnect the websocket after a grace period (so a
+    //    quick nav-back reuses the same connection) and
+    //    eventually destroy the doc + provider on LRU eviction.
+    if (props.docId) {
+        const collab = useCollabSessionStore();
+        collab.release(props.docId);
+    }
+
+    // 5. Drop our local references; the store still holds them.
+    provider = null;
+    ydoc = null;
+    permanentUserData = null;
 
     isConnected.value = false;
     isInitialized.value = false;
