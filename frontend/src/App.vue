@@ -220,26 +220,37 @@ onMounted(async () => {
         >
           <Transition name="page" mode="out-in">
             <!--
-              KeepAlive is reserved for views with genuine local
-              state that cache-driven re-mount can't restore. List
-              views (Tickets/Users/Devices/Projects/Docs) URL-sync
-              their filters and let Pinia Colada serve cached data
-              instantly on remount, so caching the component itself
-              would only inherit KeepAlive's documented bugs:
-                * vuejs/core#5386, kept-alive watchers fire on
-                  sibling navigation, racing the in-flight nav.
-                * vuejs/core#5323, activated fires while being
-                  deactivated, breaking lifecycle gates.
-                * vuejs/core#12786, duplicate watchers under nested
-                  RouterView.
-              TicketView stays cached because its collaborative
-              editor (Yjs awareness, WebSocket session, draft
-              comment buffer) is heavy local state that can't live
-              in URL or query cache.
+              No `<KeepAlive>`. Every view's stateful concerns are
+              owned by stores keyed by route param so the component
+              itself is fully unmountable:
+                * Tickets/Users/Devices/Projects/Docs URL-sync
+                  filters; Pinia Colada serves cached data instantly
+                  on remount.
+                * TicketView's Yjs doc, WebsocketProvider, and
+                  PermanentUserData live in `useCollabSessionStore`
+                  refcounted by docId, with IndexedDB persistence
+                  for instant cold-load.
+                * Comment drafts live in `useTicketDraftsStore`
+                  (localStorage) and pending attachments in
+                  `useTicketUiStore` (in-memory).
+              Avoiding KeepAlive sidesteps three documented core
+              bugs (vuejs/core#5386, #5323, #12786) and removes the
+              activate/deactivate gymnastics from every composable.
+
+              `:key` reads from `route.meta.key`, which routes set in
+              `beforeEnter` (e.g. `to.meta.key = to.params.id` for
+              ticket / project detail). Forces a fresh mount when
+              navigating directly between two records of the same
+              route (`/tickets/1` → `/tickets/2`) so per-record
+              stateful composables (collab session, ticket SSE) tear
+              down and rebuild against the new id, instead of being
+              left wired to the first id.
             -->
-            <KeepAlive :include="['TicketView']">
-              <component :is="Component" class="h-full overflow-auto" />
-            </KeepAlive>
+            <component
+              :is="Component"
+              :key="viewRoute.meta.key ?? viewRoute.fullPath"
+              class="h-full overflow-auto"
+            />
           </Transition>
         </RouterView>
       </main>
