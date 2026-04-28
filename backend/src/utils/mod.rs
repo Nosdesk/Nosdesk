@@ -2,7 +2,6 @@ pub mod auth;
 pub mod user;
 pub mod image;
 pub mod jwt;
-pub mod sse;
 pub mod mfa;
 pub mod storage;
 pub mod email;

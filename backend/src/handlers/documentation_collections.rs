@@ -8,13 +8,12 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
-use crate::handlers::sse::SseState;
+use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{
     NewDocumentationCollection, DocumentationCollectionUpdate, NewDocumentationCollectionPage,
 };
 use crate::repository;
 use crate::utils::rbac::{require_auth, require_technician_or_admin, require_admin};
-use crate::utils::sse::SseBroadcaster;
 
 // ============================================================================
 // Collection Endpoints
@@ -291,21 +290,23 @@ pub async fn update_collection(
 
     match repository::documentation_collections::update_collection(&mut conn, collection_id, update) {
         Ok(updated) => {
-            // Broadcast SSE events for each updated field
-            if let Some(ref name) = body.name {
-                SseBroadcaster::broadcast_collection_updated(
-                    &sse_state, collection_id, "name", serde_json::json!(name),
-                ).await;
-            }
-            if let Some(ref icon) = body.icon {
-                SseBroadcaster::broadcast_collection_updated(
-                    &sse_state, collection_id, "icon", serde_json::json!(icon),
-                ).await;
-            }
-            if let Some(ref description) = body.description {
-                SseBroadcaster::broadcast_collection_updated(
-                    &sse_state, collection_id, "description", serde_json::json!(description),
-                ).await;
+            // Broadcast SSE events for each updated field. One event
+            // per field so the frontend can apply the change at field
+            // granularity.
+            let updates: [(&str, Option<serde_json::Value>); 3] = [
+                ("name", body.name.as_ref().map(|v| serde_json::json!(v))),
+                ("icon", body.icon.as_ref().map(|v| serde_json::json!(v))),
+                ("description", body.description.as_ref().map(|v| serde_json::json!(v))),
+            ];
+            for (field, value) in updates.into_iter().filter_map(|(f, v)| v.map(|v| (f, v))) {
+                sse_state
+                    .broadcast_event(SseEvent::CollectionUpdated {
+                        collection_id,
+                        field: field.to_string(),
+                        value,
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .await;
             }
             HttpResponse::Ok().json(updated)
         }

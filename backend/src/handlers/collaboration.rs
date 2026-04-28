@@ -791,12 +791,13 @@ impl YjsAppState {
 
         // Broadcast viewer count change via SSE for tickets
         if let Some(DocumentType::Ticket(ticket_id)) = DocumentType::from_doc_id(doc_id) {
-            let sse_state = self.sse_state.clone();
-            crate::utils::sse::SseBroadcaster::broadcast_viewer_count(
-                &sse_state,
-                ticket_id,
-                room_size,
-            ).await;
+            self.sse_state
+                .broadcast_event(crate::handlers::sse::SseEvent::ViewerCountChanged {
+                    ticket_id,
+                    count: room_size,
+                    timestamp: chrono::Utc::now(),
+                })
+                .await;
         }
     }
 
@@ -827,12 +828,13 @@ impl YjsAppState {
 
             // Broadcast viewer count change via SSE for tickets
             if let Some(DocumentType::Ticket(ticket_id)) = DocumentType::from_doc_id(doc_id) {
-                let sse_state = self.sse_state.clone();
-                crate::utils::sse::SseBroadcaster::broadcast_viewer_count(
-                    &sse_state,
-                    ticket_id,
-                    room_size,
-                ).await;
+                self.sse_state
+                    .broadcast_event(crate::handlers::sse::SseEvent::ViewerCountChanged {
+                        ticket_id,
+                        count: room_size,
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .await;
             }
 
             // If room is empty, mark it as empty but don't save immediately

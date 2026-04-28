@@ -710,11 +710,13 @@ pub async fn create_user(
                     // above, so no manual spawn is needed here.
 
                     // Broadcast user creation via SSE
-                    crate::utils::sse::SseBroadcaster::broadcast_user_created(
-                        &sse_state,
-                        &user_uuid_str,
-                        serde_json::to_value(&response).unwrap_or_default(),
-                    ).await;
+                    sse_state
+                        .broadcast_event(crate::handlers::sse::SseEvent::UserCreated {
+                            user_uuid: user_uuid_str.clone(),
+                            user: serde_json::to_value(&response).unwrap_or_default(),
+                            timestamp: chrono::Utc::now(),
+                        })
+                        .await;
 
                     // Add invitation_sent flag to response
                     if let serde_json::Value::Object(mut map) = serde_json::to_value(&response).unwrap_or_default() {
@@ -933,10 +935,12 @@ pub async fn delete_user(
             // UserDeletedObserver inside `delete_user`.
 
             // Broadcast user deletion via SSE
-            crate::utils::sse::SseBroadcaster::broadcast_user_deleted(
-                &sse_state,
-                &user_uuid,
-            ).await;
+            sse_state
+                .broadcast_event(crate::handlers::sse::SseEvent::UserDeleted {
+                    user_uuid: user_uuid.clone(),
+                    timestamp: chrono::Utc::now(),
+                })
+                .await;
 
             HttpResponse::NoContent().finish()
         },
@@ -1867,71 +1871,38 @@ pub async fn update_user_by_uuid(
 
     match repository::update_user(&user.uuid, user_update, &mut conn, Some(search_service.get_ref())) {
         Ok(updated_user) => {
-            // Broadcast SSE events for changed fields
+            // Broadcast SSE events for changed fields. One event per
+            // field so other tabs/devices can mirror the change at
+            // field granularity. The dashboard_layout payload is the
+            // full object, since it's only delivered to the owning
+            // user's own sessions via the per-user topic.
             let updated_by = claims.sub.clone();
-
-            if user_data.name.is_some() {
-                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
-                    &sse_state,
-                    &user_uuid,
-                    "name",
-                    json!(updated_user.name.clone()),
-                    &updated_by,
-                ).await;
-            }
-            if user_data.role.is_some() {
-                let role_str = match updated_user.role {
-                    crate::models::UserRole::Admin => "admin",
-                    crate::models::UserRole::Technician => "technician",
-                    crate::models::UserRole::User => "user",
-                };
-                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
-                    &sse_state,
-                    &user_uuid,
-                    "role",
-                    json!(role_str),
-                    &updated_by,
-                ).await;
-            }
-            if user_data.pronouns.is_some() {
-                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
-                    &sse_state,
-                    &user_uuid,
-                    "pronouns",
-                    json!(updated_user.pronouns.clone()),
-                    &updated_by,
-                ).await;
-            }
-            if user_data.avatar_url.is_some() {
-                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
-                    &sse_state,
-                    &user_uuid,
-                    "avatar_url",
-                    json!(updated_user.avatar_url.clone()),
-                    &updated_by,
-                ).await;
-            }
-            if user_data.avatar_thumb.is_some() {
-                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
-                    &sse_state,
-                    &user_uuid,
-                    "avatar_thumb",
-                    json!(updated_user.avatar_thumb.clone()),
-                    &updated_by,
-                ).await;
-            }
-            if user_data.dashboard_layout.is_some() {
-                // Push the full layout payload so other tabs/devices can
-                // mirror the change without a round-trip. The user_uuid
-                // filter on the frontend side means this only affects
-                // the owning user's own sessions.
-                crate::utils::sse::SseBroadcaster::broadcast_user_updated(
-                    &sse_state,
-                    &user_uuid,
-                    "dashboard_layout",
-                    json!(updated_user.dashboard_layout.clone()),
-                    &updated_by,
-                ).await;
+            let role_str = match updated_user.role {
+                crate::models::UserRole::Admin => "admin",
+                crate::models::UserRole::Technician => "technician",
+                crate::models::UserRole::User => "user",
+            };
+            let updates: [(&str, bool, serde_json::Value); 6] = [
+                ("name", user_data.name.is_some(), json!(updated_user.name.clone())),
+                ("role", user_data.role.is_some(), json!(role_str)),
+                ("pronouns", user_data.pronouns.is_some(), json!(updated_user.pronouns.clone())),
+                ("avatar_url", user_data.avatar_url.is_some(), json!(updated_user.avatar_url.clone())),
+                ("avatar_thumb", user_data.avatar_thumb.is_some(), json!(updated_user.avatar_thumb.clone())),
+                ("dashboard_layout", user_data.dashboard_layout.is_some(), json!(updated_user.dashboard_layout.clone())),
+            ];
+            for (field, requested, value) in updates {
+                if !requested {
+                    continue;
+                }
+                sse_state
+                    .broadcast_event(crate::handlers::sse::SseEvent::UserUpdated {
+                        user_uuid: user_uuid.clone(),
+                        field: field.to_string(),
+                        value,
+                        updated_by: updated_by.clone(),
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .await;
             }
 
             // Re-index the updated user in search
@@ -2657,10 +2628,12 @@ pub async fn bulk_users(
                         // UserDeletedObserver inside `delete_user`,
                         // no manual spawn needed.
                         // Broadcast SSE event
-                        crate::utils::sse::SseBroadcaster::broadcast_user_deleted(
-                            &sse_state,
-                            id,
-                        ).await;
+                        sse_state
+                            .broadcast_event(crate::handlers::sse::SseEvent::UserDeleted {
+                                user_uuid: id.to_string(),
+                                timestamp: chrono::Utc::now(),
+                            })
+                            .await;
                     }
                     Err(e) => {
                         error!(user_id = %id, error = ?e, "Error deleting user");
@@ -2714,13 +2687,15 @@ pub async fn bulk_users(
                 if repository::update_user(&uuid, user_update, &mut conn, Some(search_service.get_ref())).is_ok() {
                     updated += 1;
                     // Broadcast SSE event
-                    crate::utils::sse::SseBroadcaster::broadcast_user_updated(
-                        &sse_state,
-                        id,
-                        "role",
-                        json!(role_str),
-                        &claims.sub,
-                    ).await;
+                    sse_state
+                        .broadcast_event(crate::handlers::sse::SseEvent::UserUpdated {
+                            user_uuid: id.to_string(),
+                            field: "role".to_string(),
+                            value: json!(role_str),
+                            updated_by: claims.sub.clone(),
+                            timestamp: chrono::Utc::now(),
+                        })
+                        .await;
                 }
             }
 

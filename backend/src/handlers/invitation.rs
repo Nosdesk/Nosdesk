@@ -285,12 +285,13 @@ pub async fn accept_invitation(
                     ticket.clone(),
                     None,
                 );
-                crate::utils::sse::SseBroadcaster::broadcast_ticket_created(
-                    &sse_state,
-                    ticket.id,
-                    serde_json::to_value(&ticket).unwrap_or_default(),
-                )
-                .await;
+                sse_state
+                    .broadcast_event(crate::handlers::sse::SseEvent::TicketCreated {
+                        ticket_id: ticket.id,
+                        ticket: serde_json::to_value(&ticket).unwrap_or_default(),
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .await;
             }
         }
         Ok(_) => {}

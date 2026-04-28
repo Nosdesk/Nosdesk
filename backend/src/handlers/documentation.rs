@@ -472,12 +472,13 @@ pub async fn create_documentation_page(
             match to_page_response(created_page.clone(), &mut conn) {
                 Ok(response) => {
                     // Broadcast SSE event for documentation creation
-                    use crate::utils::sse::SseBroadcaster;
-                    SseBroadcaster::broadcast_documentation_created(
-                        &sse_state,
-                        created_page.id,
-                        serde_json::to_value(&response).unwrap_or_default(),
-                    ).await;
+                    sse_state
+                        .broadcast_event(crate::handlers::sse::SseEvent::DocumentationCreated {
+                            document_id: created_page.id,
+                            document: serde_json::to_value(&response).unwrap_or_default(),
+                            timestamp: chrono::Utc::now(),
+                        })
+                        .await;
 
                     HttpResponse::Created().json(response)
                 },
@@ -586,42 +587,26 @@ pub async fn update_documentation_page(
                     // Re-index the updated documentation page in search
                     indexing_tasks::spawn_index_documentation(search_service.get_ref().clone(), updated_page.clone());
 
-                    // Broadcast SSE events for each updated field
-                    if let Some(ref title) = update_req.title {
-                        crate::utils::sse::SseBroadcaster::broadcast_documentation_updated(
-                            &sse_state,
-                            page_id,
-                            "title",
-                            serde_json::json!(title),
-                            &claims.sub,
-                        ).await;
-                    }
-                    if let Some(ref slug) = update_req.slug {
-                        crate::utils::sse::SseBroadcaster::broadcast_documentation_updated(
-                            &sse_state,
-                            page_id,
-                            "slug",
-                            serde_json::json!(slug),
-                            &claims.sub,
-                        ).await;
-                    }
-                    if let Some(ref icon) = update_req.icon {
-                        crate::utils::sse::SseBroadcaster::broadcast_documentation_updated(
-                            &sse_state,
-                            page_id,
-                            "icon",
-                            serde_json::json!(icon),
-                            &claims.sub,
-                        ).await;
-                    }
-                    if let Some(ref status) = update_req.status {
-                        crate::utils::sse::SseBroadcaster::broadcast_documentation_updated(
-                            &sse_state,
-                            page_id,
-                            "status",
-                            serde_json::json!(status),
-                            &claims.sub,
-                        ).await;
+                    // Broadcast SSE events for each updated field. One
+                    // event per field so the frontend can apply the
+                    // change at field granularity rather than re-
+                    // fetching the whole page.
+                    let updates: [(&str, Option<serde_json::Value>); 4] = [
+                        ("title", update_req.title.as_ref().map(|v| serde_json::json!(v))),
+                        ("slug", update_req.slug.as_ref().map(|v| serde_json::json!(v))),
+                        ("icon", update_req.icon.as_ref().map(|v| serde_json::json!(v))),
+                        ("status", update_req.status.as_ref().map(|v| serde_json::json!(v))),
+                    ];
+                    for (field, value) in updates.into_iter().filter_map(|(f, v)| v.map(|v| (f, v))) {
+                        sse_state
+                            .broadcast_event(crate::handlers::sse::SseEvent::DocumentationUpdated {
+                                document_id: page_id,
+                                field: field.to_string(),
+                                value,
+                                updated_by: claims.sub.clone(),
+                                timestamp: chrono::Utc::now(),
+                            })
+                            .await;
                     }
 
                     // Notify subscribers about the page update
@@ -1284,12 +1269,13 @@ pub async fn create_documentation_page_from_ticket(
             }
 
             // Broadcast SSE event for documentation creation
-            use crate::utils::sse::SseBroadcaster;
-            SseBroadcaster::broadcast_documentation_created(
-                &sse_state,
-                page.id,
-                serde_json::to_value(&page).unwrap_or_default(),
-            ).await;
+            sse_state
+                .broadcast_event(crate::handlers::sse::SseEvent::DocumentationCreated {
+                    document_id: page.id,
+                    document: serde_json::to_value(&page).unwrap_or_default(),
+                    timestamp: chrono::Utc::now(),
+                })
+                .await;
 
             HttpResponse::Created().json(page)
         },

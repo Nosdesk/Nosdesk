@@ -3,54 +3,43 @@ import { logger } from '@/utils/logger';
 import { useAuthStore } from "@/stores/auth";
 import apiClient from "./apiConfig";
 
-// Event types that match the backend
-export interface SseEvent {
-  type:
-    | "TicketUpdated"
-    | "CommentAdded"
-    | "CommentDeleted"
-    | "AttachmentAdded"
-    | "AttachmentDeleted"
-    | "DeviceLinked"
-    | "DeviceUnlinked"
-    | "DeviceUpdated"
-    | "ProjectAssigned"
-    | "ProjectUnassigned"
-    | "TicketLinked"
-    | "TicketUnlinked"
-    | "DocumentationUpdated"
-    | "Heartbeat";
-  data: unknown;
-}
-
 // Event handler type - uses unknown since SSE events have varying shapes
 type EventHandler = (data: unknown) => void;
 
+/**
+ * The full set of SSE event names this client knows about. Used both
+ * to derive the public `SSEEventType` literal and to register one
+ * handler per event name on the underlying EventSource. Defining it
+ * once here keeps the type and the runtime registration in sync.
+ */
+const ALL_SSE_EVENT_TYPES = [
+  "ticket-updated",
+  "ticket-created",
+  "ticket-deleted",
+  "comment-added",
+  "comment-deleted",
+  "device-linked",
+  "device-unlinked",
+  "device-created",
+  "device-updated",
+  "device-deleted",
+  "ticket-linked",
+  "ticket-unlinked",
+  "project-assigned",
+  "project-unassigned",
+  "documentation-created",
+  "documentation-updated",
+  "collection-updated",
+  "user-updated",
+  "user-created",
+  "user-deleted",
+  "notification-received",
+  "heartbeat",
+  "reconnect",
+] as const;
+
 // SSE Event types - exported for use in composables
-export type SSEEventType =
-  | "ticket-updated"
-  | "ticket-created"
-  | "ticket-deleted"
-  | "comment-added"
-  | "comment-deleted"
-  | "device-linked"
-  | "device-unlinked"
-  | "device-created"
-  | "device-updated"
-  | "device-deleted"
-  | "ticket-linked"
-  | "ticket-unlinked"
-  | "project-assigned"
-  | "project-unassigned"
-  | "documentation-created"
-  | "documentation-updated"
-  | "collection-updated"
-  | "user-updated"
-  | "user-created"
-  | "user-deleted"
-  | "notification-received"
-  | "heartbeat"
-  | "reconnect";
+export type SSEEventType = (typeof ALL_SSE_EVENT_TYPES)[number];
 
 // SSE Service class optimized for performance
 class SSEService {
@@ -189,34 +178,11 @@ class SSEService {
       }
     };
 
-    // Register the generic handler for all event types
-    const eventTypes: SSEEventType[] = [
-      "ticket-updated",
-      "ticket-created",
-      "ticket-deleted",
-      "comment-added",
-      "comment-deleted",
-      "device-linked",
-      "device-unlinked",
-      "device-created",
-      "device-updated",
-      "device-deleted",
-      "ticket-linked",
-      "ticket-unlinked",
-      "project-assigned",
-      "project-unassigned",
-      "documentation-created",
-      "documentation-updated",
-      "collection-updated",
-      "user-updated",
-      "user-created",
-      "user-deleted",
-      "notification-received",
-      "heartbeat",
-      "reconnect",
-    ];
-
-    eventTypes.forEach((eventType) => {
+    // Register the generic handler for every known event name. The
+    // single source of truth lives in ALL_SSE_EVENT_TYPES at the top
+    // of this file, so the runtime registration and the SSEEventType
+    // union can never drift apart.
+    ALL_SSE_EVENT_TYPES.forEach((eventType) => {
       this.eventSource!.addEventListener(eventType, handleEvent);
     });
   }

@@ -46,8 +46,7 @@ use crate::repository::user_helpers::{find_or_create_guest_user, GuestUserResult
 use crate::services::channels::{
     ChannelAdapter, InboundAttachment, InboundEvent, InboundMessage,
 };
-use crate::handlers::sse::SseState;
-use crate::utils::sse::SseBroadcaster;
+use crate::handlers::sse::{SseEvent, SseState};
 use crate::utils::storage::Storage;
 
 /// Outcome of processing a single inbound event. Returned for logging /
@@ -271,18 +270,18 @@ pub async fn process_event(
     // Side effects (optional).
     if let Some(sse) = &ctx.sse {
         if is_new_ticket {
-            SseBroadcaster::broadcast_ticket_created(
-                sse,
-                ticket.id,
-                serde_json::to_value(&ticket).unwrap_or_default(),
-            )
+            sse.broadcast_event(SseEvent::TicketCreated {
+                ticket_id: ticket.id,
+                ticket: serde_json::to_value(&ticket).unwrap_or_default(),
+                timestamp: chrono::Utc::now(),
+            })
             .await;
         } else {
-            SseBroadcaster::broadcast_comment_added(
-                sse,
-                ticket.id,
-                serde_json::to_value(&comment).unwrap_or_default(),
-            )
+            sse.broadcast_event(SseEvent::CommentAdded {
+                ticket_id: ticket.id,
+                comment: serde_json::to_value(&comment).unwrap_or_default(),
+                timestamp: chrono::Utc::now(),
+            })
             .await;
         }
     }
