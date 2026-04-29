@@ -1165,12 +1165,20 @@ html[data-theme="red-horizon"] body,
     break-inside: avoid;
   }
 
-  /* Keep section cards together */
+  /* Keep section cards and details together — they're small, and
+     splitting them looks worse than the alternative. Comments are
+     handled separately: a long email comment SHOULD be allowed to
+     break, so the rule below opts it back out. */
   .section-card,
-  .ticket-details,
-  .comment {
+  .ticket-details {
     page-break-inside: avoid;
     break-inside: avoid;
+  }
+  .comment {
+    page-break-inside: auto;
+    break-inside: auto;
+    orphans: 3;
+    widows: 3;
   }
 
   /* Images - reasonable sizing */

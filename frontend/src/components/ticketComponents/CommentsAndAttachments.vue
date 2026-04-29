@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDate } from '@/utils/dateUtils';
+import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { computed, ref } from "vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
@@ -9,6 +9,7 @@ import SimpleEditor from "@/components/common/SimpleEditor.vue";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
 import CommentContent from "@/components/ticketComponents/CommentContent.vue";
 import type { CommentContentFormat } from "@/types/comment";
+import { sanitiseHtml } from "@/composables/useSanitise";
 import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePicker.vue";
 import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
@@ -34,6 +35,11 @@ interface CommentWithAttachments {
     /** True = tech-to-tech note; renders with the warning badge/tint
         and is suppressed from requester-facing views on the backend. */
     is_internal?: boolean;
+    /** Sender's external address (email for IMAP, equivalent identifier
+        for future chat channels). Top-level field, sourced by the
+        backend from `channel_messages.from_address`. `undefined` for
+        comments authored through the helpdesk UI. */
+    from_address?: string;
     /** Set when a channel message arrived via a tech forwarding a
         customer's email. Carries `forwarded_by_user_uuid` so the UI
         can render a "Forwarded by X" badge; the ticket's requester
@@ -297,8 +303,14 @@ const deleteComment = (commentId: number) => {
 };
 
 
+/**
+ * Comment timestamps include the time as well as the date — without it
+ * a busy ticket's timeline reads as several entries on the same day
+ * with no way to tell their order at a glance. `formatDateTime` uses
+ * the user's locale (en-US default) for "Apr 29, 2026, 02:13 PM".
+ */
 const formattedDate = (dateString: string): string => {
-    return formatDate(dateString, "MMM d, yyyy");
+    return formatDateTime(dateString);
 };
 
 // Check if comment has real text content (not just empty HTML or placeholder)
@@ -425,9 +437,15 @@ const handleDrop = async (event: DragEvent) => {
                     {{ conversionMessage }}
                 </div>
 
-                <!-- Add New Comment Form (hidden on print) -->
+                <!--
+                  Composer runs edge-to-edge with the section card
+                  and uses a single `border-b` as a divider against
+                  the comment list below — no rounded corners, no
+                  side borders. The shape reads as a section header
+                  rather than a nested card.
+                -->
                 <div
-                    class="print:hidden bg-surface rounded-lg relative mx-3 mt-3"
+                    class="print:hidden bg-surface border-b border-default relative p-3"
                     @dragenter="handleDragEnter"
                     @dragleave="handleDragLeave"
                     @dragover="handleDragOver"
@@ -509,56 +527,32 @@ const handleDrop = async (event: DragEvent) => {
                             class="hidden"
                         />
 
-                        <!-- Public reply (default) vs Internal note. The
-                             mode colours the submit button so it's visually
-                             obvious what will be sent. -->
-                        <div
-                            class="flex items-center gap-1 rounded-md bg-surface-alt border border-default p-0.5 self-start text-xs font-medium"
-                            role="group"
-                            aria-label="Reply visibility"
-                        >
-                            <button
-                                type="button"
-                                @click="isInternal = false"
-                                :class="[
-                                    'px-2.5 py-1 rounded transition-colors',
-                                    !isInternal
-                                        ? 'bg-accent text-white'
-                                        : 'text-secondary hover:text-primary'
-                                ]"
-                            >
-                                Public reply
-                            </button>
-                            <button
-                                type="button"
-                                @click="isInternal = true"
-                                :class="[
-                                    'px-2.5 py-1 rounded transition-colors',
-                                    isInternal
-                                        ? 'bg-status-warning text-white'
-                                        : 'text-secondary hover:text-primary'
-                                ]"
-                                title="Visible only to techs; not relayed back through the ticket's channel"
-                            >
-                                Internal note
-                            </button>
-                        </div>
+                        <!--
+                          Single action row: secondary actions (mic /
+                          attach / canned-responses) on the left,
+                          visibility toggle + submit on the right.
+                          Mirrors the composer pattern in Front,
+                          Help Scout and Linear — secondary actions
+                          left of a flex spacer, primary actions right.
 
-                        <div class="flex gap-2">
-                            <button
-                                type="submit"
-                                :class="[
-                                    'flex-1 text-white h-10 px-4 rounded-md hover:opacity-90 transition-colors text-sm font-medium',
-                                    isInternal ? 'bg-status-warning' : 'bg-accent'
-                                ]"
-                            >
-                                {{ isInternal ? 'Add internal note' : 'Add' }}
-                            </button>
+                          The visibility segmented control sits next
+                          to the submit button so the mode is set in
+                          the same eye-line as the action it gates;
+                          submit colour follows the mode (accent for
+                          public reply, warning for internal note)
+                          so the next click's effect is obvious.
+
+                          Wraps to a second line on narrow viewports
+                          (`flex-wrap`) rather than overflowing — the
+                          right-side group stays grouped because the
+                          spacer collapses first.
+                        -->
+                        <div class="flex flex-wrap items-center gap-2">
                             <!-- Voice Recording Button -->
                             <button
                                 type="button"
                                 @click="startVoiceRecording"
-                                class="h-10 px-3 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center gap-2"
+                                class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
                                 :class="{ 'text-error': showRecordingInterface }"
                                 aria-label="Record voice note"
                                 title="Record voice note"
@@ -580,7 +574,7 @@ const handleDrop = async (event: DragEvent) => {
                             <button
                                 type="button"
                                 @click="triggerFileUpload"
-                                class="h-10 px-3 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center gap-2"
+                                class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
                                 aria-label="Upload file"
                                 title="Upload file"
                             >
@@ -602,6 +596,56 @@ const handleDrop = async (event: DragEvent) => {
                                 :vars="cannedResponseVars"
                                 @insert="insertCannedResponse"
                             />
+
+                            <!-- Pushes the submit cluster to the right edge. -->
+                            <div class="flex-1"></div>
+
+                            <!-- Public reply / Internal note segmented control -->
+                            <div
+                                class="flex items-center rounded-md bg-surface-alt border border-default p-0.5 text-xs font-medium"
+                                role="group"
+                                aria-label="Reply visibility"
+                            >
+                                <button
+                                    type="button"
+                                    @click="isInternal = false"
+                                    :class="[
+                                        'px-2.5 py-1 rounded transition-colors',
+                                        !isInternal
+                                            ? 'bg-accent text-white'
+                                            : 'text-secondary hover:text-primary'
+                                    ]"
+                                    title="Sent to the requester through the ticket's channel"
+                                >
+                                    Public reply
+                                </button>
+                                <button
+                                    type="button"
+                                    @click="isInternal = true"
+                                    :class="[
+                                        'px-2.5 py-1 rounded transition-colors',
+                                        isInternal
+                                            ? 'bg-status-warning text-white'
+                                            : 'text-secondary hover:text-primary'
+                                    ]"
+                                    title="Visible only to techs; not relayed back through the ticket's channel"
+                                >
+                                    Internal note
+                                </button>
+                            </div>
+
+                            <!-- Submit. Colour follows the visibility
+                                 mode so the click's effect matches the
+                                 segmented control immediately above. -->
+                            <button
+                                type="submit"
+                                :class="[
+                                    'h-9 px-4 rounded-md text-white text-sm font-medium hover:opacity-90 transition-colors',
+                                    isInternal ? 'bg-status-warning' : 'bg-accent'
+                                ]"
+                            >
+                                {{ isInternal ? 'Add note' : 'Add reply' }}
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -698,39 +742,132 @@ const handleDrop = async (event: DragEvent) => {
                                 </p>
                             </div>
 
-                            <!-- Desktop: Header row with avatar, name, date, then content below -->
+                            <!-- Desktop layout. Outer column stacks
+                                 [header] over [body] so the body spans
+                                 the full content width — the email
+                                 iframe inside is not squeezed under the
+                                 avatar like a Gmail-style indent.
+                                 The header itself is a flex row with
+                                 the avatar on the left and a two-line
+                                 name-and-meta cluster on the right of
+                                 the avatar. Action buttons sit at the
+                                 right edge of the first meta line. -->
                             <div class="hidden sm:flex sm:flex-col gap-2 flex-1 min-w-0">
-                                <!-- Header: avatar, name/date, actions -->
-                                <div class="flex items-center gap-2">
+                                <div class="flex items-start gap-2 min-w-0">
                                     <UserAvatar
                                         :name="comment.user?.uuid || comment.user_uuid"
                                         :userName="comment.user?.name"
                                         :avatar="comment.user?.avatar_thumb || comment.user?.avatar_url"
                                         :showName="false"
                                         size="sm"
-                                        class="flex-shrink-0"
+                                        class="flex-shrink-0 mt-0.5"
                                     />
-                                    <span class="text-sm text-primary font-medium">
-                                        {{ comment.user?.name || comment.user_uuid }}
-                                    </span>
-                                    <span
-                                        v-if="comment.is_internal"
-                                        class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-status-warning text-white"
+                                    <div class="flex-1 min-w-0 flex flex-col gap-1">
+                                        <!--
+                                          Row 1 uses `justify-between` to split
+                                          two flex groups: a clustered left
+                                          group (name + Internal badge + date)
+                                          and a right group of action buttons.
+                                          The split is structural rather than
+                                          relying on a single `ml-auto`, which
+                                          makes the rule for "actions hug the
+                                          right edge" obvious from the markup
+                                          alone — no implicit space-filler.
+
+                                          Negative margins on the right group
+                                          (`-mr-[14px]` mobile, `-mr-[18px]`
+                                          desktop) cancel the comment row's
+                                          outer padding (8 / 12 px) plus the
+                                          trailing button's `p-1.5` interior
+                                          padding (6 px) so the SVG icon ends
+                                          flush with the row's border.
+                                        -->
+                                    <div class="flex items-center justify-between gap-2 min-w-0">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span class="text-sm text-primary font-medium truncate">
+                                                {{ comment.user?.name || comment.user_uuid }}
+                                            </span>
+                                            <span
+                                                v-if="comment.is_internal"
+                                                class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-status-warning text-white flex-shrink-0"
+                                            >
+                                                Internal
+                                            </span>
+                                            <span class="text-xs text-tertiary whitespace-nowrap flex-shrink-0">
+                                                {{ formattedDate(comment.createdAt) }}
+                                            </span>
+                                        </div>
+                                        <div class="print:hidden flex items-center gap-1 flex-shrink-0 -mr-[14px] sm:-mr-[18px]">
+                                            <a
+                                                v-if="isAudioOnlyComment(comment)"
+                                                :href="convertToAuthenticatedPath(comment.attachments[0].url)"
+                                                :download="comment.attachments[0].name"
+                                                target="_blank"
+                                                class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                                                title="Download"
+                                                @click.stop
+                                            >
+                                                <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                                </svg>
+                                            </a>
+                                            <button
+                                                v-if="hasRealContent(comment) || isAudioOnlyComment(comment)"
+                                                type="button"
+                                                @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
+                                                class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                                                :title="isAudioOnlyComment(comment) ? 'Delete voice message' : 'Delete comment'"
+                                            >
+                                                <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <!--
+                                        Row 2: secondary identity line. Renders
+                                        when the comment came from a channel
+                                        (`from_address` stamped by the inbound
+                                        pipeline) or carries the Forwarded flag.
+                                        The address is the customer's email for
+                                        IMAP / mailto channels; future chat
+                                        adapters can stamp their equivalent
+                                        identifier in the same field.
+                                    -->
+                                    <div
+                                        v-if="comment.from_address || comment.channel_metadata?.forwarded_by_user_uuid"
+                                        class="flex items-center gap-2 -mt-1 min-w-0"
                                     >
-                                        Internal
-                                    </span>
-                                    <span
-                                        v-if="comment.channel_metadata?.forwarded_by_user_uuid"
-                                        class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent"
-                                        title="A technician forwarded this email into the helpdesk"
-                                    >
-                                        Forwarded
-                                    </span>
-                                    <span class="text-xs text-tertiary">
-                                        {{ formattedDate(comment.createdAt) }}
-                                    </span>
-                                </div>
-                                <!-- Content below header -->
+                                        <!-- Forwarded badge leads the row so
+                                             the visual hierarchy reads
+                                             "channel context, then who" —
+                                             the same convention Front and
+                                             Help Scout use for inbound-email
+                                             metadata. `break-all` on the
+                                             address wraps long values rather
+                                             than ellipsising, since losing
+                                             the right half of an address
+                                             defeats the point of showing it. -->
+                                        <span
+                                            v-if="comment.channel_metadata?.forwarded_by_user_uuid"
+                                            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent flex-shrink-0"
+                                            title="A technician forwarded this email into the helpdesk"
+                                        >
+                                            Forwarded
+                                        </span>
+                                        <span
+                                            v-if="comment.from_address"
+                                            class="text-xs text-tertiary break-all"
+                                        >
+                                            {{ comment.from_address }}
+                                        </span>
+                                        </div>
+                                    </div><!-- /name+meta column -->
+                                </div><!-- /header row (avatar + meta) -->
+                                <!-- Body. Spans the full width of the
+                                     content column so the email iframe
+                                     inside isn't indented under the
+                                     avatar. -->
                                 <div class="min-w-0">
                                     <CommentContent
                                         v-if="hasRealContent(comment)"
@@ -741,34 +878,7 @@ const handleDrop = async (event: DragEvent) => {
                                         {{ getAudioDisplayName(comment.attachments[0].name) }}
                                     </p>
                                 </div>
-                            </div>
-                            <!-- Desktop action buttons (hidden on print) -->
-                            <div class="print:hidden hidden sm:flex items-center gap-1 flex-shrink-0 self-start">
-                                <a
-                                    v-if="isAudioOnlyComment(comment)"
-                                    :href="convertToAuthenticatedPath(comment.attachments[0].url)"
-                                    :download="comment.attachments[0].name"
-                                    target="_blank"
-                                    class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-                                    title="Download"
-                                    @click.stop
-                                >
-                                    <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                    </svg>
-                                </a>
-                                <button
-                                    v-if="hasRealContent(comment) || isAudioOnlyComment(comment)"
-                                    type="button"
-                                    @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
-                                    class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-                                    :title="isAudioOnlyComment(comment) ? 'Delete voice message' : 'Delete comment'"
-                                >
-                                    <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-                                    </svg>
-                                </button>
-                            </div>
+                            </div><!-- /desktop content column -->
                         </div>
                         <!-- Attachment previews section -->
                         <div
@@ -789,7 +899,22 @@ const handleDrop = async (event: DragEvent) => {
                     </div>
                 </div>
 
-                <!-- Print-only compact comments layout -->
+                <!--
+                  Print-only comments layout. Two shapes depending on
+                  the comment's source format:
+                    - HTML emails get a block layout: header on its
+                      own line, body in a sanitised `<div>` so its
+                      paragraphs / lists / blockquotes render as block
+                      elements and break naturally across pages.
+                    - Plaintext / Markdown / legacy comments keep the
+                      compact inline `Author (Date): Content` format,
+                      which packs short native staff comments densely.
+                  Sanitisation runs through the shared `sanitiseHtml`
+                  helper so `<meta>`, `<style>`, `<script>` and
+                  `<head>` (which inbound emails routinely ship) get
+                  stripped — they were leaking to the page as visible
+                  text when the markdown renderer mishandled them.
+                -->
                 <div
                     v-if="props.comments.length > 0"
                     class="hidden print:block print-comments-container"
@@ -798,25 +923,46 @@ const handleDrop = async (event: DragEvent) => {
                         v-for="comment in props.comments"
                         :key="'print-' + comment.id"
                         class="print-comment"
+                        :class="{ 'print-comment--block': comment.content_format === 'html' && hasRealContent(comment) }"
                     >
-                        <!-- Inline format: "Author (Date): Content" -->
-                        <span class="print-comment-author">{{ comment.user?.name || 'Unknown' }}</span>
-                        <span class="print-comment-date">({{ formattedDate(comment.createdAt) }}):</span>
-                        <span v-if="hasRealContent(comment)" class="print-comment-content">
-                            <MarkdownRenderer :content="comment.content" />
-                        </span>
-                        <span v-else-if="isAudioOnlyComment(comment)" class="print-comment-audio">
-                            [Voice: {{ getAudioDisplayName(comment.attachments[0].name) }}<template v-if="comment.attachments[0].transcription"> — "{{ comment.attachments[0].transcription }}"</template>]
-                        </span>
-                        <span
-                            v-if="comment.attachments && comment.attachments.length > 0 && !isAudioOnlyComment(comment)"
-                            class="print-attachments"
-                        >
+                        <template v-if="comment.content_format === 'html' && hasRealContent(comment)">
+                            <!-- Block layout: header above body so the
+                                 body can flow across page breaks. -->
+                            <div class="print-comment-header">
+                                <span class="print-comment-author">{{ comment.user?.name || 'Unknown' }}</span>
+                                <span class="print-comment-date">{{ formattedDate(comment.createdAt) }}</span>
+                            </div>
+                            <div class="print-email-body" v-html="sanitiseHtml(comment.content)" />
+                            <div
+                                v-if="comment.attachments && comment.attachments.length > 0"
+                                class="print-attachments"
+                            >
+                                <span
+                                    v-for="(attachment, idx) in comment.attachments"
+                                    :key="attachment.id"
+                                >{{ idx > 0 ? ', ' : '' }}[{{ attachment.name }}]</span>
+                            </div>
+                        </template>
+                        <template v-else>
+                            <!-- Inline format: "Author (Date): Content" -->
+                            <span class="print-comment-author">{{ comment.user?.name || 'Unknown' }}</span>
+                            <span class="print-comment-date">({{ formattedDate(comment.createdAt) }}):</span>
+                            <span v-if="hasRealContent(comment)" class="print-comment-content">
+                                <MarkdownRenderer :content="comment.content" />
+                            </span>
+                            <span v-else-if="isAudioOnlyComment(comment)" class="print-comment-audio">
+                                [Voice: {{ getAudioDisplayName(comment.attachments[0].name) }}<template v-if="comment.attachments[0].transcription"> — "{{ comment.attachments[0].transcription }}"</template>]
+                            </span>
                             <span
-                                v-for="(attachment, idx) in comment.attachments"
-                                :key="attachment.id"
-                            >{{ idx > 0 ? ', ' : ' ' }}[{{ attachment.name }}]</span>
-                        </span>
+                                v-if="comment.attachments && comment.attachments.length > 0 && !isAudioOnlyComment(comment)"
+                                class="print-attachments"
+                            >
+                                <span
+                                    v-for="(attachment, idx) in comment.attachments"
+                                    :key="attachment.id"
+                                >{{ idx > 0 ? ', ' : ' ' }}[{{ attachment.name }}]</span>
+                            </span>
+                        </template>
                     </div>
                 </div>
             </div>
@@ -833,7 +979,26 @@ const handleDrop = async (event: DragEvent) => {
 
     .print-comment {
         margin-bottom: 4pt;
-        page-break-inside: avoid;
+        /* Allow tall email comments to break across pages — keeping
+           them whole stranded a half-empty page above the comment.
+           `orphans` / `widows` keep the author + date intro glued
+           to at least three lines of body content so a comment never
+           leaves its header alone at the bottom of a page. */
+        page-break-inside: auto;
+        break-inside: auto;
+        orphans: 3;
+        widows: 3;
+    }
+
+    /* Block-layout HTML emails get a little more breathing room
+       between entries so the page doesn't read as a single wall of
+       prose. */
+    .print-comment--block {
+        margin-bottom: 10pt;
+    }
+
+    .print-comment-header {
+        margin-bottom: 2pt;
     }
 
     .print-comment-author {
@@ -849,6 +1014,48 @@ const handleDrop = async (event: DragEvent) => {
 
     .print-comment-content {
         color: #333;
+    }
+
+    /* Block-layout email body. Paragraphs and other block elements
+       render naturally so the browser can break them across pages —
+       which is the whole reason an HTML email gets this branch
+       rather than the inline-`<p>` treatment below.
+
+       `:deep(meta)` etc. is defence-in-depth: `sanitiseHtml` already
+       drops them via the allow-list, but if a future profile relaxes
+       that, the `display: none` here keeps them off the page. */
+    .print-email-body {
+        color: #222;
+        font-size: 9pt;
+        line-height: 1.45;
+    }
+
+    .print-email-body :deep(p),
+    .print-email-body :deep(div) {
+        display: block;
+        margin: 0 0 4pt 0;
+    }
+
+    .print-email-body :deep(blockquote) {
+        margin: 4pt 0 4pt 12pt;
+        padding-left: 8pt;
+        border-left: 2px solid #ccc;
+        color: #555;
+    }
+
+    .print-email-body :deep(img) {
+        max-width: 100%;
+        max-height: 4in;
+        height: auto;
+    }
+
+    .print-email-body :deep(meta),
+    .print-email-body :deep(link),
+    .print-email-body :deep(style),
+    .print-email-body :deep(script),
+    .print-email-body :deep(head),
+    .print-email-body :deep(title) {
+        display: none !important;
     }
 
     .print-comment-content :deep(p) {

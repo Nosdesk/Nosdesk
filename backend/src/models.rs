@@ -504,6 +504,14 @@ pub struct CommentWithAttachments {
     pub comment: Comment,
     pub attachments: Vec<Attachment>,
     pub user: Option<UserInfoWithAvatar>,  // Use enhanced user info with avatar
+    /// Sender's external address (email for IMAP; equivalent identity
+    /// for chat channels). Sourced from the joined `channel_messages`
+    /// row when the comment came from a channel; `None` for comments
+    /// authored through the helpdesk UI. Surfaced as a top-level field
+    /// rather than digging into `channel_metadata` so the frontend
+    /// reads a single typed field instead of probing a JSON blob.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_address: Option<String>,
 }
 
 // JSON import struct that matches the structure in tickets.json

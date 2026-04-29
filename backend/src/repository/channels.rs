@@ -222,6 +222,37 @@ pub fn find_by_external_id(
         .optional()
 }
 
+/// Look up the channel-recorded `from_address` for each of the given
+/// comment ids in a single query. Returned as a `HashMap` keyed by
+/// `comment_id` so callers can do a cheap O(1) merge with the rest of
+/// the comment payload.
+///
+/// Used by the comment list endpoint to surface the customer's email
+/// (or future chat sender's address) on the second line of the comment
+/// header — even for comments older than when the inbound pipeline
+/// started stamping `from_address` into `channel_metadata` directly.
+pub fn from_addresses_for_comments(
+    conn: &mut DbConnection,
+    comment_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, String>> {
+    use crate::schema::channel_messages::dsl as cm;
+    if comment_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let rows: Vec<(Option<i32>, Option<String>)> = cm::channel_messages
+        .filter(cm::comment_id.eq_any(comment_ids))
+        .filter(cm::from_address.is_not_null())
+        .select((cm::comment_id, cm::from_address))
+        .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(cid, addr)| match (cid, addr) {
+            (Some(c), Some(a)) => Some((c, a)),
+            _ => None,
+        })
+        .collect())
+}
+
 /// Walk a list of parent external IDs (In-Reply-To + References chain)
 /// and return the first ticket id we find. Batched into a single SQL
 /// query — this runs on every inbound message so it needs to be cheap.

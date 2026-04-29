@@ -229,24 +229,15 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
     // Get devices associated with this ticket through the junction table
     let devices = get_devices_for_ticket(conn, ticket_id).unwrap_or_default();
     
-    // Get comments for this ticket
-    let comments = crate::repository::comments::get_comments_by_ticket_id(conn, ticket_id)?;
-    let mut comments_with_attachments = Vec::new();
-    
-    for comment in comments {
-        let attachments = crate::repository::comments::get_attachments_by_comment_id(conn, comment.id)?;
-
-        // Get user information for this comment with avatar
-        let user = crate::repository::users::get_user_by_uuid(&comment.user_uuid, conn)
-            .ok()
-            .map(UserInfoWithAvatar::from);
-
-        comments_with_attachments.push(CommentWithAttachments {
-            comment,
-            attachments,
-            user,
-        });
-    }
+    // Delegate to the enriched assembler so the comments embedded in
+    // a `CompleteTicket` carry the same `from_address`, attachments
+    // and user payload as the standalone `/tickets/:id/comments`
+    // endpoint. Two parallel implementations meant the channel-sourced
+    // sender's email was missing here.
+    let comments_with_attachments =
+        crate::repository::comments::get_comments_with_attachments_by_ticket_id(
+            conn, ticket_id,
+        )?;
     
     // Get article content (now handled by Yjs collaborative editing)
     let article_content: Option<String> = None;

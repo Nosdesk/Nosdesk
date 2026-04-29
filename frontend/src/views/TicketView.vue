@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
 import ticketService from "@/services/ticketService";
+import { stripHtml } from "@/composables/useSanitise";
 import { categoryService } from "@/services/categoryService";
 import type { TicketCategory } from "@/types/category";
 import type { Ticket } from "@/types/ticket";
@@ -183,6 +184,18 @@ const hasCommentsWithContent = computed(() => {
         (comment.content && comment.content.trim().length > 0) ||
         (comment.attachments && comment.attachments.length > 0)
     );
+});
+
+// Print visibility for the ticket article. Tickets routinely have no
+// running notes — printing the empty article card just steals space
+// from the comment timeline. We use the shared `stripHtml` helper
+// (DOMPurify-backed, decodes entities, handles malformed markup
+// gracefully) so an editor "empty" representation like `<p></p>` or
+// `<p>&nbsp;</p>` correctly reads as empty.
+const hasArticleContent = computed(() => {
+    const raw = ticket.value?.article_content;
+    if (!raw) return false;
+    return stripHtml(raw).trim().length > 0;
 });
 
 const setDropTargetActive = () => {
@@ -668,7 +681,11 @@ usePageCreateAction(handleCreateTicket);
                                 </div>
                             </SectionCard>
                         </div>
-                        <div v-else class="ticket-article rounded-xl">
+                        <div
+                            v-else
+                            class="ticket-article rounded-xl"
+                            :class="{ 'print:hidden': !hasArticleContent }"
+                        >
                             <CollaborativeTicketArticle
                                 :key="`article-${ticket.id}`"
                                 :initial-content="ticket.article_content || ''"
@@ -759,18 +776,21 @@ usePageCreateAction(handleCreateTicket);
 
 <style scoped>
 /*
- * Two-column layout: a wide content column carries the ticket's
- * article and conversation, a narrow column carries metadata.
+ * Three breakpoints, three layouts:
  *
- * The conversation IS the ticket — when a customer opens an email
- * thread it lands in the article (the original message), and every
- * reply is a comment below. Giving that the wide column matches the
- * mental model and matches what every modern helpdesk does (Front,
- * Plain, Help Scout, Linear). Metadata gets the slim sidebar.
+ *   Mobile (<1024px)       — single column, details quick-scan first.
+ *   Tablet  (1024-1535px)  — two columns: details left, conversation
+ *                            (article + comments folded) right wide.
+ *   Desktop (≥1536px)      — three columns: details | article | comments
+ *                            with comments taking the wide track. The
+ *                            content-column wrapper dissolves via
+ *                            `display: contents` so article and comments
+ *                            become first-class grid items again.
  *
- * Mobile keeps the prior order: a quick scan of details, then the
- * conversation. Desktop puts content on the left so the eye lands
- * on the email body first.
+ * At every breakpoint the conversation gets the widest available
+ * track. The earlier 3-column layout split it across two narrow
+ * columns; this one keeps the metadata slim on the left and lets
+ * the content stretch.
  */
 .ticket-grid {
     display: flex;
@@ -792,41 +812,69 @@ usePageCreateAction(handleCreateTicket);
 .ticket-details-column { order: 1; }
 .ticket-content-column { order: 2; }
 
+/* Tablet (lg): 2 columns — details left, conversation right. */
 @media (min-width: 1024px) {
     .ticket-grid {
         flex-direction: row;
         align-items: flex-start;
     }
 
-    /* Wide content column on the left, takes whatever's left after
+    /* Narrow sidebar column on the left. Fixed-width, not a
+     * fraction — metadata fields look cramped when scaled wide, and
+     * pinning the width keeps the content column's growth
+     * predictable. */
+    .ticket-details-column {
+        flex: 0 0 360px;
+        max-width: 360px;
+        min-width: 320px;
+        order: 1;
+    }
+
+    /* Wide content column on the right, takes whatever's left after
      * the sidebar. `min-width: 0` so children that overflow (an
      * email body with a wide table, a `<pre>` with a long line)
      * scroll inside their container instead of pushing the column. */
     .ticket-content-column {
         flex: 1 1 0;
         min-width: 0;
-        order: 1;
-    }
-
-    /* Narrow sidebar column on the right. Fixed-width, not a
-     * fraction — metadata fields look ridiculous when scaled wide,
-     * and pinning the width keeps the content column's growth
-     * predictable. */
-    .ticket-details-column {
-        flex: 0 0 360px;
-        max-width: 360px;
-        min-width: 320px;
         order: 2;
     }
 }
 
+/* Desktop (xl): 3 columns — details | article | comments. The two
+ * column wrappers dissolve via `display: contents` so the article
+ * and comments inside the content column become direct grid items
+ * with their own tracks. */
 @media (min-width: 1536px) {
-    /* A bit more breathing room for the metadata column at xl. The
-     * content column absorbs the rest, which is the point of the
-     * rebalance. */
+    .ticket-grid {
+        display: grid;
+        grid-template-columns: 360px minmax(420px, 1fr) minmax(0, 1.5fr);
+        gap: 1.5rem;
+    }
+
+    .ticket-content-column,
     .ticket-details-column {
-        flex: 0 0 380px;
-        max-width: 380px;
+        display: contents;
+    }
+
+    .ticket-details,
+    .ticket-article,
+    .ticket-comments {
+        width: auto; /* override the 100% from the flex layout */
+        min-width: 0;
+    }
+
+    .ticket-details {
+        grid-column: 1;
+        grid-row: 1;
+    }
+    .ticket-article {
+        grid-column: 2;
+        grid-row: 1;
+    }
+    .ticket-comments {
+        grid-column: 3;
+        grid-row: 1;
     }
 }
 </style>

@@ -490,7 +490,10 @@ fn insert_inbound_comment(
     });
     // When a tech forwarded the message into the helpdesk, stamp the
     // tech's uuid so the ticket view can render a "Forwarded by X"
-    // note without having to re-parse the raw body.
+    // note without having to re-parse the raw body. The sender's
+    // address itself isn't duplicated here — it lives on the joined
+    // `channel_messages.from_address` row and the comment-list
+    // endpoint surfaces it as a top-level `from_address` DTO field.
     if let Some(by) = forwarded_by_user_uuid {
         metadata["forwarded_by_user_uuid"] = json!(by.to_string());
     }

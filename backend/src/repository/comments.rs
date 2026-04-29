@@ -90,24 +90,36 @@ pub fn get_comment_by_id(conn: &mut DbConnection, comment_id: i32) -> QueryResul
 
 pub fn get_comments_with_attachments_by_ticket_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<CommentWithAttachments>> {
     let comments = get_comments_by_ticket_id(conn, ticket_id)?;
-    let mut comments_with_attachments = Vec::new();
 
-    for comment in comments {
-        let attachments = get_attachments_by_comment_id(conn, comment.id)?;
+    // Batch-fetch `from_address` for every comment up front so the
+    // assembly loop stays O(n) rather than issuing a per-comment
+    // query. The lookup spans the linked `channel_messages` table —
+    // the authoritative location for a sender's external address.
+    // Comments authored through the helpdesk UI have no row there
+    // and just see `None`.
+    let comment_ids: Vec<i32> = comments.iter().map(|c| c.id).collect();
+    let mut from_addresses = crate::repository::channels::from_addresses_for_comments(
+        conn,
+        &comment_ids,
+    )
+    .unwrap_or_default();
 
-        // Get user information for this comment using user_uuid with avatar
-        let user = crate::repository::users::get_user_by_uuid(&comment.user_uuid, conn)
-            .ok()
-            .map(UserInfoWithAvatar::from);
-
-        comments_with_attachments.push(CommentWithAttachments {
-            comment,
-            attachments,
-            user,
-        });
-    }
-
-    Ok(comments_with_attachments)
+    comments
+        .into_iter()
+        .map(|comment| {
+            let attachments = get_attachments_by_comment_id(conn, comment.id)?;
+            let user = crate::repository::users::get_user_by_uuid(&comment.user_uuid, conn)
+                .ok()
+                .map(UserInfoWithAvatar::from);
+            let from_address = from_addresses.remove(&comment.id);
+            Ok(CommentWithAttachments {
+                comment,
+                attachments,
+                user,
+                from_address,
+            })
+        })
+        .collect()
 }
 
 pub fn delete_comment(

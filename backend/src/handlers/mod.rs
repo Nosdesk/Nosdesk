@@ -162,20 +162,40 @@ pub async fn get_comments_by_ticket_id(
 
     match crate::repository::comments::get_comments_with_attachments_by_ticket_id(&mut conn, ticket_id) {
         Ok(comments) => {
-            // Format the comments for the frontend
-            let formatted_comments: Vec<serde_json::Value> = comments.into_iter().map(|c| {
-                let created_at = c.comment.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-                json!({
-                    "id": c.comment.id,
-                    "content": c.comment.content,
-                    "user_uuid": c.comment.user_uuid.to_string(),
-                    "created_at": created_at,
-                    "createdAt": created_at,
-                    "ticket_id": c.comment.ticket_id,
-                    "attachments": c.attachments,
-                    "user": c.user
+            // Serialize through serde so every field on
+            // `CommentWithAttachments` (including `content_format`,
+            // `is_internal`, `channel_metadata`, `from_address`) reaches
+            // the frontend automatically — the manual JSON construction
+            // we used to do here was silently dropping those fields and
+            // creating drift between this endpoint and the embedded
+            // comments inside `CompleteTicket`. The only enrichment we
+            // still do at the boundary is the camelCase `createdAt`
+            // alias the UI relies on.
+            let formatted_comments: Vec<serde_json::Value> = comments
+                .into_iter()
+                .map(|c| {
+                    let created_at = c
+                        .comment
+                        .created_at
+                        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                        .to_string();
+                    let mut value = serde_json::to_value(&c).unwrap_or_default();
+                    if let serde_json::Value::Object(ref mut map) = value {
+                        // Re-stamp ISO timestamps in the format the UI
+                        // expects (Diesel's default goes through chrono
+                        // and varies between drivers).
+                        map.insert(
+                            "created_at".to_string(),
+                            serde_json::Value::String(created_at.clone()),
+                        );
+                        map.insert(
+                            "createdAt".to_string(),
+                            serde_json::Value::String(created_at),
+                        );
+                    }
+                    value
                 })
-            }).collect();
+                .collect();
 
             debug!(ticket_id, comment_count = formatted_comments.len(), "Successfully retrieved comments");
             HttpResponse::Ok().json(formatted_comments)
