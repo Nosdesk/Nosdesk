@@ -17,9 +17,21 @@ export interface Attachment {
   created_at?: string
 }
 
+/**
+ * What the bytes in `Comment.content` are, as declared by the writer
+ * (the ProseMirror editor for staff replies, the IMAP ingest pipeline
+ * for inbound email, etc). The backend uses this on outbound relay to
+ * pick HTML vs plaintext for the wire; the frontend will use it in a
+ * later phase to render inbound HTML emails in a sandboxed frame
+ * instead of running them through the Markdown parser.
+ */
+export type CommentContentFormat = 'html' | 'markdown' | 'plaintext'
+
 export interface Comment {
   id: number
   content: string
+  /** Format of `content` — see `CommentContentFormat`. */
+  content_format?: CommentContentFormat
   user_uuid: string
   created_at: string
   ticket_id: number

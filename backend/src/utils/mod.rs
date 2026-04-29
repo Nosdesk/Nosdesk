@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod content;
 pub mod user;
 pub mod image;
 pub mod jwt;

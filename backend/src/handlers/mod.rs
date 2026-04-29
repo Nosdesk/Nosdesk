@@ -257,6 +257,11 @@ pub async fn add_comment_to_ticket(
         // is_internal defaults to false here. Task #19 adds the toggle
         // from the UI; for now every authenticated comment is public.
         is_internal: false,
+        // Editor-driven flow today produces HTML. Older clients that
+        // don't send the field rely on the `Default` impl on
+        // `ContentFormat`, which is also HTML — so the wire shape is
+        // backward-compatible.
+        content_format: comment_data.content_format,
     };
 
     // Insert the comment

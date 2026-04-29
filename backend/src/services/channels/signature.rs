@@ -1,15 +1,24 @@
-//! Append the agent's email signature to outbound channel replies.
+//! Append the agent's email signature to outbound channel replies in
+//! both HTML and plaintext form.
 //!
-//! The signature text lives on `users.signature`. Agents manage their
-//! own via the profile edit UI. We append with the RFC-3676 "-- \n"
-//! separator (dash-dash-space-newline) so mail clients recognize the
-//! signature block and offer to collapse / strip it cleanly.
+//! The signature itself lives on `users.signature` as user-authored
+//! plaintext. We render it into both forms of the reply body so the
+//! `multipart/alternative` email shows the same signature in either
+//! view, and so future HTML-only / plaintext-only transports each get
+//! a faithful version.
 //!
-//! No-op when the user has no signature or it's empty/whitespace.
+//! Plaintext side uses the RFC 3676 `"-- \n"` separator (dash, dash,
+//! space, newline) so mail clients recognize the signature block and
+//! offer to collapse / strip it cleanly. HTML side uses a `<br>--<br>`
+//! separator paired with the `text-signature` div so a plaintext
+//! conversion of the HTML round-trips back to the same RFC 3676 marker.
+//!
+//! No-op when the user has no signature or it's empty / whitespace.
 
 use diesel::prelude::*;
 use uuid::Uuid;
 
+use super::reply_body::ReplyBody;
 use crate::db::DbConnection;
 
 /// Fetch the user's stored signature; `None` if unset or whitespace.
@@ -26,52 +35,110 @@ fn signature_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> Option<String
     })
 }
 
-/// Return `body + "\n\n-- \n{signature}"` when the user has a
-/// non-empty signature; otherwise the body unchanged.
+/// Append the user's signature to both representations of `body`.
 ///
-/// DB read failures are silently treated as "no signature" — we'd
-/// rather send the reply without a signature than fail the whole
-/// outbound dispatch over a transient read hiccup.
+/// DB read failures are silently treated as "no signature" — better to
+/// send the reply unsigned than to fail the whole outbound dispatch
+/// over a transient read hiccup.
 pub fn append_signature_for_user(
     conn: &mut DbConnection,
     user_uuid: Uuid,
-    body: &str,
-) -> String {
+    body: ReplyBody,
+) -> ReplyBody {
     match signature_for_user(conn, user_uuid) {
-        Some(sig) => format!("{body}\n\n-- \n{sig}"),
-        None => body.to_string(),
+        Some(sig) => {
+            let text_fragment = format!("\n\n-- \n{sig}");
+            // Escape the user-authored signature before embedding into
+            // HTML; their newlines become `<br>` so the visual layout
+            // matches the plaintext.
+            let escaped = html_escape::encode_safe(&sig).replace('\n', "<br>\n");
+            let html_fragment = format!("<br><br>--<br>\n{escaped}");
+            body.append(&html_fragment, &text_fragment)
+        }
+        None => body,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    //! The DB-query wiring is straightforward; format-only tests here.
-    //! Integration coverage comes from the outbound relay path.
+    //! DB-query wiring is straightforward; the format-only tests here
+    //! cover the dual-representation composition. Integration coverage
+    //! comes from the outbound relay path.
 
-    #[test]
-    fn append_noop_on_empty_signature() {
-        // Format helper isolated from the DB lookup so we can test
-        // the composition rule without a real connection.
-        fn compose(body: &str, sig: Option<&str>) -> String {
-            match sig {
-                Some(s) if !s.trim().is_empty() => format!("{body}\n\n-- \n{s}"),
-                _ => body.to_string(),
+    use super::*;
+    use crate::models::{Comment, ContentFormat};
+    use chrono::Utc;
+
+    fn body_html(html: &str) -> ReplyBody {
+        ReplyBody::from_comment(&Comment {
+            id: 1,
+            content: html.into(),
+            ticket_id: 1,
+            user_uuid: Uuid::nil(),
+            created_at: Utc::now().naive_utc(),
+            updated_at: Utc::now().naive_utc(),
+            is_edited: false,
+            edit_count: 0,
+            channel_metadata: None,
+            is_internal: false,
+            deleted_at: None,
+            content_format: ContentFormat::Html,
+        })
+    }
+
+    /// Cheap composition helper that mirrors the DB-driven version
+    /// without touching `users::signature`. Lets us assert the shape
+    /// without standing up a real connection.
+    fn compose(body: ReplyBody, sig: Option<&str>) -> ReplyBody {
+        match sig {
+            Some(s) if !s.trim().is_empty() => {
+                let text = format!("\n\n-- \n{s}");
+                let html = format!(
+                    "<br><br>--<br>\n{}",
+                    html_escape::encode_safe(s).replace('\n', "<br>\n")
+                );
+                body.append(&html, &text)
             }
+            _ => body,
         }
-        assert_eq!(compose("Hi!", None), "Hi!");
-        assert_eq!(compose("Hi!", Some("")), "Hi!");
-        assert_eq!(compose("Hi!", Some("   \n\n")), "Hi!");
     }
 
     #[test]
-    fn append_uses_rfc3676_separator() {
-        fn compose(body: &str, sig: Option<&str>) -> String {
-            match sig {
-                Some(s) if !s.trim().is_empty() => format!("{body}\n\n-- \n{s}"),
-                _ => body.to_string(),
-            }
-        }
-        let out = compose("Hi!", Some("Tech Person\nIT Support"));
-        assert!(out.contains("\n\n-- \nTech Person\nIT Support"));
+    fn no_signature_leaves_body_unchanged() {
+        let before = body_html("<p>Hi.</p>");
+        let after = compose(before.clone(), None);
+        assert_eq!(after.html, before.html);
+        assert_eq!(after.text, before.text);
+    }
+
+    #[test]
+    fn empty_signature_is_treated_as_no_signature() {
+        let before = body_html("<p>Hi.</p>");
+        let after = compose(before.clone(), Some("   \n\n"));
+        assert_eq!(after.html, before.html);
+        assert_eq!(after.text, before.text);
+    }
+
+    #[test]
+    fn plaintext_uses_rfc3676_separator() {
+        let body = compose(body_html("<p>Hi!</p>"), Some("Tech Person\nIT Support"));
+        assert!(
+            body.text.contains("\n\n-- \nTech Person\nIT Support"),
+            "got: {}",
+            body.text
+        );
+    }
+
+    #[test]
+    fn html_signature_is_escaped_and_brified() {
+        let body = compose(
+            body_html("<p>Hi!</p>"),
+            Some("Tech <admin>\nFooter line"),
+        );
+        // User-authored angle brackets must not break the HTML body.
+        assert!(body.html.contains("Tech &lt;admin&gt;"));
+        assert!(body.html.contains("<br>\nFooter line"));
+        // RFC 3676 marker preserved in plain too.
+        assert!(body.text.contains("-- \nTech <admin>"));
     }
 }

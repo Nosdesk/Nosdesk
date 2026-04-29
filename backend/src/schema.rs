@@ -263,6 +263,8 @@ diesel::table! {
         channel_metadata -> Nullable<Jsonb>,
         is_internal -> Bool,
         deleted_at -> Nullable<Timestamptz>,
+        #[max_length = 16]
+        content_format -> Varchar,
     }
 }
 

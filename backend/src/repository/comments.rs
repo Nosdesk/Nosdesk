@@ -223,6 +223,7 @@ mod tests {
             user_uuid: user.uuid,
             channel_metadata: None,
             is_internal: false,
+            content_format: Default::default(),
         };
         create_comment(&mut conn, new_comment).unwrap();
 

@@ -86,6 +86,68 @@ impl ToSql<crate::schema::sql_types::TicketPriority, Pg> for TicketPriority {
     }
 }
 
+/// Format the bytes in `comments.content` are stored as. Lets the
+/// outbound dispatcher choose the right transformation when relaying a
+/// comment through a channel that needs a specific representation.
+///
+/// Stored as `VARCHAR(16)` rather than a Postgres `ENUM` so a future
+/// channel-specific value (e.g. Slack `mrkdwn`) can be added by Rust
+/// code alone, without an `ALTER TYPE` migration. An unknown string in
+/// the DB is treated as a hard error so a typo in the inbound pipeline
+/// is caught at the boundary instead of corrupting reply rendering.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[diesel(sql_type = diesel::sql_types::Text)]
+#[serde(rename_all = "lowercase")]
+pub enum ContentFormat {
+    /// Rich HTML — what the ProseMirror editor produces.
+    Html,
+    /// CommonMark Markdown. Reserved for chat / scripted senders that
+    /// emit Markdown natively. Not currently produced by any code path.
+    Markdown,
+    /// Pre-formatted plaintext. Inbound emails store their `body_text`
+    /// here directly; whitespace is significant.
+    Plaintext,
+}
+
+impl ContentFormat {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Html => "html",
+            Self::Markdown => "markdown",
+            Self::Plaintext => "plaintext",
+        }
+    }
+}
+
+impl Default for ContentFormat {
+    /// HTML matches the ProseMirror editor — the only path that
+    /// currently *creates* comments through the API.
+    fn default() -> Self {
+        Self::Html
+    }
+}
+
+impl ToSql<diesel::sql_types::Text, Pg> for ContentFormat {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
+        out.write_all(self.as_str().as_bytes())?;
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<diesel::sql_types::Text, Pg> for ContentFormat {
+    fn from_sql(bytes: PgValue) -> deserialize::Result<Self> {
+        match bytes.as_bytes() {
+            b"html" => Ok(Self::Html),
+            b"markdown" => Ok(Self::Markdown),
+            b"plaintext" => Ok(Self::Plaintext),
+            other => {
+                Err(format!("unknown content_format: {}", String::from_utf8_lossy(other)).into())
+            }
+        }
+    }
+}
+
 impl FromSql<crate::schema::sql_types::TicketPriority, Pg> for TicketPriority {
     fn from_sql(bytes: PgValue) -> deserialize::Result<Self> {
         match bytes.as_bytes() {
@@ -290,6 +352,9 @@ pub struct Comment {
     /// Soft-delete marker. Set by future channel-edit/delete pipeline
     /// handlers when Slack/Teams/Discord signal a deleted message.
     pub deleted_at: Option<NaiveDateTime>,
+    /// What the bytes in `content` are. Drives the outbound dispatcher's
+    /// HTML / plaintext composition for replies.
+    pub content_format: ContentFormat,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -302,6 +367,12 @@ pub struct NewComment {
     pub channel_metadata: Option<serde_json::Value>,
     #[serde(default)]
     pub is_internal: bool,
+    /// Defaults to HTML so the regular helpdesk UI (the only path that
+    /// posts comments through the API today) doesn't have to opt in.
+    /// Inbound channel adapters set this explicitly to match what they
+    /// stored in `content`.
+    #[serde(default)]
+    pub content_format: ContentFormat,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
@@ -1023,6 +1094,11 @@ pub struct NewCommentWithAttachments {
     pub content: String,
     // user_id/user_uuid removed - extracted from JWT token for security
     pub attachments: Vec<AttachmentData>,
+    /// Format the editor that produced `content` is sending. Optional
+    /// from the wire so older clients keep working — the handler falls
+    /// back to the `ContentFormat` default (HTML).
+    #[serde(default)]
+    pub content_format: ContentFormat,
 }
 
 // JWT Claims structure

@@ -416,6 +416,10 @@ pub async fn submit_guest_ticket(
         ticket_id: ticket.id,
         channel_metadata: None,
         is_internal: false,
+        // Guest portal currently posts plaintext into the description.
+        // (When the guest form moves to a rich editor, change this to
+        // match what the editor produces.)
+        content_format: crate::models::ContentFormat::Plaintext,
     };
     let first_comment_id = match repository::comments::create_comment(&mut conn, new_comment, Some(search_service.get_ref())) {
         Ok(c) => Some(c.id),

@@ -501,6 +501,10 @@ fn insert_inbound_comment(
         user_uuid,
         channel_metadata: Some(metadata),
         is_internal: false,
+        // We store the email's `body_text` (plaintext) verbatim — flag
+        // it as such so the outbound dispatcher escapes it correctly
+        // when this message gets quoted into a future reply.
+        content_format: crate::models::ContentFormat::Plaintext,
     };
 
     let observer = ctx

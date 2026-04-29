@@ -103,6 +103,13 @@ async-trait = "0.1.83"     # Async traits for storage abstraction
 
 # Email dependencies
 lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder", "hostname"] }
+# HTML / plaintext interconversion for outbound channel relays. `html2text`
+# renders the rich HTML the editor produces into a readable plaintext
+# fallback for the multipart/alternative email body. `html-escape` is the
+# small, focused crate we use whenever we need to embed a plaintext string
+# safely inside an HTML body (signature lines, quote attribution).
+html2text = "0.12"
+html-escape = "0.2"
 # DNS resolver for pre-flight MX lookup on guest-submitted email addresses.
 # Catches `random@nonexistentdomain.tld` before we waste an invitation email on it.
 hickory-resolver = { version = "0.24", features = ["tokio-runtime"] }

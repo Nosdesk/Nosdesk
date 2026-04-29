@@ -177,6 +177,7 @@ mod tests {
             channel_metadata: None,
             is_internal,
             deleted_at: None,
+            content_format: Default::default(),
         }
     }
 

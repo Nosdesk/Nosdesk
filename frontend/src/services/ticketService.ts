@@ -159,7 +159,14 @@ export const addCommentToTicket = async (
       // and suppresses the channel outbound relay (see backend
       // `repository::comments::get_public_comments_by_ticket_id` and
       // `services::channels::relay::decide_relay`).
-      is_internal: isInternal
+      is_internal: isInternal,
+      // Tells the backend the bytes in `content` are HTML (the
+      // ProseMirror editor's native output) so the email outbound
+      // relay can ship a multipart/alternative message instead of
+      // dumping raw `<p>` tags into the plaintext body. The backend
+      // defaults to `html` when the field is missing, so older
+      // bundles keep working — explicit is just clearer.
+      content_format: 'html',
     });
     return response.data;
   } catch (error) {

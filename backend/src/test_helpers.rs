@@ -205,6 +205,7 @@ impl TestFixtures {
             user_uuid,
             channel_metadata: None,
             is_internal: false,
+            content_format: Default::default(),
         };
 
         diesel::insert_into(comments::table)

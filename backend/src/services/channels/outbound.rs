@@ -202,24 +202,29 @@ pub fn spawn_relay_for_comment(
                 return;
             }
         };
-        // Append the tech's signature (if they have one), then prepend
-        // the quoted previous-message block. Final wire order:
+        // Compose the reply in both HTML and plaintext form so the
+        // email adapter can ship a real `multipart/alternative`
+        // message. Final wire order in either form:
         //   <tech's new reply>
         //   <signature>
         //   <quoted prior message>
         // Matches what `Mail.app` / Gmail produce when a user hits
-        // Reply; familiar to the customer's client + visually anchors
-        // the response to its context.
-        let with_signature = super::signature::append_signature_for_user(
+        // Reply, anchoring the response to its context.
+        let body = super::reply_body::ReplyBody::from_comment(&comment);
+        let body = super::signature::append_signature_for_user(
             &mut conn,
             comment.user_uuid,
-            &comment.content,
+            body,
         );
-        let body_markdown =
-            super::quote_previous::maybe_prepend_quote(&mut conn, &channel, &ticket, &with_signature);
+        let body = super::quote_previous::maybe_prepend_quote(
+            &mut conn,
+            &channel,
+            &ticket,
+            body,
+        );
         let content = OutboundContent {
-            body_markdown,
-            body_html: None,
+            body_markdown: body.text,
+            body_html: Some(body.html),
             attachments: vec![],
             external_id_hint: None,
         };
