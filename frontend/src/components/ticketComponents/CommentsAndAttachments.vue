@@ -8,6 +8,7 @@ import SectionCard from "@/components/common/SectionCard.vue";
 import SimpleEditor from "@/components/common/SimpleEditor.vue";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
 import CommentContent from "@/components/ticketComponents/CommentContent.vue";
+import type { CommentContentFormat } from "@/types/comment";
 import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePicker.vue";
 import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
@@ -24,6 +25,10 @@ interface UserInfo {
 interface CommentWithAttachments {
     id: number;
     content: string;
+    /** Format of `content`. Drives the rendering branch in
+        `CommentContent` (HTML emails go through a sandboxed iframe;
+        Markdown / plaintext / missing flow through the legacy renderer). */
+    content_format?: CommentContentFormat;
     user_uuid: string;
     createdAt: string;
     /** True = tech-to-tech note; renders with the warning badge/tint
@@ -367,15 +372,23 @@ const handleDrop = async (event: DragEvent) => {
 </script>
 
 <template>
-    <SectionCard>
+    <!--
+      Flush content padding (`content-padding=""`): the section's own
+      `p-3` is dropped so each interior block can manage its own
+      breathing room. The composer keeps a comfortable `p-3`; the
+      comment list uses tighter `px-2` so the email iframe inside
+      gets closer to the section's edge. The comment-row bordered
+      cards keep their own `p-3` for visual chunking.
+    -->
+    <SectionCard content-padding="">
         <template #title>Comments and Attachments</template>
 
         <template #default>
-            <div class="flex flex-col gap-3">
+            <div class="flex flex-col">
                 <!-- Conversion Status Message (hidden on print) -->
                 <div
                     v-if="conversionMessage"
-                    class="print:hidden bg-accent/20 border border-accent/50 text-accent px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                    class="print:hidden mx-3 mt-3 bg-accent/20 border border-accent/50 text-accent px-4 py-2 rounded-lg text-sm flex items-center gap-2"
                 >
                     <svg
                         v-if="conversionMessage.includes('Converting')"
@@ -414,7 +427,7 @@ const handleDrop = async (event: DragEvent) => {
 
                 <!-- Add New Comment Form (hidden on print) -->
                 <div
-                    class="print:hidden bg-surface rounded-lg relative"
+                    class="print:hidden bg-surface rounded-lg relative mx-3 mt-3"
                     @dragenter="handleDragEnter"
                     @dragleave="handleDragLeave"
                     @dragover="handleDragOver"
@@ -596,7 +609,7 @@ const handleDrop = async (event: DragEvent) => {
                 <!-- List of Comments - Screen layout -->
                 <div
                     v-if="props.comments.length > 0"
-                    class="print:hidden flex flex-col gap-3"
+                    class="print:hidden flex flex-col gap-2 px-2 py-3"
                 >
                     <div
                         v-for="comment in props.comments"
@@ -678,6 +691,7 @@ const handleDrop = async (event: DragEvent) => {
                                 <CommentContent
                                     v-if="hasRealContent(comment)"
                                     :content="comment.content"
+                                    :content-format="comment.content_format"
                                 />
                                 <p v-else-if="isAudioOnlyComment(comment)" class="text-primary text-sm">
                                     {{ getAudioDisplayName(comment.attachments[0].name) }}
@@ -721,6 +735,7 @@ const handleDrop = async (event: DragEvent) => {
                                     <CommentContent
                                         v-if="hasRealContent(comment)"
                                         :content="comment.content"
+                                        :content-format="comment.content_format"
                                     />
                                     <p v-else-if="isAudioOnlyComment(comment)" class="text-primary text-sm">
                                         {{ getAudioDisplayName(comment.attachments[0].name) }}

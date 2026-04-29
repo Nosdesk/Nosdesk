@@ -1254,15 +1254,18 @@ html[data-theme="red-horizon"] body,
     display: block !important;
   }
 
-  .ticket-left-column {
+  .ticket-content-column,
+  .ticket-details-column {
     display: block !important;
     width: 100% !important;
     max-width: none !important;
+    flex: 0 0 auto !important;
     gap: 0 !important;
   }
 
   .ticket-article,
-  .ticket-comments {
+  .ticket-comments,
+  .ticket-details {
     width: 100% !important;
     max-width: none !important;
     margin-bottom: 1rem;

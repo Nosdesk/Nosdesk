@@ -441,9 +441,9 @@ usePageCreateAction(handleCreateTicket);
 
             <div class="flex flex-col gap-4 px-4 py-4 sm:px-6 mx-auto w-full max-w-8xl">
                 <!-- Grid Container with named areas -->
-                <div class="ticket-grid gap-6 items-start">
-                    <!-- Left Column Wrapper (for 2-column tablet layout) -->
-                    <div class="ticket-left-column">
+                <div class="ticket-grid items-start">
+                    <!-- Narrow column: metadata + sidebar sections. -->
+                    <div class="ticket-details-column">
                         <!-- Details Sidebar -->
                         <div class="ticket-details flex flex-col gap-3">
 
@@ -633,8 +633,50 @@ usePageCreateAction(handleCreateTicket);
                             <PluginSlot slot-name="ticket-sidebar" :ticket="ticket" :actionActivatedMap="pluginActionActivatedMap" />
                         </template>
                         </div>
+                    </div>
 
-                        <!-- Comments (inside left-column for tablet 2-col layout) -->
+                    <!--
+                      Wide content column: ticket article on top, then
+                      the comment timeline. The article is the original
+                      message a customer sent (when the ticket was
+                      created from email) or the running notes for the
+                      ticket; visually it's the first entry in the
+                      conversation.
+                    -->
+                    <div class="ticket-content-column">
+                        <!-- Article -->
+                        <!-- Skeleton: Article (matches CollaborativeTicketArticle) -->
+                        <div v-if="!ticket" class="ticket-article rounded-xl print:hidden">
+                            <SectionCard content-padding="p-4">
+                                <template #title>Ticket Notes</template>
+                                <template #headerActions>
+                                    <div class="w-5 h-5 rounded bg-surface-hover animate-pulse"></div>
+                                    <div class="w-5 h-5 rounded bg-surface-hover animate-pulse"></div>
+                                    <div class="w-5 h-5 rounded bg-surface-hover animate-pulse"></div>
+                                </template>
+                                <!-- Content area (matches min-h-[300px]) -->
+                                <div class="flex-grow min-h-[300px] flex flex-col gap-3">
+                                    <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
+                                    <div class="h-4 w-5/6 bg-surface-hover rounded animate-pulse"></div>
+                                    <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
+                                    <div class="h-4 w-4/6 bg-surface-hover rounded animate-pulse"></div>
+                                    <div class="h-4 w-0"></div>
+                                    <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
+                                    <div class="h-4 w-3/4 bg-surface-hover rounded animate-pulse"></div>
+                                    <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
+                                    <div class="h-4 w-2/3 bg-surface-hover rounded animate-pulse"></div>
+                                </div>
+                            </SectionCard>
+                        </div>
+                        <div v-else class="ticket-article rounded-xl">
+                            <CollaborativeTicketArticle
+                                :key="`article-${ticket.id}`"
+                                :initial-content="ticket.article_content || ''"
+                                :ticket-id="ticket.id"
+                            />
+                        </div>
+
+                        <!-- Comments timeline -->
                         <!-- Skeleton: Comments (matches CommentsAndAttachments / SectionCard) -->
                         <div v-if="!ticket" class="ticket-comments rounded-xl print:hidden">
                             <SectionCard content-padding="p-3">
@@ -677,38 +719,6 @@ usePageCreateAction(handleCreateTicket);
                             />
                         </div>
                     </div>
-
-                    <!-- Article -->
-                    <!-- Skeleton: Article (matches CollaborativeTicketArticle) -->
-                    <div v-if="!ticket" class="ticket-article rounded-xl print:hidden">
-                        <SectionCard content-padding="p-4">
-                            <template #title>Ticket Notes</template>
-                            <template #headerActions>
-                                <div class="w-5 h-5 rounded bg-surface-hover animate-pulse"></div>
-                                <div class="w-5 h-5 rounded bg-surface-hover animate-pulse"></div>
-                                <div class="w-5 h-5 rounded bg-surface-hover animate-pulse"></div>
-                            </template>
-                            <!-- Content area (matches min-h-[300px]) -->
-                            <div class="flex-grow min-h-[300px] flex flex-col gap-3">
-                                <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
-                                <div class="h-4 w-5/6 bg-surface-hover rounded animate-pulse"></div>
-                                <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
-                                <div class="h-4 w-4/6 bg-surface-hover rounded animate-pulse"></div>
-                                <div class="h-4 w-0"></div>
-                                <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
-                                <div class="h-4 w-3/4 bg-surface-hover rounded animate-pulse"></div>
-                                <div class="h-4 w-full bg-surface-hover rounded animate-pulse"></div>
-                                <div class="h-4 w-2/3 bg-surface-hover rounded animate-pulse"></div>
-                            </div>
-                        </SectionCard>
-                    </div>
-                    <div v-else class="ticket-article rounded-xl">
-                        <CollaborativeTicketArticle
-                            :key="`article-${ticket.id}`"
-                            :initial-content="ticket.article_content || ''"
-                            :ticket-id="ticket.id"
-                        />
-                    </div>
                 </div>
             </div>
         </div>
@@ -748,7 +758,20 @@ usePageCreateAction(handleCreateTicket);
 </template>
 
 <style scoped>
-/* Mobile: Single column, wrapper dissolves so items stack naturally */
+/*
+ * Two-column layout: a wide content column carries the ticket's
+ * article and conversation, a narrow column carries metadata.
+ *
+ * The conversation IS the ticket — when a customer opens an email
+ * thread it lands in the article (the original message), and every
+ * reply is a comment below. Giving that the wide column matches the
+ * mental model and matches what every modern helpdesk does (Front,
+ * Plain, Help Scout, Linear). Metadata gets the slim sidebar.
+ *
+ * Mobile keeps the prior order: a quick scan of details, then the
+ * conversation. Desktop puts content on the left so the eye lands
+ * on the email body first.
+ */
 .ticket-grid {
     display: flex;
     flex-direction: column;
@@ -756,90 +779,54 @@ usePageCreateAction(handleCreateTicket);
     width: 100%;
 }
 
-.ticket-left-column {
-    display: contents; /* Dissolve wrapper on mobile */
-}
-
-.ticket-details,
-.ticket-article,
-.ticket-comments {
-    min-width: 0; /* Prevent overflow */
+.ticket-content-column,
+.ticket-details-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-width: 0;
     width: 100%;
 }
 
-/* Mobile ordering: details → article → comments */
-.ticket-details {
-    order: 1;
-}
+/* Mobile order: details quick-scan first, then the conversation. */
+.ticket-details-column { order: 1; }
+.ticket-content-column { order: 2; }
 
-.ticket-article {
-    order: 2;
-}
-
-.ticket-comments {
-    order: 3;
-}
-
-/* Tablet (lg): 2 columns using flexbox - no row alignment issues */
 @media (min-width: 1024px) {
     .ticket-grid {
         flex-direction: row;
         align-items: flex-start;
     }
 
-    .ticket-left-column {
-        display: flex;
-        flex-direction: column;
-        gap: 1.5rem;
+    /* Wide content column on the left, takes whatever's left after
+     * the sidebar. `min-width: 0` so children that overflow (an
+     * email body with a wide table, a `<pre>` with a long line)
+     * scroll inside their container instead of pushing the column. */
+    .ticket-content-column {
         flex: 1 1 0;
-        max-width: 420px;
-        min-width: 340px;
-        order: 1; /* Left column first */
-    }
-
-    .ticket-details,
-    .ticket-comments {
-        width: 100%;
-        order: unset; /* Reset mobile ordering */
-    }
-
-    .ticket-article {
-        flex: 1.5 1 0;
         min-width: 0;
-        order: 2; /* Article second */
+        order: 1;
+    }
+
+    /* Narrow sidebar column on the right. Fixed-width, not a
+     * fraction — metadata fields look ridiculous when scaled wide,
+     * and pinning the width keeps the content column's growth
+     * predictable. */
+    .ticket-details-column {
+        flex: 0 0 360px;
+        max-width: 360px;
+        min-width: 320px;
+        order: 2;
     }
 }
 
-/* Desktop (xl): 3 columns with grid, wrapper dissolves */
 @media (min-width: 1536px) {
-    .ticket-grid {
-        display: grid;
-        grid-template-columns: minmax(350px, 1fr) minmax(0, 1.5fr) minmax(350px, 1fr);
-    }
-
-    .ticket-left-column {
-        display: contents; /* Dissolve wrapper so details and comments become separate grid items */
-    }
-
-    .ticket-details,
-    .ticket-article,
-    .ticket-comments {
-        width: auto; /* Reset width for grid */
-    }
-
-    .ticket-details {
-        grid-column: 1;
-        grid-row: 1;
-    }
-
-    .ticket-article {
-        grid-column: 2;
-        grid-row: 1;
-    }
-
-    .ticket-comments {
-        grid-column: 3;
-        grid-row: 1;
+    /* A bit more breathing room for the metadata column at xl. The
+     * content column absorbs the rest, which is the point of the
+     * rebalance. */
+    .ticket-details-column {
+        flex: 0 0 380px;
+        max-width: 380px;
     }
 }
 </style>

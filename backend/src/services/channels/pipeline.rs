@@ -495,16 +495,25 @@ fn insert_inbound_comment(
         metadata["forwarded_by_user_uuid"] = json!(by.to_string());
     }
 
+    // Prefer the rich HTML body when the message has one — it carries
+    // the formatting the customer's mail client emitted (lists, links,
+    // signatures, embedded images via `cid:` references) and the
+    // ticket view renders it in a sandboxed iframe so the structure is
+    // preserved. Fall back to the flat `body_text` for plaintext-only
+    // emails (mailing lists, bots, console-mail clients).
+    let (content, content_format) = match msg.body_html.as_ref() {
+        Some(html) if !html.trim().is_empty() => {
+            (html.clone(), crate::models::ContentFormat::Html)
+        }
+        _ => (msg.body_text.clone(), crate::models::ContentFormat::Plaintext),
+    };
     let new_comment = NewComment {
-        content: msg.body_text.clone(),
+        content,
         ticket_id,
         user_uuid,
         channel_metadata: Some(metadata),
         is_internal: false,
-        // We store the email's `body_text` (plaintext) verbatim — flag
-        // it as such so the outbound dispatcher escapes it correctly
-        // when this message gets quoted into a future reply.
-        content_format: crate::models::ContentFormat::Plaintext,
+        content_format,
     };
 
     let observer = ctx
