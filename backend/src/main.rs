@@ -1281,6 +1281,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/documentation/pages/{id}/permanent", web::delete().to(handlers::permanently_delete_page))
                     .route("/tickets/{ticket_id}/documentation", web::get().to(handlers::get_documentation_pages_by_ticket_id))
                     .route("/tickets/{ticket_id}/documentation/create", web::post().to(handlers::create_documentation_page_from_ticket))
+                    .route("/tickets/{ticket_id}/documentation-pages", web::get().to(handlers::list_ticket_doc_links))
+                    .route("/documentation/pages/{id}/tickets", web::get().to(handlers::list_page_tickets))
+                    .route("/documentation/pages/{id}/tickets", web::post().to(handlers::create_page_ticket_link))
+                    .route("/documentation/pages/{page_id}/tickets/{ticket_id}", web::delete().to(handlers::delete_page_ticket_link))
+                    .route("/documentation/pages/{id}/verification", web::post().to(handlers::verify_page))
+                    .route("/documentation/pages/{id}/verification", web::delete().to(handlers::unverify_page))
 
                     // ===== DOCUMENTATION COLLECTIONS =====
                     .route("/documentation/collections", web::get().to(handlers::documentation_collections::get_collections))

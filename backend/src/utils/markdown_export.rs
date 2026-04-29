@@ -258,11 +258,11 @@ fn element_to_markdown(
                             let yjs_doc = page.yjs_document.as_ref()
                                 .cloned()
                                 .or_else(|| {
-                                    page.ticket_id.and_then(|tid| {
-                                        repository::get_article_content_by_ticket_id(conn, tid)
-                                            .ok()
-                                            .and_then(|a| a.yjs_document)
-                                    })
+                                    repository::documentation_page_tickets::most_recent_resolves_ticket_id(conn, page.id)
+                                        .ok()
+                                        .flatten()
+                                        .and_then(|tid| repository::get_article_content_by_ticket_id(conn, tid).ok())
+                                        .and_then(|a| a.yjs_document)
                                 });
 
                             if let Some(doc_bytes) = yjs_doc {

@@ -118,10 +118,20 @@ pub fn get_pages_by_parent_id(parent_id: i32, conn: &mut DbConnection) -> Result
         .load::<DocumentationPage>(conn)
 }
 
-// Get documentation pages by ticket ID
-pub fn get_documentation_pages_by_ticket_id(conn: &mut DbConnection, ticket_id: i32) -> Result<Vec<DocumentationPage>, Error> {
+// Get documentation pages linked to a ticket via the page<->ticket
+// join. Both 'resolves' and 'references' link types are returned;
+// the caller can filter further if needed.
+pub fn get_documentation_pages_by_ticket_id(conn: &mut DbConnection, ticket_id_arg: i32) -> Result<Vec<DocumentationPage>, Error> {
+    use crate::schema::documentation_page_tickets;
+
     documentation_pages::table
-        .filter(documentation_pages::ticket_id.eq(ticket_id))
+        .inner_join(
+            documentation_page_tickets::table
+                .on(documentation_page_tickets::page_id.eq(documentation_pages::id)),
+        )
+        .filter(documentation_page_tickets::ticket_id.eq(ticket_id_arg))
+        .filter(documentation_pages::deleted_at.is_null())
+        .select(documentation_pages::all_columns)
         .order_by(documentation_pages::title.asc())
         .load::<DocumentationPage>(conn)
 }
@@ -922,7 +932,6 @@ mod tests {
             created_by,
             last_edited_by: created_by,
             parent_id: None,
-            ticket_id: None,
             display_order: None,
             is_public: false,
             is_template: false,
@@ -967,7 +976,6 @@ mod tests {
             status: None,
             last_edited_by: None,
             parent_id: None,
-            ticket_id: None,
             display_order: None,
             is_public: None,
             is_template: None,
@@ -978,6 +986,9 @@ mod tests {
             has_unsaved_changes: None,
             updated_at: None,
             deleted_at: None,
+            verified_by: None,
+            verified_at: None,
+            verify_interval_days: None,
         };
         let updated = update_documentation_page(&mut conn, page.id, &update).unwrap();
         assert_eq!(updated.title, "Updated Title");

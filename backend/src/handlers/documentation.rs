@@ -10,7 +10,7 @@ use regex::Regex;
 
 use crate::db::{Pool, DbConnection};
 use crate::handlers::helpers;
-use crate::models::{NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus, DocumentationPage, DocumentationPageResponse, UserInfoWithAvatar};
+use crate::models::{NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus, DocumentationPage, DocumentationPageResponse, DocumentationPageTicketEmbed, UserInfoWithAvatar};
 use crate::repository;
 use crate::repository::documentation_starred_pages;
 use crate::repository::documentation_subscriptions;
@@ -142,19 +142,35 @@ pub struct CreateDocumentationPageRequest {
     pub collection_id: Option<i32>,
 }
 
-/// Resolve the Yjs document for a page: try the page's own yjs_document first,
-/// then fall back to the linked ticket's article content.
+/// Resolve the Yjs document for a page: try the page's own yjs_document
+/// first, then fall back to the most-recently-linked 'resolves' ticket's
+/// article content. Pre-Phase-1 pages were authored from a ticket and
+/// stored their content in the ticket's article_content row; the join
+/// table now expresses that relationship as a 'resolves' link.
 fn resolve_yjs_document(
     page: &DocumentationPage,
     conn: &mut DbConnection,
 ) -> Option<Vec<u8>> {
     page.yjs_document.clone().or_else(|| {
-        page.ticket_id.and_then(|tid| {
-            repository::get_article_content_by_ticket_id(conn, tid)
-                .ok()
-                .and_then(|a| a.yjs_document)
-        })
+        repository::documentation_page_tickets::most_recent_resolves_ticket_id(conn, page.id)
+            .ok()
+            .flatten()
+            .and_then(|tid| repository::get_article_content_by_ticket_id(conn, tid).ok())
+            .and_then(|a| a.yjs_document)
     })
+}
+
+/// True when the page has been verified with an interval set and the
+/// interval has elapsed. Pages without an interval are evergreen and
+/// never stale.
+fn is_page_stale(page: &DocumentationPage) -> bool {
+    match (page.verified_at, page.verify_interval_days) {
+        (Some(verified_at), Some(days)) => {
+            let now = chrono::Utc::now().naive_utc();
+            now > verified_at + chrono::Duration::days(days as i64)
+        }
+        _ => false,
+    }
 }
 
 // Helper function to convert DocumentationPage to DocumentationPageResponse with user info
@@ -173,6 +189,20 @@ fn to_page_response(
     // Extract content from Yjs document if available
     let content = resolve_yjs_document(&page, conn)
         .and_then(|doc| extract_yjs_content(&doc));
+
+    // Verifier user info, only fetched when the page has been
+    // verified. The DB stores the uuid; the response embeds the
+    // user's display info so the frontend doesn't need a second
+    // round-trip to render the banner.
+    let verified_by = page.verified_by.and_then(|uuid| {
+        repository::get_user_by_uuid(&uuid, conn).ok().map(|u| UserInfoWithAvatar {
+            uuid: u.uuid,
+            name: u.name,
+            avatar_url: u.avatar_url,
+            avatar_thumb: u.avatar_thumb,
+        })
+    });
+    let is_stale = is_page_stale(&page);
 
     Ok(DocumentationPageResponse {
         id: page.id,
@@ -197,7 +227,6 @@ fn to_page_response(
             avatar_thumb: last_edited_by_user.avatar_thumb,
         },
         parent_id: page.parent_id,
-        ticket_id: page.ticket_id,
         display_order: page.display_order,
         is_public: page.is_public,
         is_template: page.is_template,
@@ -206,7 +235,60 @@ fn to_page_response(
         has_unsaved_changes: page.has_unsaved_changes,
         children: None,
         content,
+        verified_by,
+        verified_at: page.verified_at,
+        verify_interval_days: page.verify_interval_days,
+        is_stale,
+        linked_tickets: None,
     })
+}
+
+/// Hydrate the linked_tickets field on a page response by querying
+/// the join table and pulling ticket title + status in one batch.
+/// Mirrors the standalone list_page_tickets handler so callers can
+/// choose between embed (one round trip) and a separate fetch
+/// (cheaper for views that don't always want it).
+fn embed_page_tickets(
+    response: &mut DocumentationPageResponse,
+    conn: &mut DbConnection,
+) -> Result<(), String> {
+    let links = repository::documentation_page_tickets::links_for_page(conn, response.id)
+        .map_err(|e| format!("Failed to load page<->ticket links: {e:?}"))?;
+
+    use crate::schema::tickets;
+    use diesel::prelude::*;
+    let ticket_ids: Vec<i32> = links.iter().map(|l| l.ticket_id).collect();
+    let tickets_meta: std::collections::HashMap<i32, (String, String)> = if ticket_ids.is_empty() {
+        Default::default()
+    } else {
+        tickets::table
+            .filter(tickets::id.eq_any(&ticket_ids))
+            .select((tickets::id, tickets::title, tickets::status))
+            .load::<(i32, String, crate::models::TicketStatus)>(conn)
+            .map_err(|e| format!("Failed to hydrate tickets: {e:?}"))?
+            .into_iter()
+            .map(|(id, title, status)| {
+                let s = serde_json::to_string(&status).unwrap_or_default();
+                (id, (title, s.trim_matches('"').to_string()))
+            })
+            .collect()
+    };
+
+    let embed: Vec<DocumentationPageTicketEmbed> = links
+        .into_iter()
+        .map(|l| {
+            let meta = tickets_meta.get(&l.ticket_id);
+            DocumentationPageTicketEmbed {
+                ticket_id: l.ticket_id,
+                link_type: l.link_type,
+                created_at: l.created_at,
+                ticket_title: meta.map(|m| m.0.clone()),
+                ticket_status: meta.map(|m| m.1.clone()),
+            }
+        })
+        .collect();
+    response.linked_tickets = Some(embed);
+    Ok(())
 }
 
 // Helper function to convert multiple DocumentationPages to DocumentationPageResponses
@@ -245,11 +327,27 @@ pub async fn get_documentation_pages(
     }
 }
 
+/// Query params for `GET /documentation/pages/{id}`. The `embed`
+/// param is a comma-separated list — currently only `tickets` is
+/// recognised, but the parser is forward-compatible.
+#[derive(Debug, Deserialize)]
+pub struct GetDocumentationPageQuery {
+    pub embed: Option<String>,
+}
+
+fn embed_includes(embed: &Option<String>, key: &str) -> bool {
+    embed
+        .as_deref()
+        .map(|s| s.split(',').map(str::trim).any(|t| t == key))
+        .unwrap_or(false)
+}
+
 // Get a single documentation page by ID
 pub async fn get_documentation_page(
     req: HttpRequest,
     id: web::Path<i32>,
     pool: web::Data<Pool>,
+    query: web::Query<GetDocumentationPageQuery>,
 ) -> impl Responder {
     let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
@@ -257,6 +355,7 @@ pub async fn get_documentation_page(
     };
 
     let page_id = id.into_inner();
+    let want_tickets = embed_includes(&query.embed, "tickets");
 
     match repository::get_documentation_page(page_id, &mut conn) {
         Ok(page) => {
@@ -266,7 +365,14 @@ pub async fn get_documentation_page(
                 Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
             }
             match to_page_response(page, &mut conn) {
-                Ok(response) => HttpResponse::Ok().json(response),
+                Ok(mut response) => {
+                    if want_tickets {
+                        if let Err(e) = embed_page_tickets(&mut response, &mut conn) {
+                            return HttpResponse::InternalServerError().json(e);
+                        }
+                    }
+                    HttpResponse::Ok().json(response)
+                }
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
@@ -279,6 +385,7 @@ pub async fn get_documentation_page_by_slug(
     req: HttpRequest,
     slug: web::Path<String>,
     pool: web::Data<Pool>,
+    query: web::Query<GetDocumentationPageQuery>,
 ) -> impl Responder {
     let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
@@ -286,6 +393,7 @@ pub async fn get_documentation_page_by_slug(
     };
 
     let page_slug = slug.into_inner();
+    let want_tickets = embed_includes(&query.embed, "tickets");
 
     match repository::get_documentation_page_by_slug(&page_slug, &mut conn) {
         Ok(page) => {
@@ -295,7 +403,14 @@ pub async fn get_documentation_page_by_slug(
                 Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
             }
             match to_page_response(page, &mut conn) {
-                Ok(response) => HttpResponse::Ok().json(response),
+                Ok(mut response) => {
+                    if want_tickets {
+                        if let Err(e) = embed_page_tickets(&mut response, &mut conn) {
+                            return HttpResponse::InternalServerError().json(e);
+                        }
+                    }
+                    HttpResponse::Ok().json(response)
+                }
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
@@ -425,7 +540,6 @@ pub async fn create_documentation_page(
         created_by: user_uuid,
         last_edited_by: user_uuid,
         parent_id: request.parent_id,
-        ticket_id: request.ticket_id,
         display_order: request.display_order.or(Some(0)),
         is_public: request.is_public.unwrap_or(false),
         is_template: request.is_template.unwrap_or(false),
@@ -437,6 +551,21 @@ pub async fn create_documentation_page(
 
     match repository::create_documentation_page(new_page, &mut conn) {
         Ok(created_page) => {
+            // If the request named a ticket, record it as a
+            // 'resolves' link. This keeps the legacy "create page
+            // from ticket" flow one-call rather than forcing the
+            // frontend to chase a follow-up POST.
+            if let Some(tid) = request.ticket_id {
+                if let Err(e) = repository::documentation_page_tickets::upsert_link(
+                    &mut conn,
+                    created_page.id,
+                    tid,
+                    repository::documentation_page_tickets::LINK_RESOLVES,
+                    Some(user_uuid),
+                ) {
+                    error!(error = ?e, page_id = created_page.id, ticket_id = tid, "Failed to create page<->ticket link");
+                }
+            }
             // Resolve target collection: explicit body field wins,
             // otherwise inherit from the parent page's collection.
             // Either way, write the junction row directly without
@@ -499,7 +628,6 @@ pub struct UpdateDocumentationPageRequest {
     pub cover_image: Option<String>,
     pub status: Option<DocumentationStatus>,
     pub parent_id: Option<Option<i32>>,
-    pub ticket_id: Option<Option<i32>>,
     pub display_order: Option<i32>,
     pub is_public: Option<bool>,
     pub is_template: Option<bool>,
@@ -566,7 +694,6 @@ pub async fn update_documentation_page(
                 status: update_req.status,
                 last_edited_by: Some(user_uuid),
                 parent_id: update_req.parent_id,
-                ticket_id: update_req.ticket_id,
                 display_order: update_req.display_order,
                 is_public: update_req.is_public,
                 is_template: update_req.is_template,
@@ -577,6 +704,9 @@ pub async fn update_documentation_page(
                 has_unsaved_changes: None,
                 updated_at: Some(now),
                 deleted_at,
+                verified_by: None,
+                verified_at: None,
+                verify_interval_days: None,
             };
 
             // Update the page
@@ -1243,7 +1373,6 @@ pub async fn create_documentation_page_from_ticket(
         created_by: user_uuid,
         last_edited_by: user_uuid,
         parent_id: page_data.parent_id,
-        ticket_id: Some(ticket_id),
         display_order: Some(0),
         is_public: false,
         is_template: false,
@@ -1256,6 +1385,19 @@ pub async fn create_documentation_page_from_ticket(
     // Create the documentation page
     match repository::create_documentation_page(new_page, &mut conn) {
         Ok(page) => {
+            // Record the page<->ticket linkage in the join table.
+            // 'resolves' is the right link_type here because the
+            // page was authored *from* this ticket.
+            if let Err(e) = repository::documentation_page_tickets::upsert_link(
+                &mut conn,
+                page.id,
+                ticket_id,
+                repository::documentation_page_tickets::LINK_RESOLVES,
+                Some(user_uuid),
+            ) {
+                error!(error = ?e, page_id = page.id, ticket_id, "Failed to create page<->ticket link");
+            }
+
             // Auto-add to "Tickets" system collection
             if let Ok(tickets_collection) = repository::documentation_collections::get_collection_by_slug(&mut conn, "tickets") {
                 let entry = crate::models::NewDocumentationCollectionPage {
@@ -1680,6 +1822,342 @@ pub async fn unstar_page(
         Err(e) => {
             error!(error = ?e, "Failed to unstar documentation page");
             HttpResponse::InternalServerError().json("Failed to unstar page")
+        }
+    }
+}
+
+// ============================================================================
+// Page <-> Ticket links + Verification
+// ============================================================================
+
+/// Public DTO returned alongside a link. Embeds ticket title +
+/// status so the frontend can render the row without an extra
+/// fetch per ticket.
+#[derive(Debug, serde::Serialize)]
+pub struct PageTicketLinkResponse {
+    pub page_id: i32,
+    pub ticket_id: i32,
+    pub link_type: String,
+    pub created_by: Option<Uuid>,
+    pub created_at: chrono::NaiveDateTime,
+    pub ticket_title: Option<String>,
+    pub ticket_status: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct PageDocLinkResponse {
+    pub page_id: i32,
+    pub ticket_id: i32,
+    pub link_type: String,
+    pub page_title: String,
+    pub page_slug: String,
+    pub page_icon: Option<String>,
+    pub created_at: chrono::NaiveDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreatePageTicketLinkRequest {
+    pub ticket_id: i32,
+    /// Defaults to "references" when omitted.
+    pub link_type: Option<String>,
+}
+
+/// GET /api/documentation/pages/{id}/tickets
+pub async fn list_page_tickets(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let (_claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let page_id = path.into_inner();
+
+    let links = match repository::documentation_page_tickets::links_for_page(&mut conn, page_id) {
+        Ok(rows) => rows,
+        Err(e) => {
+            error!(error = ?e, "Failed to load page<->ticket links");
+            return HttpResponse::InternalServerError().json("Failed to load links");
+        }
+    };
+
+    // Hydrate ticket title + status in one query rather than N+1.
+    use crate::schema::tickets;
+    use diesel::prelude::*;
+    let ticket_ids: Vec<i32> = links.iter().map(|l| l.ticket_id).collect();
+    let tickets_meta: std::collections::HashMap<i32, (String, String)> = if ticket_ids.is_empty() {
+        Default::default()
+    } else {
+        tickets::table
+            .filter(tickets::id.eq_any(&ticket_ids))
+            .select((tickets::id, tickets::title, tickets::status))
+            .load::<(i32, String, crate::models::TicketStatus)>(&mut conn)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(id, title, status)| {
+                let s = serde_json::to_string(&status).unwrap_or_default();
+                (id, (title, s.trim_matches('"').to_string()))
+            })
+            .collect()
+    };
+
+    let responses: Vec<PageTicketLinkResponse> = links
+        .into_iter()
+        .map(|l| {
+            let meta = tickets_meta.get(&l.ticket_id);
+            PageTicketLinkResponse {
+                page_id: l.page_id,
+                ticket_id: l.ticket_id,
+                link_type: l.link_type,
+                created_by: l.created_by,
+                created_at: l.created_at,
+                ticket_title: meta.map(|m| m.0.clone()),
+                ticket_status: meta.map(|m| m.1.clone()),
+            }
+        })
+        .collect();
+
+    HttpResponse::Ok().json(responses)
+}
+
+/// POST /api/documentation/pages/{id}/tickets
+pub async fn create_page_ticket_link(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+    body: web::Json<CreatePageTicketLinkRequest>,
+) -> impl Responder {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+    }
+    let page_id = path.into_inner();
+    let req_body = body.into_inner();
+    let link_type = req_body.link_type.unwrap_or_else(|| {
+        repository::documentation_page_tickets::LINK_REFERENCES.to_string()
+    });
+    if let Err(msg) = repository::documentation_page_tickets::validate_link_type(&link_type) {
+        return HttpResponse::BadRequest().json(json!({"error": msg}));
+    }
+
+    match repository::documentation_page_tickets::upsert_link(
+        &mut conn,
+        page_id,
+        req_body.ticket_id,
+        &link_type,
+        Some(user_uuid),
+    ) {
+        Ok(row) => HttpResponse::Created().json(row),
+        Err(e) => {
+            error!(error = ?e, "Failed to create page<->ticket link");
+            HttpResponse::InternalServerError().json("Failed to create link")
+        }
+    }
+}
+
+/// DELETE /api/documentation/pages/{page_id}/tickets/{ticket_id}
+pub async fn delete_page_ticket_link(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<(i32, i32)>,
+) -> impl Responder {
+    let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+    }
+    let (page_id, ticket_id) = path.into_inner();
+    match repository::documentation_page_tickets::delete_link(&mut conn, page_id, ticket_id) {
+        Ok(_) => HttpResponse::NoContent().finish(),
+        Err(e) => {
+            error!(error = ?e, "Failed to delete page<->ticket link");
+            HttpResponse::InternalServerError().json("Failed to delete link")
+        }
+    }
+}
+
+/// GET /api/tickets/{ticket_id}/documentation-pages
+/// Mirror of list_page_tickets from the ticket side. Returns
+/// hydrated doc rows so the ticket "See also" panel needs no
+/// secondary request.
+pub async fn list_ticket_doc_links(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let ticket_id = path.into_inner();
+
+    let links = match repository::documentation_page_tickets::links_for_ticket(&mut conn, ticket_id) {
+        Ok(rows) => rows,
+        Err(e) => {
+            error!(error = ?e, "Failed to load ticket<->doc links");
+            return HttpResponse::InternalServerError().json("Failed to load links");
+        }
+    };
+
+    use crate::schema::documentation_pages;
+    use diesel::prelude::*;
+    let page_ids: Vec<i32> = links.iter().map(|l| l.page_id).collect();
+    if page_ids.is_empty() {
+        return HttpResponse::Ok().json(Vec::<PageDocLinkResponse>::new());
+    }
+
+    let pages: Vec<DocumentationPage> = match documentation_pages::table
+        .filter(documentation_pages::id.eq_any(&page_ids))
+        .filter(documentation_pages::deleted_at.is_null())
+        .load(&mut conn)
+    {
+        Ok(p) => p,
+        Err(e) => {
+            error!(error = ?e, "Failed to hydrate linked docs");
+            return HttpResponse::InternalServerError().json("Failed to hydrate docs");
+        }
+    };
+
+    // Apply per-user visibility filtering — the same page_visibility
+    // rules that gate page reads must gate this list, otherwise the
+    // ticket panel would leak doc titles past their group boundary.
+    let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+        Ok(p) => p,
+        Err(_) => return HttpResponse::InternalServerError().json("Failed to filter pages"),
+    };
+    let pages_by_id: std::collections::HashMap<i32, DocumentationPage> =
+        pages.into_iter().map(|p| (p.id, p)).collect();
+
+    let responses: Vec<PageDocLinkResponse> = links
+        .into_iter()
+        .filter_map(|l| {
+            pages_by_id.get(&l.page_id).map(|p| PageDocLinkResponse {
+                page_id: l.page_id,
+                ticket_id: l.ticket_id,
+                link_type: l.link_type,
+                page_title: p.title.clone(),
+                page_slug: p.slug.clone(),
+                page_icon: p.icon.clone(),
+                created_at: l.created_at,
+            })
+        })
+        .collect();
+
+    HttpResponse::Ok().json(responses)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyPageRequest {
+    /// Days until the verification expires. None means evergreen
+    /// (no staleness check). 0 is rejected — that would mark the
+    /// page stale immediately, which is never useful.
+    pub interval_days: Option<i32>,
+}
+
+/// POST /api/documentation/pages/{id}/verification
+pub async fn verify_page(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
+    path: web::Path<i32>,
+    body: web::Json<VerifyPageRequest>,
+) -> impl Responder {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+    }
+    let page_id = path.into_inner();
+    let req_body = body.into_inner();
+    if matches!(req_body.interval_days, Some(0) | Some(i32::MIN..=-1)) {
+        return HttpResponse::BadRequest().json(json!({"error": "interval_days must be positive"}));
+    }
+
+    let now = chrono::Utc::now().naive_utc();
+    let update = crate::models::DocumentationPageUpdate {
+        verified_by: Some(Some(user_uuid)),
+        verified_at: Some(Some(now)),
+        verify_interval_days: Some(req_body.interval_days),
+        updated_at: Some(now),
+        ..Default::default()
+    };
+    match repository::update_documentation_page(&mut conn, page_id, &update) {
+        Ok(updated) => {
+            sse_state
+                .broadcast_event(crate::handlers::sse::SseEvent::DocumentationUpdated {
+                    document_id: updated.id,
+                    field: "verification".to_string(),
+                    value: serde_json::json!({
+                        "verified_by": updated.verified_by,
+                        "verified_at": updated.verified_at,
+                        "verify_interval_days": updated.verify_interval_days,
+                    }),
+                    updated_by: user_uuid.to_string(),
+                    timestamp: chrono::Utc::now(),
+                })
+                .await;
+            match to_page_response(updated, &mut conn) {
+                Ok(resp) => HttpResponse::Ok().json(resp),
+                Err(e) => HttpResponse::InternalServerError().json(e),
+            }
+        }
+        Err(e) => {
+            error!(error = ?e, "Failed to verify page");
+            HttpResponse::InternalServerError().json("Failed to verify page")
+        }
+    }
+}
+
+/// DELETE /api/documentation/pages/{id}/verification
+pub async fn unverify_page(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+    }
+    let page_id = path.into_inner();
+    let now = chrono::Utc::now().naive_utc();
+    let update = crate::models::DocumentationPageUpdate {
+        verified_by: Some(None),
+        verified_at: Some(None),
+        verify_interval_days: Some(None),
+        updated_at: Some(now),
+        ..Default::default()
+    };
+    match repository::update_documentation_page(&mut conn, page_id, &update) {
+        Ok(updated) => {
+            sse_state
+                .broadcast_event(crate::handlers::sse::SseEvent::DocumentationUpdated {
+                    document_id: updated.id,
+                    field: "verification".to_string(),
+                    value: serde_json::Value::Null,
+                    updated_by: user_uuid.to_string(),
+                    timestamp: chrono::Utc::now(),
+                })
+                .await;
+            match to_page_response(updated, &mut conn) {
+                Ok(resp) => HttpResponse::Ok().json(resp),
+                Err(e) => HttpResponse::InternalServerError().json(e),
+            }
+        }
+        Err(e) => {
+            error!(error = ?e, "Failed to clear verification");
+            HttpResponse::InternalServerError().json("Failed to clear verification")
         }
     }
 }

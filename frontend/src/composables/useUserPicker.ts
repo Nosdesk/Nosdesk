@@ -19,7 +19,7 @@ export interface PickerUser {
 /** Picker scope. Drives the eligible-set load strategy:
  *   - `assignee`: small finite set (admin + technician), loaded once on
  *     open and filtered client-side. Picker also enables the "You" row
- *     and the "Assign to me" outside-button affordance.
+ *     and the "Claim" outside-button affordance.
  *   - `requester`: large open set (anyone). Loaded as a paginated first
  *     page on open, server-filtered on type. */
 export type UserPickerType = RecentScope
@@ -69,7 +69,7 @@ interface Result {
    *  cache, then the uuid itself. */
   selectedDisplayName: ComputedRef<string>
   /** True if the current signed-in account is eligible to assign this
-   *  picker. Drives the "You" row + "Assign to me" outside button
+   *  picker. Drives the "You" row + "Claim" outside button
    *  visibility. Always false for the requester picker. */
   canSelfAssign: ComputedRef<boolean>
   /** Run the eligible-set load — call when the dropdown opens. Idempotent

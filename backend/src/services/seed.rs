@@ -83,7 +83,6 @@ fn seed_getting_started(conn: &mut DbConnection) {
         created_by,
         last_edited_by: created_by,
         parent_id: None,
-        ticket_id: None,
         display_order: Some(0),
         is_public: true,
         is_template: false,

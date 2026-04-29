@@ -21,7 +21,6 @@ export interface Page {
   icon: string | null;
   children: Page[];
   lastUpdated?: string;
-  ticket_id?: string | null;
   display_order?: number;
   created_at?: string;
   updated_at?: string;
@@ -29,6 +28,39 @@ export interface Page {
   last_edited_by?: UserInfo;
   deleted_at?: string | null;
   archived_at?: string | null;
+  // Verification surface (Phase 1 of the docs/KB redesign).
+  // verified_by is null when the page has never been verified.
+  verified_by?: UserInfo | null;
+  verified_at?: string | null;
+  verify_interval_days?: number | null;
+  is_stale?: boolean;
+}
+
+/**
+ * Doc<->Ticket link record from the backend's
+ * documentation_page_tickets join. Used both directions: the doc
+ * detail view lists tickets it resolved/references, and the ticket
+ * "See also" panel lists docs the ticket has been linked to.
+ */
+export interface PageTicketLink {
+  page_id: number;
+  ticket_id: number;
+  link_type: 'resolves' | 'references';
+  created_by?: string | null;
+  created_at: string;
+  // Hydrated by the backend when listing from the doc side.
+  ticket_title?: string | null;
+  ticket_status?: string | null;
+}
+
+export interface TicketDocLink {
+  page_id: number;
+  ticket_id: number;
+  link_type: 'resolves' | 'references';
+  page_title: string;
+  page_slug: string;
+  page_icon: string | null;
+  created_at: string;
 }
 
 // Define the PageChild interface (used for navigation)
@@ -147,7 +179,6 @@ export const convertToPage = (data: unknown): Page => {
       icon: cleanIcon as string | null,
       children: cleanChildren,
       lastUpdated: (pageData.updated_at as string) || new Date().toISOString(),
-      ticket_id: (pageData.ticket_id as string | null) || null,
       created_at: pageData.created_at as string | undefined,
       updated_at: pageData.updated_at as string | undefined,
       created_by: pageData.created_by as UserInfo | undefined,
@@ -155,6 +186,10 @@ export const convertToPage = (data: unknown): Page => {
       display_order: typeof pageData.display_order === 'number' ? pageData.display_order : 0,
       deleted_at: (pageData.deleted_at as string | null) || null,
       archived_at: (pageData.archived_at as string | null) || null,
+      verified_by: (pageData.verified_by as UserInfo | null) ?? null,
+      verified_at: (pageData.verified_at as string | null) ?? null,
+      verify_interval_days: (pageData.verify_interval_days as number | null) ?? null,
+      is_stale: Boolean(pageData.is_stale),
     };
   } catch (error) {
     logger.error('Error converting backend page data:', error, data);
@@ -520,7 +555,11 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
       cover_image: null,
       status: statusValue,
       parent_id: article.parent_id !== undefined ? article.parent_id : null,
-      ticket_id: article.ticket_id || null,
+      // Optional one-call "create + link to ticket" path. Backend
+      // creates a 'resolves' link in documentation_page_tickets when
+      // a ticket_id is supplied; reads no longer surface a flat
+      // ticket_id, so this field is write-only on the frontend.
+      ticket_id: (article as Partial<Page> & { ticket_id?: string | number | null }).ticket_id ?? null,
       display_order: article.display_order !== undefined ? article.display_order : 0,
       is_public: false,
       is_template: false,
@@ -651,7 +690,6 @@ export const updateParent = async (pageId: string, newParentId: string | number 
       icon: updatedPage.icon,
       children: [],
       lastUpdated: updatedPage.updated_at,
-      ticket_id: updatedPage.ticket_id
     });
     
     return updatedArticle;
@@ -1020,6 +1058,112 @@ export const exportPageMarkdown = async (pageId: string | number): Promise<Blob 
   }
 };
 
+// ============================================================================
+// Doc <-> Ticket links + Verification (Phase 1 of the docs/KB redesign)
+// ============================================================================
+
+/** Tickets currently linked to this page (both 'resolves' and 'references'). */
+export const listPageTickets = async (pageId: string | number): Promise<PageTicketLink[]> => {
+  try {
+    const response = await apiClient.get(`/documentation/pages/${pageId}/tickets`);
+    return Array.isArray(response.data) ? (response.data as PageTicketLink[]) : [];
+  } catch (error) {
+    logger.error(`Error listing tickets for page ${pageId}:`, error);
+    return [];
+  }
+};
+
+export const linkTicketToPage = async (
+  pageId: string | number,
+  ticketId: number,
+  linkType: 'resolves' | 'references' = 'references',
+): Promise<PageTicketLink | null> => {
+  try {
+    const response = await apiClient.post(`/documentation/pages/${pageId}/tickets`, {
+      ticket_id: ticketId,
+      link_type: linkType,
+    });
+    return response.data as PageTicketLink;
+  } catch (error) {
+    logger.error(`Error linking ticket ${ticketId} to page ${pageId}:`, error);
+    return null;
+  }
+};
+
+export const unlinkTicketFromPage = async (
+  pageId: string | number,
+  ticketId: number,
+): Promise<boolean> => {
+  try {
+    await apiClient.delete(`/documentation/pages/${pageId}/tickets/${ticketId}`);
+    return true;
+  } catch (error) {
+    logger.error(`Error unlinking ticket ${ticketId} from page ${pageId}:`, error);
+    return false;
+  }
+};
+
+/** Docs currently linked to this ticket. Inverse of listPageTickets. */
+export const listDocsForTicket = async (ticketId: number): Promise<TicketDocLink[]> => {
+  try {
+    const response = await apiClient.get(`/tickets/${ticketId}/documentation-pages`);
+    return Array.isArray(response.data) ? (response.data as TicketDocLink[]) : [];
+  } catch (error) {
+    logger.error(`Error listing docs for ticket ${ticketId}:`, error);
+    return [];
+  }
+};
+
+/**
+ * Mark a page as verified by the current user. `intervalDays` of
+ * null (or undefined) marks the page evergreen — its verification
+ * never expires.
+ */
+export const verifyPage = async (
+  pageId: string | number,
+  intervalDays?: number | null,
+): Promise<Page | null> => {
+  try {
+    const response = await apiClient.post(`/documentation/pages/${pageId}/verification`, {
+      interval_days: intervalDays ?? null,
+    });
+    return convertToPage(response.data);
+  } catch (error) {
+    logger.error(`Error verifying page ${pageId}:`, error);
+    return null;
+  }
+};
+
+/**
+ * Create a documentation page anchored to a ticket. The backend
+ * also writes a 'resolves' row in documentation_page_tickets and
+ * places the page in the system "Tickets" collection. Used by the
+ * ticket "Save as doc" action.
+ */
+export const createPageFromTicket = async (
+  ticketId: number,
+  payload: { title: string; icon?: string | null; parent_id?: number | null; description?: string | null },
+): Promise<Page | null> => {
+  try {
+    const response = await apiClient.post(`/tickets/${ticketId}/documentation/create`, payload);
+    return convertToPage(response.data);
+  } catch (error) {
+    logger.error(`Error creating doc from ticket ${ticketId}:`, error);
+    return null;
+  }
+};
+
+/** Clear verification on a page (returns to never-verified state). */
+export const unverifyPage = async (pageId: string | number): Promise<Page | null> => {
+  try {
+    const response = await apiClient.delete(`/documentation/pages/${pageId}/verification`);
+    return convertToPage(response.data);
+  } catch (error) {
+    logger.error(`Error clearing verification on page ${pageId}:`, error);
+    return null;
+  }
+};
+
 export default {
   getPages,
   getAllArticles,
@@ -1055,4 +1199,11 @@ export default {
   updatePage,
   archivePage,
   exportPageMarkdown,
+  listPageTickets,
+  linkTicketToPage,
+  unlinkTicketFromPage,
+  listDocsForTicket,
+  verifyPage,
+  unverifyPage,
+  createPageFromTicket,
 };

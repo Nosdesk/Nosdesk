@@ -15,7 +15,7 @@ import { useAuthStore } from "@/stores/auth";
 const requesterRef = ref<InstanceType<typeof UserPicker> | null>(null);
 const assigneeRef = ref<InstanceType<typeof UserPicker> | null>(null);
 
-// Auth context for the "Assign to me" / "Unassign me" affordance.
+// Auth context for the "Claim" / "Unassign me" affordance.
 // The button only renders when the signed-in account is eligible to
 // receive ticket assignments (admin / technician).
 const authStore = useAuthStore();
@@ -323,7 +323,7 @@ watchEffect(async () => {
                     class="text-[11px] font-medium px-2 h-6 rounded text-accent hover:bg-accent-muted transition-colors"
                     title="Assign this ticket to yourself"
                   >
-                    Assign to me
+                    Claim
                   </button>
                   <button
                     v-if="selectedAssignee"

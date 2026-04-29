@@ -1,19 +1,24 @@
 <script setup lang="ts">
-import { ref, onMounted, onActivated } from 'vue'
+import { ref, computed, onMounted, onActivated } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocumentation } from '@/composables/useDocumentation'
+import { useDocumentationNavStore } from '@/stores/documentationNav'
 import DocumentationCardGrid from '@/components/documentationComponents/DocumentationCardGrid.vue'
 import DocumentationCardSkeleton from '@/components/documentationComponents/DocumentationCardSkeleton.vue'
 import CollectionBrowser from '@/components/documentationComponents/CollectionBrowser.vue'
+import Icon from '@/components/common/Icon.vue'
 import { getArchivedPages, getTrashedPages } from '@/services/documentationService'
 import { getUncollectedPages } from '@/services/collectionService'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
+import { docUrl } from '@/utils/docUrl'
+import { formatRelativeTime } from '@/utils/dateUtils'
+import type { Page } from '@/services/documentationService'
 
 defineOptions({ name: 'DocumentationIndexView' })
 
 const titleManager = useTitleManager()
 
-// Use shared documentation composable
 const {
   pages,
   showSkeleton,
@@ -21,7 +26,9 @@ const {
   createNewPage,
 } = useDocumentation()
 
-// Drafts count
+const docNavStore = useDocumentationNavStore()
+const { starredPages } = storeToRefs(docNavStore)
+
 const draftCount = ref(0)
 const archivedCount = ref(0)
 const trashCount = ref(0)
@@ -30,18 +37,15 @@ const loadDraftCount = async () => {
   const drafts = await getUncollectedPages()
   draftCount.value = drafts.length
 }
-
 const loadArchivedCount = async () => {
   const archived = await getArchivedPages()
   archivedCount.value = archived.length
 }
-
 const loadTrashCount = async () => {
   const trashed = await getTrashedPages()
   trashCount.value = trashed.length
 }
 
-// Handle page creation
 const handleCreatePage = async () => {
   try {
     await createNewPage()
@@ -50,114 +54,185 @@ const handleCreatePage = async () => {
   }
 }
 
-// Lifecycle
+function flattenTree(nodes: Page[]): Page[] {
+  const out: Page[] = []
+  for (const node of nodes) {
+    out.push(node)
+    if (node.children?.length) out.push(...flattenTree(node.children))
+  }
+  return out
+}
+
+const recentlyUpdated = computed<Page[]>(() => {
+  const flat = flattenTree(pages.value)
+  return flat
+    .filter((p) => p.updated_at && p.status !== 'archived')
+    .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
+    .slice(0, 8)
+})
+
+const visibleStarred = computed(() => starredPages.value.slice(0, 6))
+
+const totalPages = computed(() => flattenTree(pages.value).length)
+
+const hasStatusChips = computed(
+  () => draftCount.value > 0 || archivedCount.value > 0 || trashCount.value > 0,
+)
+
 onMounted(async () => {
   titleManager.setCustomTitle('Documentation')
   await Promise.all([loadAllPages(), loadDraftCount(), loadArchivedCount(), loadTrashCount()])
 })
 
 onActivated(() => {
-  // Refresh data when returning to this view (KeepAlive)
   loadAllPages()
   loadDraftCount()
   loadArchivedCount()
   loadTrashCount()
 })
 
-// SiteHeader's "Create" button looks up its handler via the
-// usePageActionsStore registry.
 usePageCreateAction(handleCreatePage)
 </script>
 
 <template>
   <div class="bg-app flex flex-col h-full">
-    <!-- Main content -->
-    <div class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
-      <div class="flex flex-col max-w-7xl mx-auto w-full px-4 py-6 gap-6">
-        <!-- Header -->
-        <div class="flex items-center justify-between gap-4 pb-4 border-b border-default">
-          <div class="flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-accent" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-            </svg>
-            <h2 class="text-xl font-semibold text-primary">Documentation</h2>
-          </div>
+    <div class="flex flex-col flex-1 overflow-auto">
+      <div class="flex flex-col max-w-7xl mx-auto w-full px-4 py-6 gap-8">
 
-          <!-- Page count badge -->
-          <span
-            class="text-xs bg-surface-alt px-2 py-1 rounded-full"
-            :class="showSkeleton ? 'text-transparent animate-pulse' : 'text-tertiary'"
-          >
-            {{ showSkeleton ? '0 pages' : `${pages.length} page${pages.length !== 1 ? 's' : ''}` }}
-          </span>
+        <!-- Hub: Recently updated + Starred -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Recently updated -->
+          <section class="lg:col-span-2 flex flex-col gap-3">
+            <header class="flex items-center justify-between gap-3 pb-2 border-b border-default">
+              <div class="flex items-center gap-2">
+                <Icon name="history" class="text-accent" />
+                <h2 class="text-sm font-semibold text-primary">Recently updated</h2>
+              </div>
+              <span v-if="!showSkeleton && recentlyUpdated.length > 0" class="text-[11px] text-tertiary">
+                Last {{ recentlyUpdated.length }}
+              </span>
+            </header>
+
+            <div v-if="showSkeleton" class="flex flex-col gap-1">
+              <div v-for="i in 5" :key="i" class="flex items-center gap-2 py-1.5">
+                <div class="w-4 h-4 rounded bg-surface-hover/60 animate-pulse" />
+                <div class="flex-1 h-3 rounded bg-surface-hover/50 animate-pulse" :style="{ maxWidth: `${50 + (i % 3) * 12}%` }" />
+                <div class="h-3 w-16 rounded bg-surface-hover/40 animate-pulse" />
+              </div>
+            </div>
+
+            <ul v-else-if="recentlyUpdated.length > 0" class="flex flex-col">
+              <li v-for="page in recentlyUpdated" :key="page.id">
+                <RouterLink
+                  :to="docUrl(page)"
+                  class="group flex items-center gap-2 py-1.5 px-2 -mx-2 rounded text-sm text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+                >
+                  <span class="flex-shrink-0 text-base leading-none">{{ page.icon || '📄' }}</span>
+                  <span class="flex-1 truncate">{{ page.title }}</span>
+                  <span class="flex-shrink-0 text-[11px] text-tertiary group-hover:text-secondary">
+                    {{ formatRelativeTime(page.updated_at!) }}
+                  </span>
+                </RouterLink>
+              </li>
+            </ul>
+
+            <p v-else class="text-sm text-tertiary py-4">No pages yet.</p>
+          </section>
+
+          <!-- Starred -->
+          <section class="flex flex-col gap-3">
+            <header class="flex items-center justify-between gap-3 pb-2 border-b border-default">
+              <div class="flex items-center gap-2">
+                <Icon name="star" class="text-amber-500" />
+                <h2 class="text-sm font-semibold text-primary">Starred</h2>
+              </div>
+              <span v-if="visibleStarred.length > 0" class="text-[11px] text-tertiary">
+                {{ starredPages.length }}
+              </span>
+            </header>
+
+            <ul v-if="visibleStarred.length > 0" class="flex flex-col">
+              <li v-for="sp in visibleStarred" :key="sp.page_id">
+                <RouterLink
+                  :to="docUrl({ slug: sp.slug, id: sp.page_id })"
+                  class="flex items-center gap-2 py-1.5 px-2 -mx-2 rounded text-sm text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+                >
+                  <span class="flex-shrink-0 text-base leading-none">{{ sp.icon || '📄' }}</span>
+                  <span class="flex-1 truncate">{{ sp.title }}</span>
+                </RouterLink>
+              </li>
+            </ul>
+
+            <p v-else class="text-sm text-tertiary py-4">
+              Star a page from its row menu for quick access.
+            </p>
+          </section>
         </div>
 
         <!-- Collections -->
         <CollectionBrowser />
 
-        <!-- Drafts Banner -->
-        <RouterLink
-          v-if="draftCount > 0"
-          to="/documentation/drafts"
-          class="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-surface-alt hover:bg-surface-hover border border-default transition-colors group"
-        >
-          <span class="text-base">✏️</span>
-          <span class="text-sm text-secondary group-hover:text-primary">
-            You have <span class="font-medium text-primary">{{ draftCount }}</span> unpublished draft{{ draftCount !== 1 ? 's' : '' }}
-          </span>
-          <span class="ml-auto text-xs text-tertiary group-hover:text-accent transition-colors">View &rarr;</span>
-        </RouterLink>
-
-        <!-- Archived Banner -->
-        <RouterLink
-          v-if="archivedCount > 0"
-          to="/documentation/archived"
-          class="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-surface-alt hover:bg-surface-hover border border-default transition-colors group"
-        >
-          <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-          </svg>
-          <span class="text-sm text-secondary group-hover:text-primary">
-            <span class="font-medium text-primary">{{ archivedCount }}</span> archived page{{ archivedCount !== 1 ? 's' : '' }}
-          </span>
-          <span class="ml-auto text-xs text-tertiary group-hover:text-accent transition-colors">View &rarr;</span>
-        </RouterLink>
-
-        <!-- Trash Banner -->
-        <RouterLink
-          v-if="trashCount > 0"
-          to="/documentation/trash"
-          class="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-surface-alt hover:bg-surface-hover border border-default transition-colors group"
-        >
-          <svg class="w-4 h-4 text-status-error/60 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-          <span class="text-sm text-secondary group-hover:text-primary">
-            <span class="font-medium text-primary">{{ trashCount }}</span> page{{ trashCount !== 1 ? 's' : '' }} in trash
-          </span>
-          <span class="ml-auto text-xs text-tertiary group-hover:text-accent transition-colors">View &rarr;</span>
-        </RouterLink>
-
-        <!-- All Pages -->
-        <div class="flex items-center justify-between gap-4 pb-4 border-b border-default">
-          <div class="flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd" />
-            </svg>
-            <h3 class="text-lg font-semibold text-primary">All Pages</h3>
-          </div>
-          <span
-            class="text-xs bg-surface-alt px-2 py-1 rounded-full"
-            :class="showSkeleton ? 'text-transparent animate-pulse' : 'text-tertiary'"
+        <!--
+          Status chips. Three states (drafts, archived, trash) compressed
+          into a single row instead of three full-width banners. Hidden
+          entirely when all counts are zero.
+        -->
+        <div v-if="hasStatusChips" class="flex flex-wrap items-center gap-2">
+          <RouterLink
+            v-if="draftCount > 0"
+            to="/documentation/drafts"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-alt hover:bg-surface-hover border border-default text-xs text-secondary hover:text-primary transition-colors"
           >
-            {{ showSkeleton ? '0 pages' : `${pages.length} page${pages.length !== 1 ? 's' : ''}` }}
-          </span>
+            <span>✏️</span>
+            <span><span class="font-medium text-primary">{{ draftCount }}</span> draft{{ draftCount !== 1 ? 's' : '' }}</span>
+          </RouterLink>
+
+          <RouterLink
+            v-if="archivedCount > 0"
+            to="/documentation/archived"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-alt hover:bg-surface-hover border border-default text-xs text-secondary hover:text-primary transition-colors"
+          >
+            <Icon name="archive" class="text-tertiary" />
+            <span><span class="font-medium text-primary">{{ archivedCount }}</span> archived</span>
+          </RouterLink>
+
+          <RouterLink
+            v-if="trashCount > 0"
+            to="/documentation/trash"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-alt hover:bg-surface-hover border border-default text-xs text-secondary hover:text-primary transition-colors"
+          >
+            <Icon name="trash" class="text-status-error/70" />
+            <span><span class="font-medium text-primary">{{ trashCount }}</span> in trash</span>
+          </RouterLink>
         </div>
 
-        <!-- Card Grid or Skeleton -->
-        <DocumentationCardSkeleton v-if="showSkeleton" :count="6" />
-        <DocumentationCardGrid v-else :pages="pages" @create="handleCreatePage" />
+        <!--
+          Browse all. Demoted from a primary section to a native
+          collapsible — useful when you genuinely want to scan the full
+          set, hidden by default since the hub above covers most landings.
+        -->
+        <details v-if="!showSkeleton && totalPages > 0" class="docs-browse-all group">
+          <summary class="flex items-center gap-2 py-2 cursor-pointer text-sm text-secondary hover:text-primary select-none">
+            <Icon name="chevronRight" size="xs" class="text-tertiary transition-transform duration-200 group-open:rotate-90" />
+            <span>Browse all pages</span>
+            <span class="text-tertiary">({{ totalPages }})</span>
+          </summary>
+          <div class="pt-4">
+            <DocumentationCardGrid :pages="pages" @create="handleCreatePage" />
+          </div>
+        </details>
+
+        <DocumentationCardSkeleton v-else-if="showSkeleton" :count="6" />
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.docs-browse-all > summary {
+  list-style: none;
+}
+.docs-browse-all > summary::-webkit-details-marker {
+  display: none;
+}
+</style>

@@ -33,6 +33,11 @@ import LinkedTicketPreview from "@/components/ticketComponents/LinkedTicketPrevi
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
 import ProjectInfo from "@/components/ticketComponents/ProjectInfo.vue";
 import SidebarSection from "@/components/ticketComponents/SidebarSection.vue";
+import TicketLinkedDocs from "@/components/ticketComponents/TicketLinkedDocs.vue";
+import documentationService from "@/services/documentationService";
+import { docUrl } from "@/utils/docUrl";
+import { pageTicketLinkKeys } from "@/composables/usePageTicketLinks";
+import { useQueryCache } from "@pinia/colada";
 import SidebarAddMenu from "@/components/ticketComponents/SidebarAddMenu.vue";
 import type { SidebarAddMenuItem } from "@/components/ticketComponents/SidebarAddMenu.vue";
 import BackButton from "@/components/common/BackButton.vue";
@@ -148,6 +153,7 @@ const sidebarAddItems = computed<SidebarAddMenuItem[]>(() => {
         { id: 'device', label: 'Add device', type: 'native', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
         { id: 'linked-ticket', label: 'Link ticket', type: 'native', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
         { id: 'project', label: 'Add to project', type: 'native', icon: 'M4 4h4v16H4V4zm6 0h4v12h-4V4zm6 0h4v8h-4V4z' },
+        { id: 'save-as-doc', label: 'Save as doc', type: 'native', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
     ];
 
     for (const action of getActionRegistrations('ticket-sidebar')) {
@@ -163,6 +169,29 @@ const sidebarAddItems = computed<SidebarAddMenuItem[]>(() => {
     return items;
 });
 
+const queryCache = useQueryCache();
+
+/**
+ * Promote the current ticket to a documentation page. Creates a
+ * draft page anchored to this ticket via a 'resolves' link
+ * (the backend handler does both in one call), invalidates the
+ * ticket's linked-docs query so the sidebar refreshes, and routes
+ * the user to the new doc so they can edit straight away.
+ */
+const handleSaveAsDoc = async () => {
+    if (!ticket.value || ticketId.value === undefined) return;
+    const titleSeed = ticket.value.title?.trim() || `Ticket #${ticketId.value}`;
+    const created = await documentationService.createPageFromTicket(ticketId.value, {
+        title: titleSeed,
+        icon: '📄',
+    });
+    if (!created) return;
+    queryCache.invalidateQueries({
+        key: pageTicketLinkKeys.forTicket(ticketId.value),
+    });
+    router.push(docUrl({ slug: created.slug, id: created.id as number }));
+};
+
 const handleSidebarAddAction = (itemId: string) => {
     if (itemId === 'device') {
         showDeviceModal.value = true;
@@ -170,6 +199,8 @@ const handleSidebarAddAction = (itemId: string) => {
         showLinkedTicketModal.value = true;
     } else if (itemId === 'project') {
         showProjectModal.value = true;
+    } else if (itemId === 'save-as-doc') {
+        handleSaveAsDoc();
     } else if (itemId.startsWith('plugin:') && ticketId.value !== undefined) {
         const key = itemId.replace('plugin:', '');
         ticketUi.activatePluginAction(ticketId.value, key);
@@ -641,6 +672,12 @@ usePageCreateAction(handleCreateTicket);
                                     />
                                 </div>
                             </SidebarSection>
+
+                            <!-- Documentation links -->
+                            <TicketLinkedDocs
+                                :ticket-id="ticket.id"
+                                @add="handleSaveAsDoc"
+                            />
 
                             <!-- Plugin Components -->
                             <PluginSlot slot-name="ticket-sidebar" :ticket="ticket" :actionActivatedMap="pluginActionActivatedMap" />

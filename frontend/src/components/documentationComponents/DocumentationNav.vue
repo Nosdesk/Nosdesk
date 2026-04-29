@@ -714,6 +714,11 @@ async function createChildOfPage(parentPage: NavPage) {
 // Collections data
 const collections = ref<CollectionWithDetails[]>([])
 
+function visiblePagesIn(collectionId: number): Page[] {
+  const all = collectionPages[collectionId] ?? []
+  return sortPages(all, currentSortMode(collectionId))
+}
+
 function sortPages(nodes: Page[], mode: SortMode): Page[] {
   if (mode === 'manual') return nodes
   const sorted = [...nodes]
@@ -734,10 +739,6 @@ function sortPages(nodes: Page[], mode: SortMode): Page[] {
   }))
 }
 
-function visiblePagesIn(collectionId: number): Page[] {
-  const all = collectionPages[collectionId] ?? []
-  return sortPages(all, currentSortMode(collectionId))
-}
 // Per-collection expanded state (stored in localStorage)
 const collectionExpanded = reactive<Record<number, boolean>>({})
 // Per-collection loaded page trees (lazy loaded)
@@ -1460,9 +1461,6 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
   min-height: 0;
   max-height: 100%;
   overflow-y: auto;
-  /* Fade the search input into view when scrolled past — cheap
-     polish; sticky positioning keeps the search reachable
-     regardless of scroll position. */
 }
 
 .documentation-nav.is-dragging {

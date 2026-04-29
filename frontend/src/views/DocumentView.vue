@@ -22,6 +22,8 @@ import PagePermissionsModal from '@/components/documentationComponents/PagePermi
 import { docsEmitter } from '@/services/docsEmitter'
 import RevisionHistory from '@/components/editor/RevisionHistory.vue'
 import DocumentInsightsPanel from '@/components/documentationComponents/DocumentInsightsPanel.vue'
+import DocumentAuthorBadge from '@/components/documentationComponents/DocumentAuthorBadge.vue'
+import PageTicketLinksPanel from '@/components/documentationComponents/PageTicketLinksPanel.vue'
 import apiClient from '@/services/apiConfig'
 import { useAuthStore } from '@/stores/auth'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
@@ -46,6 +48,10 @@ const {
 const preloaded = route.meta.preloadedDocument as Page | undefined
 const document = ref<Page | null>(preloaded ?? null)
 const isLoading = ref(!preloaded)
+// Two-way bound to DocumentAuthorBadge so the in-row "needs
+// verification" chip can open the same popover from a different
+// trigger location.
+const verificationOpen = ref(false)
 const isSaving = ref(false)
 const saveMessage = ref('')
 const showSuccessMessage = ref(false)
@@ -122,13 +128,13 @@ const documentObj = computed(() => {
   }
 })
 
-// Doc ID for CollaborativeEditor
+// Doc ID for CollaborativeEditor. Pages now own their Yjs doc
+// directly; the legacy "share the room with the originating
+// ticket" fallback is gone with the move to a many-to-many
+// page<->ticket join. Ticket notes still use the ticket room id.
 const docId = computed(() => {
   if (isTicketNote.value && ticketId.value) {
     return `ticket-${ticketId.value}`
-  }
-  if (document.value?.ticket_id) {
-    return `ticket-${document.value.ticket_id}`
   }
   if (document.value) {
     return `doc-${document.value.id}`
@@ -716,10 +722,48 @@ watch(documentObj, (newDocument) => {
                   <span v-if="document.status === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium">Draft</span>
                   <span v-else-if="document.status === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300 font-medium">Archived</span>
 
-                  <!-- Created By -->
-                  <div v-if="document.created_by" class="flex items-center gap-1.5">
-                    <span class="text-secondary">{{ document.created_by?.name || 'Unknown' }}</span>
-                  </div>
+                  <!--
+                    Verification status chip — sits next to the
+                    Draft/Archived badges so trust state reads as a
+                    property of the document rather than a property
+                    of the author. Only renders for the two states
+                    that need attention (never verified, stale);
+                    the fresh case is conveyed by the inline check
+                    on the author badge.
+                  -->
+                  <button
+                    v-if="!isTicketNote && document.created_by && !document.verified_at"
+                    type="button"
+                    class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors flex items-center gap-1"
+                    title="Verify this page"
+                    @click="verificationOpen = true"
+                  >
+                    <span class="w-1.5 h-1.5 rounded-full bg-accent" aria-hidden="true" />
+                    Needs verification
+                  </button>
+                  <button
+                    v-else-if="!isTicketNote && document.is_stale"
+                    type="button"
+                    class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 transition-colors flex items-center gap-1 animate-pulse"
+                    title="Re-verify this page"
+                    @click="verificationOpen = true"
+                  >
+                    <Icon name="warning" size="xs" />
+                    Verification stale
+                  </button>
+
+                  <!-- Author + verification (consolidated). Inline
+                       glyph confirms the *fresh* state; click opens
+                       a popover with full metadata and cadence
+                       picker. Two-way bind on `open` lets the
+                       sibling status chip open the same popover. -->
+                  <DocumentAuthorBadge
+                    v-if="!isTicketNote && document.created_by"
+                    v-model:open="verificationOpen"
+                    :page="document"
+                    :can-verify="authStore.isTechnician || authStore.isAdmin"
+                    @changed="fetchContent"
+                  />
 
                   <!-- SSE Connection Status -->
                   <div
@@ -732,34 +776,15 @@ watch(documentObj, (newDocument) => {
                     :title="isConnected ? 'Live updates active' : isConnecting ? 'Connecting...' : 'Disconnected'"
                   ></div>
 
-                  <!-- Separator -->
+                  <!-- Last updated -->
                   <span v-if="document.created_by && document.updated_at" class="text-subtle">&middot;</span>
-
-                  <!-- Last Updated -->
                   <div v-if="document.updated_at" class="flex items-center gap-1.5">
                     <span>{{ formatDate(document.updated_at || new Date().toISOString()) }}</span>
                   </div>
-
-                  <!-- Last Edited By -->
-                  <template v-if="document.last_edited_by">
-                    <span class="text-subtle">&middot;</span>
-                    <span>Edited by {{ document.last_edited_by?.name || 'Unknown' }}</span>
-                  </template>
                 </div>
 
                 <!-- Action Buttons -->
                 <div class="flex items-center gap-2">
-                  <!-- Linked Ticket Button -->
-                  <RouterLink
-                    v-if="document.ticket_id"
-                    :to="`/tickets/${document.ticket_id}`"
-                    class="px-3 py-1.5 text-xs rounded-md hover:bg-surface-hover transition-colors flex items-center gap-1.5 text-secondary hover:text-primary"
-                    title="View linked ticket"
-                  >
-                    <Icon name="ticket" />
-                    <span>Ticket #{{ document.ticket_id }}</span>
-                  </RouterLink>
-
                   <!-- Revision History Toggle -->
                   <button
                     @click="toggleRevisionHistory"
@@ -783,6 +808,15 @@ watch(documentObj, (newDocument) => {
               placeholder="Enter documentation content here..."
               @update:modelValue="updateContent"
               class="w-full flex-1 flex flex-col"
+            />
+
+            <!-- Linked tickets footer: read + manage links to
+                 tickets this doc resolved or references. -->
+            <PageTicketLinksPanel
+              v-if="!isTicketNote && document.id"
+              :page-id="document.id"
+              :can-edit="authStore.isTechnician || authStore.isAdmin"
+              class="mt-8"
             />
           </div>
         </div>
