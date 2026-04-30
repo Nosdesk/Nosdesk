@@ -337,6 +337,66 @@ pub async fn dismiss_knowledge_gap(
 }
 
 // ---------------------------------------------------------------
+// POST /api/knowledge-gaps/detect-clusters
+// ---------------------------------------------------------------
+
+#[derive(Debug, Deserialize, Default)]
+pub struct DetectClustersBody {
+    /// How far back to look. Defaults to 30 days.
+    pub days: Option<i32>,
+    /// Minimum cluster size. Defaults to 2 (singletons aren't gaps).
+    pub min_size: Option<usize>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct DetectClustersResponse {
+    pub clusters_detected: usize,
+    pub gaps_created: usize,
+    pub gaps_updated: usize,
+}
+
+pub async fn detect_clusters(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    sse_state: web::Data<SseState>,
+    body: web::Json<DetectClustersBody>,
+) -> impl Responder {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+    }
+    let req_body = body.into_inner();
+    let days = req_body.days.unwrap_or(30);
+    let min_size = req_body.min_size.unwrap_or(2).max(2);
+
+    match knowledge_gaps::run_cluster_detection(&mut conn, Some(user_uuid), days, min_size) {
+        Ok(stats) => {
+            for gap_id in &stats.new_gap_ids {
+                sse_state
+                    .broadcast_event(SseEvent::KnowledgeGapDetected {
+                        gap_id: *gap_id,
+                        signal_type: knowledge_gaps::SIGNAL_TICKET_CLUSTER.to_string(),
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .await;
+            }
+            HttpResponse::Ok().json(DetectClustersResponse {
+                clusters_detected: stats.clusters_detected,
+                gaps_created: stats.gaps_created,
+                gaps_updated: stats.gaps_updated,
+            })
+        }
+        Err(e) => {
+            error!(error = ?e, "Cluster detection failed");
+            HttpResponse::InternalServerError().json("Cluster detection failed")
+        }
+    }
+}
+
+// ---------------------------------------------------------------
 // POST /api/knowledge-gaps/{id}/resolve
 // ---------------------------------------------------------------
 

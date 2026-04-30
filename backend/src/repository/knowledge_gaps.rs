@@ -205,34 +205,34 @@ pub fn dismiss_signal(
 
 /// Recompute and persist `evidence_count`, `last_evidence_at`,
 /// and `impact_score` from the gap's currently-live signals.
-/// Cheap to call after every signal mutation; one query each.
+///
+/// `impact_score` here means "how many unique tickets writing
+/// this doc would resolve" — the only metric that's editorially
+/// actionable. A manual_flag references one ticket via
+/// source_ref; a ticket_cluster references many via
+/// payload.ticket_ids. Both flow through tickets_evidenced_by_signal
+/// so the count is an honest "tickets this gap covers", not a
+/// made-up weighted number.
 pub fn recompute_aggregates(conn: &mut DbConnection, gap_id: i64) -> Result<KnowledgeGap, Error> {
-    use diesel::dsl::{max, sum};
+    use std::collections::HashSet;
 
-    let (count_opt, last_opt, impact_opt): (
-        Option<i64>,
-        Option<chrono::NaiveDateTime>,
-        Option<i64>,
-    ) = knowledge_gap_signals::table
-        .filter(knowledge_gap_signals::gap_id.eq(gap_id))
-        .filter(knowledge_gap_signals::dismissed_at.is_null())
-        .select((
-            diesel::dsl::count(knowledge_gap_signals::id).nullable(),
-            max(knowledge_gap_signals::detected_at),
-            sum(knowledge_gap_signals::confidence),
-        ))
-        .first(conn)?;
+    let signals = list_signals_for_gap(conn, gap_id)?;
+    let evidence_count = signals.len() as i32;
+    let last_evidence_at = signals.iter().map(|s| s.detected_at).max();
 
-    let count = count_opt.unwrap_or(0) as i32;
-    let impact = impact_opt.unwrap_or(0).min(i32::MAX as i64) as i32;
+    let mut tickets: HashSet<i32> = HashSet::new();
+    for signal in &signals {
+        tickets.extend(tickets_evidenced_by_signal(signal));
+    }
+    let impact_score = tickets.len() as i32;
 
     update_gap(
         conn,
         gap_id,
         KnowledgeGapUpdate {
-            evidence_count: Some(count),
-            last_evidence_at: Some(last_opt),
-            impact_score: Some(impact),
+            evidence_count: Some(evidence_count),
+            last_evidence_at: Some(last_evidence_at),
+            impact_score: Some(impact_score),
             updated_at: Some(Utc::now().naive_utc()),
             ..Default::default()
         },
@@ -359,9 +359,10 @@ pub fn dismiss_gap(
 }
 
 /// Resolve a gap by linking it to a documentation page. Cascades:
-/// every ticket-typed signal on the gap gets a 'resolves' link
-/// inserted into Phase 1's documentation_page_tickets join, so the
-/// page's "Linked tickets" panel populates automatically.
+/// every ticket the gap evidences gets a 'resolves' link in Phase
+/// 1's documentation_page_tickets join. Manual-flag signals
+/// reference one ticket (via source_ref); cluster signals reference
+/// many (via payload.ticket_ids). Both shapes resolve here.
 pub fn resolve_gap(
     conn: &mut DbConnection,
     gap_id: i64,
@@ -373,13 +374,10 @@ pub fn resolve_gap(
     conn.transaction::<_, Error, _>(|tx| {
         let signals = list_signals_for_gap(tx, gap_id)?;
         for signal in &signals {
-            if signal.source_kind != SOURCE_TICKET {
-                continue;
-            }
-            if let Ok(ticket_id) = signal.source_ref.parse::<i32>() {
+            for ticket_id in tickets_evidenced_by_signal(signal) {
                 // Best-effort: a failed link shouldn't roll back
-                // the resolution itself (e.g. ticket might have
-                // been deleted). Ignore individual errors.
+                // resolution itself (e.g. a member ticket may have
+                // been deleted between detection and resolve).
                 let _ = documentation_page_tickets::upsert_link(
                     tx,
                     page_id,
@@ -401,4 +399,337 @@ pub fn resolve_gap(
             },
         )
     })
+}
+
+/// Extract the ticket IDs a signal points to. Manual-flag signals
+/// carry one ticket in source_ref; cluster signals list many in
+/// payload.ticket_ids. Anything else returns an empty vec.
+fn tickets_evidenced_by_signal(signal: &KnowledgeGapSignal) -> Vec<i32> {
+    if signal.signal_type == SIGNAL_TICKET_CLUSTER {
+        signal
+            .payload
+            .get("ticket_ids")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_i64().and_then(|n| i32::try_from(n).ok()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else if signal.source_kind == SOURCE_TICKET {
+        signal
+            .source_ref
+            .parse::<i32>()
+            .ok()
+            .map(|id| vec![id])
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    }
+}
+
+// =================================================================
+// Cluster detection (Phase 2b)
+// =================================================================
+//
+// Closed tickets without a 'resolves' link are candidates. We group
+// by (category, most-recent-device model, channel provider). Groups
+// with two or more members become `ticket_cluster` signals. The
+// cluster fingerprint is the source_ref so re-running detection
+// upserts the same gap, refreshing the payload as new tickets join
+// the cluster.
+
+#[derive(Debug, Clone)]
+pub struct DetectedCluster {
+    pub fingerprint: String,
+    pub category_id: Option<i32>,
+    pub category_name: Option<String>,
+    pub device_model: Option<String>,
+    pub channel_label: Option<String>,
+    pub ticket_ids: Vec<i32>,
+    pub sample_titles: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct DetectionStats {
+    pub clusters_detected: usize,
+    pub gaps_created: usize,
+    pub gaps_updated: usize,
+    pub new_gap_ids: Vec<i64>,
+}
+
+/// One row per closed-without-resolves-link candidate ticket,
+/// pre-joined with the metadata clustering needs.
+struct CandidateTicket {
+    id: i32,
+    title: String,
+    category_id: Option<i32>,
+    category_name: Option<String>,
+    submitted_via: Option<String>,
+    channel_provider: Option<String>,
+}
+
+fn load_candidate_tickets(
+    conn: &mut DbConnection,
+    days: i32,
+) -> Result<Vec<CandidateTicket>, Error> {
+    use crate::schema::{channels, documentation_page_tickets, ticket_categories, tickets};
+    use std::collections::HashSet;
+
+    let cutoff = Utc::now().naive_utc() - chrono::Duration::days(days as i64);
+
+    // Two-pass: load closed tickets with metadata, then exclude the
+    // ones that already have a 'resolves' link. Doing the
+    // anti-join in Rust avoids a Diesel `not(exists(...))` against
+    // the TicketStatus custom enum type, which doesn't implement
+    // QueryId in subquery position.
+    let rows: Vec<(i32, String, Option<i32>, Option<String>, Option<String>, Option<String>)> =
+        tickets::table
+            .left_join(ticket_categories::table.on(ticket_categories::id.nullable().eq(tickets::category_id)))
+            .left_join(channels::table.on(channels::id.nullable().eq(tickets::origin_channel_id)))
+            .filter(tickets::status.eq_any(vec![crate::models::TicketStatus::Closed]))
+            .filter(tickets::updated_at.ge(cutoff))
+            .select((
+                tickets::id,
+                tickets::title,
+                tickets::category_id,
+                ticket_categories::name.nullable(),
+                tickets::submitted_via,
+                channels::provider.nullable(),
+            ))
+            .load(conn)?;
+
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let candidate_ids: Vec<i32> = rows.iter().map(|r| r.0).collect();
+    let resolved_ids: HashSet<i32> = documentation_page_tickets::table
+        .filter(documentation_page_tickets::ticket_id.eq_any(&candidate_ids))
+        .filter(
+            documentation_page_tickets::link_type
+                .eq(crate::repository::documentation_page_tickets::LINK_RESOLVES),
+        )
+        .select(documentation_page_tickets::ticket_id)
+        .load::<i32>(conn)?
+        .into_iter()
+        .collect();
+
+    Ok(rows
+        .into_iter()
+        .filter(|(id, _, _, _, _, _)| !resolved_ids.contains(id))
+        .map(|(id, title, category_id, category_name, submitted_via, channel_provider)| {
+            CandidateTicket {
+                id,
+                title,
+                category_id,
+                category_name,
+                submitted_via,
+                channel_provider,
+            }
+        })
+        .collect())
+}
+
+/// For a set of ticket IDs, return the most-recently-linked
+/// device's model per ticket. Tickets without a device or whose
+/// device has no model just don't appear in the map.
+fn most_recent_device_models(
+    conn: &mut DbConnection,
+    ticket_ids: &[i32],
+) -> Result<std::collections::HashMap<i32, String>, Error> {
+    use crate::schema::{devices, ticket_devices};
+
+    if ticket_ids.is_empty() {
+        return Ok(Default::default());
+    }
+
+    // DISTINCT ON (ticket_id) with ORDER BY ticket_id, created_at DESC
+    // gives one row per ticket — the most-recently-linked device.
+    let rows: Vec<(i32, Option<String>)> = ticket_devices::table
+        .inner_join(devices::table.on(devices::id.eq(ticket_devices::device_id)))
+        .filter(ticket_devices::ticket_id.eq_any(ticket_ids))
+        .filter(devices::model.is_not_null())
+        .distinct_on(ticket_devices::ticket_id)
+        .order_by((
+            ticket_devices::ticket_id,
+            ticket_devices::created_at.desc(),
+        ))
+        .select((ticket_devices::ticket_id, devices::model))
+        .load(conn)?;
+
+    Ok(rows.into_iter().filter_map(|(tid, m)| m.map(|s| (tid, s))).collect())
+}
+
+/// Build a deterministic fingerprint string for a cluster key.
+/// Keys are pipe-delimited for human readability and trivially
+/// parseable; their content is opaque to anything outside this
+/// module.
+fn cluster_fingerprint(
+    category_id: Option<i32>,
+    device_model: Option<&str>,
+    channel: Option<&str>,
+) -> String {
+    format!(
+        "category:{}|device:{}|channel:{}",
+        category_id.map(|id| id.to_string()).unwrap_or_else(|| "_".into()),
+        device_model.unwrap_or("_"),
+        channel.unwrap_or("_"),
+    )
+}
+
+/// Group candidate tickets and emit clusters of size >= min_size.
+/// Pure function over the loaded data so tests can drive it
+/// directly without the DB.
+fn group_into_clusters(
+    candidates: Vec<CandidateTicket>,
+    device_models: std::collections::HashMap<i32, String>,
+    min_size: usize,
+) -> Vec<DetectedCluster> {
+    use std::collections::BTreeMap;
+
+    type Key = (Option<i32>, Option<String>, Option<String>);
+    let mut grouped: BTreeMap<Key, Vec<CandidateTicket>> = BTreeMap::new();
+
+    for ticket in candidates {
+        let device_model = device_models.get(&ticket.id).cloned();
+        let channel = ticket
+            .channel_provider
+            .clone()
+            .or_else(|| ticket.submitted_via.clone());
+        let key = (ticket.category_id, device_model, channel);
+        grouped.entry(key).or_default().push(ticket);
+    }
+
+    grouped
+        .into_iter()
+        .filter(|(_, tickets)| tickets.len() >= min_size)
+        .map(|((category_id, device_model, channel), tickets)| {
+            let fingerprint =
+                cluster_fingerprint(category_id, device_model.as_deref(), channel.as_deref());
+            // Up to three sample titles for the queue card preview.
+            let sample_titles: Vec<String> =
+                tickets.iter().take(3).map(|t| t.title.clone()).collect();
+            let category_name = tickets
+                .iter()
+                .find_map(|t| t.category_name.clone());
+            let ticket_ids: Vec<i32> = tickets.iter().map(|t| t.id).collect();
+            DetectedCluster {
+                fingerprint,
+                category_id,
+                category_name,
+                device_model,
+                channel_label: channel,
+                ticket_ids,
+                sample_titles,
+            }
+        })
+        .collect()
+}
+
+/// Confidence weight for a cluster: scales with size, capped at
+/// 100 (manual-flag's ceiling). 3 tickets ≈ 60, 5 ≈ 80, 7+ ≈ 100.
+fn cluster_confidence(member_count: usize) -> i32 {
+    let scaled = (member_count as i32) * 15;
+    scaled.clamp(30, 100)
+}
+
+/// Headline copy for a cluster gap. Constructed from the
+/// available facets — falls back gracefully when one's missing.
+fn cluster_headline(cluster: &DetectedCluster) -> String {
+    let count = cluster.ticket_ids.len();
+    let mut facets: Vec<String> = Vec::new();
+    if let Some(c) = &cluster.category_name {
+        facets.push(c.clone());
+    }
+    if let Some(d) = &cluster.device_model {
+        facets.push(d.clone());
+    }
+    if let Some(ch) = &cluster.channel_label {
+        facets.push(format!("via {}", ch));
+    }
+    if facets.is_empty() {
+        format!("{} similar tickets without docs", count)
+    } else {
+        format!("{} tickets — {}", count, facets.join(", "))
+    }
+}
+
+/// Run cluster detection end-to-end: load candidates, group them,
+/// upsert one gap + ticket_cluster signal per cluster. Idempotent;
+/// re-running with new tickets joining a cluster updates the
+/// signal payload and the gap aggregates.
+pub fn run_cluster_detection(
+    conn: &mut DbConnection,
+    detected_by: Option<Uuid>,
+    days: i32,
+    min_size: usize,
+) -> Result<DetectionStats, Error> {
+    let candidates = load_candidate_tickets(conn, days)?;
+    if candidates.is_empty() {
+        return Ok(DetectionStats::default());
+    }
+
+    let ticket_ids: Vec<i32> = candidates.iter().map(|c| c.id).collect();
+    let device_models = most_recent_device_models(conn, &ticket_ids)?;
+    let clusters = group_into_clusters(candidates, device_models, min_size);
+
+    let mut stats = DetectionStats::default();
+    stats.clusters_detected = clusters.len();
+
+    for cluster in clusters {
+        conn.transaction::<_, Error, _>(|tx| {
+            let existing = find_open_gap_for_source(tx, SOURCE_CLUSTER_KEY, &cluster.fingerprint)?;
+            let was_created = existing.is_none();
+
+            let gap = match existing {
+                Some(g) => g,
+                None => create_gap(
+                    tx,
+                    NewKnowledgeGap {
+                        title: cluster_headline(&cluster),
+                        description: None,
+                        status: STATUS_OPEN.to_string(),
+                        created_by: detected_by,
+                        impact_score: 0,
+                        evidence_count: 0,
+                        last_evidence_at: None,
+                    },
+                )?,
+            };
+
+            attach_signal(
+                tx,
+                NewKnowledgeGapSignal {
+                    gap_id: gap.id,
+                    signal_type: SIGNAL_TICKET_CLUSTER.to_string(),
+                    source_kind: SOURCE_CLUSTER_KEY.to_string(),
+                    source_ref: cluster.fingerprint.clone(),
+                    payload: serde_json::json!({
+                        "ticket_ids": cluster.ticket_ids,
+                        "sample_titles": cluster.sample_titles,
+                        "category_id": cluster.category_id,
+                        "category_name": cluster.category_name,
+                        "device_model": cluster.device_model,
+                        "channel_label": cluster.channel_label,
+                        "member_count": cluster.ticket_ids.len(),
+                    }),
+                    confidence: cluster_confidence(cluster.ticket_ids.len()),
+                    detected_by,
+                },
+            )?;
+
+            recompute_aggregates(tx, gap.id)?;
+
+            if was_created {
+                stats.gaps_created += 1;
+                stats.new_gap_ids.push(gap.id);
+            } else {
+                stats.gaps_updated += 1;
+            }
+            Ok(())
+        })?;
+    }
+
+    Ok(stats)
 }

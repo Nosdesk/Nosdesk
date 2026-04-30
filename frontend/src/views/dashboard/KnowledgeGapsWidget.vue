@@ -54,9 +54,9 @@ const total = computed(() => knowledgeGaps.value?.total ?? 0)
           </div>
           <span
             class="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary"
-            :title="`Impact ${item.impactScore}`"
+            :title="`${item.impactScore} ticket${item.impactScore === 1 ? '' : 's'} this doc would cover`"
           >
-            {{ item.impactScore }}
+            {{ item.impactScore }}&nbsp;ticket{{ item.impactScore === 1 ? '' : 's' }}
           </span>
         </RouterLink>
       </li>

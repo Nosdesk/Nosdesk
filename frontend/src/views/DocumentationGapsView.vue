@@ -20,6 +20,7 @@ import {
   useKnowledgeGaps,
   useKnowledgeGap,
   useDismissGapMutation,
+  useDetectClustersMutation,
 } from '@/composables/useKnowledgeGaps'
 import type { KnowledgeGapSignal } from '@/services/knowledgeGapsService'
 
@@ -64,6 +65,38 @@ watch([gaps, selectedId], ([list, current]) => {
 
 const dismissMutation = useDismissGapMutation()
 const isDismissing = ref(false)
+
+const detectMutation = useDetectClustersMutation()
+const detectMessage = ref<string | null>(null)
+
+async function runDetection() {
+  detectMessage.value = null
+  const result = await detectMutation.mutateAsync(undefined)
+  if (result) {
+    if (result.gaps_created === 0 && result.gaps_updated === 0) {
+      detectMessage.value = 'No new clusters found'
+    } else {
+      const parts: string[] = []
+      if (result.gaps_created > 0) parts.push(`${result.gaps_created} new`)
+      if (result.gaps_updated > 0) parts.push(`${result.gaps_updated} updated`)
+      detectMessage.value = parts.join(', ')
+    }
+    await refetchList()
+  }
+}
+
+interface ClusterPayload {
+  ticket_ids?: number[]
+  sample_titles?: string[]
+  category_name?: string | null
+  device_model?: string | null
+  channel_label?: string | null
+  member_count?: number
+}
+
+function clusterPayload(signal: KnowledgeGapSignal): ClusterPayload {
+  return (signal.payload ?? {}) as ClusterPayload
+}
 
 async function dismissCurrent() {
   if (!selectedGap.value) return
@@ -126,21 +159,38 @@ function signalLabel(signal: KnowledgeGapSignal): string {
     >
       <!-- List header: title + count, plus a "Back to docs"
            affordance only on the list view. -->
-      <div class="border-b border-default px-4 py-3 flex items-center justify-between gap-3 flex-shrink-0">
-        <div class="flex items-center gap-2 min-w-0">
-          <Icon name="warning" class="text-amber-500 flex-shrink-0" />
-          <h2 class="text-base font-semibold text-primary truncate">Knowledge Gaps</h2>
-          <span v-if="!listLoading" class="text-xs text-tertiary bg-surface-alt px-2 py-0.5 rounded-full flex-shrink-0">
-            {{ gaps.length }}
+      <div class="border-b border-default px-4 py-3 flex flex-col gap-2 flex-shrink-0">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2 min-w-0">
+            <Icon name="warning" class="text-amber-500 flex-shrink-0" />
+            <h2 class="text-base font-semibold text-primary truncate">Knowledge Gaps</h2>
+            <span v-if="!listLoading" class="text-xs text-tertiary bg-surface-alt px-2 py-0.5 rounded-full flex-shrink-0">
+              {{ gaps.length }}
+            </span>
+          </div>
+          <RouterLink
+            to="/documentation"
+            class="text-xs text-secondary hover:text-primary transition-colors flex items-center gap-1 flex-shrink-0"
+          >
+            <Icon name="chevronRight" size="xs" class="rotate-180" />
+            Docs
+          </RouterLink>
+        </div>
+        <div class="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            :disabled="detectMutation.asyncStatus.value === 'loading'"
+            class="text-[11px] px-2 py-1 rounded-md bg-surface-alt hover:bg-surface-hover text-secondary hover:text-primary transition-colors disabled:opacity-50 flex items-center gap-1.5"
+            @click="runDetection"
+          >
+            <Icon name="search" size="xs" />
+            <span v-if="detectMutation.asyncStatus.value === 'loading'">Detecting&hellip;</span>
+            <span v-else>Detect clusters</span>
+          </button>
+          <span v-if="detectMessage" class="text-[11px] text-tertiary truncate">
+            {{ detectMessage }}
           </span>
         </div>
-        <RouterLink
-          to="/documentation"
-          class="text-xs text-secondary hover:text-primary transition-colors flex items-center gap-1 flex-shrink-0"
-        >
-          <Icon name="chevronRight" size="xs" class="rotate-180" />
-          Docs
-        </RouterLink>
       </div>
 
       <!-- Scrollable list -->
@@ -162,9 +212,9 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                 </p>
                 <span
                   class="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-surface text-tertiary"
-                  :title="`Impact score ${gap.impact_score}`"
+                  :title="`${gap.impact_score} ticket${gap.impact_score === 1 ? '' : 's'} this doc would cover`"
                 >
-                  {{ gap.impact_score }}
+                  {{ gap.impact_score }}&nbsp;ticket{{ gap.impact_score === 1 ? '' : 's' }}
                 </span>
               </div>
               <div class="flex items-center justify-between gap-2 text-[11px] text-tertiary">
@@ -215,7 +265,11 @@ function signalLabel(signal: KnowledgeGapSignal): string {
               </p>
               <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-tertiary">
                 <span>Status: <span class="text-secondary">{{ selectedGap.status }}</span></span>
-                <span>Impact: <span class="text-secondary">{{ selectedGap.impact_score }}</span></span>
+                <span>
+                  Covers
+                  <span class="text-secondary">{{ selectedGap.impact_score }}</span>
+                  ticket{{ selectedGap.impact_score === 1 ? '' : 's' }}
+                </span>
                 <span v-if="selectedGap.last_evidence_at">
                   Last evidence: {{ formatRelativeTime(selectedGap.last_evidence_at) }}
                 </span>
@@ -252,19 +306,73 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                       {{ formatRelativeTime(signal.detected_at) }}
                     </span>
                   </div>
-                  <RouterLink
-                    v-if="signal.source_kind === 'ticket'"
-                    :to="`/tickets/${signal.source_ref}`"
-                    class="text-sm text-primary hover:text-accent transition-colors"
-                  >
-                    #{{ signal.source_ref }}
-                    <span v-if="signal.ticket_title" class="text-secondary">
-                      &middot; {{ signal.ticket_title }}
-                    </span>
-                  </RouterLink>
+
+                  <!-- Cluster signal: the source is a fingerprint,
+                       not a single ticket. Render the member ticket
+                       list (sample titles + count remainder) and
+                       the discriminating facets. -->
+                  <template v-if="signal.signal_type === 'ticket_cluster'">
+                    <p class="text-sm text-primary">
+                      <template v-if="clusterPayload(signal).category_name">
+                        {{ clusterPayload(signal).category_name }}
+                      </template>
+                      <template v-else>Cluster</template>
+                      <span
+                        v-if="clusterPayload(signal).device_model || clusterPayload(signal).channel_label"
+                        class="text-secondary"
+                      >
+                        <template v-if="clusterPayload(signal).device_model">
+                          &middot; {{ clusterPayload(signal).device_model }}
+                        </template>
+                        <template v-if="clusterPayload(signal).channel_label">
+                          &middot; via {{ clusterPayload(signal).channel_label }}
+                        </template>
+                      </span>
+                    </p>
+                    <ul class="mt-1.5 flex flex-col gap-0.5">
+                      <li
+                        v-for="(title, idx) in clusterPayload(signal).sample_titles ?? []"
+                        :key="idx"
+                        class="text-xs text-secondary truncate"
+                      >
+                        <RouterLink
+                          v-if="clusterPayload(signal).ticket_ids?.[idx]"
+                          :to="`/tickets/${clusterPayload(signal).ticket_ids![idx]}`"
+                          class="hover:text-accent transition-colors"
+                        >
+                          <span class="text-tertiary">#{{ clusterPayload(signal).ticket_ids![idx] }}</span>
+                          {{ title }}
+                        </RouterLink>
+                      </li>
+                    </ul>
+                    <p
+                      v-if="(clusterPayload(signal).member_count ?? 0) > (clusterPayload(signal).sample_titles?.length ?? 0)"
+                      class="text-[11px] text-tertiary mt-1"
+                    >
+                      &hellip; and
+                      {{ (clusterPayload(signal).member_count ?? 0) - (clusterPayload(signal).sample_titles?.length ?? 0) }}
+                      more
+                    </p>
+                  </template>
+
+                  <!-- Manual flag (and other ticket-typed signals):
+                       single ticket as the source. -->
+                  <template v-else-if="signal.source_kind === 'ticket'">
+                    <RouterLink
+                      :to="`/tickets/${signal.source_ref}`"
+                      class="text-sm text-primary hover:text-accent transition-colors"
+                    >
+                      #{{ signal.source_ref }}
+                      <span v-if="signal.ticket_title" class="text-secondary">
+                        &middot; {{ signal.ticket_title }}
+                      </span>
+                    </RouterLink>
+                  </template>
+
                   <p v-else class="text-sm text-secondary">
                     {{ signal.source_ref }}
                   </p>
+
                   <!-- Detector attribution: who flagged it
                        (manual_flag) or which auto-detector emitted
                        it. Renders below the source so it reads as

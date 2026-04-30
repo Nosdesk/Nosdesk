@@ -153,6 +153,29 @@ export const resolveKnowledgeGap = async (
   }
 }
 
+export interface DetectClustersResponse {
+  clusters_detected: number
+  gaps_created: number
+  gaps_updated: number
+}
+
+/** Trigger backend cluster detection. Idempotent: re-running with
+ *  new tickets joining a cluster updates the existing gap. */
+export const detectClusters = async (
+  options: { days?: number; minSize?: number } = {},
+): Promise<DetectClustersResponse | null> => {
+  try {
+    const response = await apiClient.post('/knowledge-gaps/detect-clusters', {
+      days: options.days,
+      min_size: options.minSize,
+    })
+    return response.data as DetectClustersResponse
+  } catch (error) {
+    logger.error('Cluster detection failed:', error)
+    return null
+  }
+}
+
 export default {
   flagTicketAsGap,
   unflagTicketAsGap,
@@ -160,4 +183,5 @@ export default {
   getKnowledgeGap,
   dismissKnowledgeGap,
   resolveKnowledgeGap,
+  detectClusters,
 }
