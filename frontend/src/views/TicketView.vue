@@ -34,9 +34,11 @@ import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectio
 import ProjectInfo from "@/components/ticketComponents/ProjectInfo.vue";
 import SidebarSection from "@/components/ticketComponents/SidebarSection.vue";
 import TicketLinkedDocs from "@/components/ticketComponents/TicketLinkedDocs.vue";
+import TicketGapFlag from "@/components/ticketComponents/TicketGapFlag.vue";
 import documentationService from "@/services/documentationService";
 import { docUrl } from "@/utils/docUrl";
 import { pageTicketLinkKeys } from "@/composables/usePageTicketLinks";
+import { useFlagTicketMutation } from "@/composables/useKnowledgeGaps";
 import { useQueryCache } from "@pinia/colada";
 import SidebarAddMenu from "@/components/ticketComponents/SidebarAddMenu.vue";
 import type { SidebarAddMenuItem } from "@/components/ticketComponents/SidebarAddMenu.vue";
@@ -154,6 +156,7 @@ const sidebarAddItems = computed<SidebarAddMenuItem[]>(() => {
         { id: 'linked-ticket', label: 'Link ticket', type: 'native', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
         { id: 'project', label: 'Add to project', type: 'native', icon: 'M4 4h4v16H4V4zm6 0h4v12h-4V4zm6 0h4v8h-4V4z' },
         { id: 'save-as-doc', label: 'Save as doc', type: 'native', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
+        { id: 'flag-for-docs', label: 'Flag for documentation', type: 'native', icon: 'M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9' },
     ];
 
     for (const action of getActionRegistrations('ticket-sidebar')) {
@@ -170,6 +173,15 @@ const sidebarAddItems = computed<SidebarAddMenuItem[]>(() => {
 });
 
 const queryCache = useQueryCache();
+const flagMutation = useFlagTicketMutation();
+
+/** Mark this ticket as a knowledge gap. Idempotent: the backend
+ *  attaches a fresh manual_flag signal to an existing open gap if
+ *  one already covers the ticket, otherwise creates a new gap. */
+const handleFlagForDocs = async () => {
+    if (ticketId.value === undefined) return;
+    await flagMutation.mutateAsync({ ticketId: ticketId.value });
+};
 
 /**
  * Promote the current ticket to a documentation page. Creates a
@@ -201,6 +213,8 @@ const handleSidebarAddAction = (itemId: string) => {
         showProjectModal.value = true;
     } else if (itemId === 'save-as-doc') {
         handleSaveAsDoc();
+    } else if (itemId === 'flag-for-docs') {
+        handleFlagForDocs();
     } else if (itemId.startsWith('plugin:') && ticketId.value !== undefined) {
         const key = itemId.replace('plugin:', '');
         ticketUi.activatePluginAction(ticketId.value, key);
@@ -672,6 +686,9 @@ usePageCreateAction(handleCreateTicket);
                                     />
                                 </div>
                             </SidebarSection>
+
+                            <!-- Knowledge gap flag (only renders when flagged) -->
+                            <TicketGapFlag :ticket-id="ticket.id" />
 
                             <!-- Documentation links -->
                             <TicketLinkedDocs
