@@ -88,7 +88,7 @@ async function dismissCurrent() {
 function signalLabel(signal: KnowledgeGapSignal): string {
   switch (signal.signal_type) {
     case 'manual_flag':
-      return 'Flagged by agent'
+      return 'Manual flag'
     case 'ticket_cluster':
       return 'Ticket cluster'
     case 'failed_search':
