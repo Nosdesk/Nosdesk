@@ -505,6 +505,45 @@ diesel::table! {
 }
 
 diesel::table! {
+    knowledge_gap_signals (id) {
+        id -> Int8,
+        gap_id -> Int8,
+        #[max_length = 32]
+        signal_type -> Varchar,
+        #[max_length = 32]
+        source_kind -> Varchar,
+        source_ref -> Text,
+        payload -> Jsonb,
+        confidence -> Int4,
+        detected_by -> Nullable<Uuid>,
+        detected_at -> Timestamptz,
+        dismissed_at -> Nullable<Timestamptz>,
+        dismissed_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    knowledge_gaps (id) {
+        id -> Int8,
+        title -> Text,
+        description -> Nullable<Text>,
+        #[max_length = 32]
+        status -> Varchar,
+        assignee_uuid -> Nullable<Uuid>,
+        resolved_page_id -> Nullable<Int4>,
+        evidence_count -> Int4,
+        last_evidence_at -> Nullable<Timestamptz>,
+        impact_score -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+        dismissed_at -> Nullable<Timestamptz>,
+        dismissed_by -> Nullable<Uuid>,
+        resolved_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     linked_tickets (ticket_id, linked_ticket_id) {
         ticket_id -> Int4,
         linked_ticket_id -> Int4,
@@ -1099,6 +1138,8 @@ diesel::joinable!(documentation_subscriptions -> documentation_pages (page_id));
 diesel::joinable!(documentation_subscriptions -> users (user_uuid));
 diesel::joinable!(group_includes -> users (created_by));
 diesel::joinable!(groups -> users (created_by));
+diesel::joinable!(knowledge_gap_signals -> knowledge_gaps (gap_id));
+diesel::joinable!(knowledge_gaps -> documentation_pages (resolved_page_id));
 diesel::joinable!(linked_tickets -> users (created_by));
 diesel::joinable!(notification_preferences -> notification_types (notification_type_id));
 diesel::joinable!(notification_preferences -> users (user_uuid));
@@ -1136,4 +1177,4 @@ diesel::joinable!(webhook_deliveries -> webhooks (webhook_id));
 diesel::joinable!(webhooks -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,);
