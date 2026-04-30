@@ -11,6 +11,7 @@ pub mod projects;
 pub mod devices;
 pub mod documentation;
 pub mod documentation_collections;
+pub mod knowledge_gaps;
 pub mod auth_providers;
 pub mod email;
 pub mod microsoft_graph;

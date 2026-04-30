@@ -120,6 +120,16 @@ pub enum SseEvent {
         value: serde_json::Value,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    KnowledgeGapDetected {
+        gap_id: i64,
+        signal_type: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+    KnowledgeGapResolved {
+        gap_id: i64,
+        resolved_page_id: Option<i32>,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     ViewerCountChanged {
         ticket_id: i32,
         count: usize,
@@ -173,6 +183,8 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::DocumentationCreated { .. } => "documentation-created",
         SseEvent::DocumentationUpdated { .. } => "documentation-updated",
         SseEvent::CollectionUpdated { .. } => "collection-updated",
+        SseEvent::KnowledgeGapDetected { .. } => "knowledge-gap-detected",
+        SseEvent::KnowledgeGapResolved { .. } => "knowledge-gap-resolved",
         SseEvent::ViewerCountChanged { .. } => "viewer-count-changed",
         SseEvent::UserUpdated { .. } => "user-updated",
         SseEvent::UserCreated { .. } => "user-created",

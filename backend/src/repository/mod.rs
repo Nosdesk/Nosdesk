@@ -13,6 +13,7 @@ pub mod documentation_page_tickets;
 pub mod documentation_starred_pages;
 pub mod documentation_subscriptions;
 pub mod groups;
+pub mod knowledge_gaps;
 pub mod linked_tickets;
 pub mod projects;
 pub mod sync_history;

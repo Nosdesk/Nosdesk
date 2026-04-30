@@ -161,6 +161,8 @@ impl WebhookEventType {
             SseEvent::Heartbeat { .. } => None,
             SseEvent::ViewerCountChanged { .. } => None,
             SseEvent::NotificationReceived { .. } => None,
+            SseEvent::KnowledgeGapDetected { .. } => None,
+            SseEvent::KnowledgeGapResolved { .. } => None,
         }
     }
 }
