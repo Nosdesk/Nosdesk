@@ -340,6 +340,25 @@ const router = createRouter({
       }
     },
     {
+      path: '/documentation/gaps',
+      name: 'documentation-gaps',
+      component: () => import('../views/DocumentationGapsView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Knowledge Gaps'
+      }
+    },
+    {
+      path: '/documentation/gaps/:id',
+      name: 'documentation-gap-detail',
+      component: () => import('../views/DocumentationGapsView.vue'),
+      props: true,
+      meta: {
+        requiresAuth: true,
+        title: 'Knowledge Gaps'
+      }
+    },
+    {
       path: '/documentation/:path',
       name: 'documentation-page',
       component: DocumentView,
