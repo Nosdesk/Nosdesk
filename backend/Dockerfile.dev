@@ -29,8 +29,17 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 WORKDIR /app
 
-# Copy manifests only - actual source is mounted as volume
+# Bake the source into the image so the container is bootable on
+# cold start. Subsequent host edits land in the container via
+# `docker compose watch` (compose.dev.yaml's `develop.watch`),
+# which copies changed files over the baked-in copy. The image's
+# source goes stale fast, but that's fine — watch keeps the
+# running container in sync with the host every dev session.
 COPY backend/Cargo.toml backend/Cargo.lock ./
+COPY backend/src ./src
+COPY backend/migrations ./migrations
+COPY backend/tests ./tests
+COPY backend/diesel.toml ./diesel.toml
 
 # Note: We don't pre-build here because target/ is mounted as a volume.
 # The first run will compile everything, subsequent runs use cached artifacts.

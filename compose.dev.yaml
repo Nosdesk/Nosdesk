@@ -2,7 +2,24 @@ services:
   # Postgres and Redis are reachable only on the internal Compose network.
   # Use `docker compose exec postgres psql ...` / `... redis-cli ...` for shell access.
 
-  # Backend - Development override
+  # Backend - Development override.
+  #
+  # Source files reach the container via `docker compose watch`,
+  # not bind mounts. The watch sync action *copies* changed files
+  # from the host into the container's local filesystem, which:
+  #
+  #   1. avoids the macOS osxfs/grpcfuse volume-mount perf
+  #      penalty on Rust rebuilds, and
+  #   2. lets bacon's inotify-based watcher fire normally on
+  #      file events (bind mounts on macOS don't reliably
+  #      propagate inotify; see Canop/bacon#313).
+  #
+  # The named volumes for cargo / target / uploads stay because
+  # they're container-internal and shouldn't be synced to the host.
+  # The frontend-watch service still uses a regular bind mount for
+  # ./backend/public because that directory is bidirectional
+  # (frontend writes, backend reads) and therefore can't use the
+  # one-way watch sync model.
   backend:
     build:
       context: .
@@ -10,24 +27,49 @@ services:
     stdin_open: true
     tty: true
     env_file: docker.env
+    # 6 GB memory ceiling stops the linker from being killed during
+    # debug builds. Rust's incremental linker for a large workspace
+    # peaks well above the Docker Desktop default; the OOM was
+    # silent (bacon kept the previous binary running).
+    mem_limit: 6g
     ports: !override
       # Defaults to localhost-only; set BACKEND_BIND=0.0.0.0 to expose on LAN
       # for collaboration testing from other devices.
       - "${BACKEND_BIND:-127.0.0.1}:8080:8080"
+    develop:
+      watch:
+        # Source — host edits land in the container's local FS,
+        # bacon picks them up with normal inotify and rebuilds.
+        - action: sync
+          path: ./backend/src
+          target: /app/src
+        - action: sync
+          path: ./backend/tests
+          target: /app/tests
+        - action: sync
+          path: ./backend/migrations
+          target: /app/migrations
+        # Manifest changes need cargo to re-resolve dependencies.
+        # `sync+restart` syncs the file then restarts bacon, which
+        # re-runs `cargo run` and picks up the new deps. Cheaper
+        # than `rebuild` (full image rebuild) — the cargo cache
+        # named volume is preserved across restarts.
+        - action: sync+restart
+          path: ./backend/Cargo.toml
+          target: /app/Cargo.toml
+        - action: sync+restart
+          path: ./backend/Cargo.lock
+          target: /app/Cargo.lock
     volumes:
-      # Source code with :delegated for better macOS performance
-      - ./backend/src:/app/src:delegated
-      - ./backend/tests:/app/tests:delegated
-      - ./backend/migrations:/app/migrations:delegated
-      - ./backend/Cargo.toml:/app/Cargo.toml:delegated
-      - ./backend/Cargo.lock:/app/Cargo.lock:delegated
-      # Build output - :cached ensures container sees host changes quickly
+      # Build output — :cached because the frontend-watch service
+      # writes here and the backend reads it. Bidirectional, so
+      # this stays a bind mount rather than moving to watch sync.
       - ./backend/public:/app/public:cached
-      # Named volumes for caching
+      # Named volumes for caching — container-internal.
       - backend_cargo_cache:/usr/local/cargo/registry
       - backend_target_cache:/app/target # Cache compiled artifacts
       - backend_uploads:/app/uploads
-      # Seed data files
+      # Seed data — read-only and rarely changes; bind mount is fine.
       - ./backend/seeds:/app/seeds:ro
       # Signed plugin zips (*.zip) picked up at startup. In dev, set
       # NOSDESK_DEV_MODE=1 in docker.env to also accept unsigned
