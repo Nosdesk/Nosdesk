@@ -25,6 +25,7 @@ import UnassignedQueueWidget from './UnassignedQueueWidget.vue'
 import StarredDocsWidget from './StarredDocsWidget.vue'
 import MyDevicesWidget from './MyDevicesWidget.vue'
 import ChannelHealthWidget from './ChannelHealthWidget.vue'
+import KnowledgeGapsWidget from './KnowledgeGapsWidget.vue'
 
 export type WidgetSpan = 1 | 2 | 3
 
@@ -74,7 +75,7 @@ export interface WidgetDef {
 
 /** Stat group keys the backend recognises in `?include=...`. Keep in
  *  sync with `StatsGroup` in `backend/src/repository/dashboard_stats.rs`. */
-export type DashboardStatsGroup = 'queue' | 'yours' | 'summary'
+export type DashboardStatsGroup = 'queue' | 'yours' | 'summary' | 'knowledge_gaps'
 
 export const WIDGET_REGISTRY: WidgetDef[] = [
   {
@@ -178,6 +179,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ['user'],
     naturalHeight: true,
     dataNeeds: ['summary'],
+  },
+  {
+    id: 'knowledge-gaps',
+    title: 'Knowledge Gaps',
+    description: 'Top docs to write, ranked by ticket evidence.',
+    component: KnowledgeGapsWidget,
+    span: 1,
+    roles: ['technician', 'admin'],
+    dataNeeds: ['knowledge_gaps'],
   },
 ]
 

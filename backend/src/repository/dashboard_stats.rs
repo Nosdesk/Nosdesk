@@ -32,6 +32,8 @@ pub enum StatsGroup {
     Queue,
     Yours,
     Summary,
+    /// Top-of-queue knowledge gaps for the editorial widget.
+    KnowledgeGaps,
 }
 
 impl StatsGroup {
@@ -40,16 +42,19 @@ impl StatsGroup {
             "queue" => Some(Self::Queue),
             "yours" => Some(Self::Yours),
             "summary" => Some(Self::Summary),
+            "knowledge_gaps" => Some(Self::KnowledgeGaps),
             _ => None,
         }
     }
 
     pub fn all() -> HashSet<Self> {
-        [Self::Queue, Self::Yours, Self::Summary].into_iter().collect()
+        [Self::Queue, Self::Yours, Self::Summary, Self::KnowledgeGaps]
+            .into_iter()
+            .collect()
     }
 
     pub fn all_keys() -> &'static [&'static str] {
-        &["queue", "yours", "summary"]
+        &["queue", "yours", "summary", "knowledge_gaps"]
     }
 }
 
@@ -64,6 +69,29 @@ pub struct StatsBundle {
     pub yours: Option<ScopedStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<ScopedStats>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "knowledgeGaps")]
+    pub knowledge_gaps: Option<KnowledgeGapsStats>,
+}
+
+/// Knowledge-gaps top-of-queue snapshot. Returns total open and
+/// the top N by impact_score so the dashboard widget can render
+/// without a follow-up `/api/knowledge-gaps` call.
+#[derive(Serialize, Default)]
+pub struct KnowledgeGapsStats {
+    pub total: i64,
+    pub top: Vec<KnowledgeGapsStatsItem>,
+}
+
+#[derive(Serialize)]
+pub struct KnowledgeGapsStatsItem {
+    pub id: i64,
+    pub title: String,
+    #[serde(rename = "impactScore")]
+    pub impact_score: i32,
+    #[serde(rename = "evidenceCount")]
+    pub evidence_count: i32,
+    #[serde(rename = "lastEvidenceAt")]
+    pub last_evidence_at: Option<chrono::NaiveDateTime>,
 }
 
 /// Stats for the shared work queue. Not user-scoped.
@@ -109,7 +137,55 @@ pub fn compute(
     if groups.contains(&StatsGroup::Summary) {
         bundle.summary = Some(scoped_stats_requester(conn, user_uuid)?);
     }
+    if groups.contains(&StatsGroup::KnowledgeGaps) {
+        bundle.knowledge_gaps = Some(knowledge_gaps_stats(conn)?);
+    }
     Ok(bundle)
+}
+
+fn knowledge_gaps_stats(conn: &mut DbConnection) -> QueryResult<KnowledgeGapsStats> {
+    use crate::schema::knowledge_gaps;
+
+    // Total open+drafting (the "active" set the queue view shows).
+    let total: i64 = knowledge_gaps::table
+        .filter(knowledge_gaps::status.eq_any(["open", "drafting"]))
+        .count()
+        .get_result(conn)?;
+
+    // Top 5 by impact_score. The composite index
+    // idx_knowledge_gaps_active covers this — see the migration.
+    let top: Vec<(i64, String, i32, i32, Option<chrono::NaiveDateTime>)> =
+        knowledge_gaps::table
+            .filter(knowledge_gaps::status.eq_any(["open", "drafting"]))
+            .order_by((
+                knowledge_gaps::impact_score.desc(),
+                knowledge_gaps::last_evidence_at.desc().nulls_last(),
+            ))
+            .select((
+                knowledge_gaps::id,
+                knowledge_gaps::title,
+                knowledge_gaps::impact_score,
+                knowledge_gaps::evidence_count,
+                knowledge_gaps::last_evidence_at,
+            ))
+            .limit(5)
+            .load(conn)?;
+
+    Ok(KnowledgeGapsStats {
+        total,
+        top: top
+            .into_iter()
+            .map(|(id, title, impact_score, evidence_count, last_evidence_at)| {
+                KnowledgeGapsStatsItem {
+                    id,
+                    title,
+                    impact_score,
+                    evidence_count,
+                    last_evidence_at,
+                }
+            })
+            .collect(),
+    })
 }
 
 fn queue_stats(conn: &mut DbConnection) -> QueryResult<QueueStats> {

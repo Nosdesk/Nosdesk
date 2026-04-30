@@ -22,11 +22,25 @@ export interface ScopedStats {
   highPriority: number
 }
 
+export interface KnowledgeGapsStatsItem {
+  id: number
+  title: string
+  impactScore: number
+  evidenceCount: number
+  lastEvidenceAt: string | null
+}
+
+export interface KnowledgeGapsStats {
+  total: number
+  top: KnowledgeGapsStatsItem[]
+}
+
 /** Sparse bundle: only the requested groups are present. */
 export interface StatsBundle {
   queue?: QueueStats
   yours?: ScopedStats
   summary?: ScopedStats
+  knowledgeGaps?: KnowledgeGapsStats
 }
 
 export interface GetStatsParams {
