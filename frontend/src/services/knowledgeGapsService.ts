@@ -43,6 +43,13 @@ export interface KnowledgeGap {
   signals?: KnowledgeGapSignal[]
 }
 
+export interface KnowledgeGapSignalUser {
+  uuid: string
+  name: string
+  avatar_url?: string | null
+  avatar_thumb?: string | null
+}
+
 export interface KnowledgeGapSignal {
   id: number
   gap_id: number
@@ -59,6 +66,9 @@ export interface KnowledgeGapSignal {
   /** Hydrated by the backend for ticket-typed signals. */
   ticket_title?: string | null
   ticket_status?: string | null
+  /** Hydrated detector — present for manual_flag signals
+   *  (who flagged it). Null for auto-detection signals. */
+  detected_by_user?: KnowledgeGapSignalUser | null
 }
 
 export interface ListGapsOptions {

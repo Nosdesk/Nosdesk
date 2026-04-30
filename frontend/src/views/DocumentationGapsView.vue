@@ -49,12 +49,17 @@ const selectedId = computed<number | null>(() => {
 
 const { gap: selectedGap, isLoading: detailLoading } = useKnowledgeGap(selectedId)
 
-// When the list lands and nothing's selected, jump to the top
-// gap so the detail panel isn't blank on first paint.
+// On large viewports, jump to the top gap so the side-by-side
+// detail pane isn't blank on first paint. On small viewports we
+// stay on the list (the detail pane is hidden anyway, and an
+// auto-jump would feel like a hijacked navigation).
 watch([gaps, selectedId], ([list, current]) => {
   if (current !== null) return
   if (list.length === 0) return
-  router.replace({ name: 'documentation-gap-detail', params: { id: list[0].id } })
+  if (typeof window === 'undefined') return
+  if (window.matchMedia('(min-width: 1024px)').matches) {
+    router.replace({ name: 'documentation-gap-detail', params: { id: list[0].id } })
+  }
 })
 
 const dismissMutation = useDismissGapMutation()
@@ -99,29 +104,47 @@ function signalLabel(signal: KnowledgeGapSignal): string {
 </script>
 
 <template>
-  <div class="bg-app flex flex-col h-full">
-    <!-- Header strip -->
-    <div class="border-b border-default px-4 py-3 flex items-center justify-between gap-3 flex-shrink-0">
-      <div class="flex items-center gap-2">
-        <Icon name="warning" class="text-amber-500" />
-        <h2 class="text-lg font-semibold text-primary">Knowledge Gaps</h2>
-        <span v-if="!listLoading" class="text-xs text-tertiary bg-surface-alt px-2 py-0.5 rounded-full">
-          {{ gaps.length }} open
-        </span>
+  <!--
+    Two-pane layout follows the AdminLayout convention: the list
+    sits in a left sidebar at lg+ and detail fills the rest. Below
+    lg, only one pane is visible at a time, route-driven (list
+    when no `:id`, detail when `:id` is set), with a Back link in
+    the detail header so phone users can return to the list.
+  -->
+  <div class="bg-app flex flex-col lg:flex-row h-full">
+    <!-- Left: list pane.
+         lg+: always visible as a 320px sidebar.
+         Below lg: visible only when no gap is selected (the URL
+         carries no :id) — when one is selected, the detail pane
+         takes the full width. -->
+    <aside
+      class="flex flex-col flex-shrink-0 border-default overflow-hidden bg-app"
+      :class="[
+        'lg:w-80 lg:border-r lg:flex',
+        selectedId !== null ? 'hidden' : 'flex flex-1',
+      ]"
+    >
+      <!-- List header: title + count, plus a "Back to docs"
+           affordance only on the list view. -->
+      <div class="border-b border-default px-4 py-3 flex items-center justify-between gap-3 flex-shrink-0">
+        <div class="flex items-center gap-2 min-w-0">
+          <Icon name="warning" class="text-amber-500 flex-shrink-0" />
+          <h2 class="text-base font-semibold text-primary truncate">Knowledge Gaps</h2>
+          <span v-if="!listLoading" class="text-xs text-tertiary bg-surface-alt px-2 py-0.5 rounded-full flex-shrink-0">
+            {{ gaps.length }}
+          </span>
+        </div>
+        <RouterLink
+          to="/documentation"
+          class="text-xs text-secondary hover:text-primary transition-colors flex items-center gap-1 flex-shrink-0"
+        >
+          <Icon name="chevronRight" size="xs" class="rotate-180" />
+          Docs
+        </RouterLink>
       </div>
-      <RouterLink
-        to="/documentation"
-        class="text-xs text-secondary hover:text-primary transition-colors flex items-center gap-1"
-      >
-        <Icon name="chevronRight" size="xs" class="rotate-180" />
-        Back to docs
-      </RouterLink>
-    </div>
 
-    <!-- Two-pane body -->
-    <div class="flex-1 flex overflow-hidden">
-      <!-- Left: list -->
-      <aside class="w-80 flex-shrink-0 border-r border-default overflow-y-auto">
+      <!-- Scrollable list -->
+      <div class="flex-1 overflow-y-auto">
         <div v-if="listLoading" class="p-4 text-sm text-tertiary">Loading&hellip;</div>
         <div v-else-if="gaps.length === 0" class="p-6 text-center text-sm text-tertiary">
           No open knowledge gaps. Flag a ticket from its sidebar to add one.
@@ -131,7 +154,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             <RouterLink
               :to="{ name: 'documentation-gap-detail', params: { id: gap.id } }"
               class="block px-4 py-3 hover:bg-surface-hover transition-colors"
-              :class="{ 'bg-surface-alt': selectedId === gap.id }"
+              :class="{ 'bg-surface-alt lg:bg-surface-alt': selectedId === gap.id }"
             >
               <div class="flex items-start justify-between gap-2 mb-1">
                 <p class="flex-1 min-w-0 text-sm text-primary font-medium truncate">
@@ -153,15 +176,36 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             </RouterLink>
           </li>
         </ul>
-      </aside>
+      </div>
+    </aside>
 
-      <!-- Right: detail -->
-      <section class="flex-1 overflow-y-auto">
+    <!-- Right: detail pane.
+         lg+: always visible, takes remaining space.
+         Below lg: visible only when a gap is selected. -->
+    <section
+      class="flex-1 min-w-0 overflow-y-auto"
+      :class="[selectedId === null ? 'hidden lg:block' : 'block']"
+    >
+        <!-- Mobile back-to-list bar; hidden at lg+ where the
+             sidebar makes the back affordance unnecessary. -->
+        <div
+          v-if="selectedId !== null"
+          class="lg:hidden border-b border-default bg-app px-4 py-2.5"
+        >
+          <RouterLink
+            :to="{ name: 'documentation-gaps' }"
+            class="flex items-center gap-1.5 text-sm text-secondary hover:text-primary transition-colors"
+          >
+            <Icon name="chevronRight" size="xs" class="rotate-180" />
+            Knowledge Gaps
+          </RouterLink>
+        </div>
+
         <div v-if="!selectedId" class="p-8 text-center text-sm text-tertiary">
           Select a gap from the list to see its evidence.
         </div>
         <div v-else-if="detailLoading" class="p-8 text-sm text-tertiary">Loading&hellip;</div>
-        <article v-else-if="selectedGap" class="max-w-3xl mx-auto p-6 flex flex-col gap-6">
+        <article v-else-if="selectedGap" class="max-w-3xl mx-auto p-4 sm:p-6 flex flex-col gap-6">
           <!-- Title + actions -->
           <header class="flex items-start justify-between gap-4 pb-4 border-b border-subtle">
             <div class="flex-1 min-w-0">
@@ -221,11 +265,21 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                   <p v-else class="text-sm text-secondary">
                     {{ signal.source_ref }}
                   </p>
+                  <!-- Detector attribution: who flagged it
+                       (manual_flag) or which auto-detector emitted
+                       it. Renders below the source so it reads as
+                       provenance, not as the headline. -->
+                  <p
+                    v-if="signal.detected_by_user"
+                    class="text-[11px] text-tertiary mt-1"
+                  >
+                    Flagged by <span class="text-secondary">{{ signal.detected_by_user.name }}</span>
+                  </p>
                   <p
                     v-if="signal.payload?.reason"
-                    class="text-xs text-tertiary mt-1"
+                    class="text-xs text-tertiary mt-1 italic"
                   >
-                    {{ signal.payload.reason }}
+                    "{{ signal.payload.reason }}"
                   </p>
                 </div>
               </li>
@@ -250,7 +304,6 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             </p>
           </section>
         </article>
-      </section>
-    </div>
+    </section>
   </div>
 </template>

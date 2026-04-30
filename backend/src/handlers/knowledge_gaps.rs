@@ -23,8 +23,8 @@ use tracing::error;
 use crate::db::{DbConnection, Pool};
 use crate::handlers::helpers;
 use crate::handlers::sse::{SseEvent, SseState};
-use crate::models::{KnowledgeGap, KnowledgeGapSignal};
-use crate::repository::knowledge_gaps;
+use crate::models::{KnowledgeGap, KnowledgeGapSignal, UserInfoWithAvatar};
+use crate::repository::{self, knowledge_gaps};
 use crate::utils::rbac::is_technician_or_admin;
 
 // ---------------------------------------------------------------
@@ -52,9 +52,24 @@ pub struct KnowledgeGapSignalResponse {
     pub ticket_title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ticket_status: Option<String>,
+    /// Hydrated detector user (for manual_flag signals: this is
+    /// who flagged the ticket; for AI-suggested signals it stays
+    /// None). Lets the queue UI render "Flagged by Kyle" without
+    /// chasing a separate user lookup.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detected_by_user: Option<UserInfoWithAvatar>,
 }
 
 fn hydrate_signal(conn: &mut DbConnection, signal: KnowledgeGapSignal) -> KnowledgeGapSignalResponse {
+    let detected_by_user = signal.detected_by.and_then(|uuid| {
+        repository::get_user_by_uuid(&uuid, conn).ok().map(|u| UserInfoWithAvatar {
+            uuid: u.uuid,
+            name: u.name,
+            avatar_url: u.avatar_url,
+            avatar_thumb: u.avatar_thumb,
+        })
+    });
+
     if signal.source_kind == knowledge_gaps::SOURCE_TICKET {
         if let Ok(ticket_id) = signal.source_ref.parse::<i32>() {
             use crate::schema::tickets;
@@ -71,6 +86,7 @@ fn hydrate_signal(conn: &mut DbConnection, signal: KnowledgeGapSignal) -> Knowle
                     signal,
                     ticket_title: Some(title),
                     ticket_status: Some(status_str.trim_matches('"').to_string()),
+                    detected_by_user,
                 };
             }
         }
@@ -79,6 +95,7 @@ fn hydrate_signal(conn: &mut DbConnection, signal: KnowledgeGapSignal) -> Knowle
         signal,
         ticket_title: None,
         ticket_status: None,
+        detected_by_user,
     }
 }
 
