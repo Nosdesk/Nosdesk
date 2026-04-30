@@ -109,13 +109,27 @@ function failedSearchPayload(signal: KnowledgeGapSignal): FailedSearchPayload {
   return (signal.payload ?? {}) as FailedSearchPayload
 }
 
+interface StaleDocPayload {
+  page_uuid?: string
+  page_title?: string
+  page_slug?: string
+  verified_at?: string
+  verify_interval_days?: number
+  days_stale?: number
+  recent_ticket_ids?: number[]
+}
+
+function staleDocPayload(signal: KnowledgeGapSignal): StaleDocPayload {
+  return (signal.payload ?? {}) as StaleDocPayload
+}
+
 /** Pick the best label for an impact_score badge based on the
  *  gap's signal mix. We don't have the full signal list in the
  *  queue summary (only the count), so we infer from the gap
- *  title pattern: "Customers searched:" prefix is the
- *  failed-search shape. Falls back to "items" for mixed gaps. */
+ *  title pattern. */
 function impactLabel(gapTitle: string): string {
   if (gapTitle.startsWith('Customers searched:')) return 'searches'
+  if (gapTitle.startsWith('Doc may be stale:')) return 'recent tickets'
   return 'tickets'
 }
 
@@ -148,7 +162,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
     case 'failed_search':
       return 'Failed search'
     case 'stale_doc':
-      return 'Stale documentation'
+      return 'Stale doc'
     case 'ai_suggested':
       return 'AI suggestion'
     default:
@@ -372,6 +386,54 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                       &hellip; and
                       {{ (clusterPayload(signal).member_count ?? 0) - (clusterPayload(signal).sample_titles?.length ?? 0) }}
                       more
+                    </p>
+                  </template>
+
+                  <!-- Stale-doc signal: a verified-but-now-stale
+                       page that 'resolves' recently-closed tickets.
+                       Editorial action is to re-verify or update
+                       the doc, which auto-dismisses the gap. -->
+                  <template v-else-if="signal.signal_type === 'stale_doc'">
+                    <RouterLink
+                      v-if="staleDocPayload(signal).page_slug"
+                      :to="`/documentation/${staleDocPayload(signal).page_slug}`"
+                      class="text-sm text-primary hover:text-accent transition-colors"
+                    >
+                      📄 {{ staleDocPayload(signal).page_title ?? 'Untitled doc' }}
+                    </RouterLink>
+                    <p class="text-[11px] text-tertiary mt-1">
+                      Verified
+                      <span v-if="staleDocPayload(signal).verified_at" class="text-secondary">
+                        {{ formatRelativeTime(staleDocPayload(signal).verified_at!) }}
+                      </span>
+                      <template v-if="(staleDocPayload(signal).days_stale ?? 0) > 0">
+                        &middot;
+                        <span class="text-amber-700 dark:text-amber-300 font-medium">
+                          {{ staleDocPayload(signal).days_stale }} days past due
+                        </span>
+                      </template>
+                    </p>
+                    <p
+                      v-if="(staleDocPayload(signal).recent_ticket_ids?.length ?? 0) > 0"
+                      class="text-[11px] text-tertiary mt-1"
+                    >
+                      <span class="text-secondary">{{ staleDocPayload(signal).recent_ticket_ids!.length }}</span>
+                      ticket{{ staleDocPayload(signal).recent_ticket_ids!.length === 1 ? '' : 's' }}
+                      closed recently still cite this doc:
+                      <span class="text-tertiary">
+                        <template v-for="(tid, i) in staleDocPayload(signal).recent_ticket_ids!.slice(0, 5)" :key="tid">
+                          <RouterLink
+                            :to="`/tickets/${tid}`"
+                            class="hover:text-accent transition-colors"
+                          >#{{ tid }}</RouterLink><span v-if="i < Math.min(4, staleDocPayload(signal).recent_ticket_ids!.length - 1)">, </span>
+                        </template>
+                        <template v-if="(staleDocPayload(signal).recent_ticket_ids?.length ?? 0) > 5">
+                          + {{ staleDocPayload(signal).recent_ticket_ids!.length - 5 }} more
+                        </template>
+                      </span>
+                    </p>
+                    <p class="text-[11px] text-tertiary mt-1 italic">
+                      Re-verifying the doc will auto-dismiss this gap.
                     </p>
                   </template>
 

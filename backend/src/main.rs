@@ -1286,6 +1286,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/knowledge-gaps", web::get().to(handlers::knowledge_gaps::list_knowledge_gaps))
                     .route("/knowledge-gaps/detect-clusters", web::post().to(handlers::knowledge_gaps::detect_clusters))
                     .route("/knowledge-gaps/detect-failed-searches", web::post().to(handlers::knowledge_gaps::detect_failed_searches))
+                    .route("/knowledge-gaps/detect-stale-docs", web::post().to(handlers::knowledge_gaps::detect_stale_docs))
                     .route("/knowledge-gaps/{id}", web::get().to(handlers::knowledge_gaps::get_knowledge_gap))
                     .route("/knowledge-gaps/{id}/dismiss", web::post().to(handlers::knowledge_gaps::dismiss_knowledge_gap))
                     .route("/knowledge-gaps/{id}/resolve", web::post().to(handlers::knowledge_gaps::resolve_knowledge_gap))

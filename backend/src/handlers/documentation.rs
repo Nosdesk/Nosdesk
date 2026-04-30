@@ -2091,6 +2091,14 @@ pub async fn verify_page(
     };
     match repository::update_documentation_page(&mut conn, page_id, &update) {
         Ok(updated) => {
+            // Re-verifying a page closes the editorial loop on
+            // any open stale_doc gap that flagged it. Best-effort
+            // — a failure here doesn't roll back the verification.
+            if let Err(e) = repository::knowledge_gaps::dismiss_stale_doc_gaps_for_page(
+                &mut conn, page_id, user_uuid,
+            ) {
+                error!(error = ?e, page_id, "Failed to auto-dismiss stale_doc gaps after re-verify");
+            }
             sse_state
                 .broadcast_event(crate::handlers::sse::SseEvent::DocumentationUpdated {
                     document_id: updated.id,

@@ -194,6 +194,25 @@ export const detectFailedSearches = async (
   }
 }
 
+/** Trigger backend stale-doc detection. Finds pages where
+ *  verification has lapsed AND recently-closed tickets are still
+ *  evidencing the doc as their resolver — a signal the doc may
+ *  have bit-rotted. */
+export const detectStaleDocs = async (
+  options: { recentTicketDays?: number; minRecentTickets?: number } = {},
+): Promise<DetectClustersResponse | null> => {
+  try {
+    const response = await apiClient.post('/knowledge-gaps/detect-stale-docs', {
+      recent_ticket_days: options.recentTicketDays,
+      min_recent_tickets: options.minRecentTickets,
+    })
+    return response.data as DetectClustersResponse
+  } catch (error) {
+    logger.error('Stale-doc detection failed:', error)
+    return null
+  }
+}
+
 export default {
   flagTicketAsGap,
   unflagTicketAsGap,
@@ -203,4 +222,5 @@ export default {
   resolveKnowledgeGap,
   detectClusters,
   detectFailedSearches,
+  detectStaleDocs,
 }

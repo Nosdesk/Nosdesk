@@ -819,3 +819,236 @@ pub fn run_failed_search_detection(
 
     Ok(stats)
 }
+
+
+// =================================================================
+// Stale-doc detection (Phase 2d)
+// =================================================================
+//
+// Cross-pollinates verification (Phase 1) with the docs<->tickets
+// join (Phase 1): a page that's verified-but-stale AND has
+// 'resolves' links to recently-closed tickets is a strong signal
+// the doc has bit-rotted while the same kind of question keeps
+// resurfacing in the queue. Surfaces as a stale_doc signal so
+// editors see "this needs review" alongside the other gap types.
+
+#[derive(Debug, Clone)]
+pub struct StaleDocCandidate {
+    pub page_id: i32,
+    pub page_uuid: uuid::Uuid,
+    pub page_title: String,
+    pub page_slug: String,
+    pub verified_at: chrono::NaiveDateTime,
+    pub verify_interval_days: i32,
+    pub recent_ticket_ids: Vec<i32>,
+}
+
+/// Find pages with stale verification that 'resolves' tickets
+/// closed within the recent window. Pure DB read, no mutations.
+fn find_stale_doc_candidates(
+    conn: &mut DbConnection,
+    recent_ticket_days: i32,
+    min_recent_tickets: usize,
+) -> Result<Vec<StaleDocCandidate>, Error> {
+    use crate::schema::{documentation_page_tickets, documentation_pages, tickets};
+
+    let now = chrono::Utc::now().naive_utc();
+    let recent_cutoff = now - chrono::Duration::days(recent_ticket_days as i64);
+
+    // Step 1: load verified-with-interval pages.
+    let pages: Vec<(i32, uuid::Uuid, String, String, chrono::NaiveDateTime, i32)> =
+        documentation_pages::table
+            .filter(documentation_pages::verified_at.is_not_null())
+            .filter(documentation_pages::verify_interval_days.is_not_null())
+            .filter(documentation_pages::deleted_at.is_null())
+            .select((
+                documentation_pages::id,
+                documentation_pages::uuid,
+                documentation_pages::title,
+                documentation_pages::slug,
+                documentation_pages::verified_at.assume_not_null(),
+                documentation_pages::verify_interval_days.assume_not_null(),
+            ))
+            .load(conn)?;
+
+    // Filter in Rust to "stale": verified_at + interval < now.
+    // SQL-side date arithmetic with chrono::Duration is awkward
+    // through Diesel; the page set is small (one row per doc that
+    // has been verified) so post-filter is cheap.
+    let stale: Vec<_> = pages
+        .into_iter()
+        .filter(|(_, _, _, _, verified_at, days)| {
+            *verified_at + chrono::Duration::days(*days as i64) < now
+        })
+        .collect();
+
+    if stale.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let stale_ids: Vec<i32> = stale.iter().map(|(id, _, _, _, _, _)| *id).collect();
+
+    // Step 2: which of those pages have 'resolves' links to
+    // tickets that closed in the recent window?
+    let resolves_tickets: Vec<(i32, i32)> = documentation_page_tickets::table
+        .inner_join(tickets::table.on(tickets::id.eq(documentation_page_tickets::ticket_id)))
+        .filter(documentation_page_tickets::page_id.eq_any(&stale_ids))
+        .filter(
+            documentation_page_tickets::link_type
+                .eq(crate::repository::documentation_page_tickets::LINK_RESOLVES),
+        )
+        .filter(tickets::status.eq_any(vec![crate::models::TicketStatus::Closed]))
+        .filter(tickets::updated_at.ge(recent_cutoff))
+        .select((documentation_page_tickets::page_id, tickets::id))
+        .load(conn)?;
+
+    use std::collections::HashMap;
+    let mut by_page: HashMap<i32, Vec<i32>> = HashMap::new();
+    for (page_id, ticket_id) in resolves_tickets {
+        by_page.entry(page_id).or_default().push(ticket_id);
+    }
+
+    Ok(stale
+        .into_iter()
+        .filter_map(|(page_id, page_uuid, page_title, page_slug, verified_at, verify_interval_days)| {
+            let recent_ticket_ids = by_page.remove(&page_id)?;
+            if recent_ticket_ids.len() < min_recent_tickets {
+                return None;
+            }
+            Some(StaleDocCandidate {
+                page_id,
+                page_uuid,
+                page_title,
+                page_slug,
+                verified_at,
+                verify_interval_days,
+                recent_ticket_ids,
+            })
+        })
+        .collect())
+}
+
+/// Run stale-doc detection: upsert one stale_doc signal per
+/// candidate page. Same upsert shape as cluster + failed-search:
+/// re-running picks up new tickets joining the recent window
+/// without duplicating gaps. Idempotent.
+pub fn run_stale_doc_detection(
+    conn: &mut DbConnection,
+    detected_by: Option<Uuid>,
+    recent_ticket_days: i32,
+    min_recent_tickets: usize,
+) -> Result<DetectionStats, Error> {
+    let candidates = find_stale_doc_candidates(conn, recent_ticket_days, min_recent_tickets)?;
+    let mut stats = DetectionStats::default();
+    stats.clusters_detected = candidates.len();
+
+    let now = chrono::Utc::now().naive_utc();
+    for candidate in candidates {
+        conn.transaction::<_, Error, _>(|tx| {
+            let source_ref = candidate.page_id.to_string();
+            let existing = find_open_gap_for_source(tx, SOURCE_PAGE, &source_ref)?;
+            let was_created = existing.is_none();
+
+            let days_stale = (now
+                - (candidate.verified_at
+                    + chrono::Duration::days(candidate.verify_interval_days as i64)))
+            .num_days()
+            .max(0);
+
+            let gap = match existing {
+                Some(g) => g,
+                None => create_gap(
+                    tx,
+                    NewKnowledgeGap {
+                        title: format!("Doc may be stale: {}", candidate.page_title),
+                        description: None,
+                        status: STATUS_OPEN.to_string(),
+                        created_by: detected_by,
+                        impact_score: 0,
+                        evidence_count: 0,
+                        last_evidence_at: None,
+                    },
+                )?,
+            };
+
+            // Confidence scales with both staleness age and recent
+            // ticket activity, capped at the manual-flag ceiling.
+            let confidence = (40
+                + (days_stale.min(60) as i32) / 2
+                + (candidate.recent_ticket_ids.len() as i32 * 5))
+                .clamp(40, 100);
+
+            attach_signal(
+                tx,
+                NewKnowledgeGapSignal {
+                    gap_id: gap.id,
+                    signal_type: SIGNAL_STALE_DOC.to_string(),
+                    source_kind: SOURCE_PAGE.to_string(),
+                    source_ref,
+                    payload: serde_json::json!({
+                        "page_uuid": candidate.page_uuid,
+                        "page_title": candidate.page_title,
+                        "page_slug": candidate.page_slug,
+                        "verified_at": candidate.verified_at,
+                        "verify_interval_days": candidate.verify_interval_days,
+                        "days_stale": days_stale,
+                        "recent_ticket_ids": candidate.recent_ticket_ids,
+                    }),
+                    confidence,
+                    detected_by,
+                },
+            )?;
+
+            recompute_aggregates(tx, gap.id)?;
+
+            if was_created {
+                stats.gaps_created += 1;
+                stats.new_gap_ids.push(gap.id);
+            } else {
+                stats.gaps_updated += 1;
+            }
+            Ok(())
+        })?;
+    }
+
+    Ok(stats)
+}
+
+/// Auto-dismiss any open stale_doc gaps for a page that just
+/// got re-verified. Closes the editorial loop without forcing
+/// the verifier to remember to also touch the gap queue.
+/// Returns the count of gaps dismissed.
+pub fn dismiss_stale_doc_gaps_for_page(
+    conn: &mut DbConnection,
+    page_id: i32,
+    by_user: Uuid,
+) -> Result<usize, Error> {
+    let source_ref = page_id.to_string();
+    let signals: Vec<KnowledgeGapSignal> = knowledge_gap_signals::table
+        .inner_join(knowledge_gaps::table.on(knowledge_gaps::id.eq(knowledge_gap_signals::gap_id)))
+        .filter(knowledge_gap_signals::signal_type.eq(SIGNAL_STALE_DOC))
+        .filter(knowledge_gap_signals::source_kind.eq(SOURCE_PAGE))
+        .filter(knowledge_gap_signals::source_ref.eq(&source_ref))
+        .filter(knowledge_gap_signals::dismissed_at.is_null())
+        .filter(knowledge_gaps::status.eq_any([STATUS_OPEN, STATUS_DRAFTING]))
+        .select(knowledge_gap_signals::all_columns)
+        .load(conn)?;
+
+    let mut count = 0;
+    for signal in signals {
+        let _ = dismiss_signal(conn, signal.id, Some(by_user))?;
+        let _ = update_gap(
+            conn,
+            signal.gap_id,
+            KnowledgeGapUpdate {
+                status: Some(STATUS_DISMISSED.to_string()),
+                dismissed_at: Some(Some(chrono::Utc::now().naive_utc())),
+                dismissed_by: Some(Some(by_user)),
+                updated_at: Some(chrono::Utc::now().naive_utc()),
+                ..Default::default()
+            },
+        )?;
+        count += 1;
+    }
+    Ok(count)
+}

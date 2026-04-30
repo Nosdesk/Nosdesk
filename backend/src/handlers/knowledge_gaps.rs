@@ -448,6 +448,66 @@ pub async fn detect_failed_searches(
 }
 
 // ---------------------------------------------------------------
+// POST /api/knowledge-gaps/detect-stale-docs
+// ---------------------------------------------------------------
+
+#[derive(Debug, Deserialize, Default)]
+pub struct DetectStaleDocsBody {
+    /// How recent a 'resolves'-linked ticket must have closed
+    /// before it counts as evidence (default 30).
+    pub recent_ticket_days: Option<i32>,
+    /// Minimum recently-closed tickets per stale page before it
+    /// becomes a gap (default 1).
+    pub min_recent_tickets: Option<usize>,
+}
+
+pub async fn detect_stale_docs(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    sse_state: web::Data<SseState>,
+    body: web::Json<DetectStaleDocsBody>,
+) -> impl Responder {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+    }
+    let req_body = body.into_inner();
+    let recent_ticket_days = req_body.recent_ticket_days.unwrap_or(30);
+    let min_recent_tickets = req_body.min_recent_tickets.unwrap_or(1).max(1);
+
+    match knowledge_gaps::run_stale_doc_detection(
+        &mut conn,
+        Some(user_uuid),
+        recent_ticket_days,
+        min_recent_tickets,
+    ) {
+        Ok(stats) => {
+            for gap_id in &stats.new_gap_ids {
+                sse_state
+                    .broadcast_event(SseEvent::KnowledgeGapDetected {
+                        gap_id: *gap_id,
+                        signal_type: knowledge_gaps::SIGNAL_STALE_DOC.to_string(),
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .await;
+            }
+            HttpResponse::Ok().json(DetectClustersResponse {
+                clusters_detected: stats.clusters_detected,
+                gaps_created: stats.gaps_created,
+                gaps_updated: stats.gaps_updated,
+            })
+        }
+        Err(e) => {
+            error!(error = ?e, "Stale-doc detection failed");
+            HttpResponse::InternalServerError().json("Stale-doc detection failed")
+        }
+    }
+}
+
+// ---------------------------------------------------------------
 // POST /api/knowledge-gaps/{id}/resolve
 // ---------------------------------------------------------------
 

@@ -175,16 +175,29 @@ export function useDetectClustersMutation() {
   const queryCache = useQueryCache()
   return useMutation({
     mutation: async (options?: { days?: number; minSize?: number }) => {
-      const [clusters, searches] = await Promise.all([
+      const [clusters, searches, staleDocs] = await Promise.all([
         knowledgeGapsService.detectClusters(options ?? {}),
         knowledgeGapsService.detectFailedSearches({ days: options?.days }),
+        knowledgeGapsService.detectStaleDocs({ recentTicketDays: options?.days }),
       ])
-      const sum = (a: number | undefined, b: number | undefined) =>
-        (a ?? 0) + (b ?? 0)
+      const sum = (...vs: (number | undefined)[]) =>
+        vs.reduce<number>((a, b) => a + (b ?? 0), 0)
       return {
-        clusters_detected: sum(clusters?.clusters_detected, searches?.clusters_detected),
-        gaps_created: sum(clusters?.gaps_created, searches?.gaps_created),
-        gaps_updated: sum(clusters?.gaps_updated, searches?.gaps_updated),
+        clusters_detected: sum(
+          clusters?.clusters_detected,
+          searches?.clusters_detected,
+          staleDocs?.clusters_detected,
+        ),
+        gaps_created: sum(
+          clusters?.gaps_created,
+          searches?.gaps_created,
+          staleDocs?.gaps_created,
+        ),
+        gaps_updated: sum(
+          clusters?.gaps_updated,
+          searches?.gaps_updated,
+          staleDocs?.gaps_updated,
+        ),
       }
     },
     onSettled: () => {
