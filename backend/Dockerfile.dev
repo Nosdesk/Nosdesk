@@ -12,12 +12,17 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pdfium library for PDF thumbnail generation
-# https://github.com/bblanchon/pdfium-binaries
-RUN mkdir -p /tmp/pdfium && \
+# pdfium for PDF thumbnails. https://github.com/bblanchon/pdfium-binaries
+ARG TARGETARCH
+RUN case "$TARGETARCH" in \
+      arm64) PDFIUM_PKG=pdfium-linux-arm64.tgz ;; \
+      amd64) PDFIUM_PKG=pdfium-linux-x64.tgz ;; \
+      *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2 && exit 1 ;; \
+    esac && \
+    mkdir -p /tmp/pdfium && \
     cd /tmp/pdfium && \
-    wget -q https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz && \
-    tar -xzf pdfium-linux-x64.tgz && \
+    wget -q "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/$PDFIUM_PKG" && \
+    tar -xzf "$PDFIUM_PKG" && \
     cp lib/libpdfium.so /usr/local/lib/ && \
     ldconfig && \
     rm -rf /tmp/pdfium

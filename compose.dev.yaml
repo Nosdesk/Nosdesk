@@ -24,6 +24,9 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile.dev
+    # Empty default = host arch. Override with BACKEND_PLATFORM=linux/amd64
+    # (or linux/arm64) to test the other architecture.
+    platform: ${BACKEND_PLATFORM:-}
     stdin_open: true
     tty: true
     env_file: docker.env
