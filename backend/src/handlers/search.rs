@@ -5,9 +5,11 @@ use serde_json::json;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
+use crate::db::Pool;
 use crate::handlers::helpers;
 use crate::models::Claims;
-use crate::services::search::{SearchQuery, SearchService};
+use crate::repository::search_query_log;
+use crate::services::search::{EntityType, SearchQuery, SearchService};
 
 /// Search across all indexed entities
 ///
@@ -15,6 +17,7 @@ use crate::services::search::{SearchQuery, SearchService};
 pub async fn search(
     query: web::Query<SearchQuery>,
     search_service: web::Data<Arc<SearchService>>,
+    pool: web::Data<Pool>,
     req: HttpRequest,
 ) -> impl Responder {
     // Verify authentication
@@ -45,8 +48,16 @@ pub async fn search(
         }));
     }
 
-    // Execute search
-    match search_service.search(&query.into_inner()) {
+    let query = query.into_inner();
+    // Log only when documentation was in scope. Ticket-only or
+    // device-only searches don't carry KB-demand signal.
+    let log_doc_search = match query.entity_types() {
+        Some(types) => types.iter().any(|t| matches!(t, EntityType::Documentation)),
+        None => true, // unscoped search includes docs
+    };
+    let logged_query = query.q.clone();
+
+    match search_service.search(&query) {
         Ok(response) => {
             debug!(
                 query = %response.query,
@@ -55,6 +66,31 @@ pub async fn search(
                 took_ms = response.took_ms,
                 "Search completed"
             );
+
+            if log_doc_search {
+                let doc_hits = response
+                    .results
+                    .iter()
+                    .filter(|r| r.entity_type == "documentation")
+                    .count() as i32;
+                let pool = pool.clone();
+                // Off the response path: a slow log write must not
+                // delay the search response. Errors are logged but
+                // don't propagate.
+                actix_web::rt::spawn(async move {
+                    let mut conn = match pool.get() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            warn!(error = ?e, "Search log: db pool acquire failed");
+                            return;
+                        }
+                    };
+                    if let Err(e) = search_query_log::log_query(&mut conn, &logged_query, doc_hits) {
+                        warn!(error = ?e, "Search log write failed");
+                    }
+                });
+            }
+
             HttpResponse::Ok().json(response)
         }
         Err(e) => {

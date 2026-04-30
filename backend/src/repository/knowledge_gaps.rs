@@ -206,13 +206,12 @@ pub fn dismiss_signal(
 /// Recompute and persist `evidence_count`, `last_evidence_at`,
 /// and `impact_score` from the gap's currently-live signals.
 ///
-/// `impact_score` here means "how many unique tickets writing
-/// this doc would resolve" — the only metric that's editorially
-/// actionable. A manual_flag references one ticket via
-/// source_ref; a ticket_cluster references many via
-/// payload.ticket_ids. Both flow through tickets_evidenced_by_signal
-/// so the count is an honest "tickets this gap covers", not a
-/// made-up weighted number.
+/// `impact_score` is the count of distinct human encounters with
+/// the gap. For ticket-typed signals that's unique tickets; for
+/// failed-search signals it's how many times the query recurred.
+/// Both are "demand for this missing doc" instances — comparable
+/// enough to share one ranking column. The frontend renders the
+/// badge with a label appropriate to the dominant signal type.
 pub fn recompute_aggregates(conn: &mut DbConnection, gap_id: i64) -> Result<KnowledgeGap, Error> {
     use std::collections::HashSet;
 
@@ -221,10 +220,16 @@ pub fn recompute_aggregates(conn: &mut DbConnection, gap_id: i64) -> Result<Know
     let last_evidence_at = signals.iter().map(|s| s.detected_at).max();
 
     let mut tickets: HashSet<i32> = HashSet::new();
+    let mut search_occurrences: i64 = 0;
     for signal in &signals {
         tickets.extend(tickets_evidenced_by_signal(signal));
+        if signal.signal_type == SIGNAL_FAILED_SEARCH {
+            if let Some(count) = signal.payload.get("count").and_then(|v| v.as_i64()) {
+                search_occurrences += count;
+            }
+        }
     }
-    let impact_score = tickets.len() as i32;
+    let impact_score = (tickets.len() as i64 + search_occurrences).min(i32::MAX as i64) as i32;
 
     update_gap(
         conn,
@@ -715,6 +720,87 @@ pub fn run_cluster_detection(
                         "member_count": cluster.ticket_ids.len(),
                     }),
                     confidence: cluster_confidence(cluster.ticket_ids.len()),
+                    detected_by,
+                },
+            )?;
+
+            recompute_aggregates(tx, gap.id)?;
+
+            if was_created {
+                stats.gaps_created += 1;
+                stats.new_gap_ids.push(gap.id);
+            } else {
+                stats.gaps_updated += 1;
+            }
+            Ok(())
+        })?;
+    }
+
+    Ok(stats)
+}
+
+// =================================================================
+// Failed-search detection (Phase 2c)
+// =================================================================
+//
+// Aggregates `search_query_log` rows where result_count = 0,
+// grouped by their normalised query string. Queries that recurred
+// `min_count` times in the window become `failed_search` signals
+// on knowledge_gaps. Same upsert shape as cluster detection:
+// re-running the detector picks up new occurrences and refreshes
+// the count without duplicating gaps.
+
+pub fn run_failed_search_detection(
+    conn: &mut DbConnection,
+    detected_by: Option<Uuid>,
+    days: i32,
+    min_count: i64,
+) -> Result<DetectionStats, Error> {
+    use crate::repository::search_query_log;
+
+    let aggregates = search_query_log::aggregate_failed_searches(conn, days, min_count)?;
+    let mut stats = DetectionStats::default();
+    stats.clusters_detected = aggregates.len();
+
+    for agg in aggregates {
+        conn.transaction::<_, Error, _>(|tx| {
+            let existing = find_open_gap_for_source(tx, SOURCE_SEARCH_QUERY, &agg.query_norm)?;
+            let was_created = existing.is_none();
+
+            let gap = match existing {
+                Some(g) => g,
+                None => create_gap(
+                    tx,
+                    NewKnowledgeGap {
+                        title: format!("Customers searched: \"{}\"", agg.query_sample),
+                        description: None,
+                        status: STATUS_OPEN.to_string(),
+                        created_by: detected_by,
+                        impact_score: 0,
+                        evidence_count: 0,
+                        last_evidence_at: None,
+                    },
+                )?,
+            };
+
+            // Confidence scales with how often the query recurs,
+            // capped at the manual-flag ceiling.
+            let confidence = (agg.count as i32 * 5).clamp(20, 100);
+
+            attach_signal(
+                tx,
+                NewKnowledgeGapSignal {
+                    gap_id: gap.id,
+                    signal_type: SIGNAL_FAILED_SEARCH.to_string(),
+                    source_kind: SOURCE_SEARCH_QUERY.to_string(),
+                    source_ref: agg.query_norm.clone(),
+                    payload: serde_json::json!({
+                        "query_sample": agg.query_sample,
+                        "count": agg.count,
+                        "first_seen": agg.first_seen,
+                        "last_seen": agg.last_seen,
+                    }),
+                    confidence,
                     detected_by,
                 },
             )?;

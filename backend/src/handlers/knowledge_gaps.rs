@@ -397,6 +397,57 @@ pub async fn detect_clusters(
 }
 
 // ---------------------------------------------------------------
+// POST /api/knowledge-gaps/detect-failed-searches
+// ---------------------------------------------------------------
+
+#[derive(Debug, Deserialize, Default)]
+pub struct DetectFailedSearchesBody {
+    pub days: Option<i32>,
+    pub min_count: Option<i64>,
+}
+
+pub async fn detect_failed_searches(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    sse_state: web::Data<SseState>,
+    body: web::Json<DetectFailedSearchesBody>,
+) -> impl Responder {
+    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if !is_technician_or_admin(&claims) {
+        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+    }
+    let req_body = body.into_inner();
+    let days = req_body.days.unwrap_or(30);
+    let min_count = req_body.min_count.unwrap_or(2).max(1);
+
+    match knowledge_gaps::run_failed_search_detection(&mut conn, Some(user_uuid), days, min_count) {
+        Ok(stats) => {
+            for gap_id in &stats.new_gap_ids {
+                sse_state
+                    .broadcast_event(SseEvent::KnowledgeGapDetected {
+                        gap_id: *gap_id,
+                        signal_type: knowledge_gaps::SIGNAL_FAILED_SEARCH.to_string(),
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .await;
+            }
+            HttpResponse::Ok().json(DetectClustersResponse {
+                clusters_detected: stats.clusters_detected,
+                gaps_created: stats.gaps_created,
+                gaps_updated: stats.gaps_updated,
+            })
+        }
+        Err(e) => {
+            error!(error = ?e, "Failed-search detection failed");
+            HttpResponse::InternalServerError().json("Failed-search detection failed")
+        }
+    }
+}
+
+// ---------------------------------------------------------------
 // POST /api/knowledge-gaps/{id}/resolve
 // ---------------------------------------------------------------
 

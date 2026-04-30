@@ -176,6 +176,24 @@ export const detectClusters = async (
   }
 }
 
+/** Trigger backend failed-search detection. Aggregates zero-result
+ *  search log entries into failed_search signals. Same response
+ *  shape as cluster detection. */
+export const detectFailedSearches = async (
+  options: { days?: number; minCount?: number } = {},
+): Promise<DetectClustersResponse | null> => {
+  try {
+    const response = await apiClient.post('/knowledge-gaps/detect-failed-searches', {
+      days: options.days,
+      min_count: options.minCount,
+    })
+    return response.data as DetectClustersResponse
+  } catch (error) {
+    logger.error('Failed-search detection failed:', error)
+    return null
+  }
+}
+
 export default {
   flagTicketAsGap,
   unflagTicketAsGap,
@@ -184,4 +202,5 @@ export default {
   dismissKnowledgeGap,
   resolveKnowledgeGap,
   detectClusters,
+  detectFailedSearches,
 }

@@ -98,6 +98,27 @@ function clusterPayload(signal: KnowledgeGapSignal): ClusterPayload {
   return (signal.payload ?? {}) as ClusterPayload
 }
 
+interface FailedSearchPayload {
+  query_sample?: string
+  count?: number
+  first_seen?: string
+  last_seen?: string
+}
+
+function failedSearchPayload(signal: KnowledgeGapSignal): FailedSearchPayload {
+  return (signal.payload ?? {}) as FailedSearchPayload
+}
+
+/** Pick the best label for an impact_score badge based on the
+ *  gap's signal mix. We don't have the full signal list in the
+ *  queue summary (only the count), so we infer from the gap
+ *  title pattern: "Customers searched:" prefix is the
+ *  failed-search shape. Falls back to "items" for mixed gaps. */
+function impactLabel(gapTitle: string): string {
+  if (gapTitle.startsWith('Customers searched:')) return 'searches'
+  return 'tickets'
+}
+
 async function dismissCurrent() {
   if (!selectedGap.value) return
   isDismissing.value = true
@@ -184,8 +205,8 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             @click="runDetection"
           >
             <Icon name="search" size="xs" />
-            <span v-if="detectMutation.asyncStatus.value === 'loading'">Detecting&hellip;</span>
-            <span v-else>Detect clusters</span>
+            <span v-if="detectMutation.asyncStatus.value === 'loading'">Refreshing&hellip;</span>
+            <span v-else>Refresh signals</span>
           </button>
           <span v-if="detectMessage" class="text-[11px] text-tertiary truncate">
             {{ detectMessage }}
@@ -212,9 +233,9 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                 </p>
                 <span
                   class="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-surface text-tertiary"
-                  :title="`${gap.impact_score} ticket${gap.impact_score === 1 ? '' : 's'} this doc would cover`"
+                  :title="`${gap.impact_score} ${impactLabel(gap.title)} representing demand for this doc`"
                 >
-                  {{ gap.impact_score }}&nbsp;ticket{{ gap.impact_score === 1 ? '' : 's' }}
+                  {{ gap.impact_score }}&nbsp;{{ impactLabel(gap.title) }}
                 </span>
               </div>
               <div class="flex items-center justify-between gap-2 text-[11px] text-tertiary">
@@ -266,9 +287,8 @@ function signalLabel(signal: KnowledgeGapSignal): string {
               <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-tertiary">
                 <span>Status: <span class="text-secondary">{{ selectedGap.status }}</span></span>
                 <span>
-                  Covers
                   <span class="text-secondary">{{ selectedGap.impact_score }}</span>
-                  ticket{{ selectedGap.impact_score === 1 ? '' : 's' }}
+                  {{ impactLabel(selectedGap.title) }}
                 </span>
                 <span v-if="selectedGap.last_evidence_at">
                   Last evidence: {{ formatRelativeTime(selectedGap.last_evidence_at) }}
@@ -352,6 +372,24 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                       &hellip; and
                       {{ (clusterPayload(signal).member_count ?? 0) - (clusterPayload(signal).sample_titles?.length ?? 0) }}
                       more
+                    </p>
+                  </template>
+
+                  <!-- Failed-search signal: a recurring zero-result
+                       query. Shows the query text, occurrence
+                       count, and first/last seen times. -->
+                  <template v-else-if="signal.signal_type === 'failed_search'">
+                    <p class="text-sm text-primary">
+                      "{{ failedSearchPayload(signal).query_sample ?? signal.source_ref }}"
+                    </p>
+                    <p class="text-[11px] text-tertiary mt-1">
+                      <span class="text-secondary">{{ failedSearchPayload(signal).count ?? 0 }}</span>
+                      search{{ (failedSearchPayload(signal).count ?? 0) === 1 ? '' : 'es' }}
+                      with no results
+                      <template v-if="failedSearchPayload(signal).first_seen && failedSearchPayload(signal).last_seen">
+                        &middot; first {{ formatRelativeTime(failedSearchPayload(signal).first_seen!) }},
+                        last {{ formatRelativeTime(failedSearchPayload(signal).last_seen!) }}
+                      </template>
                     </p>
                   </template>
 

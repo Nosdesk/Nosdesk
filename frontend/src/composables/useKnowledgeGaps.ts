@@ -167,14 +167,26 @@ interface ResolveGapPayload {
   pageId: number
 }
 
-/** Mutation: run backend cluster detection. Invalidates the
- *  whole knowledge-gaps cache since detection can both create new
- *  gaps and update existing ones. */
+/** Mutation: run all auto-detection passes (cluster + failed
+ *  search) in one click. Invalidates the whole knowledge-gaps
+ *  cache since either pass can both create and update gaps.
+ *  Returns the combined totals. */
 export function useDetectClustersMutation() {
   const queryCache = useQueryCache()
   return useMutation({
-    mutation: (options?: { days?: number; minSize?: number }) =>
-      knowledgeGapsService.detectClusters(options ?? {}),
+    mutation: async (options?: { days?: number; minSize?: number }) => {
+      const [clusters, searches] = await Promise.all([
+        knowledgeGapsService.detectClusters(options ?? {}),
+        knowledgeGapsService.detectFailedSearches({ days: options?.days }),
+      ])
+      const sum = (a: number | undefined, b: number | undefined) =>
+        (a ?? 0) + (b ?? 0)
+      return {
+        clusters_detected: sum(clusters?.clusters_detected, searches?.clusters_detected),
+        gaps_created: sum(clusters?.gaps_created, searches?.gaps_created),
+        gaps_updated: sum(clusters?.gaps_updated, searches?.gaps_updated),
+      }
+    },
     onSettled: () => {
       queryCache.invalidateQueries({ key: knowledgeGapKeys.root })
     },

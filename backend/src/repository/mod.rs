@@ -15,6 +15,7 @@ pub mod documentation_subscriptions;
 pub mod groups;
 pub mod knowledge_gaps;
 pub mod linked_tickets;
+pub mod search_query_log;
 pub mod projects;
 pub mod sync_history;
 pub mod ticket_query;

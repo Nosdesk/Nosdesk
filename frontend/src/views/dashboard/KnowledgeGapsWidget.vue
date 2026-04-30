@@ -20,6 +20,13 @@ const stats = useInjectedDashboardStats()
 const knowledgeGaps = computed(() => stats.bundle.value?.knowledgeGaps)
 const items = computed(() => knowledgeGaps.value?.top ?? [])
 const total = computed(() => knowledgeGaps.value?.total ?? 0)
+
+/** Pick the unit for the impact badge. Failed-search gaps use a
+ *  distinct title prefix so we can tell signal-type from the
+ *  summary row alone. */
+function impactLabel(gapTitle: string): string {
+  return gapTitle.startsWith('Customers searched:') ? 'searches' : 'tickets'
+}
 </script>
 
 <template>
@@ -54,9 +61,9 @@ const total = computed(() => knowledgeGaps.value?.total ?? 0)
           </div>
           <span
             class="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary"
-            :title="`${item.impactScore} ticket${item.impactScore === 1 ? '' : 's'} this doc would cover`"
+            :title="`${item.impactScore} ${impactLabel(item.title)} representing demand for this doc`"
           >
-            {{ item.impactScore }}&nbsp;ticket{{ item.impactScore === 1 ? '' : 's' }}
+            {{ item.impactScore }}&nbsp;{{ impactLabel(item.title) }}
           </span>
         </RouterLink>
       </li>
