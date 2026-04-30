@@ -228,9 +228,34 @@ async fn main() -> std::io::Result<()> {
     let environment = env::var("ENVIRONMENT").unwrap_or("development".to_string());
     info!("Environment: {}", environment);
 
+    // Detects values that look like docker.env.example placeholders
+    // (e.g. "your-super-secret-jwt-key-change-this-in-production").
+    // Applied to every production secret check below so an operator
+    // who forgets to override the example file gets a fast hard
+    // failure rather than a forged-token incident.
+    fn looks_like_placeholder(value: &str) -> bool {
+        let lower = value.to_ascii_lowercase();
+        const NEEDLES: &[&str] = &[
+            "change-this",
+            "change-me",
+            "your-super-secret",
+            "your-64-character",
+            "your-",
+            "placeholder",
+            "example",
+        ];
+        NEEDLES.iter().any(|n| lower.contains(n))
+    }
+
     // Validate that JWT_SECRET is set and secure
     let _jwt_secret = match std::env::var("JWT_SECRET") {
         Ok(secret) => {
+            if environment == "production" && looks_like_placeholder(&secret) {
+                error!("JWT_SECRET appears to be the docker.env.example placeholder");
+                error!("Refusing to start in production with a placeholder JWT_SECRET");
+                error!("Generate a secure key with: openssl rand -base64 32");
+                std::process::exit(1);
+            }
             if secret.len() < 32 {
                 if environment == "production" {
                     error!("JWT_SECRET must be at least 32 characters in production");
@@ -249,17 +274,22 @@ async fn main() -> std::io::Result<()> {
         }
     };
     info!("JWT_SECRET validated");
-    
+
     // Validate that MFA_ENCRYPTION_KEY is set for production
     if environment == "production" {
         match std::env::var("MFA_ENCRYPTION_KEY") {
             Ok(key) => {
+                if looks_like_placeholder(&key) {
+                    error!("MFA_ENCRYPTION_KEY appears to be the docker.env.example placeholder");
+                    error!("Refusing to start in production with a placeholder MFA_ENCRYPTION_KEY");
+                    error!("Generate a secure key with: openssl rand -hex 32");
+                    std::process::exit(1);
+                }
                 if key.len() != 64 {
                     error!("MFA_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)");
                     error!("Generate a secure key with: openssl rand -hex 32");
                     std::process::exit(1);
                 }
-                // Validate it's valid hex
                 if hex::decode(&key).is_err() {
                     error!("MFA_ENCRYPTION_KEY must be valid hexadecimal");
                     error!("Generate a secure key with: openssl rand -hex 32");
@@ -275,6 +305,22 @@ async fn main() -> std::io::Result<()> {
     } else if std::env::var("MFA_ENCRYPTION_KEY").is_err() {
         warn!("MFA_ENCRYPTION_KEY not set - MFA features will be disabled");
         warn!("Generate with: openssl rand -hex 32");
+    }
+
+    // NOSDESK_ROOT_PUBKEY is baked into the binary at build time
+    // via option_env! (see services/plugins/signing.rs). Without it
+    // the plugin trust chain cannot verify Official or Verified
+    // tiers; only `local` (CLI-installed) plugins work. That's
+    // acceptable for an unconfigured fork but not for a Nosdesk
+    // production deployment.
+    if environment == "production"
+        && crate::services::plugins::signing::root_pubkey().is_none()
+    {
+        error!("NOSDESK_ROOT_PUBKEY was not set at build time");
+        error!("Refusing to start in production without a plugin trust root");
+        error!("Rebuild with: docker build --build-arg NOSDESK_ROOT_PUBKEY=<base64> ...");
+        error!("(Forks running their own registry should override with their own root key.)");
+        std::process::exit(1);
     }
     
     // Security: Validate environment (already declared above)

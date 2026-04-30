@@ -63,6 +63,9 @@ services:
         - action: sync+restart
           path: ./backend/Cargo.lock
           target: /app/Cargo.lock
+        - action: sync
+          path: ./backend/diesel.toml
+          target: /app/diesel.toml
     volumes:
       # Build output — :cached because the frontend-watch service
       # writes here and the backend reads it. Bidirectional, so

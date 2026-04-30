@@ -102,6 +102,12 @@ pub enum TrustError {
         claimed: String,
         resolved: &'static str,
     },
+    /// Resolved tier isn't in this instance's allowed-tier policy
+    /// (e.g. a verified-publisher plugin on an instance that locks
+    /// down to official+local until the Phase 4 sandbox ships).
+    DisallowedTier {
+        tier: &'static str,
+    },
     Db(diesel::result::Error),
 }
 
@@ -117,6 +123,11 @@ impl std::fmt::Display for TrustError {
             TrustError::SourceMismatch { claimed, resolved } => write!(
                 f,
                 "envelope claims signer_source={claimed:?} but pubkey resolves to {resolved:?}"
+            ),
+            TrustError::DisallowedTier { tier } => write!(
+                f,
+                "plugin tier {tier:?} is not allowed on this instance \
+                 (set NOSDESK_ALLOWED_PLUGIN_TIERS to enable it)"
             ),
             // Avoid leaking raw Diesel error text (column names,
             // parameter values) to API clients. The actual error
@@ -161,7 +172,66 @@ pub fn resolve(
             resolved: expected,
         });
     }
+    enforce_tier_policy(&tier)?;
     Ok(tier)
+}
+
+/// Reject tiers that the instance has disabled.
+///
+/// `NOSDESK_ALLOWED_PLUGIN_TIERS` (comma-separated `official` /
+/// `verified` / `community` / `local`) overrides the default. The
+/// shipping default in production is `"official,local"` —
+/// `verified` and `community` plugins both run third-party code
+/// in-process with full DOM access, which isn't safe until the
+/// Phase 4 sandbox ships. Operators who need the wider tiers can
+/// opt in explicitly; the choice stays visible in the env config.
+fn enforce_tier_policy(tier: &ResolvedTier) -> Result<(), TrustError> {
+    let allowed = allowed_tiers();
+    if allowed.contains(tier.trust_level()) {
+        return Ok(());
+    }
+    Err(TrustError::DisallowedTier {
+        tier: tier.trust_level(),
+    })
+}
+
+/// Default-deny posture: when the env var is unset, treat the
+/// build profile as the deciding signal. Release binaries lock to
+/// `official+local` until an operator says otherwise; debug
+/// builds keep the developer-friendly full set.
+fn allowed_tiers() -> std::collections::HashSet<&'static str> {
+    use std::collections::HashSet;
+    let raw = std::env::var("NOSDESK_ALLOWED_PLUGIN_TIERS").ok();
+    let configured: Option<Vec<&str>> = raw.as_deref().map(|s| {
+        s.split(',')
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .collect()
+    });
+    let from_env: HashSet<&'static str> = configured
+        .map(|tokens| {
+            tokens
+                .into_iter()
+                .filter_map(|t| match t {
+                    "official" => Some("official"),
+                    "verified" => Some("verified"),
+                    "community" => Some("community"),
+                    "local" => Some("local"),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if !from_env.is_empty() {
+        return from_env;
+    }
+    if cfg!(debug_assertions) {
+        ["official", "verified", "community", "local"]
+            .into_iter()
+            .collect()
+    } else {
+        ["official", "local"].into_iter().collect()
+    }
 }
 
 fn resolve_inner(

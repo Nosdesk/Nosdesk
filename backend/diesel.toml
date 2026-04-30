@@ -6,4 +6,8 @@ file = "src/schema.rs"
 custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
 
 [migrations_directory]
-dir = "/Users/kylephillips/dev/Nosdesk/backend/migrations"
+# Relative to the cargo workspace root (where diesel CLI is invoked).
+# Inside the container that's /app; on a developer host it's
+# wherever the repo is checked out. Hardcoding an absolute path
+# breaks any environment that isn't the original developer's box.
+dir = "migrations"
