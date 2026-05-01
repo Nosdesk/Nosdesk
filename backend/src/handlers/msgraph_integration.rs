@@ -14,6 +14,7 @@ use tracing::{info, warn, error, debug, trace, instrument};
 
 use crate::db::{Pool, DbConnection};
 use crate::handlers::helpers;
+use crate::handlers::errors;
 // Auth providers are now configured via environment variables
 use crate::repository::users as user_repo;
 use crate::repository::devices as device_repo;
@@ -559,20 +560,14 @@ pub async fn get_sync_progress_endpoint(
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     let session_id = path.into_inner();
 
     match get_sync_progress(&session_id) {
         Some(progress) => HttpResponse::Ok().json(progress),
-        None => HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "Sync session not found"
-        }))
+        None => errors::not_found_msg("Sync session not found")
     }
 }
 
@@ -588,10 +583,7 @@ pub async fn get_active_syncs(
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     if let Ok(progress_map) = SYNC_PROGRESS.lock() {
@@ -611,10 +603,7 @@ pub async fn get_active_syncs(
             "count": active_syncs.len()
         }))
     } else {
-        HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Failed to access sync progress"
-        }))
+        errors::internal("Failed to access sync progress")
     }
 }
 
@@ -630,10 +619,7 @@ pub async fn get_last_sync(
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Try to get from database first (persistent storage)
@@ -672,10 +658,7 @@ pub async fn get_last_sync(
                     None => HttpResponse::Ok().json(json!(null))
                 }
             } else {
-                HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to access sync progress"
-                }))
+                errors::internal("Failed to access sync progress")
             }
         }
     }
@@ -694,10 +677,7 @@ pub async fn cancel_sync_session(
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     let session_id = path.into_inner();
@@ -713,16 +693,10 @@ pub async fn cancel_sync_session(
                 "message": "Sync cancellation requested"
             }))
         } else {
-            HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Sync is not running"
-            }))
+            errors::bad_request("Sync is not running")
         }
     } else {
-        HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "Sync session not found"
-        }))
+        errors::not_found_msg("Sync session not found")
     }
 }
 
@@ -733,10 +707,7 @@ pub async fn get_config_validation(
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     let mut missing_fields = Vec::new();
@@ -795,10 +766,7 @@ pub async fn get_connection_status(
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if Microsoft is configured via environment variables
@@ -842,10 +810,7 @@ pub async fn test_connection(
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     tracing::info!("🔬 Testing Microsoft Graph connection");
@@ -853,10 +818,7 @@ pub async fn test_connection(
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {
         Ok(provider) => provider,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Microsoft auth provider not found"
-        })),
+        Err(_) => return errors::bad_request("Microsoft auth provider not found"),
     };
 
     // Test the connection by making a simple Graph API call
@@ -884,27 +846,18 @@ pub async fn sync_data(
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {
         Ok(provider) => provider,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Microsoft auth provider not found"
-        })),
+        Err(_) => return errors::bad_request("Microsoft auth provider not found"),
     };
 
     // Validate configuration before spawning background task
     if let Err(e) = check_microsoft_config() {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": format!("Microsoft Graph configuration invalid: {e}")
-        }));
+        return errors::bad_request(format!("Microsoft Graph configuration invalid: {e}"));
     }
 
     // Determine the primary sync type based on entities
@@ -949,10 +902,7 @@ pub async fn sync_data(
         Ok(history) => history,
         Err(e) => {
             error!("Failed to create sync history record: {:?}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to create sync history record"
-            }));
+            return errors::internal("Failed to create sync history record");
         }
     };
 
@@ -3877,19 +3827,13 @@ pub async fn get_entra_object_id(
     // Extract claims from cookie auth middleware
     let _claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {
         Ok(provider) => provider,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Microsoft auth provider not found"
-        })),
+        Err(_) => return errors::bad_request("Microsoft auth provider not found"),
     };
 
     let azure_ad_device_id = path.into_inner();
@@ -3902,10 +3846,7 @@ pub async fn get_entra_object_id(
             "object_id": object_id,
             "entra_url": format!("https://entra.microsoft.com/#view/Microsoft_AAD_Devices/DeviceDetailsMenuBlade/~/Properties/objectId/{}", object_id)
         })),
-        Err(error) => HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": format!("Failed to fetch Object ID: {}", error)
-        }))
+        Err(error) => errors::bad_request(format!("Failed to fetch Object ID: {}", error))
     }
 }
 

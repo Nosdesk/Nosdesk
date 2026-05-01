@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tracing::{debug, info, warn, error};
 
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword};
 use crate::repository;
 use crate::repository::user_emails as user_emails_repo;
@@ -273,7 +274,7 @@ pub async fn get_users(
         },
         Err(e) => {
             error!(error = ?e, "Error fetching users");
-            HttpResponse::InternalServerError().json("Failed to fetch users")
+            errors::internal("Failed to fetch users")
         },
     }
 }
@@ -369,7 +370,7 @@ pub async fn get_paginated_users(
         },
         Err(e) => {
             error!(error = ?e, "Error fetching paginated users");
-            HttpResponse::InternalServerError().json("Failed to get paginated users")
+            errors::internal("Failed to get paginated users")
         },
     }
 }
@@ -414,7 +415,7 @@ pub async fn get_user_by_uuid(
     // Parse the UUID string into a proper UUID type
     let user_uuid_parsed = match utils::parse_uuid(&uuid_str) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid UUID format"),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
     
     let mut conn = match helpers::db_conn(&pool) {
@@ -428,7 +429,7 @@ pub async fn get_user_by_uuid(
             let user_response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
             HttpResponse::Ok().json(user_response)
         },
-        Err(_) => HttpResponse::NotFound().json("User not found"),
+        Err(_) => errors::not_found_msg("User not found"),
     }
 }
 
@@ -456,7 +457,7 @@ pub async fn get_users_batch(
     }
 
     if valid_uuids.is_empty() {
-        return HttpResponse::BadRequest().json("No valid UUIDs provided");
+        return errors::bad_request("No valid UUIDs provided");
     }
 
     // Convert to Vec for the repository function
@@ -470,7 +471,7 @@ pub async fn get_users_batch(
         },
         Err(e) => {
             error!(error = ?e, "Error fetching users batch");
-            HttpResponse::InternalServerError().json("Failed to get users")
+            errors::internal("Failed to get users")
         },
     }
 }
@@ -598,10 +599,7 @@ pub async fn create_user(
 
     // Check if user with this email already exists
     if repository::get_user_by_email(&user_data.email, &mut conn).is_ok() {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "User with this email already exists"
-        }));
+        return errors::bad_request("User with this email already exists");
     }
 
     // Use provided UUID or generate a new UUIDv7
@@ -633,10 +631,7 @@ pub async fn create_user(
                     Ok(h) => h,
                     Err(e) => {
                         error!(error = ?e, "Error hashing password");
-                        return HttpResponse::InternalServerError().json(json!({
-                            "status": "error",
-                            "message": "Error setting password"
-                        }));
+                        return errors::internal("Error setting password");
                     }
                 };
                 (Some(hash), false)
@@ -655,17 +650,11 @@ pub async fn create_user(
                     },
                     SendInvitationResult::TokenStorageError(e) => {
                         error!(error = %e, "Error storing invitation token");
-                        return HttpResponse::InternalServerError().json(json!({
-                            "status": "error",
-                            "message": "Error creating invitation"
-                        }));
+                        return errors::internal("Error creating invitation");
                     },
                     SendInvitationResult::EmailServiceError(e) => {
                         error!(error = %e, "Error initializing email service");
-                        return HttpResponse::InternalServerError().json(json!({
-                            "status": "error",
-                            "message": "Error sending invitation email"
-                        }));
+                        return errors::internal("Error sending invitation email");
                     },
                     SendInvitationResult::EmailSendError(e) => {
                         error!(error = %e, "Error sending invitation email");
@@ -677,10 +666,7 @@ pub async fn create_user(
                 (None, true) // No password hash - user will set via invitation
             } else {
                 // No password and no SMTP - this should have been caught in validation
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": "Password is required when email is not configured"
-                }));
+                return errors::bad_request("Password is required when email is not configured");
             };
 
             debug!(user_uuid = %user.uuid, "Created user");
@@ -782,35 +768,23 @@ pub async fn delete_user(
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Only admins can delete users
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Only administrators can delete users"
-        }));
+        return errors::forbidden("Only administrators can delete users");
     }
 
     // Get the admin user (the one making the request) to verify their credentials
     let admin_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid admin UUID"
-        })),
+        Err(_) => return errors::bad_request("Invalid admin UUID"),
     };
 
     let admin_user = match repository::get_user_by_uuid(&admin_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Failed to get admin user"
-        })),
+        Err(_) => return errors::internal("Failed to get admin user"),
     };
 
     // Check if MFA is required for admins
@@ -822,45 +796,30 @@ pub async fn delete_user(
         // MFA is required and enabled - verify MFA code
         let mfa_code = match &body.mfa_code {
             Some(code) if !code.is_empty() => code,
-            _ => return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "MFA code is required to delete users"
-            })),
+            _ => return errors::bad_request("MFA code is required to delete users"),
         };
 
         let mfa_result = match crate::utils::mfa::verify_mfa_token(&admin_uuid, mfa_code, &mut conn).await {
             Ok(result) => result,
             Err(e) => {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": format!("MFA verification failed: {}", e)
-                }));
+                return errors::bad_request(format!("MFA verification failed: {}", e));
             }
         };
 
         if !mfa_result.is_valid {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid MFA code"
-            }));
+            return errors::bad_request("Invalid MFA code");
         }
     } else {
         // MFA not required or not enabled - verify password
         let password = match &body.password {
             Some(pwd) if !pwd.is_empty() => pwd,
-            _ => return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Password is required to delete users"
-            })),
+            _ => return errors::bad_request("Password is required to delete users"),
         };
 
         // Get admin's auth identity to verify password
         let auth_identities = match repository::user_auth_identities::get_user_identities(&admin_uuid, &mut conn) {
             Ok(identities) => identities,
-            Err(_) => return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to get authentication data"
-            })),
+            Err(_) => return errors::internal("Failed to get authentication data"),
         };
 
         // Find local auth identity with password
@@ -869,61 +828,40 @@ pub async fn delete_user(
 
         let password_hash = match local_identity {
             Some(identity) => identity.password_hash.as_ref().unwrap(),
-            None => return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "No password set for this account"
-            })),
+            None => return errors::bad_request("No password set for this account"),
         };
 
         // Verify password
         let password_valid = match bcrypt::verify(password, password_hash) {
             Ok(valid) => valid,
-            Err(_) => return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Password verification failed"
-            })),
+            Err(_) => return errors::internal("Password verification failed"),
         };
 
         if !password_valid {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid password"
-            }));
+            return errors::bad_request("Invalid password");
         }
     }
 
     // Parse the target user UUID
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID format"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     // Get the target user
     let target_user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // Prevent self-deletion
     if claims.sub == user_uuid {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "You cannot delete your own account while logged in"
-        }));
+        return errors::bad_request("You cannot delete your own account while logged in");
     }
 
     // Prevent deletion of admin users (safety measure)
     if target_user.role == crate::models::UserRole::Admin {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Administrator accounts cannot be deleted for security reasons"
-        }));
+        return errors::bad_request("Administrator accounts cannot be deleted for security reasons");
     }
 
     // Delete the user
@@ -944,16 +882,10 @@ pub async fn delete_user(
 
             HttpResponse::NoContent().finish()
         },
-        Ok(_) => HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Ok(_) => errors::not_found_msg("User not found"),
         Err(e) => {
             error!("Failed to delete user {} (uuid={}): {:?}", target_user.name, target_user.uuid, e);
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to delete user. The user may have associated data that prevents deletion."
-            }))
+            errors::internal("Failed to delete user. The user may have associated data that prevents deletion.")
         },
     }
 }
@@ -973,30 +905,21 @@ pub async fn get_user_auth_identities(
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Authentication required"
-            }));
+            return errors::unauthorized("Authentication required");
         }
     };
 
     // Get the user ID
     let user_uuid_parsed = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID in token"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID in token"),
     };
 
     let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
         Err(e) => {
             error!(error = ?e, "Error getting user by UUID");
-            return HttpResponse::NotFound().json(json!({
-                "status": "error",
-                "message": "User not found"
-            }));
+            return errors::not_found_msg("User not found");
         }
     };
 
@@ -1005,10 +928,7 @@ pub async fn get_user_auth_identities(
         Ok(identities) => HttpResponse::Ok().json(identities),
         Err(e) => {
             error!(error = ?e, "Error fetching auth identities");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to retrieve auth identities"
-            }))
+            errors::internal("Failed to retrieve auth identities")
         }
     }
 }
@@ -1031,39 +951,27 @@ pub async fn get_user_auth_identities_by_uuid(
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Authentication required"
-            }));
+            return errors::unauthorized("Authentication required");
         }
     };
 
     // Ensure the user is authorized (either accessing their own identities or is an admin)
     if claims.sub != user_uuid && claims.role != "admin" {
         warn!(requesting_user = %claims.sub, target_user = %user_uuid, "Authorization failed: user tried to access identities of another user");
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Not authorized to access this resource"
-        }));
+        return errors::forbidden("Not authorized to access this resource");
     }
 
     // Get auth identities for the user by UUID
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID format"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     match repository::user_auth_identities::get_user_identities_display(&user_uuid_parsed, &mut conn) {
         Ok(identities) => HttpResponse::Ok().json(identities),
         Err(e) => {
             error!(user_uuid = %user_uuid, error = ?e, "Error fetching auth identities for UUID");
-            HttpResponse::NotFound().json(json!({
-                "status": "error",
-                "message": "User not found or no auth identities"
-            }))
+            errors::not_found_msg("User not found or no auth identities")
         }
     }
 }
@@ -1083,29 +991,20 @@ pub async fn delete_user_auth_identity(
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Get the user ID
     let user_uuid_parsed = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID in token"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID in token"),
     };
 
     let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
         Err(e) => {
             error!(error = ?e, "Error getting user by UUID");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to get user data"
-            }));
+            return errors::internal("Failed to get user data");
         }
     };
 
@@ -1115,28 +1014,19 @@ pub async fn delete_user_auth_identity(
         Ok(identities) => identities,
         Err(e) => {
             error!(error = ?e, "Error getting user auth identities");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to get authentication identities"
-            }));
+            return errors::internal("Failed to get authentication identities");
         }
     };
 
     if identities.len() <= 1 {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Cannot delete the only authentication method. Add another method first."
-        }));
+        return errors::bad_request("Cannot delete the only authentication method. Add another method first.");
     }
 
     // Delete the identity
     match repository::user_auth_identities::delete_identity(identity_id, &user.uuid, &mut conn) {
         Ok(count) => {
             if count == 0 {
-                HttpResponse::NotFound().json(json!({
-                    "status": "error",
-                    "message": "Authentication identity not found or doesn't belong to you"
-                }))
+                errors::not_found_msg("Authentication identity not found or doesn't belong to you")
             } else {
                 HttpResponse::Ok().json(json!({
                     "status": "success",
@@ -1146,10 +1036,7 @@ pub async fn delete_user_auth_identity(
         },
         Err(e) => {
             error!(error = ?e, "Error deleting user auth identity");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to delete authentication identity"
-            }))
+            errors::internal("Failed to delete authentication identity")
         }
     }
 }
@@ -1169,56 +1056,38 @@ pub async fn delete_user_auth_identity_by_uuid(
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Ensure the user is authorized (either accessing their own identities or is an admin)
     if claims.sub != user_uuid && claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Not authorized to access this resource"
-        }));
+        return errors::forbidden("Not authorized to access this resource");
     }
 
     // Ensure the user has at least one other auth method before deleting
     // (to prevent locking themselves out)
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID format"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     let identities = match repository::user_auth_identities::get_user_identities(&user_uuid_parsed, &mut conn) {
         Ok(identities) => identities,
         Err(e) => {
             error!(error = ?e, "Error getting user auth identities");
-            return HttpResponse::NotFound().json(json!({
-                "status": "error",
-                "message": "User not found"
-            }));
+            return errors::not_found_msg("User not found");
         }
     };
 
     if identities.len() <= 1 {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Cannot delete the only authentication method. Add another method first."
-        }));
+        return errors::bad_request("Cannot delete the only authentication method. Add another method first.");
     }
 
     // Delete the identity
     match repository::user_auth_identities::delete_identity(identity_id, &user_uuid_parsed, &mut conn) {
         Ok(count) => {
             if count == 0 {
-                HttpResponse::NotFound().json(json!({
-                    "status": "error",
-                    "message": "Authentication identity not found or doesn't belong to this user"
-                }))
+                errors::not_found_msg("Authentication identity not found or doesn't belong to this user")
             } else {
                 HttpResponse::Ok().json(json!({
                     "status": "success",
@@ -1228,10 +1097,7 @@ pub async fn delete_user_auth_identity_by_uuid(
         },
         Err(e) => {
             error!(error = ?e, "Error deleting user auth identity");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to delete authentication identity"
-            }))
+            errors::internal("Failed to delete authentication identity")
         }
     }
 }
@@ -1255,16 +1121,13 @@ pub async fn upload_user_image(
     // Validate that the user exists
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid UUID format"),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
     
     let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
         Err(_) => {
-            return HttpResponse::NotFound().json(json!({
-                "status": "error",
-                "message": "User not found"
-            }));
+            return errors::not_found_msg("User not found");
         }
     };
     
@@ -1273,10 +1136,7 @@ pub async fn upload_user_image(
         "avatar" => "users/avatars",
         "banner" => "users/banners",
         _ => {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid image type. Must be 'avatar' or 'banner'"
-            }));
+            return errors::bad_request("Invalid image type. Must be 'avatar' or 'banner'");
         }
     };
 
@@ -1295,18 +1155,12 @@ pub async fn upload_user_image(
         
         // Validate content type (only allow images)
         if !content_type.starts_with("image/") {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Only image files are allowed"
-            }));
+            return errors::bad_request("Only image files are allowed");
         }
         
         // Check for HEIC/HEIF - these should be converted on the client side
         if content_type.as_str() == "image/heic" || content_type.as_str() == "image/heif" {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "HEIC/HEIF format should be converted to JPEG on the client side before upload"
-            }));
+            return errors::bad_request("HEIC/HEIF format should be converted to JPEG on the client side before upload");
         }
 
         // Extract file extension from content type
@@ -1316,10 +1170,7 @@ pub async fn upload_user_image(
             "image/gif" => "gif",
             "image/webp" => "webp",
             _ => {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": "Unsupported image format. Allowed: JPEG, PNG, GIF, WEBP"
-                }));
+                return errors::bad_request("Unsupported image format. Allowed: JPEG, PNG, GIF, WEBP");
             }
         };
         
@@ -1340,10 +1191,7 @@ pub async fn upload_user_image(
                 Ok(data) => data,
                 Err(e) => {
                     error!(error = ?e, "Error reading chunk");
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Error reading uploaded file"
-                    }));
+                    return errors::internal("Error reading uploaded file");
                 }
             };
             file_data.extend_from_slice(&data);
@@ -1375,17 +1223,11 @@ pub async fn upload_user_image(
                     (avatar_url, thumb_url)
                 },
                 Ok(None) => {
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Failed to process avatar image"
-                    }));
+                    return errors::internal("Failed to process avatar image");
                 },
                 Err(e) => {
                     error!(user_uuid = %user_uuid, error = %e, "Error processing avatar");
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": format!("Failed to process avatar image: {}", e)
-                    }));
+                    return errors::internal(format!("Failed to process avatar image: {}", e));
                 }
             }
         } else {
@@ -1396,17 +1238,11 @@ pub async fn upload_user_image(
                     (banner_url, None)
                 },
                 Ok(None) => {
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Failed to process banner image"
-                    }));
+                    return errors::internal("Failed to process banner image");
                 },
                 Err(e) => {
                     error!(user_uuid = %user_uuid, error = %e, "Error processing banner");
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": format!("Failed to process banner image: {}", e)
-                    }));
+                    return errors::internal(format!("Failed to process banner image: {}", e));
                 }
             }
         };
@@ -1438,19 +1274,13 @@ pub async fn upload_user_image(
             },
             Err(e) => {
                 error!(error = ?e, "Error updating user");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Error updating user record"
-                }));
+                return errors::internal("Error updating user record");
             }
         }
     }
     
     // If we get here, no file was provided
-    HttpResponse::BadRequest().json(json!({
-        "status": "error",
-        "message": "No image file provided"
-    }))
+    errors::bad_request("No image file provided")
 }
 
 #[derive(serde::Deserialize)]
@@ -1506,17 +1336,11 @@ pub async fn cleanup_stale_images(
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Only administrators can cleanup stale images"
-        }));
+        return errors::forbidden("Only administrators can cleanup stale images");
     }
 
     // Get all users to know which files should exist
@@ -1524,10 +1348,7 @@ pub async fn cleanup_stale_images(
         Ok(users) => users,
         Err(e) => {
             error!(error = ?e, "Error fetching users");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to fetch users"
-            }));
+            return errors::internal("Failed to fetch users");
         }
     };
 
@@ -1709,32 +1530,23 @@ pub async fn update_user_by_uuid(
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // First get the user by UUID to get the ID
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid UUID format"),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     // Authorization: Users can only update their own profile, admins can update anyone
     if claims.sub != user_uuid && claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "You can only update your own profile"
-        }));
+        return errors::forbidden("You can only update your own profile");
     }
 
     let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // Check if email is being updated and if it's already in use
@@ -1745,10 +1557,7 @@ pub async fn update_user_by_uuid(
         // Hash the new password
         let password_hash = match hash(password, DEFAULT_COST) {
             Ok(hash) => hash,
-            Err(_) => return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error hashing password"
-            })),
+            Err(_) => return errors::internal("Error hashing password"),
         };
 
         // Find existing local auth identity
@@ -1756,10 +1565,7 @@ pub async fn update_user_by_uuid(
             Ok(identities) => identities,
             Err(e) => {
                 error!(error = ?e, "Error fetching auth identities");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Error processing user identities"
-                }));
+                return errors::internal("Error processing user identities");
             }
         };
         
@@ -1776,10 +1582,7 @@ pub async fn update_user_by_uuid(
                     Ok(_) => {},
                     Err(e) => {
                         error!(error = ?e, "Error deleting auth identity");
-                        return HttpResponse::InternalServerError().json(json!({
-                            "status": "error",
-                            "message": "Error updating password"
-                        }));
+                        return errors::internal("Error updating password");
                     }
                 }
                 
@@ -1795,10 +1598,7 @@ pub async fn update_user_by_uuid(
 
                 if let Err(e) = repository::user_auth_identities::create_identity(new_auth_identity, &mut conn) {
                     error!(error = ?e, "Error creating updated auth identity");
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Error updating password"
-                    }));
+                    return errors::internal("Error updating password");
                 }
             },
             None => {
@@ -1814,10 +1614,7 @@ pub async fn update_user_by_uuid(
                 
                 if let Err(e) = repository::user_auth_identities::create_identity(new_auth_identity, &mut conn) {
                     error!(error = ?e, "Error creating auth identity");
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Error setting password"
-                    }));
+                    return errors::internal("Error setting password");
                 }
             }
         }
@@ -1826,10 +1623,7 @@ pub async fn update_user_by_uuid(
     // Validate theme if provided (allow any non-empty string as theme ID)
     if let Some(ref theme) = user_data.theme {
         if theme.is_empty() || theme.len() > 50 {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Theme must be a non-empty string up to 50 characters"
-            }));
+            return errors::bad_request("Theme must be a non-empty string up to 50 characters");
         }
     }
 
@@ -1917,10 +1711,7 @@ pub async fn update_user_by_uuid(
             let user_response = repository::user_helpers::get_user_with_primary_email(updated_user, &mut conn);
             HttpResponse::Ok().json(user_response)
         },
-        Err(_) => HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Error updating user"
-        })),
+        Err(_) => errors::internal("Error updating user"),
     }
 }
 
@@ -1939,36 +1730,24 @@ pub async fn get_user_emails(
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // Check authorization (user can access their own emails, admins can access any)
     if claims.sub != user_uuid && claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Not authorized to access this resource"
-        }));
+        return errors::forbidden("Not authorized to access this resource");
     }
 
     // Get user emails
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID format"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     // Get user first to ensure they exist
     let _user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // Get emails from user_emails table (single source of truth)
@@ -1996,60 +1775,39 @@ pub async fn add_user_email(
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // Authorization: Users can only add emails to their own account, admins can add to anyone
     if claims.sub != user_uuid && claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Not authorized"
-        }));
+        return errors::forbidden("Not authorized");
     }
 
     // Extract email from request
     let email = match email_data.get("email").and_then(|e| e.as_str()) {
         Some(e) => e.trim().to_lowercase(),
-        None => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Email is required"
-        })),
+        None => return errors::bad_request("Email is required"),
     };
 
     // Validate email format
     if !email.contains('@') || !email.contains('.') {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid email format"
-        }));
+        return errors::bad_request("Invalid email format");
     }
 
     // Get user ID
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID format"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // Check if email already exists
     if user_emails_repo::find_user_by_any_email(&mut conn, &email).is_ok() {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Email address already in use"
-        }));
+        return errors::bad_request("Email address already in use");
     }
 
     // Create new email
@@ -2074,10 +1832,7 @@ pub async fn add_user_email(
         })),
         Err(e) => {
             error!(error = ?e, "Error adding email");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to add email"
-            }))
+            errors::internal("Failed to add email")
         }
     }
 }
@@ -2097,35 +1852,23 @@ pub async fn update_user_email(
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // Authorization
     if claims.sub != user_uuid && claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Not authorized"
-        }));
+        return errors::forbidden("Not authorized");
     }
 
     // Get user
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID format"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // If setting as primary, unset other primary emails first
@@ -2156,10 +1899,7 @@ pub async fn update_user_email(
         })),
         Err(e) => {
             error!(error = ?e, "Error updating email");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to update email"
-            }))
+            errors::internal("Failed to update email")
         }
     }
 }
@@ -2178,35 +1918,23 @@ pub async fn delete_user_email(
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // Authorization
     if claims.sub != user_uuid && claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Not authorized"
-        }));
+        return errors::forbidden("Not authorized");
     }
 
     // Get user and verify email belongs to them
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID format"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // Check if email is primary
@@ -2216,24 +1944,15 @@ pub async fn delete_user_email(
         .first(&mut conn)
     {
         Ok(email) => email,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "Email not found"
-        })),
+        Err(_) => return errors::not_found_msg("Email not found"),
     };
 
     if email.user_uuid != user.uuid {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Email does not belong to this user"
-        }));
+        return errors::forbidden("Email does not belong to this user");
     }
 
     if email.is_primary {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Cannot delete primary email address"
-        }));
+        return errors::bad_request("Cannot delete primary email address");
     }
 
     // Delete the email
@@ -2246,10 +1965,7 @@ pub async fn delete_user_email(
         })),
         Err(e) => {
             error!(error = ?e, "Error deleting email");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to delete email"
-            }))
+            errors::internal("Failed to delete email")
         }
     }
 }
@@ -2269,18 +1985,12 @@ pub async fn resend_invitation(
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Only admins can resend invitations
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Only administrators can resend invitations"
-        }));
+        return errors::forbidden("Only administrators can resend invitations");
     }
 
     // Check email configuration
@@ -2288,27 +1998,18 @@ pub async fn resend_invitation(
     let smtp_configured = email_config.as_ref().map(|c| c.is_configured()).unwrap_or(false);
 
     if !smtp_configured {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Email is not configured. Cannot send invitation."
-        }));
+        return errors::bad_request("Email is not configured. Cannot send invitation.");
     }
 
     // Get the user
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID format"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // Check if user already has a password set (completed setup)
@@ -2319,19 +2020,13 @@ pub async fn resend_invitation(
     });
 
     if has_password {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "User has already completed account setup. Cannot resend invitation."
-        }));
+        return errors::bad_request("User has already completed account setup. Cannot resend invitation.");
     }
 
     // Get user's primary email - try to find one marked as primary first
     let emails = match user_emails_repo::get_user_emails_by_uuid(&mut conn, &user.uuid) {
         Ok(emails) if !emails.is_empty() => emails,
-        _ => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "User has no email address"
-        })),
+        _ => return errors::bad_request("User has no email address"),
     };
 
     // Find primary email or use first one
@@ -2344,10 +2039,7 @@ pub async fn resend_invitation(
     // Get the admin user's name for the invitation email
     let admin_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Invalid admin UUID"
-        })),
+        Err(_) => return errors::internal("Invalid admin UUID"),
     };
 
     let admin_name = match repository::get_user_by_uuid(&admin_uuid, &mut conn) {
@@ -2384,24 +2076,15 @@ pub async fn resend_invitation(
         },
         SendInvitationResult::TokenStorageError(e) => {
             error!(error = %e, "Error storing invitation token");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error creating invitation"
-            }))
+            errors::internal("Error creating invitation")
         },
         SendInvitationResult::EmailServiceError(e) => {
             error!(error = %e, "Error initializing email service");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error sending invitation email"
-            }))
+            errors::internal("Error sending invitation email")
         },
         SendInvitationResult::EmailSendError(e) => {
             error!(error = %e, "Error sending invitation email");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to send invitation email"
-            }))
+            errors::internal("Failed to send invitation email")
         },
     }
 }
@@ -2421,35 +2104,23 @@ pub async fn get_user_with_emails(
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // Check authorization
     if claims.sub != user_uuid && claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Not authorized to access this resource"
-        }));
+        return errors::forbidden("Not authorized to access this resource");
     }
 
     // Get user
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID format"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // Get user emails
@@ -2492,17 +2163,11 @@ pub async fn get_user_profile_bundle(
     let uuid_str = path.into_inner();
     let user_uuid_parsed = match utils::parse_uuid(&uuid_str) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID format",
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     if user_uuid_parsed != auth.user_uuid && !auth.is_admin() {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Not authorized to view this profile",
-        }));
+        return errors::forbidden("Not authorized to view this profile");
     }
 
     let groups = match parse_profile_include(query.include.as_deref()) {
@@ -2517,16 +2182,10 @@ pub async fn get_user_profile_bundle(
 
     match crate::repository::user_profile::compute(&mut conn, &user_uuid_parsed, &groups) {
         Ok(Some(bundle)) => HttpResponse::Ok().json(bundle),
-        Ok(None) => HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found",
-        })),
+        Ok(None) => errors::not_found_msg("User not found"),
         Err(e) => {
             error!(user_uuid = %user_uuid_parsed, error = ?e, "Failed to compute profile bundle");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to load profile",
-            }))
+            errors::internal("Failed to load profile")
         }
     }
 }
@@ -2546,10 +2205,7 @@ fn parse_profile_include(raw: Option<&str>) -> Result<HashSet<crate::repository:
         match ProfileGroup::parse(token) {
             Some(g) => { out.insert(g); }
             None => {
-                return Err(HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": format!("Unknown include key '{}'. Valid: {:?}", token, ProfileGroup::all_keys()),
-                })));
+                return Err(errors::bad_request(format!("Unknown include key '{}'. Valid: {:?}", token, ProfileGroup::all_keys())));
             }
         }
     }
@@ -2575,18 +2231,12 @@ pub async fn bulk_users(
     // Extract claims and check authentication
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     // Only admins can perform bulk operations
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only administrators can perform bulk user operations"
-        }));
+        return errors::forbidden("Forbidden: Only administrators can perform bulk user operations");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -2598,18 +2248,12 @@ pub async fn bulk_users(
     let ids = &body.ids;
 
     if ids.is_empty() {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Bad Request",
-            "message": "No user IDs provided"
-        }));
+        return errors::bad_request("Bad Request: No user IDs provided");
     }
 
     // Prevent self-deletion/modification
     if ids.contains(&claims.sub) {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Bad Request",
-            "message": "Cannot perform bulk operations on your own account"
-        }));
+        return errors::bad_request("Bad Request: Cannot perform bulk operations on your own account");
     }
 
     match action {
@@ -2647,20 +2291,14 @@ pub async fn bulk_users(
         "set-role" => {
             let role_str = match &body.value {
                 Some(v) => v.as_str(),
-                None => return HttpResponse::BadRequest().json(json!({
-                    "error": "Bad Request",
-                    "message": "Role value required"
-                })),
+                None => return errors::bad_request("Bad Request: Role value required"),
             };
 
             let role = match role_str {
                 "admin" => crate::models::UserRole::Admin,
                 "technician" => crate::models::UserRole::Technician,
                 "user" => crate::models::UserRole::User,
-                _ => return HttpResponse::BadRequest().json(json!({
-                    "error": "Bad Request",
-                    "message": "Invalid role value"
-                })),
+                _ => return errors::bad_request("Bad Request: Invalid role value"),
             };
 
             let mut updated = 0;
@@ -2725,26 +2363,17 @@ pub async fn get_user_security_info(
 
     // Authorization: self or admin
     if claims.sub != target_uuid_str && claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Not authorized to access this resource"
-        }));
+        return errors::forbidden("Not authorized to access this resource");
     }
 
     let target_uuid = match utils::parse_uuid(&target_uuid_str) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid UUID format"
-        })),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
     let user = match repository::get_user_by_uuid(&target_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // MFA status
@@ -2811,10 +2440,7 @@ pub async fn admin_reset_user_password(
     // Validate password meets requirements
     let validation = utils::auth::validate_password(&body.new_password);
     if !validation.valid {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": format!("Password validation failed: {}", validation.errors.join(", "))
-        }));
+        return errors::bad_request(format!("Password validation failed: {}", validation.errors.join(", ")));
     }
 
     let new_hash = match utils::auth::hash_password(&body.new_password) {
@@ -2834,18 +2460,12 @@ pub async fn admin_reset_user_password(
         Ok(count) => count,
         Err(e) => {
             error!(error = ?e, "Error updating password hash for user");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to update password"
-            }));
+            return errors::internal("Failed to update password");
         }
     };
 
     if rows_updated == 0 {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "User does not have a local password identity. Cannot reset password for OAuth-only accounts."
-        }));
+        return errors::bad_request("User does not have a local password identity. Cannot reset password for OAuth-only accounts.");
     }
 
     // Update password_changed_at timestamp
@@ -2875,10 +2495,7 @@ pub async fn admin_disable_user_mfa(
     };
 
     if !user.mfa_enabled {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "MFA is not enabled for this user"
-        }));
+        return errors::bad_request("MFA is not enabled for this user");
     }
 
     let mfa_update = crate::models::UserMfaUpdate {
@@ -2890,10 +2507,7 @@ pub async fn admin_disable_user_mfa(
 
     if let Err(e) = repository::update_user_mfa(&user.uuid, mfa_update, &mut conn) {
         error!(error = ?e, "Error disabling MFA for user");
-        return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Failed to disable MFA"
-        }));
+        return errors::internal("Failed to disable MFA");
     }
 
     info!(admin = %claims.sub, target_user = %target_uuid_str, user_name = %user.name, "Admin disabled MFA for user");
@@ -2918,18 +2532,12 @@ pub async fn admin_delete_user_passkey(
 
     let mut passkey_data = crate::utils::webauthn::get_user_passkey_data(&user);
     if !passkey_data.remove_credential(&credential_id) {
-        return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "Passkey not found"
-        }));
+        return errors::not_found_msg("Passkey not found");
     }
 
     if let Err(e) = crate::utils::webauthn::save_user_passkey_data(&mut conn, &user.uuid, &passkey_data) {
         error!(error = ?e, "Error saving passkey data");
-        return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Failed to delete passkey"
-        }));
+        return errors::internal("Failed to delete passkey");
     }
 
     info!(admin = %claims.sub, target_user = %target_uuid_str, credential_id = %credential_id, "Admin deleted passkey for user");

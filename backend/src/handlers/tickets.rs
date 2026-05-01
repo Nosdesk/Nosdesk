@@ -20,6 +20,7 @@ use crate::services::search::SearchService;
 use crate::services::search::indexing_tasks;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
 use crate::handlers::helpers;
+use crate::handlers::errors;
 
 // Helper function to validate assignee role
 fn validate_assignee_role(
@@ -30,18 +31,12 @@ fn validate_assignee_role(
         Ok(user) => {
             // Check if user has technician or admin role
             if user.role != UserRole::Technician && user.role != UserRole::Admin {
-                Err(HttpResponse::BadRequest().json(json!({
-                    "error": "Invalid assignee",
-                    "message": "Only technicians and administrators can be assigned to tickets"
-                })))
+                Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
             } else {
                 Ok(())
             }
         }
-        Err(_) => Err(HttpResponse::BadRequest().json(json!({
-            "error": "User not found",
-            "message": "The specified assignee does not exist"
-        }))),
+        Err(_) => Err(errors::bad_request("User not found: The specified assignee does not exist")),
     }
 }
 
@@ -56,36 +51,24 @@ fn parse_and_validate_assignee_string(
         match crate::repository::users::get_user_by_uuid(&uuid, conn) {
             Ok(user) => {
                 if user.role != UserRole::Technician && user.role != UserRole::Admin {
-                    Err(HttpResponse::BadRequest().json(json!({
-                        "error": "Invalid assignee",
-                        "message": "Only technicians and administrators can be assigned to tickets"
-                    })))
+                    Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
                 } else {
                     Ok(uuid)
                 }
             }
-            Err(_) => Err(HttpResponse::BadRequest().json(json!({
-                "error": "User not found",
-                "message": "The specified assignee does not exist"
-            }))),
+            Err(_) => Err(errors::bad_request("User not found: The specified assignee does not exist")),
         }
     } else {
         // Try to look up by name
         match crate::repository::users::get_user_by_name(assignee_str, conn) {
             Ok(user) => {
                 if user.role != UserRole::Technician && user.role != UserRole::Admin {
-                    Err(HttpResponse::BadRequest().json(json!({
-                        "error": "Invalid assignee",
-                        "message": "Only technicians and administrators can be assigned to tickets"
-                    })))
+                    Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
                 } else {
                     Ok(user.uuid)
                 }
             }
-            Err(_) => Err(HttpResponse::BadRequest().json(json!({
-                "error": "User not found",
-                "message": "The specified assignee does not exist"
-            }))),
+            Err(_) => Err(errors::bad_request("User not found: The specified assignee does not exist")),
         }
     }
 }
@@ -229,10 +212,7 @@ pub async fn get_tickets(
 ) -> impl Responder {
     // Only technicians and admins can see all tickets via this endpoint
     if !auth.is_technician_or_admin() {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and admins can access all tickets"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and admins can access all tickets");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -242,7 +222,7 @@ pub async fn get_tickets(
 
     match repository::get_all_tickets(&mut conn) {
         Ok(tickets) => HttpResponse::Ok().json(tickets),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to get tickets"),
+        Err(_) => errors::internal("Failed to get tickets"),
     }
 }
 
@@ -280,7 +260,7 @@ pub async fn get_paginated_tickets(
         Ok(paginated) => HttpResponse::Ok().json(paginated),
         Err(e) => {
             error!(error = ?e, "Failed to fetch paginated tickets");
-            HttpResponse::InternalServerError().json("Failed to get paginated tickets")
+            errors::internal("Failed to get paginated tickets")
         }
     }
 }
@@ -304,7 +284,7 @@ pub async fn get_ticket(
     // Get the ticket first
     let complete_ticket = match repository::get_complete_ticket(&mut conn, ticket_id) {
         Ok(ticket) => ticket,
-        Err(_) => return HttpResponse::NotFound().json("Ticket not found"),
+        Err(_) => return errors::not_found_msg("Ticket not found"),
     };
 
     // Record the view (don't fail the request if this fails)
@@ -350,13 +330,10 @@ pub async fn create_ticket(
         ) {
             Ok(true) => {}
             Ok(false) => {
-                return HttpResponse::Forbidden().json(json!({
-                    "error": "Forbidden",
-                    "message": "You do not have access to the specified category"
-                }));
+                return errors::forbidden("Forbidden: You do not have access to the specified category");
             }
             Err(_) => {
-                return HttpResponse::InternalServerError().json("Failed to check category visibility");
+                return errors::internal("Failed to check category visibility");
             }
         }
     }
@@ -440,7 +417,7 @@ pub async fn create_ticket(
 
             HttpResponse::Created().json(ticket)
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to create ticket"),
+        Err(_) => errors::internal("Failed to create ticket"),
     }
 }
 
@@ -467,7 +444,7 @@ pub async fn update_ticket(
     match repository::update_ticket(&mut conn, ticket_id, new_ticket) {
         Ok(ticket) => HttpResponse::Ok().json(ticket),
         Err(e) => {
-            HttpResponse::InternalServerError().json(format!("Failed to update ticket: {e}"))
+            errors::internal(format!("Failed to update ticket: {e}"))
         }
     }
 }
@@ -486,17 +463,11 @@ pub async fn delete_ticket(
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     if !is_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only administrators can delete tickets"
-        }));
+        return errors::forbidden("Forbidden: Only administrators can delete tickets");
     }
 
     let ticket_id = path.into_inner();
@@ -525,10 +496,10 @@ pub async fn delete_ticket(
 
                 HttpResponse::NoContent().finish()
             } else {
-                HttpResponse::NotFound().json("Ticket not found")
+                errors::not_found_msg("Ticket not found")
             }
         }
-        Err(_) => HttpResponse::InternalServerError().json("Failed to delete ticket"),
+        Err(_) => errors::internal("Failed to delete ticket"),
     }
 }
 
@@ -541,17 +512,11 @@ pub async fn import_tickets_from_json(
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     if !is_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only administrators can import tickets"
-        }));
+        return errors::forbidden("Forbidden: Only administrators can import tickets");
     }
 
     let json_path_str = json_path.into_inner();
@@ -560,15 +525,14 @@ pub async fn import_tickets_from_json(
     let json_content = match fs::read_to_string(path) {
         Ok(content) => content,
         Err(e) => {
-            return HttpResponse::InternalServerError()
-                .json(json!({ "error": format!("Failed to read file: {}", e) }));
+            return errors::internal(format!("Failed to read file: {}", e));
         }
     };
 
     // Parse the JSON
     let tickets_json: TicketsJson = match serde_json::from_str(&json_content) {
         Ok(tickets) => tickets,
-        Err(_) => return HttpResponse::BadRequest().json("Failed to parse JSON"),
+        Err(_) => return errors::bad_request("Failed to parse JSON"),
     };
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -602,17 +566,11 @@ pub async fn import_tickets_from_json_string(
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     if !is_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only administrators can import tickets"
-        }));
+        return errors::forbidden("Forbidden: Only administrators can import tickets");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -652,13 +610,13 @@ pub async fn create_empty_ticket(
     // Extract claims from request extensions (set by cookie_auth_middleware)
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Parse the user UUID from the JWT claims
     let user_uuid = match crate::utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID in token"),
+        Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
     // Create a new ticket with default values using the authenticated user's UUID
@@ -680,8 +638,7 @@ pub async fn create_empty_ticket(
         Ok(ticket) => ticket,
         Err(e) => {
             error!(error = ?e, "Failed to create empty ticket");
-            return HttpResponse::InternalServerError()
-                .json(format!("Failed to create empty ticket: {e}"));
+            return errors::internal(format!("Failed to create empty ticket: {e}"));
         }
     };
 
@@ -784,7 +741,7 @@ pub async fn update_ticket_partial(
     // Extract claims from request extensions (set by cookie_auth_middleware)
     let user_info = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Get the current ticket state for detecting changes (for notifications)
@@ -881,7 +838,7 @@ pub async fn update_ticket_partial(
     if let Some(Some(new_category_id)) = ticket_update.category_id {
         let user_uuid = match crate::utils::parse_uuid(&user_info.sub) {
             Ok(uuid) => uuid,
-            Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID in token"),
+            Err(_) => return errors::bad_request("Invalid user UUID in token"),
         };
         let is_admin = crate::utils::rbac::is_admin(&user_info);
         match crate::repository::categories::can_user_see_category(
@@ -892,13 +849,10 @@ pub async fn update_ticket_partial(
         ) {
             Ok(true) => {}
             Ok(false) => {
-                return HttpResponse::Forbidden().json(json!({
-                    "error": "Forbidden",
-                    "message": "You do not have access to the specified category"
-                }));
+                return errors::forbidden("Forbidden: You do not have access to the specified category");
             }
             Err(_) => {
-                return HttpResponse::InternalServerError().json("Failed to check category visibility");
+                return errors::internal("Failed to check category visibility");
             }
         }
     }
@@ -1019,8 +973,7 @@ pub async fn update_ticket_partial(
             let updated_ticket = match repository::get_complete_ticket(&mut conn, ticket_id) {
                 Ok(ticket) => ticket,
                 Err(_) => {
-                    return HttpResponse::InternalServerError()
-                        .json("Failed to fetch updated ticket")
+                    return errors::internal("Failed to fetch updated ticket")
                 }
             };
 
@@ -1115,7 +1068,7 @@ pub async fn update_ticket_partial(
         }
         Err(e) => {
             error!(error = ?e, "Failed to update ticket");
-            HttpResponse::InternalServerError().json("Failed to update ticket")
+            errors::internal("Failed to update ticket")
         }
     }
 }
@@ -1132,17 +1085,11 @@ pub async fn link_tickets(
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can link tickets"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can link tickets");
     }
 
     let (ticket_id, linked_ticket_id) = path.into_inner();
@@ -1171,7 +1118,7 @@ pub async fn link_tickets(
         }
         Err(e) => {
             error!(error = ?e, "Failed to link tickets");
-            HttpResponse::InternalServerError().json("Failed to link tickets")
+            errors::internal("Failed to link tickets")
         }
     }
 }
@@ -1188,17 +1135,11 @@ pub async fn unlink_tickets(
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can unlink tickets"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can unlink tickets");
     }
 
     let (ticket_id, linked_ticket_id) = path.into_inner();
@@ -1227,7 +1168,7 @@ pub async fn unlink_tickets(
         }
         Err(e) => {
             error!(error = ?e, "Failed to unlink tickets");
-            HttpResponse::InternalServerError().json("Failed to unlink tickets")
+            errors::internal("Failed to unlink tickets")
         }
     }
 }
@@ -1244,17 +1185,11 @@ pub async fn add_device_to_ticket(
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can add devices to tickets"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can add devices to tickets");
     }
 
     let (ticket_id, device_id) = path.into_inner();
@@ -1283,7 +1218,7 @@ pub async fn add_device_to_ticket(
         }
         Err(e) => {
             error!(ticket_id = ticket_id, device_id = device_id, error = ?e, "Failed to add device to ticket");
-            HttpResponse::InternalServerError().json("Failed to add device to ticket")
+            errors::internal("Failed to add device to ticket")
         }
     }
 }
@@ -1300,17 +1235,11 @@ pub async fn remove_device_from_ticket(
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can remove devices from tickets"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can remove devices from tickets");
     }
 
     let (ticket_id, device_id) = path.into_inner();
@@ -1338,12 +1267,12 @@ pub async fn remove_device_from_ticket(
 
                 HttpResponse::Ok().json(json!({"success": true}))
             } else {
-                HttpResponse::NotFound().json("Device not associated with ticket")
+                errors::not_found_msg("Device not associated with ticket")
             }
         }
         Err(e) => {
             error!(ticket_id = ticket_id, device_id = device_id, error = ?e, "Failed to remove device from ticket");
-            HttpResponse::InternalServerError().json("Failed to remove device from ticket")
+            errors::internal("Failed to remove device from ticket")
         }
     }
 }
@@ -1358,10 +1287,7 @@ pub async fn get_recent_tickets(
     let claims_inner = claims.into_inner();
     let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "error": "Invalid user UUID",
-            "message": "The user UUID in the authentication token is invalid"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID: The user UUID in the authentication token is invalid"),
     };
 
     let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
@@ -1370,7 +1296,7 @@ pub async fn get_recent_tickets(
         Ok(tickets) => HttpResponse::Ok().json(tickets),
         Err(e) => {
             error!(error = ?e, "Failed to fetch recent tickets");
-            HttpResponse::InternalServerError().json("Failed to fetch recent tickets")
+            errors::internal("Failed to fetch recent tickets")
         }
     }
 }
@@ -1387,10 +1313,7 @@ pub async fn record_ticket_view(
     let claims_inner = claims.into_inner();
     let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "error": "Invalid user UUID",
-            "message": "The user UUID in the authentication token is invalid"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID: The user UUID in the authentication token is invalid"),
     };
 
     let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
@@ -1399,7 +1322,7 @@ pub async fn record_ticket_view(
         Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => {
             error!(error = ?e, "Failed to record ticket view");
-            HttpResponse::InternalServerError().json("Failed to record ticket view")
+            errors::internal("Failed to record ticket view")
         }
     }
 }
@@ -1416,10 +1339,7 @@ pub async fn remove_recent_ticket(
     let claims_inner = claims.into_inner();
     let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "error": "Invalid user UUID",
-            "message": "The user UUID in the authentication token is invalid"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID: The user UUID in the authentication token is invalid"),
     };
 
     let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
@@ -1428,7 +1348,7 @@ pub async fn remove_recent_ticket(
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
             error!(error = ?e, "Failed to remove recent ticket view");
-            HttpResponse::InternalServerError().json("Failed to remove recent ticket")
+            errors::internal("Failed to remove recent ticket")
         }
     }
 }
@@ -1455,10 +1375,7 @@ pub async fn bulk_tickets(
     // Extract claims and check authentication
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -1470,20 +1387,14 @@ pub async fn bulk_tickets(
     let ids = &body.ids;
 
     if ids.is_empty() {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Bad Request",
-            "message": "No ticket IDs provided"
-        }));
+        return errors::bad_request("Bad Request: No ticket IDs provided");
     }
 
     match action {
         "delete" => {
             // Only admins can bulk delete
             if !is_admin(&claims) {
-                return HttpResponse::Forbidden().json(json!({
-                    "error": "Forbidden",
-                    "message": "Only administrators can delete tickets"
-                }));
+                return errors::forbidden("Forbidden: Only administrators can delete tickets");
             }
 
             let mut deleted = 0;
@@ -1514,20 +1425,14 @@ pub async fn bulk_tickets(
         "set-status" => {
             let status_str = match &body.value {
                 Some(v) => v.as_str(),
-                None => return HttpResponse::BadRequest().json(json!({
-                    "error": "Bad Request",
-                    "message": "Status value required"
-                })),
+                None => return errors::bad_request("Bad Request: Status value required"),
             };
 
             let status = match status_str {
                 "open" => crate::models::TicketStatus::Open,
                 "in-progress" => crate::models::TicketStatus::InProgress,
                 "closed" => crate::models::TicketStatus::Closed,
-                _ => return HttpResponse::BadRequest().json(json!({
-                    "error": "Bad Request",
-                    "message": "Invalid status value"
-                })),
+                _ => return errors::bad_request("Bad Request: Invalid status value"),
             };
 
             let mut updated = 0;
@@ -1571,20 +1476,14 @@ pub async fn bulk_tickets(
         "set-priority" => {
             let priority_str = match &body.value {
                 Some(v) => v.as_str(),
-                None => return HttpResponse::BadRequest().json(json!({
-                    "error": "Bad Request",
-                    "message": "Priority value required"
-                })),
+                None => return errors::bad_request("Bad Request: Priority value required"),
             };
 
             let priority = match priority_str {
                 "low" => crate::models::TicketPriority::Low,
                 "medium" => crate::models::TicketPriority::Medium,
                 "high" => crate::models::TicketPriority::High,
-                _ => return HttpResponse::BadRequest().json(json!({
-                    "error": "Bad Request",
-                    "message": "Invalid priority value"
-                })),
+                _ => return errors::bad_request("Bad Request: Invalid priority value"),
             };
 
             let mut updated = 0;
@@ -1623,10 +1522,7 @@ pub async fn bulk_tickets(
         "assign" => {
             let assignee_str = match &body.value {
                 Some(v) => v.as_str(),
-                None => return HttpResponse::BadRequest().json(json!({
-                    "error": "Bad Request",
-                    "message": "Assignee value required"
-                })),
+                None => return errors::bad_request("Bad Request: Assignee value required"),
             };
 
             let assignee_uuid = if assignee_str.is_empty() {
@@ -1634,10 +1530,7 @@ pub async fn bulk_tickets(
             } else {
                 match Uuid::parse_str(assignee_str) {
                     Ok(uuid) => Some(uuid),
-                    Err(_) => return HttpResponse::BadRequest().json(json!({
-                        "error": "Bad Request",
-                        "message": "Invalid assignee UUID"
-                    })),
+                    Err(_) => return errors::bad_request("Bad Request: Invalid assignee UUID"),
                 }
             };
 

@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{Claims, CreateApiTokenRequest};
 use crate::repository::api_tokens;
 use crate::utils::rbac::require_admin;
@@ -29,12 +30,12 @@ pub async fn list_api_tokens(req: HttpRequest, pool: web::Data<Pool>) -> impl Re
             Ok(enriched) => HttpResponse::Ok().json(enriched),
             Err(e) => {
                 error!("Failed to enrich tokens: {}", e);
-                HttpResponse::InternalServerError().json("Failed to get tokens")
+                errors::internal("Failed to get tokens")
             }
         },
         Err(e) => {
             error!("Failed to list tokens: {}", e);
-            HttpResponse::InternalServerError().json("Failed to list tokens")
+            errors::internal("Failed to list tokens")
         }
     }
 }
@@ -51,21 +52,21 @@ pub async fn create_api_token(
 
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     let created_by = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     // Validate token name
     if body.name.trim().is_empty() {
-        return HttpResponse::BadRequest().json("Token name is required");
+        return errors::bad_request("Token name is required");
     }
 
     if body.name.len() > 255 {
-        return HttpResponse::BadRequest().json("Token name must be 255 characters or less");
+        return errors::bad_request("Token name must be 255 characters or less");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -77,11 +78,11 @@ pub async fn create_api_token(
     match crate::repository::get_user_by_uuid(&body.user_uuid, &mut conn) {
         Ok(_) => {}
         Err(Error::NotFound) => {
-            return HttpResponse::NotFound().json("Target user not found");
+            return errors::not_found_msg("Target user not found");
         }
         Err(e) => {
             error!("Failed to verify user: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to verify user");
+            return errors::internal("Failed to verify user");
         }
     }
 
@@ -102,7 +103,7 @@ pub async fn create_api_token(
         }
         Err(e) => {
             error!("Failed to create token: {}", e);
-            HttpResponse::InternalServerError().json("Failed to create token")
+            errors::internal("Failed to create token")
         }
     }
 }
@@ -130,18 +131,18 @@ pub async fn get_api_token(
                 if let Some(token_info) = enriched.pop() {
                     HttpResponse::Ok().json(token_info)
                 } else {
-                    HttpResponse::NotFound().json("Token not found")
+                    errors::not_found_msg("Token not found")
                 }
             }
             Err(e) => {
                 error!("Failed to enrich token: {}", e);
-                HttpResponse::InternalServerError().json("Failed to get token")
+                errors::internal("Failed to get token")
             }
         },
-        Err(Error::NotFound) => HttpResponse::NotFound().json("Token not found"),
+        Err(Error::NotFound) => errors::not_found_msg("Token not found"),
         Err(e) => {
             error!("Failed to get token: {}", e);
-            HttpResponse::InternalServerError().json("Failed to get token")
+            errors::internal("Failed to get token")
         }
     }
 }
@@ -158,7 +159,7 @@ pub async fn revoke_api_token(
 
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     let admin_uuid = Uuid::parse_str(&claims.sub).ok();
@@ -173,15 +174,15 @@ pub async fn revoke_api_token(
     match api_tokens::get_api_token_by_uuid(&mut conn, token_uuid) {
         Ok(token) => {
             if token.revoked_at.is_some() {
-                return HttpResponse::BadRequest().json("Token is already revoked");
+                return errors::bad_request("Token is already revoked");
             }
         }
         Err(Error::NotFound) => {
-            return HttpResponse::NotFound().json("Token not found");
+            return errors::not_found_msg("Token not found");
         }
         Err(e) => {
             error!("Failed to get token: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get token");
+            return errors::internal("Failed to get token");
         }
     }
 
@@ -193,10 +194,10 @@ pub async fn revoke_api_token(
             );
             HttpResponse::NoContent().finish()
         }
-        Ok(_) => HttpResponse::NotFound().json("Token not found"),
+        Ok(_) => errors::not_found_msg("Token not found"),
         Err(e) => {
             error!("Failed to revoke token: {}", e);
-            HttpResponse::InternalServerError().json("Failed to revoke token")
+            errors::internal("Failed to revoke token")
         }
     }
 }

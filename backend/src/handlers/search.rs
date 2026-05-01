@@ -7,6 +7,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::Claims;
 use crate::repository::search_query_log;
 use crate::services::search::{EntityType, SearchQuery, SearchService};
@@ -23,7 +24,7 @@ pub async fn search(
     // Verify authentication
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     debug!(
@@ -37,15 +38,11 @@ pub async fn search(
     // Validate query
     let query_str = query.q.trim();
     if query_str.is_empty() {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Search query cannot be empty"
-        }));
+        return errors::bad_request("Search query cannot be empty");
     }
 
     if query_str.len() > 500 {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Search query too long (max 500 characters)"
-        }));
+        return errors::bad_request("Search query too long (max 500 characters)");
     }
 
     let query = query.into_inner();
@@ -114,22 +111,18 @@ pub async fn rebuild_index(
     // Verify authentication and admin role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if user is admin
     if claims.role != "admin" {
         warn!(user = %claims.sub, "Non-admin user attempted to rebuild search index");
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Admin access required"
-        }));
+        return errors::forbidden("Admin access required");
     }
 
     // Check if already rebuilding
     if search_service.is_rebuilding() {
-        return HttpResponse::Conflict().json(json!({
-            "error": "Index rebuild already in progress"
-        }));
+        return errors::conflict("Index rebuild already in progress");
     }
 
     info!(user = %claims.sub, "Starting search index rebuild");
@@ -193,23 +186,19 @@ pub async fn get_stats(
     // Verify authentication and admin role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if user is admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Admin access required"
-        }));
+        return errors::forbidden("Admin access required");
     }
 
     match search_service.get_stats() {
         Ok(stats) => HttpResponse::Ok().json(stats),
         Err(e) => {
             error!(error = ?e, "Failed to get index stats");
-            HttpResponse::InternalServerError().json(json!({
-                "error": "Failed to get index statistics"
-            }))
+            errors::internal("Failed to get index statistics")
         }
     }
 }

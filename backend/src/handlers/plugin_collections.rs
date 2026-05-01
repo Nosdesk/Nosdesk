@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{
     Claims, CollectionListResponse, CollectionQueryParams, CollectionRowResponse,
     CollectionSchemaResponse, CreateCollectionRowRequest, NewPluginCollectionRow,
@@ -41,7 +42,7 @@ fn get_claims(req: &HttpRequest) -> Result<Claims, HttpResponse> {
     req.extensions()
         .get::<Claims>()
         .cloned()
-        .ok_or_else(|| HttpResponse::Unauthorized().json("Authentication required"))
+        .ok_or_else(|| errors::unauthorized("Authentication required"))
 }
 
 // =============================================================================
@@ -67,10 +68,10 @@ pub async fn list_collections(
 
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
         Ok(p) => p,
-        Err(DieselError::NotFound) => return HttpResponse::NotFound().json("Plugin not found"),
+        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
         Err(e) => {
             error!("Failed to get plugin: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get plugin");
+            return errors::internal("Failed to get plugin");
         }
     };
 
@@ -78,7 +79,7 @@ pub async fn list_collections(
         Ok(s) => s,
         Err(e) => {
             error!("Failed to get collection schemas: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get collections");
+            return errors::internal("Failed to get collections");
         }
     };
 
@@ -119,21 +120,21 @@ pub async fn get_collection_schema(
 
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
         Ok(p) => p,
-        Err(DieselError::NotFound) => return HttpResponse::NotFound().json("Plugin not found"),
+        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
         Err(e) => {
             error!("Failed to get plugin: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get plugin");
+            return errors::internal("Failed to get plugin");
         }
     };
 
     let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
         Ok(s) => s,
         Err(DieselError::NotFound) => {
-            return HttpResponse::NotFound().json("Collection not found")
+            return errors::not_found_msg("Collection not found")
         }
         Err(e) => {
             error!("Failed to get collection schema: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get collection");
+            return errors::internal("Failed to get collection");
         }
     };
 
@@ -172,21 +173,21 @@ pub async fn list_collection_rows(
 
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
         Ok(p) => p,
-        Err(DieselError::NotFound) => return HttpResponse::NotFound().json("Plugin not found"),
+        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
         Err(e) => {
             error!("Failed to get plugin: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get plugin");
+            return errors::internal("Failed to get plugin");
         }
     };
 
     let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
         Ok(s) => s,
         Err(DieselError::NotFound) => {
-            return HttpResponse::NotFound().json("Collection not found")
+            return errors::not_found_msg("Collection not found")
         }
         Err(e) => {
             error!("Failed to get collection schema: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get collection");
+            return errors::internal("Failed to get collection");
         }
     };
 
@@ -210,7 +211,7 @@ pub async fn list_collection_rows(
         Ok(result) => result,
         Err(e) => {
             error!("Failed to list collection rows: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to list rows");
+            return errors::internal("Failed to list rows");
         }
     };
 
@@ -240,21 +241,21 @@ pub async fn create_collection_row(
 
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
         Ok(p) => p,
-        Err(DieselError::NotFound) => return HttpResponse::NotFound().json("Plugin not found"),
+        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
         Err(e) => {
             error!("Failed to get plugin: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get plugin");
+            return errors::internal("Failed to get plugin");
         }
     };
 
     let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
         Ok(s) => s,
         Err(DieselError::NotFound) => {
-            return HttpResponse::NotFound().json("Collection not found")
+            return errors::not_found_msg("Collection not found")
         }
         Err(e) => {
             error!("Failed to get collection schema: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get collection");
+            return errors::internal("Failed to get collection");
         }
     };
 
@@ -281,7 +282,7 @@ pub async fn create_collection_row(
         Ok(row) => HttpResponse::Created().json(CollectionRowResponse::from(row)),
         Err(e) => {
             error!("Failed to create collection row: {}", e);
-            HttpResponse::InternalServerError().json("Failed to create row")
+            errors::internal("Failed to create row")
         }
     }
 }
@@ -305,15 +306,15 @@ pub async fn get_collection_row(
 
     // Verify plugin exists
     if let Err(DieselError::NotFound) = plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
-        return HttpResponse::NotFound().json("Plugin not found");
+        return errors::not_found_msg("Plugin not found");
     }
 
     match collection_repo::get_row_by_uuid(&mut conn, path.row_uuid) {
         Ok(row) => HttpResponse::Ok().json(CollectionRowResponse::from(row)),
-        Err(DieselError::NotFound) => HttpResponse::NotFound().json("Row not found"),
+        Err(DieselError::NotFound) => errors::not_found_msg("Row not found"),
         Err(e) => {
             error!("Failed to get collection row: {}", e);
-            HttpResponse::InternalServerError().json("Failed to get row")
+            errors::internal("Failed to get row")
         }
     }
 }
@@ -338,21 +339,21 @@ pub async fn update_collection_row(
 
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
         Ok(p) => p,
-        Err(DieselError::NotFound) => return HttpResponse::NotFound().json("Plugin not found"),
+        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
         Err(e) => {
             error!("Failed to get plugin: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get plugin");
+            return errors::internal("Failed to get plugin");
         }
     };
 
     let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
         Ok(s) => s,
         Err(DieselError::NotFound) => {
-            return HttpResponse::NotFound().json("Collection not found")
+            return errors::not_found_msg("Collection not found")
         }
         Err(e) => {
             error!("Failed to get collection schema: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get collection");
+            return errors::internal("Failed to get collection");
         }
     };
 
@@ -372,10 +373,10 @@ pub async fn update_collection_row(
 
     match collection_repo::update_row(&mut conn, path.row_uuid, update) {
         Ok(row) => HttpResponse::Ok().json(CollectionRowResponse::from(row)),
-        Err(DieselError::NotFound) => HttpResponse::NotFound().json("Row not found"),
+        Err(DieselError::NotFound) => errors::not_found_msg("Row not found"),
         Err(e) => {
             error!("Failed to update collection row: {}", e);
-            HttpResponse::InternalServerError().json("Failed to update row")
+            errors::internal("Failed to update row")
         }
     }
 }
@@ -399,15 +400,15 @@ pub async fn delete_collection_row(
 
     // Verify plugin exists
     if let Err(DieselError::NotFound) = plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
-        return HttpResponse::NotFound().json("Plugin not found");
+        return errors::not_found_msg("Plugin not found");
     }
 
     match collection_repo::delete_row(&mut conn, path.row_uuid) {
         Ok(count) if count > 0 => HttpResponse::NoContent().finish(),
-        Ok(_) => HttpResponse::NotFound().json("Row not found"),
+        Ok(_) => errors::not_found_msg("Row not found"),
         Err(e) => {
             error!("Failed to delete collection row: {}", e);
-            HttpResponse::InternalServerError().json("Failed to delete row")
+            errors::internal("Failed to delete row")
         }
     }
 }

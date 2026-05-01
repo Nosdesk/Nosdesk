@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{NewTicketCategory, TicketCategoryUpdate};
 use crate::repository;
 use crate::utils::rbac::require_admin;
@@ -26,7 +27,7 @@ pub async fn get_categories(
 
     match repository::categories::get_categories_for_user(&mut conn, &user_uuid, is_admin) {
         Ok(categories) => HttpResponse::Ok().json(categories),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to get categories"),
+        Err(_) => errors::internal("Failed to get categories"),
     }
 }
 
@@ -50,7 +51,7 @@ pub async fn get_all_categories_admin(
 
     match repository::categories::get_all_categories_with_visibility(&mut conn) {
         Ok(categories) => HttpResponse::Ok().json(categories),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to get categories"),
+        Err(_) => errors::internal("Failed to get categories"),
     }
 }
 
@@ -73,8 +74,8 @@ pub async fn get_category_admin(
     match repository::categories::get_category_with_visibility(&mut conn, category_id) {
         Ok(category) => HttpResponse::Ok().json(category),
         Err(e) => match e {
-            Error::NotFound => HttpResponse::NotFound().json("Category not found"),
-            _ => HttpResponse::InternalServerError().json("Failed to get category"),
+            Error::NotFound => errors::not_found_msg("Category not found"),
+            _ => errors::internal("Failed to get category"),
         },
     }
 }
@@ -130,8 +131,7 @@ pub async fn create_category(
                         group_ids.clone(),
                         created_by,
                     ) {
-                        return HttpResponse::InternalServerError()
-                            .json("Failed to set category visibility");
+                        return errors::internal("Failed to set category visibility");
                     }
                 }
             }
@@ -142,7 +142,7 @@ pub async fn create_category(
                 Err(_) => HttpResponse::Created().json(category),
             }
         }
-        Err(_) => HttpResponse::InternalServerError().json("Failed to create category"),
+        Err(_) => errors::internal("Failed to create category"),
     }
 }
 
@@ -196,20 +196,19 @@ pub async fn update_category(
                     group_ids.clone(),
                     updated_by,
                 ) {
-                    return HttpResponse::InternalServerError()
-                        .json("Failed to update category visibility");
+                    return errors::internal("Failed to update category visibility");
                 }
             }
 
             // Return updated category with visibility info
             match repository::categories::get_category_with_visibility(&mut conn, category_id) {
                 Ok(category) => HttpResponse::Ok().json(category),
-                Err(_) => HttpResponse::InternalServerError().json("Failed to get updated category"),
+                Err(_) => errors::internal("Failed to get updated category"),
             }
         }
         Err(e) => match e {
-            Error::NotFound => HttpResponse::NotFound().json("Category not found"),
-            _ => HttpResponse::InternalServerError().json("Failed to update category"),
+            Error::NotFound => errors::not_found_msg("Category not found"),
+            _ => errors::internal("Failed to update category"),
         },
     }
 }
@@ -233,8 +232,8 @@ pub async fn delete_category(
     match repository::categories::delete_category(&mut conn, category_id) {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => match e {
-            Error::NotFound => HttpResponse::NotFound().json("Category not found"),
-            _ => HttpResponse::InternalServerError().json("Failed to delete category"),
+            Error::NotFound => errors::not_found_msg("Category not found"),
+            _ => errors::internal("Failed to delete category"),
         },
     }
 }
@@ -281,10 +280,10 @@ pub async fn reorder_categories(
             // Return all categories with updated order
             match repository::categories::get_all_categories_with_visibility(&mut conn) {
                 Ok(categories) => HttpResponse::Ok().json(categories),
-                Err(_) => HttpResponse::InternalServerError().json("Failed to get updated categories"),
+                Err(_) => errors::internal("Failed to get updated categories"),
             }
         }
-        Err(_) => HttpResponse::InternalServerError().json("Failed to reorder categories"),
+        Err(_) => errors::internal("Failed to reorder categories"),
     }
 }
 
@@ -327,10 +326,10 @@ pub async fn set_category_visibility(
             // Return updated category with visibility info
             match repository::categories::get_category_with_visibility(&mut conn, category_id) {
                 Ok(category) => HttpResponse::Ok().json(category),
-                Err(_) => HttpResponse::InternalServerError().json("Failed to get updated category"),
+                Err(_) => errors::internal("Failed to get updated category"),
             }
         }
-        Err(_) => HttpResponse::InternalServerError().json("Failed to set category visibility"),
+        Err(_) => errors::internal("Failed to set category visibility"),
     }
 }
 

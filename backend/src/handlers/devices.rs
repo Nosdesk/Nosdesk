@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::utils;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
 use crate::handlers::helpers;
+use crate::handlers::errors;
 
 use crate::db::Pool;
 use crate::models::{Claims, NewDevice, DeviceUpdate, Device, User, Group};
@@ -189,7 +190,7 @@ pub async fn get_all_devices(pool: web::Data<Pool>) -> impl Responder {
         },
         Err(e) => {
             error!(error = ?e, "Database error getting all devices");
-            HttpResponse::InternalServerError().json("Failed to get devices")
+            errors::internal("Failed to get devices")
         }
     }
 }
@@ -235,7 +236,7 @@ pub async fn get_paginated_devices(
         }
         Err(e) => {
             error!(error = ?e, "Database error getting paginated devices");
-            HttpResponse::InternalServerError().json("Failed to get devices")
+            errors::internal("Failed to get devices")
         }
     }
 }
@@ -266,10 +267,10 @@ pub async fn get_device_by_id(
         },
         Err(e) => {
             match e {
-                Error::NotFound => HttpResponse::NotFound().json(format!("Device {device_id} not found")),
+                Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
                 _ => {
                     error!(device_id, error = ?e, "Database error getting device");
-                    HttpResponse::InternalServerError().json(format!("Failed to get device {device_id}"))
+                    errors::internal(format!("Failed to get device {device_id}"))
                 }
             }
         }
@@ -290,7 +291,7 @@ pub async fn get_user_devices(
     // Parse UUID from string
     let user_uuid = match utils::parse_uuid(&user_uuid_str) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid UUID format"),
+        Err(_) => return errors::bad_request("Invalid UUID format"),
     };
     
     match crate::repository::devices::get_devices_for_user(&mut conn, &user_uuid) {
@@ -300,7 +301,7 @@ pub async fn get_user_devices(
         },
         Err(e) => {
             error!(user_uuid = %user_uuid_str, error = ?e, "Error getting devices for user");
-            HttpResponse::InternalServerError().json(format!("Failed to get devices for user {user_uuid_str}"))
+            errors::internal(format!("Failed to get devices for user {user_uuid_str}"))
         }
     }
 }
@@ -316,17 +317,11 @@ pub async fn create_device(
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can create devices"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can create devices");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -363,7 +358,7 @@ pub async fn create_device(
         },
         Err(e) => {
             error!(error = ?e, "Database error creating device");
-            HttpResponse::InternalServerError().json("Failed to create device")
+            errors::internal("Failed to create device")
         }
     }
 }
@@ -386,18 +381,12 @@ pub async fn update_device(
     // Extract claims from cookie auth middleware for SSE events and role check
     let user_info = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     // Check role - only technicians and admins can update devices
     if !is_technician_or_admin(&user_info) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can update devices"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can update devices");
     }
 
     // Check if device is editable (not synced from Microsoft Graph)
@@ -405,10 +394,10 @@ pub async fn update_device(
         Ok(device) => device,
         Err(e) => {
             return match e {
-                Error::NotFound => HttpResponse::NotFound().json(format!("Device {device_id} not found")),
+                Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
                 _ => {
                     error!(device_id, error = ?e, "Database error getting device");
-                    HttpResponse::InternalServerError().json(format!("Failed to get device {device_id}"))
+                    errors::internal(format!("Failed to get device {device_id}"))
                 }
             }
         }
@@ -417,10 +406,7 @@ pub async fn update_device(
     // Prevent editing devices synced from Microsoft Graph
     let is_synced = existing_device.intune_device_id.is_some() || existing_device.entra_device_id.is_some();
     if is_synced {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Cannot edit device synced from Microsoft Graph",
-            "message": "This device is managed by Microsoft Intune/Entra and cannot be edited manually. Changes must be made in Microsoft Entra Admin Center or Intune."
-        }));
+        return errors::forbidden("Cannot edit device synced from Microsoft Graph: This device is managed by Microsoft Intune/Entra and cannot be edited manually. Changes must be made in Microsoft Entra Admin Center or Intune.");
     }
 
     let update_data = device_update.into_inner();
@@ -466,10 +452,10 @@ pub async fn update_device(
         },
         Err(e) => {
             match e {
-                Error::NotFound => HttpResponse::NotFound().json(format!("Device {device_id} not found")),
+                Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
                 _ => {
                     error!(device_id, error = ?e, "Database error updating device");
-                    HttpResponse::InternalServerError().json(format!("Failed to update device {device_id}"))
+                    errors::internal(format!("Failed to update device {device_id}"))
                 }
             }
         }
@@ -487,17 +473,11 @@ pub async fn delete_device(
     // Extract claims and check role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     if !is_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only administrators can delete devices"
-        }));
+        return errors::forbidden("Forbidden: Only administrators can delete devices");
     }
 
     let device_id = path.into_inner();
@@ -526,12 +506,12 @@ pub async fn delete_device(
                     "message": format!("Device {} deleted successfully", device_id)
                 }))
             } else {
-                HttpResponse::NotFound().json(format!("Device {device_id} not found"))
+                errors::not_found_msg(format!("Device {device_id} not found"))
             }
         }
         Err(e) => {
             error!(device_id, error = ?e, "Database error deleting device");
-            HttpResponse::InternalServerError().json(format!("Failed to delete device {device_id}"))
+            errors::internal(format!("Failed to delete device {device_id}"))
         }
     }
 }
@@ -551,18 +531,12 @@ pub async fn unmanage_device(
     // Extract claims from cookie auth middleware and check role
     let user_info = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     // Only admins can unmanage devices
     if !is_admin(&user_info) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only administrators can unmanage devices"
-        }));
+        return errors::forbidden("Forbidden: Only administrators can unmanage devices");
     }
 
     // Check if device exists
@@ -570,10 +544,10 @@ pub async fn unmanage_device(
         Ok(device) => device,
         Err(e) => {
             return match e {
-                Error::NotFound => HttpResponse::NotFound().json(format!("Device {device_id} not found")),
+                Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
                 _ => {
                     error!(device_id, error = ?e, "Database error getting device");
-                    HttpResponse::InternalServerError().json(format!("Failed to get device {device_id}"))
+                    errors::internal(format!("Failed to get device {device_id}"))
                 }
             }
         }
@@ -582,10 +556,7 @@ pub async fn unmanage_device(
     // Check if device is synced from Microsoft Graph
     let is_synced = existing_device.intune_device_id.is_some() || existing_device.entra_device_id.is_some();
     if !is_synced {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Device is not managed by Microsoft Graph",
-            "message": "This device is already manually managed and doesn't need to be unmanaged."
-        }));
+        return errors::bad_request("Device is not managed by Microsoft Graph: This device is already manually managed and doesn't need to be unmanaged.");
     }
 
     // Remove Microsoft Graph IDs to make device editable by setting them to empty strings
@@ -631,7 +602,7 @@ pub async fn unmanage_device(
         },
         Err(e) => {
             error!(device_id, error = ?e, "Database error unmanaging device");
-            HttpResponse::InternalServerError().json(format!("Failed to unmanage device {device_id}"))
+            errors::internal(format!("Failed to unmanage device {device_id}"))
         }
     }
 }
@@ -682,7 +653,7 @@ pub async fn get_paginated_devices_excluding(
         },
         Err(e) => {
             error!(error = ?e, "Error getting paginated devices");
-            HttpResponse::InternalServerError().json("Failed to get devices")
+            errors::internal("Failed to get devices")
         }
     }
 }
@@ -705,18 +676,12 @@ pub async fn bulk_devices(
     // Extract claims and check authentication
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
 
     // Only admins can perform bulk operations
     if !is_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only administrators can perform bulk device operations"
-        }));
+        return errors::forbidden("Forbidden: Only administrators can perform bulk device operations");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -728,10 +693,7 @@ pub async fn bulk_devices(
     let ids = &body.ids;
 
     if ids.is_empty() {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Bad Request",
-            "message": "No device IDs provided"
-        }));
+        return errors::bad_request("Bad Request: No device IDs provided");
     }
 
     match action {

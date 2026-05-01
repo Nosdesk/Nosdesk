@@ -5,6 +5,7 @@ use tracing::debug;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{NewProject, ProjectUpdate};
 use crate::repository;
@@ -37,7 +38,7 @@ pub async fn get_all_projects(
 
     match repository::get_projects_with_ticket_count(&mut conn) {
         Ok(projects) => HttpResponse::Ok().json(projects),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to get projects"),
+        Err(_) => errors::internal("Failed to get projects"),
     }
 }
 
@@ -62,14 +63,14 @@ pub async fn get_project(
 
     let mut project = match repository::get_project_with_ticket_count(&mut conn, project_id) {
         Ok(p) => p,
-        Err(Error::NotFound) => return HttpResponse::NotFound().json("Project not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to get project"),
+        Err(Error::NotFound) => return errors::not_found_msg("Project not found"),
+        Err(_) => return errors::internal("Failed to get project"),
     };
 
     if want_tickets {
         match repository::get_project_tickets(&mut conn, project_id) {
             Ok(tickets) => project.tickets = Some(tickets),
-            Err(_) => return HttpResponse::InternalServerError().json("Failed to embed project tickets"),
+            Err(_) => return errors::internal("Failed to embed project tickets"),
         }
     }
 
@@ -93,7 +94,7 @@ pub async fn create_project(
 
     match repository::create_project(&mut conn, project.into_inner()) {
         Ok(project) => HttpResponse::Created().json(project),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to create project"),
+        Err(_) => errors::internal("Failed to create project"),
     }
 }
 
@@ -118,8 +119,8 @@ pub async fn update_project(
         Ok(project) => HttpResponse::Ok().json(project),
         Err(e) => {
             match e {
-                Error::NotFound => HttpResponse::NotFound().json("Project not found"),
-                _ => HttpResponse::InternalServerError().json("Failed to update project"),
+                Error::NotFound => errors::not_found_msg("Project not found"),
+                _ => errors::internal("Failed to update project"),
             }
         }
     }
@@ -142,9 +143,9 @@ pub async fn delete_project(
     };
 
     match repository::delete_project(&mut conn, project_id) {
-        Ok(0) => HttpResponse::NotFound().json("Project not found"),
+        Ok(0) => errors::not_found_msg("Project not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to delete project"),
+        Err(_) => errors::internal("Failed to delete project"),
     }
 }
 
@@ -161,7 +162,7 @@ pub async fn get_project_tickets(
 
     match repository::get_project_tickets(&mut conn, project_id) {
         Ok(tickets) => HttpResponse::Ok().json(tickets),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to get project tickets"),
+        Err(_) => errors::internal("Failed to get project tickets"),
     }
 }
 
@@ -197,7 +198,7 @@ pub async fn add_ticket_to_project(
 
             HttpResponse::Created().json(association)
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to add ticket to project"),
+        Err(_) => errors::internal("Failed to add ticket to project"),
     }
 }
 
@@ -220,7 +221,7 @@ pub async fn remove_ticket_from_project(
     };
 
     match repository::remove_ticket_from_project(&mut conn, project_id, ticket_id) {
-        Ok(0) => HttpResponse::NotFound().json("Association not found"),
+        Ok(0) => errors::not_found_msg("Association not found"),
         Ok(_) => {
             debug!(ticket_id = ticket_id, project_id = project_id, "Broadcasting SSE event: Ticket unassigned from project");
             sse_state.broadcast_event_from(
@@ -234,7 +235,7 @@ pub async fn remove_ticket_from_project(
 
             HttpResponse::NoContent().finish()
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to remove ticket from project"),
+        Err(_) => errors::internal("Failed to remove ticket from project"),
     }
 }
 
@@ -274,6 +275,6 @@ pub async fn update_ticket_order(
 
     match repository::update_project_ticket_orders(&mut conn, project_id, orders) {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({"success": true})),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to update ticket order"),
+        Err(_) => errors::internal("Failed to update ticket order"),
     }
 } 

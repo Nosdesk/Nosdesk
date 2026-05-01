@@ -1,5 +1,6 @@
 use actix_web::{web, HttpResponse, HttpMessage, Responder};
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use actix_multipart::Multipart;
 use diesel::prelude::*;
 use futures::StreamExt;
@@ -26,24 +27,22 @@ pub async fn start_export(
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if user is admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({"error": "Admin access required"}));
+        return errors::forbidden("Admin access required");
     }
 
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid user UUID"})),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     // Validate password requirement for sensitive data
     if body.include_sensitive && body.password.is_none() {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Password is required when including sensitive data"
-        }));
+        return errors::bad_request("Password is required when including sensitive data");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -61,7 +60,7 @@ pub async fn start_export(
 
     let job = match backup_repo::create_backup_job(&mut conn, new_job) {
         Ok(job) => job,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to create job: {}", e)})),
+        Err(e) => return errors::internal(format!("Failed to create job: {}", e)),
     };
 
     let job_id = job.id;
@@ -109,12 +108,12 @@ pub async fn get_jobs(
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if user is admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({"error": "Admin access required"}));
+        return errors::forbidden("Admin access required");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -127,7 +126,7 @@ pub async fn get_jobs(
             let responses: Vec<BackupJobResponse> = jobs.into_iter().map(BackupJobResponse::from).collect();
             HttpResponse::Ok().json(responses)
         }
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("Failed to get jobs: {}", e)})),
+        Err(e) => errors::internal(format!("Failed to get jobs: {}", e)),
     }
 }
 
@@ -141,17 +140,17 @@ pub async fn get_job(
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if user is admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({"error": "Admin access required"}));
+        return errors::forbidden("Admin access required");
     }
 
     let job_id = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid job ID"})),
+        Err(_) => return errors::bad_request("Invalid job ID"),
     };
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -161,8 +160,8 @@ pub async fn get_job(
 
     match backup_repo::get_backup_job(&mut conn, job_id) {
         Ok(job) => HttpResponse::Ok().json(BackupJobResponse::from(job)),
-        Err(diesel::result::Error::NotFound) => HttpResponse::NotFound().json(json!({"error": "Job not found"})),
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("Failed to get job: {}", e)})),
+        Err(diesel::result::Error::NotFound) => errors::not_found_msg("Job not found"),
+        Err(e) => errors::internal(format!("Failed to get job: {}", e)),
     }
 }
 
@@ -176,17 +175,17 @@ pub async fn download_backup(
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if user is admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({"error": "Admin access required"}));
+        return errors::forbidden("Admin access required");
     }
 
     let job_id = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid job ID"})),
+        Err(_) => return errors::bad_request("Invalid job ID"),
     };
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -196,17 +195,17 @@ pub async fn download_backup(
 
     let job = match backup_repo::get_backup_job(&mut conn, job_id) {
         Ok(job) => job,
-        Err(diesel::result::Error::NotFound) => return HttpResponse::NotFound().json(json!({"error": "Job not found"})),
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to get job: {}", e)})),
+        Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Job not found"),
+        Err(e) => return errors::internal(format!("Failed to get job: {}", e)),
     };
 
     if job.status != "completed" {
-        return HttpResponse::BadRequest().json(json!({"error": "Backup not completed"}));
+        return errors::bad_request("Backup not completed");
     }
 
     let file_path = match job.file_path {
         Some(path) => path,
-        None => return HttpResponse::BadRequest().json(json!({"error": "No backup file available"})),
+        None => return errors::bad_request("No backup file available"),
     };
 
     // Serve the file
@@ -223,7 +222,7 @@ pub async fn download_backup(
             })
             .into_response(&req)
         }
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("Failed to read backup file: {}", e)})),
+        Err(e) => errors::internal(format!("Failed to read backup file: {}", e)),
     }
 }
 
@@ -237,17 +236,17 @@ pub async fn upload_restore(
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if user is admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({"error": "Admin access required"}));
+        return errors::forbidden("Admin access required");
     }
 
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid user UUID"})),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     // Get upload directory
@@ -256,7 +255,7 @@ pub async fn upload_restore(
         .unwrap_or_else(|_| std::path::PathBuf::from("/app/uploads/backups/uploads"));
 
     if let Err(e) = std::fs::create_dir_all(&backups_dir) {
-        return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to create upload directory: {}", e)}));
+        return errors::internal(format!("Failed to create upload directory: {}", e));
     }
 
     // Process the multipart upload
@@ -265,7 +264,7 @@ pub async fn upload_restore(
     while let Some(item) = payload.next().await {
         let mut field = match item {
             Ok(field) => field,
-            Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("Upload error: {}", e)})),
+            Err(e) => return errors::bad_request(format!("Upload error: {}", e)),
         };
 
         let filename = field
@@ -278,16 +277,16 @@ pub async fn upload_restore(
 
         let mut file = match std::fs::File::create(&filepath) {
             Ok(f) => f,
-            Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to create file: {}", e)})),
+            Err(e) => return errors::internal(format!("Failed to create file: {}", e)),
         };
 
         while let Some(chunk) = field.next().await {
             let data = match chunk {
                 Ok(data) => data,
-                Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("Upload error: {}", e)})),
+                Err(e) => return errors::bad_request(format!("Upload error: {}", e)),
             };
             if let Err(e) = file.write_all(&data) {
-                return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to write file: {}", e)}));
+                return errors::internal(format!("Failed to write file: {}", e));
             }
         }
 
@@ -296,7 +295,7 @@ pub async fn upload_restore(
 
     let filepath = match file_path {
         Some(p) => p,
-        None => return HttpResponse::BadRequest().json(json!({"error": "No file uploaded"})),
+        None => return errors::bad_request("No file uploaded"),
     };
 
     // Validate the backup file
@@ -304,7 +303,7 @@ pub async fn upload_restore(
         Ok(_) => {}
         Err(e) => {
             let _ = std::fs::remove_file(&filepath);
-            return HttpResponse::BadRequest().json(json!({"error": format!("Invalid backup file: {}", e)}));
+            return errors::bad_request(format!("Invalid backup file: {}", e));
         }
     }
 
@@ -323,7 +322,7 @@ pub async fn upload_restore(
 
     let job = match backup_repo::create_backup_job(&mut conn, new_job) {
         Ok(job) => job,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to create job: {}", e)})),
+        Err(e) => return errors::internal(format!("Failed to create job: {}", e)),
     };
 
     // Update job with file path
@@ -335,7 +334,7 @@ pub async fn upload_restore(
         completed_at: None,
     }) {
         Ok(job) => job,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to update job: {}", e)})),
+        Err(e) => return errors::internal(format!("Failed to update job: {}", e)),
     };
 
     HttpResponse::Created().json(BackupJobResponse::from(job))
@@ -351,17 +350,17 @@ pub async fn preview_restore(
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if user is admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({"error": "Admin access required"}));
+        return errors::forbidden("Admin access required");
     }
 
     let job_id = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid job ID"})),
+        Err(_) => return errors::bad_request("Invalid job ID"),
     };
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -371,18 +370,18 @@ pub async fn preview_restore(
 
     let job = match backup_repo::get_backup_job(&mut conn, job_id) {
         Ok(job) => job,
-        Err(diesel::result::Error::NotFound) => return HttpResponse::NotFound().json(json!({"error": "Job not found"})),
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to get job: {}", e)})),
+        Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Job not found"),
+        Err(e) => return errors::internal(format!("Failed to get job: {}", e)),
     };
 
     let file_path = match job.file_path {
         Some(path) => std::path::PathBuf::from(path),
-        None => return HttpResponse::BadRequest().json(json!({"error": "No backup file available"})),
+        None => return errors::bad_request("No backup file available"),
     };
 
     match backup_service::preview_restore(&file_path) {
         Ok(preview) => HttpResponse::Ok().json(preview),
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("Failed to preview: {}", e)})),
+        Err(e) => errors::internal(format!("Failed to preview: {}", e)),
     }
 }
 
@@ -397,17 +396,17 @@ pub async fn execute_restore(
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if user is admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({"error": "Admin access required"}));
+        return errors::forbidden("Admin access required");
     }
 
     let job_id = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid job ID"})),
+        Err(_) => return errors::bad_request("Invalid job ID"),
     };
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -417,23 +416,23 @@ pub async fn execute_restore(
 
     let job = match backup_repo::get_backup_job(&mut conn, job_id) {
         Ok(job) => job,
-        Err(diesel::result::Error::NotFound) => return HttpResponse::NotFound().json(json!({"error": "Job not found"})),
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to get job: {}", e)})),
+        Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Job not found"),
+        Err(e) => return errors::internal(format!("Failed to get job: {}", e)),
     };
 
     if job.job_type != "restore" {
-        return HttpResponse::BadRequest().json(json!({"error": "Job is not a restore job"}));
+        return errors::bad_request("Job is not a restore job");
     }
 
     let file_path = match job.file_path {
         Some(path) => std::path::PathBuf::from(path),
-        None => return HttpResponse::BadRequest().json(json!({"error": "No backup file available"})),
+        None => return errors::bad_request("No backup file available"),
     };
 
     // Verify password if backup has encrypted sensitive data
     let preview = match backup_service::preview_restore(&file_path) {
         Ok(p) => p,
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to preview: {}", e)})),
+        Err(e) => return errors::internal(format!("Failed to preview: {}", e)),
     };
 
     if preview.has_encrypted_sensitive {
@@ -441,11 +440,11 @@ pub async fn execute_restore(
             Some(password) => {
                 match backup_service::verify_backup_password(&file_path, password) {
                     Ok(true) => {}
-                    Ok(false) => return HttpResponse::BadRequest().json(json!({"error": "Invalid password"})),
-                    Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Password verification failed: {}", e)})),
+                    Ok(false) => return errors::bad_request("Invalid password"),
+                    Err(e) => return errors::internal(format!("Password verification failed: {}", e)),
                 }
             }
-            None => return HttpResponse::BadRequest().json(json!({"error": "Password required for encrypted backup"})),
+            None => return errors::bad_request("Password required for encrypted backup"),
         }
     }
 
@@ -484,7 +483,7 @@ pub async fn execute_restore(
                 completed_at: Some(chrono::Utc::now().naive_utc()),
             });
 
-            HttpResponse::InternalServerError().json(json!({"error": format!("Restore failed: {}", e)}))
+            errors::internal(format!("Restore failed: {}", e))
         }
     }
 }
@@ -499,17 +498,17 @@ pub async fn delete_job(
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if user is admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({"error": "Admin access required"}));
+        return errors::forbidden("Admin access required");
     }
 
     let job_id = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid job ID"})),
+        Err(_) => return errors::bad_request("Invalid job ID"),
     };
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -520,8 +519,8 @@ pub async fn delete_job(
     // Get job first to delete associated file
     let job = match backup_repo::get_backup_job(&mut conn, job_id) {
         Ok(job) => job,
-        Err(diesel::result::Error::NotFound) => return HttpResponse::NotFound().json(json!({"error": "Job not found"})),
-        Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to get job: {}", e)})),
+        Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Job not found"),
+        Err(e) => return errors::internal(format!("Failed to get job: {}", e)),
     };
 
     // Delete associated file if exists
@@ -534,7 +533,7 @@ pub async fn delete_job(
     // Delete job from database
     match backup_repo::delete_backup_job(&mut conn, job_id) {
         Ok(_) => HttpResponse::Ok().json(json!({"success": true, "message": "Job deleted"})),
-        Err(e) => HttpResponse::InternalServerError().json(json!({"error": format!("Failed to delete job: {}", e)})),
+        Err(e) => errors::internal(format!("Failed to delete job: {}", e)),
     }
 }
 
@@ -566,9 +565,7 @@ pub async fn onboarding_upload_restore(
 
     // Security check: only allow during initial setup
     if !check_requires_setup(&mut conn) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Restore via onboarding is only allowed during initial setup"
-        }));
+        return errors::forbidden("Restore via onboarding is only allowed during initial setup");
     }
 
     // Get upload directory
@@ -577,7 +574,7 @@ pub async fn onboarding_upload_restore(
         .unwrap_or_else(|_| std::path::PathBuf::from("/app/uploads/backups/uploads"));
 
     if let Err(e) = std::fs::create_dir_all(&backups_dir) {
-        return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to create upload directory: {}", e)}));
+        return errors::internal(format!("Failed to create upload directory: {}", e));
     }
 
     // Process the multipart upload
@@ -586,7 +583,7 @@ pub async fn onboarding_upload_restore(
     while let Some(item) = payload.next().await {
         let mut field = match item {
             Ok(field) => field,
-            Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("Upload error: {}", e)})),
+            Err(e) => return errors::bad_request(format!("Upload error: {}", e)),
         };
 
         let filename = field
@@ -599,16 +596,16 @@ pub async fn onboarding_upload_restore(
 
         let mut file = match std::fs::File::create(&filepath) {
             Ok(f) => f,
-            Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to create file: {}", e)})),
+            Err(e) => return errors::internal(format!("Failed to create file: {}", e)),
         };
 
         while let Some(chunk) = field.next().await {
             let data = match chunk {
                 Ok(data) => data,
-                Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("Upload error: {}", e)})),
+                Err(e) => return errors::bad_request(format!("Upload error: {}", e)),
             };
             if let Err(e) = file.write_all(&data) {
-                return HttpResponse::InternalServerError().json(json!({"error": format!("Failed to write file: {}", e)}));
+                return errors::internal(format!("Failed to write file: {}", e));
             }
         }
 
@@ -617,7 +614,7 @@ pub async fn onboarding_upload_restore(
 
     let filepath = match file_path {
         Some(p) => p,
-        None => return HttpResponse::BadRequest().json(json!({"error": "No file uploaded"})),
+        None => return errors::bad_request("No file uploaded"),
     };
 
     // Validate and get preview
@@ -625,7 +622,7 @@ pub async fn onboarding_upload_restore(
         Ok(p) => p,
         Err(e) => {
             let _ = std::fs::remove_file(&filepath);
-            return HttpResponse::BadRequest().json(json!({"error": format!("Invalid backup file: {}", e)}));
+            return errors::bad_request(format!("Invalid backup file: {}", e));
         }
     };
 
@@ -649,22 +646,20 @@ pub async fn onboarding_execute_restore(
 
     // Security check: only allow during initial setup
     if !check_requires_setup(&mut conn) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Restore via onboarding is only allowed during initial setup"
-        }));
+        return errors::forbidden("Restore via onboarding is only allowed during initial setup");
     }
 
     let file_path = std::path::PathBuf::from(&body.file_path);
 
     // Verify file exists
     if !file_path.exists() {
-        return HttpResponse::BadRequest().json(json!({"error": "Backup file not found. Please upload again."}));
+        return errors::bad_request("Backup file not found. Please upload again.");
     }
 
     // Verify password if backup has encrypted sensitive data
     let preview = match backup_service::preview_restore(&file_path) {
         Ok(p) => p,
-        Err(e) => return HttpResponse::BadRequest().json(json!({"error": format!("Invalid backup file: {}", e)})),
+        Err(e) => return errors::bad_request(format!("Invalid backup file: {}", e)),
     };
 
     if preview.has_encrypted_sensitive {
@@ -672,11 +667,11 @@ pub async fn onboarding_execute_restore(
             Some(password) => {
                 match backup_service::verify_backup_password(&file_path, password) {
                     Ok(true) => {}
-                    Ok(false) => return HttpResponse::BadRequest().json(json!({"error": "Invalid password"})),
-                    Err(e) => return HttpResponse::InternalServerError().json(json!({"error": format!("Password verification failed: {}", e)})),
+                    Ok(false) => return errors::bad_request("Invalid password"),
+                    Err(e) => return errors::internal(format!("Password verification failed: {}", e)),
                 }
             }
-            None => return HttpResponse::BadRequest().json(json!({"error": "Password required for encrypted backup"})),
+            None => return errors::bad_request("Password required for encrypted backup"),
         }
     }
 
@@ -711,7 +706,7 @@ pub async fn onboarding_execute_restore(
         Err(e) => {
             // Clean up on failure
             let _ = std::fs::remove_file(&file_path);
-            HttpResponse::InternalServerError().json(json!({"error": format!("Restore failed: {}", e)}))
+            errors::internal(format!("Restore failed: {}", e))
         }
     }
 }

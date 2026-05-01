@@ -10,6 +10,7 @@ use regex::Regex;
 
 use crate::db::{Pool, DbConnection};
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus, DocumentationPage, DocumentationPageResponse, DocumentationPageTicketEmbed, UserInfoWithAvatar};
 use crate::repository;
 use crate::repository::documentation_starred_pages;
@@ -316,14 +317,14 @@ pub async fn get_documentation_pages(
         Ok(pages) => {
             let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
                 Ok(p) => p,
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to fetch pages"),
+        Err(_) => errors::internal("Failed to fetch pages"),
     }
 }
 
@@ -361,8 +362,8 @@ pub async fn get_documentation_page(
         Ok(page) => {
             match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
                 Ok(true) => {},
-                Ok(false) => return HttpResponse::NotFound().json("Page not found"),
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Ok(false) => return errors::not_found_msg("Page not found"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             }
             match to_page_response(page, &mut conn) {
                 Ok(mut response) => {
@@ -376,7 +377,7 @@ pub async fn get_documentation_page(
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
-        Err(_) => HttpResponse::NotFound().json("Page not found"),
+        Err(_) => errors::not_found_msg("Page not found"),
     }
 }
 
@@ -399,8 +400,8 @@ pub async fn get_documentation_page_by_slug(
         Ok(page) => {
             match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
                 Ok(true) => {},
-                Ok(false) => return HttpResponse::NotFound().json("Page not found"),
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Ok(false) => return errors::not_found_msg("Page not found"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             }
             match to_page_response(page, &mut conn) {
                 Ok(mut response) => {
@@ -414,7 +415,7 @@ pub async fn get_documentation_page_by_slug(
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
-        Err(_) => HttpResponse::NotFound().json("Page not found"),
+        Err(_) => errors::not_found_msg("Page not found"),
     }
 }
 
@@ -433,15 +434,15 @@ pub async fn get_documentation_page_content_by_uuid(
     let uuid_str = uuid_path.into_inner();
     let page_uuid = match Uuid::parse_str(&uuid_str) {
         Ok(u) => u,
-        Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid UUID"})),
+        Err(_) => return errors::bad_request("Invalid UUID"),
     };
 
     match repository::get_documentation_page_by_uuid(&page_uuid, &mut conn) {
         Ok(page) => {
             match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
                 Ok(true) => {},
-                Ok(false) => return HttpResponse::NotFound().json(json!({"error": "Page not found"})),
-                Err(_) => return HttpResponse::InternalServerError().json(json!({"error": "Failed to check page visibility"})),
+                Ok(false) => return errors::not_found_msg("Page not found"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             }
 
             use base64::{Engine as _, engine::general_purpose};
@@ -457,7 +458,7 @@ pub async fn get_documentation_page_content_by_uuid(
                 "yjs_document": yjs_b64,
             }))
         },
-        Err(_) => HttpResponse::NotFound().json(json!({"error": "Page not found"})),
+        Err(_) => errors::not_found_msg("Page not found"),
     }
 }
 
@@ -489,7 +490,7 @@ pub async fn sync_page_embeddings(
         Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => {
             error!("Failed to sync page embeddings: {}", e);
-            HttpResponse::InternalServerError().json(json!({"error": "Failed to sync embeddings"}))
+            errors::internal("Failed to sync embeddings")
         }
     }
 }
@@ -513,10 +514,7 @@ pub async fn create_documentation_page(
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can create documentation pages"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can create documentation pages");
     }
 
     let request = page_request.into_inner();
@@ -614,7 +612,7 @@ pub async fn create_documentation_page(
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to create page"),
+        Err(_) => errors::internal("Failed to create page"),
     }
 }
 
@@ -655,10 +653,7 @@ pub async fn update_documentation_page(
     let page_id = path.into_inner();
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can update documentation pages"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can update documentation pages");
     }
 
     // Check if the page exists and get its current state
@@ -788,11 +783,11 @@ pub async fn update_documentation_page(
                 },
                 Err(e) => {
                     error!(page_id = page_id, error = ?e, "Error updating documentation page");
-                    HttpResponse::InternalServerError().json("Failed to update documentation page")
+                    errors::internal("Failed to update documentation page")
                 },
             }
         },
-        Err(_) => HttpResponse::NotFound().json("Documentation page not found"),
+        Err(_) => errors::not_found_msg("Documentation page not found"),
     }
 }
 
@@ -812,10 +807,7 @@ pub async fn delete_documentation_page(
     let page_id = path.into_inner();
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can delete documentation pages"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can delete documentation pages");
     }
 
     // Check if the page exists
@@ -857,11 +849,11 @@ pub async fn delete_documentation_page(
                 },
                 Err(e) => {
                     error!(page_id = page_id, error = ?e, "Error soft-deleting documentation page");
-                    HttpResponse::InternalServerError().json("Failed to delete documentation page")
+                    errors::internal("Failed to delete documentation page")
                 },
             }
         },
-        Err(_) => HttpResponse::NotFound().json("Documentation page not found"),
+        Err(_) => errors::not_found_msg("Documentation page not found"),
     }
 }
 
@@ -879,14 +871,14 @@ pub async fn get_top_level_documentation_pages(
         Ok(pages) => {
             let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
                 Ok(p) => p,
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to fetch top-level pages"),
+        Err(_) => errors::internal("Failed to fetch top-level pages"),
     }
 }
 
@@ -907,14 +899,14 @@ pub async fn get_documentation_pages_by_parent_id(
         Ok(pages) => {
             let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
                 Ok(p) => p,
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to fetch pages by parent ID"),
+        Err(_) => errors::internal("Failed to fetch pages by parent ID"),
     }
 }
 
@@ -934,22 +926,22 @@ pub async fn get_page_with_children_by_parent_id(
     // First get the page
     let page = match repository::get_documentation_page(page_id, &mut conn) {
         Ok(page) => page,
-        Err(_) => return HttpResponse::NotFound().json("Page not found"),
+        Err(_) => return errors::not_found_msg("Page not found"),
     };
 
     match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
         Ok(true) => {},
-        Ok(false) => return HttpResponse::NotFound().json("Page not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+        Ok(false) => return errors::not_found_msg("Page not found"),
+        Err(_) => return errors::internal("Failed to check page visibility"),
     }
 
     // Then get its children (filtered by access)
     let children = match repository::get_pages_by_parent_id(page_id, &mut conn) {
         Ok(children) => match repository::filter_pages_for_user(&mut conn, children, &user_uuid, is_admin(&claims)) {
             Ok(c) => c,
-            Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            Err(_) => return errors::internal("Failed to check page visibility"),
         },
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to fetch children"),
+        Err(_) => return errors::internal("Failed to fetch children"),
     };
 
     let page_with_children = DocumentationPageWithChildren {
@@ -977,17 +969,17 @@ pub async fn get_page_with_ordered_children(
         Ok(mut page_with_children) => {
             match repository::can_user_access_page(&mut conn, page_with_children.page.id, &user_uuid, is_admin(&claims)) {
                 Ok(true) => {},
-                Ok(false) => return HttpResponse::NotFound().json("Page not found or error fetching children"),
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Ok(false) => return errors::not_found_msg("Page not found or error fetching children"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             }
             // Filter children
             page_with_children.children = match repository::filter_pages_for_user(&mut conn, page_with_children.children, &user_uuid, is_admin(&claims)) {
                 Ok(c) => c,
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             };
             HttpResponse::Ok().json(page_with_children)
         },
-        Err(_) => HttpResponse::NotFound().json("Page not found or error fetching children"),
+        Err(_) => errors::not_found_msg("Page not found or error fetching children"),
     }
 }
 
@@ -1008,14 +1000,14 @@ pub async fn get_ordered_pages_by_parent_id(
         Ok(pages) => {
             let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
                 Ok(p) => p,
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to fetch ordered pages by parent ID"),
+        Err(_) => errors::internal("Failed to fetch ordered pages by parent ID"),
     }
 }
 
@@ -1037,17 +1029,14 @@ pub async fn reorder_pages(
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can reorder documentation pages"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can reorder documentation pages");
     }
 
     match repository::reorder_pages(&mut conn, Some(request.parent_id), &request.page_orders) {
         Ok(updated_pages) => HttpResponse::Ok().json(updated_pages),
         Err(e) => {
             error!(parent_id = request.parent_id, error = ?e, "Error reordering pages");
-            HttpResponse::InternalServerError().json("Failed to reorder pages")
+            errors::internal("Failed to reorder pages")
         }
     }
 }
@@ -1071,36 +1060,24 @@ pub async fn move_page_to_parent(
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can move documentation pages"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can move documentation pages");
     }
 
     let display_order = request.display_order.unwrap_or(0);
 
     // Validation: Cannot move a page to be its own parent
     if request.new_parent_id == Some(request.page_id) {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Invalid operation",
-            "message": "A page cannot be its own parent"
-        }));
+        return errors::bad_request("Invalid operation: A page cannot be its own parent");
     }
 
     match repository::move_page_to_parent(&mut conn, request.page_id, request.new_parent_id, display_order) {
         Ok(page) => HttpResponse::Ok().json(page),
         Err(diesel::result::Error::RollbackTransaction) => {
-            HttpResponse::BadRequest().json(json!({
-                "error": "Circular reference",
-                "message": "Cannot move a page to be a child of its own descendant"
-            }))
+            errors::bad_request("Circular reference: Cannot move a page to be a child of its own descendant")
         }
         Err(e) => {
             error!(page_id = request.page_id, new_parent_id = ?request.new_parent_id, error = ?e, "Error moving page");
-            HttpResponse::InternalServerError().json(json!({
-                "error": "Internal server error",
-                "message": "Failed to move page to new parent"
-            }))
+            errors::internal("Internal server error: Failed to move page to new parent")
         }
     }
 }
@@ -1119,14 +1096,14 @@ pub async fn get_ordered_top_level_pages(
         Ok(pages) => {
             let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
                 Ok(p) => p,
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to fetch top-level pages"),
+        Err(_) => errors::internal("Failed to fetch top-level pages"),
     }
 }
 
@@ -1146,22 +1123,22 @@ pub async fn get_documentation_page_by_slug_with_children(
     // First get the page by slug
     let page = match repository::get_documentation_page_by_slug(&page_slug, &mut conn) {
         Ok(page) => page,
-        Err(_) => return HttpResponse::NotFound().json("Page not found"),
+        Err(_) => return errors::not_found_msg("Page not found"),
     };
 
     match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
         Ok(true) => {},
-        Ok(false) => return HttpResponse::NotFound().json("Page not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+        Ok(false) => return errors::not_found_msg("Page not found"),
+        Err(_) => return errors::internal("Failed to check page visibility"),
     }
 
     // Then get its children (filtered by access)
     let children = match repository::get_pages_by_parent_id(page.id, &mut conn) {
         Ok(children) => match repository::filter_pages_for_user(&mut conn, children, &user_uuid, is_admin(&claims)) {
             Ok(c) => c,
-            Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+            Err(_) => return errors::internal("Failed to check page visibility"),
         },
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to fetch children"),
+        Err(_) => return errors::internal("Failed to fetch children"),
     };
 
     let page_with_children = DocumentationPageWithChildren {
@@ -1189,7 +1166,7 @@ pub async fn get_documentation_pages_by_ticket_id(
         Ok(pages) => {
             let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
                 Ok(p) => p,
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             };
             debug!(ticket_id = ticket_id, count = pages.len(), "Found documentation pages for ticket");
             match to_page_responses(pages, &mut conn) {
@@ -1199,7 +1176,7 @@ pub async fn get_documentation_pages_by_ticket_id(
         },
         Err(e) => {
             error!(ticket_id = ticket_id, error = ?e, "Error fetching documentation pages for ticket");
-            HttpResponse::InternalServerError().json("Failed to fetch documentation pages")
+            errors::internal("Failed to fetch documentation pages")
         }
     }
 }
@@ -1240,10 +1217,7 @@ pub async fn export_documentation_pages(
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can export documentation"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can export documentation");
     }
 
     match repository::get_documentation_pages(&mut conn) {
@@ -1265,7 +1239,7 @@ pub async fn export_documentation_pages(
             }).collect();
             HttpResponse::Ok().json(export_pages)
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to fetch pages for export"),
+        Err(_) => errors::internal("Failed to fetch pages for export"),
     }
 }
 
@@ -1282,7 +1256,7 @@ pub async fn export_page_as_markdown(
 
     let page = match repository::get_documentation_page(id, &mut conn) {
         Ok(p) => p,
-        Err(_) => return HttpResponse::NotFound().json(json!({"error": "Page not found"})),
+        Err(_) => return errors::not_found_msg("Page not found"),
     };
 
     let markdown = match resolve_yjs_document(&page, &mut conn) {
@@ -1325,10 +1299,7 @@ pub async fn create_documentation_page_from_ticket(
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can create documentation pages from tickets"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can create documentation pages from tickets");
     }
 
     // Check if a documentation page already exists for this ticket
@@ -1423,7 +1394,7 @@ pub async fn create_documentation_page_from_ticket(
         },
         Err(e) => {
             error!(ticket_id = ticket_id, error = ?e, "Error creating documentation page from ticket");
-            HttpResponse::InternalServerError().json("Failed to create documentation page")
+            errors::internal("Failed to create documentation page")
         }
     }
 }
@@ -1442,14 +1413,14 @@ pub async fn get_archived_pages(
         Ok(pages) => {
             let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
                 Ok(p) => p,
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to fetch archived pages"),
+        Err(_) => errors::internal("Failed to fetch archived pages"),
     }
 }
 
@@ -1467,14 +1438,14 @@ pub async fn get_trashed_pages(
         Ok(pages) => {
             let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
                 Ok(p) => p,
-                Err(_) => return HttpResponse::InternalServerError().json("Failed to check page visibility"),
+                Err(_) => return errors::internal("Failed to check page visibility"),
             };
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
         },
-        Err(_) => HttpResponse::InternalServerError().json("Failed to fetch trashed pages"),
+        Err(_) => errors::internal("Failed to fetch trashed pages"),
     }
 }
 
@@ -1494,10 +1465,7 @@ pub async fn get_page_visibility(
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can view page visibility"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can view page visibility");
     }
 
     let page_id = path.into_inner();
@@ -1506,7 +1474,7 @@ pub async fn get_page_visibility(
         Ok(g) => g,
         Err(e) => {
             error!(error = ?e, "Failed to get page visibility groups");
-            return HttpResponse::InternalServerError().json("Failed to get page visibility");
+            return errors::internal("Failed to get page visibility");
         }
     };
 
@@ -1514,7 +1482,7 @@ pub async fn get_page_visibility(
         Ok(u) => u,
         Err(e) => {
             error!(error = ?e, "Failed to get page visibility users");
-            return HttpResponse::InternalServerError().json("Failed to get page visibility");
+            return errors::internal("Failed to get page visibility");
         }
     };
 
@@ -1543,10 +1511,7 @@ pub async fn set_page_visibility(
     };
 
     if !is_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only administrators can set page visibility"
-        }));
+        return errors::forbidden("Forbidden: Only administrators can set page visibility");
     }
 
     let page_id = path.into_inner();
@@ -1565,7 +1530,7 @@ pub async fn set_page_visibility(
         Ok(entries) => HttpResponse::Ok().json(entries),
         Err(e) => {
             error!(error = ?e, "Failed to set page visibility");
-            HttpResponse::InternalServerError().json("Failed to set page visibility")
+            errors::internal("Failed to set page visibility")
         }
     }
 }
@@ -1585,10 +1550,7 @@ pub async fn restore_page(
     };
 
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only technicians and administrators can restore documentation pages"
-        }));
+        return errors::forbidden("Forbidden: Only technicians and administrators can restore documentation pages");
     }
 
     match repository::get_documentation_page(page_id, &mut conn) {
@@ -1631,11 +1593,11 @@ pub async fn restore_page(
                 },
                 Err(e) => {
                     error!(page_id = page_id, error = ?e, "Error restoring documentation page");
-                    HttpResponse::InternalServerError().json("Failed to restore documentation page")
+                    errors::internal("Failed to restore documentation page")
                 },
             }
         },
-        Err(_) => HttpResponse::NotFound().json("Documentation page not found"),
+        Err(_) => errors::not_found_msg("Documentation page not found"),
     }
 }
 
@@ -1653,10 +1615,7 @@ pub async fn permanently_delete_page(
     };
 
     if !is_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "Only administrators can permanently delete documentation pages"
-        }));
+        return errors::forbidden("Forbidden: Only administrators can permanently delete documentation pages");
     }
 
     match repository::get_documentation_page(page_id, &mut conn) {
@@ -1669,11 +1628,11 @@ pub async fn permanently_delete_page(
                 },
                 Err(e) => {
                     error!(page_id = page_id, error = ?e, "Error permanently deleting documentation page");
-                    HttpResponse::InternalServerError().json("Failed to permanently delete documentation page")
+                    errors::internal("Failed to permanently delete documentation page")
                 },
             }
         },
-        Err(_) => HttpResponse::NotFound().json("Documentation page not found"),
+        Err(_) => errors::not_found_msg("Documentation page not found"),
     }
 }
 
@@ -1712,14 +1671,14 @@ pub async fn subscribe_to_page(
 
     // Verify page exists
     if repository::get_documentation_page(page_id, &mut conn).is_err() {
-        return HttpResponse::NotFound().json("Documentation page not found");
+        return errors::not_found_msg("Documentation page not found");
     }
 
     match documentation_subscriptions::subscribe_user(&mut conn, user_uuid, page_id) {
         Ok(_) => HttpResponse::Ok().json(json!({ "subscribed": true })),
         Err(e) => {
             error!(error = ?e, "Failed to subscribe to documentation page");
-            HttpResponse::InternalServerError().json("Failed to subscribe")
+            errors::internal("Failed to subscribe")
         }
     }
 }
@@ -1740,7 +1699,7 @@ pub async fn unsubscribe_from_page(
         Ok(_) => HttpResponse::Ok().json(json!({ "subscribed": false })),
         Err(e) => {
             error!(error = ?e, "Failed to unsubscribe from documentation page");
-            HttpResponse::InternalServerError().json("Failed to unsubscribe")
+            errors::internal("Failed to unsubscribe")
         }
     }
 }
@@ -1793,14 +1752,14 @@ pub async fn star_page(
 
     // Verify page exists
     if repository::get_documentation_page(page_id, &mut conn).is_err() {
-        return HttpResponse::NotFound().json("Documentation page not found");
+        return errors::not_found_msg("Documentation page not found");
     }
 
     match documentation_starred_pages::star_page(&mut conn, user_uuid, page_id) {
         Ok(_) => HttpResponse::Ok().json(json!({ "starred": true })),
         Err(e) => {
             error!(error = ?e, "Failed to star documentation page");
-            HttpResponse::InternalServerError().json("Failed to star page")
+            errors::internal("Failed to star page")
         }
     }
 }
@@ -1821,7 +1780,7 @@ pub async fn unstar_page(
         Ok(_) => HttpResponse::Ok().json(json!({ "starred": false })),
         Err(e) => {
             error!(error = ?e, "Failed to unstar documentation page");
-            HttpResponse::InternalServerError().json("Failed to unstar page")
+            errors::internal("Failed to unstar page")
         }
     }
 }
@@ -1878,7 +1837,7 @@ pub async fn list_page_tickets(
         Ok(rows) => rows,
         Err(e) => {
             error!(error = ?e, "Failed to load page<->ticket links");
-            return HttpResponse::InternalServerError().json("Failed to load links");
+            return errors::internal("Failed to load links");
         }
     };
 
@@ -1933,7 +1892,7 @@ pub async fn create_page_ticket_link(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Forbidden");
     }
     let page_id = path.into_inner();
     let req_body = body.into_inner();
@@ -1954,7 +1913,7 @@ pub async fn create_page_ticket_link(
         Ok(row) => HttpResponse::Created().json(row),
         Err(e) => {
             error!(error = ?e, "Failed to create page<->ticket link");
-            HttpResponse::InternalServerError().json("Failed to create link")
+            errors::internal("Failed to create link")
         }
     }
 }
@@ -1970,14 +1929,14 @@ pub async fn delete_page_ticket_link(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Forbidden");
     }
     let (page_id, ticket_id) = path.into_inner();
     match repository::documentation_page_tickets::delete_link(&mut conn, page_id, ticket_id) {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
             error!(error = ?e, "Failed to delete page<->ticket link");
-            HttpResponse::InternalServerError().json("Failed to delete link")
+            errors::internal("Failed to delete link")
         }
     }
 }
@@ -2001,7 +1960,7 @@ pub async fn list_ticket_doc_links(
         Ok(rows) => rows,
         Err(e) => {
             error!(error = ?e, "Failed to load ticket<->doc links");
-            return HttpResponse::InternalServerError().json("Failed to load links");
+            return errors::internal("Failed to load links");
         }
     };
 
@@ -2020,7 +1979,7 @@ pub async fn list_ticket_doc_links(
         Ok(p) => p,
         Err(e) => {
             error!(error = ?e, "Failed to hydrate linked docs");
-            return HttpResponse::InternalServerError().json("Failed to hydrate docs");
+            return errors::internal("Failed to hydrate docs");
         }
     };
 
@@ -2029,7 +1988,7 @@ pub async fn list_ticket_doc_links(
     // ticket panel would leak doc titles past their group boundary.
     let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
         Ok(p) => p,
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to filter pages"),
+        Err(_) => return errors::internal("Failed to filter pages"),
     };
     let pages_by_id: std::collections::HashMap<i32, DocumentationPage> =
         pages.into_iter().map(|p| (p.id, p)).collect();
@@ -2073,12 +2032,12 @@ pub async fn verify_page(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Forbidden");
     }
     let page_id = path.into_inner();
     let req_body = body.into_inner();
     if matches!(req_body.interval_days, Some(0) | Some(i32::MIN..=-1)) {
-        return HttpResponse::BadRequest().json(json!({"error": "interval_days must be positive"}));
+        return errors::bad_request("interval_days must be positive");
     }
 
     let now = chrono::Utc::now().naive_utc();
@@ -2119,7 +2078,7 @@ pub async fn verify_page(
         }
         Err(e) => {
             error!(error = ?e, "Failed to verify page");
-            HttpResponse::InternalServerError().json("Failed to verify page")
+            errors::internal("Failed to verify page")
         }
     }
 }
@@ -2136,7 +2095,7 @@ pub async fn unverify_page(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Forbidden");
     }
     let page_id = path.into_inner();
     let now = chrono::Utc::now().naive_utc();
@@ -2165,7 +2124,7 @@ pub async fn unverify_page(
         }
         Err(e) => {
             error!(error = ?e, "Failed to clear verification");
-            HttpResponse::InternalServerError().json("Failed to clear verification")
+            errors::internal("Failed to clear verification")
         }
     }
 }

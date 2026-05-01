@@ -17,6 +17,7 @@ use serde_json::{json, Value as JsonValue};
 use tracing::{error, info, warn};
 
 use crate::db::{DbConnection, Pool};
+use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{
     Channel, ChannelUpdate, NewChannel, CRED_TYPE_IMAP_PASSWORD,
@@ -96,11 +97,11 @@ pub struct TestConnectionRequest {
 // ---------- Small response helpers ----------
 
 fn server_error(msg: &str) -> HttpResponse {
-    HttpResponse::InternalServerError().json(json!({ "error": msg }))
+    errors::internal(msg)
 }
 
 fn bad_request(msg: impl Into<String>) -> HttpResponse {
-    HttpResponse::BadRequest().json(json!({ "error": msg.into() }))
+    errors::bad_request(msg)
 }
 
 /// `None` is treated as 404; other DB errors log + return 500. Callers

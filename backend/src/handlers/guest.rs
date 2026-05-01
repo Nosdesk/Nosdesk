@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{
     NewAttachment, NewTicket, PublicSiteSettings, SiteSettings, TicketPriority, TicketStatus,
 };
@@ -269,15 +270,12 @@ pub async fn submit_guest_ticket(
     let settings = match get_settings(&mut conn) {
         Some(s) => s,
         None => {
-            return HttpResponse::ServiceUnavailable()
-                .json(json!({"error": "Settings unavailable"}));
+            return errors::service_unavailable("Settings unavailable");
         }
     };
 
     if !settings.guest_tickets_enabled {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Guest ticket submission is disabled"
-        }));
+        return errors::forbidden("Guest ticket submission is disabled");
     }
 
     // Honeypot: a non-empty `website` field means a bot filled a hidden
@@ -285,7 +283,7 @@ pub async fn submit_guest_ticket(
     // trap worked — keeps the bot from learning to avoid it.
     if body.website.as_deref().map(str::trim).is_some_and(|s| !s.is_empty()) {
         debug!(ip = ?client_ip(&req), "Guest ticket submission tripped honeypot");
-        return HttpResponse::BadRequest().json(json!({"error": "Invalid submission"}));
+        return errors::bad_request("Invalid submission");
     }
 
     // Basic input validation
@@ -295,10 +293,10 @@ pub async fn submit_guest_ticket(
     let description = body.description.trim();
 
     if name.is_empty() || name.len() > GUEST_MAX_NAME_LENGTH {
-        return HttpResponse::BadRequest().json(json!({"error": "Invalid name"}));
+        return errors::bad_request("Invalid name");
     }
     if !valid_email(email) {
-        return HttpResponse::BadRequest().json(json!({"error": "Invalid email"}));
+        return errors::bad_request("Invalid email");
     }
     // MX pre-check: reject addresses whose domain has no mail servers. This
     // is a cheap filter that catches `random@madeupdomain.tld` garbage
@@ -306,14 +304,13 @@ pub async fn submit_guest_ticket(
     // that will just hard-bounce. The check fails open on resolver errors
     // so flaky upstream DNS doesn't break legitimate submissions.
     if !email_domain_has_mx(email).await {
-        return HttpResponse::BadRequest()
-            .json(json!({"error": "We can't deliver mail to that address."}));
+        return errors::bad_request("We can't deliver mail to that address.");
     }
     if title.is_empty() || title.len() > 255 {
-        return HttpResponse::BadRequest().json(json!({"error": "Invalid title"}));
+        return errors::bad_request("Invalid title");
     }
     if description.is_empty() || description.len() > GUEST_MAX_DESCRIPTION_LENGTH {
-        return HttpResponse::BadRequest().json(json!({"error": "Invalid description"}));
+        return errors::bad_request("Invalid description");
     }
 
     // Resolve priority early so we can 400 on bad client input before touching
@@ -328,8 +325,7 @@ pub async fn submit_guest_ticket(
         match resolved {
             Some(p) => p,
             None => {
-                return HttpResponse::BadRequest()
-                    .json(json!({"error": "Invalid priority"}));
+                return errors::bad_request("Invalid priority");
             }
         }
     };
@@ -348,9 +344,10 @@ pub async fn submit_guest_ticket(
         match RateLimiter::check_rate_limit(&redis_url, &key, max, 3600).await {
             Ok(true) => { /* allowed */ }
             Ok(false) => {
-                return HttpResponse::TooManyRequests().json(json!({
-                    "error": "Too many submissions from your network. Please try again later."
-                }));
+                return errors::too_many_requests(
+                    "Too many submissions from your network. Please try again later.",
+                    3600,
+                );
             }
             Err(e) => {
                 warn!(error = %e, "Guest-ticket rate limiter unavailable; allowing request");
@@ -365,14 +362,11 @@ pub async fn submit_guest_ticket(
         Ok(GuestUserResult::Created(u)) => (u, true),
         Ok(GuestUserResult::Existing(u)) => (u, false),
         Ok(GuestUserResult::EmailClaimed) => {
-            return HttpResponse::Conflict().json(json!({
-                "error": "Please sign in to submit a ticket with this email address."
-            }));
+            return errors::conflict("Please sign in to submit a ticket with this email address.");
         }
         Err(e) => {
             error!(error = %e, "Failed to provision guest user");
-            return HttpResponse::InternalServerError()
-                .json(json!({"error": "Failed to create ticket"}));
+            return errors::internal("Failed to create ticket");
         }
     };
 
@@ -403,8 +397,7 @@ pub async fn submit_guest_ticket(
         Ok(t) => t,
         Err(e) => {
             error!(error = %e, "Failed to create guest ticket");
-            return HttpResponse::InternalServerError()
-                .json(json!({"error": "Failed to create ticket"}));
+            return errors::internal("Failed to create ticket");
         }
     };
 
@@ -571,9 +564,7 @@ pub async fn get_guest_ticket_status(
     };
 
     if !settings.guest_ticket_lookup_enabled {
-        return HttpResponse::Forbidden().json(json!({
-            "error": "Guest ticket status lookup is disabled"
-        }));
+        return errors::forbidden("Guest ticket status lookup is disabled");
     }
 
     match repository::tickets::find_by_lookup_token(&mut conn, token) {
@@ -608,8 +599,7 @@ pub async fn list_public_docs(pool: web::Data<Pool>) -> impl Responder {
         None => return HttpResponse::ServiceUnavailable().finish(),
     };
     if !settings.guest_public_docs_enabled {
-        return HttpResponse::Forbidden()
-            .json(json!({"error": "Public documentation is disabled"}));
+        return errors::forbidden("Public documentation is disabled");
     }
 
     use crate::schema::documentation_pages::dsl::*;
@@ -659,8 +649,7 @@ pub async fn get_public_doc(
         None => return HttpResponse::ServiceUnavailable().finish(),
     };
     if !settings.guest_public_docs_enabled {
-        return HttpResponse::Forbidden()
-            .json(json!({"error": "Public documentation is disabled"}));
+        return errors::forbidden("Public documentation is disabled");
     }
 
     use crate::schema::documentation_pages::dsl::*;
@@ -708,13 +697,12 @@ pub async fn search_public_docs(
         None => return HttpResponse::ServiceUnavailable().finish(),
     };
     if !settings.guest_kb_search_enabled || !settings.guest_public_docs_enabled {
-        return HttpResponse::Forbidden()
-            .json(json!({"error": "Public documentation search is disabled"}));
+        return errors::forbidden("Public documentation search is disabled");
     }
 
     let q = query.q.trim();
     if q.is_empty() || q.len() > GUEST_DOC_SEARCH_MAX_QUERY_LENGTH {
-        return HttpResponse::BadRequest().json(json!({"error": "Invalid query"}));
+        return errors::bad_request("Invalid query");
     }
 
     use crate::schema::documentation_pages::dsl::*;
@@ -787,14 +775,12 @@ pub async fn upload_guest_attachment(
     let settings = match get_settings(&mut conn) {
         Some(s) => s,
         None => {
-            return HttpResponse::ServiceUnavailable()
-                .json(json!({"error": "Settings unavailable"}));
+            return errors::service_unavailable("Settings unavailable");
         }
     };
 
     if !settings.guest_tickets_enabled || !settings.guest_ticket_attachments_enabled {
-        return HttpResponse::Forbidden()
-            .json(json!({"error": "Attachments are not accepted"}));
+        return errors::forbidden("Attachments are not accepted");
     }
 
     // Dedicated per-IP rate limiter for uploads. Keeping it distinct from
@@ -806,9 +792,10 @@ pub async fn upload_guest_attachment(
         match RateLimiter::check_rate_limit(&redis_url, &key, GUEST_UPLOADS_PER_HOUR, 3600).await {
             Ok(true) => { /* allowed */ }
             Ok(false) => {
-                return HttpResponse::TooManyRequests().json(json!({
-                    "error": "Too many uploads from your network. Please try again later."
-                }));
+                return errors::too_many_requests(
+                    "Too many uploads from your network. Please try again later.",
+                    3600,
+                );
             }
             Err(e) => {
                 warn!(error = %e, "Guest upload rate limiter unavailable; allowing request");
@@ -822,19 +809,16 @@ pub async fn upload_guest_attachment(
     let mut field = match payload.try_next().await {
         Ok(Some(f)) => f,
         Ok(None) => {
-            return HttpResponse::BadRequest()
-                .json(json!({"error": "No file in request"}));
+            return errors::bad_request("No file in request");
         }
         Err(e) => {
             debug!(error = %e, "Multipart parse error");
-            return HttpResponse::BadRequest()
-                .json(json!({"error": "Could not read upload"}));
+            return errors::bad_request("Could not read upload");
         }
     };
 
     if field.name() != "file" {
-        return HttpResponse::BadRequest()
-            .json(json!({"error": "Expected field 'file'"}));
+        return errors::bad_request("Expected field 'file'");
     }
 
     let original_filename = match field
@@ -844,8 +828,7 @@ pub async fn upload_guest_attachment(
     {
         Some(n) if !n.is_empty() => n,
         _ => {
-            return HttpResponse::BadRequest()
-                .json(json!({"error": "Filename is required"}));
+            return errors::bad_request("Filename is required");
         }
     };
 
@@ -865,8 +848,7 @@ pub async fn upload_guest_attachment(
             Ok(d) => d,
             Err(e) => {
                 debug!(error = %e, "Read chunk error");
-                return HttpResponse::BadRequest()
-                    .json(json!({"error": "Upload interrupted"}));
+                return errors::bad_request("Upload interrupted");
             }
         };
         if file_data.len() + data.len() > max_bytes {
@@ -904,8 +886,7 @@ pub async fn upload_guest_attachment(
         Ok(sf) => sf,
         Err(e) => {
             error!(error = ?e, "Failed to store guest upload");
-            return HttpResponse::InternalServerError()
-                .json(json!({"error": "Failed to store file"}));
+            return errors::internal("Failed to store file");
         }
     };
 
@@ -941,8 +922,7 @@ pub async fn upload_guest_attachment(
             // the daily temp-cleanup job will pick it up.
             let _ = storage.delete_file(&stored_file.path).await;
             error!(error = ?e, "Failed to record guest upload");
-            HttpResponse::InternalServerError()
-                .json(json!({"error": "Failed to save attachment"}))
+            errors::internal("Failed to save attachment")
         }
     }
 }

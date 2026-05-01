@@ -11,6 +11,7 @@ use webauthn_rs::prelude::*;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::Claims;
 use crate::repository;
 use crate::utils::webauthn::{
@@ -104,18 +105,14 @@ pub async fn start_passkey_registration(
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "error": "Authentication required"
-            }));
+            return errors::unauthorized("Authentication required");
         }
     };
 
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Invalid user UUID"
-            }));
+            return errors::bad_request("Invalid user UUID");
         }
     };
 
@@ -124,9 +121,10 @@ pub async fn start_passkey_registration(
     let rate_key = format!("passkey_registration:{user_uuid}");
     match RateLimiter::check_rate_limit(&redis_url, &rate_key, 5, 3600).await {
         Ok(false) => {
-            return HttpResponse::TooManyRequests().json(json!({
-                "error": "Too many passkey registration attempts. Please try again later."
-            }));
+            return errors::too_many_requests(
+                "Too many passkey registration attempts. Please try again later.",
+                3600,
+            );
         }
         Err(e) => {
             warn!("Rate limit check failed for passkey registration: {:?}", e);
@@ -144,9 +142,7 @@ pub async fn start_passkey_registration(
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(_) => {
-            return HttpResponse::NotFound().json(json!({
-                "error": "User not found"
-            }));
+            return errors::not_found_msg("User not found");
         }
     };
 
@@ -162,9 +158,7 @@ pub async fn start_passkey_registration(
     let primary_email = match repository::user_helpers::get_primary_email(&user_uuid, &mut conn) {
         Some(email) => email,
         None => {
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Could not retrieve user email"
-            }));
+            return errors::internal("Could not retrieve user email");
         }
     };
 
@@ -188,18 +182,14 @@ pub async fn start_passkey_registration(
         Ok(result) => result,
         Err(e) => {
             error!("Failed to start passkey registration: {:?}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Failed to generate registration challenge"
-            }));
+            return errors::internal("Failed to generate registration challenge");
         }
     };
 
     // Store registration state in Redis
     if let Err(e) = webauthn::store_registration_state(&user_uuid, &reg_state).await {
         error!("Failed to store registration state: {:?}", e);
-        return HttpResponse::InternalServerError().json(json!({
-            "error": "Failed to store registration state"
-        }));
+        return errors::internal("Failed to store registration state");
     }
 
     debug!("Started passkey registration for user {}", user_uuid);
@@ -245,18 +235,14 @@ pub async fn finish_passkey_registration(
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "error": "Authentication required"
-            }));
+            return errors::unauthorized("Authentication required");
         }
     };
 
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Invalid user UUID"
-            }));
+            return errors::bad_request("Invalid user UUID");
         }
     };
 
@@ -269,9 +255,7 @@ pub async fn finish_passkey_registration(
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(_) => {
-            return HttpResponse::NotFound().json(json!({
-                "error": "User not found"
-            }));
+            return errors::not_found_msg("User not found");
         }
     };
 
@@ -280,9 +264,7 @@ pub async fn finish_passkey_registration(
         Ok(state) => state,
         Err(e) => {
             warn!("Registration state not found for user {}: {:?}", user_uuid, e);
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Registration challenge expired or not found"
-            }));
+            return errors::bad_request("Registration challenge expired or not found");
         }
     };
 
@@ -298,9 +280,7 @@ pub async fn finish_passkey_registration(
         Ok(r) => r,
         Err(e) => {
             error!("Failed to parse registration response: {:?}", e);
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Invalid registration response"
-            }));
+            return errors::bad_request("Invalid registration response");
         }
     };
 
@@ -310,9 +290,7 @@ pub async fn finish_passkey_registration(
         Ok(pk) => pk,
         Err(e) => {
             error!("Failed to complete passkey registration: {:?}", e);
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Failed to verify registration"
-            }));
+            return errors::bad_request("Failed to verify registration");
         }
     };
 
@@ -349,9 +327,7 @@ pub async fn finish_passkey_registration(
     // Save to database
     if let Err(e) = save_user_passkey_data(&mut conn, &user_uuid, &passkey_data) {
         error!("Failed to save passkey: {:?}", e);
-        return HttpResponse::InternalServerError().json(json!({
-            "error": "Failed to save passkey"
-        }));
+        return errors::internal("Failed to save passkey");
     }
 
     info!("Passkey registered for user {}: {}", user_uuid, passkey_name);
@@ -398,9 +374,10 @@ pub async fn start_passkey_login(
 
     match RateLimiter::check_rate_limit(&redis_url, &rate_key, 10, 300).await {
         Ok(false) => {
-            return HttpResponse::TooManyRequests().json(json!({
-                "error": "Too many login attempts. Please try again later."
-            }));
+            return errors::too_many_requests(
+                "Too many login attempts. Please try again later.",
+                300,
+            );
         }
         Err(e) => {
             warn!("Rate limit check failed: {:?}", e);
@@ -421,18 +398,14 @@ pub async fn start_passkey_login(
             Ok(result) => result,
             Err(e) => {
                 error!("Failed to start discoverable passkey authentication: {:?}", e);
-                return HttpResponse::InternalServerError().json(json!({
-                    "error": "Failed to generate authentication challenge"
-                }));
+                return errors::internal("Failed to generate authentication challenge");
             }
         };
 
         // Store discoverable authentication state in Redis
         if let Err(e) = webauthn::store_discoverable_auth_state(&session_id, &auth_state).await {
             error!("Failed to store discoverable auth state: {:?}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Failed to store authentication state"
-            }));
+            return errors::internal("Failed to store authentication state");
         }
 
         debug!("Started discoverable passkey authentication, session_id={}", session_id);
@@ -469,18 +442,14 @@ pub async fn start_passkey_login(
         Ok(user) => user,
         Err(_) => {
             debug!("User not found for passkey login: {}", email);
-            return HttpResponse::BadRequest().json(json!({
-                "error": "No passkeys registered for this account"
-            }));
+            return errors::bad_request("No passkeys registered for this account");
         }
     };
 
     // Get user's passkeys
     let passkey_data = get_user_passkey_data(&user);
     if passkey_data.credentials.is_empty() {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "No passkeys registered for this account"
-        }));
+        return errors::bad_request("No passkeys registered for this account");
     }
 
     // Get passkeys for authentication
@@ -491,18 +460,14 @@ pub async fn start_passkey_login(
         Ok(result) => result,
         Err(e) => {
             error!("Failed to start passkey authentication: {:?}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Failed to generate authentication challenge"
-            }));
+            return errors::internal("Failed to generate authentication challenge");
         }
     };
 
     // Store authentication state in Redis
     if let Err(e) = webauthn::store_authentication_state(&email, &auth_state).await {
         error!("Failed to store authentication state: {:?}", e);
-        return HttpResponse::InternalServerError().json(json!({
-            "error": "Failed to store authentication state"
-        }));
+        return errors::internal("Failed to store authentication state");
     }
 
     debug!("Started passkey authentication for {}", email);
@@ -537,9 +502,7 @@ pub async fn finish_passkey_login(
         Some(result) => result,
         None => {
             warn!("No user found with credential ID: {}", credential_id);
-            return HttpResponse::Unauthorized().json(json!({
-                "error": "Invalid passkey"
-            }));
+            return errors::unauthorized("Invalid passkey");
         }
     };
 
@@ -555,9 +518,7 @@ pub async fn finish_passkey_login(
         Ok(r) => r,
         Err(e) => {
             error!("Failed to parse authentication response: {:?}", e);
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Invalid authentication response"
-            }));
+            return errors::bad_request("Invalid authentication response");
         }
     };
 
@@ -570,9 +531,7 @@ pub async fn finish_passkey_login(
             Ok(state) => state,
             Err(e) => {
                 warn!("Discoverable auth state not found: {:?}", e);
-                return HttpResponse::BadRequest().json(json!({
-                    "error": "Authentication challenge expired or not found"
-                }));
+                return errors::bad_request("Authentication challenge expired or not found");
             }
         };
 
@@ -582,9 +541,7 @@ pub async fn finish_passkey_login(
             Some(cred) => cred,
             None => {
                 error!("Credential not found in user's passkey data");
-                return HttpResponse::Unauthorized().json(json!({
-                    "error": "Invalid passkey"
-                }));
+                return errors::unauthorized("Invalid passkey");
             }
         };
 
@@ -598,9 +555,7 @@ pub async fn finish_passkey_login(
             }
             Err(e) => {
                 error!("Failed to complete discoverable passkey authentication: {:?}", e);
-                return HttpResponse::Unauthorized().json(json!({
-                    "error": "Authentication failed"
-                }));
+                return errors::unauthorized("Authentication failed");
             }
         };
     } else {
@@ -610,9 +565,7 @@ pub async fn finish_passkey_login(
             Some(e) => e,
             None => {
                 error!("Could not get email for user {}", user.uuid);
-                return HttpResponse::InternalServerError().json(json!({
-                    "error": "User email not found"
-                }));
+                return errors::internal("User email not found");
             }
         };
 
@@ -620,9 +573,7 @@ pub async fn finish_passkey_login(
             Ok(state) => state,
             Err(e) => {
                 warn!("Authentication state not found: {:?}", e);
-                return HttpResponse::BadRequest().json(json!({
-                    "error": "Authentication challenge expired or not found"
-                }));
+                return errors::bad_request("Authentication challenge expired or not found");
             }
         };
 
@@ -633,9 +584,7 @@ pub async fn finish_passkey_login(
             }
             Err(e) => {
                 error!("Failed to complete passkey authentication: {:?}", e);
-                return HttpResponse::Unauthorized().json(json!({
-                    "error": "Authentication failed"
-                }));
+                return errors::unauthorized("Authentication failed");
             }
         };
     }
@@ -659,10 +608,7 @@ pub async fn finish_passkey_login(
         });
     let session = match session {
         Ok(s) => s,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Failed to create authentication session"
-        })),
+        Err(_) => return errors::internal("Failed to create authentication session"),
     };
     let family_id = uuid::Uuid::new_v4();
 
@@ -725,18 +671,14 @@ pub async fn list_passkeys(req: HttpRequest, pool: web::Data<Pool>) -> impl Resp
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "error": "Authentication required"
-            }));
+            return errors::unauthorized("Authentication required");
         }
     };
 
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Invalid user UUID"
-            }));
+            return errors::bad_request("Invalid user UUID");
         }
     };
 
@@ -748,9 +690,7 @@ pub async fn list_passkeys(req: HttpRequest, pool: web::Data<Pool>) -> impl Resp
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(_) => {
-            return HttpResponse::NotFound().json(json!({
-                "error": "User not found"
-            }));
+            return errors::not_found_msg("User not found");
         }
     };
 
@@ -781,18 +721,14 @@ pub async fn rename_passkey(
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "error": "Authentication required"
-            }));
+            return errors::unauthorized("Authentication required");
         }
     };
 
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Invalid user UUID"
-            }));
+            return errors::bad_request("Invalid user UUID");
         }
     };
 
@@ -800,9 +736,7 @@ pub async fn rename_passkey(
     let new_name = body.name.trim();
 
     if new_name.is_empty() || new_name.len() > 100 {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Passkey name must be between 1 and 100 characters"
-        }));
+        return errors::bad_request("Passkey name must be between 1 and 100 characters");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -813,9 +747,7 @@ pub async fn rename_passkey(
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(_) => {
-            return HttpResponse::NotFound().json(json!({
-                "error": "User not found"
-            }));
+            return errors::not_found_msg("User not found");
         }
     };
 
@@ -826,17 +758,13 @@ pub async fn rename_passkey(
             cred.name = new_name.to_string();
         }
         None => {
-            return HttpResponse::NotFound().json(json!({
-                "error": "Passkey not found"
-            }));
+            return errors::not_found_msg("Passkey not found");
         }
     }
 
     if let Err(e) = save_user_passkey_data(&mut conn, &user_uuid, &passkey_data) {
         error!("Failed to rename passkey: {:?}", e);
-        return HttpResponse::InternalServerError().json(json!({
-            "error": "Failed to rename passkey"
-        }));
+        return errors::internal("Failed to rename passkey");
     }
 
     info!("Passkey {} renamed for user {}", credential_id, user_uuid);
@@ -856,18 +784,14 @@ pub async fn delete_passkey(
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "error": "Authentication required"
-            }));
+            return errors::unauthorized("Authentication required");
         }
     };
 
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Invalid user UUID"
-            }));
+            return errors::bad_request("Invalid user UUID");
         }
     };
 
@@ -881,9 +805,7 @@ pub async fn delete_passkey(
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(_) => {
-            return HttpResponse::NotFound().json(json!({
-                "error": "User not found"
-            }));
+            return errors::not_found_msg("User not found");
         }
     };
 
@@ -891,32 +813,24 @@ pub async fn delete_passkey(
     let password_hash = match get_local_password_hash(&user_uuid, &mut conn) {
         Ok(hash) => hash,
         Err(_) => {
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Password verification not available for this account"
-            }));
+            return errors::bad_request("Password verification not available for this account");
         }
     };
 
     let password_valid = bcrypt::verify(&body.password, &password_hash).unwrap_or(false);
     if !password_valid {
-        return HttpResponse::Unauthorized().json(json!({
-            "error": "Incorrect password"
-        }));
+        return errors::unauthorized("Incorrect password");
     }
 
     let mut passkey_data = get_user_passkey_data(&user);
 
     if !passkey_data.remove_credential(&credential_id) {
-        return HttpResponse::NotFound().json(json!({
-            "error": "Passkey not found"
-        }));
+        return errors::not_found_msg("Passkey not found");
     }
 
     if let Err(e) = save_user_passkey_data(&mut conn, &user_uuid, &passkey_data) {
         error!("Failed to delete passkey: {:?}", e);
-        return HttpResponse::InternalServerError().json(json!({
-            "error": "Failed to delete passkey"
-        }));
+        return errors::internal("Failed to delete passkey");
     }
 
     info!("Passkey {} deleted for user {}", credential_id, user_uuid);
@@ -990,9 +904,10 @@ pub async fn start_passkey_setup_login(
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
         Ok(Some(remaining_seconds)) => {
             warn!(email = %email_lower, remaining_seconds, "Passkey setup attempt on locked account");
-            return HttpResponse::TooManyRequests().json(json!({
-                "error": format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds)
-            }));
+            return errors::too_many_requests(
+                format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds),
+                remaining_seconds as u64,
+            );
         }
         Ok(None) => {} // Not locked, continue
         Err(e) => {
@@ -1012,9 +927,7 @@ pub async fn start_passkey_setup_login(
         Err(_) => {
             // Record failed attempt even for non-existent users (prevents enumeration)
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "error": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -1023,9 +936,7 @@ pub async fn start_passkey_setup_login(
         Ok(hash) => hash,
         Err(_) => {
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "error": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -1041,9 +952,7 @@ pub async fn start_passkey_setup_login(
             }
             Err(e) => warn!("Failed to record failed attempt: {:?}", e),
         }
-        return HttpResponse::Unauthorized().json(json!({
-            "error": "Invalid email or password"
-        }));
+        return errors::unauthorized("Invalid email or password");
     }
 
     // Clear failed attempts on successful password verification
@@ -1053,16 +962,12 @@ pub async fn start_passkey_setup_login(
 
     // Verify that user needs MFA setup (security check)
     if mfa::user_has_mfa_enabled(&user) {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "MFA is already enabled for this account"
-        }));
+        return errors::bad_request("MFA is already enabled for this account");
     }
 
     // Verify that MFA is required for this user
     if mfa::validate_mfa_policy(&user).await.is_ok() {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "MFA is not required for this account"
-        }));
+        return errors::bad_request("MFA is not required for this account");
     }
 
     // Check passkey limit
@@ -1077,9 +982,7 @@ pub async fn start_passkey_setup_login(
     let primary_email = match repository::user_helpers::get_primary_email(&user.uuid, &mut conn) {
         Some(email) => email,
         None => {
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Could not retrieve user email"
-            }));
+            return errors::internal("Could not retrieve user email");
         }
     };
 
@@ -1103,18 +1006,14 @@ pub async fn start_passkey_setup_login(
         Ok(result) => result,
         Err(e) => {
             error!("Failed to start passkey registration: {:?}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "error": "Failed to generate registration challenge"
-            }));
+            return errors::internal("Failed to generate registration challenge");
         }
     };
 
     // Store registration state in Redis
     if let Err(e) = webauthn::store_registration_state(&user.uuid, &reg_state).await {
         error!("Failed to store registration state: {:?}", e);
-        return HttpResponse::InternalServerError().json(json!({
-            "error": "Failed to store registration state"
-        }));
+        return errors::internal("Failed to store registration state");
     }
 
     debug!("Started passkey setup registration for user {}", user.uuid);
@@ -1154,9 +1053,10 @@ pub async fn finish_passkey_setup_login(
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
         Ok(Some(remaining_seconds)) => {
             warn!(email = %email_lower, remaining_seconds, "Passkey setup finish attempt on locked account");
-            return HttpResponse::TooManyRequests().json(json!({
-                "error": format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds)
-            }));
+            return errors::too_many_requests(
+                format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds),
+                remaining_seconds as u64,
+            );
         }
         Ok(None) => {} // Not locked, continue
         Err(e) => {
@@ -1174,9 +1074,7 @@ pub async fn finish_passkey_setup_login(
         Ok(user) => user,
         Err(_) => {
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "error": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -1184,9 +1082,7 @@ pub async fn finish_passkey_setup_login(
         Ok(hash) => hash,
         Err(_) => {
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "error": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -1201,9 +1097,7 @@ pub async fn finish_passkey_setup_login(
             }
             Err(e) => warn!("Failed to record failed attempt: {:?}", e),
         }
-        return HttpResponse::Unauthorized().json(json!({
-            "error": "Invalid email or password"
-        }));
+        return errors::unauthorized("Invalid email or password");
     }
 
     // Clear failed attempts on successful password verification
@@ -1213,15 +1107,11 @@ pub async fn finish_passkey_setup_login(
 
     // Security checks
     if mfa::user_has_mfa_enabled(&user) {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "MFA is already enabled for this account"
-        }));
+        return errors::bad_request("MFA is already enabled for this account");
     }
 
     if mfa::validate_mfa_policy(&user).await.is_ok() {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "MFA is not required for this account"
-        }));
+        return errors::bad_request("MFA is not required for this account");
     }
 
     // Retrieve registration state from Redis
@@ -1229,9 +1119,7 @@ pub async fn finish_passkey_setup_login(
         Ok(state) => state,
         Err(e) => {
             warn!("Registration state not found for user {}: {:?}", user.uuid, e);
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Registration challenge expired or not found"
-            }));
+            return errors::bad_request("Registration challenge expired or not found");
         }
     };
 
@@ -1247,9 +1135,7 @@ pub async fn finish_passkey_setup_login(
         Ok(r) => r,
         Err(e) => {
             error!("Failed to parse registration response: {:?}", e);
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Invalid registration response"
-            }));
+            return errors::bad_request("Invalid registration response");
         }
     };
 
@@ -1259,9 +1145,7 @@ pub async fn finish_passkey_setup_login(
         Ok(pk) => pk,
         Err(e) => {
             error!("Failed to complete passkey registration: {:?}", e);
-            return HttpResponse::BadRequest().json(json!({
-                "error": "Failed to verify registration"
-            }));
+            return errors::bad_request("Failed to verify registration");
         }
     };
 
@@ -1298,9 +1182,7 @@ pub async fn finish_passkey_setup_login(
     // Save to database
     if let Err(e) = save_user_passkey_data(&mut conn, &user.uuid, &passkey_data) {
         error!("Failed to save passkey: {:?}", e);
-        return HttpResponse::InternalServerError().json(json!({
-            "error": "Failed to save passkey"
-        }));
+        return errors::internal("Failed to save passkey");
     }
 
     // Generate backup codes for recovery (passkey users need these too)
@@ -1332,10 +1214,7 @@ pub async fn finish_passkey_setup_login(
         });
     let session = match session {
         Ok(s) => s,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Failed to create authentication session"
-        })),
+        Err(_) => return errors::internal("Failed to create authentication session"),
     };
     let family_id = uuid::Uuid::new_v4();
 

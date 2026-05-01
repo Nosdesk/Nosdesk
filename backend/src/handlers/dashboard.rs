@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::extractors::AuthContext;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::repository::dashboard_stats::{self, StatsGroup};
 
 #[derive(Deserialize)]
@@ -61,7 +62,7 @@ pub async fn get_stats(
     let target_user = query.user.unwrap_or(auth.user_uuid);
 
     if target_user != auth.user_uuid && !auth.is_technician_or_admin() {
-        return HttpResponse::Forbidden().json(json!({ "error": "forbidden" }));
+        return errors::forbidden("forbidden");
     }
 
     let groups = match query.parse_include() {
@@ -85,8 +86,7 @@ pub async fn get_stats(
         Ok(bundle) => HttpResponse::Ok().json(bundle),
         Err(e) => {
             error!(error = ?e, "dashboard stats computation failed");
-            HttpResponse::InternalServerError()
-                .json(json!({ "error": "stats unavailable" }))
+            errors::internal("stats unavailable")
         }
     }
 }

@@ -1,4 +1,6 @@
 use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
+
+use crate::handlers::errors;
 use dashmap::DashMap;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -586,7 +588,7 @@ pub async fn sse_events_stream(
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => {
-            return Ok(HttpResponse::InternalServerError().json("Database connection error"));
+            return Ok(errors::internal("Database connection error"));
         }
     };
 
@@ -594,10 +596,7 @@ pub async fn sse_events_stream(
     let token = match query.sse_token.as_ref() {
         Some(t) => t.as_str(),
         None => {
-            return Ok(HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Missing SSE token"
-            })));
+            return Ok(errors::unauthorized("Missing SSE token"));
         }
     };
 
@@ -720,7 +719,7 @@ pub async fn get_sse_token(
     let _conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => {
-            return HttpResponse::InternalServerError().json("Database connection error");
+            return errors::internal("Database connection error");
         }
     };
 
@@ -728,7 +727,7 @@ pub async fn get_sse_token(
     let user_info = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json("Authentication required");
+            return errors::unauthorized("Authentication required");
         }
     };
 
@@ -737,7 +736,7 @@ pub async fn get_sse_token(
     let sse_token = match JwtUtils::create_sse_token(&user_info.sub, &user_info.role) {
         Ok(token) => token,
         Err(_) => {
-            return HttpResponse::InternalServerError().json("Failed to create SSE token");
+            return errors::internal("Failed to create SSE token");
         }
     };
 

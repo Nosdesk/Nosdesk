@@ -10,6 +10,7 @@ use serde::Serialize;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::services::scheduler::{PeriodicStatus, StatusRegistry};
 
 /// One row of the response. Adds `name` so the client can render a
@@ -35,8 +36,7 @@ pub async fn get_status(
     }
 
     let Ok(map) = statuses.read() else {
-        return HttpResponse::InternalServerError()
-            .json(serde_json::json!({ "error": "scheduler status lock poisoned" }));
+        return errors::internal("scheduler status lock poisoned");
     };
 
     // Stable alphabetical order so the UI doesn't reshuffle rows on

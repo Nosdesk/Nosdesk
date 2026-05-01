@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{
     Claims, CreateWebhookRequest, UpdateWebhookRequest, WebhookCreatedResponse,
     WebhookDeliveryResponse, WebhookResponse, WebhookUpdate,
@@ -33,10 +34,10 @@ pub struct PaginationQuery {
 fn validate_name(name: &str) -> Result<String, HttpResponse> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err(HttpResponse::BadRequest().json("Webhook name is required"));
+        return Err(errors::bad_request("Webhook name is required"));
     }
     if trimmed.len() > 255 {
-        return Err(HttpResponse::BadRequest().json("Webhook name must be 255 characters or less"));
+        return Err(errors::bad_request("Webhook name must be 255 characters or less"));
     }
     Ok(trimmed.to_string())
 }
@@ -44,7 +45,7 @@ fn validate_name(name: &str) -> Result<String, HttpResponse> {
 /// Validate webhook URL
 fn validate_url(url: &str) -> Result<(), HttpResponse> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err(HttpResponse::BadRequest().json("URL must start with http:// or https://"));
+        return Err(errors::bad_request("URL must start with http:// or https://"));
     }
     Ok(())
 }
@@ -52,11 +53,11 @@ fn validate_url(url: &str) -> Result<(), HttpResponse> {
 /// Validate event types
 fn validate_events(events: &[String]) -> Result<(), HttpResponse> {
     if events.is_empty() {
-        return Err(HttpResponse::BadRequest().json("At least one event type is required"));
+        return Err(errors::bad_request("At least one event type is required"));
     }
     let valid_events = WebhookEventType::all();
     if let Some(invalid) = events.iter().find(|e| !valid_events.contains(&e.as_str())) {
-        return Err(HttpResponse::BadRequest().json(format!("Invalid event type: {invalid}")));
+        return Err(errors::bad_request(format!("Invalid event type: {invalid}")));
     }
     Ok(())
 }
@@ -83,7 +84,7 @@ pub async fn list_webhooks(req: HttpRequest, pool: web::Data<Pool>) -> impl Resp
         }
         Err(e) => {
             error!("Failed to list webhooks: {}", e);
-            HttpResponse::InternalServerError().json("Failed to list webhooks")
+            errors::internal("Failed to list webhooks")
         }
     }
 }
@@ -100,7 +101,7 @@ pub async fn create_webhook(
 
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     let created_by = Uuid::parse_str(&claims.sub).ok();
@@ -148,7 +149,7 @@ pub async fn create_webhook(
         }
         Err(e) => {
             error!("Failed to create webhook: {}", e);
-            HttpResponse::InternalServerError().json("Failed to create webhook")
+            errors::internal("Failed to create webhook")
         }
     }
 }
@@ -181,10 +182,10 @@ pub async fn get_webhook(
 
     match webhook_repo::get_webhook_by_uuid(&mut conn, webhook_uuid) {
         Ok(webhook) => HttpResponse::Ok().json(WebhookResponse::from(webhook)),
-        Err(DieselError::NotFound) => HttpResponse::NotFound().json("Webhook not found"),
+        Err(DieselError::NotFound) => errors::not_found_msg("Webhook not found"),
         Err(e) => {
             error!("Failed to get webhook: {}", e);
-            HttpResponse::InternalServerError().json("Failed to get webhook")
+            errors::internal("Failed to get webhook")
         }
     }
 }
@@ -256,10 +257,10 @@ pub async fn update_webhook(
             info!("Webhook updated: {} ({})", webhook.uuid, webhook.name);
             HttpResponse::Ok().json(WebhookResponse::from(webhook))
         }
-        Err(DieselError::NotFound) => HttpResponse::NotFound().json("Webhook not found"),
+        Err(DieselError::NotFound) => errors::not_found_msg("Webhook not found"),
         Err(e) => {
             error!("Failed to update webhook: {}", e);
-            HttpResponse::InternalServerError().json("Failed to update webhook")
+            errors::internal("Failed to update webhook")
         }
     }
 }
@@ -286,10 +287,10 @@ pub async fn delete_webhook(
             info!("Webhook deleted: {}", webhook_uuid);
             HttpResponse::NoContent().finish()
         }
-        Ok(_) => HttpResponse::NotFound().json("Webhook not found"),
+        Ok(_) => errors::not_found_msg("Webhook not found"),
         Err(e) => {
             error!("Failed to delete webhook: {}", e);
-            HttpResponse::InternalServerError().json("Failed to delete webhook")
+            errors::internal("Failed to delete webhook")
         }
     }
 }
@@ -317,10 +318,10 @@ pub async fn get_deliveries(
     // Get webhook by UUID first
     let webhook = match webhook_repo::get_webhook_by_uuid(&mut conn, webhook_uuid) {
         Ok(w) => w,
-        Err(DieselError::NotFound) => return HttpResponse::NotFound().json("Webhook not found"),
+        Err(DieselError::NotFound) => return errors::not_found_msg("Webhook not found"),
         Err(e) => {
             error!("Failed to get webhook: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get webhook");
+            return errors::internal("Failed to get webhook");
         }
     };
 
@@ -343,7 +344,7 @@ pub async fn get_deliveries(
         }
         Err(e) => {
             error!("Failed to get deliveries: {}", e);
-            HttpResponse::InternalServerError().json("Failed to get deliveries")
+            errors::internal("Failed to get deliveries")
         }
     }
 }
@@ -369,10 +370,10 @@ pub async fn test_webhook(
     // Get webhook by UUID first
     let webhook = match webhook_repo::get_webhook_by_uuid(&mut conn, webhook_uuid) {
         Ok(w) => w,
-        Err(DieselError::NotFound) => return HttpResponse::NotFound().json("Webhook not found"),
+        Err(DieselError::NotFound) => return errors::not_found_msg("Webhook not found"),
         Err(e) => {
             error!("Failed to get webhook: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to get webhook");
+            return errors::internal("Failed to get webhook");
         }
     };
 
@@ -385,7 +386,7 @@ pub async fn test_webhook(
         }
         Err(e) => {
             error!("Failed to send test event: {}", e);
-            HttpResponse::InternalServerError().json(format!("Failed to send test event: {e}"))
+            errors::internal(format!("Failed to send test event: {e}"))
         }
     }
 }

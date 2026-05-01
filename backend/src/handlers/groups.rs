@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{NewGroup, GroupUpdate, Claims};
 use crate::repository;
 use crate::utils::rbac::require_admin;
@@ -22,12 +23,12 @@ pub async fn get_group_details(
     // Verify user is authenticated (but not admin required)
     let _claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     let group_uuid = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid group UUID"),
+        Err(_) => return errors::bad_request("Invalid group UUID"),
     };
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -38,8 +39,8 @@ pub async fn get_group_details(
     match repository::groups::get_group_details(&mut conn, &group_uuid) {
         Ok(details) => HttpResponse::Ok().json(details),
         Err(e) => match e {
-            Error::NotFound => HttpResponse::NotFound().json("Group not found"),
-            _ => HttpResponse::InternalServerError().json("Failed to get group details"),
+            Error::NotFound => errors::not_found_msg("Group not found"),
+            _ => errors::internal("Failed to get group details"),
         },
     }
 }
@@ -64,7 +65,7 @@ pub async fn get_all_groups(
 
     match repository::groups::get_groups_with_member_counts(&mut conn) {
         Ok(groups) => HttpResponse::Ok().json(groups),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to get groups"),
+        Err(_) => errors::internal("Failed to get groups"),
     }
 }
 
@@ -87,8 +88,8 @@ pub async fn get_group(
     match repository::groups::get_group_with_members(&mut conn, group_id) {
         Ok(group) => HttpResponse::Ok().json(group),
         Err(e) => match e {
-            Error::NotFound => HttpResponse::NotFound().json("Group not found"),
-            _ => HttpResponse::InternalServerError().json("Failed to get group"),
+            Error::NotFound => errors::not_found_msg("Group not found"),
+            _ => errors::internal("Failed to get group"),
         },
     }
 }
@@ -127,7 +128,7 @@ pub async fn create_group(
 
     match repository::groups::create_group(&mut conn, new_group) {
         Ok(group) => HttpResponse::Created().json(group),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to create group"),
+        Err(_) => errors::internal("Failed to create group"),
     }
 }
 
@@ -151,8 +152,8 @@ pub async fn update_group(
     match repository::groups::update_group(&mut conn, group_id, body.into_inner()) {
         Ok(group) => HttpResponse::Ok().json(group),
         Err(e) => match e {
-            Error::NotFound => HttpResponse::NotFound().json("Group not found"),
-            _ => HttpResponse::InternalServerError().json("Failed to update group"),
+            Error::NotFound => errors::not_found_msg("Group not found"),
+            _ => errors::internal("Failed to update group"),
         },
     }
 }
@@ -174,9 +175,9 @@ pub async fn delete_group(
     };
 
     match repository::groups::delete_group(&mut conn, group_id) {
-        Ok(0) => HttpResponse::NotFound().json("Group not found"),
+        Ok(0) => errors::not_found_msg("Group not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to delete group"),
+        Err(_) => errors::internal("Failed to delete group"),
     }
 }
 
@@ -199,21 +200,18 @@ pub async fn unmanage_group(
     // Check if group exists and is externally synced
     let group = match repository::groups::get_group_by_id(&mut conn, group_id) {
         Ok(group) => group,
-        Err(Error::NotFound) => return HttpResponse::NotFound().json("Group not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to get group"),
+        Err(Error::NotFound) => return errors::not_found_msg("Group not found"),
+        Err(_) => return errors::internal("Failed to get group"),
     };
 
     if group.external_source.is_none() {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Group is not externally managed",
-            "message": "This group is already manually managed and doesn't need to be unmanaged."
-        }));
+        return errors::bad_request("Group is not externally managed: This group is already manually managed and doesn't need to be unmanaged.");
     }
 
     // Clear external management fields
     match repository::groups::unmanage_group(&mut conn, group_id) {
         Ok(updated_group) => HttpResponse::Ok().json(updated_group),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to unmanage group"),
+        Err(_) => errors::internal("Failed to unmanage group"),
     }
 }
 
@@ -251,14 +249,11 @@ pub async fn set_group_members(
     match repository::groups::get_group_by_id(&mut conn, group_id) {
         Ok(group) => {
             if group.external_source.is_some() {
-                return HttpResponse::BadRequest().json(serde_json::json!({
-                    "error": "Cannot modify membership",
-                    "message": "This group is synced from an external source. Membership is managed externally and updated during sync."
-                }));
+                return errors::bad_request("Cannot modify membership: This group is synced from an external source. Membership is managed externally and updated during sync.");
             }
         }
-        Err(Error::NotFound) => return HttpResponse::NotFound().json("Group not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to get group"),
+        Err(Error::NotFound) => return errors::not_found_msg("Group not found"),
+        Err(_) => return errors::internal("Failed to get group"),
     }
 
     match repository::groups::set_group_members(&mut conn, group_id, body.member_uuids.clone(), created_by) {
@@ -266,10 +261,10 @@ pub async fn set_group_members(
             // Return the updated group with members
             match repository::groups::get_group_with_members(&mut conn, group_id) {
                 Ok(group) => HttpResponse::Ok().json(group),
-                Err(_) => HttpResponse::InternalServerError().json("Failed to get updated group"),
+                Err(_) => errors::internal("Failed to get updated group"),
             }
         }
-        Err(_) => HttpResponse::InternalServerError().json("Failed to set group members"),
+        Err(_) => errors::internal("Failed to set group members"),
     }
 }
 
@@ -283,17 +278,17 @@ pub async fn get_user_groups(
 
     let user_uuid = match Uuid::parse_str(&user_uuid_str) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     // Allow self-access or admin access
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     if claims.sub != user_uuid_str && claims.role != "admin" {
-        return HttpResponse::Forbidden().json("Not authorized to access this resource");
+        return errors::forbidden("Not authorized to access this resource");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -303,7 +298,7 @@ pub async fn get_user_groups(
 
     match repository::groups::get_groups_for_user(&mut conn, &user_uuid) {
         Ok(groups) => HttpResponse::Ok().json(groups),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to get user groups"),
+        Err(_) => errors::internal("Failed to get user groups"),
     }
 }
 
@@ -332,7 +327,7 @@ pub async fn set_user_groups(
     let created_by = Some(user_uuid);
     let user_uuid = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     match repository::groups::set_user_groups(&mut conn, user_uuid, body.group_ids.clone(), created_by) {
@@ -340,10 +335,10 @@ pub async fn set_user_groups(
             // Return the updated groups for this user
             match repository::groups::get_groups_for_user(&mut conn, &user_uuid) {
                 Ok(groups) => HttpResponse::Ok().json(groups),
-                Err(_) => HttpResponse::InternalServerError().json("Failed to get updated user groups"),
+                Err(_) => errors::internal("Failed to get updated user groups"),
             }
         }
-        Err(_) => HttpResponse::InternalServerError().json("Failed to set user groups"),
+        Err(_) => errors::internal("Failed to set user groups"),
     }
 }
 
@@ -370,8 +365,8 @@ pub async fn get_group_includes(
     match repository::groups::get_included_groups(&mut conn, group_id) {
         Ok(groups) => HttpResponse::Ok().json(groups),
         Err(e) => match e {
-            Error::NotFound => HttpResponse::NotFound().json("Group not found"),
-            _ => HttpResponse::InternalServerError().json("Failed to get group includes"),
+            Error::NotFound => errors::not_found_msg("Group not found"),
+            _ => errors::internal("Failed to get group includes"),
         },
     }
 }
@@ -404,8 +399,8 @@ pub async fn set_group_includes(
     // Verify group exists
     let group = match repository::groups::get_group_by_id(&mut conn, group_id) {
         Ok(group) => group,
-        Err(Error::NotFound) => return HttpResponse::NotFound().json("Group not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to get group"),
+        Err(Error::NotFound) => return errors::not_found_msg("Group not found"),
+        Err(_) => return errors::internal("Failed to get group"),
     };
 
     match repository::groups::set_group_includes(&mut conn, group_id, body.child_group_ids.clone(), created_by) {
@@ -413,7 +408,7 @@ pub async fn set_group_includes(
             // Return updated group details
             match repository::groups::get_group_details(&mut conn, &group.uuid) {
                 Ok(details) => HttpResponse::Ok().json(details),
-                Err(_) => HttpResponse::InternalServerError().json("Failed to get updated group details"),
+                Err(_) => errors::internal("Failed to get updated group details"),
             }
         }
         Err(Error::DatabaseError(diesel::result::DatabaseErrorKind::CheckViolation, info)) => {
@@ -422,7 +417,7 @@ pub async fn set_group_includes(
                 "message": info.message().to_string()
             }))
         }
-        Err(_) => HttpResponse::InternalServerError().json("Failed to set group includes"),
+        Err(_) => errors::internal("Failed to set group includes"),
     }
 }
 
@@ -460,14 +455,11 @@ pub async fn set_group_devices(
     match repository::groups::get_group_by_id(&mut conn, group_id) {
         Ok(group) => {
             if group.external_source.is_some() {
-                return HttpResponse::BadRequest().json(serde_json::json!({
-                    "error": "Cannot modify membership",
-                    "message": "This group is synced from an external source. Device membership is managed externally and updated during sync."
-                }));
+                return errors::bad_request("Cannot modify membership: This group is synced from an external source. Device membership is managed externally and updated during sync.");
             }
         }
-        Err(Error::NotFound) => return HttpResponse::NotFound().json("Group not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to get group"),
+        Err(Error::NotFound) => return errors::not_found_msg("Group not found"),
+        Err(_) => return errors::internal("Failed to get group"),
     }
 
     match repository::groups::set_group_devices(&mut conn, group_id, body.device_ids.clone(), created_by) {
@@ -477,12 +469,12 @@ pub async fn set_group_devices(
                 Ok(group) => {
                     match repository::groups::get_group_details(&mut conn, &group.uuid) {
                         Ok(details) => HttpResponse::Ok().json(details),
-                        Err(_) => HttpResponse::InternalServerError().json("Failed to get updated group details"),
+                        Err(_) => errors::internal("Failed to get updated group details"),
                     }
                 }
-                Err(_) => HttpResponse::InternalServerError().json("Failed to get group"),
+                Err(_) => errors::internal("Failed to get group"),
             }
         }
-        Err(_) => HttpResponse::InternalServerError().json("Failed to set group devices"),
+        Err(_) => errors::internal("Failed to set group devices"),
     }
 }

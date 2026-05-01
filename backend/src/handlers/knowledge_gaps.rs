@@ -17,11 +17,11 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tracing::error;
 
 use crate::db::{DbConnection, Pool};
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{KnowledgeGap, KnowledgeGapSignal, UserInfoWithAvatar};
 use crate::repository::{self, knowledge_gaps};
@@ -120,7 +120,7 @@ pub async fn flag_ticket_as_gap(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Technician or admin role required");
     }
     let ticket_id = path.into_inner();
 
@@ -132,7 +132,7 @@ pub async fn flag_ticket_as_gap(
         .first(&mut conn)
     {
         Ok(t) => t,
-        Err(_) => return HttpResponse::NotFound().json(json!({"error": "Ticket not found"})),
+        Err(_) => return errors::not_found("Ticket"),
     };
 
     match knowledge_gaps::flag_ticket(
@@ -159,7 +159,7 @@ pub async fn flag_ticket_as_gap(
         }
         Err(e) => {
             error!(error = ?e, ticket_id, "Failed to flag ticket as gap");
-            HttpResponse::InternalServerError().json("Failed to flag ticket")
+            errors::internal("Failed to flag ticket")
         }
     }
 }
@@ -174,7 +174,7 @@ pub async fn unflag_ticket_as_gap(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Technician or admin role required");
     }
     let ticket_id = path.into_inner();
 
@@ -186,7 +186,7 @@ pub async fn unflag_ticket_as_gap(
         Ok(None) => HttpResponse::NoContent().finish(),
         Err(e) => {
             error!(error = ?e, ticket_id, "Failed to unflag ticket");
-            HttpResponse::InternalServerError().json("Failed to unflag ticket")
+            errors::internal("Failed to unflag ticket")
         }
     }
 }
@@ -213,7 +213,7 @@ pub async fn list_knowledge_gaps(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Technician or admin role required");
     }
 
     let q = query.into_inner();
@@ -246,7 +246,7 @@ pub async fn list_knowledge_gaps(
         ),
         Err(e) => {
             error!(error = ?e, "Failed to list knowledge gaps");
-            HttpResponse::InternalServerError().json("Failed to list gaps")
+            errors::internal("Failed to list gaps")
         }
     }
 }
@@ -265,18 +265,18 @@ pub async fn get_knowledge_gap(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Technician or admin role required");
     }
     let gap_id = path.into_inner();
 
     let gap = match knowledge_gaps::get_gap(&mut conn, gap_id) {
         Ok(g) => g,
         Err(diesel::result::Error::NotFound) => {
-            return HttpResponse::NotFound().json(json!({"error": "Gap not found"}))
+            return errors::not_found("Gap")
         }
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to load gap");
-            return HttpResponse::InternalServerError().json("Failed to load gap");
+            return errors::db_error(&e);
         }
     };
 
@@ -284,7 +284,7 @@ pub async fn get_knowledge_gap(
         Ok(s) => s,
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to load signals");
-            return HttpResponse::InternalServerError().json("Failed to load signals");
+            return errors::internal("Failed to load signals");
         }
     };
 
@@ -314,7 +314,7 @@ pub async fn dismiss_knowledge_gap(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Technician or admin role required");
     }
     let gap_id = path.into_inner();
 
@@ -331,7 +331,7 @@ pub async fn dismiss_knowledge_gap(
         }
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to dismiss gap");
-            HttpResponse::InternalServerError().json("Failed to dismiss gap")
+            errors::internal("Failed to dismiss gap")
         }
     }
 }
@@ -366,7 +366,7 @@ pub async fn detect_clusters(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Technician or admin role required");
     }
     let req_body = body.into_inner();
     let days = req_body.days.unwrap_or(30);
@@ -391,7 +391,7 @@ pub async fn detect_clusters(
         }
         Err(e) => {
             error!(error = ?e, "Cluster detection failed");
-            HttpResponse::InternalServerError().json("Cluster detection failed")
+            errors::internal("Cluster detection failed")
         }
     }
 }
@@ -417,7 +417,7 @@ pub async fn detect_failed_searches(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Technician or admin role required");
     }
     let req_body = body.into_inner();
     let days = req_body.days.unwrap_or(30);
@@ -442,7 +442,7 @@ pub async fn detect_failed_searches(
         }
         Err(e) => {
             error!(error = ?e, "Failed-search detection failed");
-            HttpResponse::InternalServerError().json("Failed-search detection failed")
+            errors::internal("Failed-search detection failed")
         }
     }
 }
@@ -472,7 +472,7 @@ pub async fn detect_stale_docs(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Technician or admin role required");
     }
     let req_body = body.into_inner();
     let recent_ticket_days = req_body.recent_ticket_days.unwrap_or(30);
@@ -502,7 +502,7 @@ pub async fn detect_stale_docs(
         }
         Err(e) => {
             error!(error = ?e, "Stale-doc detection failed");
-            HttpResponse::InternalServerError().json("Stale-doc detection failed")
+            errors::internal("Stale-doc detection failed")
         }
     }
 }
@@ -528,7 +528,7 @@ pub async fn resolve_knowledge_gap(
         Err(e) => return e,
     };
     if !is_technician_or_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Forbidden"}));
+        return errors::forbidden("Technician or admin role required");
     }
     let gap_id = path.into_inner();
     let req_body = body.into_inner();
@@ -546,7 +546,7 @@ pub async fn resolve_knowledge_gap(
         }
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to resolve gap");
-            HttpResponse::InternalServerError().json("Failed to resolve gap")
+            errors::internal("Failed to resolve gap")
         }
     }
 }

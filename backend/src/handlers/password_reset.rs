@@ -5,6 +5,7 @@ use tracing::{info, warn, error};
 
 use crate::db::DbConnection;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{PasswordResetRequest, PasswordResetResponse, PasswordResetCompleteRequest};
 use crate::repository;
 use crate::utils::auth::hash_password;
@@ -29,10 +30,7 @@ pub async fn request_password_reset(
     // Validate email format
     let email = request_data.email.trim().to_lowercase();
     if email.is_empty() || !email.contains('@') {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid email address"
-        }));
+        return errors::bad_request("Invalid email address");
     }
 
     // Extract IP address and user agent for audit trail
@@ -69,10 +67,7 @@ pub async fn request_password_reset(
         Ok(count) => count,
         Err(e) => {
             error!("Failed to check rate limit for password reset: {}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to process reset request"
-            }));
+            return errors::internal("Failed to process reset request");
         }
     };
 
@@ -100,10 +95,7 @@ pub async fn request_password_reset(
         None, // No metadata needed for password reset
     ) {
         error!("Failed to create password reset token: {}", e);
-        return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Failed to process reset request"
-        }));
+        return errors::internal("Failed to process reset request");
     }
 
     // Get base URL from environment or request
@@ -181,15 +173,9 @@ pub async fn reset_password_with_token(
 
     // Validate new password
     if request_data.new_password.len() < 8 {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Password must be at least 8 characters long"
-        }));
+        return errors::bad_request("Password must be at least 8 characters long");
     } else if request_data.new_password.len() > 128 {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Password must be less than 128 characters"
-        }));
+        return errors::bad_request("Password must be less than 128 characters");
     }
 
     // Validate and consume the token
@@ -213,10 +199,7 @@ pub async fn reset_password_with_token(
         Ok(user) => user,
         Err(e) => {
             error!("User not found for password reset: user_uuid={}, error={}", user_uuid, e);
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid or expired token"
-            }));
+            return errors::bad_request("Invalid or expired token");
         }
     };
 
@@ -225,10 +208,7 @@ pub async fn reset_password_with_token(
         Ok(hash) => hash,
         Err(e) => {
             error!("Failed to hash new password: {}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error processing new password"
-            }));
+            return errors::internal("Error processing new password");
         }
     };
 
@@ -246,10 +226,7 @@ pub async fn reset_password_with_token(
     .set(user_auth_identities::password_hash.eq(Some(new_password_hash)))
     .execute(&mut conn) {
         error!("Failed to update password hash: {:?}", e);
-        return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Error updating password"
-        }));
+        return errors::internal("Error updating password");
     }
 
     // Update password_changed_at timestamp in users table
@@ -291,10 +268,7 @@ pub async fn reset_password_with_token(
         },
         Err(e) => {
             error!("Failed to update password: {:?}", e);
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error updating password"
-            }))
+            errors::internal("Error updating password")
         }
     }
 }

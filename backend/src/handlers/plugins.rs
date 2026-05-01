@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{
     Claims, PluginActivityResponse,
     PluginResponse, PluginSettingResponse, PluginStorageResponse,
@@ -61,10 +62,10 @@ fn get_plugin_or_error(
 ) -> Result<crate::models::Plugin, HttpResponse> {
     match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
         Ok(p) => Ok(p),
-        Err(DieselError::NotFound) => Err(HttpResponse::NotFound().json("Plugin not found")),
+        Err(DieselError::NotFound) => Err(errors::not_found_msg("Plugin not found")),
         Err(e) => {
             error!("Failed to get plugin: {}", e);
-            Err(HttpResponse::InternalServerError().json("Failed to get plugin"))
+            Err(errors::internal("Failed to get plugin"))
         }
     }
 }
@@ -94,7 +95,7 @@ pub async fn list_plugins(req: HttpRequest, pool: web::Data<Pool>) -> impl Respo
         }
         Err(e) => {
             error!("Failed to list plugins: {}", e);
-            HttpResponse::InternalServerError().json("Failed to list plugins")
+            errors::internal("Failed to list plugins")
         }
     }
 }
@@ -103,7 +104,7 @@ pub async fn list_plugins(req: HttpRequest, pool: web::Data<Pool>) -> impl Respo
 pub async fn list_enabled_plugins(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     // Any authenticated user can get enabled plugins
     if req.extensions().get::<Claims>().is_none() {
-        return HttpResponse::Unauthorized().json("Authentication required");
+        return errors::unauthorized("Authentication required");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -121,7 +122,7 @@ pub async fn list_enabled_plugins(req: HttpRequest, pool: web::Data<Pool>) -> im
         }
         Err(e) => {
             error!("Failed to list enabled plugins: {}", e);
-            HttpResponse::InternalServerError().json("Failed to list plugins")
+            errors::internal("Failed to list plugins")
         }
     }
 }
@@ -152,7 +153,7 @@ pub async fn get_plugin(
         Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => {
             error!("Failed to parse plugin manifest: {}", e);
-            HttpResponse::InternalServerError().json("Invalid plugin manifest")
+            errors::internal("Invalid plugin manifest")
         }
     }
 }
@@ -170,7 +171,7 @@ pub async fn update_plugin(
 
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     let user_uuid = Uuid::parse_str(&claims.sub).ok();
@@ -206,19 +207,19 @@ pub async fn update_plugin(
         ) {
             Ok(_) => {}
             Err(crate::services::plugins::lifecycle::ActionError::NoSuchPlugin) => {
-                return HttpResponse::NotFound().json("Plugin not found");
+                return errors::not_found_msg("Plugin not found");
             }
             Err(crate::services::plugins::lifecycle::ActionError::InvalidTransition {
                 from,
                 action,
             }) => {
-                return HttpResponse::Conflict().json(format!(
+                return errors::conflict(format!(
                     "Cannot {action} a plugin in state {from}"
                 ));
             }
             Err(e) => {
                 error!("Failed to toggle plugin state: {}", e);
-                return HttpResponse::InternalServerError().json("Failed to toggle plugin");
+                return errors::internal("Failed to toggle plugin");
             }
         }
     }
@@ -230,10 +231,10 @@ pub async fn update_plugin(
     // re-verify end-to-end.
     let updated_plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
         Ok(p) => p,
-        Err(DieselError::NotFound) => return HttpResponse::NotFound().json("Plugin not found"),
+        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
         Err(e) => {
             error!("Failed to re-fetch plugin: {}", e);
-            return HttpResponse::InternalServerError().json("Failed to load plugin");
+            return errors::internal("Failed to load plugin");
         }
     };
 
@@ -241,7 +242,7 @@ pub async fn update_plugin(
         Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => {
             error!("Failed to serialize plugin response: {}", e);
-            HttpResponse::InternalServerError().json("Plugin updated but response failed")
+            errors::internal("Plugin updated but response failed")
         }
     }
 }
@@ -326,17 +327,17 @@ pub async fn uninstall_plugin(
             HttpResponse::NoContent().finish()
         }
         Err(crate::services::plugins::lifecycle::ActionError::NoSuchPlugin) => {
-            HttpResponse::NotFound().json("Plugin not found")
+            errors::not_found_msg("Plugin not found")
         }
         Err(crate::services::plugins::lifecycle::ActionError::InvalidTransition {
             from,
             action,
-        }) => HttpResponse::Conflict().json(format!(
+        }) => errors::conflict(format!(
             "Cannot {action} a plugin in state {from}"
         )),
         Err(e) => {
             error!("Failed to uninstall plugin: {}", e);
-            HttpResponse::InternalServerError().json("Failed to uninstall plugin")
+            errors::internal("Failed to uninstall plugin")
         }
     }
 }
@@ -375,7 +376,7 @@ pub async fn get_plugin_settings(
         }
         Err(e) => {
             error!("Failed to get plugin settings: {}", e);
-            HttpResponse::InternalServerError().json("Failed to get settings")
+            errors::internal("Failed to get settings")
         }
     }
 }
@@ -423,14 +424,12 @@ pub async fn set_plugin_setting(
                     Ok(encrypted) => serde_json::Value::String(encrypted),
                     Err(e) => {
                         error!("Failed to encrypt plugin secret: {}", e);
-                        return HttpResponse::InternalServerError()
-                            .json("Failed to encrypt secret. Ensure ENCRYPTION_KEY is configured.");
+                        return errors::internal("Failed to encrypt secret. Ensure ENCRYPTION_KEY is configured.");
                     }
                 }
             }
             None => {
-                return HttpResponse::BadRequest()
-                    .json("Secret settings must be string values");
+                return errors::bad_request("Secret settings must be string values");
             }
         }
     } else {
@@ -450,7 +449,7 @@ pub async fn set_plugin_setting(
         }
         Err(e) => {
             error!("Failed to set plugin setting: {}", e);
-            HttpResponse::InternalServerError().json("Failed to set setting")
+            errors::internal("Failed to set setting")
         }
     }
 }
@@ -479,10 +478,10 @@ pub async fn delete_plugin_setting(
 
     match plugin_repo::delete_plugin_setting(&mut conn, plugin.id, &key) {
         Ok(count) if count > 0 => HttpResponse::NoContent().finish(),
-        Ok(_) => HttpResponse::NotFound().json("Setting not found"),
+        Ok(_) => errors::not_found_msg("Setting not found"),
         Err(e) => {
             error!("Failed to delete plugin setting: {}", e);
-            HttpResponse::InternalServerError().json("Failed to delete setting")
+            errors::internal("Failed to delete setting")
         }
     }
 }
@@ -498,7 +497,7 @@ pub async fn get_plugin_storage(
     path: web::Path<(Uuid, String)>,
 ) -> impl Responder {
     if req.extensions().get::<Claims>().is_none() {
-        return HttpResponse::Unauthorized().json("Authentication required");
+        return errors::unauthorized("Authentication required");
     }
 
     let (plugin_uuid, key) = path.into_inner();
@@ -514,7 +513,7 @@ pub async fn get_plugin_storage(
     };
 
     if !plugin.is_active() {
-        return HttpResponse::Forbidden().json("Plugin is disabled");
+        return errors::forbidden("Plugin is disabled");
     }
 
     match plugin_repo::get_plugin_storage_entry(&mut conn, plugin.id, &key) {
@@ -525,7 +524,7 @@ pub async fn get_plugin_storage(
         })),
         Err(e) => {
             error!("Failed to get plugin storage: {}", e);
-            HttpResponse::InternalServerError().json("Failed to get storage")
+            errors::internal("Failed to get storage")
         }
     }
 }
@@ -538,7 +537,7 @@ pub async fn set_plugin_storage(
     body: web::Json<SetPluginDataRequest>,
 ) -> impl Responder {
     if req.extensions().get::<Claims>().is_none() {
-        return HttpResponse::Unauthorized().json("Authentication required");
+        return errors::unauthorized("Authentication required");
     }
 
     let plugin_uuid = path.into_inner();
@@ -554,7 +553,7 @@ pub async fn set_plugin_storage(
     };
 
     if !plugin.is_active() {
-        return HttpResponse::Forbidden().json("Plugin is disabled");
+        return errors::forbidden("Plugin is disabled");
     }
 
     match plugin_repo::set_plugin_storage(
@@ -566,7 +565,7 @@ pub async fn set_plugin_storage(
         Ok(entry) => HttpResponse::Ok().json(PluginStorageResponse::from(entry)),
         Err(e) => {
             error!("Failed to set plugin storage: {}", e);
-            HttpResponse::InternalServerError().json("Failed to set storage")
+            errors::internal("Failed to set storage")
         }
     }
 }
@@ -578,7 +577,7 @@ pub async fn delete_plugin_storage(
     path: web::Path<(Uuid, String)>,
 ) -> impl Responder {
     if req.extensions().get::<Claims>().is_none() {
-        return HttpResponse::Unauthorized().json("Authentication required");
+        return errors::unauthorized("Authentication required");
     }
 
     let (plugin_uuid, key) = path.into_inner();
@@ -594,14 +593,14 @@ pub async fn delete_plugin_storage(
     };
 
     if !plugin.is_active() {
-        return HttpResponse::Forbidden().json("Plugin is disabled");
+        return errors::forbidden("Plugin is disabled");
     }
 
     match plugin_repo::delete_plugin_storage_entry(&mut conn, plugin.id, &key) {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
             error!("Failed to delete plugin storage: {}", e);
-            HttpResponse::InternalServerError().json("Failed to delete storage")
+            errors::internal("Failed to delete storage")
         }
     }
 }
@@ -643,7 +642,7 @@ pub async fn get_plugin_activity(
         }
         Err(e) => {
             error!("Failed to get plugin activity: {}", e);
-            HttpResponse::InternalServerError().json("Failed to get activity")
+            errors::internal("Failed to get activity")
         }
     }
 }
@@ -661,7 +660,7 @@ pub async fn proxy_plugin_request(
     body: web::Json<crate::models::PluginProxyRequest>,
 ) -> impl Responder {
     if req.extensions().get::<Claims>().is_none() {
-        return HttpResponse::Unauthorized().json("Authentication required");
+        return errors::unauthorized("Authentication required");
     }
 
     let plugin_uuid = path.into_inner();
@@ -678,7 +677,7 @@ pub async fn proxy_plugin_request(
 
     // Check if plugin is enabled
     if !plugin.is_active() {
-        return HttpResponse::Forbidden().json("Plugin is disabled");
+        return errors::forbidden("Plugin is disabled");
     }
 
     // Parse the manifest
@@ -686,7 +685,7 @@ pub async fn proxy_plugin_request(
         Ok(m) => m,
         Err(e) => {
             error!("Failed to parse plugin manifest: {}", e);
-            return HttpResponse::InternalServerError().json("Invalid plugin manifest");
+            return errors::internal("Invalid plugin manifest");
         }
     };
 
@@ -781,7 +780,7 @@ pub async fn serve_plugin_bundle(
 ) -> impl Responder {
     // Any authenticated user can request plugin bundles
     if req.extensions().get::<Claims>().is_none() {
-        return HttpResponse::Unauthorized().json("Authentication required");
+        return errors::unauthorized("Authentication required");
     }
 
     let plugin_uuid = path.into_inner();
@@ -798,11 +797,11 @@ pub async fn serve_plugin_bundle(
     };
 
     if !plugin.is_active() {
-        return HttpResponse::Forbidden().json("Plugin is disabled");
+        return errors::forbidden("Plugin is disabled");
     }
 
     let Some(bytes) = plugin.bundle_js else {
-        return HttpResponse::NotFound().json("Plugin bundle not found");
+        return errors::not_found_msg("Plugin bundle not found");
     };
     HttpResponse::Ok()
         .content_type("application/javascript")
@@ -839,15 +838,13 @@ pub async fn install_plugin_from_zip(
         warn!(
             "Web sideload attempt while disabled; set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable"
         );
-        return HttpResponse::Forbidden().json(
-            "Web sideload is disabled on this instance. Use the CLI \
-             (`nosdesk-cli plugin install`) or set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable.",
-        );
+        return errors::forbidden("Web sideload is disabled on this instance. Use the CLI \
+             (`nosdesk-cli plugin install`) or set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable.");
     }
 
     let claims = match req.extensions().get::<Claims>().cloned() {
         Some(c) => c,
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -863,7 +860,7 @@ pub async fn install_plugin_from_zip(
             Ok(f) => f,
             Err(e) => {
                 error!("Multipart field error: {}", e);
-                return HttpResponse::BadRequest().json("Invalid multipart data");
+                return errors::bad_request("Invalid multipart data");
             }
         };
 
@@ -878,12 +875,12 @@ pub async fn install_plugin_from_zip(
                 Ok(d) => d,
                 Err(e) => {
                     error!("Failed to read multipart chunk: {}", e);
-                    return HttpResponse::BadRequest().json("Failed to read upload");
+                    return errors::bad_request("Failed to read upload");
                 }
             };
 
             if zip_data.len() + data.len() > signing::MAX_ARCHIVE_SIZE {
-                return HttpResponse::BadRequest().json(format!(
+                return errors::bad_request(format!(
                     "Zip file too large. Maximum size is {} MB",
                     signing::MAX_ARCHIVE_SIZE / (1024 * 1024)
                 ));
@@ -894,7 +891,7 @@ pub async fn install_plugin_from_zip(
     }
 
     if zip_data.is_empty() {
-        return HttpResponse::BadRequest().json("No zip file received");
+        return errors::bad_request("No zip file received");
     }
 
     // Verify plugin signature. Web uploads must resolve to a public-
@@ -905,13 +902,11 @@ pub async fn install_plugin_from_zip(
     let verified = match signing::verify_archive(&zip_data) {
         Ok(v) => v,
         Err(signing::SigningError::MissingSignature) => {
-            return HttpResponse::BadRequest().json(
-                "This plugin isn't signed. Unsigned plugins must be installed via the nosdesk-plugin CLI.",
-            );
+            return errors::bad_request("This plugin isn't signed. Unsigned plugins must be installed via the nosdesk-plugin CLI.");
         }
         Err(e) => {
             warn!("Plugin zip signature rejected: {}", e);
-            return HttpResponse::BadRequest().json(format!("Plugin signature rejected: {e}"));
+            return errors::bad_request(format!("Plugin signature rejected: {e}"));
         }
     };
 
@@ -919,14 +914,12 @@ pub async fn install_plugin_from_zip(
         Ok(t) => t,
         Err(e) => {
             warn!("Plugin publisher not trusted: {}", e);
-            return HttpResponse::BadRequest().json(format!("Plugin publisher not trusted: {e}"));
+            return errors::bad_request(format!("Plugin publisher not trusted: {e}"));
         }
     };
 
     if matches!(resolved_tier, trust::ResolvedTier::Local) {
-        return HttpResponse::BadRequest().json(
-            "Locally-signed plugins must be installed via the nosdesk-plugin CLI, not the admin upload form.",
-        );
+        return errors::bad_request("Locally-signed plugins must be installed via the nosdesk-plugin CLI, not the admin upload form.");
     }
 
     let signer = trust::PluginSignerFields::from_verified(&verified, &resolved_tier);
@@ -970,7 +963,7 @@ pub async fn install_plugin_from_zip(
         }
         Err(e) => {
             error!("Failed to create plugin response: {}", e);
-            HttpResponse::InternalServerError().json("Plugin created but response failed")
+            errors::internal("Plugin created but response failed")
         }
     }
 }
@@ -982,7 +975,7 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
         | install::InstallError::BundleTooLarge(_)
         | install::InstallError::InvalidIcon(_)
         | install::InstallError::InvalidManifestSchema(_) => {
-            HttpResponse::BadRequest().json(err.to_string())
+            errors::bad_request(err.to_string())
         }
         install::InstallError::ReinstallSignerMismatch { .. }
         | install::InstallError::RefusedQuarantined => {
@@ -990,7 +983,7 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
             // fine, but it conflicts with the existing row's state
             // (quarantined, or signer ownership claim). Admin must
             // resolve the conflict via lifecycle action first.
-            HttpResponse::Conflict().json(err.to_string())
+            errors::conflict(err.to_string())
         }
         install::InstallError::CollectionSchemaSync(_) => {
             // 422: the manifest is structurally valid but its
@@ -1002,7 +995,7 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
         }
         install::InstallError::BundleWriteFailed(_) | install::InstallError::Db(_) => {
             error!("Plugin install failed: {}", err);
-            HttpResponse::InternalServerError().json(err.to_string())
+            errors::internal(err.to_string())
         }
     }
 }
@@ -1088,7 +1081,7 @@ pub async fn refresh_registry(
         Ok(c) => c,
         Err(e) => {
             error!("HTTP client build failed: {}", e);
-            return HttpResponse::InternalServerError().json("HTTP client unavailable");
+            return errors::internal("HTTP client unavailable");
         }
     };
     if let Err(e) = registry::sync_once(&http, &base_url, pool.get_ref(), cache.get_ref()).await {
@@ -1138,7 +1131,7 @@ pub async fn install_from_registry(
     }
     let claims = match req.extensions().get::<Claims>().cloned() {
         Some(c) => c,
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Snapshot the registry entry we intend to install so we can
@@ -1150,22 +1143,19 @@ pub async fn install_from_registry(
         let snapshot = match guard.snapshot.as_ref() {
             Some(s) => s,
             None => {
-                return HttpResponse::ServiceUnavailable().json(
-                    "Registry snapshot not available yet; wait for background sync",
-                );
+                return errors::service_unavailable("Registry snapshot not available yet; wait for background sync");
             }
         };
         let entry = match snapshot.find_plugin(&body.plugin_name) {
             Some(e) => e,
             None => {
-                return HttpResponse::NotFound()
-                    .json(format!("plugin {:?} not in registry", body.plugin_name));
+                return errors::not_found_msg(format!("plugin {:?} not in registry", body.plugin_name));
             }
         };
         let version = match entry.resolve_version(body.version.as_deref()) {
             Some(v) => v,
             None => {
-                return HttpResponse::NotFound().json(format!(
+                return errors::not_found_msg(format!(
                     "plugin {:?} has no version {:?}",
                     body.plugin_name, body.version
                 ));
@@ -1183,7 +1173,7 @@ pub async fn install_from_registry(
         Ok(c) => c,
         Err(e) => {
             error!("HTTP client build failed: {}", e);
-            return HttpResponse::InternalServerError().json("HTTP client unavailable");
+            return errors::internal("HTTP client unavailable");
         }
     };
 
@@ -1212,7 +1202,7 @@ pub async fn install_from_registry(
     let verified = match signing::verify_archive(&bytes) {
         Ok(v) => v,
         Err(e) => {
-            return HttpResponse::BadRequest().json(format!("signature rejected: {e}"));
+            return errors::bad_request(format!("signature rejected: {e}"));
         }
     };
 
@@ -1231,9 +1221,7 @@ pub async fn install_from_registry(
             actual_pubkey = %verified.envelope.signer_pubkey,
             "Registry / zip publisher mismatch",
         );
-        return HttpResponse::BadRequest().json(
-            "zip signer does not match the publisher the registry advertised",
-        );
+        return errors::bad_request("zip signer does not match the publisher the registry advertised");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -1243,7 +1231,7 @@ pub async fn install_from_registry(
     let tier = match trust::resolve(&mut conn, &verified.envelope) {
         Ok(t) => t,
         Err(e) => {
-            return HttpResponse::BadRequest().json(format!("publisher not trusted: {e}"));
+            return errors::bad_request(format!("publisher not trusted: {e}"));
         }
     };
     if tier.trust_level() != claimed_tier.as_str() {
@@ -1253,9 +1241,7 @@ pub async fn install_from_registry(
             resolved_tier = tier.trust_level(),
             "Registry / resolved-tier mismatch",
         );
-        return HttpResponse::BadRequest().json(
-            "zip's resolved trust tier does not match the tier the registry advertised",
-        );
+        return errors::bad_request("zip's resolved trust tier does not match the tier the registry advertised");
     }
 
     // Verify the zip's manifest.name matches the registry key
@@ -1273,9 +1259,7 @@ pub async fn install_from_registry(
                     zip_name,
                     "Registry / manifest name mismatch",
                 );
-                return HttpResponse::BadRequest().json(
-                    "zip manifest name does not match the plugin the registry advertised",
-                );
+                return errors::bad_request("zip manifest name does not match the plugin the registry advertised");
             }
         }
     }
@@ -1321,7 +1305,7 @@ pub async fn install_from_registry(
         }
         Err(e) => {
             error!("Failed to build plugin response: {}", e);
-            HttpResponse::InternalServerError().json("Plugin installed but response failed")
+            errors::internal("Plugin installed but response failed")
         }
     }
 }

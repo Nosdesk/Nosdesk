@@ -1,4 +1,6 @@
 use actix_web::{web, HttpResponse, HttpMessage};
+
+use crate::handlers::errors;
 use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
 use serde_json::json;
@@ -449,17 +451,11 @@ pub async fn cleanup_temp_files(
     // Verify admin access
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(HttpResponse::Unauthorized().json(serde_json::json!({
-            "status": "error",
-            "message": "Authentication required"
-        }))),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     if claims.role != "admin" {
-        return Ok(HttpResponse::Forbidden().json(serde_json::json!({
-            "status": "error",
-            "message": "Only administrators can cleanup temp files"
-        })));
+        return Ok(errors::forbidden("Only administrators can cleanup temp files"));
     }
 
     let storage_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "uploads".to_string());

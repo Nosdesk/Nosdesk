@@ -18,6 +18,7 @@ use tracing::{debug, info, warn, error, trace};
 
 use crate::repository;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 
 /// Safely get string content from a Yjs XmlFragment
 /// Returns None if the fragment contains invalid UTF-8 data (which can cause yrs to panic)
@@ -147,7 +148,7 @@ pub async fn get_article_content(
         Some(dt) => dt,
         None => {
             warn!(doc_id = %clean_doc_id, "Invalid document ID format");
-            return HttpResponse::BadRequest().json("Invalid document ID format (expected 'ticket-N' or 'doc-N')");
+            return errors::bad_request("Invalid document ID format (expected 'ticket-N' or 'doc-N')");
         }
     };
 
@@ -1669,7 +1670,7 @@ pub async fn get_ticket_revisions(
     // Get article content for this ticket
     let article_content = match crate::repository::article_content::get_article_content_by_ticket_id(&mut conn, ticket_id) {
         Ok(content) => content,
-        Err(_) => return HttpResponse::NotFound().json("No article content found for this ticket"),
+        Err(_) => return errors::not_found_msg("No article content found for this ticket"),
     };
 
     // Get all revisions
@@ -1681,7 +1682,7 @@ pub async fn get_ticket_revisions(
                 .collect();
             HttpResponse::Ok().json(responses)
         },
-        Err(_) => HttpResponse::InternalServerError().json("Error retrieving revisions"),
+        Err(_) => errors::internal("Error retrieving revisions"),
     }
 }
 
@@ -1700,7 +1701,7 @@ pub async fn get_ticket_revision(
     // Get article content for this ticket
     let article_content = match crate::repository::article_content::get_article_content_by_ticket_id(&mut conn, ticket_id) {
         Ok(content) => content,
-        Err(_) => return HttpResponse::NotFound().json("No article content found for this ticket"),
+        Err(_) => return errors::not_found_msg("No article content found for this ticket"),
     };
 
     // Get the specific revision
@@ -1718,7 +1719,7 @@ pub async fn get_ticket_revision(
                 "created_at": revision.created_at,
             }))
         },
-        Err(_) => HttpResponse::NotFound().json("Revision not found"),
+        Err(_) => errors::not_found_msg("Revision not found"),
     }
 }
 
@@ -1738,13 +1739,13 @@ pub async fn restore_ticket_revision(
     // Get article content for this ticket
     let article_content = match crate::repository::article_content::get_article_content_by_ticket_id(&mut conn, ticket_id) {
         Ok(content) => content,
-        Err(_) => return HttpResponse::NotFound().json("No article content found for this ticket"),
+        Err(_) => return errors::not_found_msg("No article content found for this ticket"),
     };
 
     // Get the revision to restore
     let revision = match crate::repository::article_content::get_article_content_revision(&mut conn, article_content.id, revision_number) {
         Ok(rev) => rev,
-        Err(_) => return HttpResponse::NotFound().json("Revision not found"),
+        Err(_) => return errors::not_found_msg("Revision not found"),
     };
 
     // Get the document ID
@@ -1756,7 +1757,7 @@ pub async fn restore_ticket_revision(
         Ok(upd) => upd,
         Err(e) => {
             error!(ticket_id, revision_number, error = ?e, "Error decoding revision update");
-            return HttpResponse::InternalServerError().json("Error decoding revision");
+            return errors::internal("Error decoding revision");
         }
     };
 
@@ -1784,7 +1785,7 @@ pub async fn restore_ticket_revision(
             let mut txn = doc.transact_mut();
             if let Err(e) = txn.apply_update(update) {
                 error!(ticket_id, revision_number, error = ?e, "Error applying revision update to new doc");
-                return HttpResponse::InternalServerError().json("Error applying revision");
+                return errors::internal("Error applying revision");
             }
         }
 
@@ -1837,7 +1838,7 @@ pub async fn get_doc_revisions(
         Ok(revisions) => {
             HttpResponse::Ok().json(revisions)
         },
-        Err(_) => HttpResponse::InternalServerError().json("Error retrieving revisions"),
+        Err(_) => errors::internal("Error retrieving revisions"),
     }
 }
 
@@ -1870,7 +1871,7 @@ pub async fn get_doc_revision(
                 "change_summary": revision.change_summary,
             }))
         },
-        Err(_) => HttpResponse::NotFound().json("Revision not found"),
+        Err(_) => errors::not_found_msg("Revision not found"),
     }
 }
 
@@ -1890,7 +1891,7 @@ pub async fn restore_doc_revision(
     // Get the revision to restore
     let revision = match crate::repository::documentation::get_documentation_revision(&mut conn, doc_id, revision_number) {
         Ok(rev) => rev,
-        Err(_) => return HttpResponse::NotFound().json("Revision not found"),
+        Err(_) => return errors::not_found_msg("Revision not found"),
     };
 
     // Get the document ID string
@@ -1902,7 +1903,7 @@ pub async fn restore_doc_revision(
         Ok(upd) => upd,
         Err(e) => {
             error!(doc_id, revision_number, error = ?e, "Error decoding revision update");
-            return HttpResponse::InternalServerError().json("Error decoding revision");
+            return errors::internal("Error decoding revision");
         }
     };
 
@@ -1930,7 +1931,7 @@ pub async fn restore_doc_revision(
             let mut txn = doc.transact_mut();
             if let Err(e) = txn.apply_update(update) {
                 error!(doc_id, revision_number, error = ?e, "Error applying revision update to new doc");
-                return HttpResponse::InternalServerError().json("Error applying revision");
+                return errors::internal("Error applying revision");
             }
         }
 

@@ -3,11 +3,11 @@
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
-use serde_json::json;
 use tracing::error;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{Claims, SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;
@@ -42,8 +42,7 @@ pub async fn get_guest_settings(pool: web::Data<Pool>) -> impl Responder {
         }
         Err(e) => {
             error!(error = ?e, "Failed to load site_settings for guest admin view");
-            HttpResponse::InternalServerError()
-                .json(json!({"error": "Failed to load settings"}))
+            errors::internal("Failed to load settings")
         }
     }
 }
@@ -64,7 +63,7 @@ pub async fn update_guest_settings(
     };
 
     if !crate::utils::rbac::is_admin(&claims) {
-        return HttpResponse::Forbidden().json(json!({"error": "Admin required"}));
+        return errors::forbidden("Admin required");
     }
 
     let user_uuid = match utils::parse_uuid(&claims.sub) {
@@ -74,14 +73,12 @@ pub async fn update_guest_settings(
 
     if let Some(n) = body.guest_ticket_rate_limit_per_hour {
         if !(1..=1000).contains(&n) {
-            return HttpResponse::BadRequest()
-                .json(json!({"error": "Rate limit must be between 1 and 1000"}));
+            return errors::bad_request("Rate limit must be between 1 and 1000");
         }
     }
     if let Some(Some(ref p)) = body.guest_ticket_default_priority {
         if !["low", "medium", "high"].contains(&p.as_str()) {
-            return HttpResponse::BadRequest()
-                .json(json!({"error": "Invalid default priority"}));
+            return errors::bad_request("Invalid default priority");
         }
     }
 
@@ -91,8 +88,7 @@ pub async fn update_guest_settings(
     // (that happens at render time).
     if let Some(Some(ref m)) = body.guest_ticket_intro_message {
         if m.chars().count() > 500 {
-            return HttpResponse::BadRequest()
-                .json(json!({"error": "Intro message must be 500 characters or fewer"}));
+            return errors::bad_request("Intro message must be 500 characters or fewer");
         }
     }
 
@@ -127,8 +123,7 @@ pub async fn update_guest_settings(
         }
         Err(e) => {
             error!(error = ?e, "Failed to update guest settings");
-            HttpResponse::InternalServerError()
-                .json(json!({"error": "Failed to update settings"}))
+            errors::internal("Failed to update settings")
         }
     }
 }

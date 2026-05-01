@@ -4,6 +4,7 @@ use serde_json::json;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::utils::email::{EmailService, EmailConfig};
 use crate::utils::email_branding::get_email_branding;
 
@@ -28,19 +29,13 @@ pub async fn get_email_config(
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Authentication required"
-            }))
+            return errors::unauthorized("Authentication required")
         }
     };
 
     // Check if the user is an admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Only administrators can view email configuration"
-        }));
+        return errors::forbidden("Only administrators can view email configuration");
     }
 
     // Load email configuration from environment
@@ -82,29 +77,20 @@ pub async fn send_test_email(
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Authentication required"
-            }))
+            return errors::unauthorized("Authentication required")
         }
     };
 
     // Check if the user is an admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Only administrators can send test emails"
-        }));
+        return errors::forbidden("Only administrators can send test emails");
     }
 
     // Create email service
     let email_service = match EmailService::from_env() {
         Ok(service) => service,
         Err(e) => {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": format!("Email is not configured: {}", e)
-            }))
+            return errors::bad_request(format!("Email is not configured: {}", e))
         }
     };
 
@@ -118,9 +104,6 @@ pub async fn send_test_email(
             "status": "success",
             "message": format!("Test email sent successfully to {}", request.to)
         })),
-        Err(e) => HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": format!("Failed to send test email: {}", e)
-        })),
+        Err(e) => errors::internal(format!("Failed to send test email: {}", e)),
     }
 }

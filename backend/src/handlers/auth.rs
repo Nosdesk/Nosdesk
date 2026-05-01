@@ -7,6 +7,7 @@ use tracing::{debug, info, warn, error};
 
 use crate::db::DbConnection;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{
     LoginRequest, PasswordChangeRequest,
     UserRegistration, UserResponse
@@ -160,10 +161,7 @@ pub(crate) fn complete_login(
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to create authentication session"
-            }));
+            return errors::internal("Failed to create authentication session");
         }
     };
     let family_id = Uuid::new_v4();
@@ -189,10 +187,7 @@ fn complete_mfa_login(
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to create authentication session"
-            }));
+            return errors::internal("Failed to create authentication session");
         }
     };
     let family_id = Uuid::new_v4();
@@ -239,21 +234,17 @@ pub async fn login(
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
         Ok(Some(remaining_seconds)) => {
             warn!(email = %login_data.email, remaining_seconds, "Login attempt on locked account");
-            return HttpResponse::TooManyRequests().json(json!({
-                "status": "error",
-                "message": format!("Account temporarily locked. Try again in {} minutes.", (remaining_seconds / 60) + 1),
-                "retry_after": remaining_seconds
-            }));
+            return errors::too_many_requests(
+                format!("Account temporarily locked. Try again in {} minutes.", (remaining_seconds / 60) + 1),
+                remaining_seconds as u64,
+            );
         }
         Ok(None) => {} // Not locked, continue
         Err(e) => {
             error!(error = %e, "Redis error checking account lockout");
             if is_production {
                 // Fail closed in production - deny login if we can't verify lockout status
-                return HttpResponse::ServiceUnavailable().json(json!({
-                    "status": "error",
-                    "message": "Authentication service temporarily unavailable. Please try again."
-                }));
+                return errors::service_unavailable("Authentication service temporarily unavailable. Please try again.");
             }
             // Fail open in development for convenience
         }
@@ -271,10 +262,7 @@ pub async fn login(
             error!(error = ?e, "Error finding user by email");
             // Record failed attempt even for non-existent users (prevents enumeration)
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -284,10 +272,7 @@ pub async fn login(
         Err(_) => {
             warn!(user_uuid = %user.uuid, "No local password found for user");
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -304,20 +289,16 @@ pub async fn login(
                 let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
                 if remaining == 0 {
                     warn!(email = %login_data.email, "Account locked after {} failed attempts", MAX_LOGIN_ATTEMPTS);
-                    return HttpResponse::TooManyRequests().json(json!({
-                        "status": "error",
-                        "message": format!("Account locked after too many failed attempts. Try again in {} minutes.", LOCKOUT_DURATION_SECONDS / 60),
-                        "retry_after": LOCKOUT_DURATION_SECONDS
-                    }));
+                    return errors::too_many_requests(
+                        format!("Account locked after too many failed attempts. Try again in {} minutes.", LOCKOUT_DURATION_SECONDS / 60),
+                        LOCKOUT_DURATION_SECONDS as u64,
+                    );
                 }
                 debug!(email = %login_data.email, attempts, remaining, "Failed login attempt");
             }
             Err(e) => warn!(error = %e, "Failed to record login attempt"),
         }
-        return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Invalid email or password"
-        }));
+        return errors::unauthorized("Invalid email or password");
     }
 
     // Clear failed attempts on successful password verification
@@ -362,10 +343,7 @@ pub async fn mfa_login(
     let user = match repository::get_user_by_email(&login_data.email, &mut conn) {
         Ok(user) => user,
         Err(_) => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -373,10 +351,7 @@ pub async fn mfa_login(
     let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
         Ok(hash) => hash,
         Err(_) => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -386,26 +361,17 @@ pub async fn mfa_login(
     };
 
     if !password_matches {
-        return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Invalid email or password"
-        }));
+        return errors::unauthorized("Invalid email or password");
     }
 
     // Check that user actually has MFA enabled
     if !mfa::user_has_mfa_enabled(&user) {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "MFA is not enabled for this account"
-        }));
+        return errors::bad_request("MFA is not enabled for this account");
     }
 
     // Check rate limiting for MFA attempts
     if !mfa::check_mfa_rate_limit(&user.uuid).await {
-        return HttpResponse::TooManyRequests().json(json!({
-            "status": "error",
-            "message": "Too many MFA attempts. Please try again later."
-        }));
+        return errors::too_many_requests("Too many MFA attempts. Please try again later.", 60);
     }
 
     // Verify MFA token (TOTP or backup code)
@@ -415,10 +381,7 @@ pub async fn mfa_login(
             // Log failed MFA attempt for security monitoring
             mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
             
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": format!("MFA verification failed: {}", e)
-            }));
+            return errors::bad_request(format!("MFA verification failed: {}", e));
         }
     };
 
@@ -426,10 +389,7 @@ pub async fn mfa_login(
         // Log failed MFA attempt
         mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
         
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid MFA token"
-        }));
+        return errors::bad_request("Invalid MFA token");
     }
 
     // Log successful MFA attempt
@@ -458,11 +418,10 @@ pub async fn recovery_login(
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
         Ok(Some(remaining_seconds)) => {
             warn!(email = %login_data.email, remaining_seconds, "Recovery login attempt on locked account");
-            return HttpResponse::TooManyRequests().json(json!({
-                "status": "error",
-                "message": format!("Account temporarily locked. Try again in {} minutes.", (remaining_seconds / 60) + 1),
-                "retry_after": remaining_seconds
-            }));
+            return errors::too_many_requests(
+                format!("Account temporarily locked. Try again in {} minutes.", (remaining_seconds / 60) + 1),
+                remaining_seconds as u64,
+            );
         }
         Ok(None) => {} // Not locked, continue
         Err(e) => {
@@ -471,10 +430,7 @@ pub async fn recovery_login(
                 .map(|v| v.to_lowercase() == "production")
                 .unwrap_or(false);
             if is_production {
-                return HttpResponse::ServiceUnavailable().json(json!({
-                    "status": "error",
-                    "message": "Authentication service temporarily unavailable. Please try again."
-                }));
+                return errors::service_unavailable("Authentication service temporarily unavailable. Please try again.");
             }
         }
     }
@@ -489,10 +445,7 @@ pub async fn recovery_login(
         Ok(user) => user,
         Err(_) => {
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -501,10 +454,7 @@ pub async fn recovery_login(
         Ok(hash) => hash,
         Err(_) => {
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -515,10 +465,7 @@ pub async fn recovery_login(
 
     if !password_matches {
         let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-        return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Invalid email or password"
-        }));
+        return errors::unauthorized("Invalid email or password");
     }
 
     // Clear failed attempts on successful password verification
@@ -528,18 +475,12 @@ pub async fn recovery_login(
 
     // Verify the user actually has passkeys or MFA (this endpoint is for recovery)
     if !mfa::user_has_passkeys(&user) && !mfa::user_has_mfa_enabled(&user) {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "No MFA configured for this account"
-        }));
+        return errors::bad_request("No MFA configured for this account");
     }
 
     // Check rate limiting for MFA/recovery attempts
     if !mfa::check_mfa_rate_limit(&user.uuid).await {
-        return HttpResponse::TooManyRequests().json(json!({
-            "status": "error",
-            "message": "Too many recovery attempts. Please try again later."
-        }));
+        return errors::too_many_requests("Too many recovery attempts. Please try again later.", 60);
     }
 
     // Verify recovery code directly (bypasses TOTP check)
@@ -547,19 +488,13 @@ pub async fn recovery_login(
         Ok(result) => result,
         Err(_) => {
             mfa::log_mfa_attempt(&user.uuid, false, "recovery_login", &request).await;
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid recovery code"
-            }));
+            return errors::bad_request("Invalid recovery code");
         }
     };
 
     if !result.is_valid {
         mfa::log_mfa_attempt(&user.uuid, false, "recovery_login", &request).await;
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid recovery code"
-        }));
+        return errors::bad_request("Invalid recovery code");
     }
 
     // Log successful recovery
@@ -684,19 +619,13 @@ pub async fn register(
 
     // Check if user with this email already exists
     if repository::get_user_by_email(&user_data.email, &mut conn).is_ok() {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "User with this email already exists"
-        }));
+        return errors::bad_request("User with this email already exists");
     }
 
     // Hash the password
     let password_hash = match hash_password(&user_data.password) {
         Ok(hash) => hash,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Error hashing password"
-        })),
+        Err(_) => return errors::internal("Error hashing password"),
     };
 
     // Generate a UUID if not provided
@@ -751,10 +680,7 @@ pub async fn register(
                 error!(error = ?e, "Error creating auth identity");
                 // Rollback by deleting the user
                 let _ = repository::users::delete_user(&created_user.uuid, &mut conn, Some(search_service.get_ref()));
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Error creating user authentication"
-                }));
+                return errors::internal("Error creating user authentication");
             }
 
             info!(user_name = %created_user.name, user_uuid = %created_user.uuid, "New user registered successfully");
@@ -786,15 +712,9 @@ pub async fn change_password(
 ) -> impl Responder {
     // Validate new password first
     if password_data.new_password.len() < 8 {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "New password validation failed: Password must be at least 8 characters long"
-        }));
+        return errors::bad_request("New password validation failed: Password must be at least 8 characters long");
     } else if password_data.new_password.len() > 128 {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "New password validation failed: Password must be less than 128 characters"
-        }));
+        return errors::bad_request("New password validation failed: Password must be less than 128 characters");
     }
 
     // Get database connection
@@ -806,19 +726,13 @@ pub async fn change_password(
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user UUID in token"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
     match repository::get_user_by_uuid(&user_uuid, &mut conn) {
@@ -828,10 +742,7 @@ pub async fn change_password(
                 Ok(hash) => hash,
                 Err(_) => {
                     warn!(user_uuid = %user.uuid, "No local password found for user");
-                    return HttpResponse::BadRequest().json(json!({
-                        "status": "error",
-                        "message": "No local password found for this user"
-                    }));
+                    return errors::bad_request("No local password found for this user");
                 }
             };
 
@@ -840,35 +751,23 @@ pub async fn change_password(
                 Ok(matches) => matches,
                 Err(_) => {
                     error!("Error verifying current password during password change");
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Error verifying password"
-                    }));
+                    return errors::internal("Error verifying password");
                 }
             };
 
             if !password_matches {
-                return HttpResponse::Unauthorized().json(json!({
-                    "status": "error",
-                    "message": "Current password is incorrect"
-                }));
+                return errors::unauthorized("Current password is incorrect");
             }
 
             // Check if new password is the same as current password
             if verify(&password_data.new_password, &current_password_hash).unwrap_or(false) {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": "New password must be different from current password"
-                }));
+                return errors::bad_request("New password must be different from current password");
             }
 
             // Hash the new password
             let new_password_hash = match hash_password(&password_data.new_password) {
                 Ok(hash) => hash,
-                Err(_) => return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Error hashing new password"
-                })),
+                Err(_) => return errors::internal("Error hashing new password"),
             };
 
             // Update the user's password hash in user_auth_identities and password_changed_at timestamp in users
@@ -878,10 +777,7 @@ pub async fn change_password(
             // Update password hash in user_auth_identities
             if let Err(e) = update_local_password_hash(&user.uuid, &new_password_hash, &mut conn) {
                 error!(error = ?e, "Error updating password hash");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Error updating password"
-                }));
+                return errors::internal("Error updating password");
             }
 
             // Update password_changed_at timestamp in users table
@@ -917,17 +813,11 @@ pub async fn change_password(
                 },
                 Err(e) => {
                     error!(error = ?e, "Error updating password");
-                    HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Error updating password"
-                    }))
+                    errors::internal("Error updating password")
                 }
             }
         },
-        Err(_) => HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => errors::not_found_msg("User not found"),
     }
 }
 
@@ -943,28 +833,19 @@ pub async fn get_current_user(
 
     let claims = match JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // Parse UUID from claims
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user UUID"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     // Get user from database using claims
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     HttpResponse::Ok().json(UserResponse::from(user))
@@ -1015,10 +896,7 @@ pub async fn check_setup_status(
         },
         Err(e) => {
             error!("Error counting users: {:?}", e);
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to check setup status"
-            }))
+            errors::internal("Failed to check setup status")
         }
     }
 }
@@ -1037,18 +915,12 @@ pub async fn setup_initial_admin(
     match repository::count_users(&mut conn) {
         Ok(user_count) => {
             if user_count > 0 {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": "Setup has already been completed. Users already exist in the system."
-                }));
+                return errors::bad_request("Setup has already been completed. Users already exist in the system.");
             }
         },
         Err(e) => {
             error!(error = ?e, "Error counting users");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to verify setup status"
-            }));
+            return errors::internal("Failed to verify setup status");
         }
     }
 
@@ -1094,10 +966,7 @@ pub async fn setup_initial_admin(
         Ok(hash) => hash,
         Err(e) => {
             error!(error = ?e, "Error hashing password");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error processing password"
-            }));
+            return errors::internal("Error processing password");
         }
     };
 
@@ -1141,10 +1010,7 @@ pub async fn setup_initial_admin(
                 error!(error = ?e, "Error creating auth identity");
                 // Rollback by deleting the user
                 let _ = repository::users::delete_user(&created_user.uuid, &mut conn, Some(search_service.get_ref()));
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Error creating user authentication"
-                }));
+                return errors::internal("Error creating user authentication");
             }
 
             info!(user_name = %created_user.name, "Initial admin user created successfully");
@@ -1188,35 +1054,23 @@ pub async fn mfa_setup(
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user UUID"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // Check if MFA_ENCRYPTION_KEY is set - use the util function
     if mfa::encrypt_mfa_secret("test").is_err() {
         tracing::error!("MFA setup failed: encryption key not configured");
-        return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "MFA not properly configured on server"
-        }));
+        return errors::internal("MFA not properly configured on server");
     }
 
     // Generate new TOTP secret (backup codes will be generated after successful verification)
@@ -1231,10 +1085,7 @@ pub async fn mfa_setup(
         Ok(result) => result,
         Err(e) => {
             tracing::error!("Failed to generate QR code: {}", e);
-            return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-                "message": "Failed to generate QR code"
-            }));
+            return errors::internal("Failed to generate QR code");
         }
     };
 
@@ -1264,19 +1115,13 @@ pub async fn mfa_verify_setup(
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Verify the TOTP token (timing-safe verification)
     if !mfa::verify_totp_token(&request.secret, &request.token) {
         tracing::warn!("MFA setup verification failed for user: {}", claims.sub);
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid verification code"
-        }));
+        return errors::bad_request("Invalid verification code");
     }
 
     tracing::info!("MFA setup verification successful for user: {}", claims.sub);
@@ -1303,19 +1148,13 @@ pub async fn mfa_enable(
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user UUID in token"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
     tracing::info!("Enabling MFA for user: {}", user_uuid);
@@ -1323,10 +1162,7 @@ pub async fn mfa_enable(
     // Validate inputs securely
     let mfa_secret = match &request.secret {
         Some(secret) if !secret.is_empty() => secret,
-        _ => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "MFA secret is required"
-        })),
+        _ => return errors::bad_request("MFA secret is required"),
     };
 
     // Generate backup codes on the server after successful verification
@@ -1334,10 +1170,7 @@ pub async fn mfa_enable(
     // Final TOTP verification before enabling
     if !mfa::verify_totp_token(mfa_secret, &request.token) {
         tracing::warn!("MFA enable verification failed for user: {}", user_uuid);
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid verification code"
-        }));
+        return errors::bad_request("Invalid verification code");
     }
 
     // Encrypt the MFA secret before storage
@@ -1345,10 +1178,7 @@ pub async fn mfa_enable(
         Ok(encrypted) => encrypted,
         Err(e) => {
             tracing::error!("Failed to encrypt MFA secret: {}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to secure MFA data"
-            }));
+            return errors::internal("Failed to secure MFA data");
         }
     };
 
@@ -1361,10 +1191,7 @@ pub async fn mfa_enable(
     
     let backup_codes_json = match serde_json::to_value(&backup_codes_hashed) {
         Ok(json) => json,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Failed to serialize backup codes"
-        })),
+        Err(_) => return errors::internal("Failed to serialize backup codes"),
     };
 
     let mfa_update = crate::models::UserMfaUpdate {
@@ -1386,10 +1213,7 @@ pub async fn mfa_enable(
         },
         Err(e) => {
             tracing::error!("Failed to enable MFA in database: {:?}", e);
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to enable MFA"
-            }))
+            errors::internal("Failed to enable MFA")
         }
     }
 }
@@ -1407,53 +1231,35 @@ pub async fn mfa_disable(
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Verify scope - must be "full" (MFA disable requires being fully authenticated)
     if claims.scope != "full" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "This action requires a full session"
-        }));
+        return errors::forbidden("This action requires a full session");
     }
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user UUID in token"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
     // Get user
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // Always verify password for MFA disable (even with recovery token)
     // This prevents account takeover if recovery email is compromised
     let password_hash_str = match get_local_password_hash(&user.uuid, &mut conn) {
         Ok(hash) => hash,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Error reading password hash"
-        })),
+        Err(_) => return errors::internal("Error reading password hash"),
     };
 
     if !verify(&request.password, &password_hash_str).unwrap_or(false) {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid password"
-        }));
+        return errors::bad_request("Invalid password");
     }
 
     // Disable MFA
@@ -1474,10 +1280,7 @@ pub async fn mfa_disable(
         },
         Err(e) => {
             error!(error = ?e, "Error disabling MFA");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to disable MFA"
-            }))
+            errors::internal("Failed to disable MFA")
         }
     }
 }
@@ -1495,44 +1298,29 @@ pub async fn mfa_regenerate_backup_codes(
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user UUID in token"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
     // Get user to verify password
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // Verify password
     let password_hash_str = match get_local_password_hash(&user.uuid, &mut conn) {
         Ok(hash) => hash,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Error reading password hash"
-        })),
+        Err(_) => return errors::internal("Error reading password hash"),
     };
 
     if !verify(&request.password, &password_hash_str).unwrap_or(false) {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid password"
-        }));
+        return errors::bad_request("Invalid password");
     }
 
     // Generate new backup codes
@@ -1555,10 +1343,7 @@ pub async fn mfa_regenerate_backup_codes(
         },
         Err(e) => {
             error!(error = ?e, "Error regenerating backup codes");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to regenerate backup codes"
-            }))
+            errors::internal("Failed to regenerate backup codes")
         }
     }
 }
@@ -1575,28 +1360,19 @@ pub async fn mfa_status(
 
     let claims = match JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user UUID in token"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
     // Get user MFA status
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "User not found"
-        })),
+        Err(_) => return errors::not_found_msg("User not found"),
     };
 
     // Check if user has backup codes
@@ -1629,10 +1405,10 @@ pub async fn mfa_setup_login(
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
         Ok(Some(remaining_seconds)) => {
             warn!(email = %email_lower, remaining_seconds, "MFA setup attempt on locked account");
-            return HttpResponse::TooManyRequests().json(json!({
-                "status": "error",
-                "message": format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds)
-            }));
+            return errors::too_many_requests(
+                format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds),
+                remaining_seconds as u64,
+            );
         }
         Ok(None) => {} // Not locked, continue
         Err(e) => {
@@ -1651,10 +1427,7 @@ pub async fn mfa_setup_login(
         Err(_) => {
             // Record failed attempt even for non-existent users (prevents enumeration)
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -1663,10 +1436,7 @@ pub async fn mfa_setup_login(
         Ok(hash) => hash,
         Err(_) => {
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -1686,10 +1456,7 @@ pub async fn mfa_setup_login(
             }
             Err(e) => warn!("Failed to record failed attempt: {:?}", e),
         }
-        return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Invalid email or password"
-        }));
+        return errors::unauthorized("Invalid email or password");
     }
 
     // Clear failed attempts on successful password verification
@@ -1699,27 +1466,18 @@ pub async fn mfa_setup_login(
 
     // Verify that user actually needs MFA setup (security check)
     if mfa::user_has_mfa_enabled(&user) {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "MFA is already enabled for this account"
-        }));
+        return errors::bad_request("MFA is already enabled for this account");
     }
 
     // Verify that MFA is required for this user
     if let Ok(_) = mfa::validate_mfa_policy(&user).await {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "MFA is not required for this account"
-        }));
+        return errors::bad_request("MFA is not required for this account");
     }
 
     // Check if MFA_ENCRYPTION_KEY is set
     if mfa::encrypt_mfa_secret("test").is_err() {
         tracing::error!("MFA setup failed: encryption key not configured");
-        return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "MFA not properly configured on server"
-        }));
+        return errors::internal("MFA not properly configured on server");
     }
 
     // Generate new TOTP secret (backup codes will be generated after verification)
@@ -1734,10 +1492,7 @@ pub async fn mfa_setup_login(
         Ok(result) => result,
         Err(e) => {
             tracing::error!("Failed to generate QR code: {}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to generate QR code"
-            }));
+            return errors::internal("Failed to generate QR code");
         }
     };
 
@@ -1767,10 +1522,10 @@ pub async fn mfa_enable_login(
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
         Ok(Some(remaining_seconds)) => {
             warn!(email = %email_lower, remaining_seconds, "MFA enable attempt on locked account");
-            return HttpResponse::TooManyRequests().json(json!({
-                "status": "error",
-                "message": format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds)
-            }));
+            return errors::too_many_requests(
+                format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds),
+                remaining_seconds as u64,
+            );
         }
         Ok(None) => {} // Not locked, continue
         Err(e) => {
@@ -1788,10 +1543,7 @@ pub async fn mfa_enable_login(
         Ok(user) => user,
         Err(_) => {
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -1800,10 +1552,7 @@ pub async fn mfa_enable_login(
         Ok(hash) => hash,
         Err(_) => {
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Invalid email or password"
-            }));
+            return errors::unauthorized("Invalid email or password");
         }
     };
 
@@ -1822,10 +1571,7 @@ pub async fn mfa_enable_login(
             }
             Err(e) => warn!("Failed to record failed attempt: {:?}", e),
         }
-        return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Invalid email or password"
-        }));
+        return errors::unauthorized("Invalid email or password");
     }
 
     // Clear failed attempts on successful password verification
@@ -1835,26 +1581,17 @@ pub async fn mfa_enable_login(
 
     // Security checks - same as setup
     if mfa::user_has_mfa_enabled(&user) {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "MFA is already enabled for this account"
-        }));
+        return errors::bad_request("MFA is already enabled for this account");
     }
 
     if let Ok(_) = mfa::validate_mfa_policy(&user).await {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "MFA is not required for this account"
-        }));
+        return errors::bad_request("MFA is not required for this account");
     }
 
     // Validate inputs securely
     let mfa_secret = match &request.secret {
         Some(secret) if !secret.is_empty() => secret,
-        _ => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "MFA secret is required"
-        })),
+        _ => return errors::bad_request("MFA secret is required"),
     };
 
     // Backup codes are generated after verification, not required in request
@@ -1862,10 +1599,7 @@ pub async fn mfa_enable_login(
     // Final TOTP verification before enabling
     if !mfa::verify_totp_token(mfa_secret, &request.token) {
         tracing::warn!("MFA enable verification failed for user during login: {}", user.uuid);
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid verification code"
-        }));
+        return errors::bad_request("Invalid verification code");
     }
 
     // Encrypt the MFA secret before storage
@@ -1873,10 +1607,7 @@ pub async fn mfa_enable_login(
         Ok(encrypted) => encrypted,
         Err(e) => {
             tracing::error!("Failed to encrypt MFA secret: {}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to secure MFA data"
-            }));
+            return errors::internal("Failed to secure MFA data");
         }
     };
 
@@ -1885,10 +1616,7 @@ pub async fn mfa_enable_login(
 
     let backup_codes_json = match serde_json::to_value(&backup_codes_hashed) {
         Ok(json) => json,
-        Err(_) => return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Failed to serialize backup codes"
-        })),
+        Err(_) => return errors::internal("Failed to serialize backup codes"),
     };
 
     // Enable MFA in database
@@ -1911,10 +1639,7 @@ pub async fn mfa_enable_login(
                 Ok(s) => s,
                 Err(e) => {
                     tracing::error!("Failed to create session for MFA enable login {}: {}", user_uuid, e);
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Failed to create authentication session"
-                    }));
+                    return errors::internal("Failed to create authentication session");
                 }
             };
             let family_id = Uuid::new_v4();
@@ -1929,10 +1654,7 @@ pub async fn mfa_enable_login(
         },
         Err(e) => {
             tracing::error!("Failed to enable MFA in database: {:?}", e);
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to enable MFA"
-            }))
+            errors::internal("Failed to enable MFA")
         }
     }
 }
@@ -1951,19 +1673,13 @@ pub async fn get_user_sessions(
 
     let claims = match JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user UUID in token"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
     let current_sid = claims.session_uuid();
@@ -1973,10 +1689,7 @@ pub async fn get_user_sessions(
         Ok(sessions) => sessions,
         Err(e) => {
             tracing::error!("Failed to get user sessions: {}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to retrieve sessions"
-            }));
+            return errors::internal("Failed to retrieve sessions");
         }
     };
 
@@ -2018,19 +1731,13 @@ pub async fn revoke_session(
 
     let claims = match JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user UUID in token"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
     // Verify the session belongs to this user before revoking
@@ -2039,16 +1746,10 @@ pub async fn revoke_session(
             // Session belongs to user, proceed with revocation
         },
         Ok(_) => {
-            return HttpResponse::Forbidden().json(json!({
-                "status": "error",
-                "message": "You can only revoke your own sessions"
-            }));
+            return errors::forbidden("You can only revoke your own sessions");
         },
         Err(_) => {
-            return HttpResponse::NotFound().json(json!({
-                "status": "error",
-                "message": "Session not found"
-            }));
+            return errors::not_found_msg("Session not found");
         }
     }
 
@@ -2061,16 +1762,10 @@ pub async fn revoke_session(
                 "message": "Session revoked successfully"
             }))
         },
-        Ok(_) => HttpResponse::NotFound().json(json!({
-            "status": "error",
-            "message": "Session not found"
-        })),
+        Ok(_) => errors::not_found_msg("Session not found"),
         Err(e) => {
             tracing::error!("Failed to revoke session: {}", e);
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to revoke session"
-            }))
+            errors::internal("Failed to revoke session")
         }
     }
 }
@@ -2087,19 +1782,13 @@ pub async fn revoke_all_other_sessions(
 
     let claims = match JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user UUID in token"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
     // Revoke all other sessions (if we can't identify current session, revoke everything)
@@ -2123,10 +1812,7 @@ pub async fn revoke_all_other_sessions(
         },
         Err(e) => {
             tracing::error!("Failed to revoke other sessions: {}", e);
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to revoke sessions"
-            }))
+            errors::internal("Failed to revoke sessions")
         }
     }
 }
@@ -2147,10 +1833,7 @@ pub async fn refresh_token(
     let refresh_cookie = match request.cookie(crate::utils::cookies::REFRESH_TOKEN_COOKIE) {
         Some(cookie) => cookie.value().to_string(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Refresh token not found"
-            }));
+            return errors::unauthorized("Refresh token not found");
         }
     };
 
@@ -2159,20 +1842,14 @@ pub async fn refresh_token(
     let old_token = match crate::repository::refresh_tokens::get_refresh_token_by_hash(&mut conn, &token_hash) {
         Ok(token) => token,
         Err(_) => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Invalid or expired refresh token"
-            }));
+            return errors::unauthorized("Invalid or expired refresh token");
         }
     };
 
     // 2. Check if revoked
     if old_token.revoked_at.is_some() {
         tracing::warn!("Revoked refresh token presented, family={}", old_token.family_id);
-        return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Refresh token has been revoked"
-        }));
+        return errors::unauthorized("Refresh token has been revoked");
     }
 
     // 3. Reuse detection
@@ -2188,10 +1865,7 @@ pub async fn refresh_token(
             if let Some(sid) = old_token.session_id {
                 let _ = crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &sid);
             }
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Token reuse detected — session revoked for security"
-            }));
+            return errors::unauthorized("Token reuse detected — session revoked for security");
         }
         // Within grace period — allow (concurrent tab scenario)
         tracing::debug!("Refresh token reuse within grace period, family={}", old_token.family_id);
@@ -2201,10 +1875,7 @@ pub async fn refresh_token(
     let user = match repository::get_user_by_uuid(&old_token.user_uuid, &mut conn) {
         Ok(user) => user,
         Err(_) => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "User not found"
-            }));
+            return errors::unauthorized("User not found");
         }
     };
 
@@ -2217,10 +1888,7 @@ pub async fn refresh_token(
                 Ok(session) => session.session_id,
                 Err(e) => {
                     tracing::error!("Failed to create session during refresh: {}", e);
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Failed to create session"
-                    }));
+                    return errors::internal("Failed to create session");
                 }
             }
         }
@@ -2230,10 +1898,7 @@ pub async fn refresh_token(
     let new_access_token = match JwtUtils::create_token(&user, &session_id) {
         Ok(token) => token,
         Err(_) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to create access token"
-            }));
+            return errors::internal("Failed to create access token");
         }
     };
 
@@ -2263,10 +1928,7 @@ pub async fn refresh_token(
 
     if let Err(e) = crate::repository::refresh_tokens::create_refresh_token(&mut conn, new_refresh_record) {
         tracing::error!("Failed to store new refresh token: {}", e);
-        return HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-            "message": "Failed to create refresh token"
-        }));
+        return errors::internal("Failed to create refresh token");
     }
 
     // 10. Update session activity

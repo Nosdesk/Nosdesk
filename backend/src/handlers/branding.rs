@@ -7,6 +7,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;
@@ -70,30 +71,21 @@ pub async fn update_branding_config(
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Authentication required"
-            }));
+            return errors::unauthorized("Authentication required");
         }
     };
 
     let user_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid user UUID"
-            }));
+            return errors::bad_request("Invalid user UUID");
         }
     };
 
     // Validate primary_color if provided (must be valid hex color)
     if let Some(ref color) = body.primary_color {
         if !is_valid_hex_color(color) {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid color format. Must be a valid hex color (e.g., #2C80FF)"
-            }));
+            return errors::bad_request("Invalid color format. Must be a valid hex color (e.g., #2C80FF)");
         }
     }
 
@@ -114,10 +106,7 @@ pub async fn update_branding_config(
         }
         Err(e) => {
             error!(error = ?e, "Error updating site settings");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to update branding settings"
-            }))
+            errors::internal("Failed to update branding settings")
         }
     }
 }
@@ -133,10 +122,7 @@ pub async fn upload_branding_image(
 
     // Validate image type
     if !["logo", "logo_light", "favicon"].contains(&image_type.as_str()) {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid image type. Must be 'logo', 'logo_light', or 'favicon'"
-        }));
+        return errors::bad_request("Invalid image type. Must be 'logo', 'logo_light', or 'favicon'");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -148,20 +134,14 @@ pub async fn upload_branding_image(
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Authentication required"
-            }));
+            return errors::unauthorized("Authentication required");
         }
     };
 
     let user_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid user UUID"
-            }));
+            return errors::bad_request("Invalid user UUID");
         }
     };
 
@@ -194,10 +174,7 @@ pub async fn upload_branding_image(
             } else {
                 "PNG, SVG, JPEG, or WebP"
             };
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": format!("Invalid file type for {}. Allowed: {}", image_type, allowed)
-            }));
+            return errors::bad_request(format!("Invalid file type for {}. Allowed: {}", image_type, allowed));
         }
 
         // Determine file extension
@@ -217,10 +194,7 @@ pub async fn upload_branding_image(
                 Ok(data) => data,
                 Err(e) => {
                     error!(error = ?e, "Error reading chunk");
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": "Error reading uploaded file"
-                    }));
+                    return errors::internal("Error reading uploaded file");
                 }
             };
             file_data.extend_from_slice(&data);
@@ -228,10 +202,7 @@ pub async fn upload_branding_image(
 
         // Check file size (max 2MB for branding images)
         if file_data.len() > 2 * 1024 * 1024 {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "File too large. Maximum size is 2MB"
-            }));
+            return errors::bad_request("File too large. Maximum size is 2MB");
         }
 
         // Create storage path with timestamp for cache busting
@@ -248,10 +219,7 @@ pub async fn upload_branding_image(
         let dir_path = format!("uploads/{storage_dir}");
         if let Err(e) = std::fs::create_dir_all(&dir_path) {
             error!(error = ?e, dir_path = %dir_path, "Error creating branding directory");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to create storage directory"
-            }));
+            return errors::internal("Failed to create storage directory");
         }
 
         // Clean up old files of the same type
@@ -261,10 +229,7 @@ pub async fn upload_branding_image(
         let file_path = format!("uploads/{storage_path}");
         if let Err(e) = std::fs::write(&file_path, &file_data) {
             error!(error = ?e, file_path = %file_path, "Error writing file");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to save file"
-            }));
+            return errors::internal("Failed to save file");
         }
 
         info!(file_path = %file_path, "Saved branding image");
@@ -290,18 +255,12 @@ pub async fn upload_branding_image(
             }
             Err(e) => {
                 error!(error = ?e, image_type = %image_type, "Error updating site settings");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to update branding settings"
-                }));
+                return errors::internal("Failed to update branding settings");
             }
         }
     }
 
-    HttpResponse::BadRequest().json(json!({
-        "status": "error",
-        "message": "No file uploaded"
-    }))
+    errors::bad_request("No file uploaded")
 }
 
 // DELETE /api/admin/branding/image - Remove branding image
@@ -313,10 +272,7 @@ pub async fn delete_branding_image(
     let image_type = &type_query.type_;
 
     if !["logo", "logo_light", "favicon"].contains(&image_type.as_str()) {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid image type. Must be 'logo', 'logo_light', or 'favicon'"
-        }));
+        return errors::bad_request("Invalid image type. Must be 'logo', 'logo_light', or 'favicon'");
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -328,20 +284,14 @@ pub async fn delete_branding_image(
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Authentication required"
-            }));
+            return errors::unauthorized("Authentication required");
         }
     };
 
     let user_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
         Err(_) => {
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid user UUID"
-            }));
+            return errors::bad_request("Invalid user UUID");
         }
     };
 
@@ -350,10 +300,7 @@ pub async fn delete_branding_image(
         Ok(settings) => settings,
         Err(e) => {
             error!(error = ?e, "Error fetching current settings");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to fetch current settings"
-            }));
+            return errors::internal("Failed to fetch current settings");
         }
     };
 
@@ -391,10 +338,7 @@ pub async fn delete_branding_image(
         }
         Err(e) => {
             error!(error = ?e, image_type = %image_type, "Error updating site settings");
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to update branding settings"
-            }))
+            errors::internal("Failed to update branding settings")
         }
     }
 }
@@ -445,10 +389,7 @@ pub async fn serve_branding_file(
         .any(|prefix| filename.starts_with(prefix));
 
     if !is_allowed {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Access denied"
-        }));
+        return errors::forbidden("Access denied");
     }
 
     let file_path = format!("uploads/branding/{filename}");

@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{
     NewDocumentationCollection, DocumentationCollectionUpdate, NewDocumentationCollectionPage,
@@ -31,7 +32,7 @@ pub async fn get_collections(
 
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     let is_admin = claims.role == "admin";
@@ -45,7 +46,7 @@ pub async fn get_collections(
         Ok(collections) => HttpResponse::Ok().json(collections),
         Err(e) => {
             error!(error = ?e, "Failed to get collections");
-            HttpResponse::InternalServerError().json("Failed to get collections")
+            errors::internal("Failed to get collections")
         }
     }
 }
@@ -71,8 +72,8 @@ pub async fn get_collection(
 
     let collection = match repository::documentation_collections::get_collection(&mut conn, collection_id) {
         Ok(c) => c,
-        Err(Error::NotFound) => return HttpResponse::NotFound().json("Collection not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to get collection"),
+        Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
+        Err(_) => return errors::internal("Failed to get collection"),
     };
 
     HttpResponse::Ok().json(collection_response(&mut conn, collection))
@@ -96,8 +97,8 @@ pub async fn get_collection_by_slug(
 
     let collection = match repository::documentation_collections::get_collection_by_slug(&mut conn, &slug) {
         Ok(c) => c,
-        Err(Error::NotFound) => return HttpResponse::NotFound().json("Collection not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to get collection"),
+        Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
+        Err(_) => return errors::internal("Failed to get collection"),
     };
 
     HttpResponse::Ok().json(collection_response(&mut conn, collection))
@@ -160,7 +161,7 @@ pub async fn get_uncollected_pages(
         Ok(pages) => HttpResponse::Ok().json(pages),
         Err(e) => {
             error!(error = ?e, "Failed to get uncollected pages");
-            HttpResponse::InternalServerError().json("Failed to get uncollected pages")
+            errors::internal("Failed to get uncollected pages")
         }
     }
 }
@@ -233,7 +234,7 @@ pub async fn create_collection(
         }
         Err(e) => {
             error!(error = ?e, "Failed to create collection");
-            HttpResponse::InternalServerError().json("Failed to create collection")
+            errors::internal("Failed to create collection")
         }
     }
 }
@@ -269,12 +270,12 @@ pub async fn update_collection(
     // Check if system collection
     let collection = match repository::documentation_collections::get_collection(&mut conn, collection_id) {
         Ok(c) => c,
-        Err(Error::NotFound) => return HttpResponse::NotFound().json("Collection not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to get collection"),
+        Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
+        Err(_) => return errors::internal("Failed to get collection"),
     };
 
     if collection.is_system && (body.name.is_some() || body.slug.is_some()) {
-        return HttpResponse::Forbidden().json("Cannot rename system collections");
+        return errors::forbidden("Cannot rename system collections");
     }
 
     let update = DocumentationCollectionUpdate {
@@ -310,10 +311,10 @@ pub async fn update_collection(
             }
             HttpResponse::Ok().json(updated)
         }
-        Err(Error::NotFound) => HttpResponse::NotFound().json("Collection not found"),
+        Err(Error::NotFound) => errors::not_found_msg("Collection not found"),
         Err(e) => {
             error!(error = ?e, "Failed to update collection");
-            HttpResponse::InternalServerError().json("Failed to update collection")
+            errors::internal("Failed to update collection")
         }
     }
 }
@@ -337,11 +338,11 @@ pub async fn delete_collection(
     // Check if system collection
     match repository::documentation_collections::get_collection(&mut conn, collection_id) {
         Ok(c) if c.is_system => {
-            return HttpResponse::Forbidden().json("Cannot delete system collections");
+            return errors::forbidden("Cannot delete system collections");
         }
         Ok(_) => {}
-        Err(Error::NotFound) => return HttpResponse::NotFound().json("Collection not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to get collection"),
+        Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
+        Err(_) => return errors::internal("Failed to get collection"),
     }
 
     // Soft-delete the collection's pages first so they remain
@@ -353,12 +354,12 @@ pub async fn delete_collection(
         Ok(n) => n,
         Err(e) => {
             error!(error = ?e, "Failed to soft-delete pages in collection");
-            return HttpResponse::InternalServerError().json("Failed to delete collection");
+            return errors::internal("Failed to delete collection");
         }
     };
 
     match repository::documentation_collections::delete_collection(&mut conn, collection_id) {
-        Ok(0) => HttpResponse::NotFound().json("Collection not found"),
+        Ok(0) => errors::not_found_msg("Collection not found"),
         Ok(_) => HttpResponse::Ok().json(json!({
             "success": true,
             "message": "Collection deleted",
@@ -366,7 +367,7 @@ pub async fn delete_collection(
         })),
         Err(e) => {
             error!(error = ?e, "Failed to delete collection");
-            HttpResponse::InternalServerError().json("Failed to delete collection")
+            errors::internal("Failed to delete collection")
         }
     }
 }
@@ -414,7 +415,7 @@ pub async fn add_page_to_collection(
         Ok(entry) => HttpResponse::Created().json(entry),
         Err(e) => {
             error!(error = ?e, "Failed to add page to collection");
-            HttpResponse::InternalServerError().json("Failed to add page to collection")
+            errors::internal("Failed to add page to collection")
         }
     }
 }
@@ -436,11 +437,11 @@ pub async fn remove_page_from_collection(
     };
 
     match repository::documentation_collections::remove_page_from_collection(&mut conn, collection_id, page_id) {
-        Ok(0) => HttpResponse::NotFound().json("Page not in collection"),
+        Ok(0) => errors::not_found_msg("Page not in collection"),
         Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => {
             error!(error = ?e, "Failed to remove page from collection");
-            HttpResponse::InternalServerError().json("Failed to remove page from collection")
+            errors::internal("Failed to remove page from collection")
         }
     }
 }
@@ -465,7 +466,7 @@ pub async fn get_collections_for_page(
         Ok(collections) => HttpResponse::Ok().json(collections),
         Err(e) => {
             error!(error = ?e, "Failed to get collections for page");
-            HttpResponse::InternalServerError().json("Failed to get collections for page")
+            errors::internal("Failed to get collections for page")
         }
     }
 }
@@ -494,7 +495,7 @@ pub async fn get_collection_visibility(
         Ok(groups) => HttpResponse::Ok().json(groups),
         Err(e) => {
             error!(error = ?e, "Failed to get collection visibility");
-            HttpResponse::InternalServerError().json("Failed to get collection visibility")
+            errors::internal("Failed to get collection visibility")
         }
     }
 }
@@ -544,7 +545,7 @@ pub async fn set_collection_visibility(
         Ok(entries) => HttpResponse::Ok().json(entries),
         Err(e) => {
             error!(error = ?e, "Failed to set collection visibility");
-            HttpResponse::InternalServerError().json("Failed to set collection visibility")
+            errors::internal("Failed to set collection visibility")
         }
     }
 }
@@ -570,7 +571,7 @@ pub async fn get_page_overrides_in_collection(
         Ok(p) => p,
         Err(e) => {
             error!(error = ?e, "Failed to get pages in collection");
-            return HttpResponse::InternalServerError().json("Failed to get pages");
+            return errors::internal("Failed to get pages");
         }
     };
 
@@ -585,7 +586,7 @@ pub async fn get_page_overrides_in_collection(
         Ok(o) => o,
         Err(e) => {
             error!(error = ?e, "Failed to get page visibility overrides");
-            return HttpResponse::InternalServerError().json("Failed to get page overrides");
+            return errors::internal("Failed to get page overrides");
         }
     };
 
@@ -593,7 +594,7 @@ pub async fn get_page_overrides_in_collection(
         Ok(o) => o,
         Err(e) => {
             error!(error = ?e, "Failed to get page user visibility overrides");
-            return HttpResponse::InternalServerError().json("Failed to get page overrides");
+            return errors::internal("Failed to get page overrides");
         }
     };
 
@@ -665,7 +666,7 @@ pub async fn reorder_collections(
         Ok(collections) => HttpResponse::Ok().json(collections),
         Err(e) => {
             error!(error = ?e, "Failed to reorder collections");
-            HttpResponse::InternalServerError().json("Failed to reorder collections")
+            errors::internal("Failed to reorder collections")
         }
     }
 }
@@ -701,7 +702,7 @@ pub async fn set_page_collections(
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, "Failed to get current collections");
-            return HttpResponse::InternalServerError().json("Failed to update page collections");
+            return errors::internal("Failed to update page collections");
         }
     };
 
@@ -731,7 +732,7 @@ pub async fn set_page_collections(
         Ok(collections) => HttpResponse::Ok().json(collections),
         Err(e) => {
             error!(error = ?e, "Failed to get updated collections");
-            HttpResponse::InternalServerError().json("Failed to update page collections")
+            errors::internal("Failed to update page collections")
         }
     }
 }

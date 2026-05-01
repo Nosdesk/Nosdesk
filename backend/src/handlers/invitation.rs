@@ -6,6 +6,7 @@ use tracing::{info, warn, error};
 
 use crate::db::DbConnection;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::handlers::sse::SseState;
 use crate::models::{AcceptInvitationRequest, AcceptInvitationResponse, ValidateInvitationRequest, ValidateInvitationResponse};
 use crate::repository;
@@ -131,15 +132,9 @@ pub async fn accept_invitation(
 
     // Validate password
     if request_data.password.len() < 8 {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Password must be at least 8 characters long"
-        }));
+        return errors::bad_request("Password must be at least 8 characters long");
     } else if request_data.password.len() > 128 {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Password must be less than 128 characters"
-        }));
+        return errors::bad_request("Password must be less than 128 characters");
     }
 
     // Validate and consume the invitation token
@@ -163,10 +158,7 @@ pub async fn accept_invitation(
         Ok(user) => user,
         Err(e) => {
             error!("User not found for invitation acceptance: user_uuid={}, error={}", user_uuid, e);
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid or expired invitation"
-            }));
+            return errors::bad_request("Invalid or expired invitation");
         }
     };
 
@@ -175,10 +167,7 @@ pub async fn accept_invitation(
         Ok(hash) => hash,
         Err(e) => {
             error!("Failed to hash password: {}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error processing password"
-            }));
+            return errors::internal("Error processing password");
         }
     };
 
@@ -206,10 +195,7 @@ pub async fn accept_invitation(
         .set(user_auth_identities::password_hash.eq(Some(&password_hash)))
         .execute(&mut conn) {
             error!("Failed to update password hash for invitation: {:?}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error setting password"
-            }));
+            return errors::internal("Error setting password");
         }
     } else {
         // Create new local auth identity
@@ -238,10 +224,7 @@ pub async fn accept_invitation(
             .values(&auth_identity)
             .execute(&mut conn) {
             error!("Failed to create auth identity for invitation: {:?}", e);
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error setting password"
-            }));
+            return errors::internal("Error setting password");
         }
     }
 

@@ -4,10 +4,10 @@
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
-use serde_json::json;
 use tracing::{error, info};
 
 use crate::db::Pool;
+use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{CannedResponse, CannedResponseUpdate, NewCannedResponse};
 use crate::repository::canned_responses as repo;
@@ -35,11 +35,11 @@ fn collapse(r: Result<HttpResponse, HttpResponse>) -> HttpResponse {
 }
 
 fn server_error(msg: &str) -> HttpResponse {
-    HttpResponse::InternalServerError().json(json!({ "error": msg }))
+    errors::internal(msg)
 }
 
 fn bad_request(msg: impl Into<String>) -> HttpResponse {
-    HttpResponse::BadRequest().json(json!({ "error": msg.into() }))
+    errors::bad_request(msg)
 }
 
 // ---------- Routes ----------

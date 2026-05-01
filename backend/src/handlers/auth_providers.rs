@@ -10,6 +10,7 @@ use tracing::{error, info, warn};
 
 use crate::db::{Pool, DbConnection};
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::utils::jwt::JWT_SECRET;
 use crate::models::{
     OAuthRequest, OAuthExchangeRequest,
@@ -85,18 +86,12 @@ pub async fn get_auth_providers(
     // Extract claims from cookie auth middleware
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        Err(_) => return errors::unauthorized("Authentication required"),
     };
 
     // Check if the user is an admin
     if claims.role != "admin" {
-        return HttpResponse::Forbidden().json(json!({
-            "status": "error",
-            "message": "Only administrators can manage authentication providers"
-        }));
+        return errors::forbidden("Only administrators can manage authentication providers");
     }
 
     // Return hardcoded providers based on environment configuration
@@ -195,10 +190,7 @@ pub async fn oauth_authorize(
         // Extract claims from cookie auth middleware for user connection
         let claims = match req.extensions().get::<crate::models::Claims>() {
             Some(claims) => claims.clone(),
-            None => return HttpResponse::Unauthorized().json(json!({
-                "status": "error",
-                "message": "Authentication required for user connection"
-            })),
+            None => return errors::unauthorized("Authentication required for user connection"),
         };
 
         Some(claims.sub)
@@ -212,25 +204,16 @@ pub async fn oauth_authorize(
     let provider = match get_provider_by_type(provider_type) {
         Ok(p) => {
             if !p.enabled {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": format!("{} authentication is not enabled", p.name)
-                }));
+                return errors::bad_request(format!("{} authentication is not enabled", p.name));
             }
             p
         },
         Err(e) => {
             if let diesel::result::Error::NotFound = e {
-                return HttpResponse::NotFound().json(json!({
-                    "status": "error",
-                    "message": format!("{} authentication provider not found", provider_type)
-                }));
+                return errors::not_found_msg(format!("{} authentication provider not found", provider_type));
             } else {
                 error!(provider = %provider_type, error = ?e, "Failed to get auth provider");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to retrieve authentication provider"
-                }));
+                return errors::internal("Failed to retrieve authentication provider");
             }
         }
     };
@@ -242,10 +225,7 @@ pub async fn oauth_authorize(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_id for Microsoft provider");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Microsoft authentication is not properly configured: {}", e)
-                }));
+                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
             }
         };
 
@@ -253,10 +233,7 @@ pub async fn oauth_authorize(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get tenant_id for Microsoft provider");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Microsoft authentication is not properly configured: {}", e)
-                }));
+                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
             }
         };
 
@@ -264,10 +241,7 @@ pub async fn oauth_authorize(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get redirect_uri for Microsoft provider");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Microsoft authentication is not properly configured: {}", e)
-                }));
+                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
             }
         };
 
@@ -276,10 +250,7 @@ pub async fn oauth_authorize(
             Ok(token) => token,
             Err(e) => {
                 error!(error = %e, "Failed to create OAuth state token");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to initiate authentication flow"
-                }));
+                return errors::internal("Failed to initiate authentication flow");
             }
         };
         
@@ -307,10 +278,7 @@ pub async fn oauth_authorize(
                     Ok(token) => token,
                     Err(e) => {
                         error!(error = %e, "Failed to create OAuth state token for OIDC");
-                        return HttpResponse::InternalServerError().json(json!({
-                            "status": "error",
-                            "message": "Failed to initiate authentication flow"
-                        }));
+                        return errors::internal("Failed to initiate authentication flow");
                     }
                 };
 
@@ -325,17 +293,11 @@ pub async fn oauth_authorize(
             },
             Err(e) => {
                 error!(error = %e, "Failed to generate OIDC authorization URL");
-                HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Failed to initiate OIDC authentication: {}", e)
-                }))
+                errors::internal(format!("Failed to initiate OIDC authentication: {}", e))
             }
         }
     } else {
-        HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": format!("{} authentication is not implemented", provider.name)
-        }))
+        errors::bad_request(format!("{} authentication is not implemented", provider.name))
     }
 }
 
@@ -381,19 +343,13 @@ pub async fn oauth_callback(
     // Verify state parameter is present
     let state = match &query.state {
         Some(state) => state,
-        None => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Missing state parameter"
-        })),
+        None => return errors::bad_request("Missing state parameter"),
     };
 
     // Verify code parameter is present
     let code = match &query.code {
         Some(code) => code,
-        None => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Missing authorization code"
-        })),
+        None => return errors::bad_request("Missing authorization code"),
     };
 
     // Verify the state JWT
@@ -401,10 +357,7 @@ pub async fn oauth_callback(
         Ok(data) => data,
         Err(e) => {
             warn!(error = %e, "Failed to verify OAuth state");
-            return HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": "Invalid or expired state parameter"
-            }));
+            return errors::bad_request("Invalid or expired state parameter");
         }
     };
 
@@ -413,19 +366,13 @@ pub async fn oauth_callback(
     let provider = match get_provider_by_type(provider_type) {
         Ok(p) => {
             if !p.enabled {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": format!("{} authentication is not enabled", p.name)
-                }));
+                return errors::bad_request(format!("{} authentication is not enabled", p.name));
             }
             p
         },
         Err(e) => {
             error!(provider = %provider_type, error = ?e, "Failed to get provider in callback");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Authentication provider error"
-            }));
+            return errors::internal("Authentication provider error");
         }
     };
 
@@ -439,10 +386,7 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_id for Microsoft provider in callback");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Microsoft authentication is not properly configured: {}", e)
-                }));
+                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
             }
         };
 
@@ -450,10 +394,7 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get tenant_id for Microsoft provider in callback");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Microsoft authentication is not properly configured: {}", e)
-                }));
+                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
             }
         };
 
@@ -461,10 +402,7 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_secret for Microsoft provider in callback");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Microsoft authentication is not properly configured: {}", e)
-                }));
+                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
             }
         };
 
@@ -472,10 +410,7 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get redirect_uri for Microsoft provider in callback");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Microsoft authentication is not properly configured: {}", e)
-                }));
+                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
             }
         };
 
@@ -489,10 +424,7 @@ pub async fn oauth_callback(
                     Ok(info) => info,
                     Err(e) => {
                         error!(error = ?e, "Failed to get Microsoft user info");
-                        return HttpResponse::InternalServerError().json(json!({
-                            "status": "error",
-                            "message": "Failed to get user information from Microsoft"
-                        }));
+                        return errors::internal("Failed to get user information from Microsoft");
                     }
                 };
 
@@ -501,10 +433,7 @@ pub async fn oauth_callback(
                     Some(id) => id.to_string(),
                     None => {
                         error!("No ID found in Microsoft user info");
-                        return HttpResponse::InternalServerError().json(json!({
-                            "status": "error",
-                            "message": "Invalid user information from Microsoft"
-                        }));
+                        return errors::internal("Invalid user information from Microsoft");
                     }
                 };
 
@@ -515,10 +444,7 @@ pub async fn oauth_callback(
                     Some(email) => email.to_string(),
                     None => {
                         error!("No email found in Microsoft user info");
-                        return HttpResponse::InternalServerError().json(json!({
-                            "status": "error",
-                            "message": "Invalid user information from Microsoft (no email)"
-                        }));
+                        return errors::internal("Invalid user information from Microsoft (no email)");
                     }
                 };
 
@@ -531,10 +457,7 @@ pub async fn oauth_callback(
                             match crate::repository::users::get_user_by_uuid(&existing_user_uuid, &mut conn) {
                                 Ok(_user) => {
                                     // User exists, can't reconnect
-                                    return HttpResponse::BadRequest().json(json!({
-                                        "status": "error",
-                                        "message": "This Microsoft account is already connected to another user account"
-                                    }));
+                                    return errors::bad_request("This Microsoft account is already connected to another user account");
                                 },
                                 Err(_) => {
                                     // User doesn't exist (orphaned record) - clean it up and proceed
@@ -561,10 +484,7 @@ pub async fn oauth_callback(
                         },
                         Err(e) => {
                             error!(error = ?e, "Failed to check existing identity");
-                            return HttpResponse::InternalServerError().json(json!({
-                                "status": "error",
-                                "message": "Failed to verify Microsoft account status"
-                            }));
+                            return errors::internal("Failed to verify Microsoft account status");
                         }
                     }
                     
@@ -644,20 +564,14 @@ pub async fn oauth_callback(
                         },
                         Err(e) => {
                             error!(error = ?e, "Failed to find or create user");
-                            HttpResponse::InternalServerError().json(json!({
-                                "status": "error",
-                                "message": "Failed to authenticate user"
-                            }))
+                            errors::internal("Failed to authenticate user")
                         }
                     }
                 }
             },
             Err(e) => {
                 error!(error = ?e, "Failed to exchange code for token");
-                HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to authenticate with Microsoft"
-                }))
+                errors::internal("Failed to authenticate with Microsoft")
             }
         }
     } else if provider.provider_type == "oidc" {
@@ -666,10 +580,7 @@ pub async fn oauth_callback(
             Some(v) => v.clone(),
             None => {
                 error!("OIDC callback missing PKCE verifier in state");
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": "Invalid authentication state (missing PKCE verifier)"
-                }));
+                return errors::bad_request("Invalid authentication state (missing PKCE verifier)");
             }
         };
 
@@ -677,10 +588,7 @@ pub async fn oauth_callback(
             Some(n) => n.clone(),
             None => {
                 error!("OIDC callback missing nonce in state");
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": "Invalid authentication state (missing nonce)"
-                }));
+                return errors::bad_request("Invalid authentication state (missing nonce)");
             }
         };
 
@@ -701,10 +609,7 @@ pub async fn oauth_callback(
                             // Found an existing identity - verify the user still exists
                             match crate::repository::users::get_user_by_uuid(&existing_user_uuid, &mut conn) {
                                 Ok(_user) => {
-                                    return HttpResponse::BadRequest().json(json!({
-                                        "status": "error",
-                                        "message": "This OIDC account is already connected to another user account"
-                                    }));
+                                    return errors::bad_request("This OIDC account is already connected to another user account");
                                 },
                                 Err(_) => {
                                     // User doesn't exist (orphaned record) - clean it up
@@ -729,10 +634,7 @@ pub async fn oauth_callback(
                         },
                         Err(e) => {
                             error!(error = ?e, "Failed to check existing OIDC identity");
-                            return HttpResponse::InternalServerError().json(json!({
-                                "status": "error",
-                                "message": "Failed to verify OIDC account status"
-                            }));
+                            return errors::internal("Failed to verify OIDC account status");
                         }
                     }
 
@@ -752,18 +654,12 @@ pub async fn oauth_callback(
                             match uuid::Uuid::parse_str(&uuid_str) {
                                 Ok(uuid) => uuid,
                                 Err(_) => {
-                                    return HttpResponse::BadRequest().json(json!({
-                                        "status": "error",
-                                        "message": "Invalid user UUID in redirect URI"
-                                    }));
+                                    return errors::bad_request("Invalid user UUID in redirect URI");
                                 }
                             }
                         },
                         None => {
-                            return HttpResponse::BadRequest().json(json!({
-                                "status": "error",
-                                "message": "Missing user UUID for account connection"
-                            }));
+                            return errors::bad_request("Missing user UUID for account connection");
                         }
                     };
 
@@ -772,10 +668,7 @@ pub async fn oauth_callback(
                         Ok(c) => c,
                         Err(e) => {
                             error!(error = %e, "Failed to load OIDC config");
-                            return HttpResponse::InternalServerError().json(json!({
-                                "status": "error",
-                                "message": "OIDC configuration error"
-                            }));
+                            return errors::internal("OIDC configuration error");
                         }
                     };
 
@@ -832,27 +725,18 @@ pub async fn oauth_callback(
                         },
                         Err(e) => {
                             error!(error = ?e, "Failed to find or create user from OIDC");
-                            HttpResponse::InternalServerError().json(json!({
-                                "status": "error",
-                                "message": "Failed to authenticate user"
-                            }))
+                            errors::internal("Failed to authenticate user")
                         }
                     }
                 }
             },
             Err(e) => {
                 error!(error = %e, "Failed to exchange OIDC code for token");
-                HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Failed to authenticate with OIDC provider: {}", e)
-                }))
+                errors::internal(format!("Failed to authenticate with OIDC provider: {}", e))
             }
         }
     } else {
-        HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": format!("{} authentication callback is not implemented", provider.name)
-        }))
+        errors::bad_request(format!("{} authentication callback is not implemented", provider.name))
     }
 }
 
@@ -873,25 +757,16 @@ pub async fn oauth_logout(
     let provider = match get_provider_by_type(provider_type) {
         Ok(p) => {
             if !p.enabled {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": format!("{} authentication is not enabled", p.name)
-                }));
+                return errors::bad_request(format!("{} authentication is not enabled", p.name));
             }
             p
         },
         Err(e) => {
             if let diesel::result::Error::NotFound = e {
-                return HttpResponse::NotFound().json(json!({
-                    "status": "error",
-                    "message": format!("{} authentication provider not found", provider_type)
-                }));
+                return errors::not_found_msg(format!("{} authentication provider not found", provider_type));
             } else {
                 error!(provider = %provider_type, error = ?e, "Failed to get auth provider for logout");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to retrieve authentication provider"
-                }));
+                return errors::internal("Failed to retrieve authentication provider");
             }
         }
     };
@@ -904,10 +779,7 @@ pub async fn oauth_logout(
                 Ok(val) => val,
                 Err(e) => {
                     error!(error = ?e, "Failed to get tenant_id for Microsoft provider logout");
-                    return HttpResponse::InternalServerError().json(json!({
-                        "status": "error",
-                        "message": format!("Microsoft authentication is not properly configured: {}", e)
-                    }));
+                    return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
                 }
             };
 
@@ -946,10 +818,7 @@ pub async fn oauth_logout(
             }
         },
         _ => {
-            HttpResponse::BadRequest().json(json!({
-                "status": "error",
-                "message": format!("{} logout is not implemented", provider.name)
-            }))
+            errors::bad_request(format!("{} logout is not implemented", provider.name))
         }
     }
 }
@@ -1319,29 +1188,20 @@ pub async fn oauth_connect(
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({
-            "status": "error",
-            "message": "Authentication required"
-        })),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Verify user exists
     let user_uuid = match crate::utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Invalid user UUID in token"
-        })),
+        Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
     
     let user = match crate::repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(e) => {
             error!(user_uuid = %user_uuid, error = ?e, "Failed to find user by UUID");
-            return HttpResponse::NotFound().json(json!({
-                "status": "error",
-                "message": "User not found"
-            }));
+            return errors::not_found_msg("User not found");
         }
     };
 
@@ -1351,25 +1211,16 @@ pub async fn oauth_connect(
     let provider = match get_provider_by_type(provider_type) {
         Ok(p) => {
             if !p.enabled {
-                return HttpResponse::BadRequest().json(json!({
-                    "status": "error",
-                    "message": format!("{} authentication is not enabled", p.name)
-                }));
+                return errors::bad_request(format!("{} authentication is not enabled", p.name));
             }
             p
         },
         Err(e) => {
             if let diesel::result::Error::NotFound = e {
-                return HttpResponse::NotFound().json(json!({
-                    "status": "error",
-                    "message": format!("{} authentication provider not found", provider_type)
-                }));
+                return errors::not_found_msg(format!("{} authentication provider not found", provider_type));
             } else {
                 error!(provider = %provider_type, error = ?e, "Failed to get auth provider for connect");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to retrieve authentication provider"
-                }));
+                return errors::internal("Failed to retrieve authentication provider");
             }
         }
     };
@@ -1381,10 +1232,7 @@ pub async fn oauth_connect(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_id for Microsoft provider connect");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Microsoft authentication is not properly configured: {}", e)
-                }));
+                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
             }
         };
 
@@ -1392,10 +1240,7 @@ pub async fn oauth_connect(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get tenant_id for Microsoft provider connect");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Microsoft authentication is not properly configured: {}", e)
-                }));
+                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
             }
         };
 
@@ -1403,10 +1248,7 @@ pub async fn oauth_connect(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get redirect_uri for Microsoft provider connect");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": format!("Microsoft authentication is not properly configured: {}", e)
-                }));
+                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
             }
         };
 
@@ -1422,10 +1264,7 @@ pub async fn oauth_connect(
             Ok(token) => token,
             Err(e) => {
                 error!(error = %e, "Failed to create OAuth state token for connect");
-                return HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Failed to initiate authentication flow"
-                }));
+                return errors::internal("Failed to initiate authentication flow");
             }
         };
         
@@ -1439,10 +1278,7 @@ pub async fn oauth_connect(
             "state": state
         }))
     } else {
-        HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": format!("{} authentication is not implemented", provider.name)
-        }))
+        errors::bad_request(format!("{} authentication is not implemented", provider.name))
     }
 }
 

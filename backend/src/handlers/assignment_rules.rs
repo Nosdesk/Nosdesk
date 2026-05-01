@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::errors;
 use crate::models::{
     AssignmentMethod, AssignmentRuleUpdate, AssignmentTrigger, Claims, NewAssignmentRule,
 };
@@ -33,7 +34,7 @@ pub async fn get_all_rules(
 
     match repository::assignment_rules::get_all_rules_with_details(&mut conn) {
         Ok(rules) => HttpResponse::Ok().json(rules),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to get assignment rules"),
+        Err(_) => errors::internal("Failed to get assignment rules"),
     }
 }
 
@@ -60,8 +61,8 @@ pub async fn get_rule(
     match repository::assignment_rules::get_rule_with_details(&mut conn, rule_id) {
         Ok(rule) => HttpResponse::Ok().json(rule),
         Err(e) => match e {
-            Error::NotFound => HttpResponse::NotFound().json("Assignment rule not found"),
-            _ => HttpResponse::InternalServerError().json("Failed to get assignment rule"),
+            Error::NotFound => errors::not_found_msg("Assignment rule not found"),
+            _ => errors::internal("Failed to get assignment rule"),
         },
     }
 }
@@ -98,7 +99,7 @@ pub async fn create_rule(
 
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json("Authentication required"),
+        None => return errors::unauthorized("Authentication required"),
     };
 
     let created_by = Uuid::parse_str(&claims.sub).ok();
@@ -114,21 +115,19 @@ pub async fn create_rule(
         "group_round_robin" => AssignmentMethod::GroupRoundRobin,
         "group_random" => AssignmentMethod::GroupRandom,
         "group_queue" => AssignmentMethod::GroupQueue,
-        _ => return HttpResponse::BadRequest().json("Invalid assignment method"),
+        _ => return errors::bad_request("Invalid assignment method"),
     };
 
     // Validate method requirements
     match method {
         AssignmentMethod::DirectUser => {
             if body.target_user_uuid.is_none() {
-                return HttpResponse::BadRequest()
-                    .json("target_user_uuid is required for direct_user method");
+                return errors::bad_request("target_user_uuid is required for direct_user method");
             }
         }
         AssignmentMethod::GroupRoundRobin | AssignmentMethod::GroupRandom | AssignmentMethod::GroupQueue => {
             if body.target_group_id.is_none() {
-                return HttpResponse::BadRequest()
-                    .json("target_group_id is required for group-based methods");
+                return errors::bad_request("target_group_id is required for group-based methods");
             }
         }
     }
@@ -137,12 +136,12 @@ pub async fn create_rule(
     if let Some(ref conditions) = body.conditions {
         let json_str = conditions.to_string();
         if json_str.len() > 10_000 {
-            return HttpResponse::BadRequest().json("Conditions JSON too large (max 10KB)");
+            return errors::bad_request("Conditions JSON too large (max 10KB)");
         }
         // Check nesting depth (simple heuristic: count brackets)
         let depth = json_str.chars().filter(|c| *c == '{' || *c == '[').count();
         if depth > 20 {
-            return HttpResponse::BadRequest().json("Conditions JSON too deeply nested");
+            return errors::bad_request("Conditions JSON too deeply nested");
         }
     }
 
@@ -154,7 +153,7 @@ pub async fn create_rule(
 
     // Check for duplicate name
     if let Ok(true) = repository::assignment_rules::rule_name_exists(&mut conn, &body.name, None) {
-        return HttpResponse::Conflict().json("A rule with this name already exists");
+        return errors::conflict("A rule with this name already exists");
     }
 
     let new_rule = NewAssignmentRule {
@@ -180,7 +179,7 @@ pub async fn create_rule(
                 Err(_) => HttpResponse::Created().json(rule),
             }
         }
-        Err(_) => HttpResponse::InternalServerError().json("Failed to create assignment rule"),
+        Err(_) => errors::internal("Failed to create assignment rule"),
     }
 }
 
@@ -224,8 +223,8 @@ pub async fn update_rule(
     // Check if rule exists
     let existing = match repository::assignment_rules::get_rule_by_id(&mut conn, rule_id) {
         Ok(r) => r,
-        Err(Error::NotFound) => return HttpResponse::NotFound().json("Assignment rule not found"),
-        Err(_) => return HttpResponse::InternalServerError().json("Database error"),
+        Err(Error::NotFound) => return errors::not_found_msg("Assignment rule not found"),
+        Err(_) => return errors::internal("Database error"),
     };
 
     // Parse method if provided
@@ -235,7 +234,7 @@ pub async fn update_rule(
             "group_round_robin" => Some(AssignmentMethod::GroupRoundRobin),
             "group_random" => Some(AssignmentMethod::GroupRandom),
             "group_queue" => Some(AssignmentMethod::GroupQueue),
-            _ => return HttpResponse::BadRequest().json("Invalid assignment method"),
+            _ => return errors::bad_request("Invalid assignment method"),
         },
         None => None,
     };
@@ -244,7 +243,7 @@ pub async fn update_rule(
     if let Some(ref new_name) = body.name {
         if new_name != &existing.name {
             if let Ok(true) = repository::assignment_rules::rule_name_exists(&mut conn, new_name, Some(rule_id)) {
-                return HttpResponse::Conflict().json("A rule with this name already exists");
+                return errors::conflict("A rule with this name already exists");
             }
         }
     }
@@ -253,11 +252,11 @@ pub async fn update_rule(
     if let Some(ref conditions) = body.conditions {
         let json_str = conditions.to_string();
         if json_str.len() > 10_000 {
-            return HttpResponse::BadRequest().json("Conditions JSON too large (max 10KB)");
+            return errors::bad_request("Conditions JSON too large (max 10KB)");
         }
         let depth = json_str.chars().filter(|c| *c == '{' || *c == '[').count();
         if depth > 20 {
-            return HttpResponse::BadRequest().json("Conditions JSON too deeply nested");
+            return errors::bad_request("Conditions JSON too deeply nested");
         }
     }
 
@@ -281,11 +280,11 @@ pub async fn update_rule(
             // Return with full details
             match repository::assignment_rules::get_rule_with_details(&mut conn, rule_id) {
                 Ok(details) => HttpResponse::Ok().json(details),
-                Err(_) => HttpResponse::InternalServerError().json("Failed to get updated rule"),
+                Err(_) => errors::internal("Failed to get updated rule"),
             }
         }
-        Err(Error::NotFound) => HttpResponse::NotFound().json("Assignment rule not found"),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to update assignment rule"),
+        Err(Error::NotFound) => errors::not_found_msg("Assignment rule not found"),
+        Err(_) => errors::internal("Failed to update assignment rule"),
     }
 }
 
@@ -310,9 +309,9 @@ pub async fn delete_rule(
     };
 
     match repository::assignment_rules::delete_rule(&mut conn, rule_id) {
-        Ok(0) => HttpResponse::NotFound().json("Assignment rule not found"),
+        Ok(0) => errors::not_found_msg("Assignment rule not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to delete assignment rule"),
+        Err(_) => errors::internal("Failed to delete assignment rule"),
     }
 }
 
@@ -354,10 +353,10 @@ pub async fn reorder_rules(
             // Return all rules with updated order
             match repository::assignment_rules::get_all_rules_with_details(&mut conn) {
                 Ok(rules) => HttpResponse::Ok().json(rules),
-                Err(_) => HttpResponse::InternalServerError().json("Failed to get updated rules"),
+                Err(_) => errors::internal("Failed to get updated rules"),
             }
         }
-        Err(_) => HttpResponse::InternalServerError().json("Failed to reorder rules"),
+        Err(_) => errors::internal("Failed to reorder rules"),
     }
 }
 
@@ -402,13 +401,13 @@ pub async fn preview_assignment(
     let trigger = match body.trigger.as_str() {
         "ticket_created" => AssignmentTrigger::TicketCreated,
         "category_changed" => AssignmentTrigger::CategoryChanged,
-        _ => return HttpResponse::BadRequest().json("Invalid trigger type"),
+        _ => return errors::bad_request("Invalid trigger type"),
     };
 
     // Get the ticket
     let ticket = match repository::get_ticket_by_id(&mut conn, body.ticket_id) {
         Ok(t) => t,
-        Err(_) => return HttpResponse::NotFound().json("Ticket not found"),
+        Err(_) => return errors::not_found_msg("Ticket not found"),
     };
 
     // Check if ticket already has assignee
@@ -464,6 +463,6 @@ pub async fn get_assignment_logs(
 
     match repository::assignment_rules::get_recent_logs(&mut conn, 100) {
         Ok(logs) => HttpResponse::Ok().json(logs),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to get assignment logs"),
+        Err(_) => errors::internal("Failed to get assignment logs"),
     }
 }

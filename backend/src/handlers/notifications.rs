@@ -3,6 +3,8 @@
 //! Endpoints for managing user notifications and preferences.
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
+
+use crate::handlers::errors;
 use serde::Deserialize;
 
 use crate::models::Claims;
@@ -51,7 +53,7 @@ pub async fn get_notifications(
 
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     let limit = query.limit.unwrap_or(20).min(100);
@@ -86,7 +88,7 @@ pub async fn get_unread_count(
 
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     match notification_service.get_unread_count(&user_uuid).await {
@@ -112,7 +114,7 @@ pub async fn mark_notifications_read(
 
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     match notification_service
@@ -143,7 +145,7 @@ pub async fn mark_all_notifications_read(
 
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     match notification_service.mark_all_read(&user_uuid).await {
@@ -171,7 +173,7 @@ pub async fn get_preferences(
 
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     match notification_service
@@ -201,24 +203,20 @@ pub async fn update_preference(
 
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     let notification_type = match NotificationTypeCode::from_str(&body.notification_type) {
         Some(t) => t,
         None => {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": format!("Invalid notification type: {}", body.notification_type)
-            }))
+            return errors::bad_request(format!("Invalid notification type: {}", body.notification_type))
         }
     };
 
     let channel = match NotificationChannel::from_str(&body.channel) {
         Some(c) => c,
         None => {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": format!("Invalid channel: {}", body.channel)
-            }))
+            return errors::bad_request(format!("Invalid channel: {}", body.channel))
         }
     };
 
@@ -249,7 +247,7 @@ pub async fn delete_notifications(
 
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user UUID"),
+        Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
     match notification_service
