@@ -96,9 +96,12 @@ async function loadDocumentationRevisions() {
   try {
     const response = await apiClient.get<DocumentationRevisionResponse[]>(`/collaboration/docs/${props.documentId}/revisions`)
     docRevisions.value = response.data.map((rev) => ({
-      ...rev,
+      id: rev.id,
+      revision_number: rev.revision_number,
+      created_at: rev.created_at,
       article_content_id: 0,
-      contributed_by: rev.created_by ? [rev.created_by] : []
+      contributed_by: (rev.created_by ? [rev.created_by] : []) as (string | null)[],
+      word_count: rev.word_count ?? null,
     }))
   } catch (err) {
     const error = err as Error;

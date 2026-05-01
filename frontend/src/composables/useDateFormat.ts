@@ -36,7 +36,7 @@ export function useDateFormat(
   } = options
 
   // Convert to ref if not already
-  const dateRef = typeof dateSource === 'object' && 'value' in dateSource
+  const dateRef = typeof dateSource === 'object' && dateSource !== null && 'value' in dateSource
     ? dateSource
     : ref(dateSource)
 

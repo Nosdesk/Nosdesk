@@ -14,13 +14,16 @@
  *     <template #footer> ...mobile actions row... </template>
  *   </PluginCard>
  */
+import type { DeepReadonly } from 'vue';
 import type { Plugin } from '@/types/plugin';
 import PluginIcon from './PluginIcon.vue';
 import PluginStateBadge from './PluginStateBadge.vue';
 import PluginTrustBadge from './PluginTrustBadge.vue';
 
 interface Props {
-  plugin: Plugin;
+  /// Read-only because callers pass `readonly(plugins)` from
+  /// usePlugins; the card never mutates the row.
+  plugin: Plugin | DeepReadonly<Plugin>;
   /**
    * When true, the state badge always renders. When false (default)
    * it only renders for non-installed states, so an Active plugin

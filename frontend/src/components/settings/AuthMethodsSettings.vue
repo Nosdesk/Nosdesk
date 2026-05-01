@@ -67,7 +67,7 @@ const loadAuthData = async () => {
   try {
     loading.value = true;
 
-    let identities: { id: number; provider_type: string; email?: string; provider_name?: string; created_at: string }[];
+    let identities: { id: number; provider_type: string; email?: string | null; provider_name?: string; created_at: string }[];
 
     if (isManagingOtherUser.value && props.targetUserUuid) {
       const securityInfo = await userService.getUserSecurityInfo(props.targetUserUuid);

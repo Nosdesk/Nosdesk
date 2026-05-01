@@ -370,7 +370,7 @@ watchEffect(async () => {
                   :value="selectedStatus"
                   :options="statusOptions"
                   type="status"
-                  @update:value="emit('update:selectedStatus', $event)"
+                  @update:value="(v: string) => emit('update:selectedStatus', v as TicketStatus)"
                   class="w-full"
                 />
               </div>
@@ -384,7 +384,7 @@ watchEffect(async () => {
                   :value="selectedPriority"
                   :options="priorityOptions"
                   type="priority"
-                  @update:value="emit('update:selectedPriority', $event)"
+                  @update:value="(v: string) => emit('update:selectedPriority', v as TicketPriority)"
                   class="w-full"
                 />
               </div>

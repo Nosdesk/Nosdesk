@@ -272,7 +272,12 @@ on('ticket-updated', (data) => {
 on('ticket-created', (data) => {
     const event = data as { ticket: Record<string, unknown> };
     if (!event.ticket) return;
-    const ticket = event.ticket as unknown as Ticket;
+    // The SSE payload carries the raw DB row (requester_uuid /
+    // assignee_uuid as columns), not the API-facing Ticket shape.
+    const ticket = event.ticket as unknown as Ticket & {
+        assignee_uuid?: string | null
+        requester_uuid?: string | null
+    };
 
     const matchesUser = props.ticketType === 'assigned'
         ? ticket.assignee_uuid === targetUserUuid.value

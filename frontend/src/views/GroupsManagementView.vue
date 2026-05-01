@@ -415,7 +415,11 @@ onMounted(() => {
 
       <!-- Color -->
       <div>
-        <ColorHueSlider v-model="groupForm.color" label="Color" />
+        <ColorHueSlider
+          :model-value="groupForm.color ?? '#6366f1'"
+          @update:model-value="groupForm.color = $event"
+          label="Color"
+        />
       </div>
 
       <!-- Actions -->

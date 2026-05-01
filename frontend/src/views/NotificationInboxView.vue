@@ -55,6 +55,7 @@ const {
   unreadCount,
   hasMore,
   fetchOp,
+  isFirstLoad,
   isLoadingMore,
   markRead,
   markManyRead,

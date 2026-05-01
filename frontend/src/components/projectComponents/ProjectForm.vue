@@ -9,12 +9,15 @@ const props = defineProps<{
   disabled?: boolean;
 }>()
 
+type ProjectFormData = Omit<Project, 'id' | 'ticket_count' | 'created_at' | 'updated_at'>
+  & { id?: number }
+
 const emit = defineEmits<{
-  (e: 'submit', project: Omit<Project, 'id' | 'ticket_count'> & { id?: number }): void;
+  (e: 'submit', project: ProjectFormData): void;
   (e: 'cancel'): void;
 }>()
 
-const formData = ref<Omit<Project, 'id' | 'ticket_count'> & { id?: number }>({
+const formData = ref<ProjectFormData>({
   name: '',
   description: undefined,
   status: 'active'

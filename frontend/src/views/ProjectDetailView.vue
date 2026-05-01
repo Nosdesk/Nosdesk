@@ -98,7 +98,7 @@ const fetchExistingTicketIds = async () => {
   }
 }
 
-const handleEditProject = async (projectData: Omit<Project, 'id' | 'ticket_count'> & { id?: number }) => {
+const handleEditProject = async (projectData: Omit<Project, 'id' | 'ticket_count' | 'created_at' | 'updated_at'> & { id?: number }) => {
   if (!project.value) return
 
   try {

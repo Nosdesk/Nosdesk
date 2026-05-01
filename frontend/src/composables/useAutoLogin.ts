@@ -4,8 +4,10 @@ import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
 
 export interface AutoLoginOptions {
-  /** Source identifier for MFA setup (e.g., 'onboarding', 'invitation') */
-  source: string;
+  /** Source identifier for MFA setup. Widened to include
+   *  'invitation' (the accept-invitation flow re-uses the same
+   *  composable but lands a user via a different setup path). */
+  source: 'login' | 'onboarding' | 'invitation';
   /** Callback when login succeeds */
   onSuccess?: () => void;
   /** Callback when MFA is required */

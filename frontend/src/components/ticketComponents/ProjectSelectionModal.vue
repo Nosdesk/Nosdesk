@@ -262,7 +262,7 @@ const selectProject = (project: Project) => {
 
                   <!-- Ticket Count -->
                   <div class="col-span-1 min-w-0">
-                    <span class="text-sm text-secondary font-mono">{{ project.ticketCount }}</span>
+                    <span class="text-sm text-secondary font-mono">{{ project.ticket_count }}</span>
                   </div>
 
                   <!-- Action Button -->

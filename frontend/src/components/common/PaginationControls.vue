@@ -49,8 +49,9 @@ const changePage = (page: number) => {
   }
 }
 
-const handlePageSizeChange = (value: string) => {
-  emit('update:pageSize', parseInt(value))
+const handlePageSizeChange = (value: string | string[]) => {
+  const v = Array.isArray(value) ? value[0] : value
+  emit('update:pageSize', parseInt(v))
 }
 
 // Handle direct page input

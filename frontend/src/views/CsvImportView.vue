@@ -91,7 +91,7 @@ const startImport = async () => {
         success: response.data.success_count || 0,
         errors: response.data.error_count || 0
       };
-      lastImport.value = formatDateTime();
+      lastImport.value = formatDateTime(new Date());
       successMessage.value = 'Import completed successfully';
       
       // Close the modal

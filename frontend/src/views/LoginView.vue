@@ -231,8 +231,11 @@ const handlePasskeyLogin = async () => {
     const result = await loginWithPasskey(emailToUse);
 
     if (result) {
-      // Update auth store with the logged in user
-      authStore.user = result.user;
+      // Update auth store with the logged in user. The passkey
+      // response carries a slimmer user shape than the canonical
+      // User type; the auth store hydrates the rest from /me on
+      // its first authenticated fetch.
+      authStore.user = result.user as unknown as typeof authStore.user;
       authStore.setAuthProvider('local');
 
       // Redirect to dashboard or intended page
@@ -259,8 +262,10 @@ const handlePasskeyMfaVerify = async () => {
     const result = await loginWithPasskey(email.value.trim());
 
     if (result) {
-      // Passkey verified - update auth store and redirect
-      authStore.user = result.user;
+      // Passkey verified - update auth store and redirect.
+      // Slimmer user shape from passkey response; the auth store
+      // hydrates the rest from /me.
+      authStore.user = result.user as unknown as typeof authStore.user;
       authStore.setAuthProvider('local');
       authStore.passkeyMfaRequired = false;
       authStore.mfaUserUuid = '';

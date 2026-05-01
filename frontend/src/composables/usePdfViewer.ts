@@ -222,8 +222,9 @@ export function usePdfViewer(options: UsePdfViewerOptions = {}) {
   const cleanup = async () => {
     if (pdfDocument.value) {
       try {
-        await pdfDocument.value.cleanup?.()
-        await pdfDocument.value.destroy?.()
+        const doc = pdfDocument.value as unknown as { cleanup?: () => Promise<void>; destroy?: () => Promise<void> }
+        await doc.cleanup?.()
+        await doc.destroy?.()
       } catch (err) {
         console.debug('PDF cleanup error:', err)
       }

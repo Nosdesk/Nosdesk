@@ -155,7 +155,8 @@ const collectionPageIds = computed(() => {
   const collect = (pages: CollectionPage[]) => {
     for (const p of pages) {
       ids.add(p.id)
-      if (p.children) collect(p.children)
+      const children = (p as CollectionPage & { children?: CollectionPage[] }).children
+      if (children) collect(children)
     }
   }
   collect(collection.value.pages)

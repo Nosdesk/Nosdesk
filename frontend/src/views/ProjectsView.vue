@@ -53,8 +53,8 @@ function handleProjectAssigned(rawData: unknown): void {
 function handleProjectUnassigned(rawData: unknown): void {
   const data = unwrapEventData(rawData as ProjectEventData)
   const project = projects.value.find(p => p.id === data.project_id)
-  if (project && project.ticket_count > 0) {
-    project.ticket_count -= 1
+  if (project && (project.ticket_count ?? 0) > 0) {
+    project.ticket_count = (project.ticket_count ?? 0) - 1
   }
 }
 
@@ -120,7 +120,7 @@ const openProject = (projectId: number) => {
   router.push(`/projects/${projectId}`)
 }
 
-const handleEditProject = async (projectData: Omit<Project, 'id' | 'ticket_count'> & { id?: number }) => {
+const handleEditProject = async (projectData: Omit<Project, 'id' | 'ticket_count' | 'created_at' | 'updated_at'> & { id?: number }) => {
   if (!selectedProject.value?.id) return
 
   try {
@@ -154,7 +154,7 @@ const openEditModal = (event: Event, project: Project) => {
   showEditModal.value = true
 }
 
-const handleCreateProject = async (projectData: Omit<Project, 'id' | 'ticket_count'>) => {
+const handleCreateProject = async (projectData: Omit<Project, 'id' | 'ticket_count' | 'created_at' | 'updated_at'>) => {
   try {
     isLoading.value = true
     error.value = null
@@ -223,7 +223,7 @@ const setupMobileSearch = () => {
     searchQuery: searchQuery.value,
     placeholder: 'Search projects...',
     showCreateButton: true,
-    createIcon: 'folder',
+    createIcon: 'project',
     onSearchUpdate: handleSearchUpdate,
     onCreate: openCreateModal
   })

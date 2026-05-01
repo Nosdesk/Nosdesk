@@ -12,7 +12,9 @@ const authStore = useAuthStore()
 const { handleMicrosoftLogoutAndRetry } = useMicrosoftAuth()
 
 // Provider type from route meta (e.g. 'microsoft', 'oidc')
-const provider = computed(() => (route.meta.oauthProvider as string) || 'oidc')
+const provider = computed(
+  () => (route.meta.oauthProvider as 'microsoft' | 'local' | 'oidc') || 'oidc',
+)
 const isMicrosoft = computed(() => provider.value === 'microsoft')
 const providerLabel = computed(() => isMicrosoft.value ? 'Microsoft' : 'SSO')
 

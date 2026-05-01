@@ -166,7 +166,10 @@ function defineListMutation<TVars>(spec: {
         spec.optimistic(vars, queryCache)
         return ctx
       },
-      onError: (_err, _vars, ctx) => rollback(queryCache, ctx),
+      // The Pinia Colada `ctx` type is the union of our MutationContext
+      // and an internal Partial<MutationContext>; cast back since
+      // onMutate above always returns the full shape.
+      onError: (_err, _vars, ctx) => rollback(queryCache, ctx as MutationContext | undefined),
       onSettled: () => {
         // Reconcile the count only. The list already reflects our
         // optimistic truth for the operation we performed; the

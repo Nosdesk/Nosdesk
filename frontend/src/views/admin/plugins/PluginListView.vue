@@ -280,7 +280,7 @@ const STATE_FILTER_ORDER: PluginState[] = ['installed', 'disabled', 'quarantined
                 <button
                   v-if="plugin.state === 'installed' || plugin.state === 'disabled'"
                   type="button"
-                  @click="handleToggle(plugin)"
+                  @click="handleToggle(plugin as Plugin)"
                   :aria-label="
                     plugin.state === 'installed'
                       ? `Disable ${plugin.display_name}`
@@ -351,7 +351,7 @@ const STATE_FILTER_ORDER: PluginState[] = ['installed', 'disabled', 'quarantined
 
                 <button
                   type="button"
-                  @click="uninstallTarget = plugin"
+                  @click="uninstallTarget = plugin as Plugin"
                   class="rounded-lg p-2 text-secondary transition-colors hover:bg-status-error/10 hover:text-status-error"
                   :aria-label="`Uninstall ${plugin.display_name}`"
                 >

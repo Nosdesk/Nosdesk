@@ -6,7 +6,7 @@ import ticketService from "@/services/ticketService";
 import { logger } from "@/utils/logger";
 import { formatDateTime, getCurrentUTCDateTime } from "@/utils/dateUtils";
 import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
-import type { Ticket, Device } from '@/types/ticket';
+import type { Ticket, Device, Project } from '@/types/ticket';
 import type { CommentWithAttachments } from '@/types/comment';
 
 // Local type extending the canonical Ticket type with UI-specific
@@ -88,8 +88,10 @@ export function useTicketData() {
       );
       const transformedDevices = transformDevices(fetchedTicket.devices || []);
 
-      // Extract project IDs from projects array
-      const projectIds = fetchedTicket.projects?.map(p => String(p.id)) || [];
+      // Extract project IDs from projects array. The API ships
+      // `Project[]` (Ticket.projects union) so narrow before mapping.
+      const fetchedProjects = fetchedTicket.projects as Project[] | undefined;
+      const projectIds = fetchedProjects?.map(p => String(p.id)) || [];
 
       // Update ticket
       ticket.value = {

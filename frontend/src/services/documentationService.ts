@@ -126,7 +126,7 @@ export const convertToPage = (data: unknown): Page => {
 
   try {
     // Clean up all properties before assigning
-    const cleanId = pageData.id !== undefined ? pageData.id : `unknown-${Date.now()}`;
+    const cleanId = (pageData.id ?? `unknown-${Date.now()}`) as string | number;
     const cleanSlug = typeof pageData.slug === 'string' ? pageData.slug : '';
     const cleanTitle = typeof pageData.title === 'string' ? pageData.title : 'Untitled';
     const cleanDescription = pageData.description !== undefined ? pageData.description : null;
@@ -192,7 +192,7 @@ export const convertToPage = (data: unknown): Page => {
       is_stale: Boolean(pageData.is_stale),
     };
   } catch (error) {
-    logger.error('Error converting backend page data:', error, data);
+    logger.error('Error converting backend page data', { error, data });
     return createFallbackPage('error-page', 'Error', '⚠️');
   }
 };

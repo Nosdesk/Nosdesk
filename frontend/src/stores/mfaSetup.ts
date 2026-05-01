@@ -21,7 +21,7 @@ const CREDENTIAL_EXPIRY_MS = 5 * 60 * 1000;
 interface MfaSetupCredentials {
   email: string;
   password: string;
-  source: 'login' | 'onboarding';
+  source: 'login' | 'onboarding' | 'invitation';
   createdAt: number;
 }
 
@@ -53,7 +53,7 @@ export const useMfaSetupStore = defineStore('mfaSetup', () => {
    * Store credentials for MFA setup flow
    * Credentials will be automatically cleared after expiry time
    */
-  function setCredentials(email: string, password: string, source: 'login' | 'onboarding') {
+  function setCredentials(email: string, password: string, source: 'login' | 'onboarding' | 'invitation') {
     // Clear any existing timer
     if (expiryTimer.value) {
       clearTimeout(expiryTimer.value);

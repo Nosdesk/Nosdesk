@@ -132,8 +132,7 @@ class SSEService {
       const eventType = event.type as SSEEventType;
 
       logger.debug(
-        `%c[SSE] Raw event from EventSource: ${eventType}`,
-        "color: #3b82f6; font-weight: bold",
+        `[SSE] Raw event from EventSource: ${eventType}`,
         {
           type: eventType,
           rawData: event.data,
@@ -168,11 +167,7 @@ class SSEService {
           delete data.source_client_id;
         }
 
-        logger.debug(
-          `%c[SSE] Parsed event data:`,
-          "color: #8b5cf6; font-weight: bold",
-          { eventType, parsedData: data }
-        );
+        logger.debug(`[SSE] Parsed event data: ${eventType}`, { parsedData: data });
         this.emit(eventType, data);
       } catch (error) {
         logger.error(`SSE: Failed to parse ${eventType}:`, error);
@@ -197,11 +192,9 @@ class SSEService {
       this.isConnecting.value = false;
       this.lastError.value = null;
       this.reconnectAttempts = 0;
-      logger.debug(
-        "%c[SSE Connection] ✅ Connected successfully",
-        "color: #22c55e; font-weight: bold; font-size: 14px",
-        { timestamp: new Date().toISOString() }
-      );
+      logger.debug("[SSE Connection] connected successfully", {
+        timestamp: new Date().toISOString(),
+      });
     };
 
     this.eventSource.onerror = () => {

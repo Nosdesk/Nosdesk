@@ -215,7 +215,7 @@
             @dragover.prevent="isDragging = true"
             @dragleave.prevent="isDragging = false"
             @drop.prevent="handleDrop"
-            @click="$refs.fileInput?.click()"
+            @click="($refs.fileInput as HTMLInputElement | undefined)?.click()"
           >
             <input
               type="file"

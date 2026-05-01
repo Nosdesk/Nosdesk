@@ -122,7 +122,7 @@ const settingsTabs = [
 ];
 
 // Available roles for admin management
-const availableRoles = [
+const availableRoles: { value: UserRole; label: string; colorClass: string; description: string }[] = [
   {
     value: 'user',
     label: 'User',

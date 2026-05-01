@@ -87,7 +87,7 @@ export const projectService = {
   },
 
   // Create a new project
-  async createProject(project: Omit<Project, 'id' | 'ticket_count'>): Promise<Project> {
+  async createProject(project: Omit<Project, 'id' | 'ticket_count' | 'created_at' | 'updated_at'>): Promise<Project> {
     try {
       const request: NewProjectRequest = {
         name: project.name,
@@ -108,7 +108,7 @@ export const projectService = {
   },
 
   // Update an existing project
-  async updateProject(id: number, project: Partial<Omit<Project, 'id' | 'ticket_count'>>): Promise<Project> {
+  async updateProject(id: number, project: Partial<Omit<Project, 'id' | 'ticket_count' | 'created_at' | 'updated_at'>>): Promise<Project> {
     try {
       const request: UpdateProjectRequest = {
         name: project.name,

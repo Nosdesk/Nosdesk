@@ -87,7 +87,7 @@ const isSelected = (item: T) => {
                   column.class || ''
                 ]"
               >
-                {{ item[column.key] }}
+                {{ (item as Record<string, unknown>)[column.key] }}
               </td>
             </slot>
           </tr>

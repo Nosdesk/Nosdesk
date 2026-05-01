@@ -110,7 +110,12 @@ export class PermissionError extends AppError {
 interface AxiosLikeError {
   response?: {
     status: number;
-    data?: { message?: string; required_role?: string };
+    data?: {
+      message?: string;
+      required_role?: string;
+      field?: string;
+      errors?: Record<string, string[]>;
+    };
     config: { url?: string };
   };
   message?: string;
@@ -151,7 +156,7 @@ export function createErrorFromResponse(error: unknown): AppError {
   return new ApiError(
     data?.message || 'An error occurred',
     status,
-    config.url,
+    config.url ?? '',
     { data }
   )
 }

@@ -32,11 +32,7 @@ const fetchProject = async () => {
 };
 
 const ticketCount = computed(() => {
-  if (!project.value) return '—';
-  if ('ticket_count' in project.value) {
-    return (project.value as any).ticket_count;
-  }
-  return project.value.ticketCount || '—';
+  return project.value?.ticket_count ?? '—';
 });
 
 onMounted(() => {

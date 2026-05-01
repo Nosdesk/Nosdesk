@@ -4,7 +4,7 @@ import type { StarredPageInfo } from '@/services/documentationService'
 import { findInTree } from '@/utils/treeUtils'
 import { BREAKPOINTS } from '@/composables/useMobileDetection'
 
-interface ExpandedState {
+export interface ExpandedState {
   [pageId: string]: boolean;
 }
 

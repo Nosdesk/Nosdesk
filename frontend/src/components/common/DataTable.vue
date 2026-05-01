@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import Checkbox from './Checkbox.vue'
 
-interface Column {
+export interface Column {
   field: string
   label: string
   width?: string
@@ -11,7 +11,7 @@ interface Column {
   responsive?: 'always' | 'md' | 'lg' // Show only on certain breakpoints
 }
 
-interface DataTableProps {
+const props = withDefaults(defineProps<{
   columns: readonly Column[]
   data: readonly T[]
   selectedItems: readonly string[]
@@ -19,10 +19,8 @@ interface DataTableProps {
   sortField?: string
   sortDirection?: 'asc' | 'desc'
   loading?: boolean
-  gridClass?: string // Custom grid template classes
-}
-
-const props = withDefaults(defineProps<DataTableProps>(), {
+  gridClass?: string
+}>(), {
   itemIdField: 'id',
   loading: false,
   gridClass: ''

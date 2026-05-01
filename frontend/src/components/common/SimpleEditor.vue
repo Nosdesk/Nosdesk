@@ -80,7 +80,7 @@ const isSearching = ref(false);
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Dropdown position using fixed positioning for viewport awareness
-const dropdownStyle = computed(() => {
+const dropdownStyle = computed<Partial<Record<string, string>>>(() => {
   if (!mentionState.value.active || !mentionState.value.position) {
     return { display: 'none' };
   }

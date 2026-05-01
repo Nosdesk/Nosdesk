@@ -162,7 +162,7 @@ class AuthService {
       // This ensures new users can still access onboarding even if there are temporary issues
       const axiosError = error as { code?: string; response?: { status?: number } };
       if (axiosError.code === 'NETWORK_ERROR' || axiosError.code === 'ERR_NETWORK' ||
-          (axiosError.response && axiosError.response.status >= 500)) {
+          (axiosError.response?.status !== undefined && axiosError.response.status >= 500)) {
         logger.warn('Network/server error, assuming setup required for safety');
         return {
           requires_setup: true,

@@ -56,17 +56,17 @@
             <div><span class="text-tertiary">Banners:</span> <span class="text-primary">{{ cleanupResults.stats.banners_removed }}</span></div>
             <div><span class="text-tertiary">Thumbnails:</span> <span class="text-primary">{{ cleanupResults.stats.thumbnails_removed || 0 }}</span></div>
             <div><span class="text-tertiary">Checked:</span> <span class="text-primary">{{ cleanupResults.stats.total_files_checked }}</span></div>
-            <div><span class="text-tertiary">Errors:</span> <span :class="cleanupResults.stats.errors.length > 0 ? 'text-status-warning' : 'text-primary'">{{ cleanupResults.stats.errors.length }}</span></div>
+            <div><span class="text-tertiary">Errors:</span> <span :class="(cleanupResults.stats?.errors?.length ?? 0) > 0 ? 'text-status-warning' : 'text-primary'">{{ cleanupResults.stats?.errors?.length ?? 0 }}</span></div>
           </div>
 
           <!-- Show errors if any -->
-          <div v-if="cleanupResults.success && cleanupResults.stats?.errors.length > 0" class="mt-3">
+          <div v-if="cleanupResults.success && (cleanupResults.stats?.errors?.length ?? 0) > 0" class="mt-3">
             <details class="text-sm">
               <summary class="cursor-pointer text-status-warning hover:text-status-warning/80">
-                View Errors ({{ cleanupResults.stats.errors.length }})
+                View Errors ({{ cleanupResults.stats?.errors?.length ?? 0 }})
               </summary>
               <div class="mt-2 pl-4 border-l-2 border-status-warning/50 text-secondary">
-                <div v-for="(error, index) in cleanupResults.stats.errors" :key="index" class="mb-1">
+                <div v-for="(error, index) in cleanupResults.stats?.errors ?? []" :key="index" class="mb-1">
                   {{ error }}
                 </div>
               </div>

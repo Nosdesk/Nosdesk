@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formatDate as formatDateUtil } from '@/utils/dateUtils';
+import type { UserRole } from '@/types/user';
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
@@ -26,7 +27,7 @@ interface UserProfile extends User {
 interface UserFormData {
     name: string;
     email: string;
-    role: string;
+    role: UserRole;
     pronouns?: string;
 }
 

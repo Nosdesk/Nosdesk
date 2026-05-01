@@ -1,6 +1,6 @@
 import type { UserInfo } from './user'
 import type { Group } from './group'
-import type { TicketCategory } from './ticket'
+import type { TicketCategory } from './category'
 
 // Assignment method types
 export type AssignmentMethod = 'direct_user' | 'group_round_robin' | 'group_random' | 'group_queue'

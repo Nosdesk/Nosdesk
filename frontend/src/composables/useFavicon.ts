@@ -22,7 +22,7 @@ interface UseFaviconOptions {
   }>
 }
 
-const DEFAULT_ICONS = [
+const DEFAULT_ICONS: Array<{ rel: string; type?: string; sizes?: string; href: string }> = [
   { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
   { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32.png' },
   { rel: 'alternate icon', href: '/favicon.ico' }

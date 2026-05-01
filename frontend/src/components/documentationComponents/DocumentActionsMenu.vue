@@ -128,7 +128,8 @@ const menuItems = computed<MenuItem[]>(() => {
 function handleSelect(id: string) {
   switch (id) {
     case 'subscription':
-      emit(props.isSubscribed ? 'unsubscribe' : 'subscribe')
+      if (props.isSubscribed) emit('unsubscribe')
+      else emit('subscribe')
       closeMenu()
       return
     case 'insights':
@@ -153,13 +154,15 @@ function handleSelect(id: string) {
       emit('collections')
       break
     case 'archive':
-      emit(isArchived.value ? 'restore' : 'archive')
+      if (isArchived.value) emit('restore')
+      else emit('archive')
       break
     case 'permissions':
       emit('permissions')
       break
     case 'publish':
-      emit(isPublished.value ? 'unpublish' : 'publish')
+      if (isPublished.value) emit('unpublish')
+      else emit('publish')
       break
     case 'delete':
       // Two-stage destructive confirmation. First click flips
