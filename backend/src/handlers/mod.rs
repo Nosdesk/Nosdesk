@@ -40,6 +40,7 @@ pub mod channels;
 pub mod scheduler;
 pub mod canned_responses;
 pub mod dashboard;
+pub mod workflow_states;
 
 // Import all handlers from modules
 pub use auth::*;

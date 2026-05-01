@@ -8,6 +8,7 @@ import type { Device } from './device'
 import type { Comment, Attachment } from './comment'
 import type { Project } from './project'
 import type { UserInfo } from './user'
+import type { WorkflowState } from './workflow'
 
 // Re-export for convenience
 export type { Device, Comment, Attachment, Project }
@@ -15,7 +16,22 @@ export type { Device, Comment, Attachment, Project }
 export interface Ticket {
   id: number
   title: string
+  /**
+   * Legacy three-bucket status string derived from the workflow state's
+   * category. Continues to ship from the backend for wire-format
+   * compatibility while the UI is migrated to read `workflow_state_id`
+   * and the joined `workflow_state` directly.
+   */
   status: TicketStatus
+  /**
+   * Always present on backend responses post-Phase-1; optional on the
+   * type until input/create flows have been migrated to specify it
+   * directly. The backend defaults missing values to the workspace
+   * default state.
+   */
+  workflow_state_id?: number
+  /** Joined workflow state, present on detail responses. */
+  workflow_state?: WorkflowState | null
   priority: TicketPriority
   created: string
   modified: string
@@ -46,6 +62,7 @@ export interface RecentTicket {
   id: number
   title: string
   status: TicketStatus
+  workflow_state_id?: number
   requester: string | null
   assignee: string | null
   created_at: string

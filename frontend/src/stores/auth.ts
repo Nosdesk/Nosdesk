@@ -370,6 +370,13 @@ export const useAuthStore = defineStore('auth', () => {
       logger.error('Failed to reset feature flags on logout', e);
     }
 
+    try {
+      const { useWorkflowStatesStore } = await import('@/stores/workflowStates');
+      useWorkflowStatesStore().reset();
+    } catch (e) {
+      logger.error('Failed to reset workflow states on logout', e);
+    }
+
     // Remove from localStorage
     localStorage.removeItem('authProvider');
 

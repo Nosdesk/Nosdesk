@@ -1051,6 +1051,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/branding/image", web::post().to(handlers::branding::upload_branding_image))
                     .route("/admin/branding/image", web::delete().to(handlers::branding::delete_branding_image))
 
+                    // Workflow states — list of named states grouped by category.
+                    // Read endpoint open to any authenticated user; admin write
+                    // endpoints (rename, reorder, archive) ship with the
+                    // workflow-customisation UI in a later commit.
+                    .route("/workflow-states", web::get().to(handlers::workflow_states::list))
+
                     // Feature flags — staged rollout machinery (Phase 0 of the
                     // projects-v2 architecture). Read endpoint open to any
                     // authenticated user; write endpoints admin-only.

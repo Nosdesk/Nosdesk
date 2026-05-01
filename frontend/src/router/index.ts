@@ -772,6 +772,12 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
     if (!flagsStore.loaded && !flagsStore.loading) {
       void flagsStore.load();
     }
+
+    const { useWorkflowStatesStore } = await import('@/stores/workflowStates');
+    const wfStore = useWorkflowStatesStore();
+    if (!wfStore.loaded && !wfStore.loading) {
+      void wfStore.load();
+    }
   }
 }
 
