@@ -12,7 +12,6 @@ import AddTicketToProjectModal from '@/components/projectComponents/AddTicketToP
 import KanbanBoard from '@/components/projectComponents/KanbanBoard.vue'
 import ProjectTicketList from '@/components/projectComponents/ProjectTicketList.vue'
 import BackButton from '@/components/common/BackButton.vue'
-import GanttPlanner from '@/components/projectComponents/GanttPlanner.vue'
 import InlineEdit from '@/components/common/InlineEdit.vue'
 import Icon from '@/components/common/Icon.vue'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
@@ -51,7 +50,6 @@ useProjectSSE(projectId, existingTicketIdSet, {
 })
 const activeTab = computed(() => {
   if (route.query.view === 'list') return 'list'
-  if (route.query.view === 'gantt') return 'gantt'
   return 'kanban'
 })
 
@@ -339,11 +337,6 @@ usePageCreateAction(openAddTicketModal)
     <!-- Kanban Board View - fills remaining height with scroll -->
     <div v-if="!isLoading && project && activeTab === 'kanban'" class="flex-1 min-h-0 overflow-auto">
       <KanbanBoard :project-id="project.id" />
-    </div>
-
-    <!-- Gantt Planner View -->
-    <div v-else-if="!isLoading && project && activeTab === 'gantt'" class="flex-1 min-h-[500px] px-4 md:px-6">
-      <GanttPlanner :project-id="project.id" :tickets="[]" />
     </div>
 
     <!-- List View -->
