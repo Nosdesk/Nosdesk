@@ -57,26 +57,14 @@ const processTickets = () => {
   }
 
   ganttTickets.value = props.tickets.map(ticket => {
-    // Helper to parse date from various field names
-    const getDate = (fieldNames: string[], defaultDate: Date | null): Date | null => {
-      for (const field of fieldNames) {
-        if (ticket[field]) {
-          const date = new Date(ticket[field])
-          if (!isNaN(date.getTime())) {
-            return date
-          }
-        }
-      }
-      return defaultDate
+    const parseDate = (value: string | null | undefined): Date | null => {
+      if (!value) return null
+      const d = new Date(value)
+      return isNaN(d.getTime()) ? null : d
     }
-    
-    // Get created date from various possible fields
-    const createdFields = ['created_at', 'createdAt', 'created', 'dateCreated', 'createDate']
-    const start = getDate(createdFields, new Date()) || new Date()
-    
-    // Get due date from various possible fields
-    const dueFields = ['due_date', 'dueDate', 'due', 'deadline', 'target_date', 'targetDate', 'end_date', 'endDate']
-    let end = getDate(dueFields, null)
+
+    const start = parseDate(ticket.created) ?? new Date()
+    let end: Date | null = null
     
     // If no due date, calculate based on priority
     if (!end) {
@@ -122,37 +110,26 @@ const processTickets = () => {
     let progress = 0
     switch (ticket.status) {
       case 'closed':
-      case 'completed':
-      case 'done':
         progress = 100
         break
       case 'in-progress':
-      case 'in_progress':
-      case 'active':
-      case 'working':
         progress = 50
         break
       case 'open':
-      case 'new':
-      case 'todo':
-      case 'pending':
         progress = 0
         break
-      default:
-        progress = 0
     }
 
     return {
       id: ticket.id,
       title: ticket.title || `Ticket #${ticket.id}`,
       start,
-      end,
+      end: end!,
       color,
       progress,
       status: ticket.status,
-      assignee: ticket.assignee_name || ticket.assignee || ticket.assigned_to || ticket.assignedTo,
+      assignee: ticket.assignee_user?.name ?? ticket.assignee,
       priority: ticket.priority,
-      description: ticket.description
     }
   })
   

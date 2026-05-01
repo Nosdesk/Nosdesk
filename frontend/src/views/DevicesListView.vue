@@ -224,16 +224,16 @@ async function confirmDelete() {
           </div>
         </template>
 
-        <template #cell-serial_number="{ value }">
-          <span class="text-xs font-mono text-secondary">{{ value || '—' }}</span>
+        <template #cell-serial_number="{ item }">
+          <span class="text-xs font-mono text-secondary">{{ item.serial_number || '—' }}</span>
         </template>
 
-        <template #cell-hostname="{ value }">
-          <span class="text-xs font-mono text-secondary truncate">{{ value || '—' }}</span>
+        <template #cell-hostname="{ item }">
+          <span class="text-xs font-mono text-secondary truncate">{{ item.hostname || '—' }}</span>
         </template>
 
-        <template #cell-model="{ value }">
-          <TextCell :value="value || '—'" />
+        <template #cell-model="{ item }">
+          <TextCell :value="item.model || '—'" />
         </template>
 
         <template #cell-primary_user="{ item }">
@@ -247,8 +247,8 @@ async function confirmDelete() {
           <span v-else class="text-xs text-tertiary">Unassigned</span>
         </template>
 
-        <template #cell-warranty_status="{ value }">
-          <StatusBadgeCell type="warranty" :value="value" />
+        <template #cell-warranty_status="{ item }">
+          <StatusBadgeCell type="warranty" :value="item.warranty_status" />
         </template>
       </DataTable>
     </template>

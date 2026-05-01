@@ -9,7 +9,7 @@ const props = withDefaults(defineProps<{
   totalPages: number
   totalItems: number
   pageSize: number
-  pageSizeOptions: number[]
+  pageSizeOptions: readonly number[]
   /** Whether infinite scroll mode is active (pageSize === 0) */
   isInfiniteMode: boolean
 }>(), {

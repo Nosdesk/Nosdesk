@@ -13,6 +13,8 @@ export interface Device {
   model: string;
   warranty_status: string;
   manufacturer?: string | null;
+  operating_system?: string | null;
+  os_version?: string | null;
   primary_user_uuid?: string | null;
   intune_device_id?: string | null;
   entra_device_id?: string | null;

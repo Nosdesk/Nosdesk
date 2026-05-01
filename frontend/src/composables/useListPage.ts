@@ -84,7 +84,7 @@ export interface UrlSyncConfig {
 }
 
 export interface UseListPageOptions<T, R extends string> {
-  controls: ReturnType<typeof useListControls<T extends Record<string, unknown> ? T : never>>
+  controls: ReturnType<typeof useListControls<T extends object ? T : never>>
   keys: ListKeys<R>
   /** Per-feature query function. Receives the page param + the
    *  flattened params from `controls.requestParams`. */
@@ -123,44 +123,47 @@ export function useListPage<T, R extends string>(
   const infiniteList = useInfiniteQuery(() => ({
     key: keys.list('infinite', controls.cacheKeyPart.value),
     initialPageParam: 1,
-    query: async ({ pageParam }) => {
+    query: async ({ pageParam }): Promise<ListPage<T>> => {
       const page = pageParam as number
       const response = await fetchPage({ ...controls.requestParams.value, page })
       void options.onPageLoaded?.(response.data)
       return response
     },
-    getNextPageParam: (lastPage, allPages) =>
+    getNextPageParam: (lastPage: ListPage<T>, allPages: ListPage<T>[]) =>
       allPages.length < lastPage.totalPages ? allPages.length + 1 : null,
-    enabled: () => controls.isInfiniteMode.value,
+    enabled: controls.isInfiniteMode.value,
   }))
 
   const paginatedList = useInfiniteQuery(() => ({
     key: keys.list('paginated', controls.cacheKeyPart.value, controls.currentPage.value),
     initialPageParam: controls.currentPage.value,
-    query: async ({ pageParam }) => {
+    query: async ({ pageParam }): Promise<ListPage<T>> => {
       const page = pageParam as number
       const response = await fetchPage({ ...controls.requestParams.value, page })
       void options.onPageLoaded?.(response.data)
       return response
     },
     getNextPageParam: () => null,
-    enabled: () => !controls.isInfiniteMode.value,
+    enabled: !controls.isInfiniteMode.value,
   }))
 
   // ---- Derived state ---------------------------------------------
   const items = computed<T[]>(() => {
     const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
-    return source.data.value?.pages.flatMap((p) => p.data) ?? []
+    const pages = source.data.value?.pages as ListPage<T>[] | undefined
+    return pages?.flatMap((p) => p.data) ?? []
   })
 
   const totalItems = computed(() => {
     const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
-    return source.data.value?.pages[0]?.total ?? 0
+    const pages = source.data.value?.pages as ListPage<T>[] | undefined
+    return pages?.[0]?.total ?? 0
   })
 
   const totalPages = computed(() => {
     const source = controls.isInfiniteMode.value ? infiniteList : paginatedList
-    return source.data.value?.pages[0]?.totalPages ?? 1
+    const pages = source.data.value?.pages as ListPage<T>[] | undefined
+    return pages?.[0]?.totalPages ?? 1
   })
 
   const hasMore = computed(() =>

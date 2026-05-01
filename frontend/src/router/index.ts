@@ -16,10 +16,15 @@ import PDFViewerView from '@/views/PDFViewerView.vue'
 import authService from '@/services/authService'
 import { useInboxLoader } from '@/loaders/inboxLoader'
 import { useTicketsListLoader } from '@/loaders/ticketsListLoader'
+import type { Page, Article } from '@/services/documentationService'
 
 declare module 'vue-router' {
   interface RouteMeta {
-    requiresAuth: boolean;
+    /// Optional because children of an authenticated parent inherit
+    /// `requiresAuth` via `to.matched.some(...)`. Set explicitly only
+    /// to override the inherited value (e.g. a public child of a
+    /// protected layout).
+    requiresAuth?: boolean;
     title?: string;
     layout?: string;
     adminRequired?: boolean;
@@ -386,7 +391,7 @@ const router = createRouter({
             const result = await getPageByPath(path);
 
             if (result) {
-              let doc = result;
+              let doc: Page | Article = result;
               // If the result is a page stub (no children array), fetch full article
               if (!('children' in result && Array.isArray(result.children)) && 'id' in result) {
                 const articleData = await getArticleById(String(result.id));

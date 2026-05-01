@@ -57,7 +57,7 @@ export interface BuiltFilterOption {
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [25, 50, 100, 0] as const
 
-export function useListControls<T extends Record<string, unknown>>(
+export function useListControls<T extends object>(
   options: ListControlsOptions = {},
 ) {
   const itemIdField = options.itemIdField ?? 'id'

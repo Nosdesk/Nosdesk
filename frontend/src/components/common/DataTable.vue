@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="T extends Record<string, unknown>">
+<script setup lang="ts" generic="T extends object">
 import { computed } from 'vue'
 import Checkbox from './Checkbox.vue'
 
@@ -12,9 +12,9 @@ interface Column {
 }
 
 interface DataTableProps {
-  columns: Column[]
-  data: T[]
-  selectedItems: string[]
+  columns: readonly Column[]
+  data: readonly T[]
+  selectedItems: readonly string[]
   itemIdField?: string
   sortField?: string
   sortDirection?: 'asc' | 'desc'
@@ -36,11 +36,18 @@ const emit = defineEmits<{
   'row-mouseenter': [item: T]
 }>()
 
+/// Read a field from a row by string name. Tables are dynamic by
+/// their nature — column.field is a string from the column config —
+/// so a runtime index access cast is unavoidable. Centralising the
+/// cast here keeps callers clean.
+const fieldValue = (item: T, field: string): unknown =>
+  (item as Record<string, unknown>)[field]
+
 // Compute if all items are selected
 const allSelected = computed(() => {
   if (!props.data.length) return false
-  return props.data.every(item => 
-    props.selectedItems.includes(item[props.itemIdField].toString())
+  return props.data.every(item =>
+    props.selectedItems.includes(String(fieldValue(item, props.itemIdField)))
   )
 })
 
@@ -142,7 +149,7 @@ const getColumnVisibility = (column: Column) => {
       </div>
 
       <!-- Data Rows -->
-      <template v-for="(item, index) in data" :key="item[itemIdField]">
+      <template v-for="(item, index) in data" :key="String(fieldValue(item, itemIdField))">
         <div
           class="contents group cursor-pointer"
           @click="emit('row-click', item)"
@@ -158,8 +165,8 @@ const getColumnVisibility = (column: Column) => {
             @click.stop
           >
             <Checkbox
-              :model-value="selectedItems.includes(item[itemIdField].toString())"
-              @change="(e) => emit('toggle-selection', e, item[itemIdField].toString())"
+              :model-value="selectedItems.includes(String(fieldValue(item, itemIdField)))"
+              @change="(e) => emit('toggle-selection', e, String(fieldValue(item, itemIdField)))"
             />
           </div>
 
@@ -178,13 +185,13 @@ const getColumnVisibility = (column: Column) => {
             <slot
               :name="`cell-${column.field}`"
               :item="item"
-              :value="item[column.field]"
+              :value="fieldValue(item, column.field)"
               :index="index"
               :column="column"
             >
               <!-- Default cell content -->
               <span class="truncate text-primary">
-                {{ item[column.field] }}
+                {{ fieldValue(item, column.field) }}
               </span>
             </slot>
           </div>

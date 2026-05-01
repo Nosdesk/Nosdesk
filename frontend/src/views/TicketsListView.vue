@@ -309,20 +309,20 @@ async function executeBulk(
           @row-click="navigateToTicket"
           @row-mouseenter="prewarmTicket"
         >
-          <template #cell-id="{ value }">
-            <IdCell :id="value" />
+          <template #cell-id="{ item }">
+            <IdCell :id="item.id" />
           </template>
-          <template #cell-title="{ value }">
-            <TextCell :value="value" font-weight="medium" />
+          <template #cell-title="{ item }">
+            <TextCell :value="item.title" font-weight="medium" />
           </template>
-          <template #cell-status="{ value }">
-            <StatusBadge type="status" :value="value" :short="true" :compact="true" />
+          <template #cell-status="{ item }">
+            <StatusBadge type="status" :value="item.status" :short="true" :compact="true" />
           </template>
-          <template #cell-priority="{ value }">
-            <StatusBadge type="priority" :value="value" :short="true" :compact="true" />
+          <template #cell-priority="{ item }">
+            <StatusBadge type="priority" :value="item.priority" :short="true" :compact="true" />
           </template>
-          <template #cell-created="{ value }">
-            <DateCell :value="value" format="compact" />
+          <template #cell-created="{ item }">
+            <DateCell :value="item.created" format="compact" />
           </template>
           <template #cell-requester="{ item }">
             <UserAvatarCell

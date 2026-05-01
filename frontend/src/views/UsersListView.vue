@@ -203,20 +203,20 @@ async function applyRoleChange(role: string) {
             />
           </template>
 
-          <template #cell-role="{ value }">
-            <StatusBadgeCell type="role" :value="value" />
+          <template #cell-role="{ item }">
+            <StatusBadgeCell type="role" :value="item.role" />
           </template>
 
-          <template #cell-open_ticket_count="{ value }">
-            <span class="text-sm text-secondary tabular-nums">{{ value ?? 0 }}</span>
+          <template #cell-open_ticket_count="{ item }">
+            <span class="text-sm text-secondary tabular-nums">{{ item.open_ticket_count ?? 0 }}</span>
           </template>
 
-          <template #cell-device_count="{ value }">
-            <span class="text-sm text-secondary tabular-nums">{{ value ?? 0 }}</span>
+          <template #cell-device_count="{ item }">
+            <span class="text-sm text-secondary tabular-nums">{{ item.device_count ?? 0 }}</span>
           </template>
 
-          <template #cell-created_at="{ value }">
-            <DateCell :value="value" format="clean-relative" />
+          <template #cell-created_at="{ item }">
+            <DateCell :value="item.created_at" format="clean-relative" />
           </template>
         </DataTable>
       </template>

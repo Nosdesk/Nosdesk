@@ -20,6 +20,7 @@ export interface Group {
   name: string
   description?: string | null
   color?: string | null
+  external_source?: string | null
   created_at: string
   updated_at: string
   created_by?: string | null
