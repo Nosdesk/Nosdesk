@@ -763,6 +763,16 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
       return { name: 'home' };
     }
   }
+
+  // Load feature flags once per session for any authenticated route. Failures
+  // are swallowed inside the store; the app falls back to flags-disabled.
+  if (authStore.isAuthenticated && authStore.user) {
+    const { useFeatureFlagsStore } = await import('@/stores/featureFlags');
+    const flagsStore = useFeatureFlagsStore();
+    if (!flagsStore.loaded && !flagsStore.loading) {
+      void flagsStore.load();
+    }
+  }
 }
 
 /**

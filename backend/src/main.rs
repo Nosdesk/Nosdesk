@@ -1051,6 +1051,14 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/branding/image", web::post().to(handlers::branding::upload_branding_image))
                     .route("/admin/branding/image", web::delete().to(handlers::branding::delete_branding_image))
 
+                    // Feature flags — staged rollout machinery (Phase 0 of the
+                    // projects-v2 architecture). Read endpoint open to any
+                    // authenticated user; write endpoints admin-only.
+                    .route("/feature-flags", web::get().to(handlers::feature_flags::get_my_flags))
+                    .route("/admin/feature-flags", web::patch().to(handlers::feature_flags::patch_workspace_flag))
+                    .route("/admin/feature-flags", web::put().to(handlers::feature_flags::put_workspace_flags))
+                    .route("/admin/feature-flags/users/{uuid}", web::patch().to(handlers::feature_flags::patch_user_override))
+
                     // Backup and restore (admin only)
                     .route("/admin/backup/export", web::post().to(handlers::backup::start_export))
                     .route("/admin/backup/jobs", web::get().to(handlers::backup::get_jobs))

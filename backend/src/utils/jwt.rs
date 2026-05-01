@@ -563,6 +563,7 @@ mod tests {
             password_changed_at: None,
             signature: None,
             dashboard_layout: None,
+            feature_flag_overrides: serde_json::json!({}),
         };
 
         let sid = uuid::Uuid::new_v4();

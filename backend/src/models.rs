@@ -729,6 +729,11 @@ pub struct User {
     /// back to the role default. Shape is authoritative client-side
     /// (`{ widgets: [{ id, visible }] }`) and validated on update.
     pub dashboard_layout: Option<serde_json::Value>,
+    /// Per-user feature flag overrides merged on top of the
+    /// workspace defaults at request time. Same JSONB shape as
+    /// `site_settings.feature_flags`. Used to opt individuals into
+    /// staged rollouts before flipping the workspace default.
+    pub feature_flag_overrides: serde_json::Value,
 }
 
 // New user for creation
@@ -2286,6 +2291,11 @@ pub struct SiteSettings {
     /// the built-in default (see
     /// [`crate::services::channels::auto_ack::DEFAULT_TEMPLATE`]).
     pub channel_auto_ack_template: Option<String>,
+    /// Workspace-level feature flag defaults. JSONB shape
+    /// `{ "<flag_name>": <boolean | string | object>, ... }`. Empty
+    /// object = all flags at code-default. Per-user overrides on the
+    /// `users` table merge on top at request time.
+    pub feature_flags: serde_json::Value,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]

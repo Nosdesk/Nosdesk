@@ -480,6 +480,7 @@ mod tests {
             mfa_backup_codes: None,
             signature: None,
             dashboard_layout: None,
+            feature_flag_overrides: serde_json::json!({}),
         };
 
         assert!(!user_has_mfa_enabled(&base_user));

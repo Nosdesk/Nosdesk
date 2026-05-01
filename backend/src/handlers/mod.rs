@@ -1,5 +1,6 @@
 // Reexport handlers
 pub mod errors;
+pub mod feature_flags;
 pub mod health;
 pub mod helpers;
 pub mod api_tokens;

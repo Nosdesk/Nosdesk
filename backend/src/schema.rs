@@ -894,6 +894,7 @@ diesel::table! {
         guest_ticket_intro_message -> Nullable<Text>,
         channel_auto_ack_enabled -> Bool,
         channel_auto_ack_template -> Nullable<Text>,
+        feature_flags -> Jsonb,
     }
 }
 
@@ -1073,6 +1074,7 @@ diesel::table! {
         mfa_backup_codes -> Nullable<Jsonb>,
         signature -> Nullable<Text>,
         dashboard_layout -> Nullable<Jsonb>,
+        feature_flag_overrides -> Jsonb,
     }
 }
 

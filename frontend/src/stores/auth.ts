@@ -361,6 +361,15 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null;
     authProvider.value = null;
 
+    // Drop cached feature flags so a different user logging in afterwards
+    // doesn't briefly see the previous user's resolved flag set.
+    try {
+      const { useFeatureFlagsStore } = await import('@/stores/featureFlags');
+      useFeatureFlagsStore().reset();
+    } catch (e) {
+      logger.error('Failed to reset feature flags on logout', e);
+    }
+
     // Remove from localStorage
     localStorage.removeItem('authProvider');
 

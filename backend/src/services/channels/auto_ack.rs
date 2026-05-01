@@ -216,6 +216,7 @@ mod tests {
             guest_ticket_intro_message: None,
             channel_auto_ack_enabled: true,
             channel_auto_ack_template: None,
+            feature_flags: serde_json::json!({}),
         }
     }
 

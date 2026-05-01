@@ -12,6 +12,7 @@ pub mod documentation_collections;
 pub mod documentation_page_tickets;
 pub mod documentation_starred_pages;
 pub mod documentation_subscriptions;
+pub mod feature_flags;
 pub mod groups;
 pub mod knowledge_gaps;
 pub mod linked_tickets;
