@@ -1,40 +1,46 @@
+use std::collections::HashMap;
+
+use diesel::dsl::count;
 use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::QueryResult;
 use tracing::{debug, warn};
+use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
 
 pub fn get_projects_with_ticket_count(conn: &mut DbConnection) -> Result<Vec<ProjectWithTicketCount>, Error> {
-    // Get all projects
+    // One pass over project_tickets to get every (project_id, count)
+    // pair, then one pass over projects. Replaces an N+1 that fired
+    // a COUNT() per project on every list-page render.
+    let counts: Vec<(i32, i64)> = project_tickets::table
+        .group_by(project_tickets::project_id)
+        .select((project_tickets::project_id, count(project_tickets::ticket_id)))
+        .load(conn)?;
+    let count_map: HashMap<i32, i64> = counts.into_iter().collect();
+
     let all_projects = projects::table.load::<Project>(conn)?;
-    
-    // For each project, count the tickets
-    let mut projects_with_count = Vec::new();
-    
-    for project in all_projects {
-        let count = project_tickets::table
-            .filter(project_tickets::project_id.eq(project.id))
-            .count()
-            .get_result::<i64>(conn)?;
-        
-        projects_with_count.push(ProjectWithTicketCount {
-            id: project.id,
-            name: project.name,
-            description: project.description,
-            status: project.status,
-            start_date: project.start_date,
-            end_date: project.end_date,
-            created_at: project.created_at,
-            updated_at: project.updated_at,
-            ticket_count: count,
-            tickets: None,
-        });
-    }
-    
-    Ok(projects_with_count)
+
+    Ok(all_projects
+        .into_iter()
+        .map(|project| {
+            let ticket_count = count_map.get(&project.id).copied().unwrap_or(0);
+            ProjectWithTicketCount {
+                id: project.id,
+                name: project.name,
+                description: project.description,
+                status: project.status,
+                start_date: project.start_date,
+                end_date: project.end_date,
+                created_at: project.created_at,
+                updated_at: project.updated_at,
+                ticket_count,
+                tickets: None,
+            }
+        })
+        .collect())
 }
 
 pub fn get_project_with_ticket_count(conn: &mut DbConnection, project_id: i32) -> Result<ProjectWithTicketCount, Error> {
@@ -154,25 +160,35 @@ pub fn get_project_tickets(conn: &mut DbConnection, project_id: i32) -> QueryRes
         .order(project_tickets::display_order.asc())
         .load::<(Ticket, i32)>(conn)?;
 
-    // Enrich tickets with user information
-    let mut ticket_list_items = Vec::new();
-    for (ticket, _display_order) in raw_tickets {
-        let requester_user = ticket.requester_uuid.as_ref()
-            .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
-            .map(UserInfoWithAvatar::from);
-
-        let assignee_user = ticket.assignee_uuid.as_ref()
-            .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
-            .map(UserInfoWithAvatar::from);
-
-        ticket_list_items.push(TicketListItem {
-            ticket,
-            requester_user,
-            assignee_user,
-        });
+    // Collect every UUID we'll need to enrich, dedupe, then issue
+    // one SELECT instead of two per ticket. Previously a 1000-ticket
+    // project fired 2000+ user lookups serially.
+    let mut needed: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+    for (ticket, _) in &raw_tickets {
+        if let Some(u) = ticket.requester_uuid { needed.insert(u); }
+        if let Some(u) = ticket.assignee_uuid { needed.insert(u); }
     }
 
-    Ok(ticket_list_items)
+    let user_map: HashMap<Uuid, UserInfoWithAvatar> = if needed.is_empty() {
+        HashMap::new()
+    } else {
+        let uuids: Vec<Uuid> = needed.into_iter().collect();
+        users::table
+            .filter(users::uuid.eq_any(&uuids))
+            .load::<User>(conn)?
+            .into_iter()
+            .map(|u| (u.uuid, UserInfoWithAvatar::from(u)))
+            .collect()
+    };
+
+    Ok(raw_tickets
+        .into_iter()
+        .map(|(ticket, _display_order)| {
+            let requester_user = ticket.requester_uuid.and_then(|u| user_map.get(&u).cloned());
+            let assignee_user = ticket.assignee_uuid.and_then(|u| user_map.get(&u).cloned());
+            TicketListItem { ticket, requester_user, assignee_user }
+        })
+        .collect())
 }
 
 // Get projects for a ticket
