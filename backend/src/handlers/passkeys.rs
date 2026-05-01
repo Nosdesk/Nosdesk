@@ -634,18 +634,19 @@ fn find_user_by_credential_id(
     use crate::schema::users;
     use diesel::prelude::*;
     use diesel::dsl::sql;
-    use diesel::sql_types::Bool;
+    use diesel::sql_types::{Bool, Jsonb};
 
-    // Use PostgreSQL JSONB containment operator to find the user with this credential
-    // This searches for a credential with matching ID in the credentials array
-    // Query: WHERE passkey_credentials->'credentials' @> '[{"id": "credential_id"}]'::jsonb
-    let search_pattern = format!(r#"[{{"id": "{}"}}]"#, credential_id.replace('"', r#"\""#));
+    // PostgreSQL JSONB containment: pass the search value as a bound
+    // parameter so caller-supplied `credential_id` never reaches the
+    // SQL string. Pre-2026-05 this was format!()-built which left a
+    // theoretical injection window despite quote-escaping.
+    let needle = serde_json::json!([{ "id": credential_id }]);
 
     let user: Option<crate::models::User> = users::table
         .filter(users::passkey_credentials.is_not_null())
-        .filter(sql::<Bool>(&format!(
-            "passkey_credentials->'credentials' @> '{search_pattern}'::jsonb"
-        )))
+        .filter(
+            sql::<Bool>("passkey_credentials->'credentials' @> ").bind::<Jsonb, _>(needle),
+        )
         .first(conn)
         .ok();
 

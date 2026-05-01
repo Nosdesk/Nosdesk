@@ -158,7 +158,13 @@ fn decrypt_data(encrypted_data: &[u8], key: &[u8; 32], nonce_bytes: &[u8; NONCE_
     Ok(plaintext.to_vec())
 }
 
-/// Export table data as JSON using raw SQL
+/// Export table data as JSON using raw SQL.
+///
+/// `table_name` is interpolated into the query directly because
+/// Postgres doesn't accept identifiers as bound parameters. Callers
+/// today only pass values from the compile-time `BACKUP_TABLES`
+/// list, but we re-validate here as defence in depth so a future
+/// caller can't accidentally widen the surface.
 fn export_table_data(
     conn: &mut DbConnection,
     table_name: &str,
@@ -167,7 +173,12 @@ fn export_table_data(
     use diesel::sql_query;
     use diesel::sql_types::Text;
 
-    // Get all rows as JSON
+    if !BACKUP_TABLES.contains(&table_name) {
+        return Err(BackupError::CorruptedBackup(format!(
+            "Refusing to export unknown table: {table_name}"
+        )));
+    }
+
     let query = format!("SELECT row_to_json(t) FROM {table_name} t");
 
     #[derive(QueryableByName)]
