@@ -135,7 +135,6 @@ mod tests {
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            passkey_credentials: None,
             signature: None,
             dashboard_layout: None,
         };

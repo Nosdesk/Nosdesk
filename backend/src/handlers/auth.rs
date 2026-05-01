@@ -313,13 +313,13 @@ pub async fn login(
     }
 
     // Check if user has passkeys registered - require passkey verification
-    if mfa::user_has_passkeys(&user) {
+    if mfa::user_has_passkeys(&mut conn, &user.uuid) {
         let response = jwt_helpers::create_passkey_mfa_required_response(user.uuid);
         return HttpResponse::Ok().json(response);
     }
 
     // Check MFA policy enforcement (for users without MFA enabled)
-    if let Err(_policy_error) = mfa::validate_mfa_policy(&user).await {
+    if let Err(_policy_error) = mfa::validate_mfa_policy(&user, &mut conn).await {
         // Instead of blocking, offer MFA setup for users who need it
         let response = jwt_helpers::create_mfa_setup_required_response(user.uuid);
         return HttpResponse::Ok().json(response);
@@ -474,7 +474,7 @@ pub async fn recovery_login(
     }
 
     // Verify the user actually has passkeys or MFA (this endpoint is for recovery)
-    if !mfa::user_has_passkeys(&user) && !mfa::user_has_mfa_enabled(&user) {
+    if !mfa::user_has_passkeys(&mut conn, &user.uuid) && !mfa::user_has_mfa_enabled(&user) {
         return errors::bad_request("No MFA configured for this account");
     }
 
@@ -1470,7 +1470,7 @@ pub async fn mfa_setup_login(
     }
 
     // Verify that MFA is required for this user
-    if let Ok(_) = mfa::validate_mfa_policy(&user).await {
+    if mfa::validate_mfa_policy(&user, &mut conn).await.is_ok() {
         return errors::bad_request("MFA is not required for this account");
     }
 
@@ -1584,7 +1584,7 @@ pub async fn mfa_enable_login(
         return errors::bad_request("MFA is already enabled for this account");
     }
 
-    if let Ok(_) = mfa::validate_mfa_policy(&user).await {
+    if mfa::validate_mfa_policy(&user, &mut conn).await.is_ok() {
         return errors::bad_request("MFA is not required for this account");
     }
 

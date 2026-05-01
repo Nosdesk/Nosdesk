@@ -558,7 +558,6 @@ mod tests {
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            passkey_credentials: None,
             created_at: chrono::Utc::now().naive_utc(),
             updated_at: chrono::Utc::now().naive_utc(),
             password_changed_at: None,

@@ -354,8 +354,14 @@ pub fn should_require_mfa(user_role: &UserRole) -> bool {
 
 /// Check if user has MFA enabled and enforce policy
 /// Considers both TOTP and passkeys as valid MFA methods
-pub async fn validate_mfa_policy(user: &User) -> Result<()> {
-    if should_require_mfa(&user.role) && !user.mfa_enabled && !user_has_passkeys(user) {
+pub async fn validate_mfa_policy(
+    user: &User,
+    conn: &mut crate::db::DbConnection,
+) -> Result<()> {
+    if should_require_mfa(&user.role)
+        && !user.mfa_enabled
+        && !user_has_passkeys(conn, &user.uuid)
+    {
         return Err(anyhow!(
             "MFA is required for {} users. Please enable MFA on your account.",
             match user.role {
@@ -373,13 +379,10 @@ pub fn user_has_mfa_enabled(user: &User) -> bool {
     user.mfa_enabled && user.mfa_secret.is_some()
 }
 
-/// Check if user has any passkeys registered
-pub fn user_has_passkeys(user: &User) -> bool {
-    user.passkey_credentials
-        .as_ref()
-        .and_then(|v| v.get("credentials"))
-        .and_then(|c| c.as_array())
-        .map(|arr| !arr.is_empty())
+/// Check if user has any passkeys registered.
+pub fn user_has_passkeys(conn: &mut crate::db::DbConnection, user_uuid: &Uuid) -> bool {
+    crate::repository::passkey_credentials::count_for_user(conn, user_uuid)
+        .map(|n| n > 0)
         .unwrap_or(false)
 }
 
@@ -475,7 +478,6 @@ mod tests {
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            passkey_credentials: None,
             signature: None,
             dashboard_layout: None,
         };

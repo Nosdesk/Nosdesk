@@ -15,8 +15,7 @@ use crate::handlers::errors;
 use crate::models::Claims;
 use crate::repository;
 use crate::utils::webauthn::{
-    self, credential_id_to_string, get_user_passkey_data, save_user_passkey_data,
-    StoredPasskeyCredential, WEBAUTHN,
+    self, credential_id_to_string, StoredPasskeyCredential, WEBAUTHN,
 };
 use crate::utils::jwt::helpers as jwt_helpers;
 use crate::utils::rate_limit::{get_redis_url, RateLimiter};
@@ -147,11 +146,18 @@ pub async fn start_passkey_registration(
     };
 
     // Check passkey limit
-    if !webauthn::can_add_passkey(&user) {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Maximum number of passkeys reached",
-            "max_passkeys": webauthn::MAX_PASSKEYS_PER_USER
-        }));
+    match webauthn::can_add_passkey(&mut conn, &user_uuid) {
+        Ok(false) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": "Maximum number of passkeys reached",
+                "max_passkeys": webauthn::MAX_PASSKEYS_PER_USER
+            }));
+        }
+        Err(e) => {
+            error!("Failed to check passkey count: {:?}", e);
+            return errors::internal("Failed to check passkey count");
+        }
+        Ok(true) => {}
     }
 
     // Get user's primary email
@@ -162,8 +168,14 @@ pub async fn start_passkey_registration(
         }
     };
 
-    // Get existing credentials to exclude
-    let passkey_data = get_user_passkey_data(&user);
+    // Existing credentials to exclude from the new registration
+    let passkey_data = match webauthn::load_user_passkey_data(&mut conn, &user_uuid) {
+        Ok(data) => data,
+        Err(e) => {
+            error!("Failed to load existing passkeys: {:?}", e);
+            return errors::internal("Failed to load existing passkeys");
+        }
+    };
     let exclude_credentials: Vec<CredentialID> = passkey_data
         .credentials
         .iter()
@@ -251,13 +263,9 @@ pub async fn finish_passkey_registration(
         Err(e) => return e,
     };
 
-    // Get user from database
-    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
-        Ok(user) => user,
-        Err(_) => {
-            return errors::not_found_msg("User not found");
-        }
-    };
+    if repository::get_user_by_uuid(&user_uuid, &mut conn).is_err() {
+        return errors::not_found_msg("User not found");
+    }
 
     // Retrieve registration state from Redis
     let reg_state = match webauthn::get_registration_state(&user_uuid).await {
@@ -320,12 +328,7 @@ pub async fn finish_passkey_registration(
         backup_state: false,
     };
 
-    // Add to user's passkey data
-    let mut passkey_data = get_user_passkey_data(&user);
-    passkey_data.add_credential(stored_credential);
-
-    // Save to database
-    if let Err(e) = save_user_passkey_data(&mut conn, &user_uuid, &passkey_data) {
+    if let Err(e) = webauthn::add_credential(&mut conn, &user_uuid, &stored_credential) {
         error!("Failed to save passkey: {:?}", e);
         return errors::internal("Failed to save passkey");
     }
@@ -447,7 +450,13 @@ pub async fn start_passkey_login(
     };
 
     // Get user's passkeys
-    let passkey_data = get_user_passkey_data(&user);
+    let passkey_data = match webauthn::load_user_passkey_data(&mut conn, &user.uuid) {
+        Ok(data) => data,
+        Err(e) => {
+            error!("Failed to load passkeys for {}: {:?}", email, e);
+            return errors::internal("Failed to load passkeys");
+        }
+    };
     if passkey_data.credentials.is_empty() {
         return errors::bad_request("No passkeys registered for this account");
     }
@@ -536,7 +545,13 @@ pub async fn finish_passkey_login(
         };
 
         // Get the user's passkey for verification
-        let passkey_data = get_user_passkey_data(&user);
+        let passkey_data = match webauthn::load_user_passkey_data(&mut conn, &user.uuid) {
+            Ok(data) => data,
+            Err(e) => {
+                error!("Failed to load passkeys for {}: {:?}", user.uuid, e);
+                return errors::internal("Failed to load passkeys");
+            }
+        };
         let stored_cred = match passkey_data.find_credential(credential_id) {
             Some(cred) => cred,
             None => {
@@ -589,15 +604,9 @@ pub async fn finish_passkey_login(
         };
     }
 
-    // Update the credential's last_used_at timestamp
-    let mut passkey_data = get_user_passkey_data(&user);
-    if let Some(cred) = passkey_data.find_credential_mut(credential_id) {
-        cred.last_used_at = Some(chrono::Utc::now());
-    }
-
-    if let Err(e) = save_user_passkey_data(&mut conn, &user.uuid, &passkey_data) {
+    // Stamp last_used_at; failure is not fatal to the login flow.
+    if let Err(e) = webauthn::touch_last_used(&mut conn, &user.uuid, credential_id) {
         warn!("Failed to update passkey after auth: {:?}", e);
-        // Don't fail login for this
     }
 
     // Create session + tokens, return response with auth cookies
@@ -625,42 +634,22 @@ pub async fn finish_passkey_login(
     }
 }
 
-/// Helper to find user by credential ID
-/// Uses efficient JSONB query instead of loading all users
+/// Find the user that owns a given WebAuthn credential ID.
+///
+/// `credential_id` has a UNIQUE index on `passkey_credentials`, so
+/// this is an O(log n) index lookup followed by the user fetch.
+/// Compare to the previous JSONB-blob design which scanned every
+/// users row on every login.
 fn find_user_by_credential_id(
     conn: &mut crate::db::DbConnection,
     credential_id: &str,
 ) -> Option<(crate::models::User, String)> {
-    use crate::schema::users;
-    use diesel::prelude::*;
-    use diesel::dsl::sql;
-    use diesel::sql_types::{Bool, Jsonb};
-
-    // PostgreSQL JSONB containment: pass the search value as a bound
-    // parameter so caller-supplied `credential_id` never reaches the
-    // SQL string. Pre-2026-05 this was format!()-built which left a
-    // theoretical injection window despite quote-escaping.
-    let needle = serde_json::json!([{ "id": credential_id }]);
-
-    let user: Option<crate::models::User> = users::table
-        .filter(users::passkey_credentials.is_not_null())
-        .filter(
-            sql::<Bool>("passkey_credentials->'credentials' @> ").bind::<Jsonb, _>(needle),
-        )
-        .first(conn)
-        .ok();
-
-    if let Some(user) = user {
-        // Verify the credential actually exists (defense in depth)
-        let passkey_data = get_user_passkey_data(&user);
-        if passkey_data.find_credential(credential_id).is_some() {
-            if let Some(email) = repository::user_helpers::get_primary_email(&user.uuid, conn) {
-                return Some((user, email));
-            }
-        }
-    }
-
-    None
+    let row = repository::passkey_credentials::find_by_credential_id(conn, credential_id)
+        .ok()
+        .flatten()?;
+    let user = repository::get_user_by_uuid(&row.user_uuid, conn).ok()?;
+    let email = repository::user_helpers::get_primary_email(&user.uuid, conn)?;
+    Some((user, email))
 }
 
 // =============================================================================
@@ -688,14 +677,17 @@ pub async fn list_passkeys(req: HttpRequest, pool: web::Data<Pool>) -> impl Resp
         Err(e) => return e,
     };
 
-    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
-        Ok(user) => user,
-        Err(_) => {
-            return errors::not_found_msg("User not found");
+    if repository::get_user_by_uuid(&user_uuid, &mut conn).is_err() {
+        return errors::not_found_msg("User not found");
+    }
+
+    let passkey_data = match webauthn::load_user_passkey_data(&mut conn, &user_uuid) {
+        Ok(data) => data,
+        Err(e) => {
+            error!("Failed to load passkeys for {}: {:?}", user_uuid, e);
+            return errors::internal("Failed to load passkeys");
         }
     };
-
-    let passkey_data = get_user_passkey_data(&user);
     let passkeys: Vec<PasskeyInfo> = passkey_data
         .credentials
         .iter()
@@ -745,27 +737,17 @@ pub async fn rename_passkey(
         Err(e) => return e,
     };
 
-    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
-        Ok(user) => user,
-        Err(_) => {
-            return errors::not_found_msg("User not found");
-        }
-    };
-
-    let mut passkey_data = get_user_passkey_data(&user);
-
-    match passkey_data.find_credential_mut(&credential_id) {
-        Some(cred) => {
-            cred.name = new_name.to_string();
-        }
-        None => {
-            return errors::not_found_msg("Passkey not found");
-        }
+    if repository::get_user_by_uuid(&user_uuid, &mut conn).is_err() {
+        return errors::not_found_msg("User not found");
     }
 
-    if let Err(e) = save_user_passkey_data(&mut conn, &user_uuid, &passkey_data) {
-        error!("Failed to rename passkey: {:?}", e);
-        return errors::internal("Failed to rename passkey");
+    match webauthn::rename_credential(&mut conn, &user_uuid, &credential_id, new_name) {
+        Ok(true) => {}
+        Ok(false) => return errors::not_found_msg("Passkey not found"),
+        Err(e) => {
+            error!("Failed to rename passkey: {:?}", e);
+            return errors::internal("Failed to rename passkey");
+        }
     }
 
     info!("Passkey {} renamed for user {}", credential_id, user_uuid);
@@ -803,12 +785,9 @@ pub async fn delete_passkey(
         Err(e) => return e,
     };
 
-    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
-        Ok(user) => user,
-        Err(_) => {
-            return errors::not_found_msg("User not found");
-        }
-    };
+    if repository::get_user_by_uuid(&user_uuid, &mut conn).is_err() {
+        return errors::not_found_msg("User not found");
+    }
 
     // Verify password
     let password_hash = match get_local_password_hash(&user_uuid, &mut conn) {
@@ -823,15 +802,13 @@ pub async fn delete_passkey(
         return errors::unauthorized("Incorrect password");
     }
 
-    let mut passkey_data = get_user_passkey_data(&user);
-
-    if !passkey_data.remove_credential(&credential_id) {
-        return errors::not_found_msg("Passkey not found");
-    }
-
-    if let Err(e) = save_user_passkey_data(&mut conn, &user_uuid, &passkey_data) {
-        error!("Failed to delete passkey: {:?}", e);
-        return errors::internal("Failed to delete passkey");
+    match webauthn::delete_credential(&mut conn, &user_uuid, &credential_id) {
+        Ok(true) => {}
+        Ok(false) => return errors::not_found_msg("Passkey not found"),
+        Err(e) => {
+            error!("Failed to delete passkey: {:?}", e);
+            return errors::internal("Failed to delete passkey");
+        }
     }
 
     info!("Passkey {} deleted for user {}", credential_id, user_uuid);
@@ -967,16 +944,23 @@ pub async fn start_passkey_setup_login(
     }
 
     // Verify that MFA is required for this user
-    if mfa::validate_mfa_policy(&user).await.is_ok() {
+    if mfa::validate_mfa_policy(&user, &mut conn).await.is_ok() {
         return errors::bad_request("MFA is not required for this account");
     }
 
     // Check passkey limit
-    if !webauthn::can_add_passkey(&user) {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "Maximum number of passkeys reached",
-            "max_passkeys": webauthn::MAX_PASSKEYS_PER_USER
-        }));
+    match webauthn::can_add_passkey(&mut conn, &user.uuid) {
+        Ok(false) => {
+            return HttpResponse::BadRequest().json(json!({
+                "error": "Maximum number of passkeys reached",
+                "max_passkeys": webauthn::MAX_PASSKEYS_PER_USER
+            }));
+        }
+        Err(e) => {
+            error!("Failed to check passkey count: {:?}", e);
+            return errors::internal("Failed to check passkey count");
+        }
+        Ok(true) => {}
     }
 
     // Get user's primary email
@@ -987,8 +971,13 @@ pub async fn start_passkey_setup_login(
         }
     };
 
-    // Get existing credentials to exclude
-    let passkey_data = get_user_passkey_data(&user);
+    let passkey_data = match webauthn::load_user_passkey_data(&mut conn, &user.uuid) {
+        Ok(data) => data,
+        Err(e) => {
+            error!("Failed to load existing passkeys: {:?}", e);
+            return errors::internal("Failed to load existing passkeys");
+        }
+    };
     let exclude_credentials: Vec<CredentialID> = passkey_data
         .credentials
         .iter()
@@ -1111,7 +1100,7 @@ pub async fn finish_passkey_setup_login(
         return errors::bad_request("MFA is already enabled for this account");
     }
 
-    if mfa::validate_mfa_policy(&user).await.is_ok() {
+    if mfa::validate_mfa_policy(&user, &mut conn).await.is_ok() {
         return errors::bad_request("MFA is not required for this account");
     }
 
@@ -1176,12 +1165,7 @@ pub async fn finish_passkey_setup_login(
         backup_state: false,
     };
 
-    // Add to user's passkey data
-    let mut passkey_data = get_user_passkey_data(&user);
-    passkey_data.add_credential(stored_credential);
-
-    // Save to database
-    if let Err(e) = save_user_passkey_data(&mut conn, &user.uuid, &passkey_data) {
+    if let Err(e) = webauthn::add_credential(&mut conn, &user.uuid, &stored_credential) {
         error!("Failed to save passkey: {:?}", e);
         return errors::internal("Failed to save passkey");
     }

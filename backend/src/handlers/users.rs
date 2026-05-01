@@ -2385,7 +2385,13 @@ pub async fn get_user_security_info(
         .unwrap_or(false);
 
     // Passkey info
-    let passkey_data = crate::utils::webauthn::get_user_passkey_data(&user);
+    let passkey_data = match crate::utils::webauthn::load_user_passkey_data(&mut conn, &user.uuid) {
+        Ok(data) => data,
+        Err(e) => {
+            error!(error = ?e, "Failed to load passkeys for user");
+            return errors::internal("Failed to load passkeys");
+        }
+    };
     let passkeys: Vec<serde_json::Value> = passkey_data.credentials.iter().map(|c| {
         json!({
             "id": c.id,
@@ -2530,14 +2536,13 @@ pub async fn admin_delete_user_passkey(
         Err(e) => return e,
     };
 
-    let mut passkey_data = crate::utils::webauthn::get_user_passkey_data(&user);
-    if !passkey_data.remove_credential(&credential_id) {
-        return errors::not_found_msg("Passkey not found");
-    }
-
-    if let Err(e) = crate::utils::webauthn::save_user_passkey_data(&mut conn, &user.uuid, &passkey_data) {
-        error!(error = ?e, "Error saving passkey data");
-        return errors::internal("Failed to delete passkey");
+    match crate::utils::webauthn::delete_credential(&mut conn, &user.uuid, &credential_id) {
+        Ok(true) => {}
+        Ok(false) => return errors::not_found_msg("Passkey not found"),
+        Err(e) => {
+            error!(error = ?e, "Error deleting passkey");
+            return errors::internal("Failed to delete passkey");
+        }
     }
 
     info!(admin = %claims.sub, target_user = %target_uuid_str, credential_id = %credential_id, "Admin deleted passkey for user");

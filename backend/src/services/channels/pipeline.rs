@@ -1029,7 +1029,6 @@ mod tests {
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            passkey_credentials: None,
             signature: None,
             dashboard_layout: None,
         };
@@ -1075,7 +1074,6 @@ mod tests {
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            passkey_credentials: None,
             signature: None,
             dashboard_layout: None,
         };
@@ -1156,7 +1154,6 @@ My printer is literally on fire.
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            passkey_credentials: None,
             signature: None,
             dashboard_layout: None,
         };

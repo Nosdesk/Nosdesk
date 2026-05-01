@@ -6,7 +6,6 @@
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use redis::AsyncCommands;
-use serde::{Deserialize, Serialize};
 use std::env;
 use url::Url;
 use uuid::Uuid;
@@ -14,8 +13,8 @@ use base64::Engine;
 use webauthn_rs::prelude::*;
 
 use crate::db::DbConnection;
-use crate::models::User;
-use crate::repository;
+use crate::models::{NewPasskeyCredential, PasskeyCredential, PasskeyCredentialUpdate};
+use crate::repository::passkey_credentials as repo;
 
 use super::rate_limit::get_redis_url;
 
@@ -130,118 +129,162 @@ lazy_static::lazy_static! {
 }
 
 // =============================================================================
-// Credential Storage Types (JSONB)
+// Credential Storage
 // =============================================================================
+//
+// Passkey credentials live in their own `passkey_credentials` table,
+// one row per WebAuthn credential, keyed by the credential_id. The
+// types below adapt that row shape to the in-memory representation
+// the WebAuthn flow handlers want, plus convert from/to the
+// `webauthn_rs::Passkey` type.
 
-/// A stored passkey credential in the user's passkey_credentials JSONB
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A stored passkey credential. Mirrors a row of `passkey_credentials`
+/// with the `credential` JSONB rehydrated as a `Passkey`.
+#[derive(Debug, Clone)]
 pub struct StoredPasskeyCredential {
-    /// Base64URL-encoded credential ID
     pub id: String,
-    /// User-friendly name for this passkey
     pub name: String,
-    /// The full Passkey credential from webauthn-rs (serialized)
-    #[serde(with = "passkey_serde")]
     pub credential: Passkey,
-    /// Supported transports (internal, usb, nfc, ble, hybrid)
     pub transports: Vec<String>,
-    /// When this passkey was registered
     pub created_at: DateTime<Utc>,
-    /// When this passkey was last used for authentication
     pub last_used_at: Option<DateTime<Utc>>,
-    /// Whether this credential is backup eligible
     pub backup_eligible: bool,
-    /// Whether this credential is currently backed up
     pub backup_state: bool,
 }
 
-/// Custom serde module for Passkey serialization
-mod passkey_serde {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    use webauthn_rs::prelude::Passkey;
-
-    pub fn serialize<S>(passkey: &Passkey, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Serialize to JSON value first, then to the target format
-        let json = serde_json::to_value(passkey)
-            .map_err(serde::ser::Error::custom)?;
-        json.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Passkey, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let json = serde_json::Value::deserialize(deserializer)?;
-        serde_json::from_value(json).map_err(serde::de::Error::custom)
+impl StoredPasskeyCredential {
+    fn from_row(row: PasskeyCredential) -> Result<Self> {
+        let credential: Passkey = serde_json::from_value(row.credential)
+            .map_err(|e| anyhow!("Failed to deserialize stored Passkey: {:?}", e))?;
+        Ok(Self {
+            id: row.credential_id,
+            name: row.name,
+            credential,
+            transports: row.transports.into_iter().flatten().collect(),
+            created_at: row.created_at,
+            last_used_at: row.last_used_at,
+            backup_eligible: row.backup_eligible,
+            backup_state: row.backup_state,
+        })
     }
 }
 
-/// User's complete passkey data structure stored in JSONB
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// All of a user's passkeys, loaded once and held for the duration
+/// of a single request. Operations that mutate (add / rename / touch
+/// last-used) write back to the table directly via the repo, this
+/// type stays read-only.
+#[derive(Debug, Clone, Default)]
 pub struct UserPasskeyData {
     pub credentials: Vec<StoredPasskeyCredential>,
 }
 
 impl UserPasskeyData {
-    /// Add a new credential
-    pub fn add_credential(&mut self, credential: StoredPasskeyCredential) {
-        self.credentials.push(credential);
-    }
-
-    /// Remove a credential by ID
-    pub fn remove_credential(&mut self, credential_id: &str) -> bool {
-        let len_before = self.credentials.len();
-        self.credentials.retain(|c| c.id != credential_id);
-        self.credentials.len() < len_before
-    }
-
-    /// Find a credential by ID
     pub fn find_credential(&self, credential_id: &str) -> Option<&StoredPasskeyCredential> {
         self.credentials.iter().find(|c| c.id == credential_id)
     }
 
-    /// Find a credential by ID (mutable)
-    pub fn find_credential_mut(&mut self, credential_id: &str) -> Option<&mut StoredPasskeyCredential> {
-        self.credentials.iter_mut().find(|c| c.id == credential_id)
-    }
-
-    /// Get all Passkey credentials for authentication
     pub fn get_passkeys(&self) -> Vec<Passkey> {
         self.credentials.iter().map(|c| c.credential.clone()).collect()
     }
-
 }
 
 // =============================================================================
 // User Passkey Operations
 // =============================================================================
 
-/// Get user's passkey data from the database
-pub fn get_user_passkey_data(user: &User) -> UserPasskeyData {
-    user.passkey_credentials
-        .as_ref()
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default()
-}
-
-/// Save user's passkey data to the database
-pub fn save_user_passkey_data(
+/// Load every credential for a user. Returns an empty bundle when
+/// the user has none, never an error from "no rows found".
+pub fn load_user_passkey_data(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
-    data: &UserPasskeyData,
+) -> Result<UserPasskeyData> {
+    let rows = repo::list_for_user(conn, user_uuid)
+        .map_err(|e| anyhow!("Failed to load passkeys: {:?}", e))?;
+    let credentials = rows
+        .into_iter()
+        .map(StoredPasskeyCredential::from_row)
+        .collect::<Result<Vec<_>>>()?;
+    Ok(UserPasskeyData { credentials })
+}
+
+/// Insert a newly-registered credential.
+pub fn add_credential(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    credential: &StoredPasskeyCredential,
 ) -> Result<()> {
-    let json_value = serde_json::to_value(data)?;
-    repository::update_user_passkey_credentials(conn, user_uuid, Some(json_value))
-        .map_err(|e| anyhow!("Failed to save passkey data: {:?}", e))?;
+    let credential_json = serde_json::to_value(&credential.credential)
+        .map_err(|e| anyhow!("Failed to serialize Passkey for storage: {:?}", e))?;
+    let new = NewPasskeyCredential {
+        user_uuid: *user_uuid,
+        credential_id: credential.id.clone(),
+        name: credential.name.clone(),
+        credential: credential_json,
+        transports: credential.transports.iter().map(|t| Some(t.clone())).collect(),
+        backup_eligible: credential.backup_eligible,
+        backup_state: credential.backup_state,
+    };
+    repo::create(conn, new)
+        .map_err(|e| anyhow!("Failed to insert passkey: {:?}", e))?;
     Ok(())
 }
 
-/// Get the number of passkeys registered for a user
-pub fn get_passkey_count(user: &User) -> usize {
-    get_user_passkey_data(user).credentials.len()
+/// Rename a credential. Scoped to user so a stolen credential_id
+/// can't be used to rename another user's passkey. Returns
+/// `Ok(false)` when no row matched (caller renders 404), `Ok(true)`
+/// when the rename took effect.
+pub fn rename_credential(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    credential_id: &str,
+    new_name: &str,
+) -> Result<bool> {
+    let change = PasskeyCredentialUpdate {
+        name: Some(new_name.to_string()),
+        ..Default::default()
+    };
+    match repo::update_for_user(conn, user_uuid, credential_id, change) {
+        Ok(_) => Ok(true),
+        Err(diesel::result::Error::NotFound) => Ok(false),
+        Err(e) => Err(anyhow!("Failed to rename passkey: {:?}", e)),
+    }
+}
+
+/// Stamp `last_used_at` after a successful authentication.
+/// Same not-found semantics as [`rename_credential`].
+pub fn touch_last_used(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    credential_id: &str,
+) -> Result<bool> {
+    let change = PasskeyCredentialUpdate {
+        name: None,
+        last_used_at: Some(Some(Utc::now())),
+    };
+    match repo::update_for_user(conn, user_uuid, credential_id, change) {
+        Ok(_) => Ok(true),
+        Err(diesel::result::Error::NotFound) => Ok(false),
+        Err(e) => Err(anyhow!("Failed to touch passkey last_used_at: {:?}", e)),
+    }
+}
+
+/// Delete a credential. Returns true if a row was actually removed.
+pub fn delete_credential(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    credential_id: &str,
+) -> Result<bool> {
+    let removed = repo::delete_for_user(conn, user_uuid, credential_id)
+        .map_err(|e| anyhow!("Failed to delete passkey: {:?}", e))?;
+    Ok(removed > 0)
+}
+
+/// Number of passkeys registered for a user. Caller-side helper for
+/// the per-user cap; uses a count() query rather than loading rows.
+pub fn get_passkey_count(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<usize> {
+    let n = repo::count_for_user(conn, user_uuid)
+        .map_err(|e| anyhow!("Failed to count passkeys: {:?}", e))?;
+    Ok(n as usize)
 }
 
 // =============================================================================
@@ -388,9 +431,9 @@ pub fn credential_id_to_string(id: &CredentialID) -> String {
 /// Maximum number of passkeys allowed per user
 pub const MAX_PASSKEYS_PER_USER: usize = 10;
 
-/// Check if user can add more passkeys
-pub fn can_add_passkey(user: &User) -> bool {
-    get_passkey_count(user) < MAX_PASSKEYS_PER_USER
+/// Check if user can add more passkeys.
+pub fn can_add_passkey(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<bool> {
+    Ok(get_passkey_count(conn, user_uuid)? < MAX_PASSKEYS_PER_USER)
 }
 
 /// Generate a default passkey name based on user agent

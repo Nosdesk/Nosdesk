@@ -341,24 +341,6 @@ pub fn clear_user_mfa(
         .execute(conn)
 }
 
-/// Update user passkey credentials by UUID
-pub fn update_user_passkey_credentials(
-    conn: &mut DbConnection,
-    uuid: &Uuid,
-    passkey_credentials: Option<serde_json::Value>,
-) -> Result<User, Error> {
-    use crate::models::UserPasskeyUpdate;
-
-    let update = UserPasskeyUpdate {
-        passkey_credentials,
-        updated_at: Some(chrono::Utc::now().naive_utc()),
-    };
-
-    diesel::update(users::table.filter(users::uuid.eq(uuid)))
-        .set(update)
-        .get_result(conn)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

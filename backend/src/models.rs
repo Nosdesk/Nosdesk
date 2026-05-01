@@ -721,7 +721,6 @@ pub struct User {
     pub mfa_secret: Option<String>,
     pub mfa_enabled: bool,
     pub mfa_backup_codes: Option<serde_json::Value>,
-    pub passkey_credentials: Option<serde_json::Value>,
     /// Free-form text appended to outbound channel replies as the
     /// agent's email signature. Stored as-is; user owns formatting.
     /// `None` / empty → no signature appended.
@@ -750,7 +749,6 @@ pub struct NewUser {
     pub mfa_secret: Option<String>,
     pub mfa_enabled: bool,
     pub mfa_backup_codes: Option<serde_json::Value>,
-    pub passkey_credentials: Option<serde_json::Value>,
     #[serde(default)]
     pub signature: Option<String>,
     #[serde(default)]
@@ -1716,12 +1714,44 @@ pub struct UserMfaUpdate {
     pub updated_at: Option<chrono::NaiveDateTime>,
 }
 
-/// Update struct for user passkey credentials
-#[derive(Debug, AsChangeset)]
-#[diesel(table_name = crate::schema::users)]
-pub struct UserPasskeyUpdate {
-    pub passkey_credentials: Option<serde_json::Value>,
-    pub updated_at: Option<chrono::NaiveDateTime>,
+// ===== PASSKEY CREDENTIAL MODELS =====
+
+/// One row of `passkey_credentials`. Each WebAuthn credential is
+/// stored as its own row with a unique `credential_id`, replacing
+/// the earlier JSONB-blob-on-users design.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Selectable)]
+#[diesel(table_name = crate::schema::passkey_credentials)]
+pub struct PasskeyCredential {
+    pub id: Uuid,
+    pub user_uuid: Uuid,
+    pub credential_id: String,
+    pub name: String,
+    pub credential: serde_json::Value,
+    pub transports: Vec<Option<String>>,
+    pub backup_eligible: bool,
+    pub backup_state: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::passkey_credentials)]
+pub struct NewPasskeyCredential {
+    pub user_uuid: Uuid,
+    pub credential_id: String,
+    pub name: String,
+    pub credential: serde_json::Value,
+    pub transports: Vec<Option<String>>,
+    pub backup_eligible: bool,
+    pub backup_state: bool,
+}
+
+/// Subset for updating mutable fields (rename, last_used_at touch).
+#[derive(Debug, Default, AsChangeset)]
+#[diesel(table_name = crate::schema::passkey_credentials)]
+pub struct PasskeyCredentialUpdate {
+    pub name: Option<String>,
+    pub last_used_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
 }
 
 // ===== SESSION MANAGEMENT MODELS =====
