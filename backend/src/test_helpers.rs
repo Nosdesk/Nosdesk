@@ -8,12 +8,40 @@ use diesel::prelude::*;
 use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
 use diesel::Connection;
+use diesel_migrations::MigrationHarness;
+use std::sync::Once;
 use std::time::Duration;
 use uuid::Uuid;
 
-use crate::db::DbConnection;
+use crate::db::{DbConnection, MIGRATIONS};
 use crate::models::*;
 use crate::schema::*;
+
+/// Resolve the test database URL from env. Both `setup_test_connection`
+/// and `setup_test_pool` use the same precedence: dedicated test DB
+/// preferred, fall back to the dev DB only when explicitly configured.
+fn test_database_url() -> String {
+    dotenv::dotenv().ok();
+    std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("TEST_DATABASE_URL or DATABASE_URL must be set for tests")
+}
+
+/// Ensure the test database has all migrations applied. Runs once
+/// per process via `Once`. Without this, the first fixture insert
+/// fails with `FailedToLookupTypeError(... "user_role" ...)` because
+/// Diesel can't find the OID for custom Postgres enum types that
+/// the migrations would have created.
+fn ensure_test_db_migrated() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let url = test_database_url();
+        let mut conn = PgConnection::establish(&url)
+            .expect("Failed to connect to test DB for migration bootstrap");
+        conn.run_pending_migrations(MIGRATIONS)
+            .expect("Failed to apply migrations to test DB");
+    });
+}
 
 /// Connection customizer that begins a test transaction on every new
 /// connection. Combined with `max_size(1)`, all code shares the same
@@ -40,7 +68,7 @@ impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for TestTransaction {
 /// runs. The dev compose file provisions `helpdesk_test` and wires
 /// this env var; see `init-db.sql`.
 pub fn setup_test_connection() -> DbConnection {
-    dotenv::dotenv().ok();
+    ensure_test_db_migrated();
 
     let database_url = std::env::var("TEST_DATABASE_URL").expect(
         "TEST_DATABASE_URL must be set (use a dedicated DB, not DATABASE_URL — \
@@ -280,13 +308,9 @@ impl TestFixtures {
 /// **Important**: Tests must drop their fixture connection before making HTTP
 /// calls, otherwise the single-connection pool will deadlock.
 pub fn setup_test_pool() -> crate::db::Pool {
-    dotenv::dotenv().ok();
+    ensure_test_db_migrated();
 
-    let database_url = std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("DATABASE_URL or TEST_DATABASE_URL must be set for tests");
-
-    let manager = ConnectionManager::<PgConnection>::new(database_url);
+    let manager = ConnectionManager::<PgConnection>::new(test_database_url());
     r2d2::Pool::builder()
         .max_size(1)
         .connection_customizer(Box::new(TestTransaction))

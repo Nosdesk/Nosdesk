@@ -1961,7 +1961,10 @@ mod tests {
     use crate::test_helpers::{setup_test_pool, create_test_claims, TestFixtures};
     use crate::models::UserRole;
 
-    /// Helper to create a test app with auth routes
+    /// Helper to create a test app with auth routes. The
+    /// `SearchService` here is a throwaway tempdir-backed instance so
+    /// `register` (which writes through the user-creation observer)
+    /// has somewhere to send its index updates.
     fn test_app(pool: crate::db::Pool) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
@@ -1971,8 +1974,14 @@ mod tests {
             InitError = (),
         >,
     > {
+        let tmp = std::env::temp_dir().join(format!("nosdesk-test-search-{}", uuid::Uuid::new_v4()));
+        let search_service = std::sync::Arc::new(
+            crate::services::search::SearchService::new(&tmp, &pool)
+                .expect("Failed to build test SearchService"),
+        );
         App::new()
             .app_data(web::Data::new(pool))
+            .app_data(web::Data::new(search_service))
             .route("/setup/status", web::get().to(check_setup_status))
             .route("/login", web::post().to(login))
             .route("/register", web::post().to(register))
@@ -2028,7 +2037,8 @@ mod tests {
 
         let body = test::read_body(resp).await;
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("error"));
+        assert!(json.get("error").and_then(|v| v.as_str()).is_some());
+        assert_eq!(json.get("code").and_then(|v| v.as_str()), Some("AUTH_REQUIRED"));
     }
 
     #[actix_web::test]
@@ -2080,8 +2090,11 @@ mod tests {
 
         let body = test::read_body(resp).await;
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("error"));
-        assert_eq!(json.get("message").and_then(|v| v.as_str()), Some("Authentication required"));
+        assert_eq!(
+            json.get("error").and_then(|v| v.as_str()),
+            Some("Authentication required")
+        );
+        assert_eq!(json.get("code").and_then(|v| v.as_str()), Some("AUTH_REQUIRED"));
     }
 
     #[actix_web::test]
