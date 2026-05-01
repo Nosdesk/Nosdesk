@@ -305,7 +305,7 @@ mod tests {
         let mut conn = setup_test_connection();
         let dev = create_device(&mut conn, minimal_device("Gone")).unwrap();
 
-        let count = delete_device(&mut conn, dev.id).unwrap();
+        let count = delete_device(&mut conn, dev.id, None).unwrap();
         assert_eq!(count, 1);
 
         let result = get_device_by_id(&mut conn, dev.id);

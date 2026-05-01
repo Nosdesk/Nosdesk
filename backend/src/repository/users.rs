@@ -407,7 +407,7 @@ mod tests {
             dashboard_layout: None,
         };
 
-        let updated = update_user(&user.uuid, update, &mut conn).unwrap();
+        let updated = update_user(&user.uuid, update, &mut conn, None).unwrap();
         assert_eq!(updated.name, "After");
     }
 
@@ -419,7 +419,7 @@ mod tests {
         TestFixtures::create_user(&mut conn, "OtherAdmin", UserRole::Admin);
         let _ticket = TestFixtures::create_ticket(&mut conn, "ticket", Some(user.uuid), None);
 
-        let deleted = delete_user(&user.uuid, &mut conn).unwrap();
+        let deleted = delete_user(&user.uuid, &mut conn, None).unwrap();
         assert_eq!(deleted, 1);
 
         let result = get_user_by_uuid(&user.uuid, &mut conn);

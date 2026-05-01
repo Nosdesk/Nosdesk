@@ -157,6 +157,7 @@ mod tests {
                 origin_channel_id: Some(Some(channel.id)),
                 ..Default::default()
             },
+            None,
         )
         .unwrap();
         (channel, ticket)
@@ -298,6 +299,7 @@ mod tests {
                 origin_channel_id: Some(Some(channel.id)),
                 ..Default::default()
             },
+            None,
         )
         .unwrap();
         let comment = make_comment(ticket.id, false);

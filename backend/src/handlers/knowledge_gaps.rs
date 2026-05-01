@@ -232,8 +232,8 @@ pub async fn list_knowledge_gaps(
         &mut conn,
         knowledge_gaps::GapListFilter {
             statuses,
-            limit: q.limit.unwrap_or(0),
-            offset: q.offset.unwrap_or(0),
+            limit: helpers::clamp_limit(q.limit),
+            offset: helpers::clamp_offset(q.offset),
         },
     ) {
         Ok(gaps) => HttpResponse::Ok().json(

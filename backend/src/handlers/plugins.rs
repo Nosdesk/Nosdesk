@@ -621,8 +621,8 @@ pub async fn get_plugin_activity(
     }
 
     let plugin_uuid = path.into_inner();
-    let limit = query.limit.unwrap_or(50).min(100);
-    let offset = query.offset.unwrap_or(0);
+    let limit = helpers::clamp_limit(query.limit);
+    let offset = helpers::clamp_offset(query.offset);
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,

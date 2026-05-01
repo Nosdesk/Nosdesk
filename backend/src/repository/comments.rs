@@ -237,7 +237,7 @@ mod tests {
             is_internal: false,
             content_format: Default::default(),
         };
-        create_comment(&mut conn, new_comment).unwrap();
+        create_comment(&mut conn, new_comment, None).unwrap();
 
         let updated_ticket = crate::repository::tickets::get_ticket_by_id(&mut conn, ticket.id).unwrap();
         assert!(updated_ticket.updated_at >= original_updated);
@@ -266,7 +266,7 @@ mod tests {
         let comment = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "Bye");
         let att = TestFixtures::create_attachment(&mut conn, comment.id, "file.txt");
 
-        delete_comment(&mut conn, comment.id).unwrap();
+        delete_comment(&mut conn, comment.id, None).unwrap();
 
         assert!(get_comment_by_id(&mut conn, comment.id).is_err());
         assert!(get_attachment_by_id(&mut conn, att.id).is_err());

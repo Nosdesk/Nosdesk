@@ -17,10 +17,6 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use utils::storage::{get_storage_config, create_storage};
 use utils::redis_yjs_cache::create_redis_cache;
 
-async fn health_check() -> impl Responder {
-    HttpResponse::Ok().body("Helpdesk API is running!")
-}
-
 /// Handle missing assets in development mode
 /// When frontend rebuilds, old asset hashes become invalid - this helps developers.
 /// Uses a single-attempt reload with cache-busting to avoid infinite loops.
@@ -882,7 +878,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(multipart_config)
             
             // === PUBLIC ROUTES (NO AUTHENTICATION REQUIRED) ===
-            .route("/health", web::get().to(health_check))
+            .route("/health", web::get().to(handlers::health::liveness))
+            .route("/readiness", web::get().to(handlers::health::readiness))
 
             // Debug endpoint for frontend log forwarding (dev mode only)
             .route("/api/debug/frontend-logs", web::post().to(handlers::debug::receive_frontend_logs))

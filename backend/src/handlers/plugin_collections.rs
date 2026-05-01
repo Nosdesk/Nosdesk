@@ -191,8 +191,8 @@ pub async fn list_collection_rows(
         }
     };
 
-    let limit = query.limit.unwrap_or(50).clamp(1, 1000);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let limit = helpers::clamp_limit(query.limit);
+    let offset = helpers::clamp_offset(query.offset);
 
     // Parse filter JSON if provided
     let filter_json = query.filter.as_ref().and_then(|f| {

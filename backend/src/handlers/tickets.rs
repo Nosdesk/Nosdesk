@@ -1709,7 +1709,7 @@ mod tests {
             origin_channel_id: None,
         };
 
-        let updated = repository::update_ticket_partial(&mut conn, ticket.id, update, Some(search_service.get_ref()))
+        let updated = repository::update_ticket_partial(&mut conn, ticket.id, update, None)
             .expect("Failed to update ticket");
 
         // Verify updates were applied

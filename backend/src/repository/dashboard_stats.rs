@@ -336,6 +336,7 @@ mod tests {
             queue: Some(QueueStats { unassigned: 5, ..Default::default() }),
             yours: None,
             summary: None,
+            knowledge_gaps: None,
         };
         let json = serde_json::to_string(&bundle).unwrap();
         assert!(json.contains("\"queue\""));

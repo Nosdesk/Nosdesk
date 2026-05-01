@@ -4,7 +4,7 @@
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 
-use crate::handlers::errors;
+use crate::handlers::{errors, helpers};
 use serde::Deserialize;
 
 use crate::models::Claims;
@@ -56,8 +56,8 @@ pub async fn get_notifications(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
-    let limit = query.limit.unwrap_or(20).min(100);
-    let offset = query.offset.unwrap_or(0);
+    let limit = helpers::clamp_limit(query.limit);
+    let offset = helpers::clamp_offset(query.offset);
     let unread_only = query.unread_only.unwrap_or(false);
 
     let result = if unread_only {

@@ -7,6 +7,27 @@ use crate::models::{Claims, User};
 use crate::repository;
 use crate::utils;
 
+/// Default page size for list endpoints when the caller doesn't
+/// specify one. Twenty is a sensible default for tabular UIs.
+pub const DEFAULT_LIMIT: i64 = 20;
+
+/// Cap on caller-supplied limits. Anything larger gets clamped down
+/// so a single request can't run an unbounded query.
+pub const MAX_LIMIT: i64 = 200;
+
+/// Apply default + cap to a caller-supplied limit. Every list
+/// endpoint should funnel its `?limit=` through this so the
+/// worst-case query cost is bounded uniformly.
+pub fn clamp_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
+}
+
+/// Clamp a caller-supplied offset to a non-negative value. Pairs
+/// with [`clamp_limit`] for offset-based pagination.
+pub fn clamp_offset(offset: Option<i64>) -> i64 {
+    offset.unwrap_or(0).max(0)
+}
+
 /// Get a database connection from the pool. Re-exports the
 /// canonical implementation in [`errors::db_conn`] so existing call
 /// sites keep working — pool exhaustion now returns a 503 with a

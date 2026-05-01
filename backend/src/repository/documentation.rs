@@ -1000,7 +1000,7 @@ mod tests {
         let user = TestFixtures::create_user(&mut conn, "deluser", UserRole::Admin);
 
         let page = create_documentation_page(make_page(user.uuid), &mut conn).unwrap();
-        let rows = delete_documentation_page(page.id, &mut conn).unwrap();
+        let rows = delete_documentation_page(page.id, &mut conn, None).unwrap();
         assert_eq!(rows, 1);
         assert!(get_documentation_page(page.id, &mut conn).is_err());
     }
