@@ -224,7 +224,7 @@ mod tests {
         Ticket {
             id: 42,
             title: "Printer on fire".into(),
-            status: crate::models::TicketStatus::Open,
+            workflow_state_id: 2, // seeded Backlog row
             priority: crate::models::TicketPriority::Medium,
             requester_uuid: None,
             assignee_uuid: None,

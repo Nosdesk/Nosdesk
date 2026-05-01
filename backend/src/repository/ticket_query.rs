@@ -8,20 +8,31 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::extractors::AuthContext;
-use crate::models::{Ticket, TicketListItem, TicketPriority, TicketStatus, UserInfoWithAvatar};
-use crate::schema::tickets;
+use crate::models::{Ticket, TicketListItem, TicketPriority, UserInfoWithAvatar, WorkflowStateCategory};
+use crate::schema::{tickets, workflow_states};
 
-/// Parse comma-separated status filter into enums
-fn parse_status_filter(status_str: &str) -> Vec<TicketStatus> {
-    status_str
-        .split(',')
-        .filter_map(|s| match s.trim().to_lowercase().as_str() {
-            "open" => Some(TicketStatus::Open),
-            "in-progress" => Some(TicketStatus::InProgress),
-            "closed" => Some(TicketStatus::Closed),
-            _ => None,
-        })
-        .collect()
+/// Parse comma-separated legacy status filter ("open" / "in-progress" /
+/// "closed") into the workflow state categories that map to those buckets.
+fn parse_status_filter(status_str: &str) -> Vec<WorkflowStateCategory> {
+    let mut out = Vec::new();
+    for raw in status_str.split(',') {
+        match raw.trim().to_lowercase().as_str() {
+            "open" => {
+                out.push(WorkflowStateCategory::Triage);
+                out.push(WorkflowStateCategory::Backlog);
+            }
+            "in-progress" => {
+                out.push(WorkflowStateCategory::Active);
+                out.push(WorkflowStateCategory::InReview);
+            }
+            "closed" => {
+                out.push(WorkflowStateCategory::Done);
+                out.push(WorkflowStateCategory::Cancelled);
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// Parse priority string to enum
@@ -63,6 +74,10 @@ pub struct TicketQuery {
     page_size: i64,
     sort_field: Option<String>,
     sort_direction: Option<String>,
+
+    // Resolved-at-query-time: workflow state ids whose category matches the
+    // requested legacy status bucket(s). Populated by `resolve_visibility`.
+    matching_workflow_state_ids: Vec<i32>,
 }
 
 impl TicketQuery {
@@ -71,6 +86,7 @@ impl TicketQuery {
         Self {
             page: 1,
             page_size: 10,
+            matching_workflow_state_ids: Vec::new(),
             ..Default::default()
         }
     }
@@ -230,6 +246,22 @@ impl TicketQuery {
         self
     }
 
+    /// Resolve workflow_state ids whose category matches the requested
+    /// legacy status bucket. Run before `apply_filters` so the boxed
+    /// query can splat the ids directly.
+    fn resolve_status_filter(&mut self, conn: &mut DbConnection) {
+        let Some(ref status_str) = self.status else { return };
+        let categories = parse_status_filter(status_str);
+        if categories.is_empty() {
+            return;
+        }
+        self.matching_workflow_state_ids = workflow_states::table
+            .filter(workflow_states::category.eq_any(categories))
+            .select(workflow_states::id)
+            .load(conn)
+            .unwrap_or_default();
+    }
+
     /// Resolve visible category IDs for a non-admin user based on group memberships.
     /// Queries category_group_visibility to find which categories the user's groups can access,
     /// plus all public categories (those with no group restrictions).
@@ -327,11 +359,17 @@ impl TicketQuery {
             );
         }
 
-        // Status filter
+        // Status filter — translate legacy buckets to workflow state ids
         if let Some(ref status_str) = self.status {
-            let statuses = parse_status_filter(status_str);
-            if !statuses.is_empty() {
-                query = query.filter(tickets::status.eq_any(statuses));
+            let categories = parse_status_filter(status_str);
+            if !categories.is_empty() && !self.matching_workflow_state_ids.is_empty() {
+                query = query
+                    .filter(tickets::workflow_state_id.eq_any(self.matching_workflow_state_ids.clone()));
+            } else if !categories.is_empty() {
+                // No matching workflow states means the filter is satisfiable
+                // by no row — apply an impossible predicate so the result set
+                // is empty.
+                query = query.filter(tickets::id.eq(-1));
             }
         }
 
@@ -391,8 +429,12 @@ impl TicketQuery {
             (Some("id"), _) => query = query.order(tickets::id.desc()),
             (Some("title"), Some("asc")) => query = query.order(tickets::title.asc()),
             (Some("title"), _) => query = query.order(tickets::title.desc()),
-            (Some("status"), Some("asc")) => query = query.order(tickets::status.asc()),
-            (Some("status"), _) => query = query.order(tickets::status.desc()),
+            // Status sort folds onto workflow_state_id; the seed ordering
+            // (Triage=1 → Cancelled=6) is monotonically increasing in
+            // category, so this preserves the previous "open / in-progress
+            // / closed" relative ordering at the bucket level.
+            (Some("status"), Some("asc")) => query = query.order(tickets::workflow_state_id.asc()),
+            (Some("status"), _) => query = query.order(tickets::workflow_state_id.desc()),
             (Some("priority"), Some("asc")) => query = query.order(tickets::priority.asc()),
             (Some("priority"), _) => query = query.order(tickets::priority.desc()),
             (Some("created_at"), Some("asc")) => query = query.order(tickets::created_at.asc()),
@@ -409,6 +451,7 @@ impl TicketQuery {
     ) -> Result<PaginatedResult<TicketListItem>, diesel::result::Error> {
         // Resolve category visibility for non-admin users
         self.resolve_visibility(conn);
+        self.resolve_status_filter(conn);
 
         // Build count query
         let count_query = self.apply_filters(tickets::table.into_boxed());
@@ -598,7 +641,13 @@ mod tests {
 
         // All returned tickets should be open + medium priority
         for item in &result.data {
-            assert_eq!(item.ticket.status, TicketStatus::Open);
+            let cat = crate::repository::workflow_states::category_of(
+                &mut conn,
+                item.ticket.workflow_state_id,
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(cat.legacy_status(), "open");
             assert_eq!(item.ticket.priority, TicketPriority::Medium);
         }
         assert!(result.total >= 1);

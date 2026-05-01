@@ -73,19 +73,22 @@ fn hydrate_signal(conn: &mut DbConnection, signal: KnowledgeGapSignal) -> Knowle
     if signal.source_kind == knowledge_gaps::SOURCE_TICKET {
         if let Ok(ticket_id) = signal.source_ref.parse::<i32>() {
             use crate::schema::tickets;
-            let row: Option<(String, crate::models::TicketStatus)> = tickets::table
+            let row: Option<(String, i32)> = tickets::table
                 .find(ticket_id)
-                .select((tickets::title, tickets::status))
+                .select((tickets::title, tickets::workflow_state_id))
                 .first(conn)
                 .optional()
                 .ok()
                 .flatten();
-            if let Some((title, status)) = row {
-                let status_str = serde_json::to_string(&status).unwrap_or_default();
+            if let Some((title, ws_id)) = row {
+                let cat = crate::repository::workflow_states::category_of(conn, ws_id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
                 return KnowledgeGapSignalResponse {
                     signal,
                     ticket_title: Some(title),
-                    ticket_status: Some(status_str.trim_matches('"').to_string()),
+                    ticket_status: Some(cat.legacy_status().to_string()),
                     detected_by_user,
                 };
             }

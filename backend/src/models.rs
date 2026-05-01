@@ -1,5 +1,5 @@
 // models.rs
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::deserialize::{self, FromSql};
 use diesel::pg::{Pg, PgValue};
@@ -17,44 +17,119 @@ where
     serializer.serialize_str(&uuid.map(|u| u.to_string()).unwrap_or_default())
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+/// Fixed system-level workflow categories. The category vocabulary is the
+/// stable contract that downstream code reasons in (SLA timers, dashboard
+/// rollups, automation triggers); the user-visible state names live on
+/// `workflow_states` and can be customised per workspace.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 #[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
-#[diesel(sql_type = crate::schema::sql_types::TicketStatus)]
-pub enum TicketStatus {
-    #[serde(rename = "open")]
-    Open,
-    #[serde(rename = "in-progress")]
-    InProgress,
-    #[serde(rename = "closed")]
-    Closed,
+#[diesel(sql_type = crate::schema::sql_types::WorkflowStateCategory)]
+pub enum WorkflowStateCategory {
+    #[serde(rename = "triage")]
+    Triage,
+    #[serde(rename = "backlog")]
+    Backlog,
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "in_review")]
+    InReview,
+    #[serde(rename = "done")]
+    Done,
+    #[serde(rename = "cancelled")]
+    Cancelled,
 }
 
-impl TicketStatus {
+impl WorkflowStateCategory {
     pub fn as_str(&self) -> &'static str {
         match self {
-            TicketStatus::Open => "open",
-            TicketStatus::InProgress => "in-progress",
-            TicketStatus::Closed => "closed",
+            WorkflowStateCategory::Triage => "triage",
+            WorkflowStateCategory::Backlog => "backlog",
+            WorkflowStateCategory::Active => "active",
+            WorkflowStateCategory::InReview => "in_review",
+            WorkflowStateCategory::Done => "done",
+            WorkflowStateCategory::Cancelled => "cancelled",
+        }
+    }
+
+    /// Terminal categories don't transition further on their own. Used by
+    /// SLA, rollup, and metric code that needs a "is this work finished?"
+    /// answer without enumerating every named state.
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Done | Self::Cancelled)
+    }
+
+    /// Folds the new six-category model down to the legacy three-bucket
+    /// status string (`open` / `in-progress` / `closed`) so existing API
+    /// consumers and the frontend keep working through the migration.
+    /// Triage and Backlog → open; Active and In Review → in-progress;
+    /// Done and Cancelled → closed.
+    pub fn legacy_status(&self) -> &'static str {
+        match self {
+            Self::Triage | Self::Backlog => "open",
+            Self::Active | Self::InReview => "in-progress",
+            Self::Done | Self::Cancelled => "closed",
         }
     }
 }
 
-impl ToSql<crate::schema::sql_types::TicketStatus, Pg> for TicketStatus {
+impl ToSql<crate::schema::sql_types::WorkflowStateCategory, Pg> for WorkflowStateCategory {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
         out.write_all(self.as_str().as_bytes())?;
         Ok(IsNull::No)
     }
 }
 
-impl FromSql<crate::schema::sql_types::TicketStatus, Pg> for TicketStatus {
+impl FromSql<crate::schema::sql_types::WorkflowStateCategory, Pg> for WorkflowStateCategory {
     fn from_sql(bytes: PgValue) -> deserialize::Result<Self> {
         match bytes.as_bytes() {
-            b"open" => Ok(TicketStatus::Open),
-            b"in-progress" => Ok(TicketStatus::InProgress),
-            b"closed" => Ok(TicketStatus::Closed),
-            _ => Err("Unrecognized enum variant".into()),
+            b"triage" => Ok(Self::Triage),
+            b"backlog" => Ok(Self::Backlog),
+            b"active" => Ok(Self::Active),
+            b"in_review" => Ok(Self::InReview),
+            b"done" => Ok(Self::Done),
+            b"cancelled" => Ok(Self::Cancelled),
+            other => Err(format!(
+                "unknown workflow_state_category: {}",
+                String::from_utf8_lossy(other)
+            )
+            .into()),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::workflow_states)]
+pub struct WorkflowState {
+    pub id: i32,
+    pub name: String,
+    pub category: WorkflowStateCategory,
+    pub color: String,
+    pub position: i32,
+    pub is_default: bool,
+    pub archived_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::workflow_states)]
+pub struct NewWorkflowState {
+    pub name: String,
+    pub category: WorkflowStateCategory,
+    pub color: String,
+    pub position: i32,
+    pub is_default: bool,
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::workflow_states)]
+pub struct WorkflowStateUpdate {
+    pub name: Option<String>,
+    pub color: Option<String>,
+    pub position: Option<i32>,
+    pub is_default: Option<bool>,
+    pub archived_at: Option<Option<DateTime<Utc>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
@@ -164,7 +239,6 @@ impl FromSql<crate::schema::sql_types::TicketPriority, Pg> for TicketPriority {
 pub struct Ticket {
     pub id: i32,
     pub title: String,
-    pub status: TicketStatus,
     pub priority: TicketPriority,
     #[serde(serialize_with = "serialize_optional_uuid_as_string", rename = "requester")]
     pub requester_uuid: Option<Uuid>,
@@ -186,6 +260,7 @@ pub struct Ticket {
     /// workspace, etc.). Null for tickets submitted via the normal UI or
     /// the guest web form.
     pub origin_channel_id: Option<i32>,
+    pub workflow_state_id: i32,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
@@ -194,7 +269,7 @@ pub struct Ticket {
 #[diesel(table_name = crate::schema::tickets)]
 pub struct NewTicket {
     pub title: String,
-    pub status: TicketStatus,
+    pub workflow_state_id: i32,
     pub priority: TicketPriority,
     pub requester_uuid: Option<Uuid>,
     pub assignee_uuid: Option<Uuid>,
@@ -210,7 +285,7 @@ pub struct NewTicket {
 #[diesel(table_name = crate::schema::tickets)]
 pub struct TicketUpdate {
     pub title: Option<String>,
-    pub status: Option<TicketStatus>,
+    pub workflow_state_id: Option<i32>,
     pub priority: Option<TicketPriority>,
     pub requester_uuid: Option<Option<Uuid>>,
     pub assignee_uuid: Option<Option<Uuid>>,
@@ -1625,7 +1700,13 @@ pub struct AdminSetupResponse {
 pub struct CompleteTicketResponse {
     pub id: i32,
     pub title: String,
-    pub status: TicketStatus,
+    /// Legacy three-bucket status string derived from the workflow state's
+    /// category. Kept for frontend wire compatibility while the UI is
+    /// migrated to read `workflow_state_id` and the joined `workflow_state`
+    /// directly. Remove once the frontend stops reading it.
+    pub status: String,
+    pub workflow_state_id: i32,
+    pub workflow_state: Option<WorkflowState>,
     pub priority: TicketPriority,
     pub requester: String,
     pub assignee: String,
@@ -2247,7 +2328,9 @@ pub struct UpdateUserTicketView {
 pub struct RecentTicket {
     pub id: i32,
     pub title: String,
-    pub status: TicketStatus,
+    /// Legacy three-bucket status string. See [`CompleteTicketResponse`] note.
+    pub status: String,
+    pub workflow_state_id: i32,
     #[serde(serialize_with = "serialize_optional_uuid_as_string")]
     pub requester: Option<Uuid>,
     #[serde(serialize_with = "serialize_optional_uuid_as_string")]

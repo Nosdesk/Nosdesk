@@ -484,15 +484,20 @@ fn load_candidate_tickets(
     let cutoff = Utc::now().naive_utc() - chrono::Duration::days(days as i64);
 
     // Two-pass: load closed tickets with metadata, then exclude the
-    // ones that already have a 'resolves' link. Doing the
-    // anti-join in Rust avoids a Diesel `not(exists(...))` against
-    // the TicketStatus custom enum type, which doesn't implement
-    // QueryId in subquery position.
+    // ones that already have a 'resolves' link. We filter "closed"
+    // by joining to workflow_states and matching the terminal
+    // categories (Done, Cancelled).
+    use crate::schema::workflow_states;
+    use crate::models::WorkflowStateCategory;
     let rows: Vec<(i32, String, Option<i32>, Option<String>, Option<String>, Option<String>)> =
         tickets::table
+            .inner_join(workflow_states::table)
             .left_join(ticket_categories::table.on(ticket_categories::id.nullable().eq(tickets::category_id)))
             .left_join(channels::table.on(channels::id.nullable().eq(tickets::origin_channel_id)))
-            .filter(tickets::status.eq_any(vec![crate::models::TicketStatus::Closed]))
+            .filter(workflow_states::category.eq_any(vec![
+                WorkflowStateCategory::Done,
+                WorkflowStateCategory::Cancelled,
+            ]))
             .filter(tickets::updated_at.ge(cutoff))
             .select((
                 tickets::id,
@@ -889,15 +894,24 @@ fn find_stale_doc_candidates(
     let stale_ids: Vec<i32> = stale.iter().map(|(id, _, _, _, _, _)| *id).collect();
 
     // Step 2: which of those pages have 'resolves' links to
-    // tickets that closed in the recent window?
+    // tickets that closed in the recent window? Join workflow_states
+    // so we can filter on the terminal categories.
+    use crate::schema::workflow_states;
+    use crate::models::WorkflowStateCategory;
     let resolves_tickets: Vec<(i32, i32)> = documentation_page_tickets::table
         .inner_join(tickets::table.on(tickets::id.eq(documentation_page_tickets::ticket_id)))
+        .inner_join(
+            workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)),
+        )
         .filter(documentation_page_tickets::page_id.eq_any(&stale_ids))
         .filter(
             documentation_page_tickets::link_type
                 .eq(crate::repository::documentation_page_tickets::LINK_RESOLVES),
         )
-        .filter(tickets::status.eq_any(vec![crate::models::TicketStatus::Closed]))
+        .filter(workflow_states::category.eq_any(vec![
+            WorkflowStateCategory::Done,
+            WorkflowStateCategory::Cancelled,
+        ]))
         .filter(tickets::updated_at.ge(recent_cutoff))
         .select((documentation_page_tickets::page_id, tickets::id))
         .load(conn)?;

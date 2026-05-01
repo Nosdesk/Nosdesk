@@ -21,7 +21,8 @@ use crate::db::{DbConnection, Pool};
 use crate::handlers::helpers;
 use crate::handlers::errors;
 use crate::models::{
-    NewAttachment, NewTicket, PublicSiteSettings, SiteSettings, TicketPriority, TicketStatus,
+    NewAttachment, NewTicket, PublicSiteSettings, SiteSettings, TicketPriority,
+    WorkflowStateCategory,
 };
 use crate::repository::user_helpers::GuestUserResult;
 use crate::repository::{self, site_settings, user_helpers};
@@ -376,9 +377,16 @@ pub async fn submit_guest_ticket(
     // accept_invitation::verify_pending_tickets_for_user.
     let verification_required = settings.guest_ticket_email_verification;
     let lookup_token = Uuid::new_v4();
+    let default_state = match repository::workflow_states::default_state(&mut conn) {
+        Ok(s) => s,
+        Err(e) => {
+            error!(error = %e, "Failed to resolve default workflow state");
+            return errors::internal("Failed to resolve workflow state");
+        }
+    };
     let new_ticket = NewTicket {
         title: title.to_string(),
-        status: TicketStatus::Open,
+        workflow_state_id: default_state.id,
         priority,
         requester_uuid: Some(user.uuid),
         assignee_uuid: None,
@@ -568,15 +576,23 @@ pub async fn get_guest_ticket_status(
     }
 
     match repository::tickets::find_by_lookup_token(&mut conn, token) {
-        Ok(t) => HttpResponse::Ok().json(json!({
-            "ticket_id": t.id,
-            "title": t.title,
-            "status": t.status,
-            "priority": t.priority,
-            "created_at": t.created_at,
-            "updated_at": t.updated_at,
-            "closed_at": t.closed_at,
-        })),
+        Ok(t) => {
+            // Derive the legacy status string the public lookup widget
+            // expects from the workflow state's category.
+            let cat = repository::workflow_states::category_of(&mut conn, t.workflow_state_id)
+                .ok()
+                .flatten()
+                .unwrap_or(WorkflowStateCategory::Backlog);
+            HttpResponse::Ok().json(json!({
+                "ticket_id": t.id,
+                "title": t.title,
+                "status": cat.legacy_status(),
+                "priority": t.priority,
+                "created_at": t.created_at,
+                "updated_at": t.updated_at,
+                "closed_at": t.closed_at,
+            }))
+        },
         Err(diesel::result::Error::NotFound) => HttpResponse::NotFound().finish(),
         Err(e) => {
             error!(error = %e, "Error looking up guest ticket");

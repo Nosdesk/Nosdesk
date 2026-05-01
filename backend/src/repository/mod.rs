@@ -22,6 +22,7 @@ pub mod projects;
 pub mod sync_history;
 pub mod ticket_query;
 pub mod tickets;
+pub mod workflow_states;
 pub mod user_auth_identities;
 pub mod user_emails;
 pub mod user_helpers; // Helper functions for user/email operations

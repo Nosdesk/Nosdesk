@@ -23,8 +23,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{TicketPriority, TicketStatus};
-use crate::schema::tickets;
+use crate::models::{TicketPriority, WorkflowStateCategory};
+use crate::schema::{tickets, workflow_states};
 
 /// Discrete computation units the dashboard can request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -189,39 +189,52 @@ fn knowledge_gaps_stats(conn: &mut DbConnection) -> QueryResult<KnowledgeGapsSta
 }
 
 fn queue_stats(conn: &mut DbConnection) -> QueryResult<QueueStats> {
-    // One grouped scan over (status, priority). The idx_tickets_
-    // status_priority composite covers this exactly.
-    let rows: Vec<(TicketStatus, TicketPriority, i64)> = tickets::table
-        .group_by((tickets::status, tickets::priority))
-        .select((tickets::status, tickets::priority, count_star()))
+    // Diesel can't form a cross-table GROUP BY here (the two columns
+    // live on different tables in the join), so we group on
+    // workflow_state_id (single-table) and fold to category in Rust.
+    // The cardinality of (workflow_state_id, priority) is at most
+    // ~6 * 3 = 18 rows.
+    let rows: Vec<(i32, TicketPriority, i64)> = tickets::table
+        .group_by((tickets::workflow_state_id, tickets::priority))
+        .select((tickets::workflow_state_id, tickets::priority, count_star()))
         .load(conn)?;
 
     let mut s = QueueStats::default();
-    for (status, priority, count) in &rows {
+    for (ws_id, priority, count) in &rows {
         s.total += count;
-        match status {
-            TicketStatus::Open => s.open += count,
-            TicketStatus::InProgress => s.in_progress += count,
-            TicketStatus::Closed => {}
+        let cat = crate::repository::workflow_states::category_of(conn, *ws_id)?
+            .unwrap_or(WorkflowStateCategory::Backlog);
+        match cat.legacy_status() {
+            "open" => s.open += count,
+            "in-progress" => s.in_progress += count,
+            // Closed tickets are still counted in `total` (they exist),
+            // but the legacy widget didn't surface them in this struct.
+            _ => {}
         }
         if matches!(priority, TicketPriority::High) {
             s.high_priority += count;
         }
     }
 
-    // Convention in this codebase: filter the typed status enum
-    // via `eq_any(vec![...])` rather than `.eq(...)`. The
-    // generated `TicketStatus` SqlType doesn't satisfy the
-    // bounds for direct `.eq()` filters, so a single-value
-    // vector is the idiomatic workaround.
+    // "Unassigned" === non-terminal tickets without an assignee.
     s.unassigned = tickets::table
+        .inner_join(workflow_states::table)
         .filter(tickets::assignee_uuid.is_null())
-        .filter(tickets::status.eq_any(vec![TicketStatus::Open, TicketStatus::InProgress]))
+        .filter(workflow_states::category.eq_any(vec![
+            WorkflowStateCategory::Triage,
+            WorkflowStateCategory::Backlog,
+            WorkflowStateCategory::Active,
+            WorkflowStateCategory::InReview,
+        ]))
         .count()
         .get_result(conn)?;
 
     s.closed_today = tickets::table
-        .filter(tickets::status.eq_any(vec![TicketStatus::Closed]))
+        .inner_join(workflow_states::table)
+        .filter(workflow_states::category.eq_any(vec![
+            WorkflowStateCategory::Done,
+            WorkflowStateCategory::Cancelled,
+        ]))
         .filter(tickets::closed_at.ge(today_start()))
         .count()
         .get_result(conn)?;
@@ -233,17 +246,21 @@ fn scoped_stats_assignee(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
 ) -> QueryResult<ScopedStats> {
-    let rows: Vec<(TicketStatus, TicketPriority, i64)> = tickets::table
+    let rows: Vec<(i32, TicketPriority, i64)> = tickets::table
         .filter(tickets::assignee_uuid.eq(*user_uuid))
-        .group_by((tickets::status, tickets::priority))
-        .select((tickets::status, tickets::priority, count_star()))
+        .group_by((tickets::workflow_state_id, tickets::priority))
+        .select((tickets::workflow_state_id, tickets::priority, count_star()))
         .load(conn)?;
 
-    let mut s = aggregate_rows(&rows);
+    let mut s = aggregate_rows(conn, &rows)?;
 
     s.closed_today = tickets::table
+        .inner_join(workflow_states::table)
         .filter(tickets::assignee_uuid.eq(*user_uuid))
-        .filter(tickets::status.eq_any(vec![TicketStatus::Closed]))
+        .filter(workflow_states::category.eq_any(vec![
+            WorkflowStateCategory::Done,
+            WorkflowStateCategory::Cancelled,
+        ]))
         .filter(tickets::closed_at.ge(today_start()))
         .count()
         .get_result(conn)?;
@@ -255,17 +272,21 @@ fn scoped_stats_requester(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
 ) -> QueryResult<ScopedStats> {
-    let rows: Vec<(TicketStatus, TicketPriority, i64)> = tickets::table
+    let rows: Vec<(i32, TicketPriority, i64)> = tickets::table
         .filter(tickets::requester_uuid.eq(*user_uuid))
-        .group_by((tickets::status, tickets::priority))
-        .select((tickets::status, tickets::priority, count_star()))
+        .group_by((tickets::workflow_state_id, tickets::priority))
+        .select((tickets::workflow_state_id, tickets::priority, count_star()))
         .load(conn)?;
 
-    let mut s = aggregate_rows(&rows);
+    let mut s = aggregate_rows(conn, &rows)?;
 
     s.closed_today = tickets::table
+        .inner_join(workflow_states::table)
         .filter(tickets::requester_uuid.eq(*user_uuid))
-        .filter(tickets::status.eq_any(vec![TicketStatus::Closed]))
+        .filter(workflow_states::category.eq_any(vec![
+            WorkflowStateCategory::Done,
+            WorkflowStateCategory::Cancelled,
+        ]))
         .filter(tickets::closed_at.ge(today_start()))
         .count()
         .get_result(conn)?;
@@ -273,19 +294,25 @@ fn scoped_stats_requester(
     Ok(s)
 }
 
-fn aggregate_rows(rows: &[(TicketStatus, TicketPriority, i64)]) -> ScopedStats {
+fn aggregate_rows(
+    conn: &mut DbConnection,
+    rows: &[(i32, TicketPriority, i64)],
+) -> QueryResult<ScopedStats> {
     let mut s = ScopedStats::default();
-    for (status, priority, count) in rows {
-        match status {
-            TicketStatus::Open => s.open += count,
-            TicketStatus::InProgress => s.in_progress += count,
-            TicketStatus::Closed => s.closed += count,
+    for (ws_id, priority, count) in rows {
+        let cat = crate::repository::workflow_states::category_of(conn, *ws_id)?
+            .unwrap_or(WorkflowStateCategory::Backlog);
+        match cat.legacy_status() {
+            "open" => s.open += count,
+            "in-progress" => s.in_progress += count,
+            "closed" => s.closed += count,
+            _ => {}
         }
         if matches!(priority, TicketPriority::High) {
             s.high_priority += count;
         }
     }
-    s
+    Ok(s)
 }
 
 fn today_start() -> DateTime<Utc> {

@@ -28,8 +28,15 @@ pub fn index_document_from_ticket(
         String::new()
     };
 
-    // Build metadata from ticket fields (status/priority are enums)
-    let status_str = ticket.status.as_str();
+    // Build metadata from ticket fields. Status is now derived from the
+    // workflow state's category; the cached lookup avoids a DB roundtrip
+    // here on the indexing hot path. Falls back to "open" if the cache
+    // is cold (the next reindex will pick up the correct value).
+    let status_str = crate::repository::workflow_states::category_of_cached(
+        ticket.workflow_state_id,
+    )
+    .map(|c| c.legacy_status())
+    .unwrap_or("open");
     let priority_str = ticket.priority.as_str();
     let metadata = format!("{} {}", status_str, priority_str);
 

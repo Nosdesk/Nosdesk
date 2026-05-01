@@ -262,15 +262,18 @@ fn embed_page_tickets(
     let tickets_meta: std::collections::HashMap<i32, (String, String)> = if ticket_ids.is_empty() {
         Default::default()
     } else {
-        tickets::table
+        let rows: Vec<(i32, String, i32)> = tickets::table
             .filter(tickets::id.eq_any(&ticket_ids))
-            .select((tickets::id, tickets::title, tickets::status))
-            .load::<(i32, String, crate::models::TicketStatus)>(conn)
-            .map_err(|e| format!("Failed to hydrate tickets: {e:?}"))?
-            .into_iter()
-            .map(|(id, title, status)| {
-                let s = serde_json::to_string(&status).unwrap_or_default();
-                (id, (title, s.trim_matches('"').to_string()))
+            .select((tickets::id, tickets::title, tickets::workflow_state_id))
+            .load(conn)
+            .map_err(|e| format!("Failed to hydrate tickets: {e:?}"))?;
+        rows.into_iter()
+            .map(|(id, title, ws_id)| {
+                let cat = crate::repository::workflow_states::category_of(conn, ws_id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
+                (id, (title, cat.legacy_status().to_string()))
             })
             .collect()
     };
@@ -1848,15 +1851,18 @@ pub async fn list_page_tickets(
     let tickets_meta: std::collections::HashMap<i32, (String, String)> = if ticket_ids.is_empty() {
         Default::default()
     } else {
-        tickets::table
+        let rows: Vec<(i32, String, i32)> = tickets::table
             .filter(tickets::id.eq_any(&ticket_ids))
-            .select((tickets::id, tickets::title, tickets::status))
-            .load::<(i32, String, crate::models::TicketStatus)>(&mut conn)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(id, title, status)| {
-                let s = serde_json::to_string(&status).unwrap_or_default();
-                (id, (title, s.trim_matches('"').to_string()))
+            .select((tickets::id, tickets::title, tickets::workflow_state_id))
+            .load(&mut conn)
+            .unwrap_or_default();
+        rows.into_iter()
+            .map(|(id, title, ws_id)| {
+                let cat = crate::repository::workflow_states::category_of(&mut conn, ws_id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
+                (id, (title, cat.legacy_status().to_string()))
             })
             .collect()
     };

@@ -26,16 +26,6 @@ pub trait TicketDeletedObserver: Send + Sync {
 
 // ============= Helper Functions for Enum Parsing =============
 
-/// Parse a status string into a TicketStatus enum
-fn parse_ticket_status(status: &str) -> TicketStatus {
-    match status {
-        "open" => TicketStatus::Open,
-        "in-progress" => TicketStatus::InProgress,
-        "closed" => TicketStatus::Closed,
-        _ => TicketStatus::Open, // Default to open if unknown
-    }
-}
-
 /// Parse a priority string into a TicketPriority enum
 fn parse_ticket_priority(priority: &str) -> TicketPriority {
     match priority {
@@ -264,14 +254,17 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
 
 // Import from JSON
 pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson) -> Result<Ticket, Error> {
-    // Use helper functions for enum parsing
-    let status = parse_ticket_status(&ticket_json.status);
+    // Map the legacy status string ("open" / "in-progress" / "closed") to a
+    // concrete workflow_state row for the new schema. Unknown strings fall
+    // back to the workspace default state via state_for_legacy_status.
+    let workflow_state =
+        crate::repository::workflow_states::state_for_legacy_status(conn, &ticket_json.status)?;
     let priority = parse_ticket_priority(&ticket_json.priority);
 
     // Create the ticket
     let new_ticket = NewTicket {
         title: ticket_json.title.clone(),
-        status,
+        workflow_state_id: workflow_state.id,
         priority,
         requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7())),
         assignee_uuid: if ticket_json.assignee.is_empty() {
@@ -403,19 +396,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_status_known_values() {
-        assert_eq!(parse_ticket_status("open"), TicketStatus::Open);
-        assert_eq!(parse_ticket_status("in-progress"), TicketStatus::InProgress);
-        assert_eq!(parse_ticket_status("closed"), TicketStatus::Closed);
-    }
-
-    #[test]
-    fn parse_status_unknown_defaults_to_open() {
-        assert_eq!(parse_ticket_status("unknown"), TicketStatus::Open);
-        assert_eq!(parse_ticket_status(""), TicketStatus::Open);
-    }
-
-    #[test]
     fn parse_priority_known_values() {
         assert_eq!(parse_ticket_priority("low"), TicketPriority::Low);
         assert_eq!(parse_ticket_priority("medium"), TicketPriority::Medium);
@@ -463,9 +443,11 @@ mod tests {
         requester: Uuid,
         state: Option<&str>,
     ) -> Ticket {
+        let default_state = crate::repository::workflow_states::default_state(conn)
+            .expect("default workflow state must exist");
         let new_ticket = NewTicket {
             title: "T".into(),
-            status: TicketStatus::Open,
+            workflow_state_id: default_state.id,
             priority: TicketPriority::Medium,
             requester_uuid: Some(requester),
             assignee_uuid: None,

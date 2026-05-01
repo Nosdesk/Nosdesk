@@ -81,7 +81,17 @@ impl UserTicketViewsRepository {
         let mut conn = self.pool.get().expect("Failed to get DB connection");
 
         // Join user_ticket_views with tickets, ordered by last_viewed_at
-        user_ticket_views::table
+        let rows: Vec<(
+            i32,
+            String,
+            i32,
+            Option<Uuid>,
+            Option<Uuid>,
+            chrono::NaiveDateTime,
+            chrono::NaiveDateTime,
+            chrono::NaiveDateTime,
+            i32,
+        )> = user_ticket_views::table
             .inner_join(tickets::table.on(user_ticket_views::ticket_id.eq(tickets::id)))
             .filter(user_ticket_views::user_uuid.eq(user_uuid_param))
             .order(user_ticket_views::last_viewed_at.desc())
@@ -89,7 +99,7 @@ impl UserTicketViewsRepository {
             .select((
                 tickets::id,
                 tickets::title,
-                tickets::status,
+                tickets::workflow_state_id,
                 tickets::requester_uuid,
                 tickets::assignee_uuid,
                 tickets::created_at,
@@ -97,44 +107,30 @@ impl UserTicketViewsRepository {
                 user_ticket_views::last_viewed_at,
                 user_ticket_views::view_count,
             ))
-            .load::<(
-                i32,
-                String,
-                crate::models::TicketStatus,
-                Option<Uuid>,
-                Option<Uuid>,
-                chrono::NaiveDateTime,
-                chrono::NaiveDateTime,
-                chrono::NaiveDateTime,
-                i32,
-            )>(&mut conn)
-            .map(|results| {
-                results
-                    .into_iter()
-                    .map(
-                        |(
-                            tid,
-                            ttitle,
-                            tstatus,
-                            req,
-                            ass,
-                            created,
-                            updated,
-                            last_viewed,
-                            views,
-                        )| RecentTicket {
-                            id: tid,
-                            title: ttitle,
-                            status: tstatus,
-                            requester: req,
-                            assignee: ass,
-                            created_at: created,
-                            updated_at: updated,
-                            last_viewed_at: last_viewed,
-                            view_count: views,
-                        },
-                    )
-                    .collect()
-            })
+            .load(&mut conn)?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(tid, ttitle, ws_id, req, ass, created, updated, last_viewed, views)| {
+                    let cat = crate::repository::workflow_states::category_of(&mut conn, ws_id)
+                        .ok()
+                        .flatten()
+                        .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
+                    RecentTicket {
+                        id: tid,
+                        title: ttitle,
+                        status: cat.legacy_status().to_string(),
+                        workflow_state_id: ws_id,
+                        requester: req,
+                        assignee: ass,
+                        created_at: created,
+                        updated_at: updated,
+                        last_viewed_at: last_viewed,
+                        view_count: views,
+                    }
+                },
+            )
+            .collect())
     }
 }

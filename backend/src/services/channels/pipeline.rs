@@ -39,7 +39,7 @@ use tracing::{debug, info, warn};
 use crate::db::DbConnection;
 use crate::models::{
     Channel, Comment, NewAttachment, NewChannelMessage, NewComment, NewTicket, Ticket,
-    TicketPriority, TicketStatus, CHANNEL_DIRECTION_INBOUND,
+    TicketPriority, CHANNEL_DIRECTION_INBOUND,
 };
 use crate::repository::{channels as channels_repo, comments as comments_repo, tickets as tickets_repo};
 use crate::repository::user_helpers::{find_or_create_guest_user, GuestUserResult};
@@ -458,9 +458,12 @@ fn open_ticket_from_message(
         .unwrap_or("(no subject)")
         .to_string();
 
+    // Inbound channel tickets land in the workspace default workflow
+    // state (currently "Backlog"). Tech triages from there.
+    let default_state = crate::repository::workflow_states::default_state(conn)?;
     let new_ticket = NewTicket {
         title,
-        status: TicketStatus::Open,
+        workflow_state_id: default_state.id,
         priority: TicketPriority::Medium,
         requester_uuid: Some(requester_uuid),
         assignee_uuid: None,

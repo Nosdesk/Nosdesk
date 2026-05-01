@@ -377,13 +377,21 @@ pub async fn get_paginated_users(
 
 /// Batch count of open (non-closed) tickets assigned to each user
 fn get_open_ticket_counts_batch(user_uuids: &[Uuid], conn: &mut DbConnection) -> HashMap<Uuid, i64> {
-    use crate::schema::tickets;
-    use crate::models::TicketStatus;
+    use crate::schema::{tickets, workflow_states};
+    use crate::models::WorkflowStateCategory;
 
-    let open_statuses = vec![TicketStatus::Open, TicketStatus::InProgress];
+    // "Open" === any non-terminal workflow state category. Join
+    // workflow_states and filter on the four non-terminal categories.
+    let open_categories = vec![
+        WorkflowStateCategory::Triage,
+        WorkflowStateCategory::Backlog,
+        WorkflowStateCategory::Active,
+        WorkflowStateCategory::InReview,
+    ];
     let results: Vec<(Uuid, i64)> = tickets::table
+        .inner_join(workflow_states::table)
         .filter(tickets::assignee_uuid.eq_any(user_uuids))
-        .filter(tickets::status.eq_any(open_statuses))
+        .filter(workflow_states::category.eq_any(open_categories))
         .group_by(tickets::assignee_uuid)
         .select((tickets::assignee_uuid.assume_not_null(), diesel::dsl::count_star()))
         .load::<(Uuid, i64)>(conn)
