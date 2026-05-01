@@ -16,47 +16,10 @@ import { convertToAuthenticatedPath } from '@/services/fileService';
 import { useTicketDraftsStore } from "@/stores/ticketDrafts";
 import { useTicketUiStore } from "@/stores/ticketUi";
 
-interface UserInfo {
-    uuid: string;
-    name: string;
-    avatar_url?: string | null;
-    avatar_thumb?: string | null;
-}
-
-interface CommentWithAttachments {
-    id: number;
-    content: string;
-    /** Format of `content`. Drives the rendering branch in
-        `CommentContent` (HTML emails go through a sandboxed iframe;
-        Markdown / plaintext / missing flow through the legacy renderer). */
-    content_format?: CommentContentFormat;
-    user_uuid: string;
-    createdAt: string;
-    /** True = tech-to-tech note; renders with the warning badge/tint
-        and is suppressed from requester-facing views on the backend. */
-    is_internal?: boolean;
-    /** Sender's external address (email for IMAP, equivalent identifier
-        for future chat channels). Top-level field, sourced by the
-        backend from `channel_messages.from_address`. `undefined` for
-        comments authored through the helpdesk UI. */
-    from_address?: string;
-    /** Set when a channel message arrived via a tech forwarding a
-        customer's email. Carries `forwarded_by_user_uuid` so the UI
-        can render a "Forwarded by X" badge; the ticket's requester
-        is already the original customer. */
-    channel_metadata?: {
-        forwarded_by_user_uuid?: string;
-        [key: string]: unknown;
-    } | null;
-    attachments?: {
-        id: number;
-        url: string;
-        name: string;
-        comment_id: number;
-        transcription?: string;
-    }[];
-    user?: UserInfo;
-}
+// Local re-export of the canonical types so this component can use
+// them without churn through every consumer.
+import type { UserInfo } from '@/types/user';
+import type { CommentWithAttachments } from '@/types/comment';
 
 const props = defineProps<{
     comments: CommentWithAttachments[];
@@ -327,7 +290,7 @@ const hasRealContent = (comment: CommentWithAttachments): boolean => {
 const isAudioOnlyComment = (comment: CommentWithAttachments): boolean => {
     if (hasRealContent(comment)) return false;
     if (!comment.attachments || comment.attachments.length !== 1) return false;
-    const name = comment.attachments[0].name?.toLowerCase() || '';
+    const name = comment.attachments[0]?.name?.toLowerCase() || '';
     const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.webm', '.aac'];
     return audioExtensions.some(ext => name.endsWith(ext)) || name.includes('voice note');
 };
@@ -698,15 +661,15 @@ const handleDrop = async (event: DragEvent) => {
                                         Forwarded
                                     </span>
                                     <span class="text-xs text-tertiary block">
-                                        {{ formattedDate(comment.createdAt) }}
+                                        {{ formattedDate(comment.createdAt ?? comment.created_at) }}
                                     </span>
                                 </div>
                                 <!-- Mobile action buttons (hidden on print) -->
                                 <div class="print:hidden flex items-center gap-1 flex-shrink-0">
                                     <a
                                         v-if="isAudioOnlyComment(comment)"
-                                        :href="convertToAuthenticatedPath(comment.attachments[0].url)"
-                                        :download="comment.attachments[0].name"
+                                        :href="convertToAuthenticatedPath(comment.attachments?.[0]?.url ?? '')"
+                                        :download="comment.attachments?.[0]?.name"
                                         target="_blank"
                                         class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
                                         title="Download"
@@ -738,7 +701,7 @@ const handleDrop = async (event: DragEvent) => {
                                     :content-format="comment.content_format"
                                 />
                                 <p v-else-if="isAudioOnlyComment(comment)" class="text-primary text-sm">
-                                    {{ getAudioDisplayName(comment.attachments[0].name) }}
+                                    {{ getAudioDisplayName(comment.attachments?.[0]?.name ?? '') }}
                                 </p>
                             </div>
 
@@ -794,14 +757,14 @@ const handleDrop = async (event: DragEvent) => {
                                                 Internal
                                             </span>
                                             <span class="text-xs text-tertiary whitespace-nowrap flex-shrink-0">
-                                                {{ formattedDate(comment.createdAt) }}
+                                                {{ formattedDate(comment.createdAt ?? comment.created_at) }}
                                             </span>
                                         </div>
                                         <div class="print:hidden flex items-center gap-1 flex-shrink-0 -mr-[14px] sm:-mr-[18px]">
                                             <a
                                                 v-if="isAudioOnlyComment(comment)"
-                                                :href="convertToAuthenticatedPath(comment.attachments[0].url)"
-                                                :download="comment.attachments[0].name"
+                                                :href="convertToAuthenticatedPath(comment.attachments?.[0]?.url ?? '')"
+                                                :download="comment.attachments?.[0]?.name"
                                                 target="_blank"
                                                 class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
                                                 title="Download"
@@ -875,7 +838,7 @@ const handleDrop = async (event: DragEvent) => {
                                         :content-format="comment.content_format"
                                     />
                                     <p v-else-if="isAudioOnlyComment(comment)" class="text-primary text-sm">
-                                        {{ getAudioDisplayName(comment.attachments[0].name) }}
+                                        {{ getAudioDisplayName(comment.attachments?.[0]?.name ?? '') }}
                                     </p>
                                 </div>
                             </div><!-- /desktop content column -->
@@ -889,7 +852,7 @@ const handleDrop = async (event: DragEvent) => {
                                 <AttachmentPreview
                                     :attachment="attachment"
                                     :author="comment.user?.name || comment.user_uuid"
-                                    :timestamp="formattedDate(comment.createdAt)"
+                                    :timestamp="formattedDate(comment.createdAt ?? comment.created_at)"
                                     :show-delete="!isAudioOnlyComment(comment)"
                                     :hide-header="isAudioOnlyComment(comment)"
                                     @delete="deleteAttachment(comment.id, index)"
@@ -930,7 +893,7 @@ const handleDrop = async (event: DragEvent) => {
                                  body can flow across page breaks. -->
                             <div class="print-comment-header">
                                 <span class="print-comment-author">{{ comment.user?.name || 'Unknown' }}</span>
-                                <span class="print-comment-date">{{ formattedDate(comment.createdAt) }}</span>
+                                <span class="print-comment-date">{{ formattedDate(comment.createdAt ?? comment.created_at) }}</span>
                             </div>
                             <div class="print-email-body" v-html="sanitiseHtml(comment.content)" />
                             <div
@@ -946,12 +909,12 @@ const handleDrop = async (event: DragEvent) => {
                         <template v-else>
                             <!-- Inline format: "Author (Date): Content" -->
                             <span class="print-comment-author">{{ comment.user?.name || 'Unknown' }}</span>
-                            <span class="print-comment-date">({{ formattedDate(comment.createdAt) }}):</span>
+                            <span class="print-comment-date">({{ formattedDate(comment.createdAt ?? comment.created_at) }}):</span>
                             <span v-if="hasRealContent(comment)" class="print-comment-content">
                                 <MarkdownRenderer :content="comment.content" />
                             </span>
                             <span v-else-if="isAudioOnlyComment(comment)" class="print-comment-audio">
-                                [Voice: {{ getAudioDisplayName(comment.attachments[0].name) }}<template v-if="comment.attachments[0].transcription"> — "{{ comment.attachments[0].transcription }}"</template>]
+                                [Voice: {{ getAudioDisplayName(comment.attachments?.[0]?.name ?? '') }}<template v-if="comment.attachments?.[0]?.transcription"> — "{{ comment.attachments[0].transcription }}"</template>]
                             </span>
                             <span
                                 v-if="comment.attachments && comment.attachments.length > 0 && !isAudioOnlyComment(comment)"

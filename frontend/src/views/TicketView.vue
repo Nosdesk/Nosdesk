@@ -460,13 +460,7 @@ usePageCreateAction(handleCreateTicket);
             <div class="print:hidden pt-4 px-4 sm:px-6 flex justify-between items-center">
                 <div class="flex items-center gap-4">
                     <template v-if="ticket">
-                        <BackButton
-                            v-if="ticket.project"
-                            context="project"
-                            :contextId="ticket.project"
-                            :fallbackRoute="'/tickets'"
-                        />
-                        <BackButton v-else fallbackRoute="/tickets" />
+                        <BackButton fallbackRoute="/tickets" />
 
                         <!-- SSE Connection Status -->
                         <div class="flex items-center gap-2 text-sm">
@@ -678,7 +672,7 @@ usePageCreateAction(handleCreateTicket);
                             >
                                 <div class="flex flex-col gap-2">
                                     <ProjectInfo
-                                        v-for="projectId in ticket.projects"
+                                        v-for="projectId in ticket.projects as string[] | undefined"
                                         :key="projectId"
                                         :project-id="projectId"
                                         @view="viewProject(projectId)"

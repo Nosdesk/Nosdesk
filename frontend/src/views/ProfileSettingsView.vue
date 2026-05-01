@@ -20,6 +20,7 @@ import {
 import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import userService from '@/services/userService';
 import type { User } from '@/services/userService';
+import type { UserRole } from '@/types/user';
 import { groupService } from '@/services/groupService';
 import type { Group } from '@/types/group';
 import apiClient from '@/services/apiConfig';
@@ -243,7 +244,7 @@ const renderTabIcon = (iconName: string) => {
 };
 
 // Update user role function
-const updateUserRole = async (newRole: string) => {
+const updateUserRole = async (newRole: UserRole) => {
   if (!targetUser.value || !isManagingOtherUser.value || !authStore.isAdmin) {
     console.warn('Unauthorized role update attempt');
     return;
@@ -261,10 +262,10 @@ const updateUserRole = async (newRole: string) => {
       role: newRole
     });
 
-    if (updatedUser) {
+    if (updatedUser && targetUser.value) {
       // Update the local user object
       targetUser.value = { ...targetUser.value, role: newRole };
-      
+
       handleSuccess(`Successfully updated ${targetUser.value.name}'s role to ${newRole}`);
     }
   } catch (error) {
@@ -508,7 +509,7 @@ const cancelDelete = () => {
           <!-- Profile Tab -->
           <div v-if="activeTab === 'profile'" class="flex flex-col gap-6">
             <UserProfileCard
-              :user="currentUser"
+              :user="currentUser ?? undefined"
               :can-edit="true"
               :show-editable-fields="true"
               @success="handleSuccess"

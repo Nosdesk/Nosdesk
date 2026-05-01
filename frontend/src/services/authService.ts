@@ -26,9 +26,22 @@ export interface AdminSetupResponse {
 // Re-export for backwards compatibility
 export type { LoginCredentials } from '@/types/user';
 
+/// Mirrors `backend::models::LoginResponse`. The token isn't in the
+/// body — access + refresh travel via httpOnly cookies. Only the
+/// CSRF token is exposed for the frontend to echo on writes.
 export interface LoginResponse {
-  token: string;
-  user: User;
+  success: boolean;
+  user?: User;
+  csrf_token?: string;
+  mfa_required?: boolean;
+  mfa_setup_required?: boolean;
+  passkey_mfa_required?: boolean;
+  user_uuid?: string;
+  message?: string;
+  mfa_backup_code_used?: boolean;
+  requires_backup_code_regeneration?: boolean;
+  /// Present once when MFA setup completes — show then forget. */
+  backup_codes?: string[];
 }
 
 // MFA Interfaces

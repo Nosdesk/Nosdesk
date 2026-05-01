@@ -57,7 +57,7 @@ export function useTicketDevices(ticket: Ref<Ticket | null>) {
     const device = ticket.value.devices.find(d => d.id === deviceId);
     if (!device) return;
 
-    const oldValue = (device as Record<string, unknown>)[field];
+    const oldValue = (device as unknown as Record<string, unknown>)[field];
     if (oldValue === newValue) return;
 
     // Optimistic update

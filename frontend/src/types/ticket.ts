@@ -30,7 +30,12 @@ export interface Ticket {
   article_content?: string
   linkedTickets?: number[]
   linked_tickets?: number[]
-  projects?: Project[]
+  /// `Project[]` is what the API ships (embedded). The detail view
+  /// flattens it to `string[]` of project IDs at fetch time so the
+  /// multi-select UI can mutate membership cheaply. Both shapes
+  /// flow through the same property; consumers that need the
+  /// embedded form re-fetch.
+  projects?: Project[] | string[]
   /** Channel this ticket was opened through (email_imap, ...). Null for tickets created via the UI / API. */
   origin_channel_id?: number | null
   /** Provider name echoed from the originating channel for quick display. Matches `channels.provider`. */

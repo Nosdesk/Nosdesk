@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue';
+import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions';
 import QRCode from 'qrcode';
 import UserPicker from "@/components/ticketComponents/UserPicker.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
@@ -80,8 +81,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "update:selectedStatus", value: string): void;
-  (e: "update:selectedPriority", value: string): void;
+  (e: "update:selectedStatus", value: TicketStatus): void;
+  (e: "update:selectedPriority", value: TicketPriority): void;
   (e: "update:selectedCategory", value: string): void;
   (e: "update:requester", value: string): void;
   (e: "update:assignee", value: string): void;

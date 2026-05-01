@@ -63,6 +63,13 @@ export function useListControls<T extends object>(
   const itemIdField = options.itemIdField ?? 'id'
   const infinitePageSize = options.infinitePageSize ?? 50
 
+  // String-keyed access on a constrained T isn't reachable through
+  // TypeScript's narrowing; centralise the cast so the per-call-site
+  // noise stays out of the body. Items are Records-of-something even
+  // if they don't formally extend `Record<string, unknown>`.
+  const idOf = (item: T): string =>
+    String((item as Record<string, unknown>)[itemIdField])
+
   // ---- Filters / search / sort ------------------------------
   const searchQuery = ref(options.initialSearch ?? '')
   const filters = ref<Filters>(options.initialFilters ?? {})
@@ -86,14 +93,14 @@ export function useListControls<T extends object>(
       event.shiftKey &&
       lastSelectedItemId.value !== null
     ) {
-      const curIdx = items.findIndex((i) => String(i[itemIdField]) === itemId)
+      const curIdx = items.findIndex((i) => idOf(i) === itemId)
       const lastIdx = items.findIndex(
-        (i) => String(i[itemIdField]) === lastSelectedItemId.value,
+        (i) => idOf(i) === lastSelectedItemId.value,
       )
       if (curIdx !== -1 && lastIdx !== -1) {
         const [start, end] = curIdx < lastIdx ? [curIdx, lastIdx] : [lastIdx, curIdx]
         const next = new Set(selectedItems.value)
-        for (let i = start; i <= end; i++) next.add(String(items[i][itemIdField]))
+        for (let i = start; i <= end; i++) next.add(idOf(items[i]))
         selectedItems.value = Array.from(next)
       }
       return
@@ -106,7 +113,7 @@ export function useListControls<T extends object>(
 
   function toggleAllItems(event: Event, items: readonly T[]) {
     event.stopPropagation()
-    const allIds = items.map((i) => String(i[itemIdField]))
+    const allIds = items.map(idOf)
     const allSelected =
       allIds.length > 0 && allIds.every((id) => selectedItems.value.includes(id))
     selectedItems.value = allSelected ? [] : allIds
@@ -119,7 +126,7 @@ export function useListControls<T extends object>(
   }
 
   function selectAll(items: readonly T[]) {
-    selectedItems.value = items.map((i) => String(i[itemIdField]))
+    selectedItems.value = items.map(idOf)
   }
 
   // ---- Filter UI helpers ------------------------------------

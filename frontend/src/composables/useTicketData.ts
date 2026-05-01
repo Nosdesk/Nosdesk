@@ -9,7 +9,11 @@ import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
 import type { Ticket, Device } from '@/types/ticket';
 import type { CommentWithAttachments } from '@/types/comment';
 
-// Local type extending the canonical Ticket type with UI-specific fields
+// Local type extending the canonical Ticket type with UI-specific
+// fields. `projects` flows through as the `string[]` arm of the
+// canonical `Project[] | string[]` union because the multi-select
+// UI tracks IDs only. The server response is mapped to `string[]`
+// via `.map(p => String(p.id))` at fetch time.
 interface LocalTicket extends Ticket {
   commentsAndAttachments?: CommentWithAttachments[];
 }
@@ -149,9 +153,11 @@ export function useTicketData() {
         ticket.value.assignee_user = undefined;
       }
 
-      // Update UI-specific refs
-      if (field === "status") selectedStatus.value = value;
-      if (field === "priority") selectedPriority.value = value;
+      // Update UI-specific refs. Per-key narrowing is mechanical —
+      // TypeScript can't narrow `value: LocalTicket[K]` from a
+      // `field === "status"` guard, so we cast at the assignment.
+      if (field === "status") selectedStatus.value = value as TicketStatus;
+      if (field === "priority") selectedPriority.value = value as TicketPriority;
 
       // Update stores for consistent state
       if (["title", "status", "requester", "assignee"].includes(field)) {
@@ -161,7 +167,7 @@ export function useTicketData() {
       }
 
       if (field === "title") {
-        titleManager.setTicket({ id: ticket.value.id, title: value });
+        titleManager.setTicket({ id: ticket.value.id, title: value as string });
       }
 
       // Send update to backend - SSE will broadcast to other clients
@@ -180,19 +186,19 @@ export function useTicketData() {
       logger.error(`Error updating ticket field: ${field}`, { error: err, field });
       // Revert optimistic update on error - also use direct mutation
       ticket.value[field] = oldValue;
-      if (field === "status") selectedStatus.value = oldValue;
-      if (field === "priority") selectedPriority.value = oldValue;
+      if (field === "status") selectedStatus.value = oldValue as TicketStatus;
+      if (field === "priority") selectedPriority.value = oldValue as TicketPriority;
       throw err;
     }
   }
 
   // Update status
-  async function updateStatus(newStatus: string): Promise<void> {
+  async function updateStatus(newStatus: TicketStatus): Promise<void> {
     await updateTicketField("status", newStatus);
   }
 
   // Update priority
-  async function updatePriority(newPriority: string): Promise<void> {
+  async function updatePriority(newPriority: TicketPriority): Promise<void> {
     await updateTicketField("priority", newPriority);
   }
 

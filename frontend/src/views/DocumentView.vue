@@ -9,7 +9,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import { useDocumentPanelState } from '@/composables/useDocumentPanelState'
 import documentationService from '@/services/documentationService'
 import ticketService from '@/services/ticketService'
-import type { Page } from '@/services/documentationService'
+import type { Page, Article } from '@/services/documentationService'
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue'
 import BackButton from '@/components/common/BackButton.vue'
 import Icon from '@/components/common/Icon.vue'
@@ -46,7 +46,7 @@ const {
 
 // Document state — use preloaded data from route guard when available
 const preloaded = route.meta.preloadedDocument as Page | undefined
-const document = ref<Page | null>(preloaded ?? null)
+const document = ref<Page | Article | null>(preloaded ?? null)
 const isLoading = ref(!preloaded)
 // Two-way bound to DocumentAuthorBadge so the in-row "needs
 // verification" chip can open the same popover from a different

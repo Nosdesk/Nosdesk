@@ -57,10 +57,12 @@ export function usePdfViewer(options: UsePdfViewerOptions = {}) {
     renderingPages.value.clear()
 
     try {
-      // Cleanup previous document
+      // Cleanup previous document. cleanup/destroy exist at runtime
+      // but pdfjs-dist's types omit them in this version.
       if (pdfDocument.value) {
-        await pdfDocument.value.cleanup?.()
-        await pdfDocument.value.destroy?.()
+        const doc = pdfDocument.value as unknown as { cleanup?: () => Promise<void>; destroy?: () => Promise<void> }
+        await doc.cleanup?.()
+        await doc.destroy?.()
         pdfDocument.value = null
       }
 

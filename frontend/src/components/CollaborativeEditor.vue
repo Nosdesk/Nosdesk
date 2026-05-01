@@ -222,11 +222,11 @@ interface WebSocketCloseEvent {
 }
 
 // Provider event handler references for proper cleanup
-let statusHandler: ((event: { status: string }) => void) | null = null;
+let statusHandler: ((event: { status: 'connected' | 'disconnected' | 'connecting' }) => void) | null = null;
 let connectionErrorHandler: ((error: Event) => void) | null = null;
 let connectionCloseHandler: ((event: WebSocketCloseEvent | null) => void) | null = null;
 let syncedHandler: ((isSynced: boolean) => void) | null = null;
-let statusReconnectHandler: ((event: { status: string }) => void) | null = null;
+let statusReconnectHandler: ((event: { status: 'connected' | 'disconnected' | 'connecting' }) => void) | null = null;
 let awarenessChangeHandler: (() => void) | null = null;
 
 // Revision viewing state
@@ -282,7 +282,7 @@ const linkTooltipState = ref<LinkTooltipState>({
 });
 
 // Mention dropdown position using fixed positioning for viewport awareness
-const mentionDropdownStyle = computed(() => {
+const mentionDropdownStyle = computed<Partial<Record<string, string>>>(() => {
     if (!mentionState.value.active || !mentionState.value.position) {
         return { display: 'none' };
     }
@@ -695,15 +695,6 @@ const initEditor = async () => {
                             cursor.appendChild(userLabel);
                             return cursor;
                         },
-                        // Handle missing users gracefully (e.g., when viewing snapshots)
-                        getClientColor: (clientId: number) => {
-                            const user = provider?.awareness.getStates().get(clientId);
-                            if (user && user.user) {
-                                return user.user.color || '#808080';
-                            }
-                            // Return a default color for missing/historical users
-                            return '#808080';
-                        }
                     }),
                     yUndoPlugin(),
                     createLinkTooltipPlugin({
@@ -1011,7 +1002,7 @@ const initEditor = async () => {
                 });
             }
         };
-        provider.on("synced", syncedHandler);
+        provider.on("sync", syncedHandler);
 
         // Note: Intentionally NOT overriding provider.ws.onmessage here.
         // y-websocket handles all sync messages (SYNC_STEP_1, SYNC_STEP_2, SYNC_UPDATE)
@@ -1545,7 +1536,7 @@ const cleanup = () => {
                 connectionCloseHandler = null;
             }
             if (syncedHandler) {
-                provider.off("synced", syncedHandler);
+                provider.off("sync", syncedHandler);
                 syncedHandler = null;
             }
             if (provider.awareness && awarenessChangeHandler) {

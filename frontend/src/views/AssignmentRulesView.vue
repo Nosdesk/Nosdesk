@@ -18,7 +18,7 @@ import type {
   AssignmentMethod
 } from '@/types/assignmentRule'
 import type { GroupWithMemberCount } from '@/types/group'
-import type { TicketCategory } from '@/types/ticket'
+import type { TicketCategory } from '@/types/category'
 import type { User } from '@/types/user'
 
 const dataStore = useDataStore()
@@ -408,7 +408,7 @@ onMounted(() => {
         <!-- Empty state -->
         <EmptyState
           v-if="rules.length === 0 && !isLoading"
-          icon="lightning"
+          icon="ticket"
           title="No assignment rules yet"
           description="Create your first rule to automatically assign tickets"
           action-label="Create Rule"
@@ -514,11 +514,13 @@ onMounted(() => {
           <label class="block text-sm font-medium text-primary mb-2">Triggers</label>
           <div class="space-y-3">
             <Checkbox
-              v-model="ruleForm.trigger_on_create"
+              :model-value="ruleForm.trigger_on_create ?? false"
+              @update:model-value="ruleForm.trigger_on_create = $event"
               label="When a ticket is created"
             />
             <Checkbox
-              v-model="ruleForm.trigger_on_category_change"
+              :model-value="ruleForm.trigger_on_category_change ?? false"
+              @update:model-value="ruleForm.trigger_on_category_change = $event"
               label="When a ticket's category changes"
             />
           </div>

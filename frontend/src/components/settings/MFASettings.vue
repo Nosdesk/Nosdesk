@@ -194,12 +194,10 @@ const toggleMFA = async (_newValue: boolean) => {
 };
 
 const startMFASetup = async () => {
-    logger.debug(
-        "🔐 startMFASetup called, isLoginSetup:",
-        props.isLoginSetup,
-        "qrCodeUrl exists:",
-        !!mfa.qrCodeUrl.value,
-    );
+    logger.debug("startMFASetup called", {
+        isLoginSetup: props.isLoginSetup,
+        qrCodeUrlExists: !!mfa.qrCodeUrl.value,
+    });
 
     if (props.isLoginSetup) {
         if (!mfa.qrCodeUrl.value) {

@@ -333,8 +333,9 @@ const startDrag = (event: MouseEvent, task: GanttTask, mode: 'move' | 'resize-st
 }
 
 const handleDrag = (event: MouseEvent) => {
-  if (!isDragging.value || !draggedTask.value) return
-  
+  const dragged = draggedTask.value
+  if (!isDragging.value || !dragged) return
+
   const deltaX = event.clientX - dragStartX.value
   
   // If moved more than 3 pixels, consider it a drag operation
@@ -361,11 +362,11 @@ const handleDrag = (event: MouseEvent) => {
   
   if (dragMode.value === 'move') {
     // Update both start and end dates
-    const newStart = new Date(draggedTask.value.start.getTime() + timeDelta)
-    const newEnd = new Date(draggedTask.value.end.getTime() + timeDelta)
+    const newStart = new Date(dragged.start.getTime() + timeDelta)
+    const newEnd = new Date(dragged.end.getTime() + timeDelta)
     
     // Update the task in the array (this will trigger reactivity)
-    const taskIndex = ganttTickets.value.findIndex(t => t.id === draggedTask.value.id)
+    const taskIndex = ganttTickets.value.findIndex(t => t.id === dragged.id)
     if (taskIndex !== -1) {
       ganttTickets.value[taskIndex] = {
         ...ganttTickets.value[taskIndex],
@@ -375,11 +376,11 @@ const handleDrag = (event: MouseEvent) => {
     }
   } else if (dragMode.value === 'resize-start') {
     // Update start date only
-    const newStart = new Date(draggedTask.value.start.getTime() + timeDelta)
+    const newStart = new Date(dragged.start.getTime() + timeDelta)
     
     // Don't let start go past end
-    if (newStart < draggedTask.value.end) {
-      const taskIndex = ganttTickets.value.findIndex(t => t.id === draggedTask.value.id)
+    if (newStart < dragged.end) {
+      const taskIndex = ganttTickets.value.findIndex(t => t.id === dragged.id)
       if (taskIndex !== -1) {
         ganttTickets.value[taskIndex] = {
           ...ganttTickets.value[taskIndex],
@@ -389,11 +390,11 @@ const handleDrag = (event: MouseEvent) => {
     }
   } else if (dragMode.value === 'resize-end') {
     // Update end date only
-    const newEnd = new Date(draggedTask.value.end.getTime() + timeDelta)
+    const newEnd = new Date(dragged.end.getTime() + timeDelta)
     
     // Don't let end go before start
-    if (newEnd > draggedTask.value.start) {
-      const taskIndex = ganttTickets.value.findIndex(t => t.id === draggedTask.value.id)
+    if (newEnd > dragged.start) {
+      const taskIndex = ganttTickets.value.findIndex(t => t.id === dragged.id)
       if (taskIndex !== -1) {
         ganttTickets.value[taskIndex] = {
           ...ganttTickets.value[taskIndex],
@@ -405,10 +406,11 @@ const handleDrag = (event: MouseEvent) => {
 }
 
 const endDrag = async () => {
-  if (!isDragging.value || !draggedTask.value) return
-  
+  const dragged = draggedTask.value
+  if (!isDragging.value || !dragged) return
+
   // Get the updated task
-  const updatedTask = ganttTickets.value.find(t => t.id === draggedTask.value.id)
+  const updatedTask = ganttTickets.value.find(t => t.id === dragged.id)
   if (updatedTask) {
     // Update the ticket in the backend
     try {
@@ -626,7 +628,6 @@ const hideTooltip = () => {
                     <UserAvatar
                       v-if="ticket.assignee && ticket.assignee !== 'Unassigned'"
                       :name="ticket.assignee"
-                      :avatar="ticket.assignee_avatar"
                       size="xs"
                       :show-name="false"
                       :clickable="false"
@@ -720,7 +721,7 @@ const hideTooltip = () => {
           <div class="text-xs text-tertiary">
             <div>Start: {{ formatDate(hoveredTask.start) }}</div>
             <div>End: {{ formatDate(hoveredTask.end) }}</div>
-            <div>Duration: {{ Math.ceil((hoveredTask.end - hoveredTask.start) / (1000 * 60 * 60 * 24)) }} days</div>
+            <div>Duration: {{ Math.ceil((hoveredTask.end.getTime() - hoveredTask.start.getTime()) / (1000 * 60 * 60 * 24)) }} days</div>
             <div v-if="hoveredTask.assignee" class="mt-1">
               Assignee: {{ hoveredTask.assignee }}
             </div>

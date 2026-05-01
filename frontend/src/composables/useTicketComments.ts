@@ -69,9 +69,11 @@ export function useTicketComments(
       user: currentUser ? {
         uuid: currentUser.uuid,
         name: currentUser.name,
+        email: currentUser.email,
+        role: currentUser.role,
         avatar_url: currentUser.avatar_url,
         avatar_thumb: currentUser.avatar_thumb,
-      } : null,
+      } : undefined,
     };
 
     if (ticket.value.commentsAndAttachments) {
@@ -139,8 +141,8 @@ export function useTicketComments(
               id: newComment.id,
               content: newComment.content,
               user_uuid: newComment.user_uuid,
-              createdAt: newComment.created_at || newComment.createdAt,
-              created_at: newComment.created_at || newComment.createdAt,
+              createdAt: newComment.created_at,
+              created_at: newComment.created_at,
               ticket_id: newComment.ticket_id,
               attachments: newComment.attachments || [],
               user: newComment.user,
@@ -152,8 +154,8 @@ export function useTicketComments(
             id: newComment.id,
             content: newComment.content,
             user_uuid: newComment.user_uuid,
-            createdAt: newComment.created_at || newComment.createdAt,
-            created_at: newComment.created_at || newComment.createdAt,
+            createdAt: newComment.created_at,
+            created_at: newComment.created_at,
             ticket_id: newComment.ticket_id,
             attachments: newComment.attachments || [],
             user: newComment.user,

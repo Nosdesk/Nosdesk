@@ -47,36 +47,43 @@ export function useTicketMutations(ticket: Ref<Ticket | null>) {
   // Projects
   // ─────────────────────────────────────────────────────────────
 
+  // Project membership is tracked locally as an array of project ID
+  // strings (the API ships `Project[]` and useTicketData rewrites it
+  // to `string[]` at fetch time). Cast through `unknown` because the
+  // canonical Ticket type still describes the API shape.
+  function projectIds(): string[] | undefined {
+    return ticket.value?.projects as unknown as string[] | undefined;
+  }
+
   function addProject(projectId: string | number): boolean {
     if (!ticket.value) return false;
 
     const id = String(projectId);
+    const list = projectIds() ?? [];
 
-    if (!ticket.value.projects) {
-      ticket.value.projects = [];
-    }
-
-    if (ticket.value.projects.includes(id)) {
+    if (list.includes(id)) {
       return false; // Already exists
     }
 
-    ticket.value.projects.push(id);
+    list.push(id);
+    (ticket.value as unknown as { projects: string[] }).projects = list;
     return true;
   }
 
   function removeProject(projectId: string | number): boolean {
-    if (!ticket.value?.projects) return false;
+    const list = projectIds();
+    if (!list) return false;
 
     const id = String(projectId);
-    const index = ticket.value.projects.indexOf(id);
+    const index = list.indexOf(id);
     if (index === -1) return false; // Not found
 
-    ticket.value.projects.splice(index, 1);
+    list.splice(index, 1);
     return true;
   }
 
   function hasProject(projectId: string | number): boolean {
-    return ticket.value?.projects?.includes(String(projectId)) ?? false;
+    return projectIds()?.includes(String(projectId)) ?? false;
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -114,7 +121,7 @@ export function useTicketMutations(ticket: Ref<Ticket | null>) {
     const device = ticket.value.devices.find(d => d.id === deviceId);
     if (!device) return false;
 
-    (device as Record<string, unknown>)[field] = value;
+    (device as unknown as Record<string, unknown>)[field] = value;
     return true;
   }
 

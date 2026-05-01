@@ -27,10 +27,10 @@ import {
   useVerifyPageMutation,
   useUnverifyPageMutation,
 } from '@/composables/usePageVerification'
-import type { Page } from '@/services/documentationService'
+import type { Page, Article } from '@/services/documentationService'
 
 const props = defineProps<{
-  page: Page
+  page: Page | Article
   /** Hide the action buttons in the popover (read-only mode). */
   canVerify?: boolean
 }>()

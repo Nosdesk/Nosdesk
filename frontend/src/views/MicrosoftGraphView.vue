@@ -381,7 +381,7 @@ onMounted(async () => {
         <!-- Sync button -->
         <button
           @click="syncData"
-          :disabled="connectionStatus !== 'connected' || isLoading || isSyncing || (configValidation && !configValidation.valid)"
+          :disabled="connectionStatus !== 'connected' || isLoading || isSyncing || !!(configValidation && !configValidation.valid)"
           class="self-start sm:self-auto px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
         >
           <Spinner v-if="isSyncing" />
@@ -487,13 +487,14 @@ onMounted(async () => {
 
               <!-- Configuration Issues -->
               <div
-                v-if="configValidation?.issues && configValidation.issues.length > 0"
+                v-if="configValidation?.missing_fields && configValidation.missing_fields.length > 0"
                 class="p-2 bg-status-error/10 border border-status-error/30 rounded-lg text-sm text-status-error flex items-start gap-2"
               >
                 <Icon name="info" class="flex-shrink-0 mt-0.5" />
                 <div>
-                  <span v-for="(issue, index) in configValidation.issues" :key="issue">
-                    {{ issue }}<span v-if="index < configValidation.issues.length - 1">; </span>
+                  Missing required configuration:
+                  <span v-for="(field, index) in configValidation.missing_fields" :key="field">
+                    {{ field }}<span v-if="index < configValidation.missing_fields.length - 1">, </span>
                   </span>
                 </div>
               </div>
