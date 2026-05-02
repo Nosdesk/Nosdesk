@@ -3,14 +3,17 @@
 //! Provides database operations for plugins, data (settings/storage), and activity logging.
 
 use diesel::prelude::*;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{
     NewPlugin, NewPluginActivity, NewPluginData, Plugin, PluginActivity, PluginBundleUpdate,
-    PluginData, PluginUpdate,
+    PluginData, PluginUpdate, SyncAggregate, SyncOp,
 };
 use crate::schema::{plugin_activity, plugin_data, plugins};
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
 
 // =============================================================================
 // Plugins
@@ -74,9 +77,30 @@ pub fn create_plugin(
     new_plugin: NewPlugin,
     _token: crate::services::plugins::install::InstallToken,
 ) -> Result<Plugin, diesel::result::Error> {
-    diesel::insert_into(plugins::table)
-        .values(&new_plugin)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let plugin: Plugin = diesel::insert_into(plugins::table)
+            .values(&new_plugin)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Plugin,
+                aggregate_id: plugin.uuid.to_string(),
+                op: SyncOp::Insert,
+                event_type: "plugin.installed",
+                data: json!({
+                    "uuid": plugin.uuid,
+                    "name": plugin.name,
+                    "version": plugin.version,
+                    "trust_level": plugin.trust_level,
+                    "source": plugin.source,
+                }),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(plugin)
+    })
 }
 
 /// Update a plugin by UUID
@@ -85,9 +109,29 @@ pub fn update_plugin_by_uuid(
     plugin_uuid: Uuid,
     update: PluginUpdate,
 ) -> Result<Plugin, diesel::result::Error> {
-    diesel::update(plugins::table.filter(plugins::uuid.eq(plugin_uuid)))
-        .set(&update)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let plugin: Plugin = diesel::update(plugins::table.filter(plugins::uuid.eq(plugin_uuid)))
+            .set(&update)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Plugin,
+                aggregate_id: plugin.uuid.to_string(),
+                op: SyncOp::Update,
+                event_type: "plugin.updated",
+                data: json!({
+                    "uuid": plugin.uuid,
+                    "name": plugin.name,
+                    "version": plugin.version,
+                    "trust_level": plugin.trust_level,
+                }),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(plugin)
+    })
 }
 
 /// Delete a plugin by UUID
@@ -95,7 +139,25 @@ pub fn delete_plugin_by_uuid(
     conn: &mut DbConnection,
     plugin_uuid: Uuid,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::delete(plugins::table.filter(plugins::uuid.eq(plugin_uuid))).execute(conn)
+    conn.transaction(|conn| {
+        let result = diesel::delete(plugins::table.filter(plugins::uuid.eq(plugin_uuid)))
+            .execute(conn)?;
+        if result > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::Plugin,
+                    aggregate_id: plugin_uuid.to_string(),
+                    op: SyncOp::Delete,
+                    event_type: "plugin.uninstalled",
+                    data: json!({ "uuid": plugin_uuid }),
+                    groups: groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(result)
+    })
 }
 
 /// Update a plugin's bundle metadata
@@ -104,9 +166,29 @@ pub fn update_plugin_bundle(
     plugin_uuid: Uuid,
     update: PluginBundleUpdate,
 ) -> Result<Plugin, diesel::result::Error> {
-    diesel::update(plugins::table.filter(plugins::uuid.eq(plugin_uuid)))
-        .set(&update)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let plugin: Plugin = diesel::update(plugins::table.filter(plugins::uuid.eq(plugin_uuid)))
+            .set(&update)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Plugin,
+                aggregate_id: plugin.uuid.to_string(),
+                op: SyncOp::Update,
+                event_type: "plugin.bundle_updated",
+                data: json!({
+                    "uuid": plugin.uuid,
+                    "version": plugin.version,
+                    "bundle_hash": plugin.bundle_hash,
+                    "bundle_size": plugin.bundle_size,
+                }),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(plugin)
+    })
 }
 
 /// Fetch the lifecycle state plus the icon bytes for a plugin.

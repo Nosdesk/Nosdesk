@@ -50,6 +50,15 @@ const ALLOWLIST: &[&str] = &[
     "repository/passkey_credentials.rs::update_for_user",
     "repository/plugin_publishers.rs::insert_local_signing_key",
     "repository/plugin_publishers.rs::update_registry_state",
+    // Plugin local storage / activity log — tier-3 audit-only via the
+    // audit_log trigger on plugin_data and plugin_collection_rows.
+    "repository/plugins.rs::set_plugin_data",
+    "repository/plugins.rs::delete_plugin_data_entry",
+    "repository/plugins.rs::set_plugin_setting",
+    "repository/plugins.rs::delete_plugin_setting",
+    "repository/plugins.rs::set_plugin_storage",
+    "repository/plugins.rs::delete_plugin_storage_entry",
+    "repository/plugins.rs::log_plugin_activity",
     "repository/refresh_tokens.rs::cleanup_expired",
     "repository/refresh_tokens.rs::mark_token_used",
     "repository/refresh_tokens.rs::revoke_token_family",
@@ -292,46 +301,62 @@ fn iter_pub_fns(src: &str, fn_re: &Regex) -> Vec<PubFn> {
 }
 
 /// Drop `#[cfg(test)] mod tests { ... }` blocks so test fixtures
-/// that intentionally bypass emit don't trip the lint. Blocks are
-/// matched by the literal `#[cfg(test)]` attribute on a mod
-/// declaration.
+/// that intentionally bypass emit don't trip the lint.
+///
+/// The attribute is matched only at the start of a line (after
+/// optional whitespace) so a `#[cfg(test)]` mention inside a doc
+/// comment doesn't accidentally swallow real code that happens to
+/// follow the comment. The attribute must also be immediately
+/// followed by a `mod ` declaration on the same or next non-blank
+/// line — `#[cfg(test)] fn ...` annotations on individual functions
+/// are intentionally left intact (and any diesel write inside such a
+/// fn would be a real lint violation).
 fn strip_test_modules(src: &str) -> String {
-    let mut out = String::with_capacity(src.len());
+    let lines: Vec<&str> = src.lines().collect();
+    let mut keep: Vec<&str> = Vec::with_capacity(lines.len());
     let mut i = 0usize;
-    let bytes = src.as_bytes();
-    while i < bytes.len() {
-        if let Some(attr_pos) = src[i..].find("#[cfg(test)]") {
-            let absolute = i + attr_pos;
-            out.push_str(&src[i..absolute]);
-            // Find the next `mod NAME {` after the attribute.
-            let after_attr = absolute + "#[cfg(test)]".len();
-            let Some(mod_pos) = src[after_attr..].find("mod ") else {
-                out.push_str(&src[absolute..]);
-                break;
-            };
-            let abs_mod = after_attr + mod_pos;
-            let Some(open) = src[abs_mod..].find('{') else {
-                out.push_str(&src[absolute..]);
-                break;
-            };
-            let body_start = abs_mod + open + 1;
-            let mut depth = 1usize;
-            let mut j = body_start;
-            while j < bytes.len() && depth > 0 {
-                match bytes[j] {
-                    b'{' => depth += 1,
-                    b'}' => depth -= 1,
-                    _ => {}
-                }
+    while i < lines.len() {
+        let trimmed = lines[i].trim_start();
+        if trimmed.starts_with("#[cfg(test)]") {
+            // Peek the next non-blank line: only strip if it's a
+            // mod declaration. Anything else (a fn, a struct, etc.)
+            // is left alone.
+            let mut j = i + 1;
+            while j < lines.len() && lines[j].trim().is_empty() {
                 j += 1;
             }
-            i = j;
-        } else {
-            out.push_str(&src[i..]);
-            break;
+            let next = lines.get(j).map(|l| l.trim_start()).unwrap_or("");
+            if next.starts_with("mod ") || next.starts_with("pub mod ") {
+                // Skip the attribute, the mod declaration, and every
+                // line up to and including the matching close brace.
+                let mut depth = 0i32;
+                let mut started = false;
+                let mut k = j;
+                while k < lines.len() {
+                    let bytes = lines[k].as_bytes();
+                    for &b in bytes {
+                        match b {
+                            b'{' => {
+                                depth += 1;
+                                started = true;
+                            }
+                            b'}' => depth -= 1,
+                            _ => {}
+                        }
+                    }
+                    k += 1;
+                    if started && depth == 0 {
+                        break;
+                    }
+                }
+                i = k;
+                continue;
+            }
         }
+        keep.push(lines[i]);
+        i += 1;
     }
-    out
+    keep.join("\n")
 }
 
 /// Strip /* ... */ block comments so a sample `diesel::update(` in a

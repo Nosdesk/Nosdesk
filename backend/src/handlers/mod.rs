@@ -34,6 +34,7 @@ pub mod notifications;
 pub mod webhooks;
 pub mod plugins;
 pub mod plugin_collections;
+pub mod plugin_events;
 pub mod passkeys;
 pub mod search;
 pub mod channels;

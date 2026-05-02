@@ -169,6 +169,8 @@ pub enum SyncAggregate {
     Assignment,
     #[serde(rename = "group_membership")]
     GroupMembership,
+    #[serde(rename = "plugin")]
+    Plugin,
 }
 
 impl SyncAggregate {
@@ -182,6 +184,7 @@ impl SyncAggregate {
             Self::Attachment => "attachment",
             Self::Assignment => "assignment",
             Self::GroupMembership => "group_membership",
+            Self::Plugin => "plugin",
         }
     }
 }
@@ -204,6 +207,7 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"attachment" => Ok(Self::Attachment),
             b"assignment" => Ok(Self::Assignment),
             b"group_membership" => Ok(Self::GroupMembership),
+            b"plugin" => Ok(Self::Plugin),
             other => Err(
                 format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into(),
             ),

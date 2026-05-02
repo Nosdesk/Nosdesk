@@ -21,5 +21,6 @@ pub fn schema_version_for(aggregate: SyncAggregate) -> i16 {
         SyncAggregate::Attachment => 1,
         SyncAggregate::Assignment => 1,
         SyncAggregate::GroupMembership => 1,
+        SyncAggregate::Plugin => 1,
     }
 }

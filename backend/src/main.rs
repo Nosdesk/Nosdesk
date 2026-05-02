@@ -1263,6 +1263,14 @@ async fn main() -> std::io::Result<()> {
                     .route("/plugins/{uuid}/storage/{key}", web::delete().to(handlers::plugins::delete_plugin_storage))
                     .route("/plugins/{uuid}/proxy", web::post().to(handlers::plugins::proxy_plugin_request))
 
+                    // ===== PLUGIN EVENT EMISSION =====
+                    // Authenticated user iframes can call this to record a
+                    // plugin-emitted event in sync_actions with
+                    // actor_kind = 'plugin'. Aggregate must be a registered
+                    // variant; plugins extend behaviour through event_type
+                    // strings, not by inventing new aggregates.
+                    .route("/plugins/{uuid}/events", web::post().to(handlers::plugin_events::emit_plugin_event))
+
                     // ===== PLUGIN COLLECTIONS =====
                     .route("/plugins/{uuid}/collections", web::get().to(handlers::plugin_collections::list_collections))
                     .route("/plugins/{uuid}/collections/{name}", web::get().to(handlers::plugin_collections::get_collection_schema))
