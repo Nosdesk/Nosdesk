@@ -5,21 +5,12 @@ import LoginView from '../views/LoginView.vue'
 import PasswordResetView from '../views/PasswordResetView.vue'
 import OnboardingView from '../views/OnboardingView.vue'
 import ErrorView from '../views/ErrorView.vue'
-// /tickets routes through TicketsListViewRouter, mirroring the
-// projects pattern: V1 vs V2 dispatch lives behind the
-// projects_v2 flag.
-import TicketsListView from '../views/TicketsListViewRouter.vue'
-// /projects routes to ProjectsRouter, which dispatches to either
-// the legacy REST view or the sync-engine V2 view based on the
-// `projects_v2` feature flag. Both target views are async-imported
-// inside the wrapper so the user only pays the bundle cost for the
-// one they actually render.
-import ProjectsView from '../views/ProjectsRouter.vue'
-// /projects/:id routes through ProjectDetailRouter, mirroring the
-// ProjectsRouter pattern: V1 vs V2 dispatch lives behind the
-// projects_v2 feature flag so swapping implementations doesn't
-// require a routes-table edit.
-import ProjectDetailView from '../views/ProjectDetailRouter.vue'
+// Sync-engine views — pool-backed, optimistic, real-time. The
+// legacy REST views were retired alongside their dispatchers
+// once the sync runtime was the canonical implementation.
+import TicketsListView from '@/sync/views/TicketsListView.vue'
+import ProjectsView from '../views/ProjectsView.vue'
+import ProjectDetailView from '../views/ProjectDetailView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
 import DocumentView from '@/views/DocumentView.vue'
@@ -797,24 +788,17 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
       void wfStore.load();
     }
 
-    // Phase 3 sync engine: hydrate the local-first runtime once per
-    // session, only when the projects_v2 flag is on. The hydrate()
-    // call is idempotent so re-entry to a protected route after the
-    // first hydrate is a no-op. Failure here is non-fatal — the
-    // legacy code path still serves the UI.
-    const { useFeatureFlag } = await import('@/composables/useFeatureFlag');
-    const projectsV2 = useFeatureFlag('projects_v2');
-    if (projectsV2.value && authStore.user?.uuid) {
+    // Hydrate the local-first sync runtime. hydrate() is idempotent
+    // so re-entry to a protected route after the first call is a
+    // no-op. Failure is non-fatal: the runtime degrades to memory-
+    // only mode and the views still render — they just don't survive
+    // a tab restart and lose live SSE updates.
+    if (authStore.user?.uuid) {
       try {
         const [{ hydrate, fetchServerSchemaHash }, { attachSseBridge }] = await Promise.all([
           import('@/sync/lifecycle'),
           import('@/sync/sseBridge'),
         ]);
-        // Pull the server's compiled schema hash before opening
-        // IDB — the IDB name encodes the hash so a release that
-        // bumps any migration gets a clean cache without a
-        // cross-version row read. Best-effort: failure falls back
-        // to "unknown" which still scopes-by-user.
         const schemaHash = await fetchServerSchemaHash();
         await hydrate(authStore.user.uuid, schemaHash);
         attachSseBridge();
