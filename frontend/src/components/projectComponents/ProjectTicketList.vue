@@ -11,6 +11,7 @@ import MobileSearchBar from '@/components/MobileSearchBar.vue'
 import { useMobileSearch } from '@/composables/useMobileSearch'
 import { useProjectSSE } from '@/composables/useProjectSSE'
 import { useThemeStore } from '@/stores/theme'
+import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { formatRelativeTime } from '@/utils/dateUtils'
 import type { TicketUpdatedEventData } from '@/types/sse'
 
@@ -26,6 +27,7 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const themeStore = useThemeStore()
+const workflowStatesStore = useWorkflowStatesStore()
 
 // Mobile search integration
 const {
@@ -354,7 +356,13 @@ const getPriorityClass = (priority: TicketPriority) => {
 
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
               <div class="flex items-center gap-2 flex-shrink-0">
-                <StatusBadge type="status" :value="ticket.status" :short="true" :compact="true" />
+                <StatusBadge
+                  type="status"
+                  :value="ticket.status"
+                  :workflow-state="ticket.workflow_state_id ? workflowStatesStore.findById(ticket.workflow_state_id) : null"
+                  :short="true"
+                  :compact="true"
+                />
                 <StatusBadge type="priority" :value="ticket.priority" :short="true" :compact="true" />
               </div>
 
@@ -422,6 +430,7 @@ const getPriorityClass = (priority: TicketPriority) => {
               <StatusBadge
                 type="status"
                 :value="ticket.status"
+                :workflow-state="ticket.workflow_state_id ? workflowStatesStore.findById(ticket.workflow_state_id) : null"
                 custom-classes="text-xs px-1.5 py-0.5 rounded border whitespace-nowrap"
                 :compact="true"
               />

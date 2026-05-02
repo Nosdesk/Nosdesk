@@ -25,6 +25,7 @@ import { useTicketsListLoader } from '@/loaders/ticketsListLoader'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import { useCollabSessionStore } from '@/stores/collabSession'
+import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { parseDate } from '@/utils/dateUtils'
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from '@/constants/ticketOptions'
 import { categoryService } from '@/services/categoryService'
@@ -40,6 +41,7 @@ const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const queryCache = useQueryCache()
 const collab = useCollabSessionStore()
+const workflowStatesStore = useWorkflowStatesStore()
 
 // Tighter mobile breakpoint than the default — desktop columns
 // for tickets need >=lg to fit comfortably.
@@ -316,7 +318,13 @@ async function executeBulk(
             <TextCell :value="item.title" font-weight="medium" />
           </template>
           <template #cell-status="{ item }">
-            <StatusBadge type="status" :value="item.status" :short="true" :compact="true" />
+            <StatusBadge
+              type="status"
+              :value="item.status"
+              :workflow-state="item.workflow_state_id ? workflowStatesStore.findById(item.workflow_state_id) : null"
+              :short="true"
+              :compact="true"
+            />
           </template>
           <template #cell-priority="{ item }">
             <StatusBadge type="priority" :value="item.priority" :short="true" :compact="true" />
@@ -383,7 +391,13 @@ async function executeBulk(
 
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
               <div class="flex items-center gap-2 flex-shrink-0">
-                <StatusBadge type="status" :value="item.status" :short="true" :compact="true" />
+                <StatusBadge
+                  type="status"
+                  :value="item.status"
+                  :workflow-state="item.workflow_state_id ? workflowStatesStore.findById(item.workflow_state_id) : null"
+                  :short="true"
+                  :compact="true"
+                />
                 <StatusBadge type="priority" :value="item.priority" :short="true" :compact="true" />
               </div>
 

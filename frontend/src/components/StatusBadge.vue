@@ -1,10 +1,18 @@
 // components/StatusBadge.vue
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { WorkflowState } from '@/types/workflow'
+import { paletteForColor } from '@/utils/workflowColors'
 
 const props = defineProps<{
   type: 'status' | 'priority'
   value: 'open' | 'in-progress' | 'closed' | 'low' | 'medium' | 'high'
+  /**
+   * Joined workflow state. When provided, the badge renders the state's
+   * configured name and color instead of the legacy three-bucket label.
+   * Falls back to `value` when absent so existing callers keep working.
+   */
+  workflowState?: WorkflowState | null
   customClasses?: string
   short?: boolean
   compact?: boolean
@@ -32,6 +40,7 @@ const displayText = computed(() => {
   }
 
   if (props.type === 'status') {
+    if (props.workflowState) return props.workflowState.name
     return props.value
   }
 
@@ -45,6 +54,7 @@ const displayText = computed(() => {
 
 const colorClasses = computed(() => {
   if (props.type === 'status') {
+    if (props.workflowState) return paletteForColor(props.workflowState.color).badge
     return statusConfig[props.value as 'open' | 'in-progress' | 'closed']
   }
   return priorityConfig[props.value as 'low' | 'medium' | 'high']
