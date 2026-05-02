@@ -37,6 +37,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         icon: 'lightning',
         route: '/admin/assignment-rules',
         keywords: ['assignment', 'rules', 'auto-assign', 'routing', 'automation']
+      },
+      {
+        title: 'Workflow',
+        description: 'Add named ticket states inside the standard workflow categories',
+        icon: 'tag',
+        route: '/admin/workflow',
+        keywords: ['workflow', 'states', 'status', 'kanban', 'categories']
       }
     ]
   },

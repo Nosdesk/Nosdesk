@@ -498,6 +498,12 @@ const router = createRouter({
           meta: { title: 'Assignment Rules' }
         },
         {
+          path: 'workflow',
+          name: 'admin-workflow',
+          component: () => import('../views/admin/WorkflowStatesView.vue'),
+          meta: { title: 'Workflow' }
+        },
+        {
           path: 'api-tokens',
           name: 'admin-api-tokens',
           component: () => import('../views/ApiTokensView.vue'),
