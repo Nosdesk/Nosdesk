@@ -13,14 +13,18 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use diesel::Connection;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::{errors, helpers};
-use crate::models::{Claims, NewWorkflowState, WorkflowState, WorkflowStateCategory, WorkflowStateUpdate};
+use crate::models::{Claims, NewWorkflowState, SyncAggregate, SyncOp, WorkflowState, WorkflowStateCategory, WorkflowStateUpdate};
 use crate::repository::workflow_states as repo;
 use crate::schema::workflow_states;
+use crate::sync::actor::ActorContext;
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
 
 #[derive(Debug, Serialize)]
 pub struct WorkflowStatesResponse {
@@ -49,6 +53,11 @@ fn actor_uuid(req: &HttpRequest) -> Option<Uuid> {
     req.extensions()
         .get::<Claims>()
         .and_then(|c| Uuid::parse_str(&c.sub).ok())
+}
+
+fn actor_for(req: &HttpRequest) -> ActorContext {
+    let uuid = actor_uuid(req).unwrap_or_else(Uuid::nil);
+    ActorContext::user(uuid, None)
 }
 
 /// GET /api/workflow-states
@@ -116,7 +125,8 @@ pub async fn create(
         created_by: actor,
     };
 
-    match repo::create(&mut conn, new) {
+    let actor_ctx = actor_for(&req);
+    match repo::create(&mut conn, new, &actor_ctx) {
         Ok(state) => {
             info!(
                 actor = ?actor,
@@ -160,14 +170,39 @@ pub async fn patch(
     }
 
     let actor = actor_uuid(&req);
+    let actor_ctx = actor_for(&req);
 
     // Default-promotion writes two rows (clear old default, set new),
-    // so wrap the patch in a transaction.
+    // so wrap the patch in a transaction. Both the demotion and the
+    // promotion emit their own sync_action so consumers see the
+    // workspace shifting default deterministically.
     let result = conn.transaction::<WorkflowState, diesel::result::Error, _>(|conn| {
         if matches!(body.is_default, Some(true)) {
+            let previously_default: Option<i32> = workflow_states::table
+                .filter(workflow_states::is_default.eq(true))
+                .select(workflow_states::id)
+                .first(conn)
+                .optional()?;
             diesel::update(workflow_states::table.filter(workflow_states::is_default.eq(true)))
                 .set(workflow_states::is_default.eq(false))
                 .execute(conn)?;
+            if let Some(prev_id) = previously_default {
+                if prev_id != id {
+                    emit::record(
+                        conn,
+                        SyncEmit {
+                            aggregate: SyncAggregate::WorkflowState,
+                            aggregate_id: prev_id.to_string(),
+                            op: SyncOp::Update,
+                            event_type: "workflow_state.default_revoked",
+                            data: json!({ "id": prev_id }),
+                            groups: groups::workspace(),
+                            actor: &actor_ctx,
+                            causation_id: None,
+                        },
+                    )?;
+                }
+            }
         }
         let patch = WorkflowStateUpdate {
             name: body.name.as_ref().map(|s| s.trim().to_string()),
@@ -176,9 +211,33 @@ pub async fn patch(
             is_default: body.is_default,
             archived_at: None,
         };
-        diesel::update(workflow_states::table.find(id))
+        let row: WorkflowState = diesel::update(workflow_states::table.find(id))
             .set(&patch)
-            .get_result::<WorkflowState>(conn)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::WorkflowState,
+                aggregate_id: row.id.to_string(),
+                op: SyncOp::Update,
+                event_type: if matches!(body.is_default, Some(true)) {
+                    "workflow_state.default_promoted"
+                } else {
+                    "workflow_state.updated"
+                },
+                data: json!({
+                    "id": row.id,
+                    "name": row.name,
+                    "color": row.color,
+                    "position": row.position,
+                    "is_default": row.is_default,
+                }),
+                groups: groups::workspace(),
+                actor: &actor_ctx,
+                causation_id: None,
+            },
+        )?;
+        Ok(row)
     });
 
     match result {
@@ -226,7 +285,8 @@ pub async fn archive(
     }
 
     let actor = actor_uuid(&req);
-    match repo::archive(&mut conn, id) {
+    let actor_ctx = actor_for(&req);
+    match repo::archive(&mut conn, id, &actor_ctx) {
         Ok(state) => {
             info!(actor = ?actor, state_id = state.id, "workflow state archived");
             HttpResponse::Ok().json(state)
