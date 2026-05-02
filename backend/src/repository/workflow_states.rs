@@ -19,7 +19,6 @@ use crate::models::{
     WorkflowStateUpdate,
 };
 use crate::schema::workflow_states;
-use crate::sync::actor::ActorContext;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
@@ -143,11 +142,7 @@ pub fn state_for_legacy_status(conn: &mut DbConnection, status: &str) -> QueryRe
     first_in_category(conn, category)
 }
 
-pub fn create(
-    conn: &mut DbConnection,
-    new: NewWorkflowState,
-    actor: &ActorContext,
-) -> QueryResult<WorkflowState> {
+pub fn create(conn: &mut DbConnection, new: NewWorkflowState) -> QueryResult<WorkflowState> {
     let row = conn.transaction(|conn| {
         let row: WorkflowState = diesel::insert_into(workflow_states::table)
             .values(&new)
@@ -166,7 +161,6 @@ pub fn create(
                     "color": row.color,
                 }),
                 groups: groups::workspace(),
-                actor,
                 causation_id: None,
             },
         )?;
@@ -180,7 +174,6 @@ pub fn update(
     conn: &mut DbConnection,
     id: i32,
     patch: WorkflowStateUpdate,
-    actor: &ActorContext,
 ) -> QueryResult<WorkflowState> {
     let row = conn.transaction(|conn| {
         let row: WorkflowState = diesel::update(workflow_states::table.find(id))
@@ -201,7 +194,6 @@ pub fn update(
                     "is_default": row.is_default,
                 }),
                 groups: groups::workspace(),
-                actor,
                 causation_id: None,
             },
         )?;
@@ -211,11 +203,7 @@ pub fn update(
     Ok(row)
 }
 
-pub fn archive(
-    conn: &mut DbConnection,
-    id: i32,
-    actor: &ActorContext,
-) -> QueryResult<WorkflowState> {
+pub fn archive(conn: &mut DbConnection, id: i32) -> QueryResult<WorkflowState> {
     let row = conn.transaction(|conn| {
         let row: WorkflowState = diesel::update(workflow_states::table.find(id))
             .set(workflow_states::archived_at.eq(Some(Utc::now())))
@@ -229,7 +217,6 @@ pub fn archive(
                 event_type: "workflow_state.archived",
                 data: json!({ "id": row.id }),
                 groups: groups::workspace(),
-                actor,
                 causation_id: None,
             },
         )?;
@@ -245,6 +232,7 @@ mod tests {
     use crate::models::{SyncAggregate, UserRole};
     use crate::schema::sync_actions;
     use crate::sync::actor::ActorContext;
+    use crate::sync::session;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use diesel::dsl::count_star;
 
@@ -282,43 +270,46 @@ mod tests {
     }
 
     #[test]
-    fn create_emits_a_sync_action_in_the_same_transaction() {
+    fn create_emits_a_sync_action_with_actor_from_session() {
         let mut conn = setup_test_connection();
         invalidate_cache();
         let user = TestFixtures::create_user(&mut conn, "wf_emit_admin", UserRole::Admin);
         let actor = ActorContext::user(user.uuid, None);
 
-        let before: i64 = sync_actions::table
-            .filter(sync_actions::aggregate.eq(SyncAggregate::WorkflowState))
-            .select(count_star())
-            .first(&mut conn)
+        let created = conn
+            .transaction::<_, diesel::result::Error, _>(|conn| {
+                session::set_actor(conn, &actor)?;
+                let before: i64 = sync_actions::table
+                    .filter(sync_actions::aggregate.eq(SyncAggregate::WorkflowState))
+                    .select(count_star())
+                    .first(conn)?;
+                let new = NewWorkflowState {
+                    name: "Investigating".into(),
+                    category: WorkflowStateCategory::Active,
+                    color: "blue".into(),
+                    position: 99,
+                    is_default: false,
+                    created_by: Some(user.uuid),
+                };
+                let created = create(conn, new)?;
+                let after: i64 = sync_actions::table
+                    .filter(sync_actions::aggregate.eq(SyncAggregate::WorkflowState))
+                    .filter(sync_actions::aggregate_id.eq(created.id.to_string()))
+                    .filter(sync_actions::event_type.eq("workflow_state.created"))
+                    .filter(sync_actions::actor_uuid.eq(Some(user.uuid)))
+                    .select(count_star())
+                    .first(conn)?;
+                assert_eq!(after, 1);
+                let total_after: i64 = sync_actions::table
+                    .filter(sync_actions::aggregate.eq(SyncAggregate::WorkflowState))
+                    .select(count_star())
+                    .first(conn)?;
+                assert_eq!(total_after, before + 1);
+                Ok(created)
+            })
             .unwrap();
-
-        let new = NewWorkflowState {
-            name: "Investigating".into(),
-            category: WorkflowStateCategory::Active,
-            color: "blue".into(),
-            position: 99,
-            is_default: false,
-            created_by: Some(user.uuid),
-        };
-        let created = create(&mut conn, new, &actor).unwrap();
-
-        let after: i64 = sync_actions::table
-            .filter(sync_actions::aggregate.eq(SyncAggregate::WorkflowState))
-            .filter(sync_actions::aggregate_id.eq(created.id.to_string()))
-            .filter(sync_actions::event_type.eq("workflow_state.created"))
-            .select(count_star())
-            .first(&mut conn)
-            .unwrap();
-        assert_eq!(after, 1);
-
-        // Sanity: total emit count moved by one (no spurious extras).
-        let total_after: i64 = sync_actions::table
-            .filter(sync_actions::aggregate.eq(SyncAggregate::WorkflowState))
-            .select(count_star())
-            .first(&mut conn)
-            .unwrap();
-        assert_eq!(total_after, before + 1);
+        // Touch `created` so the binding is exercised and can't be
+        // accidentally dropped by a future refactor.
+        assert!(created.id > 0);
     }
 }

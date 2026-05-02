@@ -25,6 +25,7 @@ use crate::schema::workflow_states;
 use crate::sync::actor::ActorContext;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
+use crate::sync::session;
 
 #[derive(Debug, Serialize)]
 pub struct WorkflowStatesResponse {
@@ -126,7 +127,11 @@ pub async fn create(
     };
 
     let actor_ctx = actor_for(&req);
-    match repo::create(&mut conn, new, &actor_ctx) {
+    let created = conn.transaction::<WorkflowState, diesel::result::Error, _>(|conn| {
+        session::set_actor(conn, &actor_ctx)?;
+        repo::create(conn, new)
+    });
+    match created {
         Ok(state) => {
             info!(
                 actor = ?actor,
@@ -177,6 +182,7 @@ pub async fn patch(
     // promotion emit their own sync_action so consumers see the
     // workspace shifting default deterministically.
     let result = conn.transaction::<WorkflowState, diesel::result::Error, _>(|conn| {
+        session::set_actor(conn, &actor_ctx)?;
         if matches!(body.is_default, Some(true)) {
             let previously_default: Option<i32> = workflow_states::table
                 .filter(workflow_states::is_default.eq(true))
@@ -197,7 +203,7 @@ pub async fn patch(
                             event_type: "workflow_state.default_revoked",
                             data: json!({ "id": prev_id }),
                             groups: groups::workspace(),
-                            actor: &actor_ctx,
+
                             causation_id: None,
                         },
                     )?;
@@ -233,7 +239,7 @@ pub async fn patch(
                     "is_default": row.is_default,
                 }),
                 groups: groups::workspace(),
-                actor: &actor_ctx,
+
                 causation_id: None,
             },
         )?;
@@ -286,7 +292,11 @@ pub async fn archive(
 
     let actor = actor_uuid(&req);
     let actor_ctx = actor_for(&req);
-    match repo::archive(&mut conn, id, &actor_ctx) {
+    let archived = conn.transaction::<WorkflowState, diesel::result::Error, _>(|conn| {
+        session::set_actor(conn, &actor_ctx)?;
+        repo::archive(conn, id)
+    });
+    match archived {
         Ok(state) => {
             info!(actor = ?actor, state_id = state.id, "workflow state archived");
             HttpResponse::Ok().json(state)

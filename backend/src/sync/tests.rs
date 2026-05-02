@@ -18,20 +18,23 @@ fn record_inserts_a_row_with_the_actor_attached() {
     let user = TestFixtures::create_user(&mut conn, "sync_emit_user", UserRole::Admin);
     let actor = ActorContext::user(user.uuid, None);
 
-    let sync_id = emit::record(
-        &mut conn,
-        SyncEmit {
-            aggregate: SyncAggregate::WorkflowState,
-            aggregate_id: "1".to_string(),
-            op: SyncOp::Update,
-            event_type: "workflow_state.renamed",
-            data: json!({ "name": "In Progress" }),
-            groups: vec!["workspace:1".to_string()],
-            actor: &actor,
-            causation_id: None,
-        },
-    )
-    .expect("record should insert");
+    let sync_id = conn
+        .transaction::<i64, diesel::result::Error, _>(|conn| {
+            session::set_actor(conn, &actor)?;
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::WorkflowState,
+                    aggregate_id: "1".to_string(),
+                    op: SyncOp::Update,
+                    event_type: "workflow_state.renamed",
+                    data: json!({ "name": "In Progress" }),
+                    groups: vec!["workspace:1".to_string()],
+                    causation_id: None,
+                },
+            )
+        })
+        .expect("record should insert");
 
     let (event_type, op, actor_uuid, actor_kind): (String, SyncOp, Option<Uuid>, String) =
         sync_actions::table
@@ -56,20 +59,23 @@ fn system_actor_records_with_null_uuid_and_a_reference() {
     let mut conn = setup_test_connection();
     let actor = ActorContext::system("scheduler:partition_provisioner");
 
-    let sync_id = emit::record(
-        &mut conn,
-        SyncEmit {
-            aggregate: SyncAggregate::WorkflowState,
-            aggregate_id: "1".to_string(),
-            op: SyncOp::Update,
-            event_type: "workflow_state.system_change",
-            data: json!({}),
-            groups: vec!["workspace:1".to_string()],
-            actor: &actor,
-            causation_id: None,
-        },
-    )
-    .expect("record should insert");
+    let sync_id = conn
+        .transaction::<i64, diesel::result::Error, _>(|conn| {
+            session::set_actor(conn, &actor)?;
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::WorkflowState,
+                    aggregate_id: "1".to_string(),
+                    op: SyncOp::Update,
+                    event_type: "workflow_state.system_change",
+                    data: json!({}),
+                    groups: vec!["workspace:1".to_string()],
+                    causation_id: None,
+                },
+            )
+        })
+        .expect("record should insert");
 
     let (actor_uuid, actor_kind, actor_ref): (Option<Uuid>, String, Option<String>) =
         sync_actions::table
