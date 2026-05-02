@@ -33,6 +33,7 @@ export function useTicketData() {
   const selectedStatus = ref<TicketStatus>("open");
   const selectedPriority = ref<TicketPriority>("low");
   const selectedCategory = ref<number | null>(null);
+  const selectedWorkflowStateId = ref<number | null>(null);
 
   // Computed
   const formattedCreatedDate = computed(() =>
@@ -107,6 +108,7 @@ export function useTicketData() {
       selectedStatus.value = ticket.value.status;
       selectedPriority.value = ticket.value.priority;
       selectedCategory.value = ticket.value.category_id || null;
+      selectedWorkflowStateId.value = ticket.value.workflow_state_id ?? null;
 
       // Update title manager
       titleManager.setTicket({
@@ -199,6 +201,49 @@ export function useTicketData() {
     await updateTicketField("status", newStatus);
   }
 
+  // Update workflow state by id. The backend recomputes the legacy
+  // status bucket from the new state's category, so the optimistic
+  // mutation here is best-effort: we set the id locally, then rely on
+  // the API response's `status` field to re-sync the legacy ref. We
+  // don't try to predict the bucket on the client.
+  async function updateWorkflowState(newId: number): Promise<void> {
+    if (!ticket.value) return;
+    const oldId = ticket.value.workflow_state_id ?? null;
+    if (oldId === newId) return;
+
+    try {
+      const nowDateTime = getCurrentUTCDateTime();
+      ticket.value.workflow_state_id = newId;
+      ticket.value.modified = nowDateTime;
+      selectedWorkflowStateId.value = newId;
+
+      const response = await ticketService.updateTicket(ticket.value.id, {
+        workflow_state_id: newId,
+        modified: nowDateTime,
+      });
+
+      if (response && ticket.value) {
+        if (response.status) {
+          ticket.value.status = response.status;
+          selectedStatus.value = response.status;
+        }
+        if (response.workflow_state) {
+          ticket.value.workflow_state = response.workflow_state;
+        }
+        recentTicketsStore.updateTicketData(ticket.value.id, {
+          status: ticket.value.status,
+        });
+      }
+    } catch (err) {
+      logger.error('Error updating workflow state', { error: err });
+      if (ticket.value) {
+        ticket.value.workflow_state_id = oldId ?? undefined;
+        selectedWorkflowStateId.value = oldId;
+      }
+      throw err;
+    }
+  }
+
   // Update priority
   async function updatePriority(newPriority: TicketPriority): Promise<void> {
     await updateTicketField("priority", newPriority);
@@ -244,6 +289,7 @@ export function useTicketData() {
     selectedStatus,
     selectedPriority,
     selectedCategory,
+    selectedWorkflowStateId,
 
     // Computed
     formattedCreatedDate,
@@ -255,6 +301,7 @@ export function useTicketData() {
     fetchTicket,
     refreshTicket,
     updateStatus,
+    updateWorkflowState,
     updatePriority,
     updateCategory,
     updateRequester,

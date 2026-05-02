@@ -18,10 +18,24 @@ import { computed, ref } from 'vue'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
+import { paletteForColor } from '@/utils/workflowColors'
+
+interface DropdownOption {
+  value: string
+  label: string
+  /** When true, the option renders as a non-selectable group header. */
+  disabled?: boolean
+  /**
+   * Workflow-state design-token color. When present (status type
+   * only), the row renders a colored dot using this token instead of
+   * the legacy three-bucket StatusIndicator shapes.
+   */
+  color?: string
+}
 
 const props = defineProps<{
   value: string
-  options: { value: string; label: string }[]
+  options: DropdownOption[]
   type: 'status' | 'priority' | 'category'
   /** Mobile sheet header label. Defaults to a sensible value
    * derived from `type` so existing call sites don't need to
@@ -32,6 +46,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:value', value: string): void
 }>()
+
+const LEGACY_STATUS_VALUES = new Set(['open', 'in-progress', 'closed'])
+function isLegacyStatusValue(v: string): boolean {
+  return LEGACY_STATUS_VALUES.has(v)
+}
 
 const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
@@ -63,7 +82,8 @@ function toggle() {
   isOpen.value = !isOpen.value
 }
 
-function selectOption(option: { value: string; label: string }) {
+function selectOption(option: DropdownOption) {
+  if (option.disabled) return
   emit('update:value', option.value)
   isOpen.value = false
 }
@@ -78,11 +98,18 @@ function selectOption(option: { value: string; label: string }) {
       class="w-full px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-[40px] bg-transparent text-primary text-left flex items-center justify-between hover:bg-surface-hover active:bg-surface-alt transition-colors rounded-lg cursor-pointer"
     >
       <div class="flex items-center gap-2.5 sm:gap-2">
-        <StatusIndicator
-          v-if="type === 'status'"
-          :status="value as 'open' | 'in-progress' | 'closed'"
-          size="sm"
-        />
+        <template v-if="type === 'status'">
+          <StatusIndicator
+            v-if="isLegacyStatusValue(value)"
+            :status="value as 'open' | 'in-progress' | 'closed'"
+            size="sm"
+          />
+          <span
+            v-else
+            :class="['inline-block w-2.5 h-2.5 rounded-full', paletteForColor(selectedOption?.color).solid, 'bg-current']"
+            aria-hidden="true"
+          />
+        </template>
         <PriorityIndicator
           v-else-if="type === 'priority'"
           :priority="value as 'low' | 'medium' | 'high'"
@@ -116,39 +143,53 @@ function selectOption(option: { value: string; label: string }) {
       @close="isOpen = false"
     >
       <div class="py-1">
-        <button
-          v-for="option in options"
-          :key="option.value"
-          @click="selectOption(option)"
-          class="w-full px-3 py-2.5 md:py-2 min-h-[44px] md:min-h-0 text-left text-primary hover:bg-surface-hover active:bg-surface-alt transition-colors flex items-center gap-2.5"
-          :class="{ 'bg-accent/10': option.value === value }"
-        >
-          <StatusIndicator
-            v-if="type === 'status'"
-            :status="option.value as 'open' | 'in-progress' | 'closed'"
-            size="sm"
-          />
-          <PriorityIndicator
-            v-else-if="type === 'priority'"
-            :priority="option.value as 'low' | 'medium' | 'high'"
-            size="sm"
-          />
-          <span class="text-sm flex-1" :class="{ 'font-medium': option.value === value }">
-            {{ option.label }}
-          </span>
-          <svg
-            v-if="option.value === value"
-            class="w-4 h-4 text-accent flex-shrink-0"
-            fill="currentColor"
-            viewBox="0 0 20 20"
+        <template v-for="option in options" :key="option.value">
+          <div
+            v-if="option.disabled"
+            class="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-tertiary font-semibold select-none"
           >
-            <path
-              fill-rule="evenodd"
-              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-              clip-rule="evenodd"
+            {{ option.label }}
+          </div>
+          <button
+            v-else
+            @click="selectOption(option)"
+            class="w-full px-3 py-2.5 md:py-2 min-h-[44px] md:min-h-0 text-left text-primary hover:bg-surface-hover active:bg-surface-alt transition-colors flex items-center gap-2.5"
+            :class="{ 'bg-accent/10': option.value === value }"
+          >
+            <template v-if="type === 'status'">
+              <StatusIndicator
+                v-if="isLegacyStatusValue(option.value)"
+                :status="option.value as 'open' | 'in-progress' | 'closed'"
+                size="sm"
+              />
+              <span
+                v-else
+                :class="['inline-block w-2.5 h-2.5 rounded-full bg-current', paletteForColor(option.color).solid]"
+                aria-hidden="true"
+              />
+            </template>
+            <PriorityIndicator
+              v-else-if="type === 'priority'"
+              :priority="option.value as 'low' | 'medium' | 'high'"
+              size="sm"
             />
-          </svg>
-        </button>
+            <span class="text-sm flex-1" :class="{ 'font-medium': option.value === value }">
+              {{ option.label }}
+            </span>
+            <svg
+              v-if="option.value === value"
+              class="w-4 h-4 text-accent flex-shrink-0"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                clip-rule="evenodd"
+              />
+            </svg>
+          </button>
+        </template>
       </div>
     </ResponsiveMenu>
   </div>

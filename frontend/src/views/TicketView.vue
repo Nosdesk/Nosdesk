@@ -63,6 +63,7 @@ const {
     selectedStatus,
     selectedPriority,
     selectedCategory,
+    selectedWorkflowStateId,
     formattedCreatedDate,
     formattedModifiedDate,
     comments,
@@ -70,6 +71,7 @@ const {
     fetchTicket,
     refreshTicket,
     updateStatus,
+    updateWorkflowState,
     updatePriority,
     updateCategory,
     updateRequester,
@@ -574,10 +576,12 @@ usePageCreateAction(handleCreateTicket);
                             :selected-status="selectedStatus"
                             :selected-priority="selectedPriority"
                             :selected-category="selectedCategory"
+                            :selected-workflow-state-id="selectedWorkflowStateId"
                             :status-options="STATUS_OPTIONS"
                             :priority-options="PRIORITY_OPTIONS"
                             :category-options="categoryOptions"
                             @update:selectedStatus="updateStatus"
+                            @update:selectedWorkflowStateId="updateWorkflowState"
                             @update:selectedPriority="updatePriority"
                             @update:selectedCategory="updateCategory"
                             @update:requester="updateRequester"

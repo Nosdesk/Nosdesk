@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue';
 import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions';
+import { useWorkflowStatesStore } from '@/stores/workflowStates';
+import { CATEGORY_LABELS, WORKFLOW_CATEGORIES } from '@/types/workflow';
 import QRCode from 'qrcode';
 import UserPicker from "@/components/ticketComponents/UserPicker.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
@@ -75,6 +77,7 @@ const props = defineProps<{
   selectedStatus: string;
   selectedPriority: string;
   selectedCategory?: number | null;
+  selectedWorkflowStateId?: number | null;
   statusOptions: { value: string; label: string }[];
   priorityOptions: { value: string; label: string }[];
   categoryOptions?: { value: string; label: string; color?: string }[];
@@ -82,6 +85,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:selectedStatus", value: TicketStatus): void;
+  (e: "update:selectedWorkflowStateId", value: number): void;
   (e: "update:selectedPriority", value: TicketPriority): void;
   (e: "update:selectedCategory", value: string): void;
   (e: "update:requester", value: string): void;
@@ -90,6 +94,54 @@ const emit = defineEmits<{
   (e: "titleFocus"): void;
   (e: "titleBlur"): void;
 }>();
+
+const workflowStatesStore = useWorkflowStatesStore();
+
+/**
+ * Workflow state options for the status dropdown, grouped by category.
+ * Categories are emitted as non-selectable header rows (`disabled: true`)
+ * so the picker shows the structure without letting the user pick the
+ * category itself. Empty categories are skipped.
+ *
+ * Falls back to the legacy three-bucket statusOptions when the store
+ * hasn't loaded yet.
+ */
+const workflowDropdownOptions = computed<
+  { value: string; label: string; disabled?: boolean; color?: string }[]
+>(() => {
+  if (!workflowStatesStore.loaded || workflowStatesStore.states.length === 0) {
+    return props.statusOptions;
+  }
+  const out: { value: string; label: string; disabled?: boolean; color?: string }[] = [];
+  for (const cat of WORKFLOW_CATEGORIES) {
+    const states = workflowStatesStore.byCategory[cat];
+    if (!states || states.length === 0) continue;
+    out.push({ value: `__cat_${cat}`, label: CATEGORY_LABELS[cat], disabled: true });
+    for (const s of states) {
+      out.push({ value: String(s.id), label: s.name, color: s.color });
+    }
+  }
+  return out;
+});
+
+const usingWorkflowDropdown = computed(
+  () => workflowStatesStore.loaded && workflowStatesStore.states.length > 0,
+);
+
+const workflowDropdownValue = computed(() => {
+  if (props.selectedWorkflowStateId != null) return String(props.selectedWorkflowStateId);
+  return props.selectedStatus;
+});
+
+function handleStatusDropdownChange(v: string) {
+  if (v.startsWith('__cat_')) return; // header row; ignore
+  if (usingWorkflowDropdown.value) {
+    const id = Number(v);
+    if (Number.isFinite(id)) emit('update:selectedWorkflowStateId', id);
+    return;
+  }
+  emit('update:selectedStatus', v as TicketStatus);
+}
 
 // Computed values - single source of truth from props
 const selectedRequester = computed(() =>
@@ -367,10 +419,10 @@ watchEffect(async () => {
               <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Status</h3>
               <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
                 <CustomDropdown
-                  :value="selectedStatus"
-                  :options="statusOptions"
+                  :value="workflowDropdownValue"
+                  :options="workflowDropdownOptions"
                   type="status"
-                  @update:value="(v: string) => emit('update:selectedStatus', v as TicketStatus)"
+                  @update:value="handleStatusDropdownChange"
                   class="w-full"
                 />
               </div>
