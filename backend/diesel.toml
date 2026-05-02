@@ -4,6 +4,14 @@
 [print_schema]
 file = "src/schema.rs"
 custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
+# Hide RANGE partition children: Rust code only ever reads or writes
+# the parent partitioned table. Listing each monthly partition in
+# schema.rs would balloon the file as time passes for no benefit.
+[print_schema.filter]
+except_tables = [
+    "sync_actions_[0-9]+_[0-9]+",
+    "audit_log_[0-9]+_[0-9]+",
+]
 
 [migrations_directory]
 # Relative to the cargo workspace root (where diesel CLI is invoked).

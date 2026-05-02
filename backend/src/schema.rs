@@ -14,6 +14,14 @@ pub mod sql_types {
     pub struct ProjectStatus;
 
     #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "sync_aggregate"))]
+    pub struct SyncAggregate;
+
+    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "sync_op"))]
+    pub struct SyncOp;
+
+    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "ticket_priority"))]
     pub struct TicketPriority;
 
@@ -161,6 +169,22 @@ diesel::table! {
         uploaded_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
         transcription -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    audit_log (id, occurred_at) {
+        id -> Int8,
+        table_name -> Text,
+        pk_text -> Text,
+        #[max_length = 1]
+        op -> Bpchar,
+        before_jsonb -> Nullable<Jsonb>,
+        after_jsonb -> Nullable<Jsonb>,
+        changed_cols -> Nullable<Array<Nullable<Text>>>,
+        actor_uuid -> Nullable<Uuid>,
+        correlation_id -> Nullable<Uuid>,
+        occurred_at -> Timestamptz,
     }
 }
 
@@ -899,6 +923,34 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::SyncAggregate;
+    use super::sql_types::SyncOp;
+
+    sync_actions (sync_id, occurred_at) {
+        sync_id -> Int8,
+        event_uuid -> Uuid,
+        aggregate -> SyncAggregate,
+        aggregate_id -> Text,
+        op -> SyncOp,
+        #[max_length = 64]
+        event_type -> Varchar,
+        schema_version -> Int2,
+        data -> Jsonb,
+        groups -> Array<Nullable<Text>>,
+        actor_uuid -> Nullable<Uuid>,
+        #[max_length = 16]
+        actor_kind -> Varchar,
+        actor_ref -> Nullable<Text>,
+        correlation_id -> Nullable<Uuid>,
+        causation_id -> Nullable<Uuid>,
+        client_tx_id -> Nullable<Text>,
+        occurred_at -> Timestamptz,
+        recorded_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     sync_delta_tokens (id) {
         id -> Int4,
         #[max_length = 50]
@@ -929,6 +981,14 @@ diesel::table! {
         tenant_id -> Nullable<Varchar>,
         initiated_by -> Nullable<Uuid>,
         is_delta -> Bool,
+    }
+}
+
+diesel::table! {
+    system_meta (key) {
+        key -> Text,
+        value -> Jsonb,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -1225,4 +1285,4 @@ diesel::joinable!(webhooks -> users (created_by));
 diesel::joinable!(workflow_states -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,search_query_log,security_events,site_settings,sync_delta_tokens,sync_history,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,search_index_state,search_query_log,security_events,site_settings,sync_actions,sync_delta_tokens,sync_history,system_meta,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,);
