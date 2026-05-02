@@ -5,7 +5,10 @@ import LoginView from '../views/LoginView.vue'
 import PasswordResetView from '../views/PasswordResetView.vue'
 import OnboardingView from '../views/OnboardingView.vue'
 import ErrorView from '../views/ErrorView.vue'
-import TicketsListView from '../views/TicketsListView.vue'
+// /tickets routes through TicketsListViewRouter, mirroring the
+// projects pattern: V1 vs V2 dispatch lives behind the
+// projects_v2 flag.
+import TicketsListView from '../views/TicketsListViewRouter.vue'
 // /projects routes to ProjectsRouter, which dispatches to either
 // the legacy REST view or the sync-engine V2 view based on the
 // `projects_v2` feature flag. Both target views are async-imported

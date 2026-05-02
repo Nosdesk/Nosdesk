@@ -180,11 +180,6 @@ fn stream_bootstrap(
         let assocs: Vec<ProjectTicket> = project_tickets::table
             .filter(project_tickets::project_id.eq_any(&project_ids))
             .load(&mut conn)?;
-        // Capture ticket ids before we move `assocs` into the loop —
-        // the kanban needs every ticket associated with any granted
-        // project, so we load them in one round-trip rather than
-        // letting the client lazy-fetch each individually.
-        let ticket_ids: Vec<i32> = assocs.iter().map(|a| a.ticket_id).collect();
         for a in assocs {
             send(tx, json!({
                 "__model__": "project_ticket",
@@ -193,44 +188,74 @@ fn stream_bootstrap(
                 "display_order": a.display_order,
             }))?;
         }
-
-        if !ticket_ids.is_empty() {
-            let ticket_rows: Vec<Ticket> = tickets::table
-                .filter(tickets::id.eq_any(&ticket_ids))
-                .load(&mut conn)?;
-
-            for t in ticket_rows {
-                // Resolve workflow_state_id -> denormalised CardData
-                // shape via the HashMap built above. O(1) per row.
-                let ws = states_by_id.get(&t.workflow_state_id);
-                let workflow_state_payload = ws.map(|s| json!({
-                    "id": s.id,
-                    "name": s.name,
-                    "category": s.category.as_str(),
-                    "color": s.color,
-                }));
-                send(tx, json!({
-                    "__model__": "ticket",
-                    "id": t.id,
-                    "title": t.title,
-                    "workflow_state": workflow_state_payload,
-                    "workflow_state_id": t.workflow_state_id,
-                    "priority": match t.priority {
-                        crate::models::TicketPriority::Low => "low",
-                        crate::models::TicketPriority::Medium => "medium",
-                        crate::models::TicketPriority::High => "high",
-                    },
-                    "requester_uuid": t.requester_uuid,
-                    "assignee_uuid": t.assignee_uuid,
-                    "category_id": t.category_id,
-                    "created_at": t.created_at,
-                    "updated_at": t.updated_at,
-                    "last_activity_at": t.updated_at,
-                }))?;
-            }
-        }
     }
 
+    // Tickets: two paths, mirroring the project loader above.
+    //
+    // 1. Workspace-wide (`workspace:1` granted): every ticket in the
+    //    workspace. The TicketsListViewV2 reads from this — My Queue
+    //    and Triage filter on assignee / workflow_state.category
+    //    respectively, both of which need the full ticket set.
+    //
+    // 2. Per-project: tickets associated with the granted project ids
+    //    via project_tickets. The kanban view reads from this.
+    //
+    // The two paths produce the same denormalised ticket shape; we
+    // load whichever set the granted groups call for, deduping
+    // implicitly through eq_any-on-id.
+    let ticket_query = if want_all {
+        tickets::table.into_boxed()
+    } else if !project_ids.is_empty() {
+        // Use the project_tickets join to scope tickets to granted
+        // projects. Loading via project_id eq_any is a single index
+        // scan; the per-row workflow_state lookup stays O(1) below.
+        let scoped_ids: Vec<i32> = project_tickets::table
+            .filter(project_tickets::project_id.eq_any(&project_ids))
+            .select(project_tickets::ticket_id)
+            .load(&mut conn)?;
+        tickets::table.filter(tickets::id.eq_any(scoped_ids)).into_boxed()
+    } else {
+        // No projects in the granted set and no workspace grant —
+        // skip the ticket loader entirely.
+        return finish(tx, last_sync_id);
+    };
+
+    let ticket_rows: Vec<Ticket> = ticket_query.load(&mut conn)?;
+    for t in ticket_rows {
+        let ws = states_by_id.get(&t.workflow_state_id);
+        let workflow_state_payload = ws.map(|s| json!({
+            "id": s.id,
+            "name": s.name,
+            "category": s.category.as_str(),
+            "color": s.color,
+        }));
+        send(tx, json!({
+            "__model__": "ticket",
+            "id": t.id,
+            "title": t.title,
+            "workflow_state": workflow_state_payload,
+            "workflow_state_id": t.workflow_state_id,
+            "priority": match t.priority {
+                crate::models::TicketPriority::Low => "low",
+                crate::models::TicketPriority::Medium => "medium",
+                crate::models::TicketPriority::High => "high",
+            },
+            "requester_uuid": t.requester_uuid,
+            "assignee_uuid": t.assignee_uuid,
+            "category_id": t.category_id,
+            "created_at": t.created_at,
+            "updated_at": t.updated_at,
+            "last_activity_at": t.updated_at,
+        }))?;
+    }
+
+    finish(tx, last_sync_id)
+}
+
+fn finish(
+    tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
+    last_sync_id: i64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     send(tx, json!({ "__end__": { "last_sync_id": last_sync_id } }))?;
     Ok(())
 }
