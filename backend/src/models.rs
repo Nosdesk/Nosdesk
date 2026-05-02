@@ -97,6 +97,120 @@ impl FromSql<crate::schema::sql_types::WorkflowStateCategory, Pg> for WorkflowSt
     }
 }
 
+/// Operation kind recorded in `sync_actions.op`. The fourth variant
+/// `Archive` distinguishes a soft-delete (row stays, marked archived)
+/// from a hard delete; consumers that maintain projections need to
+/// know the difference.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[diesel(sql_type = crate::schema::sql_types::SyncOp)]
+pub enum SyncOp {
+    #[serde(rename = "I")]
+    Insert,
+    #[serde(rename = "U")]
+    Update,
+    #[serde(rename = "D")]
+    Delete,
+    #[serde(rename = "A")]
+    Archive,
+}
+
+impl SyncOp {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Insert => "I",
+            Self::Update => "U",
+            Self::Delete => "D",
+            Self::Archive => "A",
+        }
+    }
+}
+
+impl ToSql<crate::schema::sql_types::SyncOp, Pg> for SyncOp {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
+        out.write_all(self.as_str().as_bytes())?;
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<crate::schema::sql_types::SyncOp, Pg> for SyncOp {
+    fn from_sql(bytes: PgValue) -> deserialize::Result<Self> {
+        match bytes.as_bytes() {
+            b"I" => Ok(Self::Insert),
+            b"U" => Ok(Self::Update),
+            b"D" => Ok(Self::Delete),
+            b"A" => Ok(Self::Archive),
+            other => Err(format!("unknown sync_op: {}", String::from_utf8_lossy(other)).into()),
+        }
+    }
+}
+
+/// Aggregate kind recorded in `sync_actions.aggregate`. Adding a new
+/// aggregate requires both an `ALTER TYPE` migration and a Rust
+/// variant; the registry module is the single source of truth for
+/// what each variant means.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[diesel(sql_type = crate::schema::sql_types::SyncAggregate)]
+pub enum SyncAggregate {
+    #[serde(rename = "ticket")]
+    Ticket,
+    #[serde(rename = "project")]
+    Project,
+    #[serde(rename = "project_ticket")]
+    ProjectTicket,
+    #[serde(rename = "workflow_state")]
+    WorkflowState,
+    #[serde(rename = "comment")]
+    Comment,
+    #[serde(rename = "attachment")]
+    Attachment,
+    #[serde(rename = "assignment")]
+    Assignment,
+    #[serde(rename = "group_membership")]
+    GroupMembership,
+}
+
+impl SyncAggregate {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ticket => "ticket",
+            Self::Project => "project",
+            Self::ProjectTicket => "project_ticket",
+            Self::WorkflowState => "workflow_state",
+            Self::Comment => "comment",
+            Self::Attachment => "attachment",
+            Self::Assignment => "assignment",
+            Self::GroupMembership => "group_membership",
+        }
+    }
+}
+
+impl ToSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
+        out.write_all(self.as_str().as_bytes())?;
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
+    fn from_sql(bytes: PgValue) -> deserialize::Result<Self> {
+        match bytes.as_bytes() {
+            b"ticket" => Ok(Self::Ticket),
+            b"project" => Ok(Self::Project),
+            b"project_ticket" => Ok(Self::ProjectTicket),
+            b"workflow_state" => Ok(Self::WorkflowState),
+            b"comment" => Ok(Self::Comment),
+            b"attachment" => Ok(Self::Attachment),
+            b"assignment" => Ok(Self::Assignment),
+            b"group_membership" => Ok(Self::GroupMembership),
+            other => Err(
+                format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into(),
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::workflow_states)]
 pub struct WorkflowState {

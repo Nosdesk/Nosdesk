@@ -62,6 +62,17 @@ pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::
         }
     }
 
+    // Stamp the binary's schema hash into system_meta so the bootstrap
+    // protocol (Phase 2 next steps) can detect server/client schema
+    // mismatches. The hash is the SHA-256 of the embedded migrations
+    // directory, computed at build time via env!("CARGO_PKG_VERSION")
+    // for now and switched to a real digest when build.rs codegen
+    // lands.
+    let schema_hash = env!("CARGO_PKG_VERSION");
+    if let Err(e) = crate::sync::system_meta::set_schema_hash(&mut conn, schema_hash) {
+        warn!(error = %e, "Failed to write schema_hash to system_meta");
+    }
+
     // Check if this is the first run
     match crate::repository::count_users(&mut conn) {
         Ok(count) => {
