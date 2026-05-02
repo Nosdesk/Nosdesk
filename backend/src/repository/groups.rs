@@ -1,11 +1,15 @@
 use diesel::prelude::*;
 use diesel::result::Error;
+use diesel::Connection;
 use diesel::QueryResult;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups as sync_groups;
 
 // ============================================================================
 // Group CRUD Operations
@@ -166,9 +170,30 @@ pub fn get_group_details(conn: &mut DbConnection, group_uuid: &Uuid) -> Result<G
 
 /// Create a new group
 pub fn create_group(conn: &mut DbConnection, new_group: NewGroup) -> QueryResult<Group> {
-    diesel::insert_into(groups::table)
-        .values(&new_group)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let group: Group = diesel::insert_into(groups::table)
+            .values(&new_group)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::GroupMembership,
+                aggregate_id: group.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "group.created",
+                data: json!({
+                    "id": group.id,
+                    "uuid": group.uuid,
+                    "name": group.name,
+                    "description": group.description,
+                    "color": group.color,
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(group)
+    })
 }
 
 /// Update a group
@@ -178,25 +203,82 @@ pub fn update_group(conn: &mut DbConnection, group_id: i32, mut group_update: Gr
         group_update.updated_at = Some(chrono::Utc::now().naive_utc());
     }
 
-    diesel::update(groups::table.find(group_id))
-        .set(&group_update)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let group: Group = diesel::update(groups::table.find(group_id))
+            .set(&group_update)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::GroupMembership,
+                aggregate_id: group.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "group.updated",
+                data: json!({
+                    "id": group.id,
+                    "uuid": group.uuid,
+                    "name": group.name,
+                    "description": group.description,
+                    "color": group.color,
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(group)
+    })
 }
 
 /// Delete a group (cascades to user_groups and category_group_visibility)
 pub fn delete_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<usize> {
-    diesel::delete(groups::table.find(group_id)).execute(conn)
+    conn.transaction(|conn| {
+        let result = diesel::delete(groups::table.find(group_id)).execute(conn)?;
+        if result > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::GroupMembership,
+                    aggregate_id: group_id.to_string(),
+                    op: SyncOp::Delete,
+                    event_type: "group.deleted",
+                    data: json!({ "id": group_id }),
+                    groups: sync_groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(result)
+    })
 }
 
 /// Unmanage a group (clear external source fields to make it locally managed)
 pub fn unmanage_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Group> {
-    diesel::update(groups::table.find(group_id))
-        .set((
-            groups::external_source.eq::<Option<String>>(None),
-            groups::external_id.eq::<Option<String>>(None),
-            groups::last_synced_at.eq::<Option<chrono::NaiveDateTime>>(None),
-        ))
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let group: Group = diesel::update(groups::table.find(group_id))
+            .set((
+                groups::external_source.eq::<Option<String>>(None),
+                groups::external_id.eq::<Option<String>>(None),
+                groups::last_synced_at.eq::<Option<chrono::NaiveDateTime>>(None),
+            ))
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::GroupMembership,
+                aggregate_id: group.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "group.unmanaged",
+                data: json!({
+                    "id": group.id,
+                    "uuid": group.uuid,
+                    "name": group.name,
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(group)
+    })
 }
 
 // ============================================================================
@@ -255,25 +337,44 @@ pub fn add_user_to_group(
     group_id: i32,
     created_by: Option<Uuid>,
 ) -> QueryResult<UserGroup> {
-    // Check if already exists
-    let existing = user_groups::table
-        .filter(user_groups::user_uuid.eq(user_uuid))
-        .filter(user_groups::group_id.eq(group_id))
-        .first::<UserGroup>(conn);
+    conn.transaction(|conn| {
+        // Check if already exists
+        let existing = user_groups::table
+            .filter(user_groups::user_uuid.eq(user_uuid))
+            .filter(user_groups::group_id.eq(group_id))
+            .first::<UserGroup>(conn);
 
-    if let Ok(membership) = existing {
-        return Ok(membership);
-    }
+        if let Ok(membership) = existing {
+            return Ok(membership);
+        }
 
-    let new_membership = NewUserGroup {
-        user_uuid,
-        group_id,
-        created_by,
-    };
+        let new_membership = NewUserGroup {
+            user_uuid,
+            group_id,
+            created_by,
+        };
 
-    diesel::insert_into(user_groups::table)
-        .values(&new_membership)
-        .get_result(conn)
+        let membership: UserGroup = diesel::insert_into(user_groups::table)
+            .values(&new_membership)
+            .get_result(conn)?;
+
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::GroupMembership,
+                aggregate_id: format!("{}:{}", group_id, user_uuid),
+                op: SyncOp::Insert,
+                event_type: "group_membership.user_added",
+                data: json!({
+                    "group_id": group_id,
+                    "user_uuid": user_uuid,
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(membership)
+    })
 }
 
 /// Remove a user from a group
@@ -282,11 +383,31 @@ pub fn remove_user_from_group(
     user_uuid: &Uuid,
     group_id: i32,
 ) -> QueryResult<usize> {
-    diesel::delete(
-        user_groups::table
-            .filter(user_groups::user_uuid.eq(user_uuid))
-            .filter(user_groups::group_id.eq(group_id))
-    ).execute(conn)
+    conn.transaction(|conn| {
+        let result = diesel::delete(
+            user_groups::table
+                .filter(user_groups::user_uuid.eq(user_uuid))
+                .filter(user_groups::group_id.eq(group_id))
+        ).execute(conn)?;
+        if result > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::GroupMembership,
+                    aggregate_id: format!("{}:{}", group_id, user_uuid),
+                    op: SyncOp::Delete,
+                    event_type: "group_membership.user_removed",
+                    data: json!({
+                        "group_id": group_id,
+                        "user_uuid": user_uuid,
+                    }),
+                    groups: sync_groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(result)
+    })
 }
 
 /// Set all members of a group (replaces existing members)
@@ -296,28 +417,47 @@ pub fn set_group_members(
     member_uuids: Vec<Uuid>,
     created_by: Option<Uuid>,
 ) -> QueryResult<Vec<UserGroup>> {
-    // Delete all existing members
-    diesel::delete(
-        user_groups::table.filter(user_groups::group_id.eq(group_id))
-    ).execute(conn)?;
+    conn.transaction(|conn| {
+        // Delete all existing members
+        diesel::delete(
+            user_groups::table.filter(user_groups::group_id.eq(group_id))
+        ).execute(conn)?;
 
-    // Add new members
-    let new_memberships: Vec<NewUserGroup> = member_uuids
-        .iter()
-        .map(|uuid| NewUserGroup {
-            user_uuid: *uuid,
-            group_id,
-            created_by,
-        })
-        .collect();
+        // Add new members
+        let new_memberships: Vec<NewUserGroup> = member_uuids
+            .iter()
+            .map(|uuid| NewUserGroup {
+                user_uuid: *uuid,
+                group_id,
+                created_by,
+            })
+            .collect();
 
-    if new_memberships.is_empty() {
-        return Ok(Vec::new());
-    }
+        let inserted: Vec<UserGroup> = if new_memberships.is_empty() {
+            Vec::new()
+        } else {
+            diesel::insert_into(user_groups::table)
+                .values(&new_memberships)
+                .get_results(conn)?
+        };
 
-    diesel::insert_into(user_groups::table)
-        .values(&new_memberships)
-        .get_results(conn)
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::GroupMembership,
+                aggregate_id: group_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "group_membership.members_set",
+                data: json!({
+                    "group_id": group_id,
+                    "user_uuids": member_uuids,
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(inserted)
+    })
 }
 
 /// Set all groups for a user (replaces existing group memberships)
@@ -327,28 +467,47 @@ pub fn set_user_groups(
     group_ids: Vec<i32>,
     created_by: Option<Uuid>,
 ) -> QueryResult<Vec<UserGroup>> {
-    // Delete all existing memberships for this user
-    diesel::delete(
-        user_groups::table.filter(user_groups::user_uuid.eq(user_uuid))
-    ).execute(conn)?;
+    conn.transaction(|conn| {
+        // Delete all existing memberships for this user
+        diesel::delete(
+            user_groups::table.filter(user_groups::user_uuid.eq(user_uuid))
+        ).execute(conn)?;
 
-    // Add new memberships
-    let new_memberships: Vec<NewUserGroup> = group_ids
-        .iter()
-        .map(|group_id| NewUserGroup {
-            user_uuid,
-            group_id: *group_id,
-            created_by,
-        })
-        .collect();
+        // Add new memberships
+        let new_memberships: Vec<NewUserGroup> = group_ids
+            .iter()
+            .map(|group_id| NewUserGroup {
+                user_uuid,
+                group_id: *group_id,
+                created_by,
+            })
+            .collect();
 
-    if new_memberships.is_empty() {
-        return Ok(Vec::new());
-    }
+        let inserted: Vec<UserGroup> = if new_memberships.is_empty() {
+            Vec::new()
+        } else {
+            diesel::insert_into(user_groups::table)
+                .values(&new_memberships)
+                .get_results(conn)?
+        };
 
-    diesel::insert_into(user_groups::table)
-        .values(&new_memberships)
-        .get_results(conn)
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::GroupMembership,
+                aggregate_id: user_uuid.to_string(),
+                op: SyncOp::Update,
+                event_type: "group_membership.user_groups_set",
+                data: json!({
+                    "user_uuid": user_uuid,
+                    "group_ids": group_ids,
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(inserted)
+    })
 }
 
 /// Get group IDs for a user (including composite parent groups)
@@ -391,50 +550,73 @@ pub fn upsert_external_group(
     mail_enabled: bool,
     security_enabled: bool,
 ) -> QueryResult<(Group, bool)> {
-    // Try to find existing group by external_id
-    let existing = groups::table
-        .filter(groups::external_id.eq(external_id))
-        .first::<Group>(conn);
+    conn.transaction(|conn| {
+        // Try to find existing group by external_id
+        let existing = groups::table
+            .filter(groups::external_id.eq(external_id))
+            .first::<Group>(conn);
 
-    match existing {
-        Ok(group) => {
-            // Update existing group
-            let update = ExternalGroupUpdate {
-                name: Some(name.to_string()),
-                description: description.map(String::from),
-                group_type: group_type.map(String::from),
-                mail_enabled: Some(mail_enabled),
-                security_enabled: Some(security_enabled),
-                last_synced_at: Some(chrono::Utc::now().naive_utc()),
-                updated_at: Some(chrono::Utc::now().naive_utc()),
-            };
+        let (group, was_created) = match existing {
+            Ok(group) => {
+                // Update existing group
+                let update = ExternalGroupUpdate {
+                    name: Some(name.to_string()),
+                    description: description.map(String::from),
+                    group_type: group_type.map(String::from),
+                    mail_enabled: Some(mail_enabled),
+                    security_enabled: Some(security_enabled),
+                    last_synced_at: Some(chrono::Utc::now().naive_utc()),
+                    updated_at: Some(chrono::Utc::now().naive_utc()),
+                };
 
-            let updated = diesel::update(groups::table.find(group.id))
-                .set(&update)
-                .get_result(conn)?;
+                let updated: Group = diesel::update(groups::table.find(group.id))
+                    .set(&update)
+                    .get_result(conn)?;
 
-            Ok((updated, false))
-        }
-        Err(diesel::result::Error::NotFound) => {
-            // Create new group
-            let new_group = NewExternalGroup {
-                name: name.to_string(),
-                description: description.map(String::from),
-                external_id: Some(external_id.to_string()),
-                external_source: Some(external_source.to_string()),
-                group_type: group_type.map(String::from),
-                mail_enabled,
-                security_enabled,
-            };
+                (updated, false)
+            }
+            Err(diesel::result::Error::NotFound) => {
+                // Create new group
+                let new_group = NewExternalGroup {
+                    name: name.to_string(),
+                    description: description.map(String::from),
+                    external_id: Some(external_id.to_string()),
+                    external_source: Some(external_source.to_string()),
+                    group_type: group_type.map(String::from),
+                    mail_enabled,
+                    security_enabled,
+                };
 
-            let created = diesel::insert_into(groups::table)
-                .values(&new_group)
-                .get_result(conn)?;
+                let created: Group = diesel::insert_into(groups::table)
+                    .values(&new_group)
+                    .get_result(conn)?;
 
-            Ok((created, true))
-        }
-        Err(e) => Err(e),
-    }
+                (created, true)
+            }
+            Err(e) => return Err(e),
+        };
+
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::GroupMembership,
+                aggregate_id: group.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "group.upserted_external",
+                data: json!({
+                    "id": group.id,
+                    "uuid": group.uuid,
+                    "name": group.name,
+                    "external_id": external_id,
+                    "external_source": external_source,
+                    "was_created": was_created,
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok((group, was_created))
+    })
 }
 
 /// Get member UUIDs for a group (simple list)
@@ -453,21 +635,43 @@ pub fn mark_groups_not_synced(
 ) -> QueryResult<usize> {
     use diesel::dsl::now;
 
-    // This updates sync_enabled to false for groups that are:
-    // 1. From the specified external source
-    // 2. NOT in the list of external IDs we just synced
-    // This doesn't delete them - it just marks them so they can be cleaned up later if desired
-    diesel::update(
-        groups::table
-            .filter(groups::external_source.eq(external_source))
-            .filter(groups::external_id.is_not_null())
-            .filter(diesel::dsl::not(groups::external_id.eq_any(except_external_ids)))
-    )
-    .set((
-        groups::sync_enabled.eq(false),
-        groups::updated_at.eq(now),
-    ))
-    .execute(conn)
+    conn.transaction(|conn| {
+        // This updates sync_enabled to false for groups that are:
+        // 1. From the specified external source
+        // 2. NOT in the list of external IDs we just synced
+        // This doesn't delete them - it just marks them so they can be cleaned up later if desired
+        let result = diesel::update(
+            groups::table
+                .filter(groups::external_source.eq(external_source))
+                .filter(groups::external_id.is_not_null())
+                .filter(diesel::dsl::not(groups::external_id.eq_any(except_external_ids)))
+        )
+        .set((
+            groups::sync_enabled.eq(false),
+            groups::updated_at.eq(now),
+        ))
+        .execute(conn)?;
+
+        if result > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::GroupMembership,
+                    aggregate_id: external_source.to_string(),
+                    op: SyncOp::Update,
+                    event_type: "group.marked_not_synced",
+                    data: json!({
+                        "external_source": external_source,
+                        "kept_external_ids": except_external_ids,
+                        "affected_count": result,
+                    }),
+                    groups: sync_groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(result)
+    })
 }
 
 // ============================================================================
@@ -501,53 +705,72 @@ pub fn add_group_include(
     child_id: i32,
     created_by: Option<Uuid>,
 ) -> Result<GroupInclude, Error> {
-    // Self-inclusion check (also enforced by DB CHECK constraint)
-    if parent_id == child_id {
-        return Err(Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::CheckViolation,
-            Box::new("A group cannot include itself".to_string()),
-        ));
-    }
+    conn.transaction(|conn| {
+        // Self-inclusion check (also enforced by DB CHECK constraint)
+        if parent_id == child_id {
+            return Err(Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::CheckViolation,
+                Box::new("A group cannot include itself".to_string()),
+            ));
+        }
 
-    // Parent must not be a managed (externally synced) group
-    let parent = groups::table.find(parent_id).first::<Group>(conn)?;
-    if parent.external_source.is_some() {
-        return Err(Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::CheckViolation,
-            Box::new("Externally managed groups cannot be composite parents".to_string()),
-        ));
-    }
+        // Parent must not be a managed (externally synced) group
+        let parent = groups::table.find(parent_id).first::<Group>(conn)?;
+        if parent.external_source.is_some() {
+            return Err(Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::CheckViolation,
+                Box::new("Externally managed groups cannot be composite parents".to_string()),
+            ));
+        }
 
-    // Circular reference check: child must not already include parent
-    let reverse_exists: i64 = group_includes::table
-        .filter(group_includes::parent_group_id.eq(child_id))
-        .filter(group_includes::child_group_id.eq(parent_id))
-        .count()
-        .get_result(conn)?;
+        // Circular reference check: child must not already include parent
+        let reverse_exists: i64 = group_includes::table
+            .filter(group_includes::parent_group_id.eq(child_id))
+            .filter(group_includes::child_group_id.eq(parent_id))
+            .count()
+            .get_result(conn)?;
 
-    if reverse_exists > 0 {
-        return Err(Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::CheckViolation,
-            Box::new("Circular reference: child group already includes the parent".to_string()),
-        ));
-    }
+        if reverse_exists > 0 {
+            return Err(Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::CheckViolation,
+                Box::new("Circular reference: child group already includes the parent".to_string()),
+            ));
+        }
 
-    let new_include = NewGroupInclude {
-        parent_group_id: parent_id,
-        child_group_id: child_id,
-        created_by,
-    };
+        let new_include = NewGroupInclude {
+            parent_group_id: parent_id,
+            child_group_id: child_id,
+            created_by,
+        };
 
-    diesel::insert_into(group_includes::table)
-        .values(&new_include)
-        .on_conflict((group_includes::parent_group_id, group_includes::child_group_id))
-        .do_nothing()
-        .execute(conn)?;
+        diesel::insert_into(group_includes::table)
+            .values(&new_include)
+            .on_conflict((group_includes::parent_group_id, group_includes::child_group_id))
+            .do_nothing()
+            .execute(conn)?;
 
-    group_includes::table
-        .filter(group_includes::parent_group_id.eq(parent_id))
-        .filter(group_includes::child_group_id.eq(child_id))
-        .first(conn)
+        let include: GroupInclude = group_includes::table
+            .filter(group_includes::parent_group_id.eq(parent_id))
+            .filter(group_includes::child_group_id.eq(child_id))
+            .first(conn)?;
+
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::GroupMembership,
+                aggregate_id: format!("{}:{}", parent_id, child_id),
+                op: SyncOp::Insert,
+                event_type: "group_membership.include_added",
+                data: json!({
+                    "parent_group_id": parent_id,
+                    "child_group_id": child_id,
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(include)
+    })
 }
 
 /// Remove a group include relationship
@@ -556,12 +779,32 @@ pub fn remove_group_include(
     parent_id: i32,
     child_id: i32,
 ) -> QueryResult<usize> {
-    diesel::delete(
-        group_includes::table
-            .filter(group_includes::parent_group_id.eq(parent_id))
-            .filter(group_includes::child_group_id.eq(child_id)),
-    )
-    .execute(conn)
+    conn.transaction(|conn| {
+        let result = diesel::delete(
+            group_includes::table
+                .filter(group_includes::parent_group_id.eq(parent_id))
+                .filter(group_includes::child_group_id.eq(child_id)),
+        )
+        .execute(conn)?;
+        if result > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::GroupMembership,
+                    aggregate_id: format!("{}:{}", parent_id, child_id),
+                    op: SyncOp::Delete,
+                    event_type: "group_membership.include_removed",
+                    data: json!({
+                        "parent_group_id": parent_id,
+                        "child_group_id": child_id,
+                    }),
+                    groups: sync_groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(result)
+    })
 }
 
 /// Set all included groups for a parent (replaces existing includes)
@@ -571,57 +814,76 @@ pub fn set_group_includes(
     child_ids: Vec<i32>,
     created_by: Option<Uuid>,
 ) -> Result<Vec<GroupInclude>, Error> {
-    // Parent must not be a managed group
-    let parent = groups::table.find(parent_id).first::<Group>(conn)?;
-    if parent.external_source.is_some() {
-        return Err(Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::CheckViolation,
-            Box::new("Externally managed groups cannot be composite parents".to_string()),
-        ));
-    }
-
-    // Filter out self-inclusion
-    let child_ids: Vec<i32> = child_ids.into_iter().filter(|&id| id != parent_id).collect();
-
-    // Circular reference check: none of the children should already include parent
-    if !child_ids.is_empty() {
-        let circular_count: i64 = group_includes::table
-            .filter(group_includes::parent_group_id.eq_any(&child_ids))
-            .filter(group_includes::child_group_id.eq(parent_id))
-            .count()
-            .get_result(conn)?;
-
-        if circular_count > 0 {
+    conn.transaction(|conn| {
+        // Parent must not be a managed group
+        let parent = groups::table.find(parent_id).first::<Group>(conn)?;
+        if parent.external_source.is_some() {
             return Err(Error::DatabaseError(
                 diesel::result::DatabaseErrorKind::CheckViolation,
-                Box::new("Circular reference: one or more child groups already include the parent".to_string()),
+                Box::new("Externally managed groups cannot be composite parents".to_string()),
             ));
         }
-    }
 
-    // Delete existing includes
-    diesel::delete(
-        group_includes::table.filter(group_includes::parent_group_id.eq(parent_id)),
-    )
-    .execute(conn)?;
+        // Filter out self-inclusion
+        let child_ids: Vec<i32> = child_ids.into_iter().filter(|&id| id != parent_id).collect();
 
-    if child_ids.is_empty() {
-        return Ok(Vec::new());
-    }
+        // Circular reference check: none of the children should already include parent
+        if !child_ids.is_empty() {
+            let circular_count: i64 = group_includes::table
+                .filter(group_includes::parent_group_id.eq_any(&child_ids))
+                .filter(group_includes::child_group_id.eq(parent_id))
+                .count()
+                .get_result(conn)?;
 
-    // Insert new includes
-    let new_includes: Vec<NewGroupInclude> = child_ids
-        .iter()
-        .map(|&child_id| NewGroupInclude {
-            parent_group_id: parent_id,
-            child_group_id: child_id,
-            created_by,
-        })
-        .collect();
+            if circular_count > 0 {
+                return Err(Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::CheckViolation,
+                    Box::new("Circular reference: one or more child groups already include the parent".to_string()),
+                ));
+            }
+        }
 
-    diesel::insert_into(group_includes::table)
-        .values(&new_includes)
-        .get_results(conn)
+        // Delete existing includes
+        diesel::delete(
+            group_includes::table.filter(group_includes::parent_group_id.eq(parent_id)),
+        )
+        .execute(conn)?;
+
+        let inserted: Vec<GroupInclude> = if child_ids.is_empty() {
+            Vec::new()
+        } else {
+            // Insert new includes
+            let new_includes: Vec<NewGroupInclude> = child_ids
+                .iter()
+                .map(|&child_id| NewGroupInclude {
+                    parent_group_id: parent_id,
+                    child_group_id: child_id,
+                    created_by,
+                })
+                .collect();
+
+            diesel::insert_into(group_includes::table)
+                .values(&new_includes)
+                .get_results(conn)?
+        };
+
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::GroupMembership,
+                aggregate_id: parent_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "group_membership.includes_set",
+                data: json!({
+                    "parent_group_id": parent_id,
+                    "child_group_ids": child_ids,
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(inserted)
+    })
 }
 
 // ============================================================================
@@ -655,26 +917,46 @@ pub fn add_device_to_group(
     created_by: Option<Uuid>,
     external_source: Option<&str>,
 ) -> QueryResult<DeviceGroup> {
-    // Check if already exists
-    let existing = device_groups::table
-        .filter(device_groups::device_id.eq(device_id))
-        .filter(device_groups::group_id.eq(group_id))
-        .first::<DeviceGroup>(conn);
+    conn.transaction(|conn| {
+        // Check if already exists
+        let existing = device_groups::table
+            .filter(device_groups::device_id.eq(device_id))
+            .filter(device_groups::group_id.eq(group_id))
+            .first::<DeviceGroup>(conn);
 
-    if let Ok(membership) = existing {
-        return Ok(membership);
-    }
+        if let Ok(membership) = existing {
+            return Ok(membership);
+        }
 
-    let new_membership = NewDeviceGroup {
-        device_id,
-        group_id,
-        created_by,
-        external_source: external_source.map(String::from),
-    };
+        let new_membership = NewDeviceGroup {
+            device_id,
+            group_id,
+            created_by,
+            external_source: external_source.map(String::from),
+        };
 
-    diesel::insert_into(device_groups::table)
-        .values(&new_membership)
-        .get_result(conn)
+        let membership: DeviceGroup = diesel::insert_into(device_groups::table)
+            .values(&new_membership)
+            .get_result(conn)?;
+
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::GroupMembership,
+                aggregate_id: format!("{}:{}", group_id, device_id),
+                op: SyncOp::Insert,
+                event_type: "group_membership.device_added",
+                data: json!({
+                    "group_id": group_id,
+                    "device_id": device_id,
+                    "external_source": external_source,
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(membership)
+    })
 }
 
 /// Remove a device from a group
@@ -683,11 +965,31 @@ pub fn remove_device_from_group(
     device_id: i32,
     group_id: i32,
 ) -> QueryResult<usize> {
-    diesel::delete(
-        device_groups::table
-            .filter(device_groups::device_id.eq(device_id))
-            .filter(device_groups::group_id.eq(group_id))
-    ).execute(conn)
+    conn.transaction(|conn| {
+        let result = diesel::delete(
+            device_groups::table
+                .filter(device_groups::device_id.eq(device_id))
+                .filter(device_groups::group_id.eq(group_id))
+        ).execute(conn)?;
+        if result > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::GroupMembership,
+                    aggregate_id: format!("{}:{}", group_id, device_id),
+                    op: SyncOp::Delete,
+                    event_type: "group_membership.device_removed",
+                    data: json!({
+                        "group_id": group_id,
+                        "device_id": device_id,
+                    }),
+                    groups: sync_groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(result)
+    })
 }
 
 /// Get device IDs for a group (simple list)
@@ -719,40 +1021,57 @@ pub fn set_group_devices(
     device_ids: Vec<i32>,
     created_by: Option<Uuid>,
 ) -> QueryResult<Vec<DeviceGroup>> {
-    // Delete all existing devices that were NOT synced from an external source
-    // This preserves Microsoft-synced device memberships
-    diesel::delete(
-        device_groups::table
+    conn.transaction(|conn| {
+        // Delete all existing devices that were NOT synced from an external source
+        // This preserves Microsoft-synced device memberships
+        diesel::delete(
+            device_groups::table
+                .filter(device_groups::group_id.eq(group_id))
+                .filter(device_groups::external_source.is_null())
+        ).execute(conn)?;
+
+        // Add new devices (manually added, so no external_source)
+        let new_memberships: Vec<NewDeviceGroup> = device_ids
+            .iter()
+            .map(|device_id| NewDeviceGroup {
+                device_id: *device_id,
+                group_id,
+                created_by,
+                external_source: None,
+            })
+            .collect();
+
+        if !new_memberships.is_empty() {
+            // Use ON CONFLICT DO NOTHING to handle devices that are already in the group via sync
+            diesel::insert_into(device_groups::table)
+                .values(&new_memberships)
+                .on_conflict((device_groups::device_id, device_groups::group_id))
+                .do_nothing()
+                .execute(conn)?;
+        }
+
+        // Return the current state of device memberships
+        let current: Vec<DeviceGroup> = device_groups::table
             .filter(device_groups::group_id.eq(group_id))
-            .filter(device_groups::external_source.is_null())
-    ).execute(conn)?;
+            .load(conn)?;
 
-    // Add new devices (manually added, so no external_source)
-    let new_memberships: Vec<NewDeviceGroup> = device_ids
-        .iter()
-        .map(|device_id| NewDeviceGroup {
-            device_id: *device_id,
-            group_id,
-            created_by,
-            external_source: None,
-        })
-        .collect();
-
-    if new_memberships.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    // Use ON CONFLICT DO NOTHING to handle devices that are already in the group via sync
-    diesel::insert_into(device_groups::table)
-        .values(&new_memberships)
-        .on_conflict((device_groups::device_id, device_groups::group_id))
-        .do_nothing()
-        .execute(conn)?;
-
-    // Return the current state of device memberships
-    device_groups::table
-        .filter(device_groups::group_id.eq(group_id))
-        .load(conn)
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::GroupMembership,
+                aggregate_id: group_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "group_membership.devices_set",
+                data: json!({
+                    "group_id": group_id,
+                    "device_ids": device_ids,
+                }),
+                groups: sync_groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(current)
+    })
 }
 
 #[cfg(test)]

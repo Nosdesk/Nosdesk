@@ -1,5 +1,6 @@
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
+use diesel::Connection;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -8,7 +9,35 @@ use crate::handlers::helpers;
 use crate::handlers::errors;
 use crate::models::{NewGroup, GroupUpdate, Claims};
 use crate::repository;
+use crate::sync::actor::ActorContext;
+use crate::sync::session;
 use crate::utils::rbac::require_admin;
+
+/// Build an ActorContext from JWT claims attached to the request.
+fn actor_for(req: &HttpRequest) -> ActorContext {
+    let uuid = req
+        .extensions()
+        .get::<Claims>()
+        .and_then(|c| Uuid::parse_str(&c.sub).ok());
+    match uuid {
+        Some(u) => ActorContext::user(u, None),
+        None => ActorContext::system("handler:groups"),
+    }
+}
+
+/// Run a repository write inside a transaction with the actor GUCs
+/// set, so any sync_actions emitted by the repo carry the right
+/// actor_uuid.
+fn with_actor<T>(
+    conn: &mut crate::db::DbConnection,
+    actor: &ActorContext,
+    f: impl FnOnce(&mut crate::db::DbConnection) -> diesel::QueryResult<T>,
+) -> diesel::QueryResult<T> {
+    conn.transaction(|conn| {
+        session::set_actor(conn, actor)?;
+        f(conn)
+    })
+}
 
 // ============================================================================
 // Group Detail Endpoint (All authenticated users)
@@ -126,7 +155,10 @@ pub async fn create_group(
         created_by,
     };
 
-    match repository::groups::create_group(&mut conn, new_group) {
+    let actor = actor_for(&req);
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::groups::create_group(conn, new_group)
+    }) {
         Ok(group) => HttpResponse::Created().json(group),
         Err(_) => errors::internal("Failed to create group"),
     }
@@ -149,7 +181,10 @@ pub async fn update_group(
         Err(e) => return e,
     };
 
-    match repository::groups::update_group(&mut conn, group_id, body.into_inner()) {
+    let actor = actor_for(&req);
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::groups::update_group(conn, group_id, body.into_inner())
+    }) {
         Ok(group) => HttpResponse::Ok().json(group),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Group not found"),
@@ -174,7 +209,10 @@ pub async fn delete_group(
         Err(e) => return e,
     };
 
-    match repository::groups::delete_group(&mut conn, group_id) {
+    let actor = actor_for(&req);
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::groups::delete_group(conn, group_id)
+    }) {
         Ok(0) => errors::not_found_msg("Group not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(_) => errors::internal("Failed to delete group"),
@@ -209,7 +247,10 @@ pub async fn unmanage_group(
     }
 
     // Clear external management fields
-    match repository::groups::unmanage_group(&mut conn, group_id) {
+    let actor = actor_for(&req);
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::groups::unmanage_group(conn, group_id)
+    }) {
         Ok(updated_group) => HttpResponse::Ok().json(updated_group),
         Err(_) => errors::internal("Failed to unmanage group"),
     }
@@ -256,7 +297,11 @@ pub async fn set_group_members(
         Err(_) => return errors::internal("Failed to get group"),
     }
 
-    match repository::groups::set_group_members(&mut conn, group_id, body.member_uuids.clone(), created_by) {
+    let actor = actor_for(&req);
+    let member_uuids = body.member_uuids.clone();
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::groups::set_group_members(conn, group_id, member_uuids, created_by)
+    }) {
         Ok(_) => {
             // Return the updated group with members
             match repository::groups::get_group_with_members(&mut conn, group_id) {
@@ -330,7 +375,11 @@ pub async fn set_user_groups(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
-    match repository::groups::set_user_groups(&mut conn, user_uuid, body.group_ids.clone(), created_by) {
+    let actor = actor_for(&req);
+    let group_ids = body.group_ids.clone();
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::groups::set_user_groups(conn, user_uuid, group_ids, created_by)
+    }) {
         Ok(_) => {
             // Return the updated groups for this user
             match repository::groups::get_groups_for_user(&mut conn, &user_uuid) {
@@ -403,7 +452,11 @@ pub async fn set_group_includes(
         Err(_) => return errors::internal("Failed to get group"),
     };
 
-    match repository::groups::set_group_includes(&mut conn, group_id, body.child_group_ids.clone(), created_by) {
+    let actor = actor_for(&req);
+    let child_group_ids = body.child_group_ids.clone();
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::groups::set_group_includes(conn, group_id, child_group_ids, created_by)
+    }) {
         Ok(_) => {
             // Return updated group details
             match repository::groups::get_group_details(&mut conn, &group.uuid) {
@@ -462,7 +515,11 @@ pub async fn set_group_devices(
         Err(_) => return errors::internal("Failed to get group"),
     }
 
-    match repository::groups::set_group_devices(&mut conn, group_id, body.device_ids.clone(), created_by) {
+    let actor = actor_for(&req);
+    let device_ids = body.device_ids.clone();
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::groups::set_group_devices(conn, group_id, device_ids, created_by)
+    }) {
         Ok(_) => {
             // Return the updated group details
             match repository::groups::get_group_by_id(&mut conn, group_id) {
