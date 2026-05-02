@@ -163,6 +163,11 @@ impl WebhookEventType {
             SseEvent::NotificationReceived { .. } => None,
             SseEvent::KnowledgeGapDetected { .. } => None,
             SseEvent::KnowledgeGapResolved { .. } => None,
+            // Sync engine outbox carries a batch of sync_actions; the
+            // webhook recipient surface doesn't fan these out (consumers
+            // hit /api/sync/delta directly), so no resource_type to
+            // report.
+            SseEvent::SyncActions { .. } => None,
         }
     }
 }

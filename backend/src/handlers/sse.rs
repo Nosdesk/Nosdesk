@@ -162,6 +162,18 @@ pub enum SseEvent {
         notification: serde_json::Value,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    /// Sync engine outbox: a batch of `sync_actions` rows that
+    /// committed since the last frame. Carried as a JSON value to
+    /// avoid pulling the strongly-typed ActionRow into this enum
+    /// (which would force every consumer of SseEvent to compile
+    /// against the sync handler module). Frontend's sync runtime
+    /// listens for this variant and feeds the payload into the
+    /// object pool.
+    SyncActions {
+        actions: serde_json::Value,
+        last_sync_id: i64,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
 }
 
 fn event_type_str(event: &SseEvent) -> &'static str {
@@ -193,6 +205,7 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::UserDeleted { .. } => "user-deleted",
         SseEvent::Heartbeat { .. } => "heartbeat",
         SseEvent::NotificationReceived { .. } => "notification-received",
+        SseEvent::SyncActions { .. } => "sync-actions",
     }
 }
 

@@ -1067,6 +1067,14 @@ async fn main() -> std::io::Result<()> {
                     // Workflow states — read open to any authenticated user;
                     // admin writes (create, rename, recolor, reorder,
                     // promote default, archive) for the customisation UI.
+                    // Sync engine — local-first protocol behind /api/sync.
+                    // bootstrap streams a per-user NDJSON snapshot; delta
+                    // pulls incremental changes from a sync_id cursor;
+                    // push applies an array of optimistic transactions.
+                    .route("/sync/bootstrap", web::get().to(handlers::sync::bootstrap::bootstrap))
+                    .route("/sync/delta", web::get().to(handlers::sync::delta::delta))
+                    .route("/sync/push", web::post().to(handlers::sync::push::push))
+
                     .route("/workflow-states", web::get().to(handlers::workflow_states::list))
                     .route("/admin/workflow-states", web::post().to(handlers::workflow_states::create))
                     .route("/admin/workflow-states/{id}", web::patch().to(handlers::workflow_states::patch))
