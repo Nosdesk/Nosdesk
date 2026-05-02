@@ -27,12 +27,23 @@ import type {
 interface LifecycleState {
   handle: idb.IdbHandle | null
   schemaHash: string
+  /** Periodic delta-poll timer, only running when SSE is wedged or
+   * unavailable. Cleared on tearDown(). */
+  pollTimer: ReturnType<typeof setInterval> | null
+  /** True when the user's IndexedDB couldn't be opened (private
+   * browsing, quota, blocked). The runtime degrades to memory-only
+   * — no persistence, no warm-start, but reads/writes still work. */
+  memoryOnly: boolean
 }
 
 const state: LifecycleState = {
   handle: null,
   schemaHash: '',
+  pollTimer: null,
+  memoryOnly: false,
 }
+
+const POLL_INTERVAL_MS = 10_000
 
 /**
  * Schema versions per aggregate, mirroring `sync::registry` on the
@@ -56,15 +67,30 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
 }
 
 /** Warm the engine for an authenticated user. Idempotent —
- * subsequent calls are no-ops while the handle is live. */
+ * subsequent calls are no-ops while the handle is live (or while
+ * memory-only mode is active). */
 export async function hydrate(userUuid: string, schemaHash: string): Promise<void> {
-  if (state.handle) return
+  if (state.handle || state.memoryOnly) return
   pool.setSchemaHash(schemaHash)
   state.schemaHash = schemaHash
-
-  state.handle = await idb.open(userUuid, schemaHash)
-  queue.setIdbHandle(state.handle)
   setReferenceFetcher(referenceFetcher)
+
+  // Try to open IDB; degrade gracefully if it's unavailable
+  // (private browsing, quota, blocked, deleted-while-open). The
+  // runtime stays usable — bootstrap still happens, the pool
+  // still holds rows, optimistic writes still apply — just
+  // without warm-start persistence.
+  try {
+    state.handle = await idb.open(userUuid, schemaHash)
+  } catch (e) {
+    logger.warn('IndexedDB unavailable; degrading sync engine to memory-only', { error: e })
+    state.memoryOnly = true
+    queue.setIdbHandle(null)
+    startDeltaPollFallback()
+    return
+  }
+
+  queue.setIdbHandle(state.handle)
 
   const persistedHash = await idb.getSchemaHash(state.handle)
   if (persistedHash && persistedHash !== schemaHash) {
@@ -101,6 +127,27 @@ export async function hydrate(userUuid: string, schemaHash: string): Promise<voi
   // crash between persist and flush would have left them in the
   // store).
   void queue.flush()
+
+  // Start the periodic delta-poll fallback. The SSE bridge will
+  // also push updates; the poll is belt-and-braces for cases
+  // where SSE is wedged behind a corporate proxy or the EventSource
+  // is mid-reconnect. Idempotent — only starts a single timer.
+  startDeltaPollFallback()
+}
+
+/** Fetch the server's compiled schema hash. Cheap (no DB
+ * round-trip on the server). Cache the result on the lifecycle
+ * state so warm-start doesn't re-fetch. */
+export async function fetchServerSchemaHash(): Promise<string> {
+  try {
+    const res = await fetch('/api/sync/schema', { credentials: 'include' })
+    if (!res.ok) return 'unknown'
+    const body = (await res.json()) as { server_schema?: string }
+    return body.server_schema ?? 'unknown'
+  } catch (e) {
+    logger.warn('Failed to fetch /api/sync/schema; falling back to "unknown"', { error: e })
+    return 'unknown'
+  }
 }
 
 /**
@@ -286,6 +333,7 @@ export function applySseFrame(actions: SyncAction[], lastSyncId: number): void {
 
 /** Tear-down: release the IDB handle, reset the pool, drop subs. */
 export async function tearDown(): Promise<void> {
+  stopDeltaPollFallback()
   if (state.handle) {
     state.handle.db.close()
     state.handle = null
@@ -294,4 +342,24 @@ export async function tearDown(): Promise<void> {
   setReferenceFetcher(null)
   pool.reset()
   state.schemaHash = ''
+  state.memoryOnly = false
+}
+
+/** Periodic delta poll. Single shared timer driven by setInterval —
+ * idempotent start, idempotent stop. The architecture doc places
+ * this at 10s as a fallback when SSE is wedged; SSE-driven
+ * applySseFrame races with the poll harmlessly because both paths
+ * funnel through `applyActions` which is upsert-by-id. */
+function startDeltaPollFallback(): void {
+  if (state.pollTimer) return
+  state.pollTimer = setInterval(() => {
+    void pullDelta()
+  }, POLL_INTERVAL_MS)
+}
+
+function stopDeltaPollFallback(): void {
+  if (state.pollTimer) {
+    clearInterval(state.pollTimer)
+    state.pollTimer = null
+  }
 }

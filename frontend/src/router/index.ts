@@ -799,15 +799,17 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
     const projectsV2 = useFeatureFlag('projects_v2');
     if (projectsV2.value && authStore.user?.uuid) {
       try {
-        const [{ hydrate }, { attachSseBridge }] = await Promise.all([
+        const [{ hydrate, fetchServerSchemaHash }, { attachSseBridge }] = await Promise.all([
           import('@/sync/lifecycle'),
           import('@/sync/sseBridge'),
         ]);
-        // Schema hash placeholder — Phase 4 surfaces the real hash
-        // from a /api/system/schema-hash endpoint or embeds it via
-        // build-time env. For Phase 3 the hash is constant so wipe-
-        // on-mismatch never fires.
-        await hydrate(authStore.user.uuid, 'phase3-dev');
+        // Pull the server's compiled schema hash before opening
+        // IDB — the IDB name encodes the hash so a release that
+        // bumps any migration gets a clean cache without a
+        // cross-version row read. Best-effort: failure falls back
+        // to "unknown" which still scopes-by-user.
+        const schemaHash = await fetchServerSchemaHash();
+        await hydrate(authStore.user.uuid, schemaHash);
         attachSseBridge();
       } catch (e) {
         // eslint-disable-next-line no-console

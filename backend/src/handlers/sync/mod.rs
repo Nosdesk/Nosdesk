@@ -18,6 +18,7 @@
 pub mod bootstrap;
 pub mod delta;
 pub mod push;
+pub mod schema;
 
 #[cfg(test)]
 mod tests;

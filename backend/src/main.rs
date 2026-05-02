@@ -1074,6 +1074,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/sync/bootstrap", web::get().to(handlers::sync::bootstrap::bootstrap))
                     .route("/sync/delta", web::get().to(handlers::sync::delta::delta))
                     .route("/sync/push", web::post().to(handlers::sync::push::push))
+                    .route("/sync/schema", web::get().to(handlers::sync::schema::schema))
 
                     .route("/workflow-states", web::get().to(handlers::workflow_states::list))
                     .route("/admin/workflow-states", web::post().to(handlers::workflow_states::create))
