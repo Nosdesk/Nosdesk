@@ -46,6 +46,22 @@ pub async fn cleanup_expired_refresh_tokens(pool: Pool) -> Result<()> {
     Ok(())
 }
 
+/// Provision sync_actions and audit_log partitions out to the
+/// configured lookahead. Called daily so an INSERT after the last
+/// provisioned month never fails. Idempotent — uses
+/// CREATE TABLE IF NOT EXISTS internally, so running it multiple
+/// times a day (e.g. across a deploy + scheduled tick collision)
+/// is safe.
+pub async fn ensure_sync_partitions(pool: Pool) -> Result<()> {
+    let mut conn = pool.get().context("db pool")?;
+    // 60-day lookahead matches the architecture doc's recommendation
+    // and gives us nearly two months of headroom against any single
+    // missed run.
+    crate::sync::partitions::ensure_partitions(&mut conn, 60)
+        .context("ensure sync partitions")?;
+    Ok(())
+}
+
 /// Microsoft Graph delta sync. Pulls users/devices/groups from the
 /// configured Microsoft provider into the local tables. No-op when
 /// MS credentials aren't configured — see

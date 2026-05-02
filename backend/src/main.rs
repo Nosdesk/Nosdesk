@@ -799,7 +799,20 @@ async fn main() -> std::io::Result<()> {
             move || jobs::msgraph_delta_sync(p.clone()),
         );
 
-        info!("scheduler: 3 periodic jobs spawned");
+        // Daily: roll the sync_actions / audit_log monthly partitions
+        // forward. Inserts after the last provisioned month would
+        // otherwise fail; the substrate migration provides the first
+        // four months and this job extends the window.
+        let p = pool.clone();
+        spawn_periodic(
+            "sync.partition_provisioner",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::ensure_sync_partitions(p.clone()),
+        );
+
+        info!("scheduler: 4 periodic jobs spawned");
     }
     let scheduler_status_data = web::Data::new(scheduler_status);
 

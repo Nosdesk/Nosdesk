@@ -16,6 +16,7 @@
 pub mod actor;
 pub mod emit;
 pub mod groups;
+pub mod partitions;
 pub mod registry;
 pub mod session;
 pub mod system_meta;
