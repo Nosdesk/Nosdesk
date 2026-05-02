@@ -56,7 +56,7 @@ function key(aggregate: SyncAggregate, id: string | number): Key {
   return `${aggregate}:${id}` as Key
 }
 
-export function upsert<T extends Record<string, unknown>>(
+export function upsert<T extends object>(
   aggregate: SyncAggregate,
   id: string | number,
   data: T,
@@ -75,7 +75,7 @@ export function upsert<T extends Record<string, unknown>>(
   return created
 }
 
-export function patch<T extends Record<string, unknown>>(
+export function patch<T extends object>(
   aggregate: SyncAggregate,
   id: string | number,
   partial: Partial<T>,
@@ -90,7 +90,7 @@ export function remove(aggregate: SyncAggregate, id: string | number): boolean {
   return rows.delete(key(aggregate, id))
 }
 
-export function get<T extends Record<string, unknown>>(
+export function get<T extends object>(
   aggregate: SyncAggregate,
   id: string | number,
 ): ShallowReactive<T> | undefined {
@@ -107,7 +107,7 @@ export function has(aggregate: SyncAggregate, id: string | number): boolean {
  * is inserted or deleted. Yields the live ShallowReactive
  * instances; mutations propagate to all subscribers.
  */
-export function* iterate<T extends Record<string, unknown>>(
+export function* iterate<T extends object>(
   aggregate: SyncAggregate,
 ): IterableIterator<ShallowReactive<T>> {
   const prefix = `${aggregate}:`

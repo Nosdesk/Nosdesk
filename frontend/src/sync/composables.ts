@@ -21,7 +21,7 @@ import type { SyncAggregate } from './types'
  * with `useReference` if you want the runtime to fetch the row on
  * demand instead of just returning null.
  */
-export function useEntity<T extends Record<string, unknown>>(
+export function useEntity<T extends object>(
   aggregate: SyncAggregate,
   id: MaybeRefOrGetter<string | number | null | undefined>,
 ): ComputedRef<T | null> {
@@ -39,7 +39,7 @@ export function useEntity<T extends Record<string, unknown>>(
  * via `setReferenceFetcher` so this module stays free of network
  * dependencies.
  */
-export function useReference<T extends Record<string, unknown>>(
+export function useReference<T extends object>(
   aggregate: SyncAggregate,
   id: MaybeRefOrGetter<string | number | null | undefined>,
 ): ComputedRef<T | null> {
@@ -62,7 +62,7 @@ export function useReference<T extends Record<string, unknown>>(
  * Returns a fresh array on each evaluation so callers can sort /
  * filter without mutating the pool.
  */
-export function useAggregate<T extends Record<string, unknown>>(
+export function useAggregate<T extends object>(
   aggregate: SyncAggregate,
 ): ComputedRef<T[]> {
   return computed(() => Array.from(pool.iterate<T>(aggregate) as IterableIterator<T>))

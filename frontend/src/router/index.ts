@@ -6,7 +6,12 @@ import PasswordResetView from '../views/PasswordResetView.vue'
 import OnboardingView from '../views/OnboardingView.vue'
 import ErrorView from '../views/ErrorView.vue'
 import TicketsListView from '../views/TicketsListView.vue'
-import ProjectsView from '../views/ProjectsView.vue'
+// /projects routes to ProjectsRouter, which dispatches to either
+// the legacy REST view or the sync-engine V2 view based on the
+// `projects_v2` feature flag. Both target views are async-imported
+// inside the wrapper so the user only pays the bundle cost for the
+// one they actually render.
+import ProjectsView from '../views/ProjectsRouter.vue'
 import ProjectDetailView from '../views/ProjectDetailView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
@@ -783,6 +788,31 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
     const wfStore = useWorkflowStatesStore();
     if (!wfStore.loaded && !wfStore.loading) {
       void wfStore.load();
+    }
+
+    // Phase 3 sync engine: hydrate the local-first runtime once per
+    // session, only when the projects_v2 flag is on. The hydrate()
+    // call is idempotent so re-entry to a protected route after the
+    // first hydrate is a no-op. Failure here is non-fatal — the
+    // legacy code path still serves the UI.
+    const { useFeatureFlag } = await import('@/composables/useFeatureFlag');
+    const projectsV2 = useFeatureFlag('projects_v2');
+    if (projectsV2.value && authStore.user?.uuid) {
+      try {
+        const [{ hydrate }, { attachSseBridge }] = await Promise.all([
+          import('@/sync/lifecycle'),
+          import('@/sync/sseBridge'),
+        ]);
+        // Schema hash placeholder — Phase 4 surfaces the real hash
+        // from a /api/system/schema-hash endpoint or embeds it via
+        // build-time env. For Phase 3 the hash is constant so wipe-
+        // on-mismatch never fires.
+        await hydrate(authStore.user.uuid, 'phase3-dev');
+        attachSseBridge();
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to hydrate sync runtime', e);
+      }
     }
   }
 }

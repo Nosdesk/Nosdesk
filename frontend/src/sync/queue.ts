@@ -49,7 +49,7 @@ interface QueuedTx extends PushTransaction {
  * dispatcher applies `forward` to the pool, sends `forward` to the
  * server, and falls back to `inverse` on rejection.
  */
-export interface OptimisticPatch<T extends Record<string, unknown>> {
+export interface OptimisticPatch<T extends object> {
   forward: Partial<T>
   inverse: Partial<T>
 }
@@ -81,7 +81,7 @@ function freshTxId(): string {
  * Returns the transaction id so callers can correlate with
  * subsequent rejection notifications.
  */
-export async function dispatchOptimistic<T extends Record<string, unknown>>(
+export async function dispatchOptimistic<T extends object>(
   aggregate: SyncAggregate,
   modelId: string | number,
   patch: OptimisticPatch<T>,

@@ -377,6 +377,21 @@ export const useAuthStore = defineStore('auth', () => {
       logger.error('Failed to reset workflow states on logout', e);
     }
 
+    // Tear down the sync runtime so a different user signing in
+    // afterwards doesn't briefly see the previous user's pool. The
+    // IDB handle is closed here; per-user database scoping means a
+    // re-login under a different account opens a different DB.
+    try {
+      const [{ tearDown }, { detachSseBridge }] = await Promise.all([
+        import('@/sync/lifecycle'),
+        import('@/sync/sseBridge'),
+      ]);
+      detachSseBridge();
+      await tearDown();
+    } catch (e) {
+      logger.error('Failed to tear down sync runtime on logout', e);
+    }
+
     // Remove from localStorage
     localStorage.removeItem('authProvider');
 

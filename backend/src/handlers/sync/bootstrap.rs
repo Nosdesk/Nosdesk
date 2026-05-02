@@ -122,15 +122,36 @@ fn stream_bootstrap(
         }))?;
     }
 
-    // Project ids inside the granted groups. Drop the `project:`
-    // prefix and parse the suffix as an i32 — the join below uses
-    // the typed ids so unrelated `project:9999` strings in the
-    // request don't reach SQL.
-    let project_ids: Vec<i32> = granted
-        .iter()
-        .filter_map(|g| g.strip_prefix("project:"))
-        .filter_map(|s| s.parse::<i32>().ok())
-        .collect();
+    // Two project-loading paths:
+    //
+    // 1. Workspace-wide (`workspace:1` in granted set): load every
+    //    project the user has visibility into. Single-workspace
+    //    deployment means this is "all projects" in practice; the
+    //    permission check happens upstream in
+    //    `sync::groups::allowed_for_user`.
+    //
+    // 2. Per-project (`project:<id>` strings in granted set):
+    //    incremental subscribe-on-route-entry. Drop the prefix,
+    //    parse the suffix as i32, fetch the matching projects.
+    //
+    // Both paths land in the same set; HashSet dedupes if a request
+    // ever asks for both `workspace:1` and `project:7` together.
+    use std::collections::HashSet;
+    let want_all = granted.iter().any(|g| g == "workspace:1");
+
+    let project_ids: Vec<i32> = if want_all {
+        projects::table.select(projects::id).load::<i32>(&mut conn)?
+    } else {
+        let mut ids: HashSet<i32> = HashSet::new();
+        for g in granted {
+            if let Some(suffix) = g.strip_prefix("project:") {
+                if let Ok(id) = suffix.parse::<i32>() {
+                    ids.insert(id);
+                }
+            }
+        }
+        ids.into_iter().collect()
+    };
 
     if !project_ids.is_empty() {
         let projects: Vec<Project> = projects::table
