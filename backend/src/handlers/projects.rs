@@ -1,15 +1,45 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
+use diesel::Connection;
 use serde::Deserialize;
 use tracing::debug;
+use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
 use crate::handlers::errors;
 use crate::handlers::sse::{SseEvent, SseState};
-use crate::models::{NewProject, ProjectUpdate};
+use crate::models::{Claims, NewProject, ProjectUpdate};
 use crate::repository;
+use crate::sync::actor::ActorContext;
+use crate::sync::session;
 use crate::utils::rbac::{require_admin, require_technician_or_admin};
+
+/// Build an ActorContext from JWT claims attached to the request.
+fn actor_for(req: &HttpRequest) -> ActorContext {
+    let uuid = req
+        .extensions()
+        .get::<Claims>()
+        .and_then(|c| Uuid::parse_str(&c.sub).ok());
+    match uuid {
+        Some(u) => ActorContext::user(u, None),
+        None => ActorContext::system("handler:projects"),
+    }
+}
+
+/// Run a repository write inside a transaction with the actor GUCs
+/// set, so any sync_actions emitted by the repo carry the right
+/// actor_uuid.
+fn with_actor<T>(
+    conn: &mut crate::db::DbConnection,
+    actor: &ActorContext,
+    f: impl FnOnce(&mut crate::db::DbConnection) -> diesel::QueryResult<T>,
+) -> diesel::QueryResult<T> {
+    conn.transaction(|conn| {
+        session::set_actor(conn, actor)?;
+        f(conn)
+    })
+}
 
 #[derive(Deserialize)]
 pub struct GetProjectQuery {
@@ -92,7 +122,10 @@ pub async fn create_project(
         Err(e) => return e,
     };
 
-    match repository::create_project(&mut conn, project.into_inner()) {
+    let actor = actor_for(&req);
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::create_project(conn, project.into_inner())
+    }) {
         Ok(project) => HttpResponse::Created().json(project),
         Err(_) => errors::internal("Failed to create project"),
     }
@@ -115,7 +148,10 @@ pub async fn update_project(
         Err(e) => return e,
     };
 
-    match repository::update_project(&mut conn, project_id, project_update.into_inner()) {
+    let actor = actor_for(&req);
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::update_project(conn, project_id, project_update.into_inner())
+    }) {
         Ok(project) => HttpResponse::Ok().json(project),
         Err(e) => {
             match e {
@@ -142,7 +178,10 @@ pub async fn delete_project(
         Err(e) => return e,
     };
 
-    match repository::delete_project(&mut conn, project_id) {
+    let actor = actor_for(&req);
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::delete_project(conn, project_id)
+    }) {
         Ok(0) => errors::not_found_msg("Project not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(_) => errors::internal("Failed to delete project"),
@@ -184,7 +223,10 @@ pub async fn add_ticket_to_project(
         Err(e) => return e,
     };
 
-    match repository::add_ticket_to_project(&mut conn, project_id, ticket_id) {
+    let actor = actor_for(&req);
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::add_ticket_to_project(conn, project_id, ticket_id)
+    }) {
         Ok(association) => {
             debug!(ticket_id = ticket_id, project_id = project_id, "Broadcasting SSE event: Ticket assigned to project");
             sse_state.broadcast_event_from(
@@ -220,7 +262,10 @@ pub async fn remove_ticket_from_project(
         Err(e) => return e,
     };
 
-    match repository::remove_ticket_from_project(&mut conn, project_id, ticket_id) {
+    let actor = actor_for(&req);
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::remove_ticket_from_project(conn, project_id, ticket_id)
+    }) {
         Ok(0) => errors::not_found_msg("Association not found"),
         Ok(_) => {
             debug!(ticket_id = ticket_id, project_id = project_id, "Broadcasting SSE event: Ticket unassigned from project");
@@ -273,7 +318,10 @@ pub async fn update_ticket_order(
 
     debug!(project_id, count = orders.len(), "Updating ticket order");
 
-    match repository::update_project_ticket_orders(&mut conn, project_id, orders) {
+    let actor = actor_for(&req);
+    match with_actor(&mut conn, &actor, |conn| {
+        repository::update_project_ticket_orders(conn, project_id, orders)
+    }) {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({"success": true})),
         Err(_) => errors::internal("Failed to update ticket order"),
     }

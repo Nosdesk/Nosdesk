@@ -115,7 +115,7 @@ const ALLOWLIST: &[&str] = &[
     "repository/plugin_collections.rs::delete_schema",
     "repository/plugin_collections.rs::list_rows",
     "repository/plugin_collections.rs::update_schema",
-    "repository/projects.rs::update_project_ticket_orders",
+    // projects.rs writes are wired through emit::record.
     "repository/tickets.rs::add_device_to_ticket",
     "repository/tickets.rs::remove_device_from_ticket",
     "repository/tickets.rs::verify_pending_tickets_for_user",
@@ -168,11 +168,7 @@ const ALLOWLIST: &[&str] = &[
     "repository/plugin_collections.rs::update_row",
     "repository/plugin_publishers.rs::revoke_publisher",
     "repository/plugin_publishers.rs::upsert_publisher",
-    "repository/projects.rs::add_ticket_to_project",
-    "repository/projects.rs::create_project",
-    "repository/projects.rs::delete_project",
-    "repository/projects.rs::remove_ticket_from_project",
-    "repository/projects.rs::update_project",
+    // projects.rs CRUD wired through emit::record.
     "repository/refresh_tokens.rs::create_refresh_token",
     "repository/refresh_tokens.rs::revoke_refresh_token",
     "repository/reset_tokens.rs::create_reset_token",

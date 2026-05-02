@@ -4,12 +4,15 @@ use diesel::dsl::count;
 use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::QueryResult;
+use serde_json::json;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
 
 pub fn get_projects_with_ticket_count(conn: &mut DbConnection) -> Result<Vec<ProjectWithTicketCount>, Error> {
     // One pass over project_tickets to get every (project_id, count)
@@ -68,9 +71,29 @@ pub fn get_project_with_ticket_count(conn: &mut DbConnection, project_id: i32) -
 }
 
 pub fn create_project(conn: &mut DbConnection, new_project: NewProject) -> QueryResult<Project> {
-    diesel::insert_into(projects::table)
-        .values(&new_project)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let project: Project = diesel::insert_into(projects::table)
+            .values(&new_project)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Project,
+                aggregate_id: project.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "project.created",
+                data: json!({
+                    "id": project.id,
+                    "name": project.name,
+                    "description": project.description,
+                    "status": project.status,
+                }),
+                groups: groups::for_project(project.id),
+                causation_id: None,
+            },
+        )?;
+        Ok(project)
+    })
 }
 
 pub fn update_project(conn: &mut DbConnection, project_id: i32, project_update: ProjectUpdate) -> QueryResult<Project> {
@@ -82,15 +105,56 @@ pub fn update_project(conn: &mut DbConnection, project_id: i32, project_update: 
     } else {
         project_update
     };
-    
-    diesel::update(projects::table.find(project_id))
-        .set(&project_update)
-        .get_result(conn)
+
+    conn.transaction(|conn| {
+        let project: Project = diesel::update(projects::table.find(project_id))
+            .set(&project_update)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Project,
+                aggregate_id: project.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "project.updated",
+                data: json!({
+                    "id": project.id,
+                    "name": project.name,
+                    "description": project.description,
+                    "status": project.status,
+                }),
+                groups: groups::for_project(project.id),
+                causation_id: None,
+            },
+        )?;
+        Ok(project)
+    })
 }
 
 pub fn delete_project(conn: &mut DbConnection, project_id: i32) -> QueryResult<usize> {
-    // This will also delete all project_tickets entries due to ON DELETE CASCADE
-    diesel::delete(projects::table.find(project_id)).execute(conn)
+    // This will also delete all project_tickets entries due to ON DELETE CASCADE.
+    // Capture the project before delete so the emit fans out to the
+    // right groups (the project_tickets cascade will remove ticket
+    // associations, but the deleted project itself still belongs to
+    // workspace + project:<id>).
+    conn.transaction(|conn| {
+        let result = diesel::delete(projects::table.find(project_id)).execute(conn)?;
+        if result > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::Project,
+                    aggregate_id: project_id.to_string(),
+                    op: SyncOp::Delete,
+                    event_type: "project.deleted",
+                    data: json!({ "id": project_id }),
+                    groups: groups::for_project(project_id),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(result)
+    })
 }
 
 // Project-Ticket association operations
@@ -139,17 +203,64 @@ pub fn add_ticket_to_project(conn: &mut DbConnection, project_id: i32, ticket_id
     };
 
     debug!(project_id, ticket_id, display_order = new_order, "Creating new project-ticket association");
-    diesel::insert_into(project_tickets::table)
-        .values(&new_association)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let association: ProjectTicket = diesel::insert_into(project_tickets::table)
+            .values(&new_association)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::ProjectTicket,
+                aggregate_id: format!("{}:{}", project_id, ticket_id),
+                op: SyncOp::Insert,
+                event_type: "project_ticket.added",
+                data: json!({
+                    "project_id": project_id,
+                    "ticket_id": ticket_id,
+                    "display_order": association.display_order,
+                }),
+                // Both the project and the ticket get the event so a
+                // sync client watching either fan-out sees the
+                // association land.
+                groups: {
+                    let mut g = groups::for_project(project_id);
+                    g.push(format!("ticket:{}", ticket_id));
+                    g
+                },
+                causation_id: None,
+            },
+        )?;
+        Ok(association)
+    })
 }
 
 pub fn remove_ticket_from_project(conn: &mut DbConnection, project_id: i32, ticket_id: i32) -> QueryResult<usize> {
-    diesel::delete(
-        project_tickets::table
-            .filter(project_tickets::project_id.eq(project_id))
-            .filter(project_tickets::ticket_id.eq(ticket_id))
-    ).execute(conn)
+    conn.transaction(|conn| {
+        let result = diesel::delete(
+            project_tickets::table
+                .filter(project_tickets::project_id.eq(project_id))
+                .filter(project_tickets::ticket_id.eq(ticket_id))
+        ).execute(conn)?;
+        if result > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::ProjectTicket,
+                    aggregate_id: format!("{}:{}", project_id, ticket_id),
+                    op: SyncOp::Delete,
+                    event_type: "project_ticket.removed",
+                    data: json!({ "project_id": project_id, "ticket_id": ticket_id }),
+                    groups: {
+                        let mut g = groups::for_project(project_id);
+                        g.push(format!("ticket:{}", ticket_id));
+                        g
+                    },
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(result)
+    })
 }
 
 pub fn get_project_tickets(conn: &mut DbConnection, project_id: i32) -> QueryResult<Vec<TicketListItem>> {
@@ -202,8 +313,13 @@ pub fn get_projects_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> Query
         .load::<Project>(conn)
 }
 
-/// Update the display order of tickets within a project
-/// Takes a list of (ticket_id, display_order) pairs
+/// Update the display order of tickets within a project.
+/// Takes a list of (ticket_id, display_order) pairs.
+///
+/// Emits a single project_ticket.reordered event with the full new
+/// order in `data`, rather than one row per association — kanban /
+/// drag-drop interactions can shuffle dozens of tickets at once and
+/// per-row events would create a lot of noise on the sync bus.
 pub fn update_project_ticket_orders(
     conn: &mut DbConnection,
     project_id: i32,
@@ -211,17 +327,34 @@ pub fn update_project_ticket_orders(
 ) -> QueryResult<()> {
     debug!(project_id, count = orders.len(), "Updating project ticket orders");
 
-    for (ticket_id, new_order) in orders {
-        diesel::update(
-            project_tickets::table
-                .filter(project_tickets::project_id.eq(project_id))
-                .filter(project_tickets::ticket_id.eq(ticket_id)),
-        )
-        .set(project_tickets::display_order.eq(new_order))
-        .execute(conn)?;
-    }
-
-    Ok(())
+    conn.transaction(|conn| {
+        for (ticket_id, new_order) in &orders {
+            diesel::update(
+                project_tickets::table
+                    .filter(project_tickets::project_id.eq(project_id))
+                    .filter(project_tickets::ticket_id.eq(*ticket_id)),
+            )
+            .set(project_tickets::display_order.eq(*new_order))
+            .execute(conn)?;
+        }
+        let order_payload: Vec<serde_json::Value> = orders
+            .iter()
+            .map(|(t, o)| json!({ "ticket_id": t, "display_order": o }))
+            .collect();
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::ProjectTicket,
+                aggregate_id: project_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "project_ticket.reordered",
+                data: json!({ "project_id": project_id, "orders": order_payload }),
+                groups: groups::for_project(project_id),
+                causation_id: None,
+            },
+        )?;
+        Ok(())
+    })
 }
 
 #[cfg(test)]
