@@ -289,8 +289,20 @@ pub async fn add_comment_to_ticket(
         content_format: comment_data.content_format,
     };
 
-    // Insert the comment
-    match crate::repository::comments::create_comment(&mut conn, new_comment, Some(search_service.get_ref())) {
+    // Insert the comment, attributed to the authenticated user.
+    let actor = crate::sync::actor::ActorContext::user(user_uuid_parsed, None);
+    let create_result = {
+        use diesel::Connection;
+        conn.transaction::<crate::models::Comment, diesel::result::Error, _>(|conn| {
+            crate::sync::session::set_actor(conn, &actor)?;
+            crate::repository::comments::create_comment(
+                conn,
+                new_comment,
+                Some(search_service.get_ref()),
+            )
+        })
+    };
+    match create_result {
         Ok(comment) => {
             debug!(comment_id = comment.id, "Created comment");
             
@@ -625,7 +637,25 @@ pub async fn delete_comment(
         }
     };
     
-    match crate::repository::comments::delete_comment(&mut conn, comment_id, Some(search_service.get_ref())) {
+    let actor = {
+        use actix_web::HttpMessage;
+        let uuid = req
+            .extensions()
+            .get::<crate::models::Claims>()
+            .and_then(|c| uuid::Uuid::parse_str(&c.sub).ok());
+        match uuid {
+            Some(u) => crate::sync::actor::ActorContext::user(u, None),
+            None => crate::sync::actor::ActorContext::system("handler:delete_comment"),
+        }
+    };
+    let delete_result = {
+        use diesel::Connection;
+        conn.transaction::<usize, diesel::result::Error, _>(|conn| {
+            crate::sync::session::set_actor(conn, &actor)?;
+            crate::repository::comments::delete_comment(conn, comment_id, Some(search_service.get_ref()))
+        })
+    };
+    match delete_result {
         Ok(deleted) => {
             if deleted > 0 {
                 // Search index removal is fired by the
@@ -694,8 +724,19 @@ pub async fn delete_attachment(
                 Err(e) => warn!(error = ?e, storage_path = %storage_path, "Failed to delete file from storage"),
             }
 
-            // Delete the database record
-            match crate::repository::comments::delete_attachment(&mut conn, attachment_id) {
+            // Delete the database record. No JWT context here (the
+            // attachment delete handler doesn't take an HttpRequest);
+            // attribute as a system actor so the emit substrate still
+            // gets a row.
+            let actor = crate::sync::actor::ActorContext::system("handler:delete_attachment");
+            let delete_result = {
+                use diesel::Connection;
+                conn.transaction::<usize, diesel::result::Error, _>(|conn| {
+                    crate::sync::session::set_actor(conn, &actor)?;
+                    crate::repository::comments::delete_attachment(conn, attachment_id)
+                })
+            };
+            match delete_result {
                 Ok(deleted) => {
                     if deleted > 0 {
                         info!(attachment_id, "Successfully deleted attachment from database");

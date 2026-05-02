@@ -422,16 +422,28 @@ pub async fn submit_guest_ticket(
         // match what the editor produces.)
         content_format: crate::models::ContentFormat::Plaintext,
     };
-    let first_comment_id = match repository::comments::create_comment(&mut conn, new_comment, Some(search_service.get_ref())) {
-        Ok(c) => Some(c.id),
-        Err(e) => {
+    // Guest comments don't have a JWT actor; record under a system
+    // actor so the sync substrate has a clear attribution chain.
+    let guest_actor = crate::sync::actor::ActorContext::system("guest:ticket_create");
+    let first_comment_id = {
+        use diesel::Connection;
+        conn.transaction::<Option<i32>, diesel::result::Error, _>(|conn| {
+            crate::sync::session::set_actor(conn, &guest_actor)?;
+            let c = repository::comments::create_comment(
+                conn,
+                new_comment,
+                Some(search_service.get_ref()),
+            )?;
+            Ok(Some(c.id))
+        })
+        .unwrap_or_else(|e| {
             warn!(
                 error = %e,
                 ticket_id = ticket.id,
                 "Failed to persist guest-ticket description as comment"
             );
             None
-        }
+        })
     };
 
     // Claim any referenced attachments. Cap at GUEST_MAX_FILES_PER_TICKET —

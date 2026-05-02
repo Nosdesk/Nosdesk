@@ -77,8 +77,7 @@ const ALLOWLIST: &[&str] = &[
     "repository/channels.rs::put_credential",
     "repository/channels.rs::update",
     "repository/channels.rs::update_runtime_state",
-    "repository/comments.rs::create_attachment",
-    "repository/comments.rs::delete_attachment",
+    // comments.rs attachment writes wired through emit::record.
     "repository/documentation_collections.rs::add_page_to_collection_at_root",
     "repository/documentation_collections.rs::cascade_collection_membership",
     "repository/documentation_collections.rs::reorder_collections",
@@ -141,8 +140,7 @@ const ALLOWLIST: &[&str] = &[
     "repository/categories.rs::delete_category",
     "repository/categories.rs::update_category",
     "repository/channels.rs::record_message",
-    "repository/comments.rs::create_comment",
-    "repository/comments.rs::delete_comment",
+    // comments.rs CRUD wired through emit::record.
     "repository/devices.rs::create_device",
     "repository/devices.rs::delete_device",
     "repository/devices.rs::update_device",

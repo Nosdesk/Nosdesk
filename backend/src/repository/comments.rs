@@ -1,9 +1,12 @@
 use diesel::prelude::*;
 use diesel::QueryResult;
+use serde_json::json;
 
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
 
 /// Observer fired after a comment is successfully created. The
 /// search service uses it to index the comment with its parent
@@ -47,21 +50,48 @@ pub fn create_comment(
     new_comment: NewComment,
     observer: Option<&dyn CommentCreatedObserver>,
 ) -> QueryResult<Comment> {
-    let comment: Comment = diesel::insert_into(comments::table)
-        .values(&new_comment)
-        .get_result(conn)?;
+    let ticket_id = new_comment.ticket_id;
+    let comment = conn.transaction::<Comment, diesel::result::Error, _>(|conn| {
+        let comment: Comment = diesel::insert_into(comments::table)
+            .values(&new_comment)
+            .get_result(conn)?;
 
-    // Update the parent ticket's updated_at timestamp
-    let _ = diesel::update(tickets::table.find(new_comment.ticket_id))
-        .set(tickets::updated_at.eq(diesel::dsl::now))
-        .execute(conn);
+        // Update the parent ticket's updated_at timestamp.
+        // Errors here are non-fatal in the original; preserve that
+        // semantic by ignoring the result rather than failing the tx.
+        let _ = diesel::update(tickets::table.find(ticket_id))
+            .set(tickets::updated_at.eq(diesel::dsl::now))
+            .execute(conn);
+
+        // Resolve sync groups against the parent ticket so the event
+        // reaches every project the ticket sits in.
+        let parent: Ticket = tickets::table.find(ticket_id).first(conn)?;
+        let groups = groups::for_ticket(conn, &parent)?;
+
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Comment,
+                aggregate_id: comment.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "comment.created",
+                data: json!({
+                    "id": comment.id,
+                    "ticket_id": comment.ticket_id,
+                    "user_uuid": comment.user_uuid,
+                    "is_internal": comment.is_internal,
+                    "content_format": comment.content_format,
+                }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(comment)
+    })?;
 
     if let Some(observer) = observer {
-        // Look up the parent ticket title for the index doc; the
-        // search-side `index_document_from_comment` builds a "Comment
-        // on: <title>" search title from it. Best-effort.
         let ticket_title = tickets::table
-            .find(new_comment.ticket_id)
+            .find(ticket_id)
             .select(tickets::title)
             .first::<String>(conn)
             .unwrap_or_else(|_| String::from("Unknown Ticket"));
@@ -79,9 +109,46 @@ pub fn get_attachments_by_comment_id(conn: &mut DbConnection, comment_id: i32) -
 }
 
 pub fn create_attachment(conn: &mut DbConnection, new_attachment: NewAttachment) -> QueryResult<Attachment> {
-    diesel::insert_into(attachments::table)
-        .values(&new_attachment)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let attachment: Attachment = diesel::insert_into(attachments::table)
+            .values(&new_attachment)
+            .get_result(conn)?;
+        // Resolve groups via the parent comment's ticket so the
+        // attachment lands on the same fan-out as its sibling
+        // comment events. Attachments may be orphan (comment_id NULL,
+        // for guest temp uploads); fall back to the workspace group
+        // in that case.
+        let groups = match attachment.comment_id {
+            Some(cid) => {
+                let tid: i32 = comments::table
+                    .find(cid)
+                    .select(comments::ticket_id)
+                    .first(conn)?;
+                let parent: Ticket = tickets::table.find(tid).first(conn)?;
+                groups::for_ticket(conn, &parent)?
+            }
+            None => groups::workspace(),
+        };
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Attachment,
+                aggregate_id: attachment.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "attachment.created",
+                data: json!({
+                    "id": attachment.id,
+                    "comment_id": attachment.comment_id,
+                    "name": attachment.name,
+                    "mime_type": attachment.mime_type,
+                    "file_size": attachment.file_size,
+                }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(attachment)
+    })
 }
 
 pub fn get_comment_by_id(conn: &mut DbConnection, comment_id: i32) -> QueryResult<Comment> {
@@ -127,11 +194,42 @@ pub fn delete_comment(
     comment_id: i32,
     observer: Option<&dyn CommentDeletedObserver>,
 ) -> QueryResult<usize> {
-    // First delete all attachments associated with this comment
-    diesel::delete(attachments::table.filter(attachments::comment_id.eq(comment_id))).execute(conn)?;
+    let count = conn.transaction::<usize, diesel::result::Error, _>(|conn| {
+        // Capture the parent ticket BEFORE deletion so the emit
+        // resolves to the right sync groups (the comment row goes
+        // away mid-transaction; we need its ticket_id first).
+        let parent_ticket_id: Option<i32> = comments::table
+            .find(comment_id)
+            .select(comments::ticket_id)
+            .first(conn)
+            .optional()?;
 
-    // Then delete the comment itself
-    let count = diesel::delete(comments::table.find(comment_id)).execute(conn)?;
+        // First delete all attachments associated with this comment
+        diesel::delete(attachments::table.filter(attachments::comment_id.eq(comment_id)))
+            .execute(conn)?;
+
+        // Then delete the comment itself
+        let count = diesel::delete(comments::table.find(comment_id)).execute(conn)?;
+        if count > 0 {
+            if let Some(tid) = parent_ticket_id {
+                let parent: Ticket = tickets::table.find(tid).first(conn)?;
+                let groups = groups::for_ticket(conn, &parent)?;
+                emit::record(
+                    conn,
+                    SyncEmit {
+                        aggregate: SyncAggregate::Comment,
+                        aggregate_id: comment_id.to_string(),
+                        op: SyncOp::Delete,
+                        event_type: "comment.deleted",
+                        data: json!({ "id": comment_id, "ticket_id": tid }),
+                        groups,
+                        causation_id: None,
+                    },
+                )?;
+            }
+        }
+        Ok(count)
+    })?;
     if count > 0 {
         if let Some(observer) = observer {
             observer.comment_deleted(comment_id);
@@ -147,8 +245,43 @@ pub fn get_attachment_by_id(conn: &mut DbConnection, attachment_id: i32) -> Quer
 }
 
 pub fn delete_attachment(conn: &mut DbConnection, attachment_id: i32) -> QueryResult<usize> {
-    diesel::delete(attachments::table.find(attachment_id))
-        .execute(conn)
+    conn.transaction(|conn| {
+        // Capture parent comment before delete so groups resolve.
+        // attachments.comment_id is nullable (orphan temp uploads),
+        // hence the doubly-Option select pattern.
+        let parent_comment_id: Option<Option<i32>> = attachments::table
+            .find(attachment_id)
+            .select(attachments::comment_id)
+            .first(conn)
+            .optional()?;
+        let result = diesel::delete(attachments::table.find(attachment_id)).execute(conn)?;
+        if result > 0 {
+            let groups = match parent_comment_id.flatten() {
+                Some(cid) => {
+                    let tid: i32 = comments::table
+                        .find(cid)
+                        .select(comments::ticket_id)
+                        .first(conn)?;
+                    let parent: Ticket = tickets::table.find(tid).first(conn)?;
+                    groups::for_ticket(conn, &parent)?
+                }
+                None => groups::workspace(),
+            };
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::Attachment,
+                    aggregate_id: attachment_id.to_string(),
+                    op: SyncOp::Delete,
+                    event_type: "attachment.deleted",
+                    data: json!({ "id": attachment_id }),
+                    groups,
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(result)
+    })
 }
 
 #[cfg(test)]
