@@ -118,7 +118,6 @@ const ALLOWLIST: &[&str] = &[
     "repository/projects.rs::update_project_ticket_orders",
     "repository/tickets.rs::add_device_to_ticket",
     "repository/tickets.rs::remove_device_from_ticket",
-    "repository/tickets.rs::update_ticket_partial",
     "repository/tickets.rs::verify_pending_tickets_for_user",
     "repository/user_auth_identities.rs::update_local_password_hash",
     "repository/user_emails.rs::add_multiple_emails",
@@ -180,8 +179,8 @@ const ALLOWLIST: &[&str] = &[
     "repository/site_settings.rs::update_site_settings",
     "repository/sync_history.rs::delete_delta_token",
     "repository/sync_history.rs::upsert_delta_token",
-    "repository/tickets.rs::create_ticket",
-    "repository/tickets.rs::update_ticket",
+    // create_ticket, update_ticket, update_ticket_partial, and
+    // delete_ticket_with_cleanup are wired through emit::record.
     "repository/user_auth_identities.rs::create_identity",
     "repository/user_auth_identities.rs::delete_identity",
     "repository/user_ticket_views.rs::record_view",

@@ -43,6 +43,8 @@ use crate::models::{
 };
 use crate::repository::{channels as channels_repo, comments as comments_repo, tickets as tickets_repo};
 use crate::repository::user_helpers::{find_or_create_guest_user, GuestUserResult};
+use crate::sync::actor::ActorContext;
+use crate::sync::session;
 use crate::services::channels::{
     ChannelAdapter, InboundAttachment, InboundEvent, InboundMessage,
 };
@@ -198,6 +200,13 @@ pub async fn process_event(
     // let the next poll re-ingest into a second comment on the same
     // ticket.
     let ingest = conn.transaction::<_, PipelineError, _>(|conn| {
+        // Attribute every emit in this transaction to the inbound
+        // channel pipeline so sync_actions records the system actor
+        // rather than NULL. The outer call has no HTTP request, so
+        // we synthesise a system actor here.
+        let actor = ActorContext::system("channels:inbound");
+        session::set_actor(conn, &actor)?;
+
         // Identity resolution. Routes through the forward-aware
         // branch when the envelope sender is a verified tech;
         // otherwise falls into the normal guest-user path. See

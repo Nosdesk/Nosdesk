@@ -18,9 +18,45 @@ use crate::services::notifications::{
 };
 use crate::services::search::SearchService;
 use crate::services::search::indexing_tasks;
+use crate::sync::actor::ActorContext;
+use crate::sync::session;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
 use crate::handlers::helpers;
 use crate::handlers::errors;
+
+/// Build an ActorContext from the JWT claims attached to the request.
+/// Returns a system actor when no claims are present (background calls
+/// that wandered into a handler path), so the emit substrate still has
+/// something to attribute the row to.
+fn actor_for(req: &HttpRequest) -> ActorContext {
+    let uuid = req
+        .extensions()
+        .get::<Claims>()
+        .and_then(|c| Uuid::parse_str(&c.sub).ok());
+    match uuid {
+        Some(u) => ActorContext::user(u, None),
+        None => ActorContext::system("handler:tickets"),
+    }
+}
+
+/// Run a repository write inside a transaction with the actor GUCs
+/// set, so any sync_actions emitted by the repo (or downstream
+/// triggers) carry the correct actor_uuid / actor_kind.
+///
+/// Use this anywhere a handler is about to invoke a repository fn
+/// that emits. Calls that don't write or don't emit (pure reads)
+/// don't need it.
+fn with_actor<T>(
+    conn: &mut crate::db::DbConnection,
+    actor: &ActorContext,
+    f: impl FnOnce(&mut crate::db::DbConnection) -> diesel::QueryResult<T>,
+) -> diesel::QueryResult<T> {
+    use diesel::Connection;
+    conn.transaction(|conn| {
+        session::set_actor(conn, actor)?;
+        f(conn)
+    })
+}
 
 // Helper function to validate assignee role
 fn validate_assignee_role(
@@ -345,7 +381,10 @@ pub async fn create_ticket(
         }
     }
 
-    match repository::create_ticket(&mut conn, new_ticket) {
+    let actor_ctx = ActorContext::user(auth.user_uuid, None);
+    match with_actor(&mut conn, &actor_ctx, |conn| {
+        repository::create_ticket(conn, new_ticket)
+    }) {
         Ok(mut ticket) => {
             // Run automatic assignment rules if no assignee
             if ticket.assignee_uuid.is_none() {
@@ -356,7 +395,9 @@ pub async fn create_ticket(
                             updated_at: Some(chrono::Utc::now().naive_utc()),
                             ..Default::default()
                         };
-                        if let Ok(updated) = repository::update_ticket_partial(&mut conn, ticket.id, assign_update, Some(search_service.get_ref())) {
+                        if let Ok(updated) = with_actor(&mut conn, &actor_ctx, |conn| {
+                            repository::update_ticket_partial(conn, ticket.id, assign_update, Some(search_service.get_ref()))
+                        }) {
                             ticket = updated;
                             info!(
                                 ticket_id = ticket.id,
@@ -423,6 +464,7 @@ pub async fn create_ticket(
 
 // Update a ticket
 pub async fn update_ticket(
+    req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
     path: web::Path<i32>,
     ticket: web::Json<NewTicket>,
@@ -441,7 +483,10 @@ pub async fn update_ticket(
         }
     }
 
-    match repository::update_ticket(&mut conn, ticket_id, new_ticket) {
+    let actor_ctx = actor_for(&req);
+    match with_actor(&mut conn, &actor_ctx, |conn| {
+        repository::update_ticket(conn, ticket_id, new_ticket)
+    }) {
         Ok(ticket) => HttpResponse::Ok().json(ticket),
         Err(e) => {
             errors::internal(format!("Failed to update ticket: {e}"))
@@ -477,7 +522,8 @@ pub async fn delete_ticket(
     };
 
     // Use the comprehensive deletion function that cleans up files
-    match repository::delete_ticket_with_cleanup(&mut conn, ticket_id, storage.as_ref().clone(), Some(search_service.get_ref()))
+    let actor_ctx = actor_for(&req);
+    match repository::delete_ticket_with_cleanup(&mut conn, ticket_id, storage.as_ref().clone(), Some(search_service.get_ref()), &actor_ctx)
         .await
     {
         Ok(rows_affected) => {
@@ -641,7 +687,10 @@ pub async fn create_empty_ticket(
     };
 
     // Create the ticket and then add empty article content
-    let mut ticket = match repository::create_ticket(&mut conn, empty_ticket) {
+    let actor_ctx = actor_for(&req);
+    let mut ticket = match with_actor(&mut conn, &actor_ctx, |conn| {
+        repository::create_ticket(conn, empty_ticket)
+    }) {
         Ok(ticket) => ticket,
         Err(e) => {
             error!(error = ?e, "Failed to create empty ticket");
@@ -659,7 +708,9 @@ pub async fn create_empty_ticket(
                     updated_at: Some(chrono::Utc::now().naive_utc()),
                     ..Default::default()
                 };
-                if let Ok(updated) = repository::update_ticket_partial(&mut conn, ticket.id, assign_update, Some(search_service.get_ref())) {
+                if let Ok(updated) = with_actor(&mut conn, &actor_ctx, |conn| {
+                    repository::update_ticket_partial(conn, ticket.id, assign_update, Some(search_service.get_ref()))
+                }) {
                     ticket = updated;
                     info!(
                         ticket_id = ticket.id,
@@ -898,7 +949,10 @@ pub async fn update_ticket_partial(
     let category_changed = body.get("category_id").is_some();
 
     // Update the ticket
-    match repository::update_ticket_partial(&mut conn, ticket_id, ticket_update, Some(search_service.get_ref())) {
+    let actor_ctx = actor_for(&req);
+    match with_actor(&mut conn, &actor_ctx, |conn| {
+        repository::update_ticket_partial(conn, ticket_id, ticket_update, Some(search_service.get_ref()))
+    }) {
         Ok(updated_ticket) => {
             // Run automatic assignment rules if category changed and no assignee
             if category_changed && updated_ticket.assignee_uuid.is_none() {
@@ -914,7 +968,9 @@ pub async fn update_ticket_partial(
                             updated_at: Some(chrono::Utc::now().naive_utc()),
                             ..Default::default()
                         };
-                        if repository::update_ticket_partial(&mut conn, ticket_id, assign_update, Some(search_service.get_ref())).is_ok() {
+                        if with_actor(&mut conn, &actor_ctx, |conn| {
+                            repository::update_ticket_partial(conn, ticket_id, assign_update, Some(search_service.get_ref()))
+                        }).is_ok() {
                             info!(
                                 ticket_id,
                                 assignee = %assigned_uuid,
@@ -1439,6 +1495,8 @@ pub async fn bulk_tickets(
         return errors::bad_request("Bad Request: No ticket IDs provided");
     }
 
+    let actor_ctx = actor_for(&req);
+
     match action {
         "delete" => {
             // Only admins can bulk delete
@@ -1448,7 +1506,7 @@ pub async fn bulk_tickets(
 
             let mut deleted = 0;
             for id in ids {
-                match repository::delete_ticket_with_cleanup(&mut conn, *id, storage.as_ref().clone(), Some(search_service.get_ref())).await {
+                match repository::delete_ticket_with_cleanup(&mut conn, *id, storage.as_ref().clone(), Some(search_service.get_ref()), &actor_ctx).await {
                     Ok(rows) => {
                         deleted += rows;
                         // Remove from search index
@@ -1515,7 +1573,9 @@ pub async fn bulk_tickets(
                     origin_channel_id: None,
                 };
 
-                if repository::update_ticket_partial(&mut conn, *id, update, Some(search_service.get_ref())).is_ok() {
+                if with_actor(&mut conn, &actor_ctx, |conn| {
+                    repository::update_ticket_partial(conn, *id, update, Some(search_service.get_ref()))
+                }).is_ok() {
                     updated += 1;
                     // Send SSE update with source_client_id for echo suppression
                     sse_state.broadcast_event_from(
@@ -1562,7 +1622,9 @@ pub async fn bulk_tickets(
                     origin_channel_id: None,
                 };
 
-                if repository::update_ticket_partial(&mut conn, *id, update, Some(search_service.get_ref())).is_ok() {
+                if with_actor(&mut conn, &actor_ctx, |conn| {
+                    repository::update_ticket_partial(conn, *id, update, Some(search_service.get_ref()))
+                }).is_ok() {
                     updated += 1;
                     sse_state.broadcast_event_from(
                         crate::handlers::sse::SseEvent::TicketUpdated {
@@ -1610,7 +1672,9 @@ pub async fn bulk_tickets(
                     origin_channel_id: None,
                 };
 
-                if repository::update_ticket_partial(&mut conn, *id, update, Some(search_service.get_ref())).is_ok() {
+                if with_actor(&mut conn, &actor_ctx, |conn| {
+                    repository::update_ticket_partial(conn, *id, update, Some(search_service.get_ref()))
+                }).is_ok() {
                     updated += 1;
                     sse_state.broadcast_event_from(
                         crate::handlers::sse::SseEvent::TicketUpdated {

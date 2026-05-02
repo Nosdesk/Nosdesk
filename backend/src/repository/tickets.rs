@@ -1,6 +1,7 @@
 use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::QueryResult;
+use serde_json::json;
 use uuid::Uuid;
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -8,6 +9,10 @@ use tracing::{debug, warn};
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
+use crate::sync::actor::ActorContext;
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
+use crate::sync::session;
 use crate::utils::storage::Storage;
 
 /// Observer fired after `update_ticket_partial` commits a change.
@@ -48,9 +53,35 @@ pub fn get_ticket_by_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<
 }
 
 pub fn create_ticket(conn: &mut DbConnection, new_ticket: NewTicket) -> QueryResult<Ticket> {
-    diesel::insert_into(tickets::table)
-        .values(&new_ticket)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let ticket: Ticket = diesel::insert_into(tickets::table)
+            .values(&new_ticket)
+            .get_result(conn)?;
+        let groups = groups::for_ticket(conn, &ticket)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Ticket,
+                aggregate_id: ticket.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "ticket.created",
+                data: json!({
+                    "id": ticket.id,
+                    "title": ticket.title,
+                    "workflow_state_id": ticket.workflow_state_id,
+                    "priority": ticket.priority.as_str(),
+                    "requester_uuid": ticket.requester_uuid,
+                    "assignee_uuid": ticket.assignee_uuid,
+                    "category_id": ticket.category_id,
+                    "submitted_via": ticket.submitted_via,
+                    "origin_channel_id": ticket.origin_channel_id,
+                }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(ticket)
+    })
 }
 
 /// Look up a ticket by its opaque guest-lookup token. Used by the public
@@ -85,9 +116,33 @@ pub fn verify_pending_tickets_for_user(
 }
 
 pub fn update_ticket(conn: &mut DbConnection, ticket_id: i32, ticket: NewTicket) -> QueryResult<Ticket> {
-    diesel::update(tickets::table.find(ticket_id))
-        .set(&ticket)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let updated: Ticket = diesel::update(tickets::table.find(ticket_id))
+            .set(&ticket)
+            .get_result(conn)?;
+        let groups = groups::for_ticket(conn, &updated)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Ticket,
+                aggregate_id: updated.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "ticket.updated",
+                data: json!({
+                    "id": updated.id,
+                    "title": updated.title,
+                    "workflow_state_id": updated.workflow_state_id,
+                    "priority": updated.priority.as_str(),
+                    "requester_uuid": updated.requester_uuid,
+                    "assignee_uuid": updated.assignee_uuid,
+                    "category_id": updated.category_id,
+                }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(updated)
+    })
 }
 
 // Add a new function for partial ticket updates
@@ -99,9 +154,52 @@ pub fn update_ticket_partial(
 ) -> QueryResult<Ticket> {
     debug!(ticket_id, update = ?ticket_update, "Updating ticket");
 
-    let result: Ticket = diesel::update(tickets::table.find(ticket_id))
-        .set(&ticket_update)
-        .get_result(conn)?;
+    let result = conn.transaction::<Ticket, diesel::result::Error, _>(|conn| {
+        let result: Ticket = diesel::update(tickets::table.find(ticket_id))
+            .set(&ticket_update)
+            .get_result(conn)?;
+        let groups = groups::for_ticket(conn, &result)?;
+        // Pick the most-specific event_type that matches what changed.
+        // The full updated row goes in `data` regardless so consumers
+        // don't have to query back.
+        let event_type = if ticket_update.workflow_state_id.is_some() {
+            "ticket.workflow_state_changed"
+        } else if ticket_update.assignee_uuid.is_some() {
+            "ticket.assignee_changed"
+        } else if ticket_update.priority.is_some() {
+            "ticket.priority_changed"
+        } else if ticket_update.title.is_some() {
+            "ticket.title_changed"
+        } else if ticket_update.category_id.is_some() {
+            "ticket.category_changed"
+        } else if ticket_update.verification_state.is_some() {
+            "ticket.verification_changed"
+        } else {
+            "ticket.updated"
+        };
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Ticket,
+                aggregate_id: result.id.to_string(),
+                op: SyncOp::Update,
+                event_type,
+                data: json!({
+                    "id": result.id,
+                    "title": result.title,
+                    "workflow_state_id": result.workflow_state_id,
+                    "priority": result.priority.as_str(),
+                    "requester_uuid": result.requester_uuid,
+                    "assignee_uuid": result.assignee_uuid,
+                    "category_id": result.category_id,
+                    "verification_state": result.verification_state,
+                }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(result)
+    })?;
 
     if let Some(observer) = observer {
         // Fetch any associated article content so the observer can
@@ -122,9 +220,23 @@ pub async fn delete_ticket_with_cleanup(
     ticket_id: i32,
     storage: Arc<dyn Storage>,
     observer: Option<&dyn TicketDeletedObserver>,
+    actor: &ActorContext,
 ) -> Result<usize, Error> {
     // Start a transaction to ensure all operations succeed or fail together
     conn.transaction(|conn| {
+        // Set the session-local actor GUC so the delete event below
+        // (and any cascade triggers) carry the right attribution.
+        session::set_actor(conn, actor)?;
+        // 0. Capture the row + sync groups BEFORE we start deleting children,
+        // so the emitted ticket.deleted event has the correct group fan-out
+        // (project memberships are about to be cascade-removed) and still
+        // resolves on a row that exists.
+        let pre_delete = tickets::table.find(ticket_id).first::<Ticket>(conn).optional()?;
+        let pre_groups = match pre_delete.as_ref() {
+            Some(t) => groups::for_ticket(conn, t)?,
+            None => Vec::new(),
+        };
+
         // 1. First, get all comments for this ticket to find attachments
         let comments = crate::repository::comments::get_comments_by_ticket_id(conn, ticket_id)?;
         
@@ -168,7 +280,27 @@ pub async fn delete_ticket_with_cleanup(
         
         // 8. Finally, delete the ticket itself
         let result = diesel::delete(tickets::table.find(ticket_id)).execute(conn)?;
-        
+
+        if result > 0 {
+            // Emit only when the row actually existed; pre_delete is None
+            // for repeated DELETE calls, in which case the result is 0
+            // and we'd be emitting a phantom event.
+            if let Some(_t) = pre_delete.as_ref() {
+                emit::record(
+                    conn,
+                    SyncEmit {
+                        aggregate: SyncAggregate::Ticket,
+                        aggregate_id: ticket_id.to_string(),
+                        op: SyncOp::Delete,
+                        event_type: "ticket.deleted",
+                        data: json!({ "id": ticket_id }),
+                        groups: pre_groups,
+                        causation_id: None,
+                    },
+                )?;
+            }
+        }
+
         // Return the attachment paths for file cleanup (outside transaction)
         Ok((result, attachment_paths))
     }).map(|(result, attachment_paths)| {
