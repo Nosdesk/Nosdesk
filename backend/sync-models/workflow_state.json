@@ -1,0 +1,23 @@
+{
+  "name": "workflow_state",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "name": { "rust": "String", "ts": "string" },
+    "category": { "rust": "WorkflowStateCategory", "ts": "WorkflowStateCategory" },
+    "color": { "rust": "String", "ts": "string" },
+    "position": { "rust": "i32", "ts": "number" },
+    "is_default": { "rust": "bool", "ts": "boolean" },
+    "archived_at": { "rust": "Option<DateTime<Utc>>", "ts": "string | null" }
+  },
+  "events": [
+    { "type": "workflow_state.created", "op": "I" },
+    { "type": "workflow_state.updated", "op": "U" },
+    { "type": "workflow_state.archived", "op": "A" },
+    { "type": "workflow_state.default_promoted", "op": "U" },
+    { "type": "workflow_state.default_revoked", "op": "U" }
+  ],
+  "groups": [
+    "workspace:1"
+  ]
+}

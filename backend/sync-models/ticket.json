@@ -1,0 +1,39 @@
+{
+  "name": "ticket",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "title": { "rust": "String", "ts": "string" },
+    "workflow_state_id": { "rust": "i32", "ts": "number" },
+    "priority": { "rust": "TicketPriority", "ts": "TicketPriority" },
+    "requester_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "assignee_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "category_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "submitted_via": { "rust": "Option<String>", "ts": "string | null" },
+    "origin_channel_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "verification_state": { "rust": "Option<String>", "ts": "string | null" },
+    "closed_at": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
+    "created_at": { "rust": "NaiveDateTime", "ts": "string" },
+    "updated_at": { "rust": "NaiveDateTime", "ts": "string" }
+  },
+  "events": [
+    { "type": "ticket.created", "op": "I" },
+    { "type": "ticket.updated", "op": "U" },
+    { "type": "ticket.deleted", "op": "D" },
+    { "type": "ticket.workflow_state_changed", "op": "U" },
+    { "type": "ticket.assignee_changed", "op": "U" },
+    { "type": "ticket.priority_changed", "op": "U" },
+    { "type": "ticket.title_changed", "op": "U" },
+    { "type": "ticket.category_changed", "op": "U" },
+    { "type": "ticket.verification_changed", "op": "U" }
+  ],
+  "groups": [
+    "workspace:1",
+    "ticket:<id>",
+    "project:<project_id> for each project the ticket belongs to"
+  ],
+  "references": [
+    { "field": "workflow_state_id", "aggregate": "workflow_state" },
+    { "field": "category_id", "aggregate": null, "note": "ticket_categories isn't a sync aggregate today" }
+  ]
+}

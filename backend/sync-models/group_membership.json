@@ -1,0 +1,33 @@
+{
+  "name": "group_membership",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "name": { "rust": "String", "ts": "string", "note": "for group lifecycle events" },
+    "description": { "rust": "Option<String>", "ts": "string | null" },
+    "user_uuid": { "rust": "Option<Uuid>", "ts": "string | null", "note": "for membership events" },
+    "device_id": { "rust": "Option<i32>", "ts": "number | null", "note": "for device-membership events" },
+    "included_group_id": { "rust": "Option<i32>", "ts": "number | null", "note": "for group-include events" }
+  },
+  "events": [
+    { "type": "group.created", "op": "I" },
+    { "type": "group.updated", "op": "U" },
+    { "type": "group.deleted", "op": "D" },
+    { "type": "group.unmanaged", "op": "U" },
+    { "type": "group.upserted_external", "op": "U", "note": "msgraph delta sync" },
+    { "type": "group.marked_not_synced", "op": "U" },
+    { "type": "group_membership.user_added", "op": "I" },
+    { "type": "group_membership.user_removed", "op": "D" },
+    { "type": "group_membership.user_groups_set", "op": "U", "note": "single bulk event with full new collection" },
+    { "type": "group_membership.members_set", "op": "U" },
+    { "type": "group_membership.device_added", "op": "I" },
+    { "type": "group_membership.device_removed", "op": "D" },
+    { "type": "group_membership.devices_set", "op": "U" },
+    { "type": "group_membership.include_added", "op": "I" },
+    { "type": "group_membership.include_removed", "op": "D" },
+    { "type": "group_membership.includes_set", "op": "U" }
+  ],
+  "groups": [
+    "workspace:1"
+  ]
+}

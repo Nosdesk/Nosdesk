@@ -1,0 +1,25 @@
+{
+  "name": "comment",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "ticket_id": { "rust": "i32", "ts": "number" },
+    "user_uuid": { "rust": "Uuid", "ts": "string" },
+    "content": { "rust": "String", "ts": "string" },
+    "is_internal": { "rust": "bool", "ts": "boolean" },
+    "content_format": { "rust": "ContentFormat", "ts": "ContentFormat" },
+    "created_at": { "rust": "NaiveDateTime", "ts": "string" }
+  },
+  "events": [
+    { "type": "comment.created", "op": "I" },
+    { "type": "comment.deleted", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1",
+    "ticket:<ticket_id>",
+    "project:<project_id> for each project the parent ticket belongs to"
+  ],
+  "references": [
+    { "field": "ticket_id", "aggregate": "ticket" }
+  ]
+}

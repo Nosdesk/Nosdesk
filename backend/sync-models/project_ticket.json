@@ -1,0 +1,23 @@
+{
+  "name": "project_ticket",
+  "schema_version": 1,
+  "fields": {
+    "project_id": { "rust": "i32", "ts": "number", "primary": true },
+    "ticket_id": { "rust": "i32", "ts": "number", "primary": true },
+    "display_order": { "rust": "i32", "ts": "number" }
+  },
+  "events": [
+    { "type": "project_ticket.added", "op": "I" },
+    { "type": "project_ticket.removed", "op": "D" },
+    { "type": "project_ticket.reordered", "op": "U", "note": "single bulk event with the full new order in `data`, not one per row" }
+  ],
+  "groups": [
+    "workspace:1",
+    "project:<project_id>",
+    "ticket:<ticket_id>"
+  ],
+  "references": [
+    { "field": "project_id", "aggregate": "project" },
+    { "field": "ticket_id", "aggregate": "ticket" }
+  ]
+}

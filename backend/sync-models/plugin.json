@@ -1,0 +1,23 @@
+{
+  "name": "plugin",
+  "schema_version": 1,
+  "fields": {
+    "uuid": { "rust": "Uuid", "ts": "string", "primary": true },
+    "name": { "rust": "String", "ts": "string" },
+    "version": { "rust": "String", "ts": "string" },
+    "trust_level": { "rust": "String", "ts": "string" },
+    "source": { "rust": "String", "ts": "string" },
+    "bundle_hash": { "rust": "Option<String>", "ts": "string | null" },
+    "bundle_size": { "rust": "Option<i32>", "ts": "number | null" }
+  },
+  "events": [
+    { "type": "plugin.installed", "op": "I" },
+    { "type": "plugin.updated", "op": "U", "note": "covers state transitions to disabled / quarantined" },
+    { "type": "plugin.bundle_updated", "op": "U" },
+    { "type": "plugin.uninstalled", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1"
+  ],
+  "note": "Plugins themselves can also emit events on this aggregate via POST /api/plugins/{uuid}/events. Those rows carry actor_kind = 'plugin' and an event_type defined by the plugin (caller-supplied)."
+}

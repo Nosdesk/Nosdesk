@@ -1,0 +1,21 @@
+{
+  "name": "project",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "name": { "rust": "String", "ts": "string" },
+    "description": { "rust": "Option<String>", "ts": "string | null" },
+    "status": { "rust": "ProjectStatus", "ts": "ProjectStatus" },
+    "created_at": { "rust": "NaiveDateTime", "ts": "string" },
+    "updated_at": { "rust": "NaiveDateTime", "ts": "string" }
+  },
+  "events": [
+    { "type": "project.created", "op": "I" },
+    { "type": "project.updated", "op": "U" },
+    { "type": "project.deleted", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1",
+    "project:<id>"
+  ]
+}

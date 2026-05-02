@@ -1,0 +1,16 @@
+{
+  "name": "assignment",
+  "schema_version": 1,
+  "fields": {
+    "ticket_id": { "rust": "i32", "ts": "number", "primary": true },
+    "assignee_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "actor_uuid": { "rust": "Uuid", "ts": "string" },
+    "rule_id": { "rust": "Option<i32>", "ts": "number | null" }
+  },
+  "events": [],
+  "note": "Reserved aggregate. Today ticket assignment changes flow through ticket.assignee_changed events on the ticket aggregate. The dedicated assignment aggregate is reserved for richer assignment-rule provenance (which rule fired, why) once the assignment engine grows beyond the current first-match model.",
+  "groups": [
+    "workspace:1",
+    "ticket:<ticket_id>"
+  ]
+}

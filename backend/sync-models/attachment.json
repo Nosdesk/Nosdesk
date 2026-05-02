@@ -1,0 +1,24 @@
+{
+  "name": "attachment",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "comment_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "name": { "rust": "String", "ts": "string" },
+    "url": { "rust": "String", "ts": "string" },
+    "mime_type": { "rust": "Option<String>", "ts": "string | null" },
+    "file_size": { "rust": "Option<i64>", "ts": "number | null" }
+  },
+  "events": [
+    { "type": "attachment.created", "op": "I" },
+    { "type": "attachment.deleted", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1",
+    "ticket:<parent_ticket_id> via the parent comment",
+    "project:<project_id> for each project the parent ticket belongs to"
+  ],
+  "references": [
+    { "field": "comment_id", "aggregate": "comment", "note": "nullable for orphan temp uploads" }
+  ]
+}
