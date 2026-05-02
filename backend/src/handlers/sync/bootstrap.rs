@@ -26,8 +26,8 @@ use tracing::error;
 
 use crate::db::Pool;
 use crate::extractors::SyncContext;
-use crate::models::{Project, ProjectTicket, WorkflowState};
-use crate::schema::{project_tickets, projects, workflow_states};
+use crate::models::{Project, ProjectTicket, Ticket, WorkflowState};
+use crate::schema::{project_tickets, projects, tickets, workflow_states};
 
 #[derive(Debug, Deserialize)]
 pub struct BootstrapQuery {
@@ -105,11 +105,15 @@ fn stream_bootstrap(
 
     // Workflow states: workspace-wide config, always sent so the
     // kanban can render columns immediately even before the
-    // workflow_states store loads via its own endpoint.
+    // workflow_states store loads via its own endpoint. Captured
+    // into a HashMap so the ticket loader below can denormalise
+    // each ticket's workflow_state inline without a per-row query.
     let states: Vec<WorkflowState> = workflow_states::table
         .order((workflow_states::category, workflow_states::position))
         .load(&mut conn)?;
-    for state in states {
+    let mut states_by_id: std::collections::HashMap<i32, WorkflowState> =
+        std::collections::HashMap::with_capacity(states.len());
+    for state in &states {
         send(tx, json!({
             "__model__": "workflow_state",
             "id": state.id,
@@ -120,6 +124,9 @@ fn stream_bootstrap(
             "is_default": state.is_default,
             "archived_at": state.archived_at,
         }))?;
+    }
+    for state in states {
+        states_by_id.insert(state.id, state);
     }
 
     // Two project-loading paths:
@@ -173,6 +180,11 @@ fn stream_bootstrap(
         let assocs: Vec<ProjectTicket> = project_tickets::table
             .filter(project_tickets::project_id.eq_any(&project_ids))
             .load(&mut conn)?;
+        // Capture ticket ids before we move `assocs` into the loop —
+        // the kanban needs every ticket associated with any granted
+        // project, so we load them in one round-trip rather than
+        // letting the client lazy-fetch each individually.
+        let ticket_ids: Vec<i32> = assocs.iter().map(|a| a.ticket_id).collect();
         for a in assocs {
             send(tx, json!({
                 "__model__": "project_ticket",
@@ -180,6 +192,42 @@ fn stream_bootstrap(
                 "ticket_id": a.ticket_id,
                 "display_order": a.display_order,
             }))?;
+        }
+
+        if !ticket_ids.is_empty() {
+            let ticket_rows: Vec<Ticket> = tickets::table
+                .filter(tickets::id.eq_any(&ticket_ids))
+                .load(&mut conn)?;
+
+            for t in ticket_rows {
+                // Resolve workflow_state_id -> denormalised CardData
+                // shape via the HashMap built above. O(1) per row.
+                let ws = states_by_id.get(&t.workflow_state_id);
+                let workflow_state_payload = ws.map(|s| json!({
+                    "id": s.id,
+                    "name": s.name,
+                    "category": s.category.as_str(),
+                    "color": s.color,
+                }));
+                send(tx, json!({
+                    "__model__": "ticket",
+                    "id": t.id,
+                    "title": t.title,
+                    "workflow_state": workflow_state_payload,
+                    "workflow_state_id": t.workflow_state_id,
+                    "priority": match t.priority {
+                        crate::models::TicketPriority::Low => "low",
+                        crate::models::TicketPriority::Medium => "medium",
+                        crate::models::TicketPriority::High => "high",
+                    },
+                    "requester_uuid": t.requester_uuid,
+                    "assignee_uuid": t.assignee_uuid,
+                    "category_id": t.category_id,
+                    "created_at": t.created_at,
+                    "updated_at": t.updated_at,
+                    "last_activity_at": t.updated_at,
+                }))?;
+            }
         }
     }
 

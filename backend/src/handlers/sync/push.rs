@@ -25,7 +25,7 @@ use crate::extractors::SyncContext;
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::handlers::sync::delta::ActionRow;
 use crate::handlers::{errors, helpers};
-use crate::models::{Project, ProjectUpdate, SyncAggregate, SyncOp};
+use crate::models::{Project, ProjectUpdate, SyncAggregate, SyncOp, TicketUpdate};
 use crate::schema::sync_actions;
 use crate::sync::actor::{ActorContext, ActorKind};
 use crate::sync::session;
@@ -229,8 +229,8 @@ fn apply_transaction(
 
     match tx.aggregate {
         SyncAggregate::Project => apply_project(conn, tx, actor),
-        SyncAggregate::Ticket
-        | SyncAggregate::ProjectTicket
+        SyncAggregate::Ticket => apply_ticket(conn, tx, actor),
+        SyncAggregate::ProjectTicket
         | SyncAggregate::WorkflowState
         | SyncAggregate::Comment
         | SyncAggregate::Attachment
@@ -244,6 +244,52 @@ fn apply_transaction(
             ),
         )),
     }
+}
+
+fn apply_ticket(
+    conn: &mut DbConnection,
+    tx: &PushTransaction,
+    actor: &ActorContext,
+) -> Result<i64, TxReject> {
+    let ticket_id: i32 = tx
+        .model_id
+        .parse()
+        .map_err(|_| TxReject("invalid_model_id", format!("expected i32, got {}", tx.model_id)))?;
+
+    match tx.op {
+        SyncOp::Update => {
+            // Decode the patch through TicketUpdate so unknown
+            // fields fail at the boundary instead of getting
+            // silently dropped by Diesel.
+            let patch = decode_ticket_patch(&tx.patch)?;
+            run_with_actor(conn, actor, |conn| {
+                crate::repository::tickets::update_ticket_partial(conn, ticket_id, patch, None)?;
+                latest_sync_id(conn)
+            })
+            .map_err(reject_diesel)
+        }
+        SyncOp::Insert => Err(TxReject(
+            "use_rest_endpoint",
+            "ticket creation goes through POST /api/tickets, not /api/sync/push (until the bootstrap-time-of-creation flow lands in Phase 5)".into(),
+        )),
+        SyncOp::Delete => Err(TxReject(
+            "unsupported_op",
+            "ticket deletion goes through DELETE /api/tickets/{id} (heavy cleanup pipeline that doesn't fit in a sync push)".into(),
+        )),
+        SyncOp::Archive => Err(TxReject(
+            "unsupported_op",
+            "tickets don't support soft-archive yet".into(),
+        )),
+    }
+}
+
+fn decode_ticket_patch(value: &Value) -> Result<TicketUpdate, TxReject> {
+    serde_json::from_value(value.clone()).map_err(|e| {
+        TxReject(
+            "invalid_patch",
+            format!("ticket patch failed to deserialise: {e}"),
+        )
+    })
 }
 
 fn lookup_existing(conn: &mut DbConnection, tx_id: &str) -> Option<i64> {

@@ -12,7 +12,11 @@ import TicketsListView from '../views/TicketsListView.vue'
 // inside the wrapper so the user only pays the bundle cost for the
 // one they actually render.
 import ProjectsView from '../views/ProjectsRouter.vue'
-import ProjectDetailView from '../views/ProjectDetailView.vue'
+// /projects/:id routes through ProjectDetailRouter, mirroring the
+// ProjectsRouter pattern: V1 vs V2 dispatch lives behind the
+// projects_v2 feature flag so swapping implementations doesn't
+// require a routes-table edit.
+import ProjectDetailView from '../views/ProjectDetailRouter.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
 import DocumentView from '@/views/DocumentView.vue'
