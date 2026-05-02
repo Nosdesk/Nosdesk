@@ -1,0 +1,59 @@
+/**
+ * Wires the existing SSE service's `sync-actions` event into the
+ * sync engine's `applySseFrame`. One subscription per app instance,
+ * registered at lifecycle bootstrap.
+ *
+ * The frame shape mirrors the Rust-side `SseEvent::SyncActions`:
+ * `{ actions: SyncAction[], last_sync_id: number }`. We accept
+ * `unknown` and validate at the boundary so a server typo can't
+ * crash the sync engine.
+ */
+import { logger } from '@/utils/logger'
+import { useSSE } from '@/services/sseService'
+import { applySseFrame } from './lifecycle'
+import type { SyncAction } from './types'
+
+interface SyncActionsFrame {
+  actions: SyncAction[]
+  last_sync_id: number
+}
+
+let attachedHandler: ((data: unknown) => void) | null = null
+
+/**
+ * Register the listener. Idempotent — calling twice replaces the
+ * existing handler so a hot-reloaded module doesn't double-fire.
+ */
+export function attachSseBridge(): void {
+  const sse = useSSE()
+  if (attachedHandler) {
+    sse.removeEventListener('sync-actions', attachedHandler)
+  }
+  const handler = (raw: unknown) => {
+    const frame = parseFrame(raw)
+    if (!frame) return
+    applySseFrame(frame.actions, frame.last_sync_id)
+  }
+  attachedHandler = handler
+  sse.addEventListener('sync-actions', handler)
+}
+
+export function detachSseBridge(): void {
+  if (!attachedHandler) return
+  const sse = useSSE()
+  sse.removeEventListener('sync-actions', attachedHandler)
+  attachedHandler = null
+}
+
+function parseFrame(raw: unknown): SyncActionsFrame | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  if (!Array.isArray(r.actions) || typeof r.last_sync_id !== 'number') {
+    logger.warn('sync-actions SSE frame missing required fields', { frame: r })
+    return null
+  }
+  return {
+    actions: r.actions as SyncAction[],
+    last_sync_id: r.last_sync_id,
+  }
+}

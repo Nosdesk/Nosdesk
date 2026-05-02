@@ -35,6 +35,7 @@ const ALL_SSE_EVENT_TYPES = [
   "user-created",
   "user-deleted",
   "notification-received",
+  "sync-actions",
   "heartbeat",
   "reconnect",
 ] as const;
