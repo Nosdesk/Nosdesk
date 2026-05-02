@@ -15,7 +15,7 @@ import {
   type WorkflowState,
   type WorkflowStateCategory,
 } from '@/types/workflow'
-import { paletteForColor } from '@/utils/workflowColors'
+import { paletteForColor, SUPPORTED_COLOR_TOKENS } from '@/utils/workflowColors'
 
 const store = useWorkflowStatesStore()
 
@@ -23,7 +23,10 @@ const isLoading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 
-const COLOR_TOKENS = ['slate', 'gray', 'blue', 'purple', 'green', 'subtle']
+// Pick from the palette the badge actually distinguishes today —
+// see workflowColors.ts. Adding `slate` / `purple` back is purely a
+// design-system change (distinct CSS vars) once they earn their keep.
+const COLOR_TOKENS = SUPPORTED_COLOR_TOKENS
 
 interface DraftState {
   name: string

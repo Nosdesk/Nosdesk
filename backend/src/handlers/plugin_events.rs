@@ -9,13 +9,14 @@
 //! not the user's, so consumers can distinguish plugin-emitted
 //! events from user-emitted ones.
 //!
-//! The architecture doc (Section 8) names this as a Phase 2
-//! deliverable; the goal is "plugins emit events as part of their
-//! normal operation through the same sync infrastructure as core
-//! events." The aggregate must be one of the registered variants;
-//! the architecture explicitly forbids plugin-defined aggregate
-//! types — plugins extend events through `event_type` strings within
-//! the existing `aggregate` set, not by adding new aggregates.
+//! The aggregate must be one of the registered `SyncAggregate`
+//! variants. We deliberately don't let plugins invent new
+//! aggregates: every aggregate needs a `sync_aggregate` enum value,
+//! a manifest in `backend/sync-models/`, and downstream consumer
+//! awareness, none of which a runtime emit can synthesize. Plugins
+//! extend behaviour through the `event_type` string instead, which
+//! is free-form per call. (The architecture doc § 6 references this
+//! constraint as part of the manifest design.)
 
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::Connection;
@@ -30,6 +31,7 @@ use crate::models::{SyncAggregate, SyncOp};
 use crate::repository::plugins as plugin_repo;
 use crate::sync::actor::ActorContext;
 use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
 use crate::sync::session;
 
 #[derive(Debug, Deserialize)]
@@ -98,7 +100,7 @@ pub async fn emit_plugin_event(
         client_tx_id: None,
     };
 
-    let groups = body.groups.unwrap_or_else(|| vec!["workspace:1".to_string()]);
+    let groups = body.groups.unwrap_or_else(groups::workspace);
     let aggregate = body.aggregate;
     let event_type_owned = body.event_type.clone();
 

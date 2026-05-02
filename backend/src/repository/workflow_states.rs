@@ -203,6 +203,85 @@ pub fn update(
     Ok(row)
 }
 
+/// Atomically promote `new_default_id` to be the workspace's default
+/// workflow state. Demotes the previous default (if any) and emits
+/// both the `workflow_state.default_revoked` event for the prior
+/// default and a `workflow_state.default_promoted` event for the new
+/// one in the same transaction. Other patch fields (name, color,
+/// position) ride along — callers that just want to flip the default
+/// without renaming pass an otherwise-empty `patch`.
+///
+/// This sits in the repo layer rather than the handler so the lint
+/// (`tests/sync_emit_lint.rs`) sees the emit, and so an admin script
+/// or background job can promote a default with the same emit shape
+/// the HTTP handler produces.
+pub fn promote_default(
+    conn: &mut DbConnection,
+    new_default_id: i32,
+    patch: WorkflowStateUpdate,
+) -> QueryResult<WorkflowState> {
+    let row = conn.transaction(|conn| {
+        // Demote the existing default (if any), and emit a revoked
+        // event for it — but only when the prior default isn't the
+        // same row we're about to promote (a no-op promotion to the
+        // already-default state shouldn't fire a revoked event).
+        let previously_default: Option<i32> = workflow_states::table
+            .filter(workflow_states::is_default.eq(true))
+            .select(workflow_states::id)
+            .first(conn)
+            .optional()?;
+        diesel::update(workflow_states::table.filter(workflow_states::is_default.eq(true)))
+            .set(workflow_states::is_default.eq(false))
+            .execute(conn)?;
+        if let Some(prev_id) = previously_default {
+            if prev_id != new_default_id {
+                emit::record(
+                    conn,
+                    SyncEmit {
+                        aggregate: SyncAggregate::WorkflowState,
+                        aggregate_id: prev_id.to_string(),
+                        op: SyncOp::Update,
+                        event_type: "workflow_state.default_revoked",
+                        data: json!({ "id": prev_id }),
+                        groups: groups::workspace(),
+                        causation_id: None,
+                    },
+                )?;
+            }
+        }
+
+        // Force is_default in the patch so callers can't accidentally
+        // promote-without-promoting.
+        let mut patch = patch;
+        patch.is_default = Some(true);
+
+        let row: WorkflowState = diesel::update(workflow_states::table.find(new_default_id))
+            .set(&patch)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::WorkflowState,
+                aggregate_id: row.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "workflow_state.default_promoted",
+                data: json!({
+                    "id": row.id,
+                    "name": row.name,
+                    "color": row.color,
+                    "position": row.position,
+                    "is_default": row.is_default,
+                }),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok::<_, diesel::result::Error>(row)
+    })?;
+    invalidate_cache();
+    Ok(row)
+}
+
 pub fn archive(conn: &mut DbConnection, id: i32) -> QueryResult<WorkflowState> {
     let row = conn.transaction(|conn| {
         let row: WorkflowState = diesel::update(workflow_states::table.find(id))

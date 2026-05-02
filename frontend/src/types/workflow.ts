@@ -53,6 +53,24 @@ export const CATEGORY_LABELS: Record<WorkflowStateCategory, string> = {
 }
 
 /**
+ * Sentinel prefix for non-selectable dropdown rows that render a
+ * category-group header inside a flat option list. Both the option
+ * builder (TicketDetails) and the option handler (TicketDetails +
+ * CustomDropdown) check for this prefix; keeping the literal in one
+ * place stops a typo on either side from silently breaking
+ * click-to-select.
+ */
+export const CATEGORY_HEADER_VALUE_PREFIX = '__cat_'
+
+export function categoryHeaderValue(category: WorkflowStateCategory): string {
+  return `${CATEGORY_HEADER_VALUE_PREFIX}${category}`
+}
+
+export function isCategoryHeaderValue(value: string): boolean {
+  return value.startsWith(CATEGORY_HEADER_VALUE_PREFIX)
+}
+
+/**
  * Folds the six-category model down to the legacy three-bucket status
  * string used by older parts of the UI. Triage and Backlog are "open";
  * Active and In Review are "in-progress"; Done and Cancelled are

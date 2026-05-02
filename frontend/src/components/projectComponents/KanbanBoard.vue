@@ -76,11 +76,21 @@ function colorForCategory(cat: WorkflowStateCategory): string {
   return states && states.length > 0 ? states[0].color : 'subtle'
 }
 
+// When the workflow_states store finishes loading (or admin adds /
+// archives a state), rebuild the column shape and redistribute the
+// already-fetched tickets into the new columns. Don't re-fetch from
+// the API — onMounted already kicked that off, and SSE keeps the
+// cache fresh after that.
 watch(
   () => workflowStatesStore.states.length,
   () => {
+    const previous = columns.value.flatMap((c) => c.tickets)
     rebuildColumns()
-    if (props.projectId) fetchProjectTickets()
+    for (const ticket of previous) {
+      const columnId = categoryForStateId(ticket.workflow_state_id)
+      const column = columns.value.find((c) => c.id === columnId)
+      if (column) column.tickets.push(ticket)
+    }
   },
 )
 

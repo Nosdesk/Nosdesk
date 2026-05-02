@@ -1,44 +1,21 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
-use diesel::Connection;
 use serde::Deserialize;
 use tracing::debug;
-use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::helpers;
+use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
 use crate::handlers::errors;
 use crate::handlers::sse::{SseEvent, SseState};
-use crate::models::{Claims, NewProject, ProjectUpdate};
+use crate::models::{NewProject, ProjectUpdate};
 use crate::repository;
 use crate::sync::actor::ActorContext;
-use crate::sync::session;
 use crate::utils::rbac::{require_admin, require_technician_or_admin};
 
-/// Build an ActorContext from JWT claims attached to the request.
+#[inline]
 fn actor_for(req: &HttpRequest) -> ActorContext {
-    let uuid = req
-        .extensions()
-        .get::<Claims>()
-        .and_then(|c| Uuid::parse_str(&c.sub).ok());
-    match uuid {
-        Some(u) => ActorContext::user(u, None),
-        None => ActorContext::system("handler:projects"),
-    }
-}
-
-/// Run a repository write inside a transaction with the actor GUCs
-/// set, so any sync_actions emitted by the repo carry the right
-/// actor_uuid.
-fn with_actor<T>(
-    conn: &mut crate::db::DbConnection,
-    actor: &ActorContext,
-    f: impl FnOnce(&mut crate::db::DbConnection) -> diesel::QueryResult<T>,
-) -> diesel::QueryResult<T> {
-    conn.transaction(|conn| {
-        session::set_actor(conn, actor)?;
-        f(conn)
-    })
+    helper_actor_for(req, "handler:projects")
 }
 
 #[derive(Deserialize)]

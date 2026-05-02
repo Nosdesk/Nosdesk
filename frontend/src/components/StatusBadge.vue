@@ -20,11 +20,16 @@ const props = defineProps<{
 
 // Status badges using semantic color tokens
 // These classes use CSS variables that adapt to any theme
-const statusConfig = {
+const statusConfig: Record<string, string> = {
   open: 'bg-status-open-muted text-status-open border border-status-open/30',
   'in-progress': 'bg-status-in-progress-muted text-status-in-progress border border-status-in-progress/30',
   closed: 'bg-status-closed-muted text-status-closed border border-status-closed/30',
 }
+
+// Used when the caller passes a value outside the legacy three-bucket
+// set AND no workflowState prop is present (e.g. an embedded ticket
+// payload that ships a custom state name without the joined object).
+const STATUS_FALLBACK = 'bg-surface-alt text-secondary border border-default'
 
 // Priority badges using semantic color tokens
 const priorityConfig = {
@@ -55,7 +60,7 @@ const displayText = computed(() => {
 const colorClasses = computed(() => {
   if (props.type === 'status') {
     if (props.workflowState) return paletteForColor(props.workflowState.color).badge
-    return statusConfig[props.value as 'open' | 'in-progress' | 'closed']
+    return statusConfig[props.value] ?? STATUS_FALLBACK
   }
   return priorityConfig[props.value as 'low' | 'medium' | 'high']
 })

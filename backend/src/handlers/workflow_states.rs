@@ -10,22 +10,16 @@
 //!   the archived_at timestamp.
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
-use diesel::Connection;
-use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::{errors, helpers};
-use crate::models::{Claims, NewWorkflowState, SyncAggregate, SyncOp, WorkflowState, WorkflowStateCategory, WorkflowStateUpdate};
+use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
+use crate::models::{Claims, NewWorkflowState, WorkflowState, WorkflowStateCategory, WorkflowStateUpdate};
 use crate::repository::workflow_states as repo;
-use crate::schema::workflow_states;
 use crate::sync::actor::ActorContext;
-use crate::sync::emit::{self, SyncEmit};
-use crate::sync::groups;
-use crate::sync::session;
 
 #[derive(Debug, Serialize)]
 pub struct WorkflowStatesResponse {
@@ -50,15 +44,18 @@ pub struct PatchBody {
     pub is_default: Option<bool>,
 }
 
+/// Pull the JWT subject UUID off the request, used for the
+/// info!(actor=...) logging breadcrumbs alongside the structured
+/// `ActorContext` we hand to `with_actor`.
 fn actor_uuid(req: &HttpRequest) -> Option<Uuid> {
     req.extensions()
         .get::<Claims>()
         .and_then(|c| Uuid::parse_str(&c.sub).ok())
 }
 
+#[inline]
 fn actor_for(req: &HttpRequest) -> ActorContext {
-    let uuid = actor_uuid(req).unwrap_or_else(Uuid::nil);
-    ActorContext::user(uuid, None)
+    helper_actor_for(req, "handler:workflow_states")
 }
 
 /// GET /api/workflow-states
@@ -127,10 +124,7 @@ pub async fn create(
     };
 
     let actor_ctx = actor_for(&req);
-    let created = conn.transaction::<WorkflowState, diesel::result::Error, _>(|conn| {
-        session::set_actor(conn, &actor_ctx)?;
-        repo::create(conn, new)
-    });
+    let created = with_actor(&mut conn, &actor_ctx, |conn| repo::create(conn, new));
     match created {
         Ok(state) => {
             info!(
@@ -177,73 +171,22 @@ pub async fn patch(
     let actor = actor_uuid(&req);
     let actor_ctx = actor_for(&req);
 
-    // Default-promotion writes two rows (clear old default, set new),
-    // so wrap the patch in a transaction. Both the demotion and the
-    // promotion emit their own sync_action so consumers see the
-    // workspace shifting default deterministically.
-    let result = conn.transaction::<WorkflowState, diesel::result::Error, _>(|conn| {
-        session::set_actor(conn, &actor_ctx)?;
+    let patch = WorkflowStateUpdate {
+        name: body.name.as_ref().map(|s| s.trim().to_string()),
+        color: body.color.clone(),
+        position: body.position,
+        // Force this off — the promote path sets it itself, and the
+        // regular update path must not flip default state directly
+        // (the caller would skip the demote-old-default emit).
+        is_default: None,
+        archived_at: None,
+    };
+    let result = with_actor(&mut conn, &actor_ctx, |conn| {
         if matches!(body.is_default, Some(true)) {
-            let previously_default: Option<i32> = workflow_states::table
-                .filter(workflow_states::is_default.eq(true))
-                .select(workflow_states::id)
-                .first(conn)
-                .optional()?;
-            diesel::update(workflow_states::table.filter(workflow_states::is_default.eq(true)))
-                .set(workflow_states::is_default.eq(false))
-                .execute(conn)?;
-            if let Some(prev_id) = previously_default {
-                if prev_id != id {
-                    emit::record(
-                        conn,
-                        SyncEmit {
-                            aggregate: SyncAggregate::WorkflowState,
-                            aggregate_id: prev_id.to_string(),
-                            op: SyncOp::Update,
-                            event_type: "workflow_state.default_revoked",
-                            data: json!({ "id": prev_id }),
-                            groups: groups::workspace(),
-
-                            causation_id: None,
-                        },
-                    )?;
-                }
-            }
+            repo::promote_default(conn, id, patch)
+        } else {
+            repo::update(conn, id, patch)
         }
-        let patch = WorkflowStateUpdate {
-            name: body.name.as_ref().map(|s| s.trim().to_string()),
-            color: body.color.clone(),
-            position: body.position,
-            is_default: body.is_default,
-            archived_at: None,
-        };
-        let row: WorkflowState = diesel::update(workflow_states::table.find(id))
-            .set(&patch)
-            .get_result(conn)?;
-        emit::record(
-            conn,
-            SyncEmit {
-                aggregate: SyncAggregate::WorkflowState,
-                aggregate_id: row.id.to_string(),
-                op: SyncOp::Update,
-                event_type: if matches!(body.is_default, Some(true)) {
-                    "workflow_state.default_promoted"
-                } else {
-                    "workflow_state.updated"
-                },
-                data: json!({
-                    "id": row.id,
-                    "name": row.name,
-                    "color": row.color,
-                    "position": row.position,
-                    "is_default": row.is_default,
-                }),
-                groups: groups::workspace(),
-
-                causation_id: None,
-            },
-        )?;
-        Ok(row)
     });
 
     match result {
@@ -292,10 +235,7 @@ pub async fn archive(
 
     let actor = actor_uuid(&req);
     let actor_ctx = actor_for(&req);
-    let archived = conn.transaction::<WorkflowState, diesel::result::Error, _>(|conn| {
-        session::set_actor(conn, &actor_ctx)?;
-        repo::archive(conn, id)
-    });
+    let archived = with_actor(&mut conn, &actor_ctx, |conn| repo::archive(conn, id));
     match archived {
         Ok(state) => {
             info!(actor = ?actor, state_id = state.id, "workflow state archived");

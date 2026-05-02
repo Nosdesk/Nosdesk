@@ -16,84 +16,143 @@ use std::fs;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
-/// Seeded with the existing repository write surface area. Every
-/// entry is a write fn that doesn't yet emit a sync_action either
-/// because (a) its underlying table is intentionally audit-only
-/// (operational / bespoke / Yjs / security event) or (b) it's a
-/// tier-1 aggregate pending an emit-wiring commit later in Phase 2.
+/// Repository writes that intentionally do NOT emit `sync_actions`
+/// rows. Two reasons something lands here:
 ///
-/// Removing an entry from the (b) section is part of the commit that
-/// wires the matching emit. Adding a NEW entry should require an
-/// inline justification in the diff.
-const ALLOWLIST: &[&str] = &[
-    // ----- Audit-only or bespoke (intentionally not in sync registry) -----
+/// 1. The underlying table is operational, security, or Yjs-bespoke
+///    (covered by `security_events`, `audit_log`, or its own log).
+/// 2. The aggregate isn't in the sync registry today, OR the fn is a
+///    helper that doesn't represent a meaningful business event.
+///
+/// Adding to this list should be a deliberate choice with a comment
+/// in the diff explaining why the write isn't sync-relevant. If the
+/// answer is "it should be, we just haven't wired it yet", put it in
+/// [`PENDING_WIRE`] instead so the TODO is visible.
+const AUDIT_ONLY: &[&str] = &[
+    // Sessions / auth tokens (covered by security_events).
     "repository/active_sessions.rs::cleanup_expired",
+    "repository/active_sessions.rs::create_session",
     "repository/active_sessions.rs::revoke_other_sessions",
     "repository/active_sessions.rs::revoke_other_sessions_by_uuid",
+    "repository/active_sessions.rs::revoke_session",
     "repository/active_sessions.rs::revoke_session_by_uuid",
     "repository/active_sessions.rs::update_session_activity",
     "repository/api_tokens.rs::create_api_token",
     "repository/api_tokens.rs::revoke_api_token",
     "repository/api_tokens.rs::update_token_last_used",
+    "repository/passkey_credentials.rs::create",
+    "repository/passkey_credentials.rs::delete_for_user",
+    "repository/passkey_credentials.rs::update_for_user",
+    "repository/refresh_tokens.rs::cleanup_expired",
+    "repository/refresh_tokens.rs::create_refresh_token",
+    "repository/refresh_tokens.rs::mark_token_used",
+    "repository/refresh_tokens.rs::revoke_refresh_token",
+    "repository/refresh_tokens.rs::revoke_token_family",
+    "repository/reset_tokens.rs::create_reset_token",
+    "repository/reset_tokens.rs::invalidate_tokens_by_type",
+    "repository/reset_tokens.rs::mark_token_as_used",
+
+    // Yjs document persistence (CRDT substrate, not a sync aggregate).
+    "repository/article_content.rs::create_article_content",
     "repository/article_content.rs::create_article_content_revision",
     "repository/article_content.rs::increment_article_content_revision",
     "repository/article_content.rs::update_article_yjs_state",
     "repository/article_content.rs::update_ticket_modified_timestamp",
+
+    // Operational / bespoke tables.
     "repository/backup.rs::create_backup_job",
     "repository/backup.rs::delete_backup_job",
     "repository/backup.rs::update_backup_job",
-    "repository/feature_flags.rs::set_workspace_flag",
-    "repository/feature_flags.rs::set_user_override",
-    "repository/feature_flags.rs::set_all_workspace_flags",
-    "repository/passkey_credentials.rs::create",
-    "repository/passkey_credentials.rs::delete_for_user",
-    "repository/passkey_credentials.rs::update_for_user",
-    "repository/plugin_publishers.rs::insert_local_signing_key",
-    "repository/plugin_publishers.rs::update_registry_state",
-    // Plugin local storage / activity log — tier-3 audit-only via the
-    // audit_log trigger on plugin_data and plugin_collection_rows.
-    "repository/plugins.rs::set_plugin_data",
-    "repository/plugins.rs::delete_plugin_data_entry",
-    "repository/plugins.rs::set_plugin_setting",
-    "repository/plugins.rs::delete_plugin_setting",
-    "repository/plugins.rs::set_plugin_storage",
-    "repository/plugins.rs::delete_plugin_storage_entry",
-    "repository/plugins.rs::log_plugin_activity",
-    "repository/refresh_tokens.rs::cleanup_expired",
-    "repository/refresh_tokens.rs::mark_token_used",
-    "repository/refresh_tokens.rs::revoke_token_family",
-    "repository/reset_tokens.rs::invalidate_tokens_by_type",
-    "repository/reset_tokens.rs::mark_token_as_used",
     "repository/search_query_log.rs::log_query",
     "repository/search_query_log.rs::prune_old_rows",
+    "repository/sync_history.rs::create_sync_history",
+    "repository/sync_history.rs::delete_delta_token",
+    "repository/sync_history.rs::update_sync_history",
+    "repository/sync_history.rs::upsert_delta_token",
+    "repository/user_helpers.rs::create_user_with_email",
+    "repository/user_ticket_views.rs::delete_view",
+    "repository/user_ticket_views.rs::record_view",
+
+    // Workspace settings — covered by the audit_log trigger on
+    // site_settings; sync clients don't subscribe.
     "repository/site_settings.rs::update_favicon_url",
     "repository/site_settings.rs::update_logo_light_url",
     "repository/site_settings.rs::update_logo_url",
-    "repository/sync_history.rs::create_sync_history",
-    "repository/sync_history.rs::update_sync_history",
-    "repository/user_helpers.rs::create_user_with_email",
-    "repository/user_ticket_views.rs::delete_view",
+    "repository/site_settings.rs::update_site_settings",
 
-    // ----- Tier-1 aggregates pending an emit-wiring commit -----
+    // Feature flags — workspace config, no sync subscriber.
+    "repository/feature_flags.rs::set_all_workspace_flags",
+    "repository/feature_flags.rs::set_user_override",
+    "repository/feature_flags.rs::set_workspace_flag",
+
+    // Plugin local storage / activity log — covered by the audit_log
+    // trigger on plugin_data and plugin_collection_rows.
+    "repository/plugin_collections.rs::create_row",
+    "repository/plugin_collections.rs::create_schema",
+    "repository/plugin_collections.rs::delete_row",
+    "repository/plugin_collections.rs::delete_schema",
+    "repository/plugin_collections.rs::list_rows",
+    "repository/plugin_collections.rs::update_row",
+    "repository/plugin_collections.rs::update_schema",
+    "repository/plugin_publishers.rs::insert_local_signing_key",
+    "repository/plugin_publishers.rs::revoke_publisher",
+    "repository/plugin_publishers.rs::update_registry_state",
+    "repository/plugin_publishers.rs::upsert_publisher",
+    "repository/plugins.rs::delete_plugin_data_entry",
+    "repository/plugins.rs::delete_plugin_setting",
+    "repository/plugins.rs::delete_plugin_storage_entry",
+    "repository/plugins.rs::log_plugin_activity",
+    "repository/plugins.rs::set_plugin_data",
+    "repository/plugins.rs::set_plugin_setting",
+    "repository/plugins.rs::set_plugin_storage",
+];
+
+/// Repository writes that *should* emit a sync_action, but don't yet.
+/// Each entry is a TODO — removing one is part of the commit that
+/// wires the corresponding emit. The architecture doc's first-cut
+/// registry covers the eight aggregates already wired (workflow_state,
+/// ticket, project, project_ticket, comment, attachment,
+/// group_membership, plugin); the entries below would need new
+/// `SyncAggregate` variants and registry manifests before they can
+/// move to wired status.
+const PENDING_WIRE: &[&str] = &[
+    "repository/assignment_rules.rs::create_rule",
+    "repository/assignment_rules.rs::delete_rule",
+    "repository/assignment_rules.rs::reorder_rules",
+    "repository/assignment_rules.rs::update_rule",
     "repository/canned_responses.rs::create",
     "repository/canned_responses.rs::delete",
     "repository/canned_responses.rs::update",
+    "repository/categories.rs::create_category",
+    "repository/categories.rs::delete_category",
     "repository/categories.rs::set_category_visibility",
+    "repository/categories.rs::update_category",
     "repository/categories.rs::update_category_orders",
     "repository/channels.rs::create",
     "repository/channels.rs::delete",
     "repository/channels.rs::delete_credential",
     "repository/channels.rs::put_credential",
+    "repository/channels.rs::record_message",
     "repository/channels.rs::update",
     "repository/channels.rs::update_runtime_state",
-    // comments.rs attachment writes wired through emit::record.
+    "repository/devices.rs::create_device",
+    "repository/devices.rs::delete_device",
+    "repository/devices.rs::update_device",
+    "repository/documentation_collections.rs::add_page_to_collection",
     "repository/documentation_collections.rs::add_page_to_collection_at_root",
     "repository/documentation_collections.rs::cascade_collection_membership",
+    "repository/documentation_collections.rs::create_collection",
+    "repository/documentation_collections.rs::delete_collection",
+    "repository/documentation_collections.rs::remove_page_from_collection",
     "repository/documentation_collections.rs::reorder_collections",
+    "repository/documentation_collections.rs::set_collection_visibility",
     "repository/documentation_collections.rs::soft_delete_pages_in_collection",
+    "repository/documentation_collections.rs::update_collection",
     "repository/documentation_collections.rs::update_collection_description_yjs",
     "repository/documentation_page_tickets.rs::delete_link",
     "repository/documentation_page_tickets.rs::upsert_link",
+    "repository/documentation_starred_pages.rs::star_page",
+    "repository/documentation_starred_pages.rs::unstar_page",
     "repository/documentation_subscriptions.rs::subscribe_user",
     "repository/documentation_subscriptions.rs::unsubscribe_user",
     "repository/documentation.rs::create_documentation_page",
@@ -102,81 +161,35 @@ const ALLOWLIST: &[&str] = &[
     "repository/documentation.rs::move_page_to_parent",
     "repository/documentation.rs::permanently_delete_page",
     "repository/documentation.rs::reorder_pages",
+    "repository/documentation.rs::set_page_visibility",
     "repository/documentation.rs::sync_page_embeddings",
     "repository/documentation.rs::update_documentation_page",
     "repository/documentation.rs::update_documentation_yjs_state",
-    // groups.rs writes are wired through emit::record.
     "repository/knowledge_gaps.rs::attach_signal",
     "repository/knowledge_gaps.rs::create_gap",
     "repository/knowledge_gaps.rs::dismiss_signal",
     "repository/knowledge_gaps.rs::update_gap",
-    "repository/plugin_collections.rs::create_row",
-    "repository/plugin_collections.rs::create_schema",
-    "repository/plugin_collections.rs::delete_schema",
-    "repository/plugin_collections.rs::list_rows",
-    "repository/plugin_collections.rs::update_schema",
-    // projects.rs writes are wired through emit::record.
+    "repository/linked_tickets.rs::link_tickets",
+    "repository/linked_tickets.rs::unlink_tickets",
     "repository/tickets.rs::add_device_to_ticket",
     "repository/tickets.rs::remove_device_from_ticket",
     "repository/tickets.rs::verify_pending_tickets_for_user",
+    "repository/user_auth_identities.rs::create_identity",
+    "repository/user_auth_identities.rs::delete_identity",
     "repository/user_auth_identities.rs::update_local_password_hash",
     "repository/user_emails.rs::add_multiple_emails",
     "repository/user_emails.rs::cleanup_obsolete_emails",
     "repository/users.rs::clear_user_mfa",
-    "repository/users.rs::update_user_mfa",
-    "repository/webhooks.rs::create_delivery",
-    "repository/webhooks.rs::delete_webhook_by_uuid",
-    "repository/webhooks.rs::update_delivery",
-    "repository/webhooks.rs::update_webhook_by_uuid",
-
-    // Continued seed — top-level CRUD entry points pending wiring.
-    "repository/active_sessions.rs::create_session",
-    "repository/active_sessions.rs::revoke_session",
-    "repository/article_content.rs::create_article_content",
-    "repository/assignment_rules.rs::create_rule",
-    "repository/assignment_rules.rs::delete_rule",
-    "repository/assignment_rules.rs::reorder_rules",
-    "repository/assignment_rules.rs::update_rule",
-    "repository/categories.rs::create_category",
-    "repository/categories.rs::delete_category",
-    "repository/categories.rs::update_category",
-    "repository/channels.rs::record_message",
-    // comments.rs CRUD wired through emit::record.
-    "repository/devices.rs::create_device",
-    "repository/devices.rs::delete_device",
-    "repository/devices.rs::update_device",
-    "repository/documentation_collections.rs::add_page_to_collection",
-    "repository/documentation_collections.rs::create_collection",
-    "repository/documentation_collections.rs::delete_collection",
-    "repository/documentation_collections.rs::remove_page_from_collection",
-    "repository/documentation_collections.rs::set_collection_visibility",
-    "repository/documentation_collections.rs::update_collection",
-    "repository/documentation_starred_pages.rs::star_page",
-    "repository/documentation_starred_pages.rs::unstar_page",
-    "repository/documentation.rs::set_page_visibility",
-    "repository/linked_tickets.rs::link_tickets",
-    "repository/linked_tickets.rs::unlink_tickets",
-    "repository/plugin_collections.rs::delete_row",
-    "repository/plugin_collections.rs::update_row",
-    "repository/plugin_publishers.rs::revoke_publisher",
-    "repository/plugin_publishers.rs::upsert_publisher",
-    // projects.rs CRUD wired through emit::record.
-    "repository/refresh_tokens.rs::create_refresh_token",
-    "repository/refresh_tokens.rs::revoke_refresh_token",
-    "repository/reset_tokens.rs::create_reset_token",
-    "repository/site_settings.rs::update_site_settings",
-    "repository/sync_history.rs::delete_delta_token",
-    "repository/sync_history.rs::upsert_delta_token",
-    // create_ticket, update_ticket, update_ticket_partial, and
-    // delete_ticket_with_cleanup are wired through emit::record.
-    "repository/user_auth_identities.rs::create_identity",
-    "repository/user_auth_identities.rs::delete_identity",
-    "repository/user_ticket_views.rs::record_view",
     "repository/users.rs::create_user",
     "repository/users.rs::delete_user",
     "repository/users.rs::update_user",
+    "repository/users.rs::update_user_mfa",
+    "repository/webhooks.rs::create_delivery",
     "repository/webhooks.rs::create_webhook",
+    "repository/webhooks.rs::delete_webhook_by_uuid",
+    "repository/webhooks.rs::update_delivery",
     "repository/webhooks.rs::update_webhook",
+    "repository/webhooks.rs::update_webhook_by_uuid",
 ];
 
 #[derive(Debug)]
@@ -194,7 +207,11 @@ fn every_repository_write_calls_sync_emit_or_is_allowlisted() {
         repo_root.display()
     );
 
-    let allowlist: HashSet<String> = ALLOWLIST.iter().map(|s| s.to_string()).collect();
+    let allowlist: HashSet<String> = AUDIT_ONLY
+        .iter()
+        .chain(PENDING_WIRE.iter())
+        .map(|s| s.to_string())
+        .collect();
     let mut violations: Vec<ReportEntry> = Vec::new();
 
     let fn_re = Regex::new(r"(?m)^\s*pub(?:\s*\([^)]*\))?\s+fn\s+(\w+)\s*[<(]").unwrap();

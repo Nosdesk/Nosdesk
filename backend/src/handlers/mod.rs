@@ -725,10 +725,12 @@ pub async fn delete_attachment(
                 Err(e) => warn!(error = ?e, storage_path = %storage_path, "Failed to delete file from storage"),
             }
 
-            // Delete the database record. No JWT context here (the
-            // attachment delete handler doesn't take an HttpRequest);
-            // attribute as a system actor so the emit substrate still
-            // gets a row.
+            // Delete the database record. The handler's signature
+            // doesn't include an HttpRequest, so we have no JWT
+            // context to attribute the emit to — record under a
+            // system actor instead. (Adding `req: HttpRequest` to
+            // the signature is a follow-up that ripples to the
+            // route registration in main.rs.)
             let actor = crate::sync::actor::ActorContext::system("handler:delete_attachment");
             let delete_result = {
                 use diesel::Connection;

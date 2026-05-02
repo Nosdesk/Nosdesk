@@ -18,17 +18,21 @@
 //! already there. The `partition_max_provisioned` system_meta key is
 //! advanced once new partitions are created.
 
-use chrono::{Datelike, NaiveDate, NaiveTime, Utc};
+use chrono::{Datelike, NaiveDate, Utc};
 use diesel::prelude::*;
 use serde_json::Value;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::db::DbConnection;
 use crate::sync::system_meta;
 
 /// Provision partitions for both event tables out to `lookahead_days`
-/// past today. Returns the list of partition names that were
-/// actually created (idempotent re-runs return an empty Vec).
+/// past today. Idempotent — uses `CREATE TABLE IF NOT EXISTS`, so
+/// re-runs over already-provisioned months are no-ops at the DB
+/// level. Returns the list of partition names this call touched
+/// (the union of "newly created" and "already existed"); telling the
+/// two apart would require a pre-check against `pg_class` for every
+/// name, which isn't worth the extra round-trips.
 pub fn ensure_partitions(
     conn: &mut DbConnection,
     lookahead_days: i64,
@@ -36,7 +40,7 @@ pub fn ensure_partitions(
     let today = Utc::now().date_naive();
     let target = today + chrono::Duration::days(lookahead_days);
 
-    let mut created: Vec<String> = Vec::new();
+    let mut touched: Vec<String> = Vec::new();
     let mut month = first_of_month(today);
     while month <= target {
         let next = next_month(month);
@@ -51,36 +55,31 @@ pub fn ensure_partitions(
                 from = month.format("%Y-%m-%d"),
                 to = next.format("%Y-%m-%d"),
             );
-            // Track whether the CREATE actually did something. The
-            // affected-row count is meaningless for DDL, so peek
-            // pg_class before/after by name. Cheaper: just attempt
-            // the create and consider it "new" only if the name
-            // wasn't there before this call. We approximate by
-            // recording every name we touched and de-duping later.
             diesel::sql_query(&stmt).execute(conn)?;
-            created.push(name);
+            touched.push(name);
         }
         month = next;
     }
 
-    // Advance the watermark in system_meta so the bootstrap protocol
-    // can report partition coverage to clients without re-checking
-    // pg_class.
+    // Advance the watermark in system_meta. A failure here doesn't
+    // unwind the partition creates — the watermark is a soft cache
+    // that callers can recompute by calling this fn again or by
+    // querying `pg_partition_tree('sync_actions')` directly. Bubble
+    // the error so the scheduler logs it as a job failure rather
+    // than silently masking it.
     let watermark = first_of_month(target).format("%Y-%m-01").to_string();
-    if let Err(e) = system_meta::put(
+    system_meta::put(
         conn,
         system_meta::KEY_PARTITION_MAX_PROVISIONED,
         &Value::String(watermark.clone()),
-    ) {
-        warn!(error = %e, "Failed to update partition_max_provisioned watermark");
-    }
+    )?;
 
     info!(
         watermark = %watermark,
-        partitions_touched = created.len(),
+        partitions_touched = touched.len(),
         "Sync partitions ensured"
     );
-    Ok(created)
+    Ok(touched)
 }
 
 fn first_of_month(d: NaiveDate) -> NaiveDate {
@@ -102,14 +101,6 @@ pub fn read_watermark(conn: &mut DbConnection) -> Option<NaiveDate> {
     let raw = system_meta::get(conn, system_meta::KEY_PARTITION_MAX_PROVISIONED).ok()??;
     let s = raw.as_str()?;
     NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
-}
-
-#[allow(dead_code)]
-fn _unused_imports_keepalive() {
-    // Silence dead-code warnings for the chrono::NaiveTime import,
-    // which becomes useful when we extend this module to insert
-    // partitions at a specific time-of-day boundary.
-    let _ = NaiveTime::MIN;
 }
 
 #[cfg(test)]

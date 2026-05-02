@@ -1,10 +1,13 @@
 use actix_web::{web, HttpRequest, HttpResponse, HttpMessage};
+use diesel::Connection;
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
 use crate::handlers::errors;
 use crate::models::{Claims, User};
 use crate::repository;
+use crate::sync::actor::ActorContext;
+use crate::sync::session;
 use crate::utils;
 
 /// Default page size for list endpoints when the caller doesn't
@@ -88,4 +91,40 @@ pub fn admin_user_conn(
         .map_err(|_| errors::not_found("User"))?;
 
     Ok((claims, user, conn))
+}
+
+/// Build an `ActorContext` from the JWT claims attached to the
+/// request. Falls back to a system actor named after `system_ref`
+/// when no claims are present (background tasks, public endpoints
+/// that wandered into a write path, etc.) — this guarantees every
+/// emit gets attributed to *something* rather than producing rows
+/// with nil-UUID actors that pollute audit queries.
+pub fn actor_for(req: &HttpRequest, system_ref: &'static str) -> ActorContext {
+    let uuid = req
+        .extensions()
+        .get::<Claims>()
+        .and_then(|c| Uuid::parse_str(&c.sub).ok());
+    match uuid {
+        Some(u) => ActorContext::user(u, None),
+        None => ActorContext::system(system_ref),
+    }
+}
+
+/// Run a repository write inside a transaction with the actor GUCs
+/// set, so any `sync_actions` rows the repo emits carry the right
+/// actor_uuid / actor_kind / correlation_id.
+///
+/// The repo function's own internal `conn.transaction(...)` becomes
+/// a savepoint that inherits the GUCs — Postgres `SET LOCAL` (and
+/// the `set_config(..., true)` it's implemented with) propagate down
+/// into nested subtransactions.
+pub fn with_actor<T>(
+    conn: &mut DbConnection,
+    actor: &ActorContext,
+    f: impl FnOnce(&mut DbConnection) -> diesel::QueryResult<T>,
+) -> diesel::QueryResult<T> {
+    conn.transaction(|conn| {
+        session::set_actor(conn, actor)?;
+        f(conn)
+    })
 }

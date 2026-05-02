@@ -52,20 +52,28 @@ pub fn create_comment(
 ) -> QueryResult<Comment> {
     let ticket_id = new_comment.ticket_id;
     let comment = conn.transaction::<Comment, diesel::result::Error, _>(|conn| {
+        // Resolve the parent ticket up front. Loading it here surfaces
+        // a missing-parent error from the FK with a clear "ticket
+        // doesn't exist" semantic, instead of letting the comment
+        // INSERT below fail with a generic FK violation. The parent
+        // is also needed for sync_groups computation; one query
+        // serves both purposes.
+        let parent: Ticket = tickets::table.find(ticket_id).first(conn)?;
+
         let comment: Comment = diesel::insert_into(comments::table)
             .values(&new_comment)
             .get_result(conn)?;
 
-        // Update the parent ticket's updated_at timestamp.
-        // Errors here are non-fatal in the original; preserve that
-        // semantic by ignoring the result rather than failing the tx.
-        let _ = diesel::update(tickets::table.find(ticket_id))
+        // Bump the parent ticket's updated_at so list views surface
+        // the activity. Failure here would be surprising once we've
+        // already loaded the parent successfully, so let it bubble
+        // (an UPDATE on a row we just SELECT'd will only fail under
+        // pathological tx isolation issues — better to fail the
+        // comment write than to silently drift updated_at).
+        diesel::update(tickets::table.find(ticket_id))
             .set(tickets::updated_at.eq(diesel::dsl::now))
-            .execute(conn);
+            .execute(conn)?;
 
-        // Resolve sync groups against the parent ticket so the event
-        // reaches every project the ticket sits in.
-        let parent: Ticket = tickets::table.find(ticket_id).first(conn)?;
         let groups = groups::for_ticket(conn, &parent)?;
 
         emit::record(

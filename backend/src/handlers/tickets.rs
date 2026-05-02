@@ -19,43 +19,16 @@ use crate::services::notifications::{
 use crate::services::search::SearchService;
 use crate::services::search::indexing_tasks;
 use crate::sync::actor::ActorContext;
-use crate::sync::session;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
 use crate::handlers::helpers;
+use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
 use crate::handlers::errors;
 
-/// Build an ActorContext from the JWT claims attached to the request.
-/// Returns a system actor when no claims are present (background calls
-/// that wandered into a handler path), so the emit substrate still has
-/// something to attribute the row to.
+/// Local convenience: bind the system-actor reference for this
+/// handler module so call sites stay terse.
+#[inline]
 fn actor_for(req: &HttpRequest) -> ActorContext {
-    let uuid = req
-        .extensions()
-        .get::<Claims>()
-        .and_then(|c| Uuid::parse_str(&c.sub).ok());
-    match uuid {
-        Some(u) => ActorContext::user(u, None),
-        None => ActorContext::system("handler:tickets"),
-    }
-}
-
-/// Run a repository write inside a transaction with the actor GUCs
-/// set, so any sync_actions emitted by the repo (or downstream
-/// triggers) carry the correct actor_uuid / actor_kind.
-///
-/// Use this anywhere a handler is about to invoke a repository fn
-/// that emits. Calls that don't write or don't emit (pure reads)
-/// don't need it.
-fn with_actor<T>(
-    conn: &mut crate::db::DbConnection,
-    actor: &ActorContext,
-    f: impl FnOnce(&mut crate::db::DbConnection) -> diesel::QueryResult<T>,
-) -> diesel::QueryResult<T> {
-    use diesel::Connection;
-    conn.transaction(|conn| {
-        session::set_actor(conn, actor)?;
-        f(conn)
-    })
+    helper_actor_for(req, "handler:tickets")
 }
 
 // Helper function to validate assignee role

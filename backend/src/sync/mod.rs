@@ -8,10 +8,10 @@
 //!
 //! Repository writes that mutate a tier-1 aggregate must call
 //! [`emit::record`] in the same Diesel transaction as the SQL write,
-//! once per business event. The [`audit_only_allowlist`] module
-//! enumerates the tables that intentionally skip this — anything not
-//! in the allowlist is checked by an integration test in
-//! `tests/sync_emit_lint.rs` so a missed write is caught at CI.
+//! once per business event. The `ALLOWLIST` constant in
+//! `tests/sync_emit_lint.rs` enumerates the tables that intentionally
+//! skip this — the lint test fails CI if a new repository write is
+//! neither emit-wired nor in the allowlist.
 
 pub mod actor;
 pub mod emit;
