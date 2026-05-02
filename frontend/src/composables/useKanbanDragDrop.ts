@@ -1,7 +1,6 @@
 import { ref, type Ref, onMounted, onUnmounted } from 'vue'
 import ticketService from '@/services/ticketService'
 import projectService from '@/services/projectService'
-import type { TicketStatus } from '@/constants/ticketOptions'
 
 export interface KanbanTicket {
   id: number
@@ -14,10 +13,17 @@ export interface KanbanTicket {
   requester_avatar?: string | null
   priority: 'low' | 'medium' | 'high'
   status: string
+  workflow_state_id?: number
   modified?: string
 }
 
 export interface KanbanColumn {
+  /**
+   * The workflow state category this column represents (e.g.
+   * `"backlog"`, `"active"`). The drag handler resolves the column's
+   * category to a concrete `workflow_state_id` via
+   * `resolveDropStateId` before PATCHing the backend.
+   */
   id: string
   title: string
   tickets: KanbanTicket[]
@@ -37,7 +43,16 @@ export function useKanbanDragDrop(
   onRefresh: () => Promise<void>,
   onExternalDrop?: (ticketId: number, targetColumnId: string) => Promise<void>,
   projectId?: Ref<number | null>,
-  onTicketClick?: (ticketId: number) => void
+  onTicketClick?: (ticketId: number) => void,
+  /**
+   * Resolves a column id (a workflow state category like `"backlog"`)
+   * to the concrete `workflow_state_id` to PATCH on drop. Returns
+   * `null` when no state exists in the category, in which case the
+   * drop is rolled back. Optional so callers that haven't migrated
+   * yet keep working — the legacy path falls back to the column id
+   * as a status string.
+   */
+  resolveDropStateId?: (columnId: string) => number | null,
 ) {
   const dragState = ref<DragState>({
     draggedTicket: null,
@@ -218,24 +233,25 @@ export function useKanbanDragDrop(
 
           // Update backend in background (don't await)
           if (sourceColumnId !== targetColumnId) {
-            let newStatus: TicketStatus
-            switch (targetColumnId) {
-              case 'in-progress':
-                newStatus = 'in-progress'
-                break
-              case 'closed':
-                newStatus = 'closed'
-                break
-              case 'open':
-              default:
-                newStatus = 'open'
-                break
+            const newStateId = resolveDropStateId?.(targetColumnId) ?? null
+            const patch: Record<string, unknown> = {
+              modified: new Date().toISOString(),
+            }
+            if (newStateId !== null) {
+              patch.workflow_state_id = newStateId
+              ticket.workflow_state_id = newStateId
+            } else {
+              // Fall back to the legacy status string for callers that
+              // haven't passed `resolveDropStateId` yet.
+              patch.status =
+                targetColumnId === 'in-progress'
+                  ? 'in-progress'
+                  : targetColumnId === 'closed'
+                    ? 'closed'
+                    : 'open'
             }
 
-            ticketService.updateTicket(ticket.id, {
-              status: newStatus,
-              modified: new Date().toISOString()
-            }).catch(err => {
+            ticketService.updateTicket(ticket.id, patch).catch(err => {
               console.error('Failed to update ticket status:', err)
               onRefresh()
             })

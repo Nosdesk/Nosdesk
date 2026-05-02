@@ -5,12 +5,18 @@ import { useRouter } from 'vue-router'
 import { projectService } from '@/services/projectService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import AddTicketToProjectModal from './AddTicketToProjectModal.vue'
-import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useKanbanDragDrop, type KanbanColumn } from '@/composables/useKanbanDragDrop'
 import { useProjectSSE } from '@/composables/useProjectSSE'
 import { formatCompactRelativeTime } from '@/utils/dateUtils'
+import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import {
+  CATEGORY_LABELS,
+  WORKFLOW_CATEGORIES,
+  type WorkflowStateCategory,
+} from '@/types/workflow'
+import { paletteForColor } from '@/utils/workflowColors'
 import type { TicketUpdatedEventData } from '@/types/sse'
 
 const props = defineProps<{
@@ -18,18 +24,65 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
+const workflowStatesStore = useWorkflowStatesStore()
 
 // Create a ref for projectId to pass to useKanbanDragDrop
 const projectIdRef = computed(() => props.projectId)
 const isLoading = ref(true)
 const error = ref<string | null>(null)
 
-// Initialize columns with empty arrays
-const columns = ref<KanbanColumn[]>([
-  { id: 'open', title: 'Open', tickets: [] },
-  { id: 'in-progress', title: 'In Progress', tickets: [] },
-  { id: 'closed', title: 'Closed', tickets: [] }
-])
+/**
+ * One column per category that has at least one active state. Column
+ * `id` is the category key (e.g. `"backlog"`); the drop handler maps
+ * that to the lowest-position state in the category to compute the
+ * `workflow_state_id` to send to the backend. Default-shipped seed has
+ * one state per category, so columns are 1:1 with categories until an
+ * admin adds custom states.
+ */
+const columns = ref<KanbanColumn[]>([])
+
+function rebuildColumns() {
+  const next: KanbanColumn[] = []
+  for (const cat of WORKFLOW_CATEGORIES) {
+    const states = workflowStatesStore.byCategory[cat]
+    if (!states || states.length === 0) continue
+    next.push({ id: cat, title: CATEGORY_LABELS[cat], tickets: [] })
+  }
+  if (next.length === 0) {
+    // Store hasn't loaded yet; render legacy 3-column fallback so
+    // the board isn't blank during the initial fetch.
+    columns.value = [
+      { id: 'backlog', title: 'Open', tickets: [] },
+      { id: 'active', title: 'In Progress', tickets: [] },
+      { id: 'done', title: 'Closed', tickets: [] },
+    ]
+    return
+  }
+  columns.value = next
+}
+
+function categoryForStateId(id: number | null | undefined): WorkflowStateCategory {
+  if (id == null) return 'backlog'
+  return workflowStatesStore.findById(id)?.category ?? 'backlog'
+}
+
+function defaultStateIdForCategory(cat: WorkflowStateCategory): number | null {
+  const states = workflowStatesStore.byCategory[cat]
+  return states && states.length > 0 ? states[0].id : null
+}
+
+function colorForCategory(cat: WorkflowStateCategory): string {
+  const states = workflowStatesStore.byCategory[cat]
+  return states && states.length > 0 ? states[0].color : 'subtle'
+}
+
+watch(
+  () => workflowStatesStore.states.length,
+  () => {
+    rebuildColumns()
+    if (props.projectId) fetchProjectTickets()
+  },
+)
 
 const showAddTicketModal = ref(false)
 const currentColumnId = ref<string | null>(null)
@@ -52,9 +105,7 @@ async function fetchProjectTickets() {
     columns.value.forEach(column => { column.tickets = [] })
 
     tickets.forEach(ticket => {
-      const columnId = ticket.status === 'in-progress' ? 'in-progress'
-        : ticket.status === 'closed' ? 'closed' : 'open'
-
+      const columnId = categoryForStateId(ticket.workflow_state_id)
       const column = columns.value.find(col => col.id === columnId)
       if (column) {
         column.tickets.push({
@@ -68,6 +119,7 @@ async function fetchProjectTickets() {
           requester_avatar: ticket.requester_user?.avatar_thumb || null,
           priority: ticket.priority as 'low' | 'medium' | 'high',
           status: ticket.status,
+          workflow_state_id: ticket.workflow_state_id,
           modified: ticket.modified
         })
       }
@@ -102,17 +154,33 @@ useProjectSSE(projectIdRef, projectTicketIdSet, {
       const ticket = column.tickets.find(t => t.id === data.ticket_id)
       if (!ticket) continue
 
-      if (data.field === 'status' && typeof data.value === 'string') {
-        // Status changed — move ticket between columns
-        const newColumnId = data.value === 'in-progress' ? 'in-progress'
-          : data.value === 'closed' ? 'closed' : 'open'
+      if (
+        (data.field === 'workflow_state_id' || data.field === 'status') &&
+        (typeof data.value === 'string' || typeof data.value === 'number')
+      ) {
+        // Workflow state changed — move ticket to the column for the
+        // new state's category. The status-field SSE event is kept for
+        // backward compatibility; both paths resolve to a category.
+        let newColumnId: WorkflowStateCategory
+        if (data.field === 'workflow_state_id') {
+          const id = typeof data.value === 'number' ? data.value : Number(data.value)
+          if (!Number.isFinite(id)) continue
+          newColumnId = categoryForStateId(id)
+          ticket.workflow_state_id = id
+        } else {
+          // legacy status string
+          newColumnId =
+            data.value === 'in-progress' ? 'active'
+              : data.value === 'closed' ? 'done'
+                : 'backlog'
+          ticket.status = data.value as string
+        }
 
         if (column.id !== newColumnId) {
           const idx = column.tickets.indexOf(ticket)
           column.tickets.splice(idx, 1)
           const targetColumn = columns.value.find(c => c.id === newColumnId)
           if (targetColumn) {
-            ticket.status = data.value
             targetColumn.tickets.push(ticket)
           }
         }
@@ -192,13 +260,21 @@ const {
   handlePointerDown,
   isDraggedTicket,
   isColumnDragOver
-} = useKanbanDragDrop(columns, fetchProjectTickets, handleExternalTicketDrop, projectIdRef, openTicket)
+} = useKanbanDragDrop(
+  columns,
+  fetchProjectTickets,
+  handleExternalTicketDrop,
+  projectIdRef,
+  openTicket,
+  (columnId) => defaultStateIdForCategory(columnId as WorkflowStateCategory),
+)
 
 watch(() => props.projectId, (newProjectId) => {
   if (newProjectId) fetchProjectTickets()
 }, { immediate: true })
 
 onMounted(() => {
+  rebuildColumns()
   if (props.projectId) fetchProjectTickets()
 })
 
@@ -246,7 +322,10 @@ const handleAddTicket = (ticketId: number) => {
           <div class="bg-surface-alt flex-shrink-0 sticky top-0 z-10 transition-all duration-150 ease-out px-4 py-1">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3">
-                <StatusIndicator :status="column.id as 'open' | 'in-progress' | 'closed'" size="sm" />
+                <span
+                  :class="['inline-block w-2.5 h-2.5 rounded-full bg-current', paletteForColor(colorForCategory(column.id as WorkflowStateCategory)).solid]"
+                  aria-hidden="true"
+                />
                 <h3 class="font-medium text-primary">{{ column.title }}</h3>
               </div>
               <span class="text-tertiary bg-surface-hover rounded-md text-xs px-2 py-1">

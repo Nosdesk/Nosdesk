@@ -19,6 +19,7 @@ interface SSEEventWrapper<T> {
  */
 export type TicketFieldValue =
   | string
+  | number
   | TicketStatus
   | TicketPriority
   | { uuid: string; user_info?: UserInfo }
@@ -28,7 +29,14 @@ export type TicketFieldValue =
  */
 export interface TicketUpdatedEventData {
   ticket_id: number
-  field: 'title' | 'status' | 'priority' | 'modified' | 'requester' | 'assignee'
+  field:
+    | 'title'
+    | 'status'
+    | 'workflow_state_id'
+    | 'priority'
+    | 'modified'
+    | 'requester'
+    | 'assignee'
   value: TicketFieldValue
   updated_by?: string
 }
