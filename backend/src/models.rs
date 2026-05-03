@@ -97,6 +97,49 @@ impl FromSql<crate::schema::sql_types::WorkflowStateCategory, Pg> for WorkflowSt
     }
 }
 
+/// Saved view: a per-user / per-project / workspace-wide preset
+/// bundling a `ViewShape` and `FilterState`. The two JSON columns
+/// are validated client-side; the server treats them as opaque so
+/// plugin-defined view shapes round-trip without a wire change.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::saved_views)]
+pub struct SavedView {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub scope: String,
+    pub scope_id: Option<String>,
+    pub name: String,
+    pub shape: serde_json::Value,
+    pub filter: serde_json::Value,
+    pub created_by: Uuid,
+    pub is_default: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub archived_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::saved_views)]
+pub struct NewSavedView {
+    pub scope: String,
+    pub scope_id: Option<String>,
+    pub name: String,
+    pub shape: serde_json::Value,
+    pub filter: serde_json::Value,
+    pub created_by: Uuid,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::saved_views)]
+pub struct SavedViewUpdate {
+    pub name: Option<String>,
+    pub shape: Option<serde_json::Value>,
+    pub filter: Option<serde_json::Value>,
+    pub is_default: Option<bool>,
+    pub archived_at: Option<Option<DateTime<Utc>>>,
+}
+
 /// Operation kind recorded in `sync_actions.op`. The fourth variant
 /// `Archive` distinguishes a soft-delete (row stays, marked archived)
 /// from a hard delete; consumers that maintain projections need to

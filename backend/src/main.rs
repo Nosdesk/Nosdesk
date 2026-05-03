@@ -1071,6 +1071,13 @@ async fn main() -> std::io::Result<()> {
                     // bootstrap streams a per-user NDJSON snapshot; delta
                     // pulls incremental changes from a sync_id cursor;
                     // push applies an array of optimistic transactions.
+                    // Saved views (workspace / project / private)
+                    .route("/saved-views", web::get().to(handlers::saved_views::list))
+                    .route("/saved-views", web::post().to(handlers::saved_views::create))
+                    .route("/saved-views/{uuid}", web::get().to(handlers::saved_views::get_one))
+                    .route("/saved-views/{uuid}", web::patch().to(handlers::saved_views::patch))
+                    .route("/saved-views/{uuid}", web::delete().to(handlers::saved_views::archive))
+
                     .route("/sync/bootstrap", web::get().to(handlers::sync::bootstrap::bootstrap))
                     .route("/sync/delta", web::get().to(handlers::sync::delta::delta))
                     .route("/sync/push", web::post().to(handlers::sync::push::push))

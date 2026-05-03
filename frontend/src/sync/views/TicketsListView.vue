@@ -21,6 +21,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useAuthStore } from '@/stores/auth'
+import { useSavedViewsStore } from '@/stores/savedViews'
 import { paletteForColor } from '@/utils/workflowColors'
 import {
   BUILTIN_VIEWS,
@@ -30,7 +31,8 @@ import {
   type BuiltInView,
 } from './builtinViews'
 import { buildPredicate } from './filter'
-import type { CardData } from './types'
+import type { CardData, FilterState, ListViewShape, ViewShape } from './types'
+import type { SavedView } from '@/services/savedViewsService'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
@@ -38,6 +40,20 @@ const router = useRouter()
 const route = useRoute()
 const ticketsStore = useSyncTicketsStore()
 const authStore = useAuthStore()
+const savedViewsStore = useSavedViewsStore()
+
+// Common shape both built-in views and DB-backed SavedView rows
+// satisfy. Lets `activeView` switch on either source without the
+// renderer caring which one it got.
+interface ResolvedView {
+  id: string
+  name: string
+  description: string
+  shape: ListViewShape
+  filter: FilterState
+  source: 'builtin' | 'saved'
+  uuid?: string
+}
 
 // ---------------------------------------------------------------
 // Subscription — list view is workspace-scoped, so we subscribe
@@ -46,18 +62,67 @@ const authStore = useAuthStore()
 // ---------------------------------------------------------------
 onMounted(async () => {
   await subscribe('workspace:1')
+  // Workspace-scoped tickets list. ensureLoaded with projectId=null
+  // pulls workspace + the caller's private views in one round trip.
+  await savedViewsStore.ensureLoaded(null)
 })
 
 // ---------------------------------------------------------------
-// Active view — pulled from `?view=<id>` on the URL with a
-// fallback to My Queue. Keeps the URL bookmark-able.
+// Saved views — list shapes only. Kanban-shaped saved views still
+// exist in the same table; they belong on the kanban routes, so
+// the list view filters them out.
 // ---------------------------------------------------------------
-const activeView = computed<BuiltInView>(() => {
+const savedViewsRef = savedViewsStore.viewsForProject(null)
+
+const listSavedViews = computed<SavedView[]>(() =>
+  savedViewsRef.value.filter((v) => v.shape && (v.shape as ViewShape).type === 'list'),
+)
+
+function toResolved(view: SavedView): ResolvedView {
+  return {
+    id: view.uuid,
+    name: view.name,
+    description: view.scope === 'private' ? 'Private view' : 'Workspace view',
+    shape: view.shape as ListViewShape,
+    filter: view.filter,
+    source: 'saved',
+    uuid: view.uuid,
+  }
+}
+
+function fromBuiltin(view: BuiltInView): ResolvedView {
+  return {
+    id: view.id,
+    name: view.name,
+    description: view.description,
+    shape: view.shape,
+    filter: view.filter,
+    source: 'builtin',
+  }
+}
+
+const builtinResolved = computed<ResolvedView[]>(() =>
+  BUILTIN_VIEWS.map(fromBuiltin),
+)
+
+const savedResolved = computed<ResolvedView[]>(() =>
+  listSavedViews.value.map(toResolved),
+)
+
+// ---------------------------------------------------------------
+// Active view — `?view=<id-or-uuid>` resolves against built-ins
+// first, then DB views. URL stays bookmark-able for both.
+// ---------------------------------------------------------------
+const activeView = computed<ResolvedView>(() => {
   const requested = (route.query.view as string | undefined) ?? ''
-  return findBuiltinView(requested) ?? MY_QUEUE_VIEW
+  const builtin = findBuiltinView(requested)
+  if (builtin) return fromBuiltin(builtin)
+  const saved = listSavedViews.value.find((v) => v.uuid === requested)
+  if (saved) return toResolved(saved)
+  return fromBuiltin(MY_QUEUE_VIEW)
 })
 
-function selectView(view: BuiltInView): void {
+function selectView(view: ResolvedView): void {
   router.push({ path: route.path, query: { ...route.query, view: view.id } })
 }
 
@@ -189,6 +254,68 @@ const COLUMNS = [
 // Touch the imports so a future refactor that drops them gets a
 // type error, not a silent no-op.
 void TRIAGE_VIEW
+
+// ---------------------------------------------------------------
+// Save the active view's shape + filter as a private SavedView.
+// `window.prompt` is the deliberately-cheap modal here. A fancier
+// dialog (with shape preview, scope picker, default toggle) lands
+// when the views surface gets its own UI in a later phase.
+// ---------------------------------------------------------------
+const isSaving = ref(false)
+
+async function saveAsView(): Promise<void> {
+  const userUuid = authStore.user?.uuid
+  if (!userUuid) return
+  const fallbackName = activeView.value.source === 'saved'
+    ? `${activeView.value.name} copy`
+    : activeView.value.name
+  const name = window.prompt('Name this view', fallbackName)
+  if (!name) return
+  isSaving.value = true
+  try {
+    const created = await savedViewsStore.create({
+      scope: 'private',
+      scope_id: userUuid,
+      name: name.trim(),
+      shape: activeView.value.shape,
+      filter: activeView.value.filter,
+    })
+    if (created) {
+      router.push({ path: route.path, query: { ...route.query, view: created.uuid } })
+    }
+  } finally {
+    isSaving.value = false
+  }
+}
+
+const canEditActiveView = computed<boolean>(() => {
+  if (activeView.value.source !== 'saved' || !activeView.value.uuid) return false
+  const row = savedViewsRef.value.find((v) => v.uuid === activeView.value.uuid)
+  if (!row) return false
+  if (row.scope === 'private') {
+    return row.scope_id === authStore.user?.uuid
+  }
+  // Workspace edits gate at the server (admin only). The pill is
+  // shown to everyone; the rename action surfaces the API error
+  // through the store's `lastError` if forbidden.
+  return row.scope === 'workspace'
+})
+
+async function renameActiveView(): Promise<void> {
+  if (!canEditActiveView.value || !activeView.value.uuid) return
+  const next = window.prompt('Rename view', activeView.value.name)
+  if (!next || next.trim() === activeView.value.name) return
+  await savedViewsStore.update(activeView.value.uuid, { name: next.trim() })
+}
+
+async function archiveActiveView(): Promise<void> {
+  if (!canEditActiveView.value || !activeView.value.uuid) return
+  if (!window.confirm(`Archive "${activeView.value.name}"?`)) return
+  const ok = await savedViewsStore.archive(activeView.value.uuid)
+  if (ok) {
+    router.push({ path: route.path, query: { ...route.query, view: MY_QUEUE_VIEW.id } })
+  }
+}
 </script>
 
 <template>
@@ -199,9 +326,9 @@ void TRIAGE_VIEW
         <h1 class="text-xl font-semibold text-primary">{{ activeView.name }}</h1>
         <p class="text-xs text-tertiary mt-0.5">{{ activeView.description }}</p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap justify-end">
         <button
-          v-for="v in BUILTIN_VIEWS"
+          v-for="v in builtinResolved"
           :key="v.id"
           type="button"
           class="text-xs font-medium rounded-md px-2.5 py-1.5 transition-colors"
@@ -213,6 +340,51 @@ void TRIAGE_VIEW
           @click="selectView(v)"
         >
           {{ v.name }}
+        </button>
+        <span
+          v-if="savedResolved.length"
+          class="w-px h-4 bg-subtle mx-1"
+          aria-hidden="true"
+        />
+        <button
+          v-for="v in savedResolved"
+          :key="v.id"
+          type="button"
+          class="text-xs font-medium rounded-md px-2.5 py-1.5 transition-colors"
+          :class="
+            v.id === activeView.id
+              ? 'bg-accent text-on-accent'
+              : 'text-secondary hover:bg-surface-hover'
+          "
+          :title="v.description"
+          @click="selectView(v)"
+        >
+          {{ v.name }}
+        </button>
+        <span class="w-px h-4 bg-subtle mx-1" aria-hidden="true" />
+        <button
+          v-if="canEditActiveView"
+          type="button"
+          class="text-xs font-medium rounded-md px-2.5 py-1.5 text-secondary hover:bg-surface-hover transition-colors"
+          @click="renameActiveView"
+        >
+          Rename
+        </button>
+        <button
+          v-if="canEditActiveView"
+          type="button"
+          class="text-xs font-medium rounded-md px-2.5 py-1.5 text-secondary hover:bg-surface-hover transition-colors"
+          @click="archiveActiveView"
+        >
+          Archive
+        </button>
+        <button
+          type="button"
+          class="text-xs font-medium rounded-md px-2.5 py-1.5 border border-subtle text-primary hover:bg-surface-hover transition-colors disabled:opacity-50"
+          :disabled="isSaving"
+          @click="saveAsView"
+        >
+          {{ isSaving ? 'Saving…' : 'Save as view' }}
         </button>
       </div>
     </header>
