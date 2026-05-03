@@ -293,6 +293,34 @@ diesel::table! {
 }
 
 diesel::table! {
+    cycle_tickets (cycle_id, ticket_id) {
+        cycle_id -> Int4,
+        ticket_id -> Int4,
+        added_at -> Timestamptz,
+        added_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    cycles (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        project_id -> Int4,
+        #[max_length = 120]
+        name -> Varchar,
+        span -> Tstzrange,
+        #[max_length = 20]
+        state -> Varchar,
+        completion_snapshot -> Nullable<Jsonb>,
+        completed_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        archived_at -> Nullable<Timestamptz>,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     device_groups (device_id, group_id) {
         device_id -> Int4,
         group_id -> Int4,
@@ -1063,6 +1091,8 @@ diesel::table! {
         verification_state -> Nullable<Varchar>,
         origin_channel_id -> Nullable<Int4>,
         workflow_state_id -> Int4,
+        #[max_length = 20]
+        triage_state -> Nullable<Varchar>,
     }
 }
 
@@ -1240,6 +1270,11 @@ diesel::joinable!(channel_messages -> tickets (ticket_id));
 diesel::joinable!(channel_messages -> users (author_user_uuid));
 diesel::joinable!(comments -> tickets (ticket_id));
 diesel::joinable!(comments -> users (user_uuid));
+diesel::joinable!(cycle_tickets -> cycles (cycle_id));
+diesel::joinable!(cycle_tickets -> tickets (ticket_id));
+diesel::joinable!(cycle_tickets -> users (added_by));
+diesel::joinable!(cycles -> projects (project_id));
+diesel::joinable!(cycles -> users (created_by));
 diesel::joinable!(device_groups -> devices (device_id));
 diesel::joinable!(device_groups -> groups (group_id));
 diesel::joinable!(device_groups -> users (created_by));
@@ -1305,4 +1340,4 @@ diesel::joinable!(webhooks -> users (created_by));
 diesel::joinable!(workflow_states -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,saved_views,search_index_state,search_query_log,security_events,site_settings,sync_actions,sync_delta_tokens,sync_history,system_meta,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,cycle_tickets,cycles,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,saved_views,search_index_state,search_query_log,security_events,site_settings,sync_actions,sync_delta_tokens,sync_history,system_meta,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,);

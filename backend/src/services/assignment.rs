@@ -367,6 +367,7 @@ mod tests {
             guest_lookup_token: None,
             verification_state: None,
             origin_channel_id: None,
+            triage_state: None,
         };
         overrides(&mut ticket);
         ticket

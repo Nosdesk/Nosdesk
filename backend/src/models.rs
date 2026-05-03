@@ -422,6 +422,11 @@ pub struct Ticket {
     /// the guest web form.
     pub origin_channel_id: Option<i32>,
     pub workflow_state_id: i32,
+    /// Triage lifecycle, independent of workflow_state. NULL means
+    /// "not in the triage flow" (i.e. already triaged into a cycle
+    /// or directly worked). The Triage saved view filters on
+    /// `triage_state = 'untriaged' AND ticket not in any cycle`.
+    pub triage_state: Option<String>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
@@ -439,6 +444,7 @@ pub struct NewTicket {
     pub guest_lookup_token: Option<Uuid>,
     pub verification_state: Option<String>,
     pub origin_channel_id: Option<i32>,
+    pub triage_state: Option<String>,
 }
 
 // Add a new struct for partial ticket updates
@@ -455,6 +461,7 @@ pub struct TicketUpdate {
     pub verification_state: Option<Option<String>>,
     pub origin_channel_id: Option<Option<i32>>,
     pub category_id: Option<Option<i32>>,
+    pub triage_state: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]

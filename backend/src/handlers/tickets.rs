@@ -657,6 +657,7 @@ pub async fn create_empty_ticket(
         guest_lookup_token: None,
         verification_state: None,
         origin_channel_id: None,
+        triage_state: None,
     };
 
     // Create the ticket and then add empty article content
@@ -790,6 +791,7 @@ pub async fn update_ticket_partial(
         category_id: None,
         verification_state: None,
         origin_channel_id: None,
+        triage_state: None,
     };
 
     // Handle simple string fields
@@ -1544,6 +1546,7 @@ pub async fn bulk_tickets(
                     },
                     category_id: None,
                     origin_channel_id: None,
+        triage_state: None,
                 };
 
                 if with_actor(&mut conn, &actor_ctx, |conn| {
@@ -1593,6 +1596,7 @@ pub async fn bulk_tickets(
                     category_id: None,
                     verification_state: None,
                     origin_channel_id: None,
+        triage_state: None,
                 };
 
                 if with_actor(&mut conn, &actor_ctx, |conn| {
@@ -1643,6 +1647,7 @@ pub async fn bulk_tickets(
                     category_id: None,
                     verification_state: None,
                     origin_channel_id: None,
+        triage_state: None,
                 };
 
                 if with_actor(&mut conn, &actor_ctx, |conn| {
@@ -1817,6 +1822,7 @@ mod tests {
             category_id: None,
             verification_state: None,
             origin_channel_id: None,
+        triage_state: None,
         };
 
         let updated = repository::update_ticket_partial(&mut conn, ticket.id, update, None)

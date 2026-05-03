@@ -481,6 +481,7 @@ fn open_ticket_from_message(
         guest_lookup_token: None,
         verification_state: None,
         origin_channel_id: Some(channel.id),
+        triage_state: Some("untriaged".into()),
     };
 
     tickets_repo::create_ticket(conn, new_ticket)
