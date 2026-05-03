@@ -1,0 +1,125 @@
+<script setup lang="ts">
+/**
+ * Cycle burndown summary. For completed cycles the API returns the
+ * frozen completion_snapshot; for planned/active cycles it computes
+ * the same shape on the fly. We render both through the same UI:
+ * total / completed / by-category breakdown plus a "% done" bar
+ * and a "days remaining" line when the cycle has an end date.
+ *
+ * The line-chart-style burndown over time lands once cycles emit
+ * sync_actions; until then this snapshot view is the honest
+ * representation of what we can derive.
+ */
+import { computed, ref, watch } from 'vue'
+import { cyclesService, type CycleStats } from '@/services/cyclesService'
+import type { Cycle } from '@/services/cyclesService'
+
+const props = defineProps<{ cycle: Cycle }>()
+
+const stats = ref<CycleStats | null>(null)
+const isLoading = ref(false)
+const error = ref<string | null>(null)
+
+async function load(): Promise<void> {
+  isLoading.value = true
+  error.value = null
+  try {
+    stats.value = await cyclesService.stats(props.cycle.uuid)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to load stats'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+watch(() => props.cycle.uuid, () => { void load() }, { immediate: true })
+
+const completionPct = computed<number>(() => {
+  if (!stats.value || stats.value.tickets === 0) return 0
+  return Math.round((stats.value.completed / stats.value.tickets) * 100)
+})
+
+const daysRemaining = computed<number | null>(() => {
+  if (!props.cycle.end_at) return null
+  const ms = new Date(props.cycle.end_at).getTime() - Date.now()
+  return Math.max(0, Math.ceil(ms / 86_400_000))
+})
+
+const isFrozen = computed<boolean>(() => props.cycle.state === 'completed')
+
+const sortedCategories = computed<[string, number][]>(() => {
+  if (!stats.value) return []
+  return Object.entries(stats.value.by_category).sort(([a], [b]) => a.localeCompare(b))
+})
+
+const CATEGORY_LABELS: Record<string, string> = {
+  triage: 'Triage',
+  backlog: 'Backlog',
+  active: 'Active',
+  in_review: 'In review',
+  done: 'Done',
+  cancelled: 'Cancelled',
+}
+</script>
+
+<template>
+  <div class="rounded-md border border-subtle bg-app p-4">
+    <header class="flex items-baseline justify-between mb-3">
+      <h3 class="text-sm font-semibold text-primary">{{ cycle.name }}</h3>
+      <span
+        class="text-[10px] uppercase tracking-wide font-semibold"
+        :class="isFrozen ? 'text-tertiary' : 'text-accent'"
+      >{{ isFrozen ? 'Frozen' : 'Live' }}</span>
+    </header>
+
+    <div v-if="isLoading" class="text-xs text-tertiary italic">Loading…</div>
+    <div v-else-if="error" class="text-xs text-rose-500">{{ error }}</div>
+
+    <div v-else-if="stats" class="flex flex-col gap-3">
+      <!-- Headline numbers -->
+      <div class="flex items-baseline gap-4">
+        <div>
+          <div class="text-2xl font-semibold text-primary tabular-nums">
+            {{ stats.completed }}<span class="text-tertiary">/{{ stats.tickets }}</span>
+          </div>
+          <div class="text-[10px] uppercase tracking-wide text-tertiary">Tickets done</div>
+        </div>
+        <div>
+          <div class="text-2xl font-semibold text-primary tabular-nums">{{ completionPct }}%</div>
+          <div class="text-[10px] uppercase tracking-wide text-tertiary">Complete</div>
+        </div>
+        <div v-if="daysRemaining != null">
+          <div class="text-2xl font-semibold text-primary tabular-nums">{{ daysRemaining }}</div>
+          <div class="text-[10px] uppercase tracking-wide text-tertiary">
+            Day{{ daysRemaining === 1 ? '' : 's' }} remaining
+          </div>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="h-1.5 rounded-full bg-surface-hover overflow-hidden">
+        <div
+          class="h-full bg-accent transition-all"
+          :style="{ width: `${completionPct}%` }"
+        />
+      </div>
+
+      <!-- By category -->
+      <div v-if="sortedCategories.length" class="flex flex-col gap-1">
+        <div
+          v-for="[cat, count] in sortedCategories"
+          :key="cat"
+          class="flex items-center justify-between text-xs"
+        >
+          <span class="text-secondary">{{ CATEGORY_LABELS[cat] ?? cat }}</span>
+          <span class="text-tertiary tabular-nums">{{ count }}</span>
+        </div>
+      </div>
+
+      <!-- Frozen-snapshot timestamp -->
+      <p v-if="isFrozen" class="text-[10px] text-tertiary italic">
+        Snapshot frozen {{ new Date(stats.frozen_at).toLocaleString() }}
+      </p>
+    </div>
+  </div>
+</template>

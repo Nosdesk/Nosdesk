@@ -30,6 +30,17 @@ export interface UpdateCycleBody {
   state?: 'planned' | 'active'
 }
 
+/** Stats payload returned by GET /cycles/{uuid}/stats. Matches the
+ * frozen completion_snapshot shape so the widget renders both
+ * planned/active (live) and completed (frozen) cycles through one
+ * code path. */
+export interface CycleStats {
+  frozen_at: string
+  tickets: number
+  completed: number
+  by_category: Record<string, number>
+}
+
 export const cyclesService = {
   async list(projectId: number): Promise<Cycle[]> {
     const { data } = await apiClient.get<Cycle[]>(`/projects/${projectId}/cycles`)
@@ -58,6 +69,11 @@ export const cyclesService = {
 
   async archive(uuid: string): Promise<void> {
     await apiClient.delete(`/cycles/${uuid}`)
+  },
+
+  async stats(uuid: string): Promise<CycleStats> {
+    const { data } = await apiClient.get<CycleStats>(`/cycles/${uuid}/stats`)
+    return data
   },
 
   async addTicket(cycleUuid: string, ticketId: number): Promise<void> {

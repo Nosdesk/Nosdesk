@@ -181,6 +181,40 @@ pub async fn patch(
     }
 }
 
+/// Live stats for a cycle. For completed cycles returns the frozen
+/// completion_snapshot; for planned/active cycles computes the same
+/// shape on the fly. The frontend Burndown widget renders both
+/// through the same code path.
+pub async fn stats(
+    pool: web::Data<Pool>,
+    path: web::Path<Uuid>,
+    _auth: AuthContext,
+) -> impl Responder {
+    let uuid = path.into_inner();
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let cycle = match repo::find_by_uuid(&mut conn, uuid) {
+        Ok(Some(c)) => c,
+        Ok(None) => return errors::not_found_msg("Cycle not found"),
+        Err(e) => {
+            error!(error = %e, %uuid, "stats: cycle lookup failed");
+            return errors::internal("Failed to fetch cycle stats");
+        }
+    };
+    if let Some(snap) = cycle.completion_snapshot.clone() {
+        return HttpResponse::Ok().json(snap);
+    }
+    match repo::build_completion_snapshot(&mut conn, cycle.id) {
+        Ok(s) => HttpResponse::Ok().json(s),
+        Err(e) => {
+            error!(error = %e, %uuid, "stats: snapshot build failed");
+            errors::internal("Failed to build cycle stats")
+        }
+    }
+}
+
 pub async fn complete(
     pool: web::Data<Pool>,
     path: web::Path<Uuid>,

@@ -1087,6 +1087,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/cycles/{uuid}", web::patch().to(handlers::cycles::patch))
                     .route("/cycles/{uuid}", web::delete().to(handlers::cycles::archive))
                     .route("/cycles/{uuid}/complete", web::post().to(handlers::cycles::complete))
+                    .route("/cycles/{uuid}/stats", web::get().to(handlers::cycles::stats))
                     .route("/cycles/{uuid}/tickets/{ticket_id}", web::post().to(handlers::cycles::add_ticket))
                     .route("/cycles/{uuid}/tickets/{ticket_id}", web::delete().to(handlers::cycles::remove_ticket))
 

@@ -14,6 +14,7 @@ import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useAggregate } from '@/sync/composables'
 import { useCyclesStore } from '@/stores/cycles'
+import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import KanbanBoard from '@/sync/views/KanbanBoard.vue'
 import type { CardData } from '@/sync/views/types'
 
@@ -215,7 +216,13 @@ function formatCycleDate(iso: string | null): string {
         No cycles yet. Create one to start grouping tickets into iterations.
       </div>
 
-      <ul v-else class="flex flex-col gap-1.5 mb-4">
+      <CycleBurndown
+        v-if="activeCycle"
+        :cycle="activeCycle"
+        class="mb-4"
+      />
+
+      <ul v-if="cycles.length" class="flex flex-col gap-1.5 mb-4">
         <li
           v-for="cycle in cycles"
           :key="cycle.uuid"
