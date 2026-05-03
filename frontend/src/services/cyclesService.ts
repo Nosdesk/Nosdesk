@@ -47,6 +47,15 @@ export const cyclesService = {
     return data
   },
 
+  /** Workspace-wide list. Defaults to active + planned at the
+   * server; pass an explicit `state` (comma-separated) to opt
+   * `completed` back in. */
+  async listWorkspace(states?: Cycle['state'][]): Promise<Cycle[]> {
+    const params = states && states.length ? { state: states.join(',') } : {}
+    const { data } = await apiClient.get<Cycle[]>('/cycles', { params })
+    return data
+  },
+
   async get(uuid: string): Promise<Cycle> {
     const { data } = await apiClient.get<Cycle>(`/cycles/${uuid}`)
     return data

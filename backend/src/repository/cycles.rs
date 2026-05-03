@@ -30,6 +30,26 @@ pub fn list_for_project(conn: &mut DbConnection, project_id: i32) -> QueryResult
         .load(conn)
 }
 
+/// Workspace-wide cycle list. Optional state filter so the
+/// workspace overview can default to "active + planned" without
+/// pulling completed cycles into the response. The architecture
+/// spec keeps cycles project-scoped at the data layer; this is
+/// a read-only convenience endpoint, not a denormalisation.
+pub fn list_for_workspace(
+    conn: &mut DbConnection,
+    states: Option<&[&str]>,
+) -> QueryResult<Vec<Cycle>> {
+    let mut query = cycles::table
+        .filter(cycles::archived_at.is_null())
+        .into_boxed();
+    if let Some(states) = states {
+        query = query.filter(cycles::state.eq_any(states.iter().map(|s| s.to_string()).collect::<Vec<_>>()));
+    }
+    query
+        .order((cycles::state.asc(), cycles::start_at.asc().nulls_last()))
+        .load(conn)
+}
+
 pub fn find_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Option<Cycle>> {
     cycles::table
         .filter(cycles::uuid.eq(uuid))

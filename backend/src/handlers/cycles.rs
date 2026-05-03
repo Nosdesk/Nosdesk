@@ -74,6 +74,48 @@ pub async fn list(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct WorkspaceListQuery {
+    /// Comma-separated state filter (e.g. `state=active,planned`).
+    /// Omitted means "all non-archived states." `completed` is
+    /// excluded by default since the workspace overview is for
+    /// in-flight work; an explicit query opts back in.
+    pub state: Option<String>,
+}
+
+/// Workspace-wide cycles list. Unlike the per-project endpoint
+/// this surfaces every project's cycles in one response so the
+/// /cycles overview can render an "active across the workspace"
+/// view without N round-trips.
+pub async fn list_workspace(
+    pool: web::Data<Pool>,
+    query: web::Query<WorkspaceListQuery>,
+    _auth: AuthContext,
+) -> impl Responder {
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let states_owned: Option<Vec<String>> = query
+        .state
+        .as_deref()
+        .map(|s| s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect());
+    let states_ref: Option<Vec<&str>> = states_owned.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
+    let states_slice: Option<&[&str]> = states_ref.as_deref();
+    let filter = if states_slice.is_some() {
+        states_slice
+    } else {
+        Some(&["planned", "active"][..])
+    };
+    match repo::list_for_workspace(&mut conn, filter) {
+        Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(e) => {
+            error!(error = %e, "failed to list workspace cycles");
+            errors::internal("Failed to list cycles")
+        }
+    }
+}
+
 pub async fn get_one(
     pool: web::Data<Pool>,
     path: web::Path<Uuid>,

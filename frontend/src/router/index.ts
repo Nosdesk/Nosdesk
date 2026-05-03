@@ -11,6 +11,7 @@ import ErrorView from '../views/ErrorView.vue'
 import TicketsListView from '@/sync/views/TicketsListView.vue'
 import ProjectsView from '../views/ProjectsView.vue'
 import ProjectDetailView from '../views/ProjectDetailView.vue'
+import WorkspaceCyclesView from '../views/WorkspaceCyclesView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
 import DocumentView from '@/views/DocumentView.vue'
@@ -230,6 +231,15 @@ const router = createRouter({
         title: 'Projects',
         createButtonText: 'Create Project',
         createButtonIcon: 'project',
+      }
+    },
+    {
+      path: '/cycles',
+      name: 'workspace-cycles',
+      component: WorkspaceCyclesView,
+      meta: {
+        requiresAuth: true,
+        title: 'Cycles',
       }
     },
     {

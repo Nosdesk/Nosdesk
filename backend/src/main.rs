@@ -1081,6 +1081,7 @@ async fn main() -> std::io::Result<()> {
                     // Cycles. Project-scoped list + create live under
                     // /projects/{id}/cycles; per-cycle ops use the
                     // cycle uuid for stable bookmarkable URLs.
+                    .route("/cycles", web::get().to(handlers::cycles::list_workspace))
                     .route("/projects/{project_id}/cycles", web::get().to(handlers::cycles::list))
                     .route("/projects/{project_id}/cycles", web::post().to(handlers::cycles::create))
                     .route("/cycles/{uuid}", web::get().to(handlers::cycles::get_one))
