@@ -3,15 +3,16 @@
  * Kanban view, sync-engine version. Reads cards from the pool,
  * dispatches drag-to-status writes through the sync queue.
  *
- * Phase 4 scope:
- * - Single-axis swimlanes by workflow_state.category.
+ * Scope:
+ * - Single-axis swimlanes by workflow_state.category (default).
+ * - Optional two-axis: secondary becomes sub-lanes inside each
+ *   column (assignee or priority for now). Drop targets carry
+ *   both axes so the dispatch flips workflow state and the
+ *   secondary field in one optimistic transaction.
  * - Pointer-event drag (single + multi-select).
  * - Click a card to open the detail (caller-supplied callback).
- * - Optimistic dispatch: pool flips immediately, server hears
- *   on the next push tick.
  *
  * Deferred to later commits:
- * - Two-axis swimlanes (assignee × status, etc.).
  * - SLA / KB-gap pills (need pre-computed CardData fields).
  * - Field-level presence indicators on atomic dropdowns.
  * - Keyboard parity (Option+Shift+Up/Down).
@@ -32,14 +33,31 @@ import type { CardData } from './types'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
-const props = defineProps<{
+/** Sub-lane keys are derived from the secondary axis value:
+ *   - assignee_uuid: the uuid string, or '__none__' if null
+ *   - priority: the priority literal
+ * The lane id passed to the drag layer is `<category>::<secondary>`
+ * so the existing `data-lane-id` resolution works without changes.
+ */
+type SecondaryAxis = 'assignee_uuid' | 'priority'
+const SECONDARY_NONE = '__none__'
+const LANE_SEP = '::'
+
+const props = withDefaults(defineProps<{
   /** Cards to render. The parent route filters and orders these
    * before passing in; the view renders what it's given. */
   cards: readonly CardData[]
   /** Fires when the user clicks (not drags) a card. Parent route
    * decides what "open" means — usually router.push to detail. */
   onCardClick?: (cardId: number) => void
-}>()
+  /** Optional secondary axis. When set, columns split into
+   * sub-lanes by the field's value; dropping into a sub-lane
+   * patches the field in addition to moving workflow state. */
+  secondaryGroupBy?: SecondaryAxis | null
+}>(), {
+  onCardClick: undefined,
+  secondaryGroupBy: null,
+})
 
 const ticketsStore = useSyncTicketsStore()
 const workflowStatesStore = useWorkflowStatesStore()
@@ -77,29 +95,99 @@ function isSelected(cardId: number): boolean {
 // a workspace with custom states doesn't show ghost columns.
 // ---------------------------------------------------------------
 
+interface SubLane {
+  /** Drop-target id: `<category>::<secondary>`. */
+  id: string
+  /** Secondary axis bucket key (uuid, priority literal, or
+   * SECONDARY_NONE). Carried so the drop handler can patch the
+   * right field without re-parsing the id. */
+  secondaryKey: string
+  label: string
+  cards: CardData[]
+}
+
 interface Lane {
   id: WorkflowStateCategory
   label: string
   /** First workflow state in the category — the drop target. */
   defaultState: WorkflowState | null
-  cards: CardData[]
+  /** Either a single sublane (secondary axis off) or one sublane
+   * per secondary value present in this column's cards. */
+  sublanes: SubLane[]
+  totalCards: number
 }
 
 const lanes = computed<Lane[]>(() => {
   const out: Lane[] = []
   const cardsByCategory = groupCardsByCategory(props.cards)
+  const secondary = props.secondaryGroupBy
   for (const cat of WORKFLOW_CATEGORIES) {
     const states = workflowStatesStore.byCategory[cat]
     if (!states || states.length === 0) continue
+    const cards = cardsByCategory.get(cat) ?? []
+    const sublanes = secondary
+      ? buildSubLanes(cat, cards, secondary)
+      : [{
+          id: `${cat}${LANE_SEP}${SECONDARY_NONE}`,
+          secondaryKey: SECONDARY_NONE,
+          label: '',
+          cards,
+        }]
     out.push({
       id: cat,
       label: CATEGORY_LABELS[cat],
       defaultState: states[0],
-      cards: cardsByCategory.get(cat) ?? [],
+      sublanes,
+      totalCards: cards.length,
     })
   }
   return out
 })
+
+function buildSubLanes(
+  cat: WorkflowStateCategory,
+  cards: CardData[],
+  axis: SecondaryAxis,
+): SubLane[] {
+  const buckets = new Map<string, CardData[]>()
+  for (const card of cards) {
+    const key = secondaryKey(card, axis)
+    let bucket = buckets.get(key)
+    if (!bucket) {
+      bucket = []
+      buckets.set(key, bucket)
+    }
+    bucket.push(card)
+  }
+  // Always render an empty unassigned/none sub-lane so the user can
+  // drop a card into it to clear the field. Without this seeding
+  // there'd be no drop target for "make this unassigned."
+  if (!buckets.has(SECONDARY_NONE)) buckets.set(SECONDARY_NONE, [])
+  const sorted = Array.from(buckets.entries()).sort(([a], [b]) => {
+    if (a === SECONDARY_NONE) return 1
+    if (b === SECONDARY_NONE) return -1
+    return a.localeCompare(b)
+  })
+  return sorted.map(([key, bucketCards]) => ({
+    id: `${cat}${LANE_SEP}${key}`,
+    secondaryKey: key,
+    label: secondaryLabel(key, axis),
+    cards: bucketCards,
+  }))
+}
+
+function secondaryKey(card: CardData, axis: SecondaryAxis): string {
+  if (axis === 'assignee_uuid') return card.assignee_uuid ?? SECONDARY_NONE
+  return card.priority ?? SECONDARY_NONE
+}
+
+function secondaryLabel(key: string, axis: SecondaryAxis): string {
+  if (key === SECONDARY_NONE) {
+    return axis === 'assignee_uuid' ? 'Unassigned' : 'No priority'
+  }
+  if (axis === 'assignee_uuid') return key.slice(0, 8)
+  return key
+}
 
 function groupCardsByCategory(
   cards: readonly CardData[],
@@ -117,10 +205,6 @@ function groupCardsByCategory(
   return grouped
 }
 
-function laneCardCount(laneId: WorkflowStateCategory): number {
-  return lanes.value.find((l) => l.id === laneId)?.cards.length ?? 0
-}
-
 // ---------------------------------------------------------------
 // Drag-and-drop
 // ---------------------------------------------------------------
@@ -136,7 +220,8 @@ const { state: dragState, onPointerDown, isDraggedCard, isHoverLane } = useDragD
   selection: () => selectedIds.value,
   onClick: (cardId) => props.onCardClick?.(cardId),
   onDrop: ({ cardIds, targetLane }) => {
-    const lane = lanes.value.find((l) => l.id === targetLane)
+    const [categoryId, secondaryKey] = parseLaneId(targetLane)
+    const lane = lanes.value.find((l) => l.id === categoryId)
     if (!lane?.defaultState) return
     const target = lane.defaultState
     void ticketsStore.bulkMoveToWorkflowState(cardIds, {
@@ -145,12 +230,38 @@ const { state: dragState, onPointerDown, isDraggedCard, isHoverLane } = useDragD
       category: target.category,
       color: target.color,
     })
+    if (props.secondaryGroupBy && secondaryKey !== SECONDARY_NONE) {
+      const patch: { assignee_uuid?: string | null; priority?: CardData['priority'] } = {}
+      if (props.secondaryGroupBy === 'assignee_uuid') {
+        patch.assignee_uuid = secondaryKey
+      } else {
+        patch.priority = secondaryKey as CardData['priority']
+      }
+      for (const id of cardIds) void ticketsStore.patchKanbanFields(id, patch)
+    } else if (props.secondaryGroupBy && secondaryKey === SECONDARY_NONE) {
+      // Drop into the "none" sub-lane clears the secondary field.
+      // Priority's "no priority" is the literal 'none', whereas
+      // assignee uses null — keep them distinguishable here.
+      const patch = props.secondaryGroupBy === 'assignee_uuid'
+        ? { assignee_uuid: null }
+        : { priority: 'none' as const }
+      for (const id of cardIds) void ticketsStore.patchKanbanFields(id, patch)
+    }
     // Dropping clears the selection so the user gets a clean state
     // for the next interaction. Multi-drag intent is "move these
     // five things" not "keep these five selected forever."
     clearSelection()
   },
 })
+
+function parseLaneId(laneId: string): [WorkflowStateCategory, string] {
+  const idx = laneId.indexOf(LANE_SEP)
+  if (idx < 0) return [laneId as WorkflowStateCategory, SECONDARY_NONE]
+  return [
+    laneId.slice(0, idx) as WorkflowStateCategory,
+    laneId.slice(idx + LANE_SEP.length),
+  ]
+}
 
 function handleCardPointerDown(card: CardData, event: PointerEvent): void {
   // Modifier-clicks toggle selection but DON'T initiate a drag —
@@ -195,11 +306,9 @@ function ticketRow(cardId: number): SyncTicket | null {
         v-for="lane in lanes"
         :key="lane.id"
         class="w-72 flex-shrink-0 flex flex-col bg-surface rounded-lg border border-default h-full min-h-[300px]"
-        :class="{ 'ring-2 ring-accent/50': isHoverLane(lane.id) }"
-        :data-lane-id="lane.id"
         @click.stop
       >
-        <!-- Header -->
+        <!-- Column header -->
         <header class="flex items-center justify-between px-4 py-3 bg-surface-alt border-b border-subtle">
           <div class="flex items-center gap-3">
             <span
@@ -211,67 +320,85 @@ function ticketRow(cardId: number): SyncTicket | null {
             <h3 class="text-sm font-semibold text-primary">{{ lane.label }}</h3>
           </div>
           <span class="text-xs text-tertiary bg-surface-hover rounded-md px-2 py-1">
-            {{ laneCardCount(lane.id) }}
+            {{ lane.totalCards }}
           </span>
         </header>
 
-        <!-- Cards -->
-        <div class="flex-1 flex flex-col gap-2 p-2 overflow-y-auto">
-          <article
-            v-for="card in lane.cards"
-            :key="card.id"
-            class="bg-surface rounded-lg border border-default hover:border-strong p-3 cursor-grab select-none transition-colors"
-            :class="{
-              'ring-2 ring-accent': isSelected(card.id),
-              'opacity-50 scale-95': isDraggedCard(card.id),
-            }"
-            @pointerdown.stop="handleCardPointerDown(card, $event)"
+        <!-- Sub-lanes (one when secondary axis is off, many when on) -->
+        <div class="flex-1 flex flex-col overflow-y-auto">
+          <section
+            v-for="sublane in lane.sublanes"
+            :key="sublane.id"
+            class="flex flex-col"
+            :class="{ 'ring-2 ring-accent/50 rounded-md m-1': isHoverLane(sublane.id) }"
+            :data-lane-id="sublane.id"
           >
-            <!-- Title row -->
-            <div class="flex items-start justify-between gap-2 mb-2">
-              <h4 class="text-sm font-medium text-primary line-clamp-2 flex-1">
-                {{ card.title }}
-              </h4>
-              <PriorityIndicator
-                v-if="card.priority !== 'none'"
-                :priority="(card.priority === 'urgent' ? 'high' : card.priority) as 'low' | 'medium' | 'high'"
-                size="xs"
-              />
-            </div>
-
-            <!-- Meta row -->
-            <div class="flex items-center justify-between text-[11px] text-tertiary">
-              <span class="font-mono">#{{ card.id }}</span>
-              <UserAvatar
-                v-if="card.assignee_uuid"
-                :name="card.assignee_uuid"
-                :avatar="null"
-                size="xxs"
-                :showName="false"
-                :clickable="false"
-              />
-              <span v-else class="italic">unassigned</span>
-            </div>
-
-            <!-- Selection badge: visible only when this card is in
-                 a multi-select set, so the user can confirm what
-                 will move on the next drag. -->
-            <span
-              v-if="isSelected(card.id) && selectedIds.size > 1"
-              class="absolute top-1 right-1 text-[10px] uppercase tracking-wide font-semibold text-accent bg-accent/10 rounded px-1.5 py-0.5"
+            <header
+              v-if="secondaryGroupBy"
+              class="flex items-center justify-between px-3 py-1.5 text-[10px] uppercase tracking-wide font-semibold text-tertiary bg-surface border-b border-subtle/50 sticky top-0 z-10"
             >
-              {{ selectedIds.size }} selected
-            </span>
-          </article>
+              <span class="truncate">{{ sublane.label }}</span>
+              <span>{{ sublane.cards.length }}</span>
+            </header>
 
-          <!-- Empty-lane drop hint -->
-          <div
-            v-if="lane.cards.length === 0"
-            class="flex-1 flex items-center justify-center text-tertiary text-xs italic border-2 border-dashed border-subtle rounded-lg min-h-[80px]"
-            :class="{ 'border-accent/50 bg-accent-muted': isHoverLane(lane.id) }"
-          >
-            Drop here
-          </div>
+            <div class="flex flex-col gap-2 p-2">
+              <article
+                v-for="card in sublane.cards"
+                :key="card.id"
+                class="bg-surface rounded-lg border border-default hover:border-strong p-3 cursor-grab select-none transition-colors"
+                :class="{
+                  'ring-2 ring-accent': isSelected(card.id),
+                  'opacity-50 scale-95': isDraggedCard(card.id),
+                }"
+                @pointerdown.stop="handleCardPointerDown(card, $event)"
+              >
+                <!-- Title row -->
+                <div class="flex items-start justify-between gap-2 mb-2">
+                  <h4 class="text-sm font-medium text-primary line-clamp-2 flex-1">
+                    {{ card.title }}
+                  </h4>
+                  <PriorityIndicator
+                    v-if="card.priority !== 'none'"
+                    :priority="(card.priority === 'urgent' ? 'high' : card.priority) as 'low' | 'medium' | 'high'"
+                    size="xs"
+                  />
+                </div>
+
+                <!-- Meta row -->
+                <div class="flex items-center justify-between text-[11px] text-tertiary">
+                  <span class="font-mono">#{{ card.id }}</span>
+                  <UserAvatar
+                    v-if="card.assignee_uuid"
+                    :name="card.assignee_uuid"
+                    :avatar="null"
+                    size="xxs"
+                    :showName="false"
+                    :clickable="false"
+                  />
+                  <span v-else class="italic">unassigned</span>
+                </div>
+
+                <!-- Selection badge: visible only when this card is in
+                     a multi-select set, so the user can confirm what
+                     will move on the next drag. -->
+                <span
+                  v-if="isSelected(card.id) && selectedIds.size > 1"
+                  class="absolute top-1 right-1 text-[10px] uppercase tracking-wide font-semibold text-accent bg-accent/10 rounded px-1.5 py-0.5"
+                >
+                  {{ selectedIds.size }} selected
+                </span>
+              </article>
+
+              <!-- Empty-sublane drop hint -->
+              <div
+                v-if="sublane.cards.length === 0"
+                class="flex items-center justify-center text-tertiary text-xs italic border-2 border-dashed border-subtle rounded-lg min-h-[60px]"
+                :class="{ 'border-accent/50 bg-accent-muted': isHoverLane(sublane.id) }"
+              >
+                Drop here
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>

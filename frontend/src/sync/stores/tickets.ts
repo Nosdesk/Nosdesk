@@ -104,6 +104,34 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
     return dispatched
   }
 
+  /**
+   * Patch a small whitelist of ticket fields the kanban renderer
+   * writes during a two-axis swimlane drop. Optimistic in the same
+   * pattern as moveToWorkflowState. The whitelist exists to prevent
+   * a typo in the caller from blowing away unrelated fields: the
+   * sync engine's apply layer trusts the patch shape, so the gate
+   * has to live here.
+   */
+  type KanbanPatchableField = 'assignee_uuid' | 'priority'
+  type KanbanPatch = Partial<Pick<SyncTicket, KanbanPatchableField>>
+
+  async function patchKanbanFields(ticketId: number, patch: KanbanPatch): Promise<void> {
+    const current = useEntity<SyncTicket>('ticket', ticketId).value
+    if (!current) return
+    const inverse: KanbanPatch = {}
+    let dirty = false
+    for (const k of Object.keys(patch) as KanbanPatchableField[]) {
+      if (current[k] === patch[k]) continue
+      ;(inverse[k] as SyncTicket[KanbanPatchableField]) = current[k] as SyncTicket[KanbanPatchableField]
+      dirty = true
+    }
+    if (!dirty) return
+    await dispatchOptimistic<SyncTicket>('ticket', ticketId, {
+      forward: { ...patch, last_activity_at: new Date().toISOString() },
+      inverse,
+    })
+  }
+
   // Sorted-by-last-activity (desc) — the default kanban order so
   // the most-recent activity floats to the top of each column.
   const byLastActivity = computed(() =>
@@ -112,5 +140,12 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
     ),
   )
 
-  return { byId, all, byLastActivity, moveToWorkflowState, bulkMoveToWorkflowState }
+  return {
+    byId,
+    all,
+    byLastActivity,
+    moveToWorkflowState,
+    bulkMoveToWorkflowState,
+    patchKanbanFields,
+  }
 })

@@ -80,6 +80,16 @@ const isLoading = computed(() => project.value == null && cards.value.length ===
 function openCard(cardId: number): void {
   router.push(`/tickets/${cardId}`)
 }
+
+// Secondary axis for two-axis swimlanes. Local state for now —
+// a follow-up persists this onto the project's saved kanban view
+// (group_by.secondary in the ViewShape).
+type SecondaryAxis = 'assignee_uuid' | 'priority'
+const secondaryAxis = ref<SecondaryAxis | null>(null)
+
+function setSecondaryAxis(axis: SecondaryAxis | null): void {
+  secondaryAxis.value = axis
+}
 </script>
 
 <template>
@@ -95,12 +105,26 @@ function openCard(cardId: number): void {
           {{ cards.length }} ticket{{ cards.length === 1 ? '' : 's' }}
         </p>
       </div>
-      <span
-        v-if="project"
-        class="text-[10px] uppercase tracking-wide font-semibold rounded px-2 py-0.5"
-      >
-        {{ project.status }}
-      </span>
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-2 text-xs text-secondary">
+          <span>Group by</span>
+          <select
+            class="bg-surface border border-subtle rounded-md text-xs px-2 py-1 text-primary"
+            :value="secondaryAxis ?? ''"
+            @change="setSecondaryAxis(($event.target as HTMLSelectElement).value as 'assignee_uuid' | 'priority' | '' || null)"
+          >
+            <option value="">Status only</option>
+            <option value="assignee_uuid">Status × Assignee</option>
+            <option value="priority">Status × Priority</option>
+          </select>
+        </label>
+        <span
+          v-if="project"
+          class="text-[10px] uppercase tracking-wide font-semibold rounded px-2 py-0.5"
+        >
+          {{ project.status }}
+        </span>
+      </div>
     </header>
 
     <div v-if="isLoading" class="flex-1 flex items-center justify-center text-tertiary">
@@ -112,6 +136,7 @@ function openCard(cardId: number): void {
       class="flex-1 min-h-0"
       :cards="cards"
       :on-card-click="openCard"
+      :secondary-group-by="secondaryAxis"
     />
   </div>
 </template>
