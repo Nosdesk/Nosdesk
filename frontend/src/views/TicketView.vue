@@ -76,6 +76,7 @@ const {
     updateCategory,
     updateRequester,
     updateAssignee,
+    updateDueDate,
     deleteTicket,
 } = useTicketData();
 
@@ -586,6 +587,7 @@ usePageCreateAction(handleCreateTicket);
                             @update:selectedCategory="updateCategory"
                             @update:requester="updateRequester"
                             @update:assignee="updateAssignee"
+                            @update:dueDate="updateDueDate"
                             @update:title="handleTitleUpdate"
                             @titleFocus="handleTitleFocus"
                             @titleBlur="handleTitleBlur"

@@ -56,6 +56,9 @@ export interface Ticket {
   origin_channel_id?: number | null
   /** Provider name echoed from the originating channel for quick display. Matches `channels.provider`. */
   submitted_via?: string | null
+  /** Calendar deadline. Null when the ticket has no committed
+   * due date. ISO string at the API boundary. */
+  due_date?: string | null
 }
 
 export interface RecentTicket {

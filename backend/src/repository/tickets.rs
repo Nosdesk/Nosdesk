@@ -193,6 +193,7 @@ pub fn update_ticket_partial(
                     "assignee_uuid": result.assignee_uuid,
                     "category_id": result.category_id,
                     "verification_state": result.verification_state,
+                    "due_date": result.due_date,
                 }),
                 groups,
                 causation_id: None,

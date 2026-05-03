@@ -883,6 +883,25 @@ pub async fn update_ticket_partial(
         }
     }
 
+    // due_date: ISO timestamp string, or null to clear. Calendar
+    // view reads this; ticket_id default is null.
+    if body.get("due_date").is_some() {
+        match body.get("due_date") {
+            Some(Value::String(s)) => {
+                match chrono::DateTime::parse_from_rfc3339(s) {
+                    Ok(dt) => {
+                        ticket_update.due_date = Some(Some(dt.naive_utc()));
+                    }
+                    Err(_) => return errors::bad_request("due_date must be RFC3339 or null"),
+                }
+            }
+            Some(Value::Null) => {
+                ticket_update.due_date = Some(None);
+            }
+            _ => return errors::bad_request("due_date must be a string or null"),
+        }
+    }
+
     // Handle category_id (can be a number or null to unassign)
     if body.get("category_id").is_some() {
         match body.get("category_id") {

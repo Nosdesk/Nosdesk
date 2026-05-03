@@ -76,6 +76,8 @@ const props = defineProps<{
     origin_channel_id?: number | null;
     /** Provider string mirrored from the channel. */
     submitted_via?: string | null;
+    /** Calendar deadline. ISO string (RFC3339) or null. */
+    due_date?: string | null;
   };
   createdDate: string;
   modifiedDate: string;
@@ -98,6 +100,8 @@ const emit = defineEmits<{
   (e: "update:title", value: string): void;
   (e: "titleFocus"): void;
   (e: "titleBlur"): void;
+  /** ISO string (start-of-day in user TZ) or null when cleared. */
+  (e: "update:dueDate", value: string | null): void;
 }>();
 
 const workflowStatesStore = useWorkflowStatesStore();
@@ -178,6 +182,28 @@ const categoryLabel = computed(() => {
   const option = props.categoryOptions?.find(o => o.value === String(props.selectedCategory));
   return option?.label || props.ticket.category?.name || null;
 });
+
+/** Backend stores due_date as a TIMESTAMPTZ; the date input wants
+ * a `YYYY-MM-DD` string. Slicing the ISO string is sufficient
+ * because the calendar view buckets cards by local-day, so any
+ * additional precision would be misleading. */
+const dueDateInputValue = computed<string>(() => {
+  if (!props.ticket.due_date) return '';
+  return props.ticket.due_date.slice(0, 10);
+});
+
+function handleDueDateChange(event: Event): void {
+  const value = (event.target as HTMLInputElement).value;
+  if (!value) {
+    emit('update:dueDate', null);
+    return;
+  }
+  // Anchor at start-of-day in the user's local timezone, then
+  // serialise to RFC3339 for the API. The backend persists the
+  // timezone so round-tripping is unambiguous.
+  const local = new Date(`${value}T00:00:00`);
+  emit('update:dueDate', local.toISOString());
+}
 
 // Generate QR code for ticket URL (for print)
 const ticketUrl = computed(() => {
@@ -445,6 +471,26 @@ watchEffect(async () => {
                   class="w-full"
                 />
               </div>
+            </div>
+          </div>
+
+          <!-- Due date -->
+          <div class="flex flex-col gap-1.5">
+            <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Due date</h3>
+            <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors flex items-center">
+              <input
+                type="date"
+                class="flex-1 bg-transparent text-sm text-primary px-3 py-2 outline-none"
+                :value="dueDateInputValue"
+                @change="handleDueDateChange"
+              />
+              <button
+                v-if="ticket.due_date"
+                type="button"
+                class="text-xs text-tertiary hover:text-primary px-2"
+                title="Clear due date"
+                @click="emit('update:dueDate', null)"
+              >×</button>
             </div>
           </div>
 

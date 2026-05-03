@@ -264,6 +264,12 @@ export function useTicketData() {
     await updateTicketField("title", newTitle);
   }
 
+  // Update due_date. Pass-through; the input component already
+  // serialised to RFC3339 (or null to clear).
+  async function updateDueDate(newDueDate: string | null): Promise<void> {
+    await updateTicketField("due_date", newDueDate);
+  }
+
   // Update category
   async function updateCategory(newCategory: string): Promise<void> {
     const categoryId = newCategory ? parseInt(newCategory, 10) : null;
@@ -307,6 +313,7 @@ export function useTicketData() {
     updateRequester,
     updateAssignee,
     updateTitle,
+    updateDueDate,
     deleteTicket,
   };
 }
