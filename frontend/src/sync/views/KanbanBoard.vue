@@ -417,8 +417,8 @@ function ticketRow(cardId: number): SyncTicket | null {
           <section
             v-for="sublane in lane.sublanes"
             :key="sublane.id"
-            class="flex flex-col"
-            :class="{ 'ring-2 ring-accent/50 rounded-md m-1': isHoverLane(sublane.id) }"
+            class="flex flex-col transition-colors"
+            :class="{ 'bg-accent-muted/40': isHoverLane(sublane.id) }"
             :data-lane-id="sublane.id"
           >
             <header
@@ -430,6 +430,16 @@ function ticketRow(cardId: number): SyncTicket | null {
             </header>
 
             <div class="flex flex-col gap-2 p-2">
+              <!-- Insertion line: a drop into a non-empty lane bumps
+                   last_activity_at to NOW so the card lands at the
+                   top of the lane. The line points there honestly
+                   instead of pretending to support arbitrary in-lane
+                   reorder, which the data model doesn't yet. -->
+              <div
+                v-if="isHoverLane(sublane.id) && sublane.cards.length > 0"
+                class="h-0.5 -my-1 rounded-full bg-accent shadow-[0_0_0_2px_var(--surface-app)] insertion-line"
+                aria-hidden="true"
+              />
               <article
                 v-for="card in sublane.cards"
                 :key="card.id"
@@ -477,11 +487,18 @@ function ticketRow(cardId: number): SyncTicket | null {
                 </span>
               </article>
 
-              <!-- Empty-sublane drop hint -->
+              <!-- Empty-sublane drop hint. Promotes to a solid
+                   accent border when the pointer is over it so
+                   the affordance matches the insertion-line
+                   shown for non-empty lanes. -->
               <div
                 v-if="sublane.cards.length === 0"
-                class="flex items-center justify-center text-tertiary text-xs italic border-2 border-dashed border-subtle rounded-lg min-h-[60px]"
-                :class="{ 'border-accent/50 bg-accent-muted': isHoverLane(sublane.id) }"
+                class="flex items-center justify-center text-tertiary text-xs italic border-2 rounded-lg min-h-[60px] transition-colors"
+                :class="
+                  isHoverLane(sublane.id)
+                    ? 'border-accent bg-accent-muted text-accent font-medium'
+                    : 'border-dashed border-subtle'
+                "
               >
                 Drop here
               </div>
@@ -521,6 +538,19 @@ function ticketRow(cardId: number): SyncTicket | null {
   content: '';
   flex-shrink: 0;
   width: 1px;
+}
+/* Pulse the insertion line so it reads as "live" and not just a
+   thin border. 0.6s is fast enough to feel responsive but slow
+   enough not to strobe. */
+.insertion-line {
+  animation: insertion-pulse 0.6s ease-in-out infinite alternate;
+}
+@keyframes insertion-pulse {
+  from { opacity: 0.55; transform: scaleY(1); }
+  to   { opacity: 1;    transform: scaleY(1.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .insertion-line { animation: none; opacity: 1; }
 }
 .line-clamp-2 {
   display: -webkit-box;
