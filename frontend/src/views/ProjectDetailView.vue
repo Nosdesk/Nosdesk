@@ -76,6 +76,7 @@ const cards = computed<CardData[]>(() => {
       updated_at: t.updated_at,
       last_activity_at: t.last_activity_at,
       category_id: t.category_id,
+      triage_state: t.triage_state,
     })
   }
   return out

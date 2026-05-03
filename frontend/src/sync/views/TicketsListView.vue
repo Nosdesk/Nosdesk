@@ -113,12 +113,23 @@ const savedResolved = computed<ResolvedView[]>(() =>
 // Active view — `?view=<id-or-uuid>` resolves against built-ins
 // first, then DB views. URL stays bookmark-able for both.
 // ---------------------------------------------------------------
+/** Workspace-scoped default saved view, if one exists. The seed
+ * migration installs Triage as the workspace default so a fresh
+ * page load lands there instead of MY_QUEUE_VIEW. Falls back to
+ * the built-in only when no DB-backed default has been set up. */
+const workspaceDefaultView = computed<SavedView | null>(() => {
+  return savedViewsRef.value.find(
+    (v) => v.scope === 'workspace' && v.is_default && v.archived_at == null,
+  ) ?? null
+})
+
 const activeView = computed<ResolvedView>(() => {
   const requested = (route.query.view as string | undefined) ?? ''
   const builtin = findBuiltinView(requested)
   if (builtin) return fromBuiltin(builtin)
   const saved = listSavedViews.value.find((v) => v.uuid === requested)
   if (saved) return toResolved(saved)
+  if (workspaceDefaultView.value) return toResolved(workspaceDefaultView.value)
   return fromBuiltin(MY_QUEUE_VIEW)
 })
 
@@ -176,6 +187,7 @@ const cards = computed<CardData[]>(() => {
       updated_at: t.updated_at,
       last_activity_at: t.last_activity_at,
       category_id: t.category_id,
+      triage_state: t.triage_state,
     })
   }
   return out

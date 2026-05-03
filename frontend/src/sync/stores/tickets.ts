@@ -30,6 +30,10 @@ export interface SyncTicket {
   requester_uuid: string | null
   assignee_uuid: string | null
   category_id: number | null
+  /** NULL means "not in the triage flow." The Triage saved view
+   * filters on `triage_state = 'untriaged'`; channel-inbound
+   * tickets default to that, member-created tickets to NULL. */
+  triage_state: 'untriaged' | 'triaged' | 'rejected' | null
   created_at: string
   updated_at: string
   last_activity_at: string
