@@ -119,6 +119,12 @@ const AUDIT_ONLY: &[&str] = &[
 /// `SyncAggregate` variants and registry manifests before they can
 /// move to wired status.
 const PENDING_WIRE: &[&str] = &[
+    "repository/cycles.rs::create",
+    "repository/cycles.rs::update",
+    "repository/cycles.rs::archive",
+    "repository/cycles.rs::complete",
+    "repository/cycles.rs::add_ticket",
+    "repository/cycles.rs::remove_ticket",
     "repository/assignment_rules.rs::create_rule",
     "repository/assignment_rules.rs::delete_rule",
     "repository/assignment_rules.rs::reorder_rules",

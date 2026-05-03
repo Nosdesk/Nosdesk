@@ -21,10 +21,14 @@ CREATE TABLE cycles (
     uuid        UUID NOT NULL DEFAULT uuidv7() UNIQUE,
     project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name        VARCHAR(120) NOT NULL,
-    -- Inclusive on start, exclusive on end. NULL endpoints are
-    -- valid for "open-ended" cycles (e.g. a continuous backlog
-    -- that converts to a closed cycle once the team commits).
-    span        TSTZRANGE NOT NULL,
+    -- Inclusive on start, exclusive on end (matches TSTZRANGE
+    -- '[start, end)' semantics if we ever migrate to a real
+    -- range type for GIST overlap queries). NULL endpoints
+    -- are valid for "open-ended" cycles (e.g. a continuous
+    -- backlog that converts to a closed cycle once the team
+    -- commits to a duration).
+    start_at    TIMESTAMPTZ,
+    end_at      TIMESTAMPTZ,
     -- 'planned' before start, 'active' inside span, 'completed'
     -- once frozen. completed_at is NULL while planned/active.
     state       VARCHAR(20) NOT NULL DEFAULT 'planned',
@@ -46,9 +50,11 @@ CREATE TABLE cycles (
     )
 );
 
--- Range-overlap GIST index for "what's the active cycle right now"
--- and "find all cycles overlapping a calendar window."
-CREATE INDEX cycles_span_gist ON cycles USING GIST (span);
+-- B-tree on (start_at, end_at) covers "what's the active cycle
+-- right now" and "find all cycles ending after X" calendar
+-- queries. If overlap-style queries become hot we'll add a real
+-- TSTZRANGE column with a GIST index alongside.
+CREATE INDEX cycles_span_idx ON cycles (start_at, end_at);
 
 -- Per-project active cycle lookup is the most-common query.
 CREATE INDEX cycles_project_state_idx

@@ -1078,6 +1078,18 @@ async fn main() -> std::io::Result<()> {
                     .route("/saved-views/{uuid}", web::patch().to(handlers::saved_views::patch))
                     .route("/saved-views/{uuid}", web::delete().to(handlers::saved_views::archive))
 
+                    // Cycles. Project-scoped list + create live under
+                    // /projects/{id}/cycles; per-cycle ops use the
+                    // cycle uuid for stable bookmarkable URLs.
+                    .route("/projects/{project_id}/cycles", web::get().to(handlers::cycles::list))
+                    .route("/projects/{project_id}/cycles", web::post().to(handlers::cycles::create))
+                    .route("/cycles/{uuid}", web::get().to(handlers::cycles::get_one))
+                    .route("/cycles/{uuid}", web::patch().to(handlers::cycles::patch))
+                    .route("/cycles/{uuid}", web::delete().to(handlers::cycles::archive))
+                    .route("/cycles/{uuid}/complete", web::post().to(handlers::cycles::complete))
+                    .route("/cycles/{uuid}/tickets/{ticket_id}", web::post().to(handlers::cycles::add_ticket))
+                    .route("/cycles/{uuid}/tickets/{ticket_id}", web::delete().to(handlers::cycles::remove_ticket))
+
                     .route("/sync/bootstrap", web::get().to(handlers::sync::bootstrap::bootstrap))
                     .route("/sync/delta", web::get().to(handlers::sync::delta::delta))
                     .route("/sync/push", web::post().to(handlers::sync::push::push))

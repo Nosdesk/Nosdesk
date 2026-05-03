@@ -236,7 +236,9 @@ fn apply_transaction(
         | SyncAggregate::Attachment
         | SyncAggregate::Assignment
         | SyncAggregate::GroupMembership
-        | SyncAggregate::Plugin => Err(TxReject(
+        | SyncAggregate::Plugin
+        | SyncAggregate::Cycle
+        | SyncAggregate::CycleTicket => Err(TxReject(
             "unsupported_aggregate",
             format!(
                 "push for aggregate `{}` is not yet wired",

@@ -55,6 +55,8 @@ fn all_aggregates() -> Vec<SyncAggregate> {
         Assignment,
         GroupMembership,
         Plugin,
+        Cycle,
+        CycleTicket,
     ]
 }
 

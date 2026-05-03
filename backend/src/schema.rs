@@ -308,7 +308,8 @@ diesel::table! {
         project_id -> Int4,
         #[max_length = 120]
         name -> Varchar,
-        span -> Tstzrange,
+        start_at -> Nullable<Timestamptz>,
+        end_at -> Nullable<Timestamptz>,
         #[max_length = 20]
         state -> Varchar,
         completion_snapshot -> Nullable<Jsonb>,

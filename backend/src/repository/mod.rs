@@ -6,6 +6,7 @@ pub mod categories;
 pub mod dashboard_stats;
 pub mod channels;
 pub mod comments;
+pub mod cycles;
 pub mod devices;
 pub mod documentation;
 pub mod documentation_collections;

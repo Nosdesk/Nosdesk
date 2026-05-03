@@ -1,0 +1,23 @@
+{
+  "name": "cycle_ticket",
+  "schema_version": 1,
+  "fields": {
+    "cycle_id": { "rust": "i32", "ts": "number", "primary": true },
+    "ticket_id": { "rust": "i32", "ts": "number", "primary": true },
+    "added_at": { "rust": "DateTime<Utc>", "ts": "string" },
+    "added_by": { "rust": "Option<Uuid>", "ts": "string | null" }
+  },
+  "events": [
+    { "type": "cycle_ticket.added", "op": "I" },
+    { "type": "cycle_ticket.removed", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1",
+    "cycle:<cycle_id>",
+    "ticket:<ticket_id>"
+  ],
+  "references": [
+    { "field": "cycle_id", "aggregate": "cycle" },
+    { "field": "ticket_id", "aggregate": "ticket" }
+  ]
+}

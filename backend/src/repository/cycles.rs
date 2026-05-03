@@ -1,0 +1,224 @@
+//! Cycles + cycle_tickets CRUD.
+//!
+//! Cycles are project-scoped time-boxed buckets a ticket can join.
+//! Lifecycle: planned → active → completed. The `cycles_active_unique`
+//! partial index gates "exactly one active cycle per project," so
+//! the helpers here promote/demote without an explicit lock — a
+//! constraint violation surfaces as the failure mode rather than a
+//! race window.
+//!
+//! Completion freezes a snapshot of the cycle's stats so post-
+//! completion ticket edits do not retroactively rewrite the
+//! burndown. The `cycles_completed_snapshot` CHECK constraint
+//! mirrors that invariant in the DB.
+
+use chrono::Utc;
+use diesel::prelude::*;
+use diesel::Connection;
+use serde_json::json;
+use uuid::Uuid;
+
+use crate::db::DbConnection;
+use crate::models::{Cycle, CycleTicket, CycleUpdate, NewCycle, NewCycleTicket, WorkflowStateCategory};
+use crate::schema::{cycle_tickets, cycles, tickets, workflow_states};
+
+pub fn list_for_project(conn: &mut DbConnection, project_id: i32) -> QueryResult<Vec<Cycle>> {
+    cycles::table
+        .filter(cycles::archived_at.is_null())
+        .filter(cycles::project_id.eq(project_id))
+        .order((cycles::state.asc(), cycles::start_at.asc().nulls_last()))
+        .load(conn)
+}
+
+pub fn find_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Option<Cycle>> {
+    cycles::table
+        .filter(cycles::uuid.eq(uuid))
+        .first(conn)
+        .optional()
+}
+
+pub fn find_by_id(conn: &mut DbConnection, id: i32) -> QueryResult<Option<Cycle>> {
+    cycles::table.find(id).first(conn).optional()
+}
+
+pub fn create(conn: &mut DbConnection, new: NewCycle) -> QueryResult<Cycle> {
+    diesel::insert_into(cycles::table)
+        .values(&new)
+        .get_result(conn)
+}
+
+pub fn update(
+    conn: &mut DbConnection,
+    uuid: Uuid,
+    patch: CycleUpdate,
+) -> QueryResult<Cycle> {
+    diesel::update(cycles::table.filter(cycles::uuid.eq(uuid)))
+        .set(&patch)
+        .get_result(conn)
+}
+
+/// Soft-archive. Active cycles can be archived; the partial unique
+/// index ignores archived rows so a planned cycle can be promoted
+/// to active in the same project immediately.
+pub fn archive(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Cycle> {
+    diesel::update(cycles::table.filter(cycles::uuid.eq(uuid)))
+        .set((
+            cycles::archived_at.eq(Some(Utc::now())),
+            cycles::state.eq("planned"),
+        ))
+        .get_result(conn)
+}
+
+/// Mark a cycle complete and freeze its snapshot. The snapshot
+/// records the cycle's terminal state so the burndown widget can
+/// render historic cycles without re-querying live tickets.
+pub fn complete(
+    conn: &mut DbConnection,
+    uuid: Uuid,
+    snapshot: serde_json::Value,
+) -> QueryResult<Cycle> {
+    let now = Utc::now();
+    diesel::update(cycles::table.filter(cycles::uuid.eq(uuid)))
+        .set((
+            cycles::state.eq("completed"),
+            cycles::completion_snapshot.eq(Some(snapshot)),
+            cycles::completed_at.eq(Some(now)),
+        ))
+        .get_result(conn)
+}
+
+// ---- cycle_tickets ----
+
+pub fn add_ticket(
+    conn: &mut DbConnection,
+    cycle_id: i32,
+    ticket_id: i32,
+    actor: Option<Uuid>,
+) -> QueryResult<CycleTicket> {
+    conn.transaction(|conn| {
+        // Replace any existing membership for the ticket. The
+        // partial unique index `cycle_tickets_one_per_ticket`
+        // would otherwise reject the insert; doing it explicitly
+        // keeps the move semantic ("ticket changed cycle") clear.
+        diesel::delete(cycle_tickets::table.filter(cycle_tickets::ticket_id.eq(ticket_id)))
+            .execute(conn)?;
+        diesel::insert_into(cycle_tickets::table)
+            .values(&NewCycleTicket {
+                cycle_id,
+                ticket_id,
+                added_by: actor,
+            })
+            .get_result(conn)
+    })
+}
+
+pub fn remove_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usize> {
+    diesel::delete(cycle_tickets::table.filter(cycle_tickets::ticket_id.eq(ticket_id)))
+        .execute(conn)
+}
+
+pub fn ticket_ids_for_cycle(conn: &mut DbConnection, cycle_id: i32) -> QueryResult<Vec<i32>> {
+    cycle_tickets::table
+        .filter(cycle_tickets::cycle_id.eq(cycle_id))
+        .select(cycle_tickets::ticket_id)
+        .load(conn)
+}
+
+pub fn cycle_id_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Option<i32>> {
+    cycle_tickets::table
+        .filter(cycle_tickets::ticket_id.eq(ticket_id))
+        .select(cycle_tickets::cycle_id)
+        .first(conn)
+        .optional()
+}
+
+/// Build the completion snapshot that gets frozen on cycle.complete.
+/// Counts the cycle's tickets and breaks them down by workflow
+/// state category. Burndown reads this snapshot for completed
+/// cycles so post-completion edits don't move the line.
+pub fn build_completion_snapshot(
+    conn: &mut DbConnection,
+    cycle_id: i32,
+) -> QueryResult<serde_json::Value> {
+    let rows: Vec<(i32, WorkflowStateCategory)> = cycle_tickets::table
+        .inner_join(tickets::table.on(tickets::id.eq(cycle_tickets::ticket_id)))
+        .inner_join(
+            workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)),
+        )
+        .filter(cycle_tickets::cycle_id.eq(cycle_id))
+        .select((tickets::id, workflow_states::category))
+        .load(conn)?;
+
+    let total = rows.len();
+    let mut by_category: std::collections::BTreeMap<String, i32> = Default::default();
+    let mut completed = 0i32;
+    for (_, cat) in &rows {
+        let key = cat.as_str().to_string();
+        *by_category.entry(key.clone()).or_insert(0) += 1;
+        if matches!(cat, WorkflowStateCategory::Done) {
+            completed += 1;
+        }
+    }
+    Ok(json!({
+        "frozen_at": Utc::now().to_rfc3339(),
+        "tickets": total,
+        "completed": completed,
+        "by_category": by_category,
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    fn make_cycle(project_id: i32, name: &str, state: &str) -> NewCycle {
+        let now = Utc::now();
+        NewCycle {
+            project_id,
+            name: name.into(),
+            start_at: Some(now),
+            end_at: Some(now + chrono::Duration::days(14)),
+            state: state.into(),
+            created_by: None,
+        }
+    }
+
+    fn _seed_user_and_project(conn: &mut DbConnection, label: &str) -> (Uuid, i32) {
+        let user = TestFixtures::create_user(conn, label, UserRole::User);
+        let project = TestFixtures::create_project(conn, label);
+        (user.uuid, project.id)
+    }
+
+    #[test]
+    fn one_active_cycle_per_project() {
+        let mut conn = setup_test_connection();
+        let (_user, pid) = _seed_user_and_project(&mut conn, "cyc_active");
+
+        let _planned = create(&mut conn, make_cycle(pid, "first", "planned")).unwrap();
+        let active = create(&mut conn, make_cycle(pid, "second", "active")).unwrap();
+
+        // A second active cycle in the same project should fail
+        // the partial unique index.
+        let dup = create(&mut conn, make_cycle(pid, "third", "active"));
+        assert!(dup.is_err(), "expected unique violation, got {:?}", dup);
+        assert_eq!(active.state, "active");
+    }
+
+    #[test]
+    fn ticket_membership_is_exclusive() {
+        let mut conn = setup_test_connection();
+        let (user, pid) = _seed_user_and_project(&mut conn, "cyc_member");
+        let cycle_a = create(&mut conn, make_cycle(pid, "a", "planned")).unwrap();
+        let cycle_b = create(&mut conn, make_cycle(pid, "b", "planned")).unwrap();
+        let ticket = TestFixtures::create_ticket(&mut conn, "test ticket", Some(user), None);
+
+        add_ticket(&mut conn, cycle_a.id, ticket.id, Some(user)).unwrap();
+        assert_eq!(cycle_id_for_ticket(&mut conn, ticket.id).unwrap(), Some(cycle_a.id));
+
+        add_ticket(&mut conn, cycle_b.id, ticket.id, Some(user)).unwrap();
+        // The second add removes the first membership.
+        assert_eq!(cycle_id_for_ticket(&mut conn, ticket.id).unwrap(), Some(cycle_b.id));
+    }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "cycle",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "uuid": { "rust": "Uuid", "ts": "string" },
+    "project_id": { "rust": "i32", "ts": "number" },
+    "name": { "rust": "String", "ts": "string" },
+    "start_at": { "rust": "Option<DateTime<Utc>>", "ts": "string | null" },
+    "end_at": { "rust": "Option<DateTime<Utc>>", "ts": "string | null" },
+    "state": { "rust": "String", "ts": "'planned' | 'active' | 'completed'" },
+    "completion_snapshot": { "rust": "Option<serde_json::Value>", "ts": "Record<string, unknown> | null" },
+    "completed_at": { "rust": "Option<DateTime<Utc>>", "ts": "string | null" },
+    "created_at": { "rust": "DateTime<Utc>", "ts": "string" },
+    "updated_at": { "rust": "DateTime<Utc>", "ts": "string" },
+    "archived_at": { "rust": "Option<DateTime<Utc>>", "ts": "string | null" },
+    "created_by": { "rust": "Option<Uuid>", "ts": "string | null" }
+  },
+  "events": [
+    { "type": "cycle.created", "op": "I" },
+    { "type": "cycle.updated", "op": "U" },
+    { "type": "cycle.completed", "op": "U" },
+    { "type": "cycle.archived", "op": "A" }
+  ],
+  "groups": [
+    "workspace:1",
+    "project:<project_id>",
+    "cycle:<id>"
+  ],
+  "references": [
+    { "field": "project_id", "aggregate": "project" },
+    { "field": "created_by", "aggregate": null, "note": "user uuid; users aren't a sync aggregate today" }
+  ]
+}
