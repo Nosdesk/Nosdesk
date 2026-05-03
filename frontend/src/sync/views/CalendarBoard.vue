@@ -24,15 +24,37 @@ import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 
 type DateField = 'due_date' | 'created_at' | 'last_activity_at'
 
+/** Overlay item rendered on a day cell. The parent fetches these
+ * (e.g. device warranty expiries) and passes them in pre-bucketed.
+ * The visible-month-changed event lets the parent re-fetch when the
+ * user steps the calendar. */
+export interface CalendarOverlay {
+  /** Stable id for keying. */
+  id: string
+  /** ISO day string (YYYY-MM-DD); lookup is exact match. */
+  date: string
+  kind: 'warranty_expiry' | 'maintenance' | 'os_cutoff'
+  label: string
+  /** Optional click target. The parent decides what "open" means. */
+  href?: string
+}
+
 const props = withDefaults(defineProps<{
   cards: readonly CardData[]
   /** Which CardData field anchors the card to a day. */
   dateField?: DateField
+  /** Day-stamped overlays (device warranty expiries, etc.). */
+  overlays?: readonly CalendarOverlay[]
   onCardClick?: (cardId: number) => void
 }>(), {
   dateField: 'due_date',
+  overlays: () => [],
   onCardClick: undefined,
 })
+
+const emit = defineEmits<{
+  (e: 'visible-range', range: { start: string; end: string }): void
+}>()
 
 // ---------------------------------------------------------------
 // Visible month (anchored to the first of the month). Local-only
@@ -118,6 +140,29 @@ const undatedCards = computed<CardData[]>(() =>
   props.cards.filter((c) => !readDate(c, props.dateField)),
 )
 
+const overlaysByDay = computed<Map<string, CalendarOverlay[]>>(() => {
+  const map = new Map<string, CalendarOverlay[]>()
+  for (const ov of props.overlays) {
+    let bucket = map.get(ov.date)
+    if (!bucket) {
+      bucket = []
+      map.set(ov.date, bucket)
+    }
+    bucket.push(ov)
+  }
+  return map
+})
+
+function overlaysFor(cell: DayCell): CalendarOverlay[] {
+  return overlaysByDay.value.get(isoDay(cell.date)) ?? []
+}
+
+const overlayClass: Record<CalendarOverlay['kind'], string> = {
+  warranty_expiry: 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40',
+  maintenance: 'bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/40',
+  os_cutoff: 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/40',
+}
+
 function readDate(card: CardData, field: DateField): string | null | undefined {
   if (field === 'due_date') return card.due_date
   if (field === 'created_at') return card.created_at
@@ -152,6 +197,16 @@ const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 watch(() => props.dateField, () => {
   cursor.value = startOfMonth(new Date())
 })
+
+// Emit the visible window whenever the grid changes so the parent
+// can refetch overlays. Fires on mount via `immediate: true`.
+watch(grid, (cells) => {
+  if (cells.length === 0) return
+  emit('visible-range', {
+    start: isoDay(cells[0].date),
+    end: isoDay(cells[cells.length - 1].date),
+  })
+}, { immediate: true })
 </script>
 
 <template>
@@ -235,6 +290,21 @@ watch(() => props.dateField, () => {
               />
               <span class="text-primary truncate">{{ card.title }}</span>
             </article>
+
+            <!-- Overlays render after cards so a busy day pushes
+                 them down rather than letting them obscure the
+                 ticket pills. Distinct colour per kind so they
+                 read as device events at a glance. -->
+            <a
+              v-for="ov in overlaysFor(cell)"
+              :key="ov.id"
+              :href="ov.href"
+              class="rounded px-1.5 py-0.5 text-[10px] font-medium truncate"
+              :class="overlayClass[ov.kind]"
+              :title="ov.label"
+            >
+              {{ ov.label }}
+            </a>
           </div>
         </div>
       </section>

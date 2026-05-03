@@ -39,7 +39,11 @@ import type {
   ViewShape,
 } from './types'
 import type { SavedView } from '@/services/savedViewsService'
-import CalendarBoard from './CalendarBoard.vue'
+import {
+  calendarOverlaysService,
+  type CalendarOverlayEntry,
+} from '@/services/calendarOverlaysService'
+import CalendarBoard, { type CalendarOverlay } from './CalendarBoard.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
@@ -340,6 +344,47 @@ async function archiveActiveView(): Promise<void> {
     router.push({ path: route.path, query: { ...route.query, view: MY_QUEUE_VIEW.id } })
   }
 }
+
+// ---------------------------------------------------------------
+// Calendar overlays. Fetched lazily when CalendarBoard emits its
+// visible-range; cached by `start..end` so paging back to a month
+// you already viewed doesn't refetch. The cache lives only for
+// the session, which is the right grain for warranty data that
+// changes on the timescale of weeks.
+// ---------------------------------------------------------------
+const overlayCache = ref<Map<string, CalendarOverlayEntry[]>>(new Map())
+const calendarOverlays = ref<CalendarOverlay[]>([])
+
+function entryToOverlay(e: CalendarOverlayEntry): CalendarOverlay {
+  return {
+    id: `${e.kind}:${e.device_id}:${e.date}`,
+    date: e.date,
+    kind: e.kind,
+    label: e.label,
+    href: `/devices/${e.device_id}`,
+  }
+}
+
+async function loadOverlays(start: string, end: string): Promise<void> {
+  const key = `${start}..${end}`
+  const cached = overlayCache.value.get(key)
+  if (cached) {
+    calendarOverlays.value = cached.map(entryToOverlay)
+    return
+  }
+  try {
+    const rows = await calendarOverlaysService.list(start, end)
+    overlayCache.value.set(key, rows)
+    calendarOverlays.value = rows.map(entryToOverlay)
+  } catch {
+    // Soft-fail: the calendar still renders without overlays.
+    calendarOverlays.value = []
+  }
+}
+
+function onCalendarVisibleRange(range: { start: string; end: string }): void {
+  void loadOverlays(range.start, range.end)
+}
 </script>
 
 <template>
@@ -429,7 +474,9 @@ async function archiveActiveView(): Promise<void> {
       class="flex-1 min-h-0"
       :cards="filteredCards"
       :date-field="activeView.shape.date_field"
+      :overlays="calendarOverlays"
       :on-card-click="open"
+      @visible-range="onCalendarVisibleRange"
     />
 
     <div

@@ -175,6 +175,101 @@ fn devices_to_responses(conn: &mut crate::db::DbConnection, devices: Vec<Device>
     }).collect()
 }
 
+/// Calendar overlay query: a date window the caller is rendering.
+#[derive(Debug, Deserialize)]
+pub struct CalendarOverlayParams {
+    /// ISO date or datetime, inclusive. Treated as the lower bound
+    /// of the visible calendar window.
+    pub start: String,
+    /// ISO date or datetime, inclusive. Upper bound.
+    pub end: String,
+}
+
+/// One overlay entry for the calendar. Today only carries warranty
+/// expiries; OS support cutoffs and scheduled maintenance get
+/// their own `kind` variants once those data sources land.
+#[derive(Debug, Serialize)]
+pub struct CalendarOverlayEntry {
+    pub kind: &'static str,
+    pub date: String,
+    pub device_id: i32,
+    pub device_name: String,
+    pub label: String,
+}
+
+/// `GET /api/devices/calendar-overlay?start=YYYY-MM-DD&end=YYYY-MM-DD`
+///
+/// Returns warranty-expiry overlays for the given window. The
+/// calendar view fetches one window per visible month and renders
+/// each entry as a badge in the day cell so device events are
+/// visible alongside ticket due dates.
+pub async fn calendar_overlay(
+    pool: web::Data<Pool>,
+    query: web::Query<CalendarOverlayParams>,
+) -> impl Responder {
+    use crate::schema::devices;
+    use chrono::NaiveDate;
+    use diesel::prelude::*;
+
+    let parse = |s: &str| -> Option<NaiveDate> {
+        // Accept YYYY-MM-DD or full RFC3339 (drop the time part).
+        if let Ok(d) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+            return Some(d);
+        }
+        s.split('T')
+            .next()
+            .and_then(|head| NaiveDate::parse_from_str(head, "%Y-%m-%d").ok())
+    };
+    let start = match parse(&query.start) {
+        Some(d) => d,
+        None => return errors::bad_request("start must be an ISO date"),
+    };
+    let end = match parse(&query.end) {
+        Some(d) => d,
+        None => return errors::bad_request("end must be an ISO date"),
+    };
+    if end < start {
+        return errors::bad_request("end must be on or after start");
+    }
+
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    type WarrantyRow = (i32, String, NaiveDate);
+    let rows: Result<Vec<WarrantyRow>, Error> = devices::table
+        .filter(devices::warranty_end_date.is_not_null())
+        .filter(devices::warranty_end_date.ge(start))
+        .filter(devices::warranty_end_date.le(end))
+        .select((
+            devices::id,
+            devices::name,
+            devices::warranty_end_date.assume_not_null(),
+        ))
+        .load(&mut conn);
+
+    match rows {
+        Ok(rows) => {
+            let entries: Vec<CalendarOverlayEntry> = rows
+                .into_iter()
+                .map(|(id, name, date)| CalendarOverlayEntry {
+                    kind: "warranty_expiry",
+                    date: date.format("%Y-%m-%d").to_string(),
+                    device_id: id,
+                    device_name: name.clone(),
+                    label: format!("Warranty ends: {}", name),
+                })
+                .collect();
+            HttpResponse::Ok().json(entries)
+        }
+        Err(e) => {
+            error!(error = ?e, "Database error loading calendar overlays");
+            errors::internal("Failed to load calendar overlays")
+        }
+    }
+}
+
 /// Get all devices
 pub async fn get_all_devices(pool: web::Data<Pool>) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
