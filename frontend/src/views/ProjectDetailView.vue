@@ -16,6 +16,7 @@ import { useAggregate } from '@/sync/composables'
 import { useCyclesStore } from '@/stores/cycles'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import KanbanBoard from '@/sync/views/KanbanBoard.vue'
+import { toCardData } from '@/sync/views/cardData'
 import type { CardData } from '@/sync/views/types'
 
 const props = defineProps<{ id: string }>()
@@ -64,21 +65,9 @@ const cards = computed<CardData[]>(() => {
   const out: CardData[] = []
   for (const id of ticketIds) {
     const t = ticketsStore.byId(id).value
-    if (!t || !t.workflow_state) continue
-    out.push({
-      id: t.id,
-      title: t.title,
-      workflow_state: t.workflow_state,
-      priority: t.priority,
-      assignee_uuid: t.assignee_uuid,
-      requester_uuid: t.requester_uuid,
-      due_date: t.due_date,
-      created_at: t.created_at,
-      updated_at: t.updated_at,
-      last_activity_at: t.last_activity_at,
-      category_id: t.category_id,
-      triage_state: t.triage_state,
-    })
+    if (!t) continue
+    const card = toCardData(t)
+    if (card) out.push(card)
   }
   return out
 })

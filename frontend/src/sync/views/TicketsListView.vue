@@ -31,6 +31,7 @@ import {
   type BuiltInView,
 } from './builtinViews'
 import { buildPredicate } from './filter'
+import { toCardData } from './cardData'
 import type {
   CalendarViewShape,
   CardData,
@@ -190,21 +191,8 @@ const allTickets = ticketsStore.all()
 const cards = computed<CardData[]>(() => {
   const out: CardData[] = []
   for (const t of allTickets.value) {
-    if (!t.workflow_state) continue
-    out.push({
-      id: t.id,
-      title: t.title,
-      workflow_state: t.workflow_state,
-      priority: t.priority,
-      assignee_uuid: t.assignee_uuid,
-      requester_uuid: t.requester_uuid,
-      due_date: t.due_date,
-      created_at: t.created_at,
-      updated_at: t.updated_at,
-      last_activity_at: t.last_activity_at,
-      category_id: t.category_id,
-      triage_state: t.triage_state,
-    })
+    const card = toCardData(t)
+    if (card) out.push(card)
   }
   return out
 })

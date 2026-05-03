@@ -13,6 +13,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { logger } from '@/utils/logger'
+import { dedupeInFlight } from '@/utils/dedupeInFlight'
 import {
   cyclesService,
   type Cycle,
@@ -22,29 +23,25 @@ import {
 
 export const useCyclesStore = defineStore('cycles', () => {
   const cache = ref<Map<number, Cycle[]>>(new Map())
-  const loading = ref<Set<number>>(new Set())
+  // In-flight fetch registry; same shape as savedViews. Concurrent
+  // callers for one project share the result of one network call.
+  const inflight = new Map<number, Promise<Cycle[]>>()
   const lastError = ref<string | null>(null)
 
   async function ensureLoaded(projectId: number): Promise<Cycle[]> {
-    if (cache.value.has(projectId)) return cache.value.get(projectId)!
-    if (loading.value.has(projectId)) {
-      while (loading.value.has(projectId)) {
-        await new Promise((r) => setTimeout(r, 16))
+    const cached = cache.value.get(projectId)
+    if (cached) return cached
+    return dedupeInFlight(inflight, projectId, async () => {
+      try {
+        const rows = await cyclesService.list(projectId)
+        cache.value.set(projectId, rows)
+        return rows
+      } catch (e) {
+        logger.warn('Failed to load cycles', { projectId, error: e })
+        lastError.value = e instanceof Error ? e.message : 'Failed to load cycles'
+        return []
       }
-      return cache.value.get(projectId) ?? []
-    }
-    loading.value.add(projectId)
-    try {
-      const rows = await cyclesService.list(projectId)
-      cache.value.set(projectId, rows)
-      return rows
-    } catch (e) {
-      logger.warn('Failed to load cycles', { projectId, error: e })
-      lastError.value = e instanceof Error ? e.message : 'Failed to load cycles'
-      return []
-    } finally {
-      loading.value.delete(projectId)
-    }
+    })
   }
 
   function cyclesForProject(projectId: number) {
@@ -140,7 +137,7 @@ export const useCyclesStore = defineStore('cycles', () => {
 
   function reset(): void {
     cache.value.clear()
-    loading.value.clear()
+    inflight.clear()
     lastError.value = null
   }
 

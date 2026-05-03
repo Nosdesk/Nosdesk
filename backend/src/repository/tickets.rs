@@ -405,13 +405,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
         } else {
             Uuid::parse_str(&ticket_json.assignee).ok()
         },
-        category_id: None,
-        submitted_via: None,
-        guest_lookup_token: None,
-        verification_state: None,
-        origin_channel_id: None,
-        triage_state: None,
-        due_date: None,
+        ..Default::default()
     };
 
     let ticket = create_ticket(conn, new_ticket)?;
@@ -583,16 +577,11 @@ mod tests {
         let new_ticket = NewTicket {
             title: "T".into(),
             workflow_state_id: default_state.id,
-            priority: TicketPriority::Medium,
             requester_uuid: Some(requester),
-            assignee_uuid: None,
-            category_id: None,
             submitted_via: Some("guest".into()),
             guest_lookup_token: Some(Uuid::new_v4()),
             verification_state: state.map(|s| s.to_string()),
-            origin_channel_id: None,
-        triage_state: None,
-        due_date: None,
+            ..Default::default()
         };
         diesel::insert_into(tickets::table)
             .values(&new_ticket)

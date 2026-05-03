@@ -39,7 +39,7 @@ use tracing::{debug, info, warn};
 use crate::db::DbConnection;
 use crate::models::{
     Channel, Comment, NewAttachment, NewChannelMessage, NewComment, NewTicket, Ticket,
-    TicketPriority, CHANNEL_DIRECTION_INBOUND,
+    CHANNEL_DIRECTION_INBOUND,
 };
 use crate::repository::{channels as channels_repo, comments as comments_repo, tickets as tickets_repo};
 use crate::repository::user_helpers::{find_or_create_guest_user, GuestUserResult};
@@ -473,16 +473,11 @@ fn open_ticket_from_message(
     let new_ticket = NewTicket {
         title,
         workflow_state_id: default_state.id,
-        priority: TicketPriority::Medium,
         requester_uuid: Some(requester_uuid),
-        assignee_uuid: None,
-        category_id: None,
         submitted_via: Some(channel.provider.clone()),
-        guest_lookup_token: None,
-        verification_state: None,
         origin_channel_id: Some(channel.id),
         triage_state: Some("untriaged".into()),
-        due_date: None,
+        ..Default::default()
     };
 
     tickets_repo::create_ticket(conn, new_ticket)

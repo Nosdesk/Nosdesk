@@ -389,8 +389,6 @@ pub async fn submit_guest_ticket(
         workflow_state_id: default_state.id,
         priority,
         requester_uuid: Some(user.uuid),
-        assignee_uuid: None,
-        category_id: None,
         submitted_via: Some("guest".to_string()),
         guest_lookup_token: Some(lookup_token),
         verification_state: if verification_required {
@@ -398,9 +396,7 @@ pub async fn submit_guest_ticket(
         } else {
             None
         },
-        origin_channel_id: None,
-        triage_state: None,
-        due_date: None,
+        ..Default::default()
     };
 
     let ticket = match repository::tickets::create_ticket(&mut conn, new_ticket) {

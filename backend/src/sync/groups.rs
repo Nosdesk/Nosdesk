@@ -49,6 +49,17 @@ pub fn for_project(project_id: i32) -> Vec<String> {
     ]
 }
 
+/// Groups attached to a cycle-scoped event. Cycles live under a
+/// project; the cycle itself is also its own group so a future
+/// "cycle detail" route can subscribe directly.
+pub fn for_cycle(cycle_id: i32, project_id: i32) -> Vec<String> {
+    vec![
+        WORKSPACE_GROUP.to_string(),
+        format!("project:{}", project_id),
+        format!("cycle:{}", cycle_id),
+    ]
+}
+
 /// Groups attached to a workspace-wide config event (workflow_states,
 /// site settings, etc.).
 pub fn workspace() -> Vec<String> {

@@ -19,8 +19,27 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{Cycle, CycleTicket, CycleUpdate, NewCycle, NewCycleTicket, WorkflowStateCategory};
+use crate::models::{
+    Cycle, CycleTicket, CycleUpdate, NewCycle, NewCycleTicket, SyncAggregate, SyncOp,
+    WorkflowStateCategory,
+};
 use crate::schema::{cycle_tickets, cycles, tickets, workflow_states};
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
+
+fn cycle_payload(cycle: &Cycle) -> serde_json::Value {
+    json!({
+        "id": cycle.id,
+        "uuid": cycle.uuid,
+        "project_id": cycle.project_id,
+        "name": cycle.name,
+        "start_at": cycle.start_at,
+        "end_at": cycle.end_at,
+        "state": cycle.state,
+        "completed_at": cycle.completed_at,
+        "archived_at": cycle.archived_at,
+    })
+}
 
 pub fn list_for_project(conn: &mut DbConnection, project_id: i32) -> QueryResult<Vec<Cycle>> {
     cycles::table
@@ -62,9 +81,24 @@ pub fn find_by_id(conn: &mut DbConnection, id: i32) -> QueryResult<Option<Cycle>
 }
 
 pub fn create(conn: &mut DbConnection, new: NewCycle) -> QueryResult<Cycle> {
-    diesel::insert_into(cycles::table)
-        .values(&new)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let cycle: Cycle = diesel::insert_into(cycles::table)
+            .values(&new)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Cycle,
+                aggregate_id: cycle.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "cycle.created",
+                data: cycle_payload(&cycle),
+                groups: groups::for_cycle(cycle.id, cycle.project_id),
+                causation_id: None,
+            },
+        )?;
+        Ok(cycle)
+    })
 }
 
 pub fn update(
@@ -72,21 +106,51 @@ pub fn update(
     uuid: Uuid,
     patch: CycleUpdate,
 ) -> QueryResult<Cycle> {
-    diesel::update(cycles::table.filter(cycles::uuid.eq(uuid)))
-        .set(&patch)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let cycle: Cycle = diesel::update(cycles::table.filter(cycles::uuid.eq(uuid)))
+            .set(&patch)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Cycle,
+                aggregate_id: cycle.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "cycle.updated",
+                data: cycle_payload(&cycle),
+                groups: groups::for_cycle(cycle.id, cycle.project_id),
+                causation_id: None,
+            },
+        )?;
+        Ok(cycle)
+    })
 }
 
 /// Soft-archive. Active cycles can be archived; the partial unique
 /// index ignores archived rows so a planned cycle can be promoted
 /// to active in the same project immediately.
 pub fn archive(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Cycle> {
-    diesel::update(cycles::table.filter(cycles::uuid.eq(uuid)))
-        .set((
-            cycles::archived_at.eq(Some(Utc::now())),
-            cycles::state.eq("planned"),
-        ))
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let cycle: Cycle = diesel::update(cycles::table.filter(cycles::uuid.eq(uuid)))
+            .set((
+                cycles::archived_at.eq(Some(Utc::now())),
+                cycles::state.eq("planned"),
+            ))
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Cycle,
+                aggregate_id: cycle.id.to_string(),
+                op: SyncOp::Archive,
+                event_type: "cycle.archived",
+                data: cycle_payload(&cycle),
+                groups: groups::for_cycle(cycle.id, cycle.project_id),
+                causation_id: None,
+            },
+        )?;
+        Ok(cycle)
+    })
 }
 
 /// Mark a cycle complete and freeze its snapshot. The snapshot
@@ -98,13 +162,33 @@ pub fn complete(
     snapshot: serde_json::Value,
 ) -> QueryResult<Cycle> {
     let now = Utc::now();
-    diesel::update(cycles::table.filter(cycles::uuid.eq(uuid)))
-        .set((
-            cycles::state.eq("completed"),
-            cycles::completion_snapshot.eq(Some(snapshot)),
-            cycles::completed_at.eq(Some(now)),
-        ))
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let cycle: Cycle = diesel::update(cycles::table.filter(cycles::uuid.eq(uuid)))
+            .set((
+                cycles::state.eq("completed"),
+                cycles::completion_snapshot.eq(Some(snapshot.clone())),
+                cycles::completed_at.eq(Some(now)),
+            ))
+            .get_result(conn)?;
+        // The completion snapshot rides on this event so consumers
+        // (burndown projections, retros) can persist it without a
+        // follow-up read.
+        let mut payload = cycle_payload(&cycle);
+        payload["completion_snapshot"] = snapshot;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Cycle,
+                aggregate_id: cycle.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "cycle.completed",
+                data: payload,
+                groups: groups::for_cycle(cycle.id, cycle.project_id),
+                causation_id: None,
+            },
+        )?;
+        Ok(cycle)
+    })
 }
 
 // ---- cycle_tickets ----
@@ -120,21 +204,87 @@ pub fn add_ticket(
         // partial unique index `cycle_tickets_one_per_ticket`
         // would otherwise reject the insert; doing it explicitly
         // keeps the move semantic ("ticket changed cycle") clear.
-        diesel::delete(cycle_tickets::table.filter(cycle_tickets::ticket_id.eq(ticket_id)))
-            .execute(conn)?;
-        diesel::insert_into(cycle_tickets::table)
+        // Emit a removal event for the previous cycle so consumers
+        // observing that cycle's group see the ticket leave.
+        let previous: Option<i32> = cycle_tickets::table
+            .filter(cycle_tickets::ticket_id.eq(ticket_id))
+            .select(cycle_tickets::cycle_id)
+            .first(conn)
+            .optional()?;
+        if let Some(prev_cycle_id) = previous {
+            diesel::delete(cycle_tickets::table.filter(cycle_tickets::ticket_id.eq(ticket_id)))
+                .execute(conn)?;
+            emit_cycle_ticket_event(conn, prev_cycle_id, ticket_id, SyncOp::Delete, "cycle_ticket.removed", None)?;
+        }
+        let row: CycleTicket = diesel::insert_into(cycle_tickets::table)
             .values(&NewCycleTicket {
                 cycle_id,
                 ticket_id,
                 added_by: actor,
             })
-            .get_result(conn)
+            .get_result(conn)?;
+        emit_cycle_ticket_event(conn, cycle_id, ticket_id, SyncOp::Insert, "cycle_ticket.added", actor)?;
+        Ok(row)
     })
 }
 
 pub fn remove_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usize> {
-    diesel::delete(cycle_tickets::table.filter(cycle_tickets::ticket_id.eq(ticket_id)))
-        .execute(conn)
+    conn.transaction(|conn| {
+        let previous: Option<i32> = cycle_tickets::table
+            .filter(cycle_tickets::ticket_id.eq(ticket_id))
+            .select(cycle_tickets::cycle_id)
+            .first(conn)
+            .optional()?;
+        let n = diesel::delete(cycle_tickets::table.filter(cycle_tickets::ticket_id.eq(ticket_id)))
+            .execute(conn)?;
+        if let Some(cycle_id) = previous {
+            emit_cycle_ticket_event(conn, cycle_id, ticket_id, SyncOp::Delete, "cycle_ticket.removed", None)?;
+        }
+        Ok(n)
+    })
+}
+
+/// Cycle-ticket events propagate through the cycle's project group
+/// (so calendar / cycles surfaces refresh) and the ticket's own
+/// group (so a ticket-detail subscriber learns its cycle changed).
+fn emit_cycle_ticket_event(
+    conn: &mut DbConnection,
+    cycle_id: i32,
+    ticket_id: i32,
+    op: SyncOp,
+    event_type: &'static str,
+    actor: Option<Uuid>,
+) -> QueryResult<()> {
+    let project_id: Option<i32> = cycles::table
+        .find(cycle_id)
+        .select(cycles::project_id)
+        .first(conn)
+        .optional()?;
+    let mut groups = vec![
+        "workspace:1".to_string(),
+        format!("cycle:{}", cycle_id),
+        format!("ticket:{}", ticket_id),
+    ];
+    if let Some(pid) = project_id {
+        groups.push(format!("project:{}", pid));
+    }
+    emit::record(
+        conn,
+        SyncEmit {
+            aggregate: SyncAggregate::CycleTicket,
+            aggregate_id: format!("{}:{}", cycle_id, ticket_id),
+            op,
+            event_type,
+            data: json!({
+                "cycle_id": cycle_id,
+                "ticket_id": ticket_id,
+                "added_by": actor,
+            }),
+            groups,
+            causation_id: None,
+        },
+    )?;
+    Ok(())
 }
 
 pub fn ticket_ids_for_cycle(conn: &mut DbConnection, cycle_id: i32) -> QueryResult<Vec<i32>> {

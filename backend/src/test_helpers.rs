@@ -214,16 +214,9 @@ impl TestFixtures {
         let new_ticket = NewTicket {
             title: title.to_string(),
             workflow_state_id: open_state.id,
-            priority: TicketPriority::Medium,
             requester_uuid: requester,
-            assignee_uuid: None,
             category_id,
-            submitted_via: None,
-            guest_lookup_token: None,
-            verification_state: None,
-            origin_channel_id: None,
-            triage_state: None,
-            due_date: None,
+            ..Default::default()
         };
 
         diesel::insert_into(tickets::table)

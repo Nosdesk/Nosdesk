@@ -382,6 +382,16 @@ pub enum TicketPriority {
     High,
 }
 
+impl Default for TicketPriority {
+    fn default() -> Self {
+        // Medium matches the prior behavior of `parse_ticket_priority`
+        // for unknown strings; new tickets without a stated priority
+        // land in the middle bucket rather than dragging the queue
+        // toward Low or High.
+        TicketPriority::Medium
+    }
+}
+
 impl TicketPriority {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -514,7 +524,12 @@ pub struct Ticket {
 
 // Ticket implementation removed - serialization now handled by serde attributes
 
-#[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
+/// Insert payload for `tickets`. `Default` is implemented so call
+/// sites can write `NewTicket { title: ..., workflow_state_id: ...,
+/// ..Default::default() }` without spelling out every nullable
+/// field. Adding a new optional column on `tickets` then becomes a
+/// one-line model change instead of a sweep across every caller.
+#[derive(Debug, Default, Serialize, Deserialize, Insertable, AsChangeset)]
 #[diesel(table_name = crate::schema::tickets)]
 pub struct NewTicket {
     pub title: String,

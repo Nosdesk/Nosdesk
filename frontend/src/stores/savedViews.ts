@@ -14,6 +14,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { logger } from '@/utils/logger'
+import { dedupeInFlight } from '@/utils/dedupeInFlight'
 import {
   savedViewsService,
   type SavedView,
@@ -25,7 +26,9 @@ type CacheKey = string
 
 export const useSavedViewsStore = defineStore('savedViews', () => {
   const cache = ref<Map<CacheKey, SavedView[]>>(new Map())
-  const loadingKeys = ref<Set<CacheKey>>(new Set())
+  // In-flight fetch registry. Concurrent callers for the same key
+  // share one Promise rather than polling each other to settle.
+  const inflight = new Map<CacheKey, Promise<SavedView[]>>()
   const lastError = ref<string | null>(null)
 
   function keyFor(projectId: number | null | undefined): CacheKey {
@@ -34,28 +37,19 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
 
   async function ensureLoaded(projectId: number | null | undefined): Promise<SavedView[]> {
     const key = keyFor(projectId)
-    if (cache.value.has(key)) return cache.value.get(key)!
-    if (loadingKeys.value.has(key)) {
-      // Another caller is already fetching this key; wait for the
-      // result by polling the cache. Cheap and stays correct
-      // without an extra in-flight Promise registry.
-      while (loadingKeys.value.has(key)) {
-        await new Promise((r) => setTimeout(r, 16))
+    const cached = cache.value.get(key)
+    if (cached) return cached
+    return dedupeInFlight(inflight, key, async () => {
+      try {
+        const rows = await savedViewsService.list(projectId ?? undefined)
+        cache.value.set(key, rows)
+        return rows
+      } catch (e) {
+        logger.warn('Failed to load saved views', { projectId, error: e })
+        lastError.value = e instanceof Error ? e.message : 'Failed to load saved views'
+        return []
       }
-      return cache.value.get(key) ?? []
-    }
-    loadingKeys.value.add(key)
-    try {
-      const rows = await savedViewsService.list(projectId ?? undefined)
-      cache.value.set(key, rows)
-      return rows
-    } catch (e) {
-      logger.warn('Failed to load saved views', { projectId, error: e })
-      lastError.value = e instanceof Error ? e.message : 'Failed to load saved views'
-      return []
-    } finally {
-      loadingKeys.value.delete(key)
-    }
+    })
   }
 
   function viewsForProject(projectId: number | null | undefined) {
@@ -155,7 +149,7 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
 
   function reset(): void {
     cache.value.clear()
-    loadingKeys.value.clear()
+    inflight.clear()
     lastError.value = null
   }
 

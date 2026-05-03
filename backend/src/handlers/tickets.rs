@@ -8,7 +8,7 @@ use tracing::{debug, error, warn, info};
 use uuid::Uuid;
 
 use crate::extractors::AuthContext;
-use crate::models::{AssignmentTrigger, Claims, NewTicket, TicketPriority, TicketUpdate, TicketsJson, UserRole, WorkflowStateCategory};
+use crate::models::{AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson, UserRole, WorkflowStateCategory};
 use crate::repository;
 use crate::repository::ticket_query::TicketQuery;
 use crate::services::assignment::AssignmentEngine;
@@ -649,16 +649,8 @@ pub async fn create_empty_ticket(
     let empty_ticket = NewTicket {
         title: "New Ticket".to_string(),
         workflow_state_id: default_state.id,
-        priority: TicketPriority::Medium,
-        requester_uuid: Some(user_uuid), // Use authenticated user's UUID
-        assignee_uuid: None,
-        category_id: None,
-        submitted_via: None,
-        guest_lookup_token: None,
-        verification_state: None,
-        origin_channel_id: None,
-        triage_state: None,
-        due_date: None,
+        requester_uuid: Some(user_uuid),
+        ..Default::default()
     };
 
     // Create the ticket and then add empty article content
@@ -782,18 +774,8 @@ pub async fn update_ticket_partial(
 
     // Parse JSON and build TicketUpdate with user lookups
     let mut ticket_update = TicketUpdate {
-        title: None,
-        workflow_state_id: None,
-        priority: None,
-        requester_uuid: None,
-        assignee_uuid: None,
         updated_at: Some(chrono::Utc::now().naive_utc()),
-        closed_at: None,
-        category_id: None,
-        verification_state: None,
-        origin_channel_id: None,
-        triage_state: None,
-        due_date: None,
+        ..Default::default()
     };
 
     // Handle simple string fields
@@ -1553,22 +1535,14 @@ pub async fn bulk_tickets(
             let mut updated = 0;
             for id in ids {
                 let update = TicketUpdate {
-                    title: None,
                     workflow_state_id: Some(target_state.id),
-                    priority: None,
-                    requester_uuid: None,
-                    assignee_uuid: None,
                     updated_at: Some(chrono::Utc::now().naive_utc()),
-                    verification_state: None,
                     closed_at: if is_closed {
                         Some(Some(chrono::Utc::now().naive_utc()))
                     } else {
                         None
                     },
-                    category_id: None,
-                    origin_channel_id: None,
-        triage_state: None,
-        due_date: None,
+                    ..Default::default()
                 };
 
                 if with_actor(&mut conn, &actor_ctx, |conn| {
@@ -1608,18 +1582,9 @@ pub async fn bulk_tickets(
             let mut updated = 0;
             for id in ids {
                 let update = TicketUpdate {
-                    title: None,
-                    workflow_state_id: None,
                     priority: Some(priority),
-                    requester_uuid: None,
-                    assignee_uuid: None,
                     updated_at: Some(chrono::Utc::now().naive_utc()),
-                    closed_at: None,
-                    category_id: None,
-                    verification_state: None,
-                    origin_channel_id: None,
-        triage_state: None,
-        due_date: None,
+                    ..Default::default()
                 };
 
                 if with_actor(&mut conn, &actor_ctx, |conn| {
@@ -1660,18 +1625,9 @@ pub async fn bulk_tickets(
             let mut updated = 0;
             for id in ids {
                 let update = TicketUpdate {
-                    title: None,
-                    workflow_state_id: None,
-                    priority: None,
-                    requester_uuid: None,
                     assignee_uuid: Some(assignee_uuid),
                     updated_at: Some(chrono::Utc::now().naive_utc()),
-                    closed_at: None,
-                    category_id: None,
-                    verification_state: None,
-                    origin_channel_id: None,
-        triage_state: None,
-        due_date: None,
+                    ..Default::default()
                 };
 
                 if with_actor(&mut conn, &actor_ctx, |conn| {
@@ -1706,7 +1662,7 @@ mod tests {
     use super::*;
     use actix_web::{test, App, http::StatusCode};
     use crate::test_helpers::{setup_test_pool, create_test_claims, TestFixtures};
-    use crate::models::UserRole;
+    use crate::models::{TicketPriority, UserRole};
 
     /// Helper to create a test app with ticket routes.
     /// Note: This is a simplified app without SSE, notification, and search services
@@ -1838,16 +1794,8 @@ mod tests {
         let update = TicketUpdate {
             title: Some("Updated Title".to_string()),
             workflow_state_id: Some(in_progress.id),
-            priority: None,
-            requester_uuid: None,
-            assignee_uuid: None,
             updated_at: Some(chrono::Utc::now().naive_utc()),
-            closed_at: None,
-            category_id: None,
-            verification_state: None,
-            origin_channel_id: None,
-        triage_state: None,
-        due_date: None,
+            ..Default::default()
         };
 
         let updated = repository::update_ticket_partial(&mut conn, ticket.id, update, None)
