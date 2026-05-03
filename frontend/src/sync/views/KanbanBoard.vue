@@ -15,9 +15,13 @@
  * Deferred to later commits:
  * - SLA / KB-gap pills (need pre-computed CardData fields).
  * - Field-level presence indicators on atomic dropdowns.
- * - Keyboard parity (Option+Shift+Up/Down).
+ *
+ * Keyboard parity (Option+Shift+Arrow): the selected card moves
+ * one column over (Left/Right) or, when the secondary axis is
+ * on, one sub-lane up/down. Mirrors the drag dispatch path; both
+ * end up in `dispatchMove`.
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
@@ -215,38 +219,47 @@ function resolveLaneAt(clientX: number, clientY: number): string | null {
   return laneEl?.getAttribute('data-lane-id') ?? null
 }
 
+/** Single dispatch path used by both pointer drops and keyboard
+ * shortcuts. Takes the target lane id (`<category>::<secondary>`
+ * format) and the cards to move; flips workflow state and, when
+ * the secondary axis is on, patches the secondary field.
+ */
+function dispatchMove(cardIds: number[], targetLaneId: string): void {
+  const [categoryId, secondaryKey] = parseLaneId(targetLaneId)
+  const lane = lanes.value.find((l) => l.id === categoryId)
+  if (!lane?.defaultState) return
+  const target = lane.defaultState
+  void ticketsStore.bulkMoveToWorkflowState(cardIds, {
+    id: target.id,
+    name: target.name,
+    category: target.category,
+    color: target.color,
+  })
+  if (props.secondaryGroupBy && secondaryKey !== SECONDARY_NONE) {
+    const patch: { assignee_uuid?: string | null; priority?: CardData['priority'] } = {}
+    if (props.secondaryGroupBy === 'assignee_uuid') {
+      patch.assignee_uuid = secondaryKey
+    } else {
+      patch.priority = secondaryKey as CardData['priority']
+    }
+    for (const id of cardIds) void ticketsStore.patchKanbanFields(id, patch)
+  } else if (props.secondaryGroupBy && secondaryKey === SECONDARY_NONE) {
+    // Drop into the "none" sub-lane clears the secondary field.
+    // Priority's "no priority" is the literal 'none', whereas
+    // assignee uses null — keep them distinguishable here.
+    const patch = props.secondaryGroupBy === 'assignee_uuid'
+      ? { assignee_uuid: null }
+      : { priority: 'none' as const }
+    for (const id of cardIds) void ticketsStore.patchKanbanFields(id, patch)
+  }
+}
+
 const { state: dragState, onPointerDown, isDraggedCard, isHoverLane } = useDragDrop({
   resolveLaneAt,
   selection: () => selectedIds.value,
   onClick: (cardId) => props.onCardClick?.(cardId),
   onDrop: ({ cardIds, targetLane }) => {
-    const [categoryId, secondaryKey] = parseLaneId(targetLane)
-    const lane = lanes.value.find((l) => l.id === categoryId)
-    if (!lane?.defaultState) return
-    const target = lane.defaultState
-    void ticketsStore.bulkMoveToWorkflowState(cardIds, {
-      id: target.id,
-      name: target.name,
-      category: target.category,
-      color: target.color,
-    })
-    if (props.secondaryGroupBy && secondaryKey !== SECONDARY_NONE) {
-      const patch: { assignee_uuid?: string | null; priority?: CardData['priority'] } = {}
-      if (props.secondaryGroupBy === 'assignee_uuid') {
-        patch.assignee_uuid = secondaryKey
-      } else {
-        patch.priority = secondaryKey as CardData['priority']
-      }
-      for (const id of cardIds) void ticketsStore.patchKanbanFields(id, patch)
-    } else if (props.secondaryGroupBy && secondaryKey === SECONDARY_NONE) {
-      // Drop into the "none" sub-lane clears the secondary field.
-      // Priority's "no priority" is the literal 'none', whereas
-      // assignee uses null — keep them distinguishable here.
-      const patch = props.secondaryGroupBy === 'assignee_uuid'
-        ? { assignee_uuid: null }
-        : { priority: 'none' as const }
-      for (const id of cardIds) void ticketsStore.patchKanbanFields(id, patch)
-    }
+    dispatchMove(cardIds, targetLane)
     // Dropping clears the selection so the user gets a clean state
     // for the next interaction. Multi-drag intent is "move these
     // five things" not "keep these five selected forever."
@@ -277,6 +290,81 @@ function handleCardPointerDown(card: CardData, event: PointerEvent): void {
   }
   onPointerDown(card.id, event)
 }
+
+// ---------------------------------------------------------------
+// Keyboard parity: Option/Alt+Shift+Arrow moves the selected
+// cards. Left/Right walks columns; Up/Down walks sub-lanes inside
+// the current column when the secondary axis is on (otherwise
+// they're no-ops). Mirrors Linear's drag-keyboard pairing.
+// ---------------------------------------------------------------
+
+function findCardLane(cardId: number): { laneIdx: number; sublaneIdx: number } | null {
+  for (let li = 0; li < lanes.value.length; li++) {
+    const lane = lanes.value[li]
+    for (let si = 0; si < lane.sublanes.length; si++) {
+      if (lane.sublanes[si].cards.some((c) => c.id === cardId)) {
+        return { laneIdx: li, sublaneIdx: si }
+      }
+    }
+  }
+  return null
+}
+
+function moveSelectionByKey(direction: 'left' | 'right' | 'up' | 'down'): void {
+  if (selectedIds.value.size === 0) return
+  // Anchor on the first selected card so the group moves as a
+  // unit. Mixed-lane selections all land in the same target lane.
+  const anchorId = selectedIds.value.values().next().value as number
+  const pos = findCardLane(anchorId)
+  if (!pos) return
+  let targetLane = pos.laneIdx
+  let targetSub = pos.sublaneIdx
+  if (direction === 'left') targetLane = Math.max(0, pos.laneIdx - 1)
+  if (direction === 'right') targetLane = Math.min(lanes.value.length - 1, pos.laneIdx + 1)
+  if (direction === 'up' || direction === 'down') {
+    if (!props.secondaryGroupBy) return
+    const subCount = lanes.value[pos.laneIdx].sublanes.length
+    targetSub = direction === 'up'
+      ? Math.max(0, pos.sublaneIdx - 1)
+      : Math.min(subCount - 1, pos.sublaneIdx + 1)
+  }
+  if (targetLane === pos.laneIdx && targetSub === pos.sublaneIdx) return
+  const dest = lanes.value[targetLane]?.sublanes[targetSub]
+  if (!dest) return
+  dispatchMove(Array.from(selectedIds.value), dest.id)
+  // Keyboard moves keep the selection so the user can chain
+  // moves; Linear ships this behaviour and it lets you chord
+  // Option-Shift-Right twice in a row to skip a column.
+}
+
+function isModalActive(): boolean {
+  // If the user is typing in an input or editing in a content-
+  // editable region, never hijack the keys.
+  const el = document.activeElement as HTMLElement | null
+  if (!el) return false
+  const tag = el.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  return el.isContentEditable === true
+}
+
+function onKeyDown(event: KeyboardEvent): void {
+  // Shift + Alt (Option on macOS) is the gesture. Avoids colliding
+  // with browser back/forward (Cmd+Arrow) and word-wise text nav
+  // (Option+Arrow alone).
+  if (!event.altKey || !event.shiftKey) return
+  if (isModalActive()) return
+  let direction: 'left' | 'right' | 'up' | 'down' | null = null
+  if (event.key === 'ArrowLeft') direction = 'left'
+  else if (event.key === 'ArrowRight') direction = 'right'
+  else if (event.key === 'ArrowUp') direction = 'up'
+  else if (event.key === 'ArrowDown') direction = 'down'
+  if (!direction) return
+  event.preventDefault()
+  moveSelectionByKey(direction)
+}
+
+onMounted(() => window.addEventListener('keydown', onKeyDown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
 
 // ---------------------------------------------------------------
 // Card visuals
