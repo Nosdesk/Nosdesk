@@ -72,7 +72,7 @@ const cards = computed<CardData[]>(() => {
       priority: t.priority,
       assignee_uuid: t.assignee_uuid,
       requester_uuid: t.requester_uuid,
-      due_date: null,
+      due_date: t.due_date,
       created_at: t.created_at,
       updated_at: t.updated_at,
       last_activity_at: t.last_activity_at,

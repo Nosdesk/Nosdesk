@@ -11,8 +11,10 @@
 -- the sync engine emits cycle_id with the ticket payload.
 --
 -- created_by points at the first admin we can find. If none exists
--- (fresh install) the row inserts with created_by NULL — the
--- frontend tolerates that.
+-- (fresh install, test database) the seed is skipped entirely so
+-- it doesn't violate the NOT NULL constraint; an admin can run
+-- the equivalent INSERT manually after onboarding, or rerun the
+-- seed migration once the workspace has an admin.
 
 INSERT INTO saved_views (scope, scope_id, name, shape, filter, created_by, is_default)
 SELECT
@@ -54,7 +56,10 @@ SELECT
     }'::jsonb,
     (SELECT uuid FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1),
     true
-WHERE NOT EXISTS (
+WHERE EXISTS (
+    SELECT 1 FROM users WHERE role = 'admin'
+)
+AND NOT EXISTS (
     SELECT 1 FROM saved_views
     WHERE scope = 'workspace' AND name = 'Triage' AND archived_at IS NULL
 );

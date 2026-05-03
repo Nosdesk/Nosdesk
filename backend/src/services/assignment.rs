@@ -368,6 +368,7 @@ mod tests {
             verification_state: None,
             origin_channel_id: None,
             triage_state: None,
+            due_date: None,
         };
         overrides(&mut ticket);
         ticket

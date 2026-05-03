@@ -244,6 +244,7 @@ fn stream_bootstrap(
             "assignee_uuid": t.assignee_uuid,
             "category_id": t.category_id,
             "triage_state": t.triage_state,
+            "due_date": t.due_date,
             "created_at": t.created_at,
             "updated_at": t.updated_at,
             "last_activity_at": t.updated_at,

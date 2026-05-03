@@ -400,6 +400,7 @@ pub async fn submit_guest_ticket(
         },
         origin_channel_id: None,
         triage_state: None,
+        due_date: None,
     };
 
     let ticket = match repository::tickets::create_ticket(&mut conn, new_ticket) {

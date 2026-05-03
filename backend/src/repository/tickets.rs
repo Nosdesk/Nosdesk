@@ -410,6 +410,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
         verification_state: None,
         origin_channel_id: None,
         triage_state: None,
+        due_date: None,
     };
 
     let ticket = create_ticket(conn, new_ticket)?;
@@ -590,6 +591,7 @@ mod tests {
             verification_state: state.map(|s| s.to_string()),
             origin_channel_id: None,
         triage_state: None,
+        due_date: None,
         };
         diesel::insert_into(tickets::table)
             .values(&new_ticket)

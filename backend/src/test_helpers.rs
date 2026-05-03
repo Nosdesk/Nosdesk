@@ -223,6 +223,7 @@ impl TestFixtures {
             verification_state: None,
             origin_channel_id: None,
             triage_state: None,
+            due_date: None,
         };
 
         diesel::insert_into(tickets::table)

@@ -482,6 +482,7 @@ fn open_ticket_from_message(
         verification_state: None,
         origin_channel_id: Some(channel.id),
         triage_state: Some("untriaged".into()),
+        due_date: None,
     };
 
     tickets_repo::create_ticket(conn, new_ticket)

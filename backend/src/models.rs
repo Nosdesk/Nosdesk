@@ -504,6 +504,12 @@ pub struct Ticket {
     /// or directly worked). The Triage saved view filters on
     /// `triage_state = 'untriaged' AND ticket not in any cycle`.
     pub triage_state: Option<String>,
+    /// Calendar deadline. NULL when the ticket has no committed
+    /// due date; calendar views only render the ones with a value.
+    /// Uses NaiveDateTime to match the surrounding closed_at /
+    /// created_at columns; the SQL column is TIMESTAMPTZ but
+    /// timezone gets normalised at the API boundary.
+    pub due_date: Option<NaiveDateTime>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
@@ -522,6 +528,7 @@ pub struct NewTicket {
     pub verification_state: Option<String>,
     pub origin_channel_id: Option<i32>,
     pub triage_state: Option<String>,
+    pub due_date: Option<NaiveDateTime>,
 }
 
 // Add a new struct for partial ticket updates
@@ -539,6 +546,7 @@ pub struct TicketUpdate {
     pub origin_channel_id: Option<Option<i32>>,
     pub category_id: Option<Option<i32>>,
     pub triage_state: Option<Option<String>>,
+    pub due_date: Option<Option<NaiveDateTime>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]

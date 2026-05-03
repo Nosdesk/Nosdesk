@@ -8,14 +8,16 @@
  * can replace `BUILTIN_VIEWS` with a fetch + cache without
  * touching consumers.
  */
-import type { FilterState, ListViewShape } from './types'
+import type { CalendarViewShape, FilterState, ListViewShape } from './types'
 
 export interface BuiltInView {
   /** Stable id used in the URL (`?view=triage`). */
-  id: 'triage' | 'my-queue'
+  id: 'triage' | 'my-queue' | 'calendar'
   name: string
   description: string
-  shape: ListViewShape
+  /** Built-ins ship list and calendar shapes today. The TicketsList
+   * view branches on `shape.type` to pick the renderer. */
+  shape: ListViewShape | CalendarViewShape
   filter: FilterState
 }
 
@@ -91,7 +93,35 @@ export const MY_QUEUE_VIEW: BuiltInView = {
   },
 }
 
-export const BUILTIN_VIEWS: BuiltInView[] = [TRIAGE_VIEW, MY_QUEUE_VIEW]
+/** Calendar view of every ticket with a due_date. Anchors on
+ * `due_date` because that's what calendars are for; created_at /
+ * last_activity_at are reserved as alternate anchors when the
+ * shape gets a saved-view editor. */
+const baseCalendarShape: CalendarViewShape = {
+  type: 'calendar',
+  group_by: { primary: 'workflow_state.category' },
+  sort: [{ field: 'due_date', dir: 'asc' }],
+  visible_card_fields: ['title', 'priority', 'assignee_uuid', 'due_date'],
+  card_density: 'compact',
+  swimlane_collapse_state: {},
+  filter_id: null,
+  time_axis: { unit: 'month', start: '', end: '' },
+  date_field: 'due_date',
+}
+
+export const CALENDAR_VIEW: BuiltInView = {
+  id: 'calendar',
+  name: 'Calendar',
+  description: 'Tickets placed on the day they are due',
+  shape: baseCalendarShape,
+  filter: {
+    ...baseFilter,
+    predicate: { combinator: 'AND', children: [] },
+    quick_filters: [],
+  },
+}
+
+export const BUILTIN_VIEWS: BuiltInView[] = [TRIAGE_VIEW, MY_QUEUE_VIEW, CALENDAR_VIEW]
 
 export function findBuiltinView(id: string): BuiltInView | null {
   return BUILTIN_VIEWS.find((v) => v.id === id) ?? null

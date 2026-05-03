@@ -1094,6 +1094,7 @@ diesel::table! {
         workflow_state_id -> Int4,
         #[max_length = 20]
         triage_state -> Nullable<Varchar>,
+        due_date -> Nullable<Timestamptz>,
     }
 }
 

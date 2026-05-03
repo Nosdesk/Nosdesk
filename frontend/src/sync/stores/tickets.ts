@@ -34,6 +34,7 @@ export interface SyncTicket {
    * filters on `triage_state = 'untriaged'`; channel-inbound
    * tickets default to that, member-created tickets to NULL. */
   triage_state: 'untriaged' | 'triaged' | 'rejected' | null
+  due_date: string | null
   created_at: string
   updated_at: string
   last_activity_at: string

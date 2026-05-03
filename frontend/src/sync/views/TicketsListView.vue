@@ -31,8 +31,15 @@ import {
   type BuiltInView,
 } from './builtinViews'
 import { buildPredicate } from './filter'
-import type { CardData, FilterState, ListViewShape, ViewShape } from './types'
+import type {
+  CalendarViewShape,
+  CardData,
+  FilterState,
+  ListViewShape,
+  ViewShape,
+} from './types'
 import type { SavedView } from '@/services/savedViewsService'
+import CalendarBoard from './CalendarBoard.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
@@ -49,7 +56,9 @@ interface ResolvedView {
   id: string
   name: string
   description: string
-  shape: ListViewShape
+  /** List or calendar today; gantt / scrum land when those
+   * renderers ship. The renderer branches on `shape.type`. */
+  shape: ListViewShape | CalendarViewShape
   filter: FilterState
   source: 'builtin' | 'saved'
   uuid?: string
@@ -74,16 +83,19 @@ onMounted(async () => {
 // ---------------------------------------------------------------
 const savedViewsRef = savedViewsStore.viewsForProject(null)
 
-const listSavedViews = computed<SavedView[]>(() =>
-  savedViewsRef.value.filter((v) => v.shape && (v.shape as ViewShape).type === 'list'),
-)
+const listSavedViews = computed<SavedView[]>(() => {
+  return savedViewsRef.value.filter((v) => {
+    const t = (v.shape as ViewShape | null)?.type
+    return t === 'list' || t === 'calendar'
+  })
+})
 
 function toResolved(view: SavedView): ResolvedView {
   return {
     id: view.uuid,
     name: view.name,
     description: view.scope === 'private' ? 'Private view' : 'Workspace view',
-    shape: view.shape as ListViewShape,
+    shape: view.shape as ListViewShape | CalendarViewShape,
     filter: view.filter,
     source: 'saved',
     uuid: view.uuid,
@@ -182,7 +194,7 @@ const cards = computed<CardData[]>(() => {
       priority: t.priority,
       assignee_uuid: t.assignee_uuid,
       requester_uuid: t.requester_uuid,
-      due_date: null,
+      due_date: t.due_date,
       created_at: t.created_at,
       updated_at: t.updated_at,
       last_activity_at: t.last_activity_at,
@@ -408,6 +420,18 @@ async function archiveActiveView(): Promise<void> {
     >
       Loading tickets…
     </div>
+
+    <!-- Calendar shape branches before the empty-state check; an
+         empty calendar grid is still useful (the user wants to see
+         the month, not a "no tickets" panel). -->
+    <CalendarBoard
+      v-else-if="activeView.shape.type === 'calendar'"
+      class="flex-1 min-h-0"
+      :cards="filteredCards"
+      :date-field="activeView.shape.date_field"
+      :on-card-click="open"
+    />
+
     <div
       v-else-if="sortedCards.length === 0"
       class="flex-1 flex flex-col items-center justify-center text-tertiary text-sm"
