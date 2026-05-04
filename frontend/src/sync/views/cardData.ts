@@ -32,5 +32,7 @@ export function toCardData(ticket: SyncTicket): CardData | null {
     affected_devices: ticket.affected_devices ?? null,
     cycle_id: ticket.cycle_id ?? null,
     sla: ticket.sla ?? null,
+    recurrence_rule: ticket.recurrence_rule ?? null,
+    recurrence_template_id: ticket.recurrence_template_id ?? null,
   }
 }

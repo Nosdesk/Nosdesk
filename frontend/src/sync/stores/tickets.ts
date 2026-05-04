@@ -59,6 +59,11 @@ export interface SyncTicket {
     pill_color: 'green' | 'amber' | 'red'
     seconds_remaining?: number | null
   } | null
+  /** RFC 5545 RRULE string. Closing a ticket with a rule spawns
+   * the next occurrence (services/recurrence on the backend). */
+  recurrence_rule?: string | null
+  /** First ticket in a recurring series; null on the original. */
+  recurrence_template_id?: number | null
   created_at: string
   updated_at: string
   last_activity_at: string

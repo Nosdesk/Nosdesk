@@ -94,6 +94,11 @@ export interface CardData {
     pill_color: 'green' | 'amber' | 'red'
     seconds_remaining?: number | null
   } | null
+  /** RFC 5545 RRULE string when the ticket is part of a recurring
+   * series; the kanban surfaces a small recurrence pill so the
+   * pattern is visible at a glance. */
+  recurrence_rule?: string | null
+  recurrence_template_id?: number | null
 }
 
 // ===================== ViewShape =====================

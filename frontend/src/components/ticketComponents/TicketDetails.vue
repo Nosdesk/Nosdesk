@@ -78,6 +78,8 @@ const props = defineProps<{
     submitted_via?: string | null;
     /** Calendar deadline. ISO string (RFC3339) or null. */
     due_date?: string | null;
+    /** RFC 5545 RRULE string for recurring tickets, or null. */
+    recurrence_rule?: string | null;
   };
   createdDate: string;
   modifiedDate: string;
@@ -102,6 +104,8 @@ const emit = defineEmits<{
   (e: "titleBlur"): void;
   /** ISO string (start-of-day in user TZ) or null when cleared. */
   (e: "update:dueDate", value: string | null): void;
+  /** RRULE string or null when cleared. */
+  (e: "update:recurrenceRule", value: string | null): void;
 }>();
 
 const workflowStatesStore = useWorkflowStatesStore();
@@ -203,6 +207,33 @@ function handleDueDateChange(event: Event): void {
   // timezone so round-tripping is unambiguous.
   const local = new Date(`${value}T00:00:00`);
   emit('update:dueDate', local.toISOString());
+}
+
+/** Recurrence preset that maps to a known RRULE string. The picker
+ * exposes a small list rather than the full RFC; an admin who
+ * needs WEEKDAYS-only or interval=2 rules can edit the raw string
+ * directly through the API. */
+const RECURRENCE_PRESETS: { value: string; label: string }[] = [
+  { value: '', label: 'Not recurring' },
+  { value: 'FREQ=DAILY', label: 'Daily' },
+  { value: 'FREQ=WEEKLY', label: 'Weekly' },
+  { value: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', label: 'Weekdays' },
+  { value: 'FREQ=MONTHLY', label: 'Monthly' },
+  { value: 'FREQ=YEARLY', label: 'Yearly' },
+];
+
+const recurrenceSelectValue = computed<string>(() => {
+  const rule = props.ticket.recurrence_rule ?? '';
+  // Show 'custom' when the rule isn't one of our presets so the
+  // dropdown stays honest about not being able to edit it here.
+  if (!rule) return '';
+  return RECURRENCE_PRESETS.some(p => p.value === rule) ? rule : '__custom__';
+});
+
+function handleRecurrenceChange(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value;
+  if (value === '__custom__') return; // no-op; custom rules are read-only in this picker
+  emit('update:recurrenceRule', value || null);
 }
 
 // Generate QR code for ticket URL (for print)
@@ -492,6 +523,28 @@ watchEffect(async () => {
                 @click="emit('update:dueDate', null)"
               >×</button>
             </div>
+          </div>
+
+          <!-- Recurrence -->
+          <div class="flex flex-col gap-1.5">
+            <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Recurrence</h3>
+            <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors flex items-center">
+              <select
+                class="flex-1 bg-transparent text-sm text-primary px-3 py-2 outline-none"
+                :value="recurrenceSelectValue"
+                @change="handleRecurrenceChange"
+              >
+                <option v-for="preset in RECURRENCE_PRESETS" :key="preset.value" :value="preset.value">
+                  {{ preset.label }}
+                </option>
+                <option v-if="recurrenceSelectValue === '__custom__'" value="__custom__" disabled>
+                  Custom rule (read-only here)
+                </option>
+              </select>
+            </div>
+            <p class="text-[11px] text-tertiary italic">
+              Closing a recurring ticket spawns the next occurrence automatically.
+            </p>
           </div>
 
           <!-- Category Section -->

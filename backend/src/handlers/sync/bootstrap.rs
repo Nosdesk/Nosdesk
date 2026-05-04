@@ -299,6 +299,8 @@ fn stream_bootstrap(
             "affected_devices": affected_devices,
             "cycle_id": cycle_membership.get(&t.id),
             "sla": sla,
+            "recurrence_rule": t.recurrence_rule,
+            "recurrence_template_id": t.recurrence_template_id,
             "created_at": t.created_at,
             "updated_at": t.updated_at,
             "last_activity_at": t.updated_at,

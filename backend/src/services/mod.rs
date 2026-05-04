@@ -5,6 +5,7 @@ pub mod notifications;
 pub mod plugins;
 pub mod scheduled_jobs;
 pub mod scheduler;
+pub mod recurrence;
 pub mod search;
 pub mod seed;
 pub mod sla;

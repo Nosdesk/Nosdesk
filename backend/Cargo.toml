@@ -25,6 +25,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"  # SLA business-hours arithmetic walks named timezones
+rrule = "0.13"     # RFC 5545 RRULE parsing for recurring tickets
 r2d2 = "0.8.10"
 uuid = { version = "1.17", features = ["v4", "v7", "serde"] }
 actix-cors = "0.7.0"

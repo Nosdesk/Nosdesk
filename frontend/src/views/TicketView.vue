@@ -77,6 +77,7 @@ const {
     updateRequester,
     updateAssignee,
     updateDueDate,
+    updateRecurrenceRule,
     deleteTicket,
 } = useTicketData();
 
@@ -588,6 +589,7 @@ usePageCreateAction(handleCreateTicket);
                             @update:requester="updateRequester"
                             @update:assignee="updateAssignee"
                             @update:dueDate="updateDueDate"
+                            @update:recurrenceRule="updateRecurrenceRule"
                             @update:title="handleTitleUpdate"
                             @titleFocus="handleTitleFocus"
                             @titleBlur="handleTitleBlur"

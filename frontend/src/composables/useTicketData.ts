@@ -270,6 +270,12 @@ export function useTicketData() {
     await updateTicketField("due_date", newDueDate);
   }
 
+  // Update recurrence_rule. Pass-through to the API; the backend
+  // validates the rule lazily on close.
+  async function updateRecurrenceRule(newRule: string | null): Promise<void> {
+    await updateTicketField("recurrence_rule", newRule);
+  }
+
   // Update category
   async function updateCategory(newCategory: string): Promise<void> {
     const categoryId = newCategory ? parseInt(newCategory, 10) : null;
@@ -314,6 +320,7 @@ export function useTicketData() {
     updateAssignee,
     updateTitle,
     updateDueDate,
+    updateRecurrenceRule,
     deleteTicket,
   };
 }

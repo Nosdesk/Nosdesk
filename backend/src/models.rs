@@ -570,6 +570,14 @@ pub struct Ticket {
     /// created_at columns; the SQL column is TIMESTAMPTZ but
     /// timezone gets normalised at the API boundary.
     pub due_date: Option<NaiveDateTime>,
+    /// RFC 5545 RRULE string. NULL means the ticket isn't on a
+    /// recurring schedule. Closing a ticket with a rule spawns the
+    /// next occurrence (services::recurrence::materialise_next).
+    pub recurrence_rule: Option<String>,
+    /// First ticket in the series. NULL on the original; subsequent
+    /// occurrences point back at the template so the audit reads
+    /// "this ticket was generated from #N".
+    pub recurrence_template_id: Option<i32>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
@@ -594,6 +602,8 @@ pub struct NewTicket {
     pub origin_channel_id: Option<i32>,
     pub triage_state: Option<String>,
     pub due_date: Option<NaiveDateTime>,
+    pub recurrence_rule: Option<String>,
+    pub recurrence_template_id: Option<i32>,
 }
 
 // Add a new struct for partial ticket updates
@@ -612,6 +622,8 @@ pub struct TicketUpdate {
     pub category_id: Option<Option<i32>>,
     pub triage_state: Option<Option<String>>,
     pub due_date: Option<Option<NaiveDateTime>>,
+    pub recurrence_rule: Option<Option<String>>,
+    pub recurrence_template_id: Option<Option<i32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]

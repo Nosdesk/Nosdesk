@@ -1175,7 +1175,7 @@ dependencies = [
  "bcrypt",
  "bytes",
  "chrono",
- "chrono-tz",
+ "chrono-tz 0.10.4",
  "clap",
  "constant_time_eq 0.3.1",
  "dashmap",
@@ -1215,6 +1215,7 @@ dependencies = [
  "regex",
  "reqwest",
  "ring",
+ "rrule",
  "sanitize-filename",
  "semver",
  "serde",
@@ -1595,12 +1596,34 @@ dependencies = [
 
 [[package]]
 name = "chrono-tz"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93698b29de5e97ad0ae26447b344c482a7284c737d9ddc5f9e52b74a336671bb"
+dependencies = [
+ "chrono",
+ "chrono-tz-build",
+ "phf 0.11.3",
+]
+
+[[package]]
+name = "chrono-tz"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6139a8597ed92cf816dfb33f5dd6cf0bb93a6adc938f11039f371bc5bcd26c3"
 dependencies = [
  "chrono",
  "phf 0.12.1",
+]
+
+[[package]]
+name = "chrono-tz-build"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c088aee841df9c3041febbb73934cfc39708749bf96dc827e3359cd39ef11b1"
+dependencies = [
+ "parse-zoneinfo",
+ "phf 0.11.3",
+ "phf_codegen",
 ]
 
 [[package]]
@@ -4383,6 +4406,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "487f2ccd1e17ce8c1bfab3a65c89525af41cfad4c8659021a1e9a2aacd73b89b"
 
 [[package]]
+name = "parse-zoneinfo"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f2a05b18d44e2957b88f96ba460715e295bc1d7510468a2f3d3b44535d26c24"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "password-hash"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5182,6 +5214,20 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rrule"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cff1ca93145ff07cdc878b5f6bb90391a299cc8712538af0ad73ebf37613e46a"
+dependencies = [
+ "chrono",
+ "chrono-tz 0.9.0",
+ "lazy_static",
+ "log",
+ "regex",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

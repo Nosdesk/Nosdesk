@@ -389,7 +389,25 @@ function hasPills(card: CardData): boolean {
   const hasGap = !!card.kb_gap_signal && card.kb_gap_signal !== 'none'
   const hasDevices = !!card.affected_devices && card.affected_devices.count > 0
   const hasSla = !!card.sla
-  return hasGap || hasDevices || hasSla
+  const hasRecurrence = !!card.recurrence_rule
+  return hasGap || hasDevices || hasSla || hasRecurrence
+}
+
+/** Pull a human label out of an RRULE without parsing the full
+ * RFC. Recognises the FREQ token; everything else falls back to
+ * "Recurring" so unsupported rules still surface a marker. */
+function recurrenceLabel(rule: string): string {
+  const freq = rule
+    .split(';')
+    .map((p) => p.trim())
+    .find((p) => p.toUpperCase().startsWith('FREQ='))
+    ?.split('=')[1]
+    ?.toLowerCase()
+  if (freq === 'daily') return 'Daily'
+  if (freq === 'weekly') return 'Weekly'
+  if (freq === 'monthly') return 'Monthly'
+  if (freq === 'yearly') return 'Yearly'
+  return 'Recurring'
 }
 
 function slaPillClass(color: 'green' | 'amber' | 'red'): string {
@@ -548,6 +566,14 @@ function affectedDevicesTooltip(card: CardData): string {
                   >
                     <span aria-hidden="true">▢</span>
                     {{ card.affected_devices.count }}
+                  </span>
+                  <span
+                    v-if="card.recurrence_rule"
+                    class="text-[10px] font-medium rounded px-1.5 py-0.5 bg-violet-500/15 text-violet-700 dark:text-violet-300 inline-flex items-center gap-1"
+                    :title="card.recurrence_rule"
+                  >
+                    <span aria-hidden="true">↻</span>
+                    {{ recurrenceLabel(card.recurrence_rule) }}
                   </span>
                 </div>
 

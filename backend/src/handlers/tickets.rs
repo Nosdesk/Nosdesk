@@ -884,6 +884,26 @@ pub async fn update_ticket_partial(
         }
     }
 
+    // recurrence_rule: RFC 5545 RRULE string, or null to clear.
+    // Validated lazily inside services::recurrence on close; the
+    // handler accepts any string and only rejects on type.
+    if body.get("recurrence_rule").is_some() {
+        match body.get("recurrence_rule") {
+            Some(Value::String(s)) => {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    ticket_update.recurrence_rule = Some(None);
+                } else {
+                    ticket_update.recurrence_rule = Some(Some(trimmed.to_string()));
+                }
+            }
+            Some(Value::Null) => {
+                ticket_update.recurrence_rule = Some(None);
+            }
+            _ => return errors::bad_request("recurrence_rule must be a string or null"),
+        }
+    }
+
     // Handle category_id (can be a number or null to unassign)
     if body.get("category_id").is_some() {
         match body.get("category_id") {
@@ -932,6 +952,92 @@ pub async fn update_ticket_partial(
         repository::update_ticket_partial(conn, ticket_id, ticket_update, Some(search_service.get_ref()))
     }) {
         Ok(updated_ticket) => {
+            // RRULE materialise-on-close: if the patch flipped the
+            // ticket into a closed category and the row carries a
+            // recurrence_rule, generate the next occurrence so the
+            // user sees it land immediately. Errors here are
+            // logged-and-continue: a malformed rule shouldn't
+            // brick close.
+            if let Some(rule) = updated_ticket.recurrence_rule.as_ref() {
+                let category = repository::workflow_states::category_of(
+                    &mut conn, updated_ticket.workflow_state_id,
+                )
+                .ok()
+                .flatten();
+                let is_closed = matches!(
+                    category,
+                    Some(crate::models::WorkflowStateCategory::Done)
+                        | Some(crate::models::WorkflowStateCategory::Cancelled)
+                );
+                if is_closed {
+                    let after = updated_ticket
+                        .due_date
+                        .or(updated_ticket.closed_at)
+                        .unwrap_or(updated_ticket.created_at);
+                    match crate::services::recurrence::next_occurrence_naive(
+                        rule,
+                        updated_ticket.created_at,
+                        after,
+                    ) {
+                        Ok(Some(next_due)) => {
+                            // The new occurrence is a clean copy of the
+                            // template — same title / priority / category /
+                            // assignee — with a fresh due_date and an open
+                            // workflow state. Carry the rule forward so
+                            // the chain continues; record the template id
+                            // to keep audit lineage.
+                            let template_id = updated_ticket
+                                .recurrence_template_id
+                                .unwrap_or(updated_ticket.id);
+                            let open_state =
+                                match repository::workflow_states::default_state(&mut conn) {
+                                    Ok(s) => s.id,
+                                    Err(_) => updated_ticket.workflow_state_id,
+                                };
+                            let new_ticket = NewTicket {
+                                title: updated_ticket.title.clone(),
+                                workflow_state_id: open_state,
+                                priority: updated_ticket.priority,
+                                requester_uuid: updated_ticket.requester_uuid,
+                                assignee_uuid: updated_ticket.assignee_uuid,
+                                category_id: updated_ticket.category_id,
+                                due_date: Some(next_due),
+                                recurrence_rule: Some(rule.clone()),
+                                recurrence_template_id: Some(template_id),
+                                ..Default::default()
+                            };
+                            if let Err(e) = with_actor(&mut conn, &actor_ctx, |conn| {
+                                repository::create_ticket(conn, new_ticket)
+                            }) {
+                                warn!(
+                                    ticket_id,
+                                    error = ?e,
+                                    "Failed to materialise next recurring occurrence"
+                                );
+                            } else {
+                                info!(
+                                    ticket_id,
+                                    template_id,
+                                    next_due = %next_due,
+                                    "Materialised next recurring occurrence"
+                                );
+                            }
+                        }
+                        Ok(None) => {
+                            // Series ran out (UNTIL passed). Nothing to do.
+                        }
+                        Err(e) => {
+                            warn!(
+                                ticket_id,
+                                rule = %rule,
+                                error = ?e,
+                                "Recurrence rule failed to parse on close",
+                            );
+                        }
+                    }
+                }
+            }
+
             // Run automatic assignment rules if category changed and no assignee
             if category_changed && updated_ticket.assignee_uuid.is_none() {
                 if let Some(result) = AssignmentEngine::evaluate_rules(
