@@ -910,6 +910,49 @@ diesel::table! {
 }
 
 diesel::table! {
+    working_calendars (id) {
+        id -> Int4,
+        #[max_length = 120]
+        name -> Varchar,
+        #[max_length = 64]
+        timezone -> Varchar,
+        schedule -> Jsonb,
+        is_default -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    working_calendar_holidays (id) {
+        id -> Int4,
+        calendar_id -> Int4,
+        date -> Date,
+        #[max_length = 120]
+        label -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
+    sla_policies (id) {
+        id -> Int4,
+        #[max_length = 120]
+        name -> Varchar,
+        target_response_minutes -> Nullable<Int4>,
+        target_resolution_minutes -> Nullable<Int4>,
+        working_calendar_id -> Nullable<Int4>,
+        #[max_length = 20]
+        priority_filter -> Nullable<Varchar>,
+        category_id_filter -> Nullable<Int4>,
+        is_default -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     search_query_log (id) {
         id -> Int8,
         query_raw -> Text,
@@ -1342,4 +1385,4 @@ diesel::joinable!(webhooks -> users (created_by));
 diesel::joinable!(workflow_states -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,cycle_tickets,cycles,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,saved_views,search_index_state,search_query_log,security_events,site_settings,sync_actions,sync_delta_tokens,sync_history,system_meta,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,cycle_tickets,cycles,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,saved_views,search_index_state,search_query_log,security_events,site_settings,sla_policies,sync_actions,sync_delta_tokens,sync_history,system_meta,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,working_calendar_holidays,working_calendars,);

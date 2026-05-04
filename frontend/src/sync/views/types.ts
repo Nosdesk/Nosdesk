@@ -83,6 +83,17 @@ export interface CardData {
     count: number
     first?: { id: number; name: string; os?: string | null }
   } | null
+  /** SLA pill payload computed by the backend's SLA engine. The
+   * renderer reads `pill_color` for the badge style and the
+   * `breached`/`paused`/`seconds_remaining` fields for the
+   * tooltip. Null when no policy applies to the ticket. */
+  sla?: {
+    target_at: string
+    breached: boolean
+    paused: boolean
+    pill_color: 'green' | 'amber' | 'red'
+    seconds_remaining?: number | null
+  } | null
 }
 
 // ===================== ViewShape =====================

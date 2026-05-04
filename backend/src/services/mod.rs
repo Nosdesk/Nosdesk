@@ -7,4 +7,5 @@ pub mod scheduled_jobs;
 pub mod scheduler;
 pub mod search;
 pub mod seed;
+pub mod sla;
 pub mod webhooks;

@@ -19,6 +19,7 @@ pub mod knowledge_gaps;
 pub mod linked_tickets;
 pub mod passkey_credentials;
 pub mod saved_views;
+pub mod sla;
 pub mod search_query_log;
 pub mod projects;
 pub mod sync_history;

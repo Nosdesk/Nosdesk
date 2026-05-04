@@ -51,6 +51,14 @@ export interface SyncTicket {
    * Bootstrap denormalises from cycle_tickets so the Triage saved
    * view's `cycle_id is_empty` predicate evaluates without a join. */
   cycle_id?: number | null
+  /** SLA pill payload from the backend SLA engine. */
+  sla?: {
+    target_at: string
+    breached: boolean
+    paused: boolean
+    pill_color: 'green' | 'amber' | 'red'
+    seconds_remaining?: number | null
+  } | null
   created_at: string
   updated_at: string
   last_activity_at: string

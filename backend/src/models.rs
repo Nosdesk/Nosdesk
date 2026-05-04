@@ -209,6 +209,56 @@ pub struct NewCycleTicket {
     pub added_by: Option<Uuid>,
 }
 
+/// Working calendar — weekly schedule + timezone. Drives the SLA
+/// engine's business-hours arithmetic. Rows are workspace-scoped;
+/// `is_default = TRUE` is exactly one row, enforced by a partial
+/// unique index.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::working_calendars)]
+pub struct WorkingCalendar {
+    pub id: i32,
+    pub name: String,
+    pub timezone: String,
+    /// JSONB shape: `{ "mon": [["09:00","17:00"]], ... }`. Empty
+    /// array for a day means non-working.
+    pub schedule: serde_json::Value,
+    pub is_default: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub created_by: Option<Uuid>,
+}
+
+/// Per-calendar holiday override. Days listed here count as
+/// non-working regardless of what the weekly schedule says.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::working_calendar_holidays)]
+pub struct WorkingCalendarHoliday {
+    pub id: i32,
+    pub calendar_id: i32,
+    pub date: chrono::NaiveDate,
+    pub label: Option<String>,
+}
+
+/// SLA policy — applies to a ticket when its `priority_filter` /
+/// `category_id_filter` match (NULL = wildcard). When more than one
+/// policy could match, the highest-id policy wins (last-write); the
+/// `is_default` row is the catch-all when nothing else matches.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::sla_policies)]
+pub struct SlaPolicy {
+    pub id: i32,
+    pub name: String,
+    pub target_response_minutes: Option<i32>,
+    pub target_resolution_minutes: Option<i32>,
+    pub working_calendar_id: Option<i32>,
+    pub priority_filter: Option<String>,
+    pub category_id_filter: Option<i32>,
+    pub is_default: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub created_by: Option<Uuid>,
+}
+
 /// Operation kind recorded in `sync_actions.op`. The fourth variant
 /// `Archive` distinguishes a soft-delete (row stays, marked archived)
 /// from a hard delete; consumers that maintain projections need to

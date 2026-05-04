@@ -388,7 +388,37 @@ function ticketRow(cardId: number): SyncTicket | null {
 function hasPills(card: CardData): boolean {
   const hasGap = !!card.kb_gap_signal && card.kb_gap_signal !== 'none'
   const hasDevices = !!card.affected_devices && card.affected_devices.count > 0
-  return hasGap || hasDevices
+  const hasSla = !!card.sla
+  return hasGap || hasDevices || hasSla
+}
+
+function slaPillClass(color: 'green' | 'amber' | 'red'): string {
+  // Same colour vocabulary as the calendar's overlay badges so
+  // the language reads consistently across views.
+  if (color === 'red') return 'bg-rose-500/20 text-rose-700 dark:text-rose-300'
+  if (color === 'amber') return 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+  return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+}
+
+function slaPillLabel(card: CardData): string {
+  const sla = card.sla
+  if (!sla) return ''
+  if (sla.breached) return 'Breached'
+  if (sla.paused) return 'Paused'
+  const remaining = sla.seconds_remaining ?? 0
+  if (remaining <= 0) return 'Due'
+  if (remaining < 3600) return `${Math.ceil(remaining / 60)}m`
+  if (remaining < 86_400) return `${Math.ceil(remaining / 3600)}h`
+  return `${Math.ceil(remaining / 86_400)}d`
+}
+
+function slaPillTooltip(card: CardData): string {
+  const sla = card.sla
+  if (!sla) return ''
+  const target = new Date(sla.target_at).toLocaleString()
+  if (sla.breached) return `SLA breached at ${target}`
+  if (sla.paused) return `SLA paused; target ${target}`
+  return `SLA target: ${target}`
 }
 
 function kbGapClass(signal: 'weak' | 'strong'): string {
@@ -493,6 +523,15 @@ function affectedDevicesTooltip(card: CardData): string {
                   v-if="hasPills(card)"
                   class="flex items-center gap-1.5 mb-2"
                 >
+                  <span
+                    v-if="card.sla"
+                    class="text-[10px] font-medium rounded px-1.5 py-0.5 inline-flex items-center gap-1"
+                    :class="slaPillClass(card.sla.pill_color)"
+                    :title="slaPillTooltip(card)"
+                  >
+                    <span aria-hidden="true">⏱</span>
+                    {{ slaPillLabel(card) }}
+                  </span>
                   <span
                     v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
                     class="text-[10px] font-medium rounded px-1.5 py-0.5 inline-flex items-center gap-1"

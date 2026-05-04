@@ -234,6 +234,11 @@ fn stream_bootstrap(
         crate::repository::tickets::devices_summary_for_tickets(&mut conn, &ticket_ids)?;
     let cycle_membership =
         crate::repository::cycles::cycle_ids_for_tickets(&mut conn, &ticket_ids)?;
+    // Load every SLA policy + working calendar once; the
+    // pill-computation loop below resolves each ticket against
+    // them in memory.
+    let sla_ctx = crate::repository::sla::load_for_pill_computation(&mut conn)?;
+    let now = chrono::Utc::now();
 
     for t in ticket_rows {
         let ws = states_by_id.get(&t.workflow_state_id);
@@ -254,6 +259,26 @@ fn stream_bootstrap(
                 "first": { "id": id, "name": name, "os": os },
             })
         });
+        // SLA pill: pick the most-specific applicable policy, then
+        // resolve the working calendar + holidays it points at.
+        // Tickets without a matching policy or calendar render
+        // without a pill; consumers tolerate the null shape.
+        let sla = crate::services::sla::pick_policy(&sla_ctx.policies, &t)
+            .and_then(|policy| {
+                let cal_id = policy.working_calendar_id?;
+                let calendar = sla_ctx.calendars_by_id.get(&cal_id)?;
+                let holidays = sla_ctx
+                    .holidays_by_calendar
+                    .get(&cal_id)
+                    .cloned()
+                    .unwrap_or_default();
+                let category = ws.map(|s| s.category)
+                    .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
+                Some(crate::services::sla::compute_pill(
+                    &t, category, policy, calendar, &holidays, now,
+                ))
+            })
+            .unwrap_or(serde_json::Value::Null);
         send(tx, json!({
             "__model__": "ticket",
             "id": t.id,
@@ -273,6 +298,7 @@ fn stream_bootstrap(
             "kb_gap_signal": kb_gap_signal,
             "affected_devices": affected_devices,
             "cycle_id": cycle_membership.get(&t.id),
+            "sla": sla,
             "created_at": t.created_at,
             "updated_at": t.updated_at,
             "last_activity_at": t.updated_at,
