@@ -240,6 +240,8 @@ mod tests {
             origin_channel_id: None,
             triage_state: None,
             due_date: None,
+            recurrence_rule: None,
+            recurrence_template_id: None,
         }
     }
 

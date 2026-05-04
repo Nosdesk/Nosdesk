@@ -20,6 +20,9 @@ import { computed, ref } from 'vue'
 import type { CardData } from './types'
 import type { DependencyEdge } from '@/services/dependenciesService'
 
+// `defineProps` is hoisted out of the setup fn entirely, so the
+// default factories can't reference module-level helpers below.
+// Inline the start/end computation here.
 const props = withDefaults(defineProps<{
   cards: readonly CardData[]
   edges?: readonly DependencyEdge[]
@@ -29,20 +32,23 @@ const props = withDefaults(defineProps<{
   onCardClick?: (cardId: number) => void
 }>(), {
   edges: () => [],
-  start: () => startOfDay(new Date()),
-  end: () => endOfWindow(60),
+  start: () => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
+  },
+  end: () => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    d.setDate(d.getDate() + 60)
+    return d
+  },
   onCardClick: undefined,
 })
 
 function startOfDay(d: Date): Date {
   const x = new Date(d)
   x.setHours(0, 0, 0, 0)
-  return x
-}
-
-function endOfWindow(days: number): Date {
-  const x = startOfDay(new Date())
-  x.setDate(x.getDate() + days)
   return x
 }
 

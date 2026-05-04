@@ -349,7 +349,9 @@ async fn full_cycle_inbound_internal_outbound() {
                 user_uuid: commenter,
                 channel_metadata: None,
                 is_internal: true,
+                content_format: Default::default(),
             },
+            None,
         )
         .expect("insert internal comment")
     };
@@ -375,7 +377,9 @@ async fn full_cycle_inbound_internal_outbound() {
                 user_uuid: commenter,
                 channel_metadata: None,
                 is_internal: false,
+                content_format: Default::default(),
             },
+            None,
         )
         .expect("insert public comment")
     };
