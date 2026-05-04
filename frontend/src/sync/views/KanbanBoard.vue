@@ -384,6 +384,29 @@ function priorityLabel(p: CardData['priority']): string {
 function ticketRow(cardId: number): SyncTicket | null {
   return ticketsStore.byId(cardId).value
 }
+
+function hasPills(card: CardData): boolean {
+  const hasGap = !!card.kb_gap_signal && card.kb_gap_signal !== 'none'
+  const hasDevices = !!card.affected_devices && card.affected_devices.count > 0
+  return hasGap || hasDevices
+}
+
+function kbGapClass(signal: 'weak' | 'strong'): string {
+  // Strong is a louder amber so the eye picks it out at a glance;
+  // weak is a quieter slate that still reads as a flag without
+  // colliding with the urgent priority indicator.
+  return signal === 'strong'
+    ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+    : 'bg-surface-hover text-secondary'
+}
+
+function affectedDevicesTooltip(card: CardData): string {
+  const summary = card.affected_devices
+  if (!summary) return ''
+  const first = summary.first?.name ?? 'device'
+  if (summary.count === 1) return first
+  return `${first} +${summary.count - 1} more`
+}
 </script>
 
 <template>
@@ -460,6 +483,33 @@ function ticketRow(cardId: number): SyncTicket | null {
                     :priority="(card.priority === 'urgent' ? 'high' : card.priority) as 'low' | 'medium' | 'high'"
                     size="xs"
                   />
+                </div>
+
+                <!-- Pills row: kb-gap + assets. Hidden when a card
+                     has neither so the meta row stays at the top
+                     of the layout for tickets that don't carry the
+                     signal. -->
+                <div
+                  v-if="hasPills(card)"
+                  class="flex items-center gap-1.5 mb-2"
+                >
+                  <span
+                    v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
+                    class="text-[10px] font-medium rounded px-1.5 py-0.5 inline-flex items-center gap-1"
+                    :class="kbGapClass(card.kb_gap_signal)"
+                    :title="`${card.kb_gap_signal} knowledge gap signal`"
+                  >
+                    <span aria-hidden="true">?</span>
+                    KB
+                  </span>
+                  <span
+                    v-if="card.affected_devices && card.affected_devices.count > 0"
+                    class="text-[10px] font-medium rounded px-1.5 py-0.5 bg-surface-hover text-secondary inline-flex items-center gap-1"
+                    :title="affectedDevicesTooltip(card)"
+                  >
+                    <span aria-hidden="true">▢</span>
+                    {{ card.affected_devices.count }}
+                  </span>
                 </div>
 
                 <!-- Meta row -->

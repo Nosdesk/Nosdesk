@@ -221,6 +221,18 @@ fn stream_bootstrap(
     };
 
     let ticket_rows: Vec<Ticket> = ticket_query.load(&mut conn)?;
+
+    // Per-ticket pill data computed in one batch each so the
+    // bootstrap stays O(n) rather than N round-trips. Empty maps
+    // for the tickets without signals / devices; consumers default
+    // those to 'none' / null.
+    let ticket_ids: Vec<i32> = ticket_rows.iter().map(|t| t.id).collect();
+    let kb_gap_counts = crate::repository::knowledge_gaps::open_signal_counts_for_tickets(
+        &mut conn, &ticket_ids,
+    )?;
+    let device_summaries =
+        crate::repository::tickets::devices_summary_for_tickets(&mut conn, &ticket_ids)?;
+
     for t in ticket_rows {
         let ws = states_by_id.get(&t.workflow_state_id);
         let workflow_state_payload = ws.map(|s| json!({
@@ -229,6 +241,17 @@ fn stream_bootstrap(
             "category": s.category.as_str(),
             "color": s.color,
         }));
+        let kb_gap_signal = match kb_gap_counts.get(&t.id).copied().unwrap_or(0) {
+            0 => "none",
+            1..=2 => "weak",
+            _ => "strong",
+        };
+        let affected_devices = device_summaries.get(&t.id).map(|(count, id, name, os)| {
+            json!({
+                "count": count,
+                "first": { "id": id, "name": name, "os": os },
+            })
+        });
         send(tx, json!({
             "__model__": "ticket",
             "id": t.id,
@@ -245,6 +268,8 @@ fn stream_bootstrap(
             "category_id": t.category_id,
             "triage_state": t.triage_state,
             "due_date": t.due_date,
+            "kb_gap_signal": kb_gap_signal,
+            "affected_devices": affected_devices,
             "created_at": t.created_at,
             "updated_at": t.updated_at,
             "last_activity_at": t.updated_at,

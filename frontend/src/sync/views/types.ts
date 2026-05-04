@@ -76,6 +76,13 @@ export interface CardData {
   // Visibility & categorisation.
   internal_only?: boolean
   category_id?: number | null
+
+  // Pills (precomputed at the boundary, never derived in renderer).
+  kb_gap_signal?: 'none' | 'weak' | 'strong'
+  affected_devices?: {
+    count: number
+    first?: { id: number; name: string; os?: string | null }
+  } | null
 }
 
 // ===================== ViewShape =====================

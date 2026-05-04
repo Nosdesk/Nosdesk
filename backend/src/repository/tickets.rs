@@ -520,6 +520,59 @@ pub fn get_devices_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryR
         .load(conn)
 }
 
+/// Per-ticket affected-devices summary for the kanban / list / calendar
+/// CardData payload. One round trip per bootstrap rather than N. Returns
+/// `(count, first_device_id, first_device_name, first_device_os)` so
+/// the consumer can build the spec'd `affected_devices` shape without
+/// joining devices a second time. Tickets without any device link are
+/// omitted; the consumer defaults those to `null`.
+pub fn devices_summary_for_tickets(
+    conn: &mut DbConnection,
+    ticket_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, (i64, i32, String, Option<String>)>> {
+    use diesel::dsl::sql;
+    use diesel::sql_types::BigInt;
+
+    if ticket_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    // Per-ticket counts.
+    let counts: Vec<(i32, i64)> = ticket_devices::table
+        .filter(ticket_devices::ticket_id.eq_any(ticket_ids))
+        .group_by(ticket_devices::ticket_id)
+        .select((ticket_devices::ticket_id, sql::<BigInt>("COUNT(*)")))
+        .load(conn)?;
+
+    // Pick the lowest-id device per ticket as the "first" — stable
+    // across reads, no NULLs to break sort. The kanban only renders
+    // the count + name; if a richer "primary device" model arrives
+    // (criticality-weighted, manual pin) we swap the picker here.
+    let firsts: Vec<(i32, i32, String, Option<String>)> = ticket_devices::table
+        .inner_join(devices::table)
+        .filter(ticket_devices::ticket_id.eq_any(ticket_ids))
+        .order((
+            ticket_devices::ticket_id.asc(),
+            ticket_devices::device_id.asc(),
+        ))
+        .select((
+            ticket_devices::ticket_id,
+            devices::id,
+            devices::name,
+            devices::operating_system,
+        ))
+        .distinct_on(ticket_devices::ticket_id)
+        .load(conn)?;
+
+    let mut by_count: std::collections::HashMap<i32, i64> = counts.into_iter().collect();
+    let mut out = std::collections::HashMap::new();
+    for (ticket_id, device_id, name, os) in firsts {
+        let count = by_count.remove(&ticket_id).unwrap_or(0);
+        out.insert(ticket_id, (count, device_id, name, os));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

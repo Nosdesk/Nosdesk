@@ -41,6 +41,47 @@ pub const SIGNAL_STALE_DOC: &str = "stale_doc";
 pub const SIGNAL_AI_SUGGESTED: &str = "ai_suggested";
 
 pub const SOURCE_TICKET: &str = "ticket";
+
+/// Per-ticket count of open (non-dismissed) signals attached to
+/// each ticket id. Drives the CardData `kb_gap_signal` pill on
+/// every view shape. Returns only tickets with one or more open
+/// signals so the caller can default the rest to `'none'` without
+/// an extra branch.
+pub fn open_signal_counts_for_tickets(
+    conn: &mut DbConnection,
+    ticket_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, i32>> {
+    use diesel::dsl::sql;
+    use diesel::sql_types::BigInt;
+
+    if ticket_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    // source_ref is TEXT containing the ticket id as a decimal
+    // string; map ids to strings here so the IN-clause stays type-
+    // matched without a Postgres-side cast.
+    let refs: Vec<String> = ticket_ids.iter().map(|i| i.to_string()).collect();
+
+    let rows: Vec<(String, i64)> = knowledge_gap_signals::table
+        .filter(knowledge_gap_signals::source_kind.eq(SOURCE_TICKET))
+        .filter(knowledge_gap_signals::source_ref.eq_any(&refs))
+        .filter(knowledge_gap_signals::dismissed_at.is_null())
+        .group_by(knowledge_gap_signals::source_ref)
+        .select((
+            knowledge_gap_signals::source_ref,
+            sql::<BigInt>("COUNT(*)"),
+        ))
+        .load(conn)?;
+
+    let mut out = std::collections::HashMap::new();
+    for (source_ref, count) in rows {
+        if let Ok(id) = source_ref.parse::<i32>() {
+            out.insert(id, count as i32);
+        }
+    }
+    Ok(out)
+}
 pub const SOURCE_SEARCH_QUERY: &str = "search_query";
 pub const SOURCE_CLUSTER_KEY: &str = "cluster_key";
 pub const SOURCE_PAGE: &str = "page";

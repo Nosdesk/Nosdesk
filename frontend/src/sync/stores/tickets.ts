@@ -35,6 +35,18 @@ export interface SyncTicket {
    * tickets default to that, member-created tickets to NULL. */
   triage_state: 'untriaged' | 'triaged' | 'rejected' | null
   due_date: string | null
+  /** KB-gap signal density. Bootstrap derives the bucket from the
+   * count of open knowledge_gap_signals attached to the ticket;
+   * the renderer maps it to a pill colour. */
+  kb_gap_signal?: 'none' | 'weak' | 'strong'
+  /** Affected-devices summary; null when the ticket has no
+   * device link. The renderer shows a "+N" badge with the first
+   * device's name; consumers who need the full device list still
+   * fetch /tickets/{id}. */
+  affected_devices?: {
+    count: number
+    first?: { id: number; name: string; os?: string | null }
+  } | null
   created_at: string
   updated_at: string
   last_activity_at: string
