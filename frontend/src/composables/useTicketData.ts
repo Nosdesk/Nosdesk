@@ -1,10 +1,12 @@
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
+import { useQueryCache } from "@pinia/colada";
 import { useRecentTicketsStore } from "@/stores/recentTickets";
 import { useTitleManager } from "@/composables/useTitleManager";
 import ticketService from "@/services/ticketService";
 import { logger } from "@/utils/logger";
 import { formatDateTime, getCurrentUTCDateTime } from "@/utils/dateUtils";
+import { ticketDetailKey } from "@/loaders/ticketDetailLoader";
 import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
 import type { Ticket, Device, Project } from '@/types/ticket';
 import type { CommentWithAttachments } from '@/types/comment';
@@ -25,10 +27,15 @@ export function useTicketData() {
   const router = useRouter();
   const recentTicketsStore = useRecentTicketsStore();
   const titleManager = useTitleManager();
+  const queryCache = useQueryCache();
 
   // State
   const ticket = ref<LocalTicket | null>(null);
-  const loading = ref(true);
+  // `loading` starts false so the cached / loader-primed path
+  // mounts straight into the real content. The fetch path flips
+  // it to true before going to network; the cached path skips
+  // that flip entirely so the skeleton never gets a frame.
+  const loading = ref(false);
   const error = ref<string | null>(null);
   const selectedStatus = ref<TicketStatus>("open");
   const selectedPriority = ref<TicketPriority>("low");
@@ -67,56 +74,77 @@ export function useTicketData() {
     return apiDevices.map((device) => ({ ...device }));
   }
 
-  // Fetch ticket
+  /** Map a raw API ticket onto the LocalTicket shape the view
+   * binds to. Pure transform — no side effects so both the
+   * cache-hit path and the network path can call it. */
+  function applyTicket(fetched: Ticket): void {
+    const commentsAndAttachments = transformComments(
+      (fetched as { comments?: CommentWithAttachments[] }).comments || [],
+    );
+    const transformedDevices = transformDevices(fetched.devices || []);
+    const fetchedProjects = fetched.projects as Project[] | undefined;
+    const projectIds = fetchedProjects?.map((p) => String(p.id)) || [];
+
+    ticket.value = {
+      ...fetched,
+      projects: projectIds,
+      linkedTickets:
+        fetched.linked_tickets || fetched.linkedTickets || [],
+      devices: transformedDevices,
+      commentsAndAttachments,
+    } as LocalTicket;
+
+    selectedStatus.value = ticket.value.status;
+    selectedPriority.value = ticket.value.priority;
+    selectedCategory.value = ticket.value.category_id || null;
+    selectedWorkflowStateId.value = ticket.value.workflow_state_id ?? null;
+
+    titleManager.setTicket({
+      id: ticket.value.id,
+      title: ticket.value.title,
+    });
+  }
+
+  /** Fetch a ticket, hitting the Pinia Colada cache primed by
+   * the route loader before going to network. The cache hit
+   * sets the ticket synchronously so the skeleton never renders;
+   * the recorded-view ping still fires in the background. */
   async function fetchTicket(
     ticketId: string | string[],
   ): Promise<void> {
     const id = Number(ticketId);
-    loading.value = true;
+    if (!Number.isFinite(id)) return;
     error.value = null;
 
+    // Cache-first. The route loader (ticketDetailLoader) writes
+    // `ticketDetailKey(id)` during navigation; if we're here as
+    // a result of that navigation, the cache has the row and we
+    // can mount straight into the real content.
+    const cached = queryCache.getQueryData(ticketDetailKey(id)) as
+      | Ticket
+      | undefined;
+    if (cached) {
+      applyTicket(cached);
+      // Record the view in the background. Failure here doesn't
+      // need to block the user from seeing the ticket.
+      void recentTicketsStore.recordTicketView(id);
+      return;
+    }
+
+    // Cold path: deep-link / hard-refresh / cache miss. Fall
+    // through to a network fetch and surface the loading state
+    // so the skeleton renders.
+    loading.value = true;
     try {
       const fetchedTicket = await ticketService.getTicketById(id);
-
       if (!fetchedTicket) {
         router.push("/404");
         return;
       }
-
-      // Transform data
-      const commentsAndAttachments = transformComments(
-        fetchedTicket.comments || [],
-      );
-      const transformedDevices = transformDevices(fetchedTicket.devices || []);
-
-      // Extract project IDs from projects array. The API ships
-      // `Project[]` (Ticket.projects union) so narrow before mapping.
-      const fetchedProjects = fetchedTicket.projects as Project[] | undefined;
-      const projectIds = fetchedProjects?.map(p => String(p.id)) || [];
-
-      // Update ticket
-      ticket.value = {
-        ...fetchedTicket,
-        projects: projectIds,
-        linkedTickets:
-          fetchedTicket.linked_tickets || fetchedTicket.linkedTickets || [],
-        devices: transformedDevices,
-        commentsAndAttachments,
-      } as LocalTicket;
-
-      // Update UI state
-      selectedStatus.value = ticket.value.status;
-      selectedPriority.value = ticket.value.priority;
-      selectedCategory.value = ticket.value.category_id || null;
-      selectedWorkflowStateId.value = ticket.value.workflow_state_id ?? null;
-
-      // Update title manager
-      titleManager.setTicket({
-        id: ticket.value.id,
-        title: ticket.value.title,
-      });
-
-      // Record the ticket view on the server (updates recent tickets)
+      applyTicket(fetchedTicket);
+      // Prime the cache for repeat back-nav from elsewhere in the
+      // app — keeps return visits flash-free.
+      queryCache.setQueryData(ticketDetailKey(id), fetchedTicket);
       await recentTicketsStore.recordTicketView(id);
     } catch (err) {
       logger.error(`Error fetching ticket ${id}`, { error: err });

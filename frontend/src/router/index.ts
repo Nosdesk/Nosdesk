@@ -25,6 +25,7 @@ import PDFViewerView from '@/views/PDFViewerView.vue'
 import authService from '@/services/authService'
 import { useInboxLoader } from '@/loaders/inboxLoader'
 import { useTicketsListLoader } from '@/loaders/ticketsListLoader'
+import { useTicketDetailLoader } from '@/loaders/ticketDetailLoader'
 import type { Page, Article } from '@/services/documentationService'
 
 declare module 'vue-router' {
@@ -180,6 +181,10 @@ const router = createRouter({
         title: 'View Ticket',
         createButtonText: 'Create Ticket',
         createButtonIcon: 'ticket',
+        // Pre-fetches the ticket payload during navigation so the
+        // view mounts with data already in the Pinia Colada cache;
+        // useTicketData reads through the same cache key on mount.
+        loaders: [useTicketDetailLoader],
       },
       beforeEnter: (to) => {
         to.meta.key = to.params.id
