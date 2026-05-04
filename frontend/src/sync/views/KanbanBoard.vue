@@ -385,58 +385,39 @@ function ticketRow(cardId: number): SyncTicket | null {
   return ticketsStore.byId(cardId).value
 }
 
+/** Card-level "is there anything noteworthy?" check that drives
+ * the optional pills row. SLA + recurrence ride the title row
+ * (icon + corner indicator respectively); KB-gap and assets get
+ * the pill row when they're noteworthy enough to surface. */
 function hasPills(card: CardData): boolean {
   const hasGap = !!card.kb_gap_signal && card.kb_gap_signal !== 'none'
   const hasDevices = !!card.affected_devices && card.affected_devices.count > 0
-  const hasSla = !!card.sla
-  const hasRecurrence = !!card.recurrence_rule
-  return hasGap || hasDevices || hasSla || hasRecurrence
+  return hasGap || hasDevices
 }
 
-/** Pull a human label out of an RRULE without parsing the full
- * RFC. Recognises the FREQ token; everything else falls back to
- * "Recurring" so unsupported rules still surface a marker. */
-function recurrenceLabel(rule: string): string {
-  const freq = rule
-    .split(';')
-    .map((p) => p.trim())
-    .find((p) => p.toUpperCase().startsWith('FREQ='))
-    ?.split('=')[1]
-    ?.toLowerCase()
-  if (freq === 'daily') return 'Daily'
-  if (freq === 'weekly') return 'Weekly'
-  if (freq === 'monthly') return 'Monthly'
-  if (freq === 'yearly') return 'Yearly'
-  return 'Recurring'
-}
-
-function slaPillClass(color: 'green' | 'amber' | 'red'): string {
-  // Same colour vocabulary as the calendar's overlay badges so
-  // the language reads consistently across views.
-  if (color === 'red') return 'bg-rose-500/20 text-rose-700 dark:text-rose-300'
-  if (color === 'amber') return 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
-  return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-}
-
-function slaPillLabel(card: CardData): string {
+/** SLA tone for the small clock icon next to the priority dot.
+ * Only red and amber surface visually; green / paused stay
+ * neutral so the eye picks out at-risk cards at a glance. */
+function slaIconTone(card: CardData): string {
   const sla = card.sla
   if (!sla) return ''
-  if (sla.breached) return 'Breached'
-  if (sla.paused) return 'Paused'
-  const remaining = sla.seconds_remaining ?? 0
-  if (remaining <= 0) return 'Due'
-  if (remaining < 3600) return `${Math.ceil(remaining / 60)}m`
-  if (remaining < 86_400) return `${Math.ceil(remaining / 3600)}h`
-  return `${Math.ceil(remaining / 86_400)}d`
+  if (sla.breached) return 'text-rose-600 dark:text-rose-400'
+  if (sla.pill_color === 'amber') return 'text-amber-600 dark:text-amber-400'
+  return 'text-tertiary'
 }
 
-function slaPillTooltip(card: CardData): string {
+function slaTooltip(card: CardData): string {
   const sla = card.sla
   if (!sla) return ''
   const target = new Date(sla.target_at).toLocaleString()
-  if (sla.breached) return `SLA breached at ${target}`
-  if (sla.paused) return `SLA paused; target ${target}`
-  return `SLA target: ${target}`
+  if (sla.breached) return `SLA breached (target ${target})`
+  if (sla.paused) return `SLA paused (target ${target})`
+  const remaining = sla.seconds_remaining ?? 0
+  let formatted = ''
+  if (remaining < 3600) formatted = `${Math.ceil(remaining / 60)}m`
+  else if (remaining < 86_400) formatted = `${Math.ceil(remaining / 3600)}h`
+  else formatted = `${Math.ceil(remaining / 86_400)}d`
+  return `SLA: ${formatted} until ${target}`
 }
 
 function kbGapClass(signal: 'weak' | 'strong'): string {
@@ -521,35 +502,45 @@ function affectedDevicesTooltip(card: CardData): string {
                 }"
                 @pointerdown.stop="handleCardPointerDown(card, $event)"
               >
-                <!-- Title row -->
+                <!-- Title row carries the title + the small,
+                     always-relevant indicators (priority, SLA
+                     status, recurrence). SLA is icon-only with a
+                     tooltip — the colour does the talking; full
+                     countdown text lives in the detail view. -->
                 <div class="flex items-start justify-between gap-2 mb-2">
-                  <h4 class="text-sm font-medium text-primary line-clamp-2 flex-1">
-                    {{ card.title }}
+                  <h4 class="text-sm font-medium text-primary line-clamp-2 flex-1 inline-flex items-baseline gap-1.5">
+                    <span
+                      v-if="card.recurrence_rule"
+                      class="text-tertiary text-xs shrink-0"
+                      title="Recurring ticket"
+                      aria-label="Recurring"
+                    >↻</span>
+                    <span class="flex-1">{{ card.title }}</span>
                   </h4>
-                  <PriorityIndicator
-                    v-if="card.priority !== 'none'"
-                    :priority="(card.priority === 'urgent' ? 'high' : card.priority) as 'low' | 'medium' | 'high'"
-                    size="xs"
-                  />
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <span
+                      v-if="card.sla"
+                      class="text-xs leading-none"
+                      :class="slaIconTone(card)"
+                      :title="slaTooltip(card)"
+                      aria-label="SLA status"
+                    >⏱</span>
+                    <PriorityIndicator
+                      v-if="card.priority !== 'none'"
+                      :priority="(card.priority === 'urgent' ? 'high' : card.priority) as 'low' | 'medium' | 'high'"
+                      size="xs"
+                    />
+                  </div>
                 </div>
 
-                <!-- Pills row: kb-gap + assets. Hidden when a card
-                     has neither so the meta row stays at the top
-                     of the layout for tickets that don't carry the
-                     signal. -->
+                <!-- Pills row: only shown when knowledge-gap or
+                     asset-link counts are noteworthy. Skipped
+                     entirely on the common case so the layout
+                     stays tight. -->
                 <div
                   v-if="hasPills(card)"
                   class="flex items-center gap-1.5 mb-2"
                 >
-                  <span
-                    v-if="card.sla"
-                    class="text-[10px] font-medium rounded px-1.5 py-0.5 inline-flex items-center gap-1"
-                    :class="slaPillClass(card.sla.pill_color)"
-                    :title="slaPillTooltip(card)"
-                  >
-                    <span aria-hidden="true">⏱</span>
-                    {{ slaPillLabel(card) }}
-                  </span>
                   <span
                     v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
                     class="text-[10px] font-medium rounded px-1.5 py-0.5 inline-flex items-center gap-1"
@@ -566,14 +557,6 @@ function affectedDevicesTooltip(card: CardData): string {
                   >
                     <span aria-hidden="true">▢</span>
                     {{ card.affected_devices.count }}
-                  </span>
-                  <span
-                    v-if="card.recurrence_rule"
-                    class="text-[10px] font-medium rounded px-1.5 py-0.5 bg-violet-500/15 text-violet-700 dark:text-violet-300 inline-flex items-center gap-1"
-                    :title="card.recurrence_rule"
-                  >
-                    <span aria-hidden="true">↻</span>
-                    {{ recurrenceLabel(card.recurrence_rule) }}
                   </span>
                 </div>
 

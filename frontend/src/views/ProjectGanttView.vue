@@ -14,6 +14,7 @@ import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { useAggregate } from '@/sync/composables'
 import { dependenciesService, type DependencyEdge } from '@/services/dependenciesService'
 import GanttBoard from '@/sync/views/GanttBoard.vue'
+import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import { toCardData } from '@/sync/views/cardData'
 import type { CardData } from '@/sync/views/types'
 
@@ -72,24 +73,22 @@ watch(projectId, async () => {
 function openCard(cardId: number): void {
   router.push(`/tickets/${cardId}`)
 }
-
-function backToProject(): void {
-  router.push(`/projects/${projectId.value}`)
-}
 </script>
 
 <template>
   <div class="flex flex-col h-full">
     <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
-      <div class="flex items-center gap-3 min-w-0">
-        <button
-          type="button"
-          class="text-xs text-tertiary hover:text-primary"
-          @click="backToProject"
-        >‹ {{ project?.name ?? 'Project' }}</button>
-        <h1 class="text-xl font-semibold text-primary">Gantt</h1>
+      <div class="min-w-0">
+        <h1 class="text-xl font-semibold text-primary truncate">
+          {{ project?.name ?? 'Project' }}
+        </h1>
+        <p class="text-xs text-tertiary mt-0.5">
+          {{ cards.length }} ticket{{ cards.length === 1 ? '' : 's' }} · {{ edges.length }} link{{ edges.length === 1 ? '' : 's' }}
+        </p>
       </div>
     </header>
+
+    <ProjectTabBar :project-id="projectId" />
 
     <GanttBoard
       class="flex-1 min-h-0"

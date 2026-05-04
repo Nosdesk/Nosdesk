@@ -157,11 +157,19 @@ function overlaysFor(cell: DayCell): CalendarOverlay[] {
   return overlaysByDay.value.get(isoDay(cell.date)) ?? []
 }
 
-const overlayClass: Record<CalendarOverlay['kind'], string> = {
-  warranty_expiry: 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40',
-  maintenance: 'bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/40',
-  os_cutoff: 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/40',
-  sla_breach: 'bg-rose-600/25 text-rose-700 dark:text-rose-200 border border-rose-600/50',
+/** Colour vocabulary per overlay kind. The dot indicators in the
+ * date row use the solid `dot` class; the tooltip shows the
+ * full text labels on hover so the cell stays readable when
+ * tickets fill it. */
+const overlayDotClass: Record<CalendarOverlay['kind'], string> = {
+  warranty_expiry: 'bg-amber-500',
+  maintenance: 'bg-sky-500',
+  os_cutoff: 'bg-rose-500',
+  sla_breach: 'bg-rose-600',
+}
+
+function overlayTooltip(items: CalendarOverlay[]): string {
+  return items.map((o) => o.label).join('\n')
 }
 
 function readDate(card: CardData, field: DateField): string | null | undefined {
@@ -270,13 +278,37 @@ watch(grid, (cells) => {
               'bg-app': cell.inMonth,
             }"
           >
-            <span
-              class="text-[11px] font-medium tabular-nums"
-              :class="{
-                'text-on-accent bg-accent rounded-full inline-flex items-center justify-center w-5 h-5 self-start': cell.isToday,
-                'text-secondary': !cell.isToday && cell.inMonth,
-              }"
-            >{{ cell.date.getDate() }}</span>
+            <!-- Date row: number + overlay dots. The dots replace
+                 the previous full-width chips; one coloured dot per
+                 overlay kind present in this day, with a tooltip
+                 listing the underlying labels. Keeps tickets in
+                 charge of the cell's vertical space. -->
+            <div class="flex items-center justify-between gap-1">
+              <span
+                class="text-[11px] font-medium tabular-nums"
+                :class="{
+                  'text-on-accent bg-accent rounded-full inline-flex items-center justify-center w-5 h-5': cell.isToday,
+                  'text-secondary': !cell.isToday && cell.inMonth,
+                }"
+              >{{ cell.date.getDate() }}</span>
+              <div
+                v-if="overlaysFor(cell).length"
+                class="flex items-center gap-0.5 cursor-help"
+                :title="overlayTooltip(overlaysFor(cell))"
+              >
+                <span
+                  v-for="ov in overlaysFor(cell).slice(0, 3)"
+                  :key="ov.id"
+                  class="w-1.5 h-1.5 rounded-full"
+                  :class="overlayDotClass[ov.kind]"
+                  aria-hidden="true"
+                />
+                <span
+                  v-if="overlaysFor(cell).length > 3"
+                  class="text-[9px] text-tertiary tabular-nums"
+                >+{{ overlaysFor(cell).length - 3 }}</span>
+              </div>
+            </div>
 
             <article
               v-for="card in cardsFor(cell)"
@@ -291,21 +323,6 @@ watch(grid, (cells) => {
               />
               <span class="text-primary truncate">{{ card.title }}</span>
             </article>
-
-            <!-- Overlays render after cards so a busy day pushes
-                 them down rather than letting them obscure the
-                 ticket pills. Distinct colour per kind so they
-                 read as device events at a glance. -->
-            <a
-              v-for="ov in overlaysFor(cell)"
-              :key="ov.id"
-              :href="ov.href"
-              class="rounded px-1.5 py-0.5 text-[10px] font-medium truncate"
-              :class="overlayClass[ov.kind]"
-              :title="ov.label"
-            >
-              {{ ov.label }}
-            </a>
           </div>
         </div>
       </section>

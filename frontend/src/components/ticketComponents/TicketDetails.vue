@@ -222,6 +222,39 @@ const RECURRENCE_PRESETS: { value: string; label: string }[] = [
   { value: 'FREQ=YEARLY', label: 'Yearly' },
 ];
 
+const RECURRENCE_LABELS: Record<string, string> = {
+  'FREQ=DAILY': 'Daily',
+  'FREQ=WEEKLY': 'Weekly',
+  'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR': 'Weekdays',
+  'FREQ=MONTHLY': 'Monthly',
+  'FREQ=YEARLY': 'Yearly',
+};
+
+/** True when the ticket carries either a due date or a recurrence
+ * rule — drives whether the Scheduling group opens by default. */
+const schedulingHasValue = computed<boolean>(() => {
+  return !!(props.ticket.due_date || props.ticket.recurrence_rule);
+});
+
+/** Inline preview rendered in the Scheduling summary line so the
+ * user can read state without expanding. Empty string falls back
+ * to "None" in the template. */
+const schedulingPreview = computed<string>(() => {
+  const parts: string[] = [];
+  if (props.ticket.due_date) {
+    const formatted = new Date(props.ticket.due_date).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
+    parts.push(`Due ${formatted}`);
+  }
+  const rule = props.ticket.recurrence_rule;
+  if (rule) {
+    parts.push(RECURRENCE_LABELS[rule] ?? 'Recurring');
+  }
+  return parts.join(' · ');
+});
+
 const recurrenceSelectValue = computed<string>(() => {
   const rule = props.ticket.recurrence_rule ?? '';
   // Show 'custom' when the rule isn't one of our presets so the
@@ -505,47 +538,65 @@ watchEffect(async () => {
             </div>
           </div>
 
-          <!-- Due date -->
-          <div class="flex flex-col gap-1.5">
-            <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Due date</h3>
-            <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors flex items-center">
-              <input
-                type="date"
-                class="flex-1 bg-transparent text-sm text-primary px-3 py-2 outline-none"
-                :value="dueDateInputValue"
-                @change="handleDueDateChange"
-              />
-              <button
-                v-if="ticket.due_date"
-                type="button"
-                class="text-xs text-tertiary hover:text-primary px-2"
-                title="Clear due date"
-                @click="emit('update:dueDate', null)"
-              >×</button>
+          <!-- Scheduling group: due date + recurrence collapsed
+               by default. Most tickets don't carry either; folding
+               them keeps the form short for the common case while
+               preserving discoverability. The summary line shows
+               an inline preview ("Due Jan 14 · Weekly") so users
+               can read the state without expanding. -->
+          <details
+            class="rounded-lg border border-subtle bg-surface-alt"
+            :open="schedulingHasValue"
+          >
+            <summary
+              class="flex items-center justify-between cursor-pointer px-3 py-2 text-xs font-medium text-tertiary uppercase tracking-wide select-none"
+            >
+              <span>Scheduling</span>
+              <span class="text-[11px] normal-case tracking-normal text-secondary font-normal">
+                {{ schedulingPreview || 'None' }}
+              </span>
+            </summary>
+            <div class="px-3 pb-3 pt-1 flex flex-col gap-3 border-t border-subtle">
+              <label class="flex flex-col gap-1">
+                <span class="text-[11px] text-tertiary">Due date</span>
+                <div class="flex items-center bg-app rounded-md border border-subtle">
+                  <input
+                    type="date"
+                    class="flex-1 bg-transparent text-sm text-primary px-2 py-1.5 outline-none"
+                    :value="dueDateInputValue"
+                    @change="handleDueDateChange"
+                  />
+                  <button
+                    v-if="ticket.due_date"
+                    type="button"
+                    class="text-xs text-tertiary hover:text-primary px-2"
+                    title="Clear due date"
+                    @click="emit('update:dueDate', null)"
+                  >×</button>
+                </div>
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-[11px] text-tertiary">Recurrence</span>
+                <select
+                  class="bg-app border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
+                  :value="recurrenceSelectValue"
+                  @change="handleRecurrenceChange"
+                >
+                  <option v-for="preset in RECURRENCE_PRESETS" :key="preset.value" :value="preset.value">
+                    {{ preset.label }}
+                  </option>
+                </select>
+                <span
+                  v-if="recurrenceSelectValue === '__custom__'"
+                  class="text-[10px] text-tertiary italic"
+                >Custom RRULE in use ({{ ticket.recurrence_rule }}). Edit via API.</span>
+                <span
+                  v-else-if="ticket.recurrence_rule"
+                  class="text-[10px] text-tertiary italic"
+                >Closing this ticket spawns the next occurrence.</span>
+              </label>
             </div>
-          </div>
-
-          <!-- Recurrence -->
-          <div class="flex flex-col gap-1.5">
-            <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Recurrence</h3>
-            <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors flex items-center">
-              <select
-                class="flex-1 bg-transparent text-sm text-primary px-3 py-2 outline-none"
-                :value="recurrenceSelectValue"
-                @change="handleRecurrenceChange"
-              >
-                <option v-for="preset in RECURRENCE_PRESETS" :key="preset.value" :value="preset.value">
-                  {{ preset.label }}
-                </option>
-                <option v-if="recurrenceSelectValue === '__custom__'" value="__custom__" disabled>
-                  Custom rule (read-only here)
-                </option>
-              </select>
-            </div>
-            <p class="text-[11px] text-tertiary italic">
-              Closing a recurring ticket spawns the next occurrence automatically.
-            </p>
-          </div>
+          </details>
 
           <!-- Category Section -->
           <div v-if="categoryOptions && categoryOptions.length > 0" class="flex flex-col gap-1.5">

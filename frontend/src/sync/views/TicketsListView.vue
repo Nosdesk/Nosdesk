@@ -45,6 +45,7 @@ import {
   type CalendarOverlayEntry,
 } from '@/services/calendarOverlaysService'
 import CalendarBoard, { type CalendarOverlay } from './CalendarBoard.vue'
+import ViewSwitcher, { type ViewSwitcherItem } from '@/components/views/ViewSwitcher.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
@@ -406,77 +407,91 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
   ...calendarOverlays.value,
   ...slaOverlays.value,
 ])
+
+// ---------------------------------------------------------------
+// View switcher items. Built-ins first, saved views grouped by
+// scope. Rename/archive affordances surface inside the dropdown
+// per row, so the header stays a fixed two-element bar (title +
+// switcher) regardless of how many saved views the workspace
+// accumulates.
+// ---------------------------------------------------------------
+const switcherItems = computed<ViewSwitcherItem[]>(() => {
+  const items: ViewSwitcherItem[] = []
+  for (const v of builtinResolved.value) {
+    items.push({ id: v.id, name: v.name, group: 'Built-in' })
+  }
+  const workspace = savedViewsRef.value.filter(
+    (v) => v.scope === 'workspace' && v.archived_at == null,
+  )
+  const projectScoped = savedViewsRef.value.filter(
+    (v) => v.scope === 'project' && v.archived_at == null,
+  )
+  const privateViews = savedViewsRef.value.filter(
+    (v) => v.scope === 'private' && v.archived_at == null,
+  )
+  for (const v of workspace) {
+    items.push({ id: v.uuid, name: v.name, group: 'Workspace', editable: true })
+  }
+  for (const v of projectScoped) {
+    items.push({ id: v.uuid, name: v.name, group: 'Project', editable: true })
+  }
+  for (const v of privateViews) {
+    items.push({ id: v.uuid, name: v.name, group: 'Private', editable: true })
+  }
+  return items
+})
+
+function selectById(id: string): void {
+  router.push({ path: route.path, query: { ...route.query, view: id } })
+}
+
+async function renameById(uuid: string): Promise<void> {
+  const view = savedViewsRef.value.find((v) => v.uuid === uuid)
+  if (!view) return
+  const next = window.prompt('Rename view', view.name)
+  if (!next || next.trim() === view.name) return
+  await savedViewsStore.update(uuid, { name: next.trim() })
+}
+
+async function archiveById(uuid: string): Promise<void> {
+  const view = savedViewsRef.value.find((v) => v.uuid === uuid)
+  if (!view) return
+  if (!window.confirm(`Archive "${view.name}"?`)) return
+  const ok = await savedViewsStore.archive(uuid)
+  if (ok && activeView.value.uuid === uuid) {
+    router.push({ path: route.path, query: { ...route.query, view: MY_QUEUE_VIEW.id } })
+  }
+}
 </script>
 
 <template>
   <div class="flex flex-col h-full">
-    <!-- View picker -->
+    <!-- Header: page title + view switcher (left), single
+         "Save view" action (right). Per-view edit affordances
+         live inside the switcher dropdown, not in the header. -->
     <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
-      <div>
-        <h1 class="text-xl font-semibold text-primary">{{ activeView.name }}</h1>
-        <p class="text-xs text-tertiary mt-0.5">{{ activeView.description }}</p>
-      </div>
-      <div class="flex items-center gap-2 flex-wrap justify-end">
-        <button
-          v-for="v in builtinResolved"
-          :key="v.id"
-          type="button"
-          class="text-xs font-medium rounded-md px-2.5 py-1.5 transition-colors"
-          :class="
-            v.id === activeView.id
-              ? 'bg-accent text-on-accent'
-              : 'text-secondary hover:bg-surface-hover'
-          "
-          @click="selectView(v)"
-        >
-          {{ v.name }}
-        </button>
-        <span
-          v-if="savedResolved.length"
-          class="w-px h-4 bg-subtle mx-1"
-          aria-hidden="true"
+      <div class="flex items-baseline gap-3 min-w-0">
+        <h1 class="text-xl font-semibold text-primary">Tickets</h1>
+        <ViewSwitcher
+          :items="switcherItems"
+          :active-id="activeView.id"
+          @select="selectById"
+          @rename="renameById"
+          @archive="archiveById"
         />
-        <button
-          v-for="v in savedResolved"
-          :key="v.id"
-          type="button"
-          class="text-xs font-medium rounded-md px-2.5 py-1.5 transition-colors"
-          :class="
-            v.id === activeView.id
-              ? 'bg-accent text-on-accent'
-              : 'text-secondary hover:bg-surface-hover'
-          "
-          :title="v.description"
-          @click="selectView(v)"
-        >
-          {{ v.name }}
-        </button>
-        <span class="w-px h-4 bg-subtle mx-1" aria-hidden="true" />
-        <button
-          v-if="canEditActiveView"
-          type="button"
-          class="text-xs font-medium rounded-md px-2.5 py-1.5 text-secondary hover:bg-surface-hover transition-colors"
-          @click="renameActiveView"
-        >
-          Rename
-        </button>
-        <button
-          v-if="canEditActiveView"
-          type="button"
-          class="text-xs font-medium rounded-md px-2.5 py-1.5 text-secondary hover:bg-surface-hover transition-colors"
-          @click="archiveActiveView"
-        >
-          Archive
-        </button>
-        <button
-          type="button"
-          class="text-xs font-medium rounded-md px-2.5 py-1.5 border border-subtle text-primary hover:bg-surface-hover transition-colors disabled:opacity-50"
-          :disabled="isSaving"
-          @click="saveAsView"
-        >
-          {{ isSaving ? 'Saving…' : 'Save as view' }}
-        </button>
+        <p
+          v-if="activeView.description"
+          class="text-xs text-tertiary truncate hidden md:block"
+        >{{ activeView.description }}</p>
       </div>
+      <button
+        type="button"
+        class="text-xs font-medium rounded-md px-2.5 py-1.5 text-secondary hover:bg-surface-hover transition-colors disabled:opacity-50"
+        :disabled="isSaving"
+        @click="saveAsView"
+      >
+        {{ isSaving ? 'Saving…' : 'Save view' }}
+      </button>
     </header>
 
     <!-- Empty / loading -->
