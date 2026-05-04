@@ -2,24 +2,31 @@
 /**
  * Tickets list — workspace-wide table fed by the sync engine.
  *
- * Layout:
- * - Left: TicketViewsSidebar — persistent list of every view the
- *   user can switch into (Linear pattern: views as nav, not as a
- *   header dropdown). Collapses to icon spine on small viewports.
- * - Right: a thin toolbar (active view name, density toggle,
- *   record count) and a dense scrollable table.
+ * Architecture:
+ * - Left: TicketViewsSidebar — persistent view list, no popover
+ *   hop. Linear's Issues sidebar pattern.
+ * - Right toolbar: active view name + record count + density
+ *   toggle + columns picker.
+ * - Right body: dense table driven by ticketColumns.ts. The
+ *   user controls column visibility via the picker; choice
+ *   persists to localStorage per view, and editable saved views
+ *   can promote the local layout into shape.visible_card_fields.
  *
- * View-resolution flow (lock-step with ticketsListLoader):
- *   1. Loader fetches saved views in parallel with the first
- *      ticket page and primes savedViewsStore.
- *   2. On mount the workspace default is already in the store.
- *   3. If the URL has no `?view=`, we push to the canonical view
- *      URL once so the bar stays stable across reloads — no more
- *      My Queue → Triage swap on first frame.
+ * SSE / live update path:
+ * - Sync pool mutations flow through `useSyncTicketsStore` and
+ *   trigger the cards / filteredCards / sortedCards computeds.
+ * - Each <tr> is wrapped in v-memo against `rowMemoKey(card)` so
+ *   only rows whose visible fields actually changed re-render.
+ *   A burst of SSE events touching N tickets re-renders N rows,
+ *   not the entire visible list.
  *
- * Density follows the Pencil & Paper enterprise data table guide:
- * compact 32px / cosy 40px / comfortable 48px row heights, user-
- * controlled, persisted in localStorage.
+ * Loader-coordinated startup:
+ * - ticketsListLoader prefetches saved views in parallel with
+ *   the first page of tickets and primes savedViewsStore. By
+ *   the time this view mounts, the workspace default is in the
+ *   store, so activeView resolves correctly on frame one.
+ *   A one-shot router.replace() canonicalises ?view=<id> for
+ *   reload stability.
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -36,6 +43,13 @@ import {
 } from './builtinViews'
 import { buildPredicate } from './filter'
 import { toCardData } from './cardData'
+import {
+  TICKET_COLUMNS,
+  DEFAULT_VISIBLE_COLUMNS,
+  rowMemoKey,
+  type ColumnId,
+  type ListColumn,
+} from './ticketColumns'
 import type {
   CalendarViewShape,
   CardData,
@@ -52,8 +66,10 @@ import CalendarBoard, { type CalendarOverlay } from './CalendarBoard.vue'
 import TicketViewsSidebar, {
   type TicketViewItem,
 } from '@/components/views/TicketViewsSidebar.vue'
+import ColumnPickerMenu from '@/components/views/ColumnPickerMenu.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
+import Icon from '@/components/common/Icon.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -72,11 +88,10 @@ interface ResolvedView {
 }
 
 // ---------------------------------------------------------------
-// Subscription. The loader has already populated saved views by
-// the time we mount, so the activeView resolution below sees the
-// workspace default on frame one. ensureLoaded is still called as
-// a safety net in case the loader was skipped (e.g. the view is
-// re-entered without a navigation).
+// Subscription & startup. The loader has already populated the
+// saved-views cache by the time we get here; ensureLoaded is a
+// belt-and-braces fallback for direct mounts that bypassed the
+// loader (tests, deep links from external apps).
 // ---------------------------------------------------------------
 onMounted(async () => {
   await subscribe('workspace:1')
@@ -115,7 +130,6 @@ function fromSaved(view: SavedView): ResolvedView {
   }
 }
 
-/** Workspace-default saved view, if seeded. */
 const workspaceDefaultView = computed<SavedView | null>(
   () =>
     savedViewsRef.value.find(
@@ -133,9 +147,6 @@ const activeView = computed<ResolvedView>(() => {
   return fromBuiltin(MY_QUEUE_VIEW)
 })
 
-// Canonicalise the URL on first mount so the active view is
-// always reflected as `?view=<id>`. Stops the My Queue / Triage
-// flip when the user revisits the page or pastes the bare URL.
 onMounted(() => {
   if (!route.query.view) {
     router.replace({
@@ -150,7 +161,7 @@ function selectViewById(id: string): void {
 }
 
 // ---------------------------------------------------------------
-// Sort.
+// Sort state, seeded by the active view's default.
 // ---------------------------------------------------------------
 const sortField = ref<string>(activeView.value.shape.sort[0]?.field ?? 'last_activity_at')
 const sortDir = ref<'asc' | 'desc'>(activeView.value.shape.sort[0]?.dir ?? 'desc')
@@ -245,19 +256,48 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-const COLUMNS = [
-  { field: 'id', label: '#', sortable: true, width: 'w-16' },
-  { field: 'title', label: 'Title', sortable: true, width: '' },
-  { field: 'workflow_state.name', label: 'Status', sortable: true, width: 'w-32' },
-  { field: 'priority', label: 'Priority', sortable: true, width: 'w-20' },
-  { field: 'assignee_uuid', label: 'Assignee', sortable: false, width: 'w-32' },
-  { field: 'last_activity_at', label: 'Updated', sortable: true, width: 'w-20' },
-] as const
+function shortDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function recurrenceLabel(rule: string): string {
+  const freq = rule
+    .split(';')
+    .map((p) => p.trim())
+    .find((p) => p.toUpperCase().startsWith('FREQ='))
+    ?.split('=')[1]
+    ?.toUpperCase()
+  if (freq === 'DAILY') return 'D'
+  if (freq === 'WEEKLY') return 'W'
+  if (freq === 'MONTHLY') return 'M'
+  if (freq === 'YEARLY') return 'Y'
+  return '↻'
+}
+
+function slaToneClass(card: CardData): string {
+  const sla = card.sla
+  if (!sla) return 'text-tertiary'
+  if (sla.breached) return 'text-rose-600 dark:text-rose-400'
+  if (sla.pill_color === 'amber') return 'text-amber-600 dark:text-amber-400'
+  if (sla.pill_color === 'green') return 'text-emerald-600 dark:text-emerald-400'
+  return 'text-tertiary'
+}
+
+function slaLabel(card: CardData): string {
+  const sla = card.sla
+  if (!sla) return '—'
+  if (sla.breached) return 'Breached'
+  if (sla.paused) return 'Paused'
+  const remaining = sla.seconds_remaining ?? 0
+  if (remaining < 3600) return `${Math.ceil(remaining / 60)}m`
+  if (remaining < 86_400) return `${Math.ceil(remaining / 3600)}h`
+  return `${Math.ceil(remaining / 86_400)}d`
+}
 
 // ---------------------------------------------------------------
-// Density toggle. Per Pencil & Paper enterprise table guide,
-// users should control density via an icon switcher outside the
-// table itself. Persisted in localStorage so the choice survives
+// Density toggle (Pencil & Paper enterprise table guide). User-
+// controlled, persisted to localStorage so the choice survives
 // reloads.
 // ---------------------------------------------------------------
 type Density = 'compact' | 'cosy' | 'comfortable'
@@ -278,9 +318,6 @@ function setDensity(value: Density): void {
 }
 
 const rowClass = computed<string>(() => {
-  // Numbers tuned to roughly 32 / 40 / 48 — Pencil & Paper's
-  // condensed / regular / relaxed conventions, scaled in for
-  // helpdesk dense use.
   if (density.value === 'compact') return 'h-8'
   if (density.value === 'comfortable') return 'h-12'
   return 'h-10'
@@ -291,7 +328,160 @@ const cellPadding = computed<string>(() =>
 )
 
 // ---------------------------------------------------------------
-// Sidebar items + Save action.
+// Column visibility — persisted per view.
+//
+// Order of precedence:
+//   1. localStorage override (user toggled here this session)
+//   2. shape.visible_card_fields on the active view (saved view
+//      authoritative layout)
+//   3. DEFAULT_VISIBLE_COLUMNS factory default
+//
+// `layoutDirty` reports whether the local choice differs from the
+// view's canonical layout — drives the "Save to view" button.
+// ---------------------------------------------------------------
+function storageKeyFor(viewId: string): string {
+  return `tickets-columns:${viewId}`
+}
+
+function loadColumns(viewId: string): ColumnId[] | null {
+  if (typeof localStorage === 'undefined') return null
+  const raw = localStorage.getItem(storageKeyFor(viewId))
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    const valid: ColumnId[] = []
+    for (const item of parsed) {
+      if (TICKET_COLUMNS.some((c) => c.id === item)) valid.push(item as ColumnId)
+    }
+    return valid.length ? valid : null
+  } catch {
+    return null
+  }
+}
+
+function persistColumns(viewId: string, ids: ColumnId[]): void {
+  if (typeof localStorage === 'undefined') return
+  localStorage.setItem(storageKeyFor(viewId), JSON.stringify(ids))
+}
+
+function clearColumns(viewId: string): void {
+  if (typeof localStorage === 'undefined') return
+  localStorage.removeItem(storageKeyFor(viewId))
+}
+
+const localOverride = ref<ColumnId[] | null>(loadColumns(activeView.value.id))
+
+watch(activeView, (next) => {
+  localOverride.value = loadColumns(next.id)
+})
+
+/** Map a CardData field name onto a ColumnId. The spec stores
+ * `visible_card_fields` as `(keyof CardData)[]` for forward
+ * compatibility, but we render through ColumnIds — the picker
+ * works in column-space, not field-space. */
+function mapFieldToColumnId(field: string): ColumnId | null {
+  if (field === 'workflow_state') return 'workflow_state'
+  if (field === 'priority') return 'priority'
+  if (field === 'assignee_uuid') return 'assignee'
+  if (field === 'requester_uuid') return 'requester'
+  if (field === 'category_id') return 'category'
+  if (field === 'cycle_id') return 'cycle'
+  if (field === 'due_date') return 'due_date'
+  if (field === 'last_activity_at') return 'last_activity'
+  if (field === 'created_at') return 'created_at'
+  if (field === 'sla') return 'sla'
+  if (field === 'kb_gap_signal') return 'kb_gap'
+  if (field === 'affected_devices') return 'devices'
+  if (field === 'recurrence_rule') return 'recurrence'
+  if (field === 'id' || field === 'title') return field as ColumnId
+  return null
+}
+
+function columnIdToField(id: ColumnId): string | null {
+  switch (id) {
+    case 'workflow_state': return 'workflow_state'
+    case 'priority': return 'priority'
+    case 'assignee': return 'assignee_uuid'
+    case 'requester': return 'requester_uuid'
+    case 'category': return 'category_id'
+    case 'cycle': return 'cycle_id'
+    case 'due_date': return 'due_date'
+    case 'last_activity': return 'last_activity_at'
+    case 'created_at': return 'created_at'
+    case 'sla': return 'sla'
+    case 'kb_gap': return 'kb_gap_signal'
+    case 'devices': return 'affected_devices'
+    case 'recurrence': return 'recurrence_rule'
+    case 'id': return 'id'
+    case 'title': return 'title'
+    default: return null
+  }
+}
+
+const viewCanonicalColumns = computed<ColumnId[]>(() => {
+  const fields = (activeView.value.shape as ListViewShape).visible_card_fields
+  if (!fields || fields.length === 0) return [...DEFAULT_VISIBLE_COLUMNS]
+  const out: ColumnId[] = []
+  if (!fields.some((f) => String(f) === 'title')) out.push('title')
+  for (const f of fields) {
+    const id = mapFieldToColumnId(String(f))
+    if (id && !out.includes(id)) out.push(id)
+  }
+  return out.length ? out : [...DEFAULT_VISIBLE_COLUMNS]
+})
+
+const visibleColumnIds = computed<ColumnId[]>(
+  () => localOverride.value ?? viewCanonicalColumns.value,
+)
+
+const visibleColumns = computed<ListColumn[]>(() =>
+  visibleColumnIds.value
+    .map((id) => TICKET_COLUMNS.find((c) => c.id === id))
+    .filter((c): c is ListColumn => Boolean(c)),
+)
+
+const layoutDirty = computed<boolean>(() => {
+  if (!localOverride.value) return false
+  const canonical = viewCanonicalColumns.value
+  if (localOverride.value.length !== canonical.length) return true
+  return localOverride.value.some((id, i) => id !== canonical[i])
+})
+
+const canSaveLayoutToView = computed<boolean>(
+  () => activeView.value.source === 'saved' && !!activeView.value.uuid,
+)
+
+function toggleColumn(id: ColumnId): void {
+  if (id === 'title') return
+  const current = visibleColumnIds.value
+  const next = current.includes(id)
+    ? current.filter((c) => c !== id)
+    : [...current, id]
+  if (!next.includes('title')) next.unshift('title')
+  localOverride.value = next
+  persistColumns(activeView.value.id, next)
+}
+
+function resetColumns(): void {
+  localOverride.value = null
+  clearColumns(activeView.value.id)
+}
+
+async function saveLayoutToView(): Promise<void> {
+  if (!canSaveLayoutToView.value || !activeView.value.uuid) return
+  const ids = visibleColumnIds.value
+  const fields = ids.map(columnIdToField).filter((f): f is string => !!f)
+  const shape = {
+    ...(activeView.value.shape as ListViewShape),
+    visible_card_fields: fields as (keyof CardData)[],
+  }
+  await savedViewsStore.update(activeView.value.uuid, { shape })
+  resetColumns()
+}
+
+// ---------------------------------------------------------------
+// Sidebar items.
 // ---------------------------------------------------------------
 const sidebarItems = computed<TicketViewItem[]>(() => {
   const items: TicketViewItem[] = []
@@ -365,7 +555,7 @@ async function archiveById(uuid: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------
-// Calendar overlays — unchanged from the previous iteration.
+// Calendar overlays — unchanged.
 // ---------------------------------------------------------------
 const overlayCache = ref<Map<string, CalendarOverlayEntry[]>>(new Map())
 const calendarOverlays = ref<CalendarOverlay[]>([])
@@ -441,10 +631,9 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
     />
 
     <div class="flex-1 min-w-0 flex flex-col">
-      <!-- Toolbar: active view + density + count. The page title
-           ("Tickets") lives in the global SiteHeader; this strip
-           is purely about the surface the user is operating on,
-           which keeps the chrome out of the data area. -->
+      <!-- Toolbar: active view + count + columns + density. The
+           page title ("Tickets") lives in the global SiteHeader
+           so the chrome stays out of the data area. -->
       <div
         class="flex items-center gap-3 px-4 h-10 border-b border-subtle bg-surface shrink-0"
       >
@@ -456,6 +645,14 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
           <span class="text-tertiary/70">of {{ cards.length }}</span>
         </span>
         <div class="flex-1" />
+        <ColumnPickerMenu
+          :visible="visibleColumnIds"
+          :can-save-to-view="canSaveLayoutToView"
+          :layout-dirty="layoutDirty"
+          @toggle="toggleColumn"
+          @reset="resetColumns"
+          @save="saveLayoutToView"
+        />
         <div
           class="inline-flex items-center rounded-md border border-subtle overflow-hidden"
           role="group"
@@ -479,9 +676,6 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
         </div>
       </div>
 
-      <!-- Initial-load state. Loader gates against this most of
-           the time, but a cold first hit while sync hydrates the
-           pool can briefly show this. -->
       <div
         v-if="isInitiallyLoading"
         class="flex-1 flex items-center justify-center text-tertiary text-sm"
@@ -507,25 +701,28 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
         <p class="text-xs">Try a different view from the sidebar.</p>
       </div>
 
-      <!-- Dense table. Sticky header, density-aware row height. -->
+      <!-- Dense, column-driven table. v-memo keys each row to the
+           subset of CardData fields that actually change its
+           rendering, so SSE bursts touch one row each rather
+           than the whole list. -->
       <div v-else class="flex-1 min-h-0 overflow-auto">
         <table class="w-full text-sm border-separate border-spacing-0">
           <thead>
             <tr class="sticky top-0 z-10 bg-surface">
               <th
-                v-for="col in COLUMNS"
-                :key="col.field"
+                v-for="col in visibleColumns"
+                :key="col.id"
                 class="text-left text-[11px] font-medium text-tertiary uppercase tracking-wide border-b border-subtle bg-surface"
-                :class="[col.width, cellPadding]"
+                :class="[col.width, cellPadding, col.align === 'center' && 'text-center', col.align === 'right' && 'text-right']"
               >
                 <button
-                  v-if="col.sortable"
+                  v-if="col.sortKey"
                   type="button"
                   class="inline-flex items-center gap-1 hover:text-primary transition-colors"
-                  @click="toggleSort(col.field)"
+                  @click="toggleSort(col.sortKey!)"
                 >
                   {{ col.label }}
-                  <span v-if="sortField === col.field" class="text-[10px] leading-none">
+                  <span v-if="sortField === col.sortKey" class="text-[10px] leading-none">
                     {{ sortDir === 'asc' ? '↑' : '↓' }}
                   </span>
                 </button>
@@ -537,71 +734,178 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
             <tr
               v-for="card in sortedCards"
               :key="card.id"
+              v-memo="[...rowMemoKey(card), visibleColumns.length, density]"
               class="hover:bg-surface-hover cursor-pointer transition-colors group"
               :class="rowClass"
               @click="open(card.id)"
             >
               <td
-                class="text-tertiary font-mono text-[11px] tabular-nums border-b border-subtle/40"
-                :class="cellPadding"
-              >#{{ card.id }}</td>
-              <td
-                class="text-primary border-b border-subtle/40 min-w-0"
-                :class="cellPadding"
+                v-for="col in visibleColumns"
+                :key="col.id"
+                class="border-b border-subtle/40 align-middle"
+                :class="[
+                  col.width,
+                  cellPadding,
+                  col.align === 'center' && 'text-center',
+                  col.align === 'right' && 'text-right',
+                ]"
               >
-                <div class="flex items-center gap-2 min-w-0">
+                <template v-if="col.id === 'id'">
+                  <span class="text-tertiary font-mono text-[11px] tabular-nums">#{{ card.id }}</span>
+                </template>
+
+                <template v-else-if="col.id === 'title'">
+                  <div class="flex items-center gap-2 min-w-0 text-primary">
+                    <span
+                      v-if="card.recurrence_rule"
+                      class="text-tertiary text-xs leading-none shrink-0"
+                      title="Recurring ticket"
+                    >↻</span>
+                    <span class="truncate" :title="card.title">{{ card.title }}</span>
+                    <span
+                      v-if="card.sla?.breached"
+                      class="text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
+                      title="SLA breached"
+                    >SLA</span>
+                  </div>
+                </template>
+
+                <template v-else-if="col.id === 'workflow_state'">
+                  <span class="inline-flex items-center gap-1.5 text-xs text-secondary">
+                    <span
+                      class="inline-block w-2 h-2 rounded-full bg-current shrink-0"
+                      :class="paletteForColor(card.workflow_state.color).solid"
+                      aria-hidden="true"
+                    />
+                    <span class="truncate">{{ card.workflow_state.name }}</span>
+                  </span>
+                </template>
+
+                <template v-else-if="col.id === 'priority'">
+                  <PriorityIndicator
+                    v-if="priorityForBadge(card.priority)"
+                    :priority="priorityForBadge(card.priority)!"
+                    size="xs"
+                  />
+                  <span v-else class="text-xs text-tertiary">—</span>
+                </template>
+
+                <template v-else-if="col.id === 'assignee'">
+                  <div v-if="card.assignee_uuid" class="flex items-center gap-2 text-xs">
+                    <UserAvatar
+                      :name="card.assignee_uuid"
+                      :avatar="null"
+                      size="xxs"
+                      :showName="false"
+                      :clickable="false"
+                    />
+                    <span class="text-secondary truncate font-mono text-[11px]">
+                      {{ card.assignee_uuid.slice(0, 8) }}
+                    </span>
+                  </div>
+                  <span v-else class="text-xs text-tertiary italic">—</span>
+                </template>
+
+                <template v-else-if="col.id === 'requester'">
+                  <div v-if="card.requester_uuid" class="flex items-center gap-2 text-xs">
+                    <UserAvatar
+                      :name="card.requester_uuid"
+                      :avatar="null"
+                      size="xxs"
+                      :showName="false"
+                      :clickable="false"
+                    />
+                    <span class="text-secondary truncate font-mono text-[11px]">
+                      {{ card.requester_uuid.slice(0, 8) }}
+                    </span>
+                  </div>
+                  <span v-else class="text-xs text-tertiary italic">—</span>
+                </template>
+
+                <template v-else-if="col.id === 'category'">
+                  <span
+                    v-if="card.category_id != null"
+                    class="text-[11px] text-secondary bg-surface-hover rounded px-1.5 py-0.5"
+                  >#{{ card.category_id }}</span>
+                  <span v-else class="text-xs text-tertiary">—</span>
+                </template>
+
+                <template v-else-if="col.id === 'cycle'">
+                  <span
+                    v-if="card.cycle_id != null"
+                    class="text-[11px] text-accent bg-accent/10 rounded px-1.5 py-0.5"
+                    title="Belongs to a cycle"
+                  >cycle #{{ card.cycle_id }}</span>
+                  <span v-else class="text-xs text-tertiary">—</span>
+                </template>
+
+                <template v-else-if="col.id === 'due_date'">
+                  <span
+                    class="text-[11px] tabular-nums"
+                    :class="card.due_date ? 'text-secondary' : 'text-tertiary'"
+                    :title="card.due_date ? new Date(card.due_date).toLocaleString() : 'No due date'"
+                  >{{ shortDate(card.due_date) }}</span>
+                </template>
+
+                <template v-else-if="col.id === 'last_activity'">
+                  <span
+                    class="text-[11px] text-tertiary tabular-nums"
+                    :title="new Date(card.last_activity_at).toLocaleString()"
+                  >{{ relativeTime(card.last_activity_at) }}</span>
+                </template>
+
+                <template v-else-if="col.id === 'created_at'">
+                  <span
+                    class="text-[11px] text-tertiary tabular-nums"
+                    :title="new Date(card.created_at).toLocaleString()"
+                  >{{ relativeTime(card.created_at) }}</span>
+                </template>
+
+                <template v-else-if="col.id === 'sla'">
+                  <span
+                    v-if="card.sla"
+                    class="inline-flex items-center gap-1 text-[11px] tabular-nums"
+                    :class="slaToneClass(card)"
+                    :title="card.sla.breached ? 'Breached' : (card.sla.paused ? 'Paused' : 'On track')"
+                  >
+                    <Icon name="clock" class="w-3 h-3" />
+                    {{ slaLabel(card) }}
+                  </span>
+                  <span v-else class="text-xs text-tertiary">—</span>
+                </template>
+
+                <template v-else-if="col.id === 'kb_gap'">
+                  <span
+                    v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
+                    class="text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5"
+                    :class="card.kb_gap_signal === 'strong'
+                      ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                      : 'bg-surface-hover text-secondary'"
+                    :title="`${card.kb_gap_signal} knowledge gap signal`"
+                  >KB</span>
+                  <span v-else class="text-xs text-tertiary">—</span>
+                </template>
+
+                <template v-else-if="col.id === 'devices'">
+                  <span
+                    v-if="card.affected_devices && card.affected_devices.count > 0"
+                    class="text-[11px] text-secondary tabular-nums inline-flex items-center gap-1"
+                    :title="card.affected_devices.first?.name ?? `${card.affected_devices.count} device(s)`"
+                  >
+                    <Icon name="device" class="w-3 h-3" />
+                    {{ card.affected_devices.count }}
+                  </span>
+                  <span v-else class="text-xs text-tertiary">—</span>
+                </template>
+
+                <template v-else-if="col.id === 'recurrence'">
                   <span
                     v-if="card.recurrence_rule"
-                    class="text-tertiary text-xs leading-none shrink-0"
-                    title="Recurring ticket"
-                  >↻</span>
-                  <span class="truncate" :title="card.title">{{ card.title }}</span>
-                  <span
-                    v-if="card.sla?.breached"
-                    class="text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
-                    title="SLA breached"
-                  >SLA</span>
-                </div>
-              </td>
-              <td class="border-b border-subtle/40" :class="cellPadding">
-                <span class="inline-flex items-center gap-1.5 text-xs text-secondary">
-                  <span
-                    class="inline-block w-2 h-2 rounded-full bg-current shrink-0"
-                    :class="paletteForColor(card.workflow_state.color).solid"
-                    aria-hidden="true"
-                  />
-                  <span class="truncate">{{ card.workflow_state.name }}</span>
-                </span>
-              </td>
-              <td class="border-b border-subtle/40" :class="cellPadding">
-                <PriorityIndicator
-                  v-if="priorityForBadge(card.priority)"
-                  :priority="priorityForBadge(card.priority)!"
-                  size="xs"
-                />
-                <span v-else class="text-xs text-tertiary">—</span>
-              </td>
-              <td class="border-b border-subtle/40" :class="cellPadding">
-                <div v-if="card.assignee_uuid" class="flex items-center gap-2 text-xs">
-                  <UserAvatar
-                    :name="card.assignee_uuid"
-                    :avatar="null"
-                    size="xxs"
-                    :showName="false"
-                    :clickable="false"
-                  />
-                  <span class="text-secondary truncate font-mono text-[11px]">
-                    {{ card.assignee_uuid.slice(0, 8) }}
-                  </span>
-                </div>
-                <span v-else class="text-xs text-tertiary italic">—</span>
-              </td>
-              <td
-                class="text-[11px] text-tertiary tabular-nums border-b border-subtle/40"
-                :class="cellPadding"
-                :title="new Date(card.last_activity_at).toLocaleString()"
-              >
-                {{ relativeTime(card.last_activity_at) }}
+                    class="text-[10px] font-medium rounded px-1.5 py-0.5 bg-violet-500/15 text-violet-700 dark:text-violet-300"
+                    :title="card.recurrence_rule"
+                  >{{ recurrenceLabel(card.recurrence_rule) }}</span>
+                  <span v-else class="text-xs text-tertiary">—</span>
+                </template>
               </td>
             </tr>
           </tbody>
