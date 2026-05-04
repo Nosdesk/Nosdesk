@@ -50,6 +50,7 @@ import {
   type ColumnId,
   type ListColumn,
 } from './ticketColumns'
+import { useColumnLayout } from '@/composables/useColumnLayout'
 import type {
   CalendarViewShape,
   CardData,
@@ -372,8 +373,40 @@ function clearColumns(viewId: string): void {
 
 const localOverride = ref<ColumnId[] | null>(loadColumns(activeView.value.id))
 
+// Resize / reorder composable. Reads + writes the per-view
+// column-widths localStorage entry, owns the pointer-capture
+// resize loop, and exposes the HTML5 drag-and-drop handlers
+// the header row binds.
+const layout = useColumnLayout(
+  () => activeView.value.id,
+  (next) => {
+    localOverride.value = next
+    persistColumns(activeView.value.id, next)
+  },
+  () => visibleColumnIds.value,
+)
+
+/** Build a canonical widths map from the saved view's
+ * `shape.columns` so reloading lands on the layout the view
+ * shipped with — even if the user has never dragged a handle
+ * for that view in this browser. */
+function viewCanonicalWidths(view: ResolvedView): Map<ColumnId, number> {
+  const map = new Map<ColumnId, number>()
+  const columns = (view.shape as ListViewShape).columns
+  if (!columns) return map
+  for (const c of columns) {
+    if (typeof c.width !== 'number') continue
+    const id = mapFieldToColumnId(String(c.field))
+    if (id) map.set(id, c.width)
+  }
+  return map
+}
+
+layout.loadFor(activeView.value.id, viewCanonicalWidths(activeView.value))
+
 watch(activeView, (next) => {
   localOverride.value = loadColumns(next.id)
+  layout.loadFor(next.id, viewCanonicalWidths(next))
 })
 
 /** Map a CardData field name onto a ColumnId. The spec stores
@@ -466,15 +499,31 @@ function toggleColumn(id: ColumnId): void {
 function resetColumns(): void {
   localOverride.value = null
   clearColumns(activeView.value.id)
+  layout.clearWidths()
 }
 
 async function saveLayoutToView(): Promise<void> {
   if (!canSaveLayoutToView.value || !activeView.value.uuid) return
   const ids = visibleColumnIds.value
   const fields = ids.map(columnIdToField).filter((f): f is string => !!f)
+  // Promote the local layout into shape.columns (spec'd shape that
+  // carries width per column) plus the legacy visible_card_fields
+  // for forward compat with consumers that only know about the
+  // visibility list.
+  const columnsConfig = ids.map((id) => {
+    const field = columnIdToField(id)
+    const widthOverride = layout.widthOverrides.value.get(id)
+    const col = TICKET_COLUMNS.find((c) => c.id === id)
+    return {
+      field: field as keyof CardData,
+      width: widthOverride ?? col?.defaultWidthPx,
+      sortable: !!col?.sortKey,
+    }
+  })
   const shape = {
     ...(activeView.value.shape as ListViewShape),
     visible_card_fields: fields as (keyof CardData)[],
+    columns: columnsConfig as ListViewShape['columns'],
   }
   await savedViewsStore.update(activeView.value.uuid, { shape })
   resetColumns()
@@ -552,6 +601,22 @@ async function archiveById(uuid: string): Promise<void> {
   if (ok && activeView.value.uuid === uuid) {
     router.push({ path: route.path, query: { ...route.query, view: MY_QUEUE_VIEW.id } })
   }
+}
+
+// ---------------------------------------------------------------
+// Per-column inline style. Fixed columns get a pixel width pulled
+// from the layout composable; the title column flexes with a max
+// width cap so very wide displays don't blow up the line length.
+// `table-layout: fixed` on the <table> is what makes these widths
+// authoritative — without it the browser might still reflow on
+// content overflow.
+// ---------------------------------------------------------------
+function colStyle(col: ListColumn): Record<string, string> {
+  if (col.flex) {
+    return { width: 'auto', 'min-width': '160px', 'max-width': '60ch' }
+  }
+  const w = layout.widthFor(col)
+  return { width: `${w}px`, 'min-width': `${w}px`, 'max-width': `${w}px` }
 }
 
 // ---------------------------------------------------------------
@@ -704,16 +769,34 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
       <!-- Dense, column-driven table. v-memo keys each row to the
            subset of CardData fields that actually change its
            rendering, so SSE bursts touch one row each rather
-           than the whole list. -->
+           than the whole list.
+
+           `table-fixed` makes the inline widths authoritative —
+           cells respect them even when content overflows, and
+           the resize / reorder interactions stay predictable. -->
       <div v-else class="flex-1 min-h-0 overflow-auto">
-        <table class="w-full text-sm border-separate border-spacing-0">
+        <table class="w-full text-sm border-separate border-spacing-0 table-fixed">
           <thead>
             <tr class="sticky top-0 z-10 bg-surface">
               <th
                 v-for="col in visibleColumns"
                 :key="col.id"
-                class="text-left text-[11px] font-medium text-tertiary uppercase tracking-wide border-b border-subtle bg-surface"
-                :class="[col.width, cellPadding, col.align === 'center' && 'text-center', col.align === 'right' && 'text-right']"
+                :draggable="layout.isReorderable(col.id)"
+                class="relative text-left text-[11px] font-medium text-tertiary uppercase tracking-wide border-b border-subtle bg-surface select-none"
+                :class="[
+                  cellPadding,
+                  col.align === 'center' && 'text-center',
+                  col.align === 'right' && 'text-right',
+                  layout.isReorderable(col.id) && 'cursor-grab',
+                  layout.dragSourceId.value === col.id && 'opacity-50',
+                  layout.dragTargetId.value === col.id && 'bg-accent/10',
+                ]"
+                :style="colStyle(col)"
+                @dragstart="layout.onDragStart(col.id, $event)"
+                @dragover="layout.onDragOver(col.id, $event)"
+                @dragleave="layout.onDragLeave(col.id)"
+                @drop="layout.onDrop(col.id, $event)"
+                @dragend="layout.onDragEnd"
               >
                 <button
                   v-if="col.sortKey"
@@ -727,6 +810,21 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
                   </span>
                 </button>
                 <span v-else>{{ col.label }}</span>
+                <!-- Resize handle. 6px hit area on the right edge,
+                     col-resize cursor, accent line on hover/drag.
+                     Pointer-capture inside beginResize() keeps the
+                     drag alive even if the cursor leaves the
+                     handle while moving. The last column gets one
+                     too — useful when the table doesn't fill the
+                     viewport. -->
+                <span
+                  class="absolute top-0 right-0 h-full w-1.5 cursor-col-resize touch-none group/resize"
+                  :class="layout.resizingId.value === col.id && 'bg-accent/50'"
+                  @pointerdown="layout.beginResize(col.id, $event)"
+                  @click.stop
+                >
+                  <span class="absolute inset-y-1 right-0.5 w-px bg-transparent group-hover/resize:bg-accent/40 transition-colors" />
+                </span>
               </th>
             </tr>
           </thead>
@@ -744,11 +842,11 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
                 :key="col.id"
                 class="border-b border-subtle/40 align-middle"
                 :class="[
-                  col.width,
                   cellPadding,
                   col.align === 'center' && 'text-center',
                   col.align === 'right' && 'text-right',
                 ]"
+                :style="colStyle(col)"
               >
                 <template v-if="col.id === 'id'">
                   <span class="text-tertiary font-mono text-[11px] tabular-nums">#{{ card.id }}</span>

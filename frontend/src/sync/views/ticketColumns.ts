@@ -7,9 +7,9 @@
  *
  * Per the NN/g data-tables guide we ship a focused default
  * set (around six columns) and hide the rest behind the
- * picker. The user controls visibility per view; the choice
- * persists to localStorage and, when the view is editable,
- * can be promoted to the saved view's `shape.visible_card_fields`.
+ * picker. The user controls visibility, order, and width per
+ * view; choices persist to localStorage and, when the view is
+ * editable, can be promoted to the saved view's `shape.columns`.
  */
 import type { CardData } from './types'
 
@@ -31,26 +31,31 @@ export type ColumnId =
   | 'recurrence'
 
 export interface ListColumn {
-  /** Stable id used in storage and shape.visible_card_fields. */
+  /** Stable id used in storage and shape.columns. */
   id: ColumnId
   /** Header label. Short — table headers are not the place for prose. */
   label: string
-  /** Tailwind width class. Empty string = column flexes (only the
-   *  title column flexes today). */
-  width: string
+  /** Default pixel width when the user hasn't dragged a resize
+   * handle and the saved view doesn't carry its own setting. */
+  defaultWidthPx: number
+  /** Resize lower bound — narrower than this the column is illegible. */
+  minWidthPx: number
+  /** Resize upper bound — wider than this wastes screen real estate. */
+  maxWidthPx: number
+  /** When true the column flexes to fill remaining space rather
+   * than rendering at its own fixed width. The renderer still
+   * applies a max-width so very wide displays don't blow up the
+   * line length. Today only the title flexes. */
+  flex?: boolean
   /** Default visibility — tuned to fit a typical agent workflow:
    *  id, title, status, priority, assignee, last_activity. The
    *  rest are opt-in. */
   defaultVisible: boolean
-  /** Whether the user can sort by this column (drives header
-   *  click affordance). The sort key is the dot-path read from
-   *  CardData; helps the renderer stay generic. */
+  /** Whether the user can sort by this column. */
   sortKey: string | null
-  /** Tailwind text-align utility. Most cells flow left; numerics
-   *  and icons centre. */
+  /** Cell text alignment. */
   align: 'left' | 'right' | 'center'
-  /** Short tooltip explaining what the column shows. Surfaced in
-   *  the picker menu, not the table header. */
+  /** Surfaced in the picker menu as the column's tooltip. */
   description: string
 }
 
@@ -85,7 +90,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'id',
     label: '#',
-    width: 'w-16',
+    defaultWidthPx: 64,
+    minWidthPx: 48,
+    maxWidthPx: 120,
     defaultVisible: true,
     sortKey: 'id',
     align: 'left',
@@ -94,7 +101,10 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'title',
     label: 'Title',
-    width: '',
+    defaultWidthPx: 400,
+    minWidthPx: 160,
+    maxWidthPx: 720,
+    flex: true,
     defaultVisible: true,
     sortKey: 'title',
     align: 'left',
@@ -103,7 +113,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'workflow_state',
     label: 'Status',
-    width: 'w-32',
+    defaultWidthPx: 140,
+    minWidthPx: 90,
+    maxWidthPx: 240,
     defaultVisible: true,
     sortKey: 'workflow_state.name',
     align: 'left',
@@ -112,7 +124,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'priority',
     label: 'Priority',
-    width: 'w-20',
+    defaultWidthPx: 88,
+    minWidthPx: 64,
+    maxWidthPx: 160,
     defaultVisible: true,
     sortKey: 'priority',
     align: 'left',
@@ -121,7 +135,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'assignee',
     label: 'Assignee',
-    width: 'w-32',
+    defaultWidthPx: 140,
+    minWidthPx: 90,
+    maxWidthPx: 240,
     defaultVisible: true,
     sortKey: null,
     align: 'left',
@@ -130,7 +146,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'requester',
     label: 'Requester',
-    width: 'w-32',
+    defaultWidthPx: 140,
+    minWidthPx: 90,
+    maxWidthPx: 240,
     defaultVisible: false,
     sortKey: null,
     align: 'left',
@@ -139,7 +157,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'category',
     label: 'Category',
-    width: 'w-28',
+    defaultWidthPx: 120,
+    minWidthPx: 80,
+    maxWidthPx: 240,
     defaultVisible: false,
     sortKey: 'category_id',
     align: 'left',
@@ -148,7 +168,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'cycle',
     label: 'Cycle',
-    width: 'w-24',
+    defaultWidthPx: 110,
+    minWidthPx: 80,
+    maxWidthPx: 200,
     defaultVisible: false,
     sortKey: 'cycle_id',
     align: 'left',
@@ -157,7 +179,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'due_date',
     label: 'Due',
-    width: 'w-20',
+    defaultWidthPx: 96,
+    minWidthPx: 72,
+    maxWidthPx: 160,
     defaultVisible: false,
     sortKey: 'due_date',
     align: 'left',
@@ -166,7 +190,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'last_activity',
     label: 'Updated',
-    width: 'w-20',
+    defaultWidthPx: 96,
+    minWidthPx: 72,
+    maxWidthPx: 160,
     defaultVisible: true,
     sortKey: 'last_activity_at',
     align: 'left',
@@ -175,7 +201,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'created_at',
     label: 'Created',
-    width: 'w-20',
+    defaultWidthPx: 96,
+    minWidthPx: 72,
+    maxWidthPx: 160,
     defaultVisible: false,
     sortKey: 'created_at',
     align: 'left',
@@ -184,7 +212,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'sla',
     label: 'SLA',
-    width: 'w-16',
+    defaultWidthPx: 88,
+    minWidthPx: 64,
+    maxWidthPx: 160,
     defaultVisible: false,
     sortKey: null,
     align: 'center',
@@ -193,7 +223,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'kb_gap',
     label: 'KB',
-    width: 'w-12',
+    defaultWidthPx: 56,
+    minWidthPx: 48,
+    maxWidthPx: 120,
     defaultVisible: false,
     sortKey: null,
     align: 'center',
@@ -202,7 +234,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'devices',
     label: 'Devices',
-    width: 'w-16',
+    defaultWidthPx: 80,
+    minWidthPx: 56,
+    maxWidthPx: 160,
     defaultVisible: false,
     sortKey: null,
     align: 'center',
@@ -211,7 +245,9 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'recurrence',
     label: 'Recur',
-    width: 'w-12',
+    defaultWidthPx: 64,
+    minWidthPx: 48,
+    maxWidthPx: 120,
     defaultVisible: false,
     sortKey: null,
     align: 'center',
