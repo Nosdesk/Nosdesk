@@ -85,6 +85,14 @@ export const cyclesService = {
     return data
   },
 
+  /** Returns the ticket-id list for a cycle. ScrumBoard uses this
+   * to scope its kanban without pulling cycle_tickets through the
+   * sync engine. */
+  async tickets(uuid: string): Promise<number[]> {
+    const { data } = await apiClient.get<number[]>(`/cycles/${uuid}/tickets`)
+    return data
+  },
+
   async addTicket(cycleUuid: string, ticketId: number): Promise<void> {
     await apiClient.post(`/cycles/${cycleUuid}/tickets/${ticketId}`)
   },

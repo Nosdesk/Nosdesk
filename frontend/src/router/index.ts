@@ -12,6 +12,7 @@ import TicketsListView from '@/sync/views/TicketsListView.vue'
 import ProjectsView from '../views/ProjectsView.vue'
 import ProjectDetailView from '../views/ProjectDetailView.vue'
 import WorkspaceCyclesView from '../views/WorkspaceCyclesView.vue'
+import CycleDetailView from '../views/CycleDetailView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
 import DocumentView from '@/views/DocumentView.vue'
@@ -240,6 +241,16 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Cycles',
+      }
+    },
+    {
+      path: '/cycles/:uuid',
+      name: 'cycle-detail',
+      component: CycleDetailView,
+      props: true,
+      meta: {
+        requiresAuth: true,
+        title: 'Cycle',
       }
     },
     {

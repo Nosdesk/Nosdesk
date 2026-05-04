@@ -225,7 +225,11 @@ function formatCycleDate(iso: string | null): string {
               'bg-surface text-tertiary opacity-70': cycle.state === 'completed',
             }"
           >{{ cycle.state }}</span>
-          <span class="text-sm text-primary flex-1 truncate">{{ cycle.name }}</span>
+          <button
+            type="button"
+            class="text-sm text-primary flex-1 truncate text-left hover:text-accent"
+            @click="router.push(`/cycles/${cycle.uuid}`)"
+          >{{ cycle.name }}</button>
           <span class="text-[11px] text-tertiary tabular-nums">
             {{ formatCycleDate(cycle.start_at) }} → {{ formatCycleDate(cycle.end_at) }}
           </span>

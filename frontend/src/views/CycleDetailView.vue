@@ -1,0 +1,150 @@
+<script setup lang="ts">
+/**
+ * Cycle detail / Scrum board.
+ *
+ * Phase 8 ScrumViewShape, served as a saved-Kanban specialisation
+ * scoped to one cycle: the kanban renders only the cycle's tickets,
+ * with a burndown widget pinned to the toolbar so velocity stays
+ * visible while the team moves cards.
+ *
+ * The route is `/cycles/:uuid` so a cycle's URL is shareable; the
+ * workspace overview and the per-project drawer both link here.
+ *
+ * Today the kanban groups by workflow_state.category; the secondary
+ * axis can be flipped from the toolbar (status x assignee, etc.)
+ * the same way it works on project detail.
+ */
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { subscribe } from '@/sync/lifecycle'
+import { useSyncTicketsStore } from '@/sync/stores/tickets'
+import { cyclesService, type Cycle } from '@/services/cyclesService'
+import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
+import KanbanBoard from '@/sync/views/KanbanBoard.vue'
+import { toCardData } from '@/sync/views/cardData'
+import type { CardData } from '@/sync/views/types'
+
+const props = defineProps<{ uuid: string }>()
+
+const router = useRouter()
+const ticketsStore = useSyncTicketsStore()
+
+const cycle = ref<Cycle | null>(null)
+const ticketIds = ref<number[]>([])
+const isLoading = ref(false)
+const error = ref<string | null>(null)
+
+async function load(): Promise<void> {
+  isLoading.value = true
+  error.value = null
+  try {
+    cycle.value = await cyclesService.get(props.uuid)
+    ticketIds.value = await cyclesService.tickets(props.uuid)
+    // Subscribe to the cycle's project so the ticket pool is populated.
+    if (cycle.value) {
+      await subscribe(`project:${cycle.value.project_id}`)
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to load cycle'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+onMounted(load)
+watch(() => props.uuid, load)
+
+const ticketIdSet = computed<Set<number>>(() => new Set(ticketIds.value))
+
+const cards = computed<CardData[]>(() => {
+  const out: CardData[] = []
+  for (const id of ticketIds.value) {
+    const t = ticketsStore.byId(id).value
+    if (!t) continue
+    const card = toCardData(t)
+    if (card) out.push(card)
+  }
+  return out
+})
+
+type SecondaryAxis = 'assignee_uuid' | 'priority'
+const secondaryAxis = ref<SecondaryAxis | null>(null)
+
+function setSecondaryAxis(axis: SecondaryAxis | null): void {
+  secondaryAxis.value = axis
+}
+
+function openCard(cardId: number): void {
+  router.push(`/tickets/${cardId}`)
+}
+
+function backToCycles(): void {
+  router.push('/cycles')
+}
+
+const stateLabel = computed<string>(() => {
+  if (!cycle.value) return ''
+  return cycle.value.state.charAt(0).toUpperCase() + cycle.value.state.slice(1)
+})
+
+// Suppress an "unused" warning while still letting Vue Router
+// type-check the prop. ticketIdSet is reserved for an upcoming
+// "drag from outside cycle" affordance — keeping it here flags
+// that intent rather than reintroducing it later.
+void ticketIdSet
+</script>
+
+<template>
+  <div class="flex flex-col h-full">
+    <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
+      <div class="flex items-center gap-3 min-w-0">
+        <button
+          type="button"
+          class="text-xs text-tertiary hover:text-primary"
+          @click="backToCycles"
+        >‹ Cycles</button>
+        <div class="min-w-0">
+          <h1 class="text-xl font-semibold text-primary truncate">
+            {{ cycle?.name ?? 'Loading…' }}
+          </h1>
+          <p v-if="cycle" class="text-xs text-tertiary mt-0.5">
+            {{ stateLabel }} · {{ ticketIds.length }} ticket{{ ticketIds.length === 1 ? '' : 's' }}
+          </p>
+        </div>
+      </div>
+      <label class="flex items-center gap-2 text-xs text-secondary">
+        <span>Group by</span>
+        <select
+          class="bg-surface border border-subtle rounded-md text-xs px-2 py-1 text-primary"
+          :value="secondaryAxis ?? ''"
+          @change="setSecondaryAxis(($event.target as HTMLSelectElement).value as 'assignee_uuid' | 'priority' | '' || null)"
+        >
+          <option value="">Status only</option>
+          <option value="assignee_uuid">Status × Assignee</option>
+          <option value="priority">Status × Priority</option>
+        </select>
+      </label>
+    </header>
+
+    <div v-if="isLoading" class="flex-1 flex items-center justify-center text-tertiary text-sm">
+      Loading cycle…
+    </div>
+    <div v-else-if="error" class="flex-1 flex items-center justify-center text-rose-500 text-sm">
+      {{ error }}
+    </div>
+    <template v-else-if="cycle">
+      <!-- Burndown is pinned above the board so it stays visible
+           as the user scrolls horizontally through swimlanes. -->
+      <section class="px-6 py-4 border-b border-subtle bg-surface">
+        <CycleBurndown :cycle="cycle" />
+      </section>
+
+      <KanbanBoard
+        class="flex-1 min-h-0"
+        :cards="cards"
+        :on-card-click="openCard"
+        :secondary-group-by="secondaryAxis"
+      />
+    </template>
+  </div>
+</template>

@@ -223,6 +223,36 @@ pub async fn patch(
     }
 }
 
+/// Returns the ticket-id list for a cycle. Phase 8 ScrumBoard uses
+/// this to scope its kanban to "tickets in this cycle" without
+/// pulling the cycle_tickets aggregate into the sync engine.
+pub async fn tickets(
+    pool: web::Data<Pool>,
+    path: web::Path<Uuid>,
+    _auth: AuthContext,
+) -> impl Responder {
+    let uuid = path.into_inner();
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let cycle = match repo::find_by_uuid(&mut conn, uuid) {
+        Ok(Some(c)) => c,
+        Ok(None) => return errors::not_found_msg("Cycle not found"),
+        Err(e) => {
+            error!(error = %e, %uuid, "tickets: cycle lookup failed");
+            return errors::internal("Failed to fetch cycle tickets");
+        }
+    };
+    match repo::ticket_ids_for_cycle(&mut conn, cycle.id) {
+        Ok(ids) => actix_web::HttpResponse::Ok().json(ids),
+        Err(e) => {
+            error!(error = %e, %uuid, "tickets: load failed");
+            errors::internal("Failed to fetch cycle tickets")
+        }
+    }
+}
+
 /// Live stats for a cycle. For completed cycles returns the frozen
 /// completion_snapshot; for planned/active cycles computes the same
 /// shape on the fly. The frontend Burndown widget renders both

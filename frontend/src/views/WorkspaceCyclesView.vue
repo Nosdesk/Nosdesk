@@ -89,6 +89,10 @@ function fmt(iso: string | null): string {
 function openProject(projectId: number): void {
   router.push(`/projects/${projectId}`)
 }
+
+function openCycle(uuid: string): void {
+  router.push(`/cycles/${uuid}`)
+}
 </script>
 
 <template>
@@ -139,14 +143,18 @@ function openProject(projectId: number): void {
 
         <div class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr))">
           <template v-for="cycle in group.cycles" :key="cycle.uuid">
-            <CycleBurndown
+            <div
               v-if="cycle.state === 'active'"
-              :cycle="cycle"
-            />
+              class="cursor-pointer"
+              @click="openCycle(cycle.uuid)"
+            >
+              <CycleBurndown :cycle="cycle" />
+            </div>
 
             <article
               v-else
-              class="rounded-md border border-subtle bg-app p-3 flex flex-col gap-1.5"
+              class="rounded-md border border-subtle bg-app p-3 flex flex-col gap-1.5 cursor-pointer hover:border-default transition-colors"
+              @click="openCycle(cycle.uuid)"
             >
               <header class="flex items-center justify-between">
                 <h3 class="text-sm font-medium text-primary truncate">{{ cycle.name }}</h3>
