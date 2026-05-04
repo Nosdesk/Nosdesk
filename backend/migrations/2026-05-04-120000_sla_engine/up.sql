@@ -57,7 +57,7 @@ CREATE TABLE sla_policies (
     -- could match, the highest-id policy wins (last-write applies)
     -- — explicit ordering can replace this when an admin UI ships.
     priority_filter             VARCHAR(20),
-    category_id_filter          INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+    category_id_filter          INTEGER REFERENCES ticket_categories(id) ON DELETE SET NULL,
     is_default                  BOOLEAN NOT NULL DEFAULT FALSE,
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
