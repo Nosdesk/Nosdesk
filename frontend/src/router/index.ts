@@ -13,6 +13,7 @@ import ProjectsView from '../views/ProjectsView.vue'
 import ProjectDetailView from '../views/ProjectDetailView.vue'
 import WorkspaceCyclesView from '../views/WorkspaceCyclesView.vue'
 import CycleDetailView from '../views/CycleDetailView.vue'
+import ProjectGanttView from '../views/ProjectGanttView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
 import DocumentView from '@/views/DocumentView.vue'
@@ -251,6 +252,16 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Cycle',
+      }
+    },
+    {
+      path: '/projects/:id/gantt',
+      name: 'project-gantt',
+      component: ProjectGanttView,
+      props: true,
+      meta: {
+        requiresAuth: true,
+        title: 'Gantt',
       }
     },
     {

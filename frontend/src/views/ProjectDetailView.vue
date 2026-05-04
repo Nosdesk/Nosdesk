@@ -149,6 +149,13 @@ function formatCycleDate(iso: string | null): string {
       <div class="flex items-center gap-3">
         <button
           type="button"
+          class="text-xs font-medium rounded-md px-2.5 py-1.5 text-secondary hover:bg-surface-hover transition-colors"
+          @click="router.push(`/projects/${projectId}/gantt`)"
+        >
+          Gantt
+        </button>
+        <button
+          type="button"
           class="text-xs font-medium rounded-md px-2.5 py-1.5 text-secondary hover:bg-surface-hover transition-colors flex items-center gap-1.5"
           :class="{ 'bg-accent/10 text-accent': showCyclesPanel }"
           @click="showCyclesPanel = !showCyclesPanel"

@@ -1205,6 +1205,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/projects/{id}", web::put().to(handlers::update_project))
                     .route("/projects/{id}", web::delete().to(handlers::delete_project))
                     .route("/projects/{id}/tickets", web::get().to(handlers::get_project_tickets))
+                    .route("/projects/{id}/dependencies", web::get().to(handlers::projects::get_project_dependencies))
                     .route("/projects/{project_id}/tickets/{ticket_id}", web::post().to(handlers::add_ticket_to_project))
                     .route("/projects/{project_id}/tickets/{ticket_id}", web::delete().to(handlers::remove_ticket_from_project))
                     .route("/projects/{id}/tickets/order", web::put().to(handlers::update_ticket_order))

@@ -182,6 +182,38 @@ pub async fn get_project_tickets(
     }
 }
 
+/// Dependency edges for the project's Gantt view. Returns one
+/// row per linked_tickets entry where both ends fall inside the
+/// project. The Gantt renders `blocks` arrows; other link kinds
+/// round-trip so the renderer can switch them on without a
+/// backend change.
+pub async fn get_project_dependencies(
+    pool: web::Data<Pool>,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let project_id = path.into_inner();
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    match repository::linked_tickets::dependencies_for_project(&mut conn, project_id) {
+        Ok(rows) => {
+            let payload: Vec<serde_json::Value> = rows
+                .into_iter()
+                .map(|(from_id, to_id, link_type)| {
+                    serde_json::json!({
+                        "from": from_id,
+                        "to": to_id,
+                        "link_type": link_type,
+                    })
+                })
+                .collect();
+            HttpResponse::Ok().json(payload)
+        }
+        Err(_) => errors::internal("Failed to load project dependencies"),
+    }
+}
+
 // Add a ticket to a project (technician or admin only)
 pub async fn add_ticket_to_project(
     req: HttpRequest,

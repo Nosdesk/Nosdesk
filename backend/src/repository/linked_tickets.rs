@@ -5,6 +5,38 @@ use tracing::debug;
 use crate::db::DbConnection;
 use crate::models::*;
 
+/// Dependency edges for the Gantt renderer. Returns rows where
+/// both ends are inside the project's ticket set, joined to
+/// linked_tickets to surface the link_type. The Gantt renders
+/// only `blocks` arrows today; other link kinds round-trip so a
+/// later legend / filter can switch them on without a backend
+/// change.
+pub fn dependencies_for_project(
+    conn: &mut DbConnection,
+    project_id: i32,
+) -> QueryResult<Vec<(i32, i32, String)>> {
+    use crate::schema::{linked_tickets, project_tickets};
+
+    let ticket_ids: Vec<i32> = project_tickets::table
+        .filter(project_tickets::project_id.eq(project_id))
+        .select(project_tickets::ticket_id)
+        .load(conn)?;
+
+    if ticket_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    linked_tickets::table
+        .filter(linked_tickets::ticket_id.eq_any(&ticket_ids))
+        .filter(linked_tickets::linked_ticket_id.eq_any(&ticket_ids))
+        .select((
+            linked_tickets::ticket_id,
+            linked_tickets::linked_ticket_id,
+            linked_tickets::link_type,
+        ))
+        .load(conn)
+}
+
 // Linked Tickets
 pub fn get_linked_tickets(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<i32>> {
     use crate::schema::linked_tickets;
