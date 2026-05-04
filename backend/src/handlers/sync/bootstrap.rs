@@ -232,6 +232,8 @@ fn stream_bootstrap(
     )?;
     let device_summaries =
         crate::repository::tickets::devices_summary_for_tickets(&mut conn, &ticket_ids)?;
+    let cycle_membership =
+        crate::repository::cycles::cycle_ids_for_tickets(&mut conn, &ticket_ids)?;
 
     for t in ticket_rows {
         let ws = states_by_id.get(&t.workflow_state_id);
@@ -270,6 +272,7 @@ fn stream_bootstrap(
             "due_date": t.due_date,
             "kb_gap_signal": kb_gap_signal,
             "affected_devices": affected_devices,
+            "cycle_id": cycle_membership.get(&t.id),
             "created_at": t.created_at,
             "updated_at": t.updated_at,
             "last_activity_at": t.updated_at,

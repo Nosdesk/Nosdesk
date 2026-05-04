@@ -1432,7 +1432,9 @@ pub struct ProjectWithTicketCount {
 pub struct LinkedTicket {
     pub ticket_id: i32,
     pub linked_ticket_id: i32,
-    pub link_type: String,
+    /// One of `blocks` / `blocked_by` / `related` / `duplicate_of`.
+    /// Locked at the DB layer by `linked_tickets_relation_type_check`.
+    pub relation_type: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,

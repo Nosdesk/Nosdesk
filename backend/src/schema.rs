@@ -601,7 +601,7 @@ diesel::table! {
         ticket_id -> Int4,
         linked_ticket_id -> Int4,
         #[max_length = 50]
-        link_type -> Varchar,
+        relation_type -> Varchar,
         description -> Nullable<Text>,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,

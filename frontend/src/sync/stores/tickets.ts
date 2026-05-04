@@ -47,6 +47,10 @@ export interface SyncTicket {
     count: number
     first?: { id: number; name: string; os?: string | null }
   } | null
+  /** The cycle this ticket belongs to (null when triage / backlog).
+   * Bootstrap denormalises from cycle_tickets so the Triage saved
+   * view's `cycle_id is_empty` predicate evaluates without a join. */
+  cycle_id?: number | null
   created_at: string
   updated_at: string
   last_activity_at: string

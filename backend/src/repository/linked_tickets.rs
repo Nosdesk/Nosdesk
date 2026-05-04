@@ -7,9 +7,9 @@ use crate::models::*;
 
 /// Dependency edges for the Gantt renderer. Returns rows where
 /// both ends are inside the project's ticket set, joined to
-/// linked_tickets to surface the link_type. The Gantt renders
-/// only `blocks` arrows today; other link kinds round-trip so a
-/// later legend / filter can switch them on without a backend
+/// linked_tickets to surface the relation_type. The Gantt renders
+/// only `blocks` arrows today; other relation kinds round-trip so
+/// a later legend / filter can switch them on without a backend
 /// change.
 pub fn dependencies_for_project(
     conn: &mut DbConnection,
@@ -32,7 +32,7 @@ pub fn dependencies_for_project(
         .select((
             linked_tickets::ticket_id,
             linked_tickets::linked_ticket_id,
-            linked_tickets::link_type,
+            linked_tickets::relation_type,
         ))
         .load(conn)
 }

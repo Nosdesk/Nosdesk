@@ -302,6 +302,26 @@ pub fn cycle_id_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResu
         .optional()
 }
 
+/// Per-ticket cycle membership for the bootstrap payload. Returns
+/// only tickets that belong to a cycle so the consumer defaults
+/// the rest to null. The Triage saved view's `cycle_id is_empty`
+/// predicate reads this denormalised field so the spec'd filter
+/// (`triage_state = 'untriaged' AND cycle = NULL`) evaluates
+/// client-side without a join.
+pub fn cycle_ids_for_tickets(
+    conn: &mut DbConnection,
+    ticket_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, i32>> {
+    if ticket_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let rows: Vec<(i32, i32)> = cycle_tickets::table
+        .filter(cycle_tickets::ticket_id.eq_any(ticket_ids))
+        .select((cycle_tickets::ticket_id, cycle_tickets::cycle_id))
+        .load(conn)?;
+    Ok(rows.into_iter().collect())
+}
+
 /// Build the completion snapshot that gets frozen on cycle.complete.
 /// Counts the cycle's tickets and breaks them down by workflow
 /// state category. Burndown reads this snapshot for completed

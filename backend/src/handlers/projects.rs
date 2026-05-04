@@ -200,11 +200,11 @@ pub async fn get_project_dependencies(
         Ok(rows) => {
             let payload: Vec<serde_json::Value> = rows
                 .into_iter()
-                .map(|(from_id, to_id, link_type)| {
+                .map(|(from_id, to_id, relation_type)| {
                     serde_json::json!({
                         "from": from_id,
                         "to": to_id,
-                        "link_type": link_type,
+                        "relation_type": relation_type,
                     })
                 })
                 .collect();

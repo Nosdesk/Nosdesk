@@ -30,5 +30,6 @@ export function toCardData(ticket: SyncTicket): CardData | null {
     triage_state: ticket.triage_state,
     kb_gap_signal: ticket.kb_gap_signal ?? 'none',
     affected_devices: ticket.affected_devices ?? null,
+    cycle_id: ticket.cycle_id ?? null,
   }
 }

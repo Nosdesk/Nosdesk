@@ -149,7 +149,7 @@ const arrows = computed<Arrow[]>(() => {
   for (const r of visibleRows.value) rowByCardId.set(r.card.id, r)
   const out: Arrow[] = []
   for (const e of props.edges) {
-    if (e.link_type !== 'blocks') continue
+    if (e.relation_type !== 'blocks') continue
     const src = rowByCardId.get(e.from)
     const dst = rowByCardId.get(e.to)
     if (!src || !dst) continue
