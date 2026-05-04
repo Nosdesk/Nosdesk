@@ -33,7 +33,7 @@ export interface CalendarOverlay {
   id: string
   /** ISO day string (YYYY-MM-DD); lookup is exact match. */
   date: string
-  kind: 'warranty_expiry' | 'maintenance' | 'os_cutoff'
+  kind: 'warranty_expiry' | 'maintenance' | 'os_cutoff' | 'sla_breach'
   label: string
   /** Optional click target. The parent decides what "open" means. */
   href?: string
@@ -161,6 +161,7 @@ const overlayClass: Record<CalendarOverlay['kind'], string> = {
   warranty_expiry: 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40',
   maintenance: 'bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/40',
   os_cutoff: 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/40',
+  sla_breach: 'bg-rose-600/25 text-rose-700 dark:text-rose-200 border border-rose-600/50',
 }
 
 function readDate(card: CardData, field: DateField): string | null | undefined {

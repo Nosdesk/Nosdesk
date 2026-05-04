@@ -1093,6 +1093,19 @@ async fn main() -> std::io::Result<()> {
                     .route("/cycles/{uuid}/tickets/{ticket_id}", web::post().to(handlers::cycles::add_ticket))
                     .route("/cycles/{uuid}/tickets/{ticket_id}", web::delete().to(handlers::cycles::remove_ticket))
 
+                    // SLA admin: policies + working calendars CRUD.
+                    // Reads open to any authenticated user (the
+                    // admin UI lists them); writes gate on admin
+                    // inside the handler.
+                    .route("/admin/sla/policies", web::get().to(handlers::sla::list_policies))
+                    .route("/admin/sla/policies", web::post().to(handlers::sla::create_policy))
+                    .route("/admin/sla/policies/{id}", web::patch().to(handlers::sla::update_policy))
+                    .route("/admin/sla/policies/{id}", web::delete().to(handlers::sla::delete_policy))
+                    .route("/admin/sla/calendars", web::get().to(handlers::sla::list_calendars))
+                    .route("/admin/sla/calendars", web::post().to(handlers::sla::create_calendar))
+                    .route("/admin/sla/calendars/{id}", web::patch().to(handlers::sla::update_calendar))
+                    .route("/admin/sla/calendars/{id}", web::delete().to(handlers::sla::delete_calendar))
+
                     .route("/sync/bootstrap", web::get().to(handlers::sync::bootstrap::bootstrap))
                     .route("/sync/delta", web::get().to(handlers::sync::delta::delta))
                     .route("/sync/push", web::post().to(handlers::sync::push::push))

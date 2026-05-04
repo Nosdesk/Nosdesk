@@ -43,6 +43,7 @@ pub mod canned_responses;
 pub mod dashboard;
 pub mod saved_views;
 pub mod cycles;
+pub mod sla;
 pub mod sync;
 pub mod workflow_states;
 

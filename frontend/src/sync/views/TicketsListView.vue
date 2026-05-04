@@ -373,6 +373,39 @@ async function loadOverlays(start: string, end: string): Promise<void> {
 function onCalendarVisibleRange(range: { start: string; end: string }): void {
   void loadOverlays(range.start, range.end)
 }
+
+/** SLA breach overlays derived locally from the cards prop. The
+ * SLA pill payload already carries `target_at` per ticket, so the
+ * calendar can place a breach marker on each due day without an
+ * extra fetch. Combined with the warranty/maintenance overlays
+ * below the calendar gets one merged stream. */
+const slaOverlays = computed<CalendarOverlay[]>(() => {
+  const out: CalendarOverlay[] = []
+  for (const card of filteredCards.value) {
+    const sla = card.sla
+    if (!sla || sla.paused) continue
+    const target = new Date(sla.target_at)
+    if (Number.isNaN(target.getTime())) continue
+    const y = target.getFullYear()
+    const m = String(target.getMonth() + 1).padStart(2, '0')
+    const d = String(target.getDate()).padStart(2, '0')
+    out.push({
+      id: `sla:${card.id}`,
+      date: `${y}-${m}-${d}`,
+      kind: 'sla_breach',
+      label: sla.breached
+        ? `SLA breached: ${card.title}`
+        : `SLA target: ${card.title}`,
+      href: `/tickets/${card.id}`,
+    })
+  }
+  return out
+})
+
+const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
+  ...calendarOverlays.value,
+  ...slaOverlays.value,
+])
 </script>
 
 <template>
@@ -462,7 +495,7 @@ function onCalendarVisibleRange(range: { start: string; end: string }): void {
       class="flex-1 min-h-0"
       :cards="filteredCards"
       :date-field="activeView.shape.date_field"
-      :overlays="calendarOverlays"
+      :overlays="mergedCalendarOverlays"
       :on-card-click="open"
       @visible-range="onCalendarVisibleRange"
     />
