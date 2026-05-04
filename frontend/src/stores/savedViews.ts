@@ -52,6 +52,15 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
     })
   }
 
+  /** Loader-side cache prime. Used by route loaders so the view's
+   * first render sees the saved-view list synchronously instead
+   * of racing against a background fetch (otherwise the active-view
+   * computed snaps from the fallback to the workspace default a
+   * frame later — visible as a content jump on /tickets). */
+  function prime(projectId: number | null | undefined, rows: SavedView[]): void {
+    cache.value.set(keyFor(projectId), rows)
+  }
+
   function viewsForProject(projectId: number | null | undefined) {
     const key = keyFor(projectId)
     return computed(() => cache.value.get(key) ?? [])
@@ -157,6 +166,7 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
     cache,
     lastError,
     ensureLoaded,
+    prime,
     viewsForProject,
     findByUuid,
     create,

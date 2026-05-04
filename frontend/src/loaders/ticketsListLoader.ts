@@ -20,6 +20,8 @@
 import { defineColadaLoader } from 'vue-router/experimental/pinia-colada'
 import { setInfiniteQueryData, useQueryCache } from '@pinia/colada'
 import ticketService from '@/services/ticketService'
+import { savedViewsService } from '@/services/savedViewsService'
+import { useSavedViewsStore } from '@/stores/savedViews'
 import { ticketsKeys, ticketsListParamsFromQuery } from '@/queries/tickets'
 import { serializeListCacheKey } from '@/queries/listSerialization'
 
@@ -58,10 +60,17 @@ export const useTicketsListLoader = defineColadaLoader({
     const params = ticketsListParamsFromQuery(to.query, { pageSize: effectivePageSize })
     const cacheKey = serializeListCacheKey(params)
 
-    const firstPage = await ticketService.getPaginatedTickets(
-      params,
-      'tickets-loader-first-page',
-    )
+    // Fetch the first page of tickets and the workspace-scoped
+    // saved-view list in parallel. Both are needed before the
+    // view-resolution computed in TicketsListView can decide
+    // which view to render; loading them sequentially is what
+    // produced the My Queue → Triage flash on first mount.
+    const savedViewsStore = useSavedViewsStore()
+    const [firstPage, savedViewRows] = await Promise.all([
+      ticketService.getPaginatedTickets(params, 'tickets-loader-first-page'),
+      savedViewsService.list().catch(() => []),
+    ])
+    savedViewsStore.prime(null, savedViewRows)
 
     // Prime the matching infinite-query cache entry so the view's
     // `useInfiniteQuery` resolves from cache on mount.

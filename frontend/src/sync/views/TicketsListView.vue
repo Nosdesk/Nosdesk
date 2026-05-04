@@ -1,20 +1,25 @@
 <script setup lang="ts">
 /**
- * Tickets list — sync-engine version. Renders the workspace's
- * tickets as a table, filtered + sorted client-side via the
- * FilterState evaluator.
+ * Tickets list — workspace-wide table fed by the sync engine.
  *
- * Phase 5 scope:
- * - Built-in saved views (Triage, My Queue) selectable from a
- *   pill row at the top.
- * - Sort by any sortable column.
- * - Click row to open ticket detail.
+ * Layout:
+ * - Left: TicketViewsSidebar — persistent list of every view the
+ *   user can switch into (Linear pattern: views as nav, not as a
+ *   header dropdown). Collapses to icon spine on small viewports.
+ * - Right: a thin toolbar (active view name, density toggle,
+ *   record count) and a dense scrollable table.
  *
- * Deferred to later commits:
- * - Saved view CRUD (DB table + URL round-trip).
- * - Bulk select on rows.
- * - Inline edit of priority / assignee.
- * - Virtualized scrolling for >500 rows.
+ * View-resolution flow (lock-step with ticketsListLoader):
+ *   1. Loader fetches saved views in parallel with the first
+ *      ticket page and primes savedViewsStore.
+ *   2. On mount the workspace default is already in the store.
+ *   3. If the URL has no `?view=`, we push to the canonical view
+ *      URL once so the bar stays stable across reloads — no more
+ *      My Queue → Triage swap on first frame.
+ *
+ * Density follows the Pencil & Paper enterprise data table guide:
+ * compact 32px / cosy 40px / comfortable 48px row heights, user-
+ * controlled, persisted in localStorage.
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -26,7 +31,6 @@ import { paletteForColor } from '@/utils/workflowColors'
 import {
   BUILTIN_VIEWS,
   findBuiltinView,
-  TRIAGE_VIEW,
   MY_QUEUE_VIEW,
   type BuiltInView,
 } from './builtinViews'
@@ -45,7 +49,9 @@ import {
   type CalendarOverlayEntry,
 } from '@/services/calendarOverlaysService'
 import CalendarBoard, { type CalendarOverlay } from './CalendarBoard.vue'
-import ViewSwitcher, { type ViewSwitcherItem } from '@/components/views/ViewSwitcher.vue'
+import TicketViewsSidebar, {
+  type TicketViewItem,
+} from '@/components/views/TicketViewsSidebar.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
@@ -55,15 +61,10 @@ const ticketsStore = useSyncTicketsStore()
 const authStore = useAuthStore()
 const savedViewsStore = useSavedViewsStore()
 
-// Common shape both built-in views and DB-backed SavedView rows
-// satisfy. Lets `activeView` switch on either source without the
-// renderer caring which one it got.
 interface ResolvedView {
   id: string
   name: string
   description: string
-  /** List or calendar today; gantt / scrum land when those
-   * renderers ship. The renderer branches on `shape.type`. */
   shape: ListViewShape | CalendarViewShape
   filter: FilterState
   source: 'builtin' | 'saved'
@@ -71,42 +72,25 @@ interface ResolvedView {
 }
 
 // ---------------------------------------------------------------
-// Subscription — list view is workspace-scoped, so we subscribe
-// to workspace:1 on mount. The lifecycle layer is idempotent
-// against repeated subscribes (re-entry to /tickets is a no-op).
+// Subscription. The loader has already populated saved views by
+// the time we mount, so the activeView resolution below sees the
+// workspace default on frame one. ensureLoaded is still called as
+// a safety net in case the loader was skipped (e.g. the view is
+// re-entered without a navigation).
 // ---------------------------------------------------------------
 onMounted(async () => {
   await subscribe('workspace:1')
-  // Workspace-scoped tickets list. ensureLoaded with projectId=null
-  // pulls workspace + the caller's private views in one round trip.
   await savedViewsStore.ensureLoaded(null)
 })
 
-// ---------------------------------------------------------------
-// Saved views — list shapes only. Kanban-shaped saved views still
-// exist in the same table; they belong on the kanban routes, so
-// the list view filters them out.
-// ---------------------------------------------------------------
 const savedViewsRef = savedViewsStore.viewsForProject(null)
 
-const listSavedViews = computed<SavedView[]>(() => {
-  return savedViewsRef.value.filter((v) => {
+const listSavedViews = computed<SavedView[]>(() =>
+  savedViewsRef.value.filter((v) => {
     const t = (v.shape as ViewShape | null)?.type
     return t === 'list' || t === 'calendar'
-  })
-})
-
-function toResolved(view: SavedView): ResolvedView {
-  return {
-    id: view.uuid,
-    name: view.name,
-    description: view.scope === 'private' ? 'Private view' : 'Workspace view',
-    shape: view.shape as ListViewShape | CalendarViewShape,
-    filter: view.filter,
-    source: 'saved',
-    uuid: view.uuid,
-  }
-}
+  }),
+)
 
 function fromBuiltin(view: BuiltInView): ResolvedView {
   return {
@@ -119,54 +103,59 @@ function fromBuiltin(view: BuiltInView): ResolvedView {
   }
 }
 
-const builtinResolved = computed<ResolvedView[]>(() =>
-  BUILTIN_VIEWS.map(fromBuiltin),
-)
+function fromSaved(view: SavedView): ResolvedView {
+  return {
+    id: view.uuid,
+    name: view.name,
+    description: view.scope === 'private' ? 'Private view' : 'Workspace view',
+    shape: view.shape as ListViewShape | CalendarViewShape,
+    filter: view.filter,
+    source: 'saved',
+    uuid: view.uuid,
+  }
+}
 
-const savedResolved = computed<ResolvedView[]>(() =>
-  listSavedViews.value.map(toResolved),
+/** Workspace-default saved view, if seeded. */
+const workspaceDefaultView = computed<SavedView | null>(
+  () =>
+    savedViewsRef.value.find(
+      (v) => v.scope === 'workspace' && v.is_default && v.archived_at == null,
+    ) ?? null,
 )
-
-// ---------------------------------------------------------------
-// Active view — `?view=<id-or-uuid>` resolves against built-ins
-// first, then DB views. URL stays bookmark-able for both.
-// ---------------------------------------------------------------
-/** Workspace-scoped default saved view, if one exists. The seed
- * migration installs Triage as the workspace default so a fresh
- * page load lands there instead of MY_QUEUE_VIEW. Falls back to
- * the built-in only when no DB-backed default has been set up. */
-const workspaceDefaultView = computed<SavedView | null>(() => {
-  return savedViewsRef.value.find(
-    (v) => v.scope === 'workspace' && v.is_default && v.archived_at == null,
-  ) ?? null
-})
 
 const activeView = computed<ResolvedView>(() => {
   const requested = (route.query.view as string | undefined) ?? ''
   const builtin = findBuiltinView(requested)
   if (builtin) return fromBuiltin(builtin)
   const saved = listSavedViews.value.find((v) => v.uuid === requested)
-  if (saved) return toResolved(saved)
-  if (workspaceDefaultView.value) return toResolved(workspaceDefaultView.value)
+  if (saved) return fromSaved(saved)
+  if (workspaceDefaultView.value) return fromSaved(workspaceDefaultView.value)
   return fromBuiltin(MY_QUEUE_VIEW)
 })
 
-function selectView(view: ResolvedView): void {
-  router.push({ path: route.path, query: { ...route.query, view: view.id } })
+// Canonicalise the URL on first mount so the active view is
+// always reflected as `?view=<id>`. Stops the My Queue / Triage
+// flip when the user revisits the page or pastes the bare URL.
+onMounted(() => {
+  if (!route.query.view) {
+    router.replace({
+      path: route.path,
+      query: { ...route.query, view: activeView.value.id },
+    })
+  }
+})
+
+function selectViewById(id: string): void {
+  router.push({ path: route.path, query: { ...route.query, view: id } })
 }
 
 // ---------------------------------------------------------------
-// Sort state — initialised from the active view's `shape.sort`
-// but mutable per session so the user can re-sort without
-// changing the saved view.
+// Sort.
 // ---------------------------------------------------------------
 const sortField = ref<string>(activeView.value.shape.sort[0]?.field ?? 'last_activity_at')
 const sortDir = ref<'asc' | 'desc'>(activeView.value.shape.sort[0]?.dir ?? 'desc')
 
 watch(activeView, (next) => {
-  // Reset sort to the new view's default whenever the user picks a
-  // different built-in. Matches the architecture's "saved view is
-  // a snapshot of shape + filter" intent.
   const seed = next.shape.sort[0]
   if (seed) {
     sortField.value = seed.field
@@ -184,8 +173,7 @@ function toggleSort(field: string): void {
 }
 
 // ---------------------------------------------------------------
-// Cards — sourced from the tickets store, mapped to CardData,
-// filtered through the active view's predicate, sorted.
+// Cards (denormalised at the boundary), filtered + sorted.
 // ---------------------------------------------------------------
 const allTickets = ticketsStore.all()
 
@@ -227,8 +215,6 @@ function readSortField(card: CardData, field: string): string | number | null {
   }
   if (cursor == null) return null
   if (typeof cursor === 'string' || typeof cursor === 'number') return cursor
-  // Fallback: coerce nested objects to a JSON string so they sort
-  // deterministically rather than throwing.
   return JSON.stringify(cursor)
 }
 
@@ -249,35 +235,90 @@ function priorityForBadge(p: CardData['priority']): 'low' | 'medium' | 'high' | 
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime()
   const seconds = Math.max(1, Math.round((Date.now() - then) / 1000))
-  if (seconds < 60) return `${seconds}s ago`
+  if (seconds < 60) return `${seconds}s`
   const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 60) return `${minutes}m`
   const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return `${hours}h`
   const days = Math.round(hours / 24)
-  if (days < 30) return `${days}d ago`
-  return new Date(iso).toLocaleDateString()
+  if (days < 30) return `${days}d`
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
 const COLUMNS = [
   { field: 'id', label: '#', sortable: true, width: 'w-16' },
   { field: 'title', label: 'Title', sortable: true, width: '' },
-  { field: 'workflow_state.name', label: 'Status', sortable: true, width: 'w-36' },
-  { field: 'priority', label: 'Priority', sortable: true, width: 'w-28' },
-  { field: 'assignee_uuid', label: 'Assignee', sortable: false, width: 'w-40' },
-  { field: 'last_activity_at', label: 'Updated', sortable: true, width: 'w-32' },
+  { field: 'workflow_state.name', label: 'Status', sortable: true, width: 'w-32' },
+  { field: 'priority', label: 'Priority', sortable: true, width: 'w-20' },
+  { field: 'assignee_uuid', label: 'Assignee', sortable: false, width: 'w-32' },
+  { field: 'last_activity_at', label: 'Updated', sortable: true, width: 'w-20' },
 ] as const
 
-// Touch the imports so a future refactor that drops them gets a
-// type error, not a silent no-op.
-void TRIAGE_VIEW
+// ---------------------------------------------------------------
+// Density toggle. Per Pencil & Paper enterprise table guide,
+// users should control density via an icon switcher outside the
+// table itself. Persisted in localStorage so the choice survives
+// reloads.
+// ---------------------------------------------------------------
+type Density = 'compact' | 'cosy' | 'comfortable'
+
+function loadDensity(): Density {
+  if (typeof localStorage === 'undefined') return 'cosy'
+  const v = localStorage.getItem('tickets-list-density')
+  return v === 'compact' || v === 'comfortable' ? v : 'cosy'
+}
+
+const density = ref<Density>(loadDensity())
+
+function setDensity(value: Density): void {
+  density.value = value
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('tickets-list-density', value)
+  }
+}
+
+const rowClass = computed<string>(() => {
+  // Numbers tuned to roughly 32 / 40 / 48 — Pencil & Paper's
+  // condensed / regular / relaxed conventions, scaled in for
+  // helpdesk dense use.
+  if (density.value === 'compact') return 'h-8'
+  if (density.value === 'comfortable') return 'h-12'
+  return 'h-10'
+})
+
+const cellPadding = computed<string>(() =>
+  density.value === 'compact' ? 'px-3 py-1' : density.value === 'comfortable' ? 'px-3 py-2.5' : 'px-3 py-1.5',
+)
 
 // ---------------------------------------------------------------
-// Save the active view's shape + filter as a private SavedView.
-// `window.prompt` is the deliberately-cheap modal here. A fancier
-// dialog (with shape preview, scope picker, default toggle) lands
-// when the views surface gets its own UI in a later phase.
+// Sidebar items + Save action.
 // ---------------------------------------------------------------
+const sidebarItems = computed<TicketViewItem[]>(() => {
+  const items: TicketViewItem[] = []
+  for (const v of BUILTIN_VIEWS) {
+    items.push({ id: v.id, name: v.name, group: 'Built-in' })
+  }
+  const grouped = {
+    workspace: 'Workspace',
+    project: 'Project',
+    private: 'Private',
+  } as const
+  for (const scope of ['workspace', 'project', 'private'] as const) {
+    const subset = savedViewsRef.value.filter(
+      (v) => v.scope === scope && v.archived_at == null,
+    )
+    for (const v of subset) {
+      items.push({
+        id: v.uuid,
+        name: v.name,
+        group: grouped[scope],
+        editable: true,
+      })
+    }
+  }
+  return items
+})
+
 const isSaving = ref(false)
 
 async function saveAsView(): Promise<void> {
@@ -305,41 +346,26 @@ async function saveAsView(): Promise<void> {
   }
 }
 
-const canEditActiveView = computed<boolean>(() => {
-  if (activeView.value.source !== 'saved' || !activeView.value.uuid) return false
-  const row = savedViewsRef.value.find((v) => v.uuid === activeView.value.uuid)
-  if (!row) return false
-  if (row.scope === 'private') {
-    return row.scope_id === authStore.user?.uuid
-  }
-  // Workspace edits gate at the server (admin only). The pill is
-  // shown to everyone; the rename action surfaces the API error
-  // through the store's `lastError` if forbidden.
-  return row.scope === 'workspace'
-})
-
-async function renameActiveView(): Promise<void> {
-  if (!canEditActiveView.value || !activeView.value.uuid) return
-  const next = window.prompt('Rename view', activeView.value.name)
-  if (!next || next.trim() === activeView.value.name) return
-  await savedViewsStore.update(activeView.value.uuid, { name: next.trim() })
+async function renameById(uuid: string): Promise<void> {
+  const view = savedViewsRef.value.find((v) => v.uuid === uuid)
+  if (!view) return
+  const next = window.prompt('Rename view', view.name)
+  if (!next || next.trim() === view.name) return
+  await savedViewsStore.update(uuid, { name: next.trim() })
 }
 
-async function archiveActiveView(): Promise<void> {
-  if (!canEditActiveView.value || !activeView.value.uuid) return
-  if (!window.confirm(`Archive "${activeView.value.name}"?`)) return
-  const ok = await savedViewsStore.archive(activeView.value.uuid)
-  if (ok) {
+async function archiveById(uuid: string): Promise<void> {
+  const view = savedViewsRef.value.find((v) => v.uuid === uuid)
+  if (!view) return
+  if (!window.confirm(`Archive "${view.name}"?`)) return
+  const ok = await savedViewsStore.archive(uuid)
+  if (ok && activeView.value.uuid === uuid) {
     router.push({ path: route.path, query: { ...route.query, view: MY_QUEUE_VIEW.id } })
   }
 }
 
 // ---------------------------------------------------------------
-// Calendar overlays. Fetched lazily when CalendarBoard emits its
-// visible-range; cached by `start..end` so paging back to a month
-// you already viewed doesn't refetch. The cache lives only for
-// the session, which is the right grain for warranty data that
-// changes on the timescale of weeks.
+// Calendar overlays — unchanged from the previous iteration.
 // ---------------------------------------------------------------
 const overlayCache = ref<Map<string, CalendarOverlayEntry[]>>(new Map())
 const calendarOverlays = ref<CalendarOverlay[]>([])
@@ -366,7 +392,6 @@ async function loadOverlays(start: string, end: string): Promise<void> {
     overlayCache.value.set(key, rows)
     calendarOverlays.value = rows.map(entryToOverlay)
   } catch {
-    // Soft-fail: the calendar still renders without overlays.
     calendarOverlays.value = []
   }
 }
@@ -375,11 +400,6 @@ function onCalendarVisibleRange(range: { start: string; end: string }): void {
   void loadOverlays(range.start, range.end)
 }
 
-/** SLA breach overlays derived locally from the cards prop. The
- * SLA pill payload already carries `target_at` per ticket, so the
- * calendar can place a breach marker on each due day without an
- * extra fetch. Combined with the warranty/maintenance overlays
- * below the calendar gets one merged stream. */
 const slaOverlays = computed<CalendarOverlay[]>(() => {
   const out: CalendarOverlay[] = []
   for (const card of filteredCards.value) {
@@ -407,207 +427,186 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
   ...calendarOverlays.value,
   ...slaOverlays.value,
 ])
-
-// ---------------------------------------------------------------
-// View switcher items. Built-ins first, saved views grouped by
-// scope. Rename/archive affordances surface inside the dropdown
-// per row, so the header stays a fixed two-element bar (title +
-// switcher) regardless of how many saved views the workspace
-// accumulates.
-// ---------------------------------------------------------------
-const switcherItems = computed<ViewSwitcherItem[]>(() => {
-  const items: ViewSwitcherItem[] = []
-  for (const v of builtinResolved.value) {
-    items.push({ id: v.id, name: v.name, group: 'Built-in' })
-  }
-  const workspace = savedViewsRef.value.filter(
-    (v) => v.scope === 'workspace' && v.archived_at == null,
-  )
-  const projectScoped = savedViewsRef.value.filter(
-    (v) => v.scope === 'project' && v.archived_at == null,
-  )
-  const privateViews = savedViewsRef.value.filter(
-    (v) => v.scope === 'private' && v.archived_at == null,
-  )
-  for (const v of workspace) {
-    items.push({ id: v.uuid, name: v.name, group: 'Workspace', editable: true })
-  }
-  for (const v of projectScoped) {
-    items.push({ id: v.uuid, name: v.name, group: 'Project', editable: true })
-  }
-  for (const v of privateViews) {
-    items.push({ id: v.uuid, name: v.name, group: 'Private', editable: true })
-  }
-  return items
-})
-
-function selectById(id: string): void {
-  router.push({ path: route.path, query: { ...route.query, view: id } })
-}
-
-async function renameById(uuid: string): Promise<void> {
-  const view = savedViewsRef.value.find((v) => v.uuid === uuid)
-  if (!view) return
-  const next = window.prompt('Rename view', view.name)
-  if (!next || next.trim() === view.name) return
-  await savedViewsStore.update(uuid, { name: next.trim() })
-}
-
-async function archiveById(uuid: string): Promise<void> {
-  const view = savedViewsRef.value.find((v) => v.uuid === uuid)
-  if (!view) return
-  if (!window.confirm(`Archive "${view.name}"?`)) return
-  const ok = await savedViewsStore.archive(uuid)
-  if (ok && activeView.value.uuid === uuid) {
-    router.push({ path: route.path, query: { ...route.query, view: MY_QUEUE_VIEW.id } })
-  }
-}
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
-    <!-- Header: page title + view switcher (left), single
-         "Save view" action (right). Per-view edit affordances
-         live inside the switcher dropdown, not in the header. -->
-    <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
-      <div class="flex items-baseline gap-3 min-w-0">
-        <h1 class="text-xl font-semibold text-primary">Tickets</h1>
-        <ViewSwitcher
-          :items="switcherItems"
-          :active-id="activeView.id"
-          @select="selectById"
-          @rename="renameById"
-          @archive="archiveById"
-        />
-        <p
-          v-if="activeView.description"
-          class="text-xs text-tertiary truncate hidden md:block"
-        >{{ activeView.description }}</p>
-      </div>
-      <button
-        type="button"
-        class="text-xs font-medium rounded-md px-2.5 py-1.5 text-secondary hover:bg-surface-hover transition-colors disabled:opacity-50"
-        :disabled="isSaving"
-        @click="saveAsView"
-      >
-        {{ isSaving ? 'Saving…' : 'Save view' }}
-      </button>
-    </header>
-
-    <!-- Empty / loading -->
-    <div
-      v-if="isInitiallyLoading"
-      class="flex-1 flex items-center justify-center text-tertiary"
-    >
-      Loading tickets…
-    </div>
-
-    <!-- Calendar shape branches before the empty-state check; an
-         empty calendar grid is still useful (the user wants to see
-         the month, not a "no tickets" panel). -->
-    <CalendarBoard
-      v-else-if="activeView.shape.type === 'calendar'"
-      class="flex-1 min-h-0"
-      :cards="filteredCards"
-      :date-field="activeView.shape.date_field"
-      :overlays="mergedCalendarOverlays"
-      :on-card-click="open"
-      @visible-range="onCalendarVisibleRange"
+  <div class="flex h-full bg-app">
+    <TicketViewsSidebar
+      :items="sidebarItems"
+      :active-id="activeView.id"
+      @select="selectViewById"
+      @rename="renameById"
+      @archive="archiveById"
+      @save="saveAsView"
     />
 
-    <div
-      v-else-if="sortedCards.length === 0"
-      class="flex-1 flex flex-col items-center justify-center text-tertiary text-sm"
-    >
-      <p class="mb-1 font-medium">No tickets match this view.</p>
-      <p class="text-xs">Try a different saved view.</p>
-    </div>
+    <div class="flex-1 min-w-0 flex flex-col">
+      <!-- Toolbar: active view + density + count. The page title
+           ("Tickets") lives in the global SiteHeader; this strip
+           is purely about the surface the user is operating on,
+           which keeps the chrome out of the data area. -->
+      <div
+        class="flex items-center gap-3 px-4 h-10 border-b border-subtle bg-surface shrink-0"
+      >
+        <h2 class="text-sm font-semibold text-primary truncate">
+          {{ activeView.name }}
+        </h2>
+        <span class="text-[11px] text-tertiary tabular-nums shrink-0">
+          {{ sortedCards.length }}
+          <span class="text-tertiary/70">of {{ cards.length }}</span>
+        </span>
+        <div class="flex-1" />
+        <div
+          class="inline-flex items-center rounded-md border border-subtle overflow-hidden"
+          role="group"
+          aria-label="Row density"
+        >
+          <button
+            v-for="opt in [
+              { v: 'compact', l: 'Compact' },
+              { v: 'cosy', l: 'Cosy' },
+              { v: 'comfortable', l: 'Comfortable' },
+            ]"
+            :key="opt.v"
+            type="button"
+            class="text-[11px] px-2 py-1 transition-colors"
+            :class="density === opt.v
+              ? 'bg-accent/10 text-accent'
+              : 'text-secondary hover:bg-surface-hover'"
+            :aria-pressed="density === opt.v"
+            @click="setDensity(opt.v as Density)"
+          >{{ opt.l }}</button>
+        </div>
+      </div>
 
-    <!-- Table -->
-    <div v-else class="flex-1 min-h-0 overflow-auto">
-      <table class="w-full text-sm">
-        <thead class="sticky top-0 z-10 bg-app border-b border-subtle">
-          <tr>
-            <th
-              v-for="col in COLUMNS"
-              :key="col.field"
-              class="text-left px-3 py-2 text-xs font-medium text-tertiary uppercase tracking-wide"
-              :class="col.width"
+      <!-- Initial-load state. Loader gates against this most of
+           the time, but a cold first hit while sync hydrates the
+           pool can briefly show this. -->
+      <div
+        v-if="isInitiallyLoading"
+        class="flex-1 flex items-center justify-center text-tertiary text-sm"
+      >
+        Loading tickets…
+      </div>
+
+      <CalendarBoard
+        v-else-if="activeView.shape.type === 'calendar'"
+        class="flex-1 min-h-0"
+        :cards="filteredCards"
+        :date-field="activeView.shape.date_field"
+        :overlays="mergedCalendarOverlays"
+        :on-card-click="open"
+        @visible-range="onCalendarVisibleRange"
+      />
+
+      <div
+        v-else-if="sortedCards.length === 0"
+        class="flex-1 flex flex-col items-center justify-center text-tertiary text-sm"
+      >
+        <p class="mb-1 font-medium">No tickets match this view.</p>
+        <p class="text-xs">Try a different view from the sidebar.</p>
+      </div>
+
+      <!-- Dense table. Sticky header, density-aware row height. -->
+      <div v-else class="flex-1 min-h-0 overflow-auto">
+        <table class="w-full text-sm border-separate border-spacing-0">
+          <thead>
+            <tr class="sticky top-0 z-10 bg-surface">
+              <th
+                v-for="col in COLUMNS"
+                :key="col.field"
+                class="text-left text-[11px] font-medium text-tertiary uppercase tracking-wide border-b border-subtle bg-surface"
+                :class="[col.width, cellPadding]"
+              >
+                <button
+                  v-if="col.sortable"
+                  type="button"
+                  class="inline-flex items-center gap-1 hover:text-primary transition-colors"
+                  @click="toggleSort(col.field)"
+                >
+                  {{ col.label }}
+                  <span v-if="sortField === col.field" class="text-[10px] leading-none">
+                    {{ sortDir === 'asc' ? '↑' : '↓' }}
+                  </span>
+                </button>
+                <span v-else>{{ col.label }}</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="card in sortedCards"
+              :key="card.id"
+              class="hover:bg-surface-hover cursor-pointer transition-colors group"
+              :class="rowClass"
+              @click="open(card.id)"
             >
-              <button
-                v-if="col.sortable"
-                type="button"
-                class="flex items-center gap-1 hover:text-primary transition-colors"
-                @click="toggleSort(col.field)"
+              <td
+                class="text-tertiary font-mono text-[11px] tabular-nums border-b border-subtle/40"
+                :class="cellPadding"
+              >#{{ card.id }}</td>
+              <td
+                class="text-primary border-b border-subtle/40 min-w-0"
+                :class="cellPadding"
               >
-                {{ col.label }}
-                <span v-if="sortField === col.field" class="text-[10px]">
-                  {{ sortDir === 'asc' ? '↑' : '↓' }}
+                <div class="flex items-center gap-2 min-w-0">
+                  <span
+                    v-if="card.recurrence_rule"
+                    class="text-tertiary text-xs leading-none shrink-0"
+                    title="Recurring ticket"
+                  >↻</span>
+                  <span class="truncate" :title="card.title">{{ card.title }}</span>
+                  <span
+                    v-if="card.sla?.breached"
+                    class="text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
+                    title="SLA breached"
+                  >SLA</span>
+                </div>
+              </td>
+              <td class="border-b border-subtle/40" :class="cellPadding">
+                <span class="inline-flex items-center gap-1.5 text-xs text-secondary">
+                  <span
+                    class="inline-block w-2 h-2 rounded-full bg-current shrink-0"
+                    :class="paletteForColor(card.workflow_state.color).solid"
+                    aria-hidden="true"
+                  />
+                  <span class="truncate">{{ card.workflow_state.name }}</span>
                 </span>
-              </button>
-              <span v-else>{{ col.label }}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-subtle">
-          <tr
-            v-for="card in sortedCards"
-            :key="card.id"
-            class="hover:bg-surface-hover cursor-pointer transition-colors"
-            @click="open(card.id)"
-          >
-            <td class="px-3 py-2 text-tertiary font-mono text-xs">#{{ card.id }}</td>
-            <td class="px-3 py-2 text-primary">
-              <span class="line-clamp-1">{{ card.title }}</span>
-            </td>
-            <td class="px-3 py-2">
-              <span
-                class="inline-flex items-center gap-1.5 text-xs"
+              </td>
+              <td class="border-b border-subtle/40" :class="cellPadding">
+                <PriorityIndicator
+                  v-if="priorityForBadge(card.priority)"
+                  :priority="priorityForBadge(card.priority)!"
+                  size="xs"
+                />
+                <span v-else class="text-xs text-tertiary">—</span>
+              </td>
+              <td class="border-b border-subtle/40" :class="cellPadding">
+                <div v-if="card.assignee_uuid" class="flex items-center gap-2 text-xs">
+                  <UserAvatar
+                    :name="card.assignee_uuid"
+                    :avatar="null"
+                    size="xxs"
+                    :showName="false"
+                    :clickable="false"
+                  />
+                  <span class="text-secondary truncate font-mono text-[11px]">
+                    {{ card.assignee_uuid.slice(0, 8) }}
+                  </span>
+                </div>
+                <span v-else class="text-xs text-tertiary italic">—</span>
+              </td>
+              <td
+                class="text-[11px] text-tertiary tabular-nums border-b border-subtle/40"
+                :class="cellPadding"
+                :title="new Date(card.last_activity_at).toLocaleString()"
               >
-                <span
-                  class="inline-block w-2 h-2 rounded-full bg-current"
-                  :class="paletteForColor(card.workflow_state.color).solid"
-                  aria-hidden="true"
-                />
-                {{ card.workflow_state.name }}
-              </span>
-            </td>
-            <td class="px-3 py-2">
-              <PriorityIndicator
-                v-if="priorityForBadge(card.priority)"
-                :priority="priorityForBadge(card.priority)!"
-                size="xs"
-              />
-              <span v-else class="text-xs text-tertiary">{{ card.priority }}</span>
-            </td>
-            <td class="px-3 py-2">
-              <div v-if="card.assignee_uuid" class="flex items-center gap-2 text-xs">
-                <UserAvatar
-                  :name="card.assignee_uuid"
-                  :avatar="null"
-                  size="xxs"
-                  :showName="false"
-                  :clickable="false"
-                />
-                <span class="text-secondary truncate">{{ card.assignee_uuid.slice(0, 8) }}…</span>
-              </div>
-              <span v-else class="text-xs text-tertiary italic">unassigned</span>
-            </td>
-            <td class="px-3 py-2 text-xs text-tertiary">
-              {{ relativeTime(card.last_activity_at) }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+                {{ relativeTime(card.last_activity_at) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.line-clamp-1 {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-</style>
