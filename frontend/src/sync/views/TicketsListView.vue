@@ -69,7 +69,7 @@ import TicketViewsSidebar, {
 } from '@/components/views/TicketViewsSidebar.vue'
 import ColumnPickerMenu from '@/components/views/ColumnPickerMenu.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
-import UserAvatar from '@/components/UserAvatar.vue'
+import UserCell from '@/components/views/UserCell.vue'
 import Icon from '@/components/common/Icon.vue'
 
 const router = useRouter()
@@ -889,35 +889,11 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
                 </template>
 
                 <template v-else-if="col.id === 'assignee'">
-                  <div v-if="card.assignee_uuid" class="flex items-center gap-2 text-xs">
-                    <UserAvatar
-                      :name="card.assignee_uuid"
-                      :avatar="null"
-                      size="xxs"
-                      :showName="false"
-                      :clickable="false"
-                    />
-                    <span class="text-secondary truncate font-mono text-[11px]">
-                      {{ card.assignee_uuid.slice(0, 8) }}
-                    </span>
-                  </div>
-                  <span v-else class="text-xs text-tertiary italic">—</span>
+                  <UserCell :uuid="card.assignee_uuid" />
                 </template>
 
                 <template v-else-if="col.id === 'requester'">
-                  <div v-if="card.requester_uuid" class="flex items-center gap-2 text-xs">
-                    <UserAvatar
-                      :name="card.requester_uuid"
-                      :avatar="null"
-                      size="xxs"
-                      :showName="false"
-                      :clickable="false"
-                    />
-                    <span class="text-secondary truncate font-mono text-[11px]">
-                      {{ card.requester_uuid.slice(0, 8) }}
-                    </span>
-                  </div>
-                  <span v-else class="text-xs text-tertiary italic">—</span>
+                  <UserCell :uuid="card.requester_uuid" />
                 </template>
 
                 <template v-else-if="col.id === 'category'">
